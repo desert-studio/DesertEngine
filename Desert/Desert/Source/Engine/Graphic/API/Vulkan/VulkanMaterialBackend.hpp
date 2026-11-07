@@ -99,6 +99,10 @@ namespace Desert::Graphic::API::Vulkan
         // the backend cannot outlive it; the material that owns this backend holds the same shader anyway.
         std::shared_ptr<VulkanShader> m_VulkanShader;
 
+        // The shader's program record these sets were allocated against, co-owned: m_Layouts and the
+        // reflection WriteFallbacks walks come from ONE compile, whatever a reload published since.
+        std::shared_ptr<const VulkanShader::CompiledProgram> m_Program;
+
         // The layouts every set below was allocated from, held for as long as those sets exist. Not
         // re-read from the shader: a recompile publishes new layouts, and a set allocated from the old
         // one has to keep the old one alive to stay legal.

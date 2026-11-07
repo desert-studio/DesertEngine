@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -86,6 +87,18 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_ShaderPath;
         }
+
+        // THE WHOLE PUBLISHED RECORD IN ONE READ. A caller that combines several parts of the program (stage
+        // infos with set layouts, reflection with the RDG slots) reads them through this, so a reload landing
+        // between two accessor calls cannot pair one compile's stages with the next one's layouts. The reference
+        // stays valid for the frames in flight after a reload replaces the record (Publish).
+        [[nodiscard]] const CompiledProgram& GetProgram() const noexcept
+        {
+            return Current();
+        }
+        // The record CO-OWNED, for an object built from it that outlives the frames in flight: a pipeline keeps
+        // the stage infos its pass variants are created from later. Read under the lock Publish swaps under.
+        [[nodiscard]] std::shared_ptr<const CompiledProgram> ShareProgram() const noexcept;
 
         virtual const Core::Formats::ShaderProgramMeta& GetProgramMeta() const override
         {
@@ -288,8 +301,10 @@ namespace Desert::Graphic::API::Vulkan
         // The published record. m_Owned is touched only by the reloading thread (construction, Reload);
         // readers on any thread go through m_Current, which is never null (an empty record before the first
         // successful compile - IsCompiled false, no stage, no layout).
+        // ShareProgram reads m_Owned from any thread, so the swap and that read hold m_OwnedLock.
         std::shared_ptr<const CompiledProgram> m_Owned;
         std::atomic<const CompiledProgram*>    m_Current{ nullptr };
+        mutable std::mutex                     m_OwnedLock;
 
         DescriptorSetInfo m_DescriptorSetInfo;
     };

@@ -14,6 +14,7 @@
 #include <Engine/Graphic/VertexBuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 
+#include <algorithm>
 #include <format>
 #include <optional>
 
@@ -120,55 +121,85 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    VulkanPipeline::VulkanPipeline( const GraphicsPipelineSpecification& specification ) 
-        : m_Specification( specification )
+    VulkanPipeline::VulkanPipeline( const GraphicsPipelineSpecification& specification )
+         : m_Specification( specification ), m_Owned( NeverBuilt() )
     {
+        m_Current.store( m_Owned.get(), std::memory_order_release );
     }
 
     VulkanPipeline::~VulkanPipeline()
     {
-        Release();
+        // At once, not deferred: whoever drops the last owner of a pipeline has no frame recording with it
+        // (every recorder holds its pipeline strongly), the same rule as a shader's last record.
+        Unbuild( false );
     }
 
-    void VulkanPipeline::Release()
+    const std::shared_ptr<const VulkanPipeline::BuiltPipeline>& VulkanPipeline::NeverBuilt() noexcept
     {
-        // A compile on a worker reads this object's create-info and writes m_Pipeline: it must be over
-        // before either is touched.
+        // One process-wide empty record: no handle, so GetVkPipelineFor never reaches its variants.
+        static const std::shared_ptr<const BuiltPipeline> s_Empty = std::make_shared<const BuiltPipeline>();
+        return s_Empty;
+    }
+
+    VulkanPipeline::BuiltPipeline::~BuiltPipeline()
+    {
+        if ( Pipeline == VK_NULL_HANDLE && PipelineLayout == VK_NULL_HANDLE &&
+             CompatibleRenderPass == VK_NULL_HANDLE && PassVariants.empty() )
+            return;
+
+        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                              ->GetVulkanLogicalDevice();
+        for ( const auto& [pass, variant] : PassVariants )
+            if ( variant != VK_NULL_HANDLE )
+                vkDestroyPipeline( device, variant, nullptr );
+        if ( Pipeline != VK_NULL_HANDLE )
+            vkDestroyPipeline( device, Pipeline, nullptr );
+        if ( PipelineLayout != VK_NULL_HANDLE )
+            vkDestroyPipelineLayout( device, PipelineLayout, nullptr );
+        if ( CompatibleRenderPass != VK_NULL_HANDLE )
+            vkDestroyRenderPass( device, CompatibleRenderPass, nullptr );
+        // Layouts and Program are released after the pipeline layout (member destruction follows this body):
+        // it was built from them.
+    }
+
+    void VulkanPipeline::Publish( std::shared_ptr<const BuiltPipeline> next, const bool deferred ) noexcept
+    {
+        std::shared_ptr<const BuiltPipeline> replaced = std::move( m_Owned );
+        m_Owned                                       = std::move( next );
+        if ( !m_Owned )
+            m_Owned = NeverBuilt();
+        m_Current.store( m_Owned.get(), std::memory_order_release );
+
+        if ( !replaced || replaced == NeverBuilt() )
+            return; // nothing was built, or the shared empty record: nothing to retire
+
+        // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT: a render worker of frame N-1 may be
+        // binding its VkPipeline or creating a pass variant from its create-info while this rebuild runs in
+        // frame N. It goes through the frame ring's deletion queue, and only at once with no renderer.
+        if ( !deferred )
+            return; // `replaced` dies here
+        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
+        auto*      allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+        if ( allocator != nullptr )
+            allocator->RT_DestroyLater( [held = std::move( replaced )]() mutable { held.reset(); } );
+    }
+
+    void VulkanPipeline::Unbuild( const bool deferred ) noexcept
+    {
+        // A compile on a worker writes the record being built and publishes it: it must be over before either
+        // is touched.
         if ( m_Compile.valid() )
             m_Compile.wait();
         m_Compile = {};
         m_State.store( BuildState::Unbuilt, std::memory_order_release );
         ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
+        m_Building.reset();
+        Publish( NeverBuilt(), deferred );
+    }
 
-        if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE &&
-             m_CompatibleRenderPass == VK_NULL_HANDLE && m_PassVariants.empty() )
-            return;
-
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();
-        for ( const auto& [pass, variant] : m_PassVariants )
-            if ( variant != VK_NULL_HANDLE )
-                vkDestroyPipeline( device, variant, nullptr );
-        m_PassVariants.clear();
-        if ( m_Pipeline != VK_NULL_HANDLE )
-        {
-            vkDestroyPipeline( device, m_Pipeline, nullptr );
-            m_Pipeline = VK_NULL_HANDLE;
-        }
-        if ( m_PipelineLayout != VK_NULL_HANDLE )
-        {
-            vkDestroyPipelineLayout( device, m_PipelineLayout, nullptr );
-            m_PipelineLayout = VK_NULL_HANDLE;
-            m_PushConstantRange.reset();
-        }
-        if ( m_CompatibleRenderPass != VK_NULL_HANDLE )
-        {
-            vkDestroyRenderPass( device, m_CompatibleRenderPass, nullptr );
-            m_CompatibleRenderPass = VK_NULL_HANDLE;
-        }
-
-        // After the pipeline layout, never before: it was built from these.
-        m_Layouts.clear();
+    void VulkanPipeline::Release()
+    {
+        Unbuild( true );
     }
 
     void VulkanPipeline::Invalidate()
@@ -197,7 +228,15 @@ namespace Desert::Graphic::API::Vulkan
         // null dereference: four renderers put an unchecked ShaderService::GetByName straight into a
         // spec, and a NULL shader passed this guard into CreatePipelineLayout, which calls a method on
         // it. "Has no compiled stages" and "is not there at all" both mean this pipeline cannot exist.
-        if ( !m_Specification.Shader || !m_Specification.Shader->IsCompiled() )
+        //
+        // THE PROGRAM IS READ ONCE, co-owned, and every part of the build below comes from that one record: a
+        // shader reload landing mid-build cannot pair one compile's stages with the next one's layouts, and the
+        // stage infos a pass variant is created from later stay alive with this pipeline's record.
+        std::shared_ptr<const VulkanShader::CompiledProgram> program;
+        if ( m_Specification.Shader )
+            program = std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader )
+                           ->ShareProgram();
+        if ( !program || program->StageInfos.empty() )
         {
             LOG_ERROR( "[Pipeline] '{}' not created: shader '{}' has no compiled stages (see the shader "
                        "compilation error above). The draws using it are skipped.",
@@ -223,15 +262,20 @@ namespace Desert::Graphic::API::Vulkan
         // VulkanPipelineCompute asks with GetComputeStage, from the other side. A compute program
         // reached by name compiles, so IsCompiled() says yes, and its stage bit is one
         // vkCreateGraphicsPipelines does not accept.
-        VulkanShader* vulkanShader =
-             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
-        if ( !vulkanShader->GetVertexStage() )
+        const bool hasVertexStage =
+             std::ranges::any_of( program->StageInfos, []( const VkPipelineShaderStageCreateInfo& stage )
+                                  { return stage.stage == VK_SHADER_STAGE_VERTEX_BIT; } );
+        if ( !hasVertexStage )
         {
             LOG_ERROR( "[Pipeline] '{}' not created: shader '{}' has no VERTEX stage — a graphics "
                        "pipeline cannot be built from it. The draws using it are skipped.",
                        m_Specification.DebugName, m_Specification.Shader->GetName() );
             return;
         }
+
+        // A NEW RECORD: nothing below writes into the one readers hold (Publish swaps it in when compiled).
+        m_Building          = std::make_shared<BuiltPipeline>();
+        m_Building->Program = std::move( program );
 
         // The vertex input is decided before anything is created: a stage reading a location the layout does
         // not feed (or an attribute with no Vulkan format) is a refusal, like the missing VERTEX stage above —
@@ -254,21 +298,20 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
-        CreateGraphicsPipeline( device, vulkanShader, where );
+        CreateGraphicsPipeline( device, where );
     }
 
     void VulkanPipeline::CreatePipelineLayout()
     {
-        VulkanShader* vulkanShader =
-             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        const VulkanShader::CompiledProgram& program = *m_Building->Program;
 
         // Captured and KEPT for the life of this pipeline layout: a shader recompile publishes new
         // layouts and drops its own references, and a pipeline layout built from destroyed ones is the
         // "VkPipelineLayout references a VkDescriptorSetLayout that has been destroyed" the validation
         // layer reports on every bind. See VulkanDescriptorSetLayout.hpp.
-        m_Layouts = vulkanShader->GetAllDescriptorSetLayouts();
+        m_Building->Layouts = program.SetLayouts;
 
-        const std::vector<VkDescriptorSetLayout> descriptorSetLayouts = RawHandles( m_Layouts );
+        const std::vector<VkDescriptorSetLayout> descriptorSetLayouts = RawHandles( m_Building->Layouts );
         const auto&                              pushConstant         = SetUpPushConstantRange();
 
         VkPipelineLayoutCreateInfo layoutInfo = {
@@ -280,21 +323,22 @@ namespace Desert::Graphic::API::Vulkan
 
         VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &layoutInfo, nullptr, &m_PipelineLayout ) );
-        m_PushConstantRange = pushConstant.first > 0 ? std::optional( pushConstant.second ) : std::nullopt;
+        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &layoutInfo, nullptr, &m_Building->PipelineLayout ) );
+        m_Building->PushConstantRange =
+             pushConstant.first > 0 ? std::optional( pushConstant.second ) : std::nullopt;
         // Named like the pipeline, so a validation message about a layout (push ranges, set layouts) names the
         // pipeline it belongs to rather than a bare handle.
         if ( !m_Specification.DebugName.empty() )
             VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, m_Specification.DebugName,
-                                              m_PipelineLayout );
+                                              m_Building->PipelineLayout );
     }
 
     bool VulkanPipeline::CreateVertexInputState()
     {
-        m_VertexInput = {};
+        m_Building->VertexInput = {};
         if ( m_Specification.PullingConfig )
         {
-            m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
+            m_Building->VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
                  .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                  .vertexBindingDescriptionCount   = 0,
                  .pVertexBindingDescriptions      = nullptr,
@@ -305,7 +349,7 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( !m_Specification.Layout || m_Specification.Layout->GetElementCount() == 0 )
         {
-            m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
+            m_Building->VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
                  .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                  .vertexBindingDescriptionCount   = 0,
                  .pVertexBindingDescriptions      = nullptr,
@@ -316,11 +360,10 @@ namespace Desert::Graphic::API::Vulkan
 
         // Layout ∩ what the vertex stage reads (ShaderReflection::BuildVertexInput): no attribute for a
         // location the shader does not declare, no binding 1 when none of its streams is read.
-        const auto* vulkanShader =
-             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
-        m_VertexInput =
-             ShaderReflection::BuildVertexInput( m_Specification.Layout.value(), vulkanShader->GetVertexInputs() );
-        if ( const auto refusal = ShaderReflection::VertexInputRefusal( m_VertexInput ) )
+        const VulkanShader::CompiledProgram& program = *m_Building->Program;
+        m_Building->VertexInput =
+             ShaderReflection::BuildVertexInput( m_Specification.Layout.value(), program.Reflection.VertexInputs );
+        if ( const auto refusal = ShaderReflection::VertexInputRefusal( m_Building->VertexInput ) )
         {
             LOG_ERROR( "[Pipeline] '{}' not created: shader '{}' does not match its vertex layout ({}). The "
                        "draws using it are skipped.",
@@ -328,14 +371,14 @@ namespace Desert::Graphic::API::Vulkan
             return false;
         }
 
-        m_VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
+        m_Building->VertexInputInfo = VkPipelineVertexInputStateCreateInfo{
              .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
              .pNext                           = nullptr,
              .flags                           = 0,
-             .vertexBindingDescriptionCount   = static_cast<uint32_t>( m_VertexInput.Bindings.size() ),
-             .pVertexBindingDescriptions      = m_VertexInput.Bindings.data(),
-             .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_VertexInput.Attributes.size() ),
-             .pVertexAttributeDescriptions    = m_VertexInput.Attributes.data() };
+             .vertexBindingDescriptionCount   = static_cast<uint32_t>( m_Building->VertexInput.Bindings.size() ),
+             .pVertexBindingDescriptions      = m_Building->VertexInput.Bindings.data(),
+             .vertexAttributeDescriptionCount = static_cast<uint32_t>( m_Building->VertexInput.Attributes.size() ),
+             .pVertexAttributeDescriptions    = m_Building->VertexInput.Attributes.data() };
         return true;
     }
 
@@ -354,7 +397,7 @@ namespace Desert::Graphic::API::Vulkan
             case PrimitiveTopology::Patches:       topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST; break;
         }
 
-        m_InputAssembly = VkPipelineInputAssemblyStateCreateInfo{
+        m_Building->InputAssembly = VkPipelineInputAssemblyStateCreateInfo{
              .sType                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
              .topology               = topology,
              .primitiveRestartEnable = VK_FALSE };
@@ -362,17 +405,18 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipeline::CreateDynamicState()
     {
-        m_DynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_LINE_WIDTH };
+        m_Building->DynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                                      VK_DYNAMIC_STATE_LINE_WIDTH };
 
-        m_DynamicStateInfo = VkPipelineDynamicStateCreateInfo{
+        m_Building->DynamicStateInfo = VkPipelineDynamicStateCreateInfo{
              .sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-             .dynamicStateCount = static_cast<uint32_t>( m_DynamicStates.size() ),
-             .pDynamicStates    = m_DynamicStates.data() };
+             .dynamicStateCount = static_cast<uint32_t>( m_Building->DynamicStates.size() ),
+             .pDynamicStates    = m_Building->DynamicStates.data() };
     }
 
     void VulkanPipeline::CreateViewportState()
     {
-        m_ViewportState =
+        m_Building->ViewportState =
              VkPipelineViewportStateCreateInfo{ .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
                                                 .viewportCount = 1,
                                                 .pViewports    = nullptr,
@@ -382,7 +426,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipeline::CreateRasterizationState()
     {
-        m_Rasterizer = VkPipelineRasterizationStateCreateInfo{
+        m_Building->Rasterizer = VkPipelineRasterizationStateCreateInfo{
              .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
              .depthClampEnable        = m_Specification.DepthClampEnable ? VK_TRUE : VK_FALSE,
              .rasterizerDiscardEnable = VK_FALSE,
@@ -407,11 +451,12 @@ namespace Desert::Graphic::API::Vulkan
             samples = m_Specification.Framebuffer->GetSpecification().Samples;
         else if ( m_Specification.TargetLayout.has_value() )
             samples = m_Specification.TargetLayout->Samples;
-        m_BuiltSamples                       = samples > 1 ? samples : 1;
-        m_Multisampling                      = {};
-        m_Multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        m_Multisampling.rasterizationSamples = static_cast<VkSampleCountFlagBits>( m_BuiltSamples );
-        m_Multisampling.sampleShadingEnable  = VK_FALSE;
+        m_Building->BuiltSamples        = samples > 1 ? samples : 1;
+        m_Building->Multisampling       = {};
+        m_Building->Multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        m_Building->Multisampling.rasterizationSamples =
+             static_cast<VkSampleCountFlagBits>( m_Building->BuiltSamples );
+        m_Building->Multisampling.sampleShadingEnable = VK_FALSE;
     }
 
     RdgRenderPassKey CompatibleRenderPassKeyOf( const FramebufferSpecification& spec, const uint32_t samples )
@@ -440,12 +485,18 @@ namespace Desert::Graphic::API::Vulkan
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
-        VkPipeline     base    = GetVkPipeline();
+        // ONE RECORD for the whole lookup: the base, its sample count, the create-info a variant is made
+        // from and the variant map all belong to the build that is published now.
+        if ( GetBuildState() != BuildState::Built )
+            return VK_NULL_HANDLE;
+        const BuiltPipeline& record  = Current();
+        VkPipeline           base    = record.Pipeline;
         const uint32_t samples = std::max( 1u, openPass.Samples );
-        if ( base == VK_NULL_HANDLE || samples == m_BuiltSamples )
+        if ( base == VK_NULL_HANDLE || samples == record.BuiltSamples )
             return base;
-        const std::lock_guard<std::mutex> variants( m_PassVariantsLock );
-        if ( const auto found = m_PassVariants.find( openPass ); found != m_PassVariants.end() )
+        const std::lock_guard<std::mutex> variants( record.PassVariantsLock );
+        if ( const auto found = record.PassVariants.find( openPass );
+             found != record.PassVariants.end() )
             return found->second;
 
         VkDevice device =
@@ -458,13 +509,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             LOG_ERROR( "[Pipeline] '{}': no {}x variant, its render pass was not created: {}",
                        m_Specification.DebugName, samples, pass.GetError() );
-            m_PassVariants.emplace( openPass, VK_NULL_HANDLE );
+            record.PassVariants.emplace( openPass, VK_NULL_HANDLE );
             return VK_NULL_HANDLE;
         }
 
-        VkPipelineMultisampleStateCreateInfo multisampling = m_Multisampling;
+        VkPipelineMultisampleStateCreateInfo multisampling = record.Multisampling;
         multisampling.rasterizationSamples                 = static_cast<VkSampleCountFlagBits>( samples );
-        VkGraphicsPipelineCreateInfo info                  = m_PipelineInfo;
+        VkGraphicsPipelineCreateInfo info                  = record.PipelineInfo;
         info.pMultisampleState                             = &multisampling;
         info.renderPass                                    = pass.GetValue();
 
@@ -488,7 +539,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, variantName, variant );
         }
-        m_PassVariants.emplace( openPass, variant );
+        record.PassVariants.emplace( openPass, variant );
         return variant;
     }
 
@@ -497,7 +548,7 @@ namespace Desert::Graphic::API::Vulkan
         VkStencilOpState frontStencil = ConvertStencilOpState( m_Specification.StencilFront );
         VkStencilOpState backStencil  = ConvertStencilOpState( m_Specification.StencilBack );
 
-        m_DepthStencil = VkPipelineDepthStencilStateCreateInfo{
+        m_Building->DepthStencil = VkPipelineDepthStencilStateCreateInfo{
              .sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
              .depthTestEnable       = m_Specification.DepthTestEnabled ? VK_TRUE : VK_FALSE,
              .depthWriteEnable      = m_Specification.DepthWriteEnabled ? VK_TRUE : VK_FALSE,
@@ -512,7 +563,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipeline::CreateColorBlendState()
     {
-        m_ColorBlendAttachments.clear();
+        m_Building->ColorBlendAttachments.clear();
         // Per attachment, by its format: an integer target never blends (ColourAttachmentBlendEnables).
         const std::vector<bool> blends = ColourAttachmentBlendEnables( ColourAttachmentFormats( m_Specification ),
                                                                        m_Specification.BlendEnable );
@@ -520,26 +571,24 @@ namespace Desert::Graphic::API::Vulkan
         // Per slot: blending from the attachment's FORMAT (above), the write mask from what the fragment stage
         // writes — a slot the stage does not write is masked (write mask 0), so a target carrying the view's
         // velocity next to scene colour keeps the velocity the depth-writing passes left there.
-        const auto* vulkanShader =
-             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
-        m_ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
-             vulkanShader->GetFragmentOutputLocations(), blends,
+        const VulkanShader::CompiledProgram& program = *m_Building->Program;
+        m_Building->ColorBlendAttachments = ShaderReflection::BuildColorBlendAttachments(
+             program.Reflection.FragmentOutputLocations, blends,
              ConvertBlendFactor( m_Specification.SrcColorBlendFactor ),
              ConvertBlendFactor( m_Specification.DstColorBlendFactor ),
              ConvertBlendFactor( m_Specification.SrcAlphaBlendFactor ),
              ConvertBlendFactor( m_Specification.DstAlphaBlendFactor ) );
 
-        m_ColorBlending = VkPipelineColorBlendStateCreateInfo{
+        m_Building->ColorBlending = VkPipelineColorBlendStateCreateInfo{
              .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
              .logicOpEnable   = VK_FALSE,
              .logicOp         = VK_LOGIC_OP_COPY,
-             .attachmentCount = static_cast<uint32_t>( m_ColorBlendAttachments.size() ),
-             .pAttachments    = m_ColorBlendAttachments.data(),
+             .attachmentCount = static_cast<uint32_t>( m_Building->ColorBlendAttachments.size() ),
+             .pAttachments    = m_Building->ColorBlendAttachments.data(),
              .blendConstants  = { 0.0f, 0.0f, 0.0f, 0.0f } };
     }
 
-    void VulkanPipeline::CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader,
-                                                 const CompileOn where )
+    void VulkanPipeline::CreateGraphicsPipeline( VkDevice device, const CompileOn where )
     {
         // The `throw std::runtime_error( "Framebuffer is required for pipeline creation" )` that stood
         // here is now a REFUSAL at the top of Invalidate, before a pipeline layout is created and
@@ -569,9 +618,9 @@ namespace Desert::Graphic::API::Vulkan
             const bool hasStencil =
                  layout.DepthFormat &&
                  ( API::Vulkan::GetImageVulkanAspect( *layout.DepthFormat ) & VK_IMAGE_ASPECT_STENCIL_BIT ) != 0;
-            if ( m_CompatibleRenderPass != VK_NULL_HANDLE )
-                vkDestroyRenderPass( device, m_CompatibleRenderPass, nullptr );
-            m_CompatibleRenderPass                        = VK_NULL_HANDLE;
+            if ( m_Building->CompatibleRenderPass != VK_NULL_HANDLE )
+                vkDestroyRenderPass( device, m_Building->CompatibleRenderPass, nullptr );
+            m_Building->CompatibleRenderPass              = VK_NULL_HANDLE;
             const Common::ResultStr<VkRenderPass> created = API::Vulkan::CreateRdgRenderPass(
                  device, API::Vulkan::RdgCompatibleRenderPassKey( colourFormats, depthFormat, hasStencil,
                                                                   layout.Samples ) );
@@ -580,68 +629,72 @@ namespace Desert::Graphic::API::Vulkan
                 LOG_ERROR( "[Pipeline] '{}' not created: {}", m_Specification.DebugName, created.GetError() );
                 return;
             }
-            m_CompatibleRenderPass = created.GetValue();
-            renderPass             = m_CompatibleRenderPass;
+            m_Building->CompatibleRenderPass = created.GetValue();
+            renderPass                       = m_Building->CompatibleRenderPass;
         }
 
         // Tessellation: patch-list topology needs a tessellation state (control points per patch).
-        m_Tessellation              = { .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
-                                        .pNext              = nullptr,
-                                        .flags              = 0,
+        m_Building->Tessellation    = { .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+                                        .pNext = nullptr,
+                                        .flags = 0,
                                         .patchControlPoints = m_Specification.PatchControlPoints };
         const bool usesTessellation = m_Specification.PatchControlPoints > 0;
 
         // Members, not locals: a compile on a worker reads them after this function has returned.
-        m_PipelineInfo = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-                           .pNext = nullptr,
-                           .flags = 0,
-                           .stageCount =
-                                static_cast<uint32_t>( vulkanShader->GetPipelineShaderStageCreateInfos().size() ),
-                           .pStages             = vulkanShader->GetPipelineShaderStageCreateInfos().data(),
-                           .pVertexInputState   = &m_VertexInputInfo,
-                           .pInputAssemblyState = &m_InputAssembly,
-                           .pTessellationState  = usesTessellation ? &m_Tessellation : nullptr,
-                           .pViewportState      = &m_ViewportState,
-                           .pRasterizationState = &m_Rasterizer,
-                           .pMultisampleState   = &m_Multisampling,
-                           .pDepthStencilState  = &m_DepthStencil,
-                           .pColorBlendState    = &m_ColorBlending,
-                           .pDynamicState       = &m_DynamicStateInfo,
-                           .layout              = m_PipelineLayout,
-                           .renderPass          = renderPass,
-                           .subpass             = 0,
-                           .basePipelineHandle  = VK_NULL_HANDLE,
-                           .basePipelineIndex   = -1 };
+        m_Building->PipelineInfo = {
+             .sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+             .pNext      = nullptr,
+             .flags      = 0,
+             .stageCount = static_cast<uint32_t>( m_Building->Program->StageInfos.size() ),
+             .pStages    = m_Building->Program->StageInfos.data(),
+             .pVertexInputState   = &m_Building->VertexInputInfo,
+             .pInputAssemblyState = &m_Building->InputAssembly,
+             .pTessellationState  = usesTessellation ? &m_Building->Tessellation : nullptr,
+             .pViewportState      = &m_Building->ViewportState,
+             .pRasterizationState = &m_Building->Rasterizer,
+             .pMultisampleState   = &m_Building->Multisampling,
+             .pDepthStencilState  = &m_Building->DepthStencil,
+             .pColorBlendState    = &m_Building->ColorBlending,
+             .pDynamicState       = &m_Building->DynamicStateInfo,
+             .layout              = m_Building->PipelineLayout,
+             .renderPass          = renderPass,
+             .subpass             = 0,
+             .basePipelineHandle  = VK_NULL_HANDLE,
+             .basePipelineIndex   = -1 };
 
         // The device-wide, disk-persisted cache: the driver reuses binaries across runs. VkPipelineCache is
         // internally synchronized (the spec requires no external lock for vkCreate*Pipelines), so workers
         // share the one cache — no per-thread caches to merge.
         VkPipelineCache pipelineCache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
+        // The record moves to the compile: from here on only the compile writes it, and publishes it.
+        std::shared_ptr<BuiltPipeline> next = std::move( m_Building );
         if ( where == CompileOn::CallingThread )
         {
-            Compile( device, pipelineCache );
+            Compile( device, pipelineCache, std::move( next ) );
             return;
         }
         m_State.store( BuildState::Compiling, std::memory_order_release );
         ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
         PipelineBuilds::Get().OnStarted( m_Role );
         m_Compile = Common::JobSystem::Get().Async(
-             [this, device, pipelineCache, role = m_Role]() noexcept
+             [this, device, pipelineCache, role = m_Role, next = std::move( next )]() mutable noexcept
              {
-                 Compile( device, pipelineCache );
+                 Compile( device, pipelineCache, std::move( next ) );
                  PipelineBuilds::Get().OnFinished( role );
              } );
     }
 
-    void VulkanPipeline::Compile( VkDevice device, VkPipelineCache pipelineCache )
+    void VulkanPipeline::Compile( VkDevice device, VkPipelineCache pipelineCache,
+                                  std::shared_ptr<BuiltPipeline> next )
     {
         VkPipeline built = VK_NULL_HANDLE;
         VkResult   result{};
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
             const PipelineCreateScope     naming( m_Specification.DebugName );
-            result = vkCreateGraphicsPipelines( device, pipelineCache, 1, &m_PipelineInfo, nullptr, &built );
+            result =
+                 vkCreateGraphicsPipelines( device, pipelineCache, 1, &next->PipelineInfo, nullptr, &built );
         }
         if ( result != VK_SUCCESS )
         {
@@ -649,6 +702,8 @@ namespace Desert::Graphic::API::Vulkan
             // and the draw path reports the unbuilt pipeline by name (VulkanRendererAPI::BindGraphicsPipeline).
             LOG_ERROR( "[Pipeline] '{}' not created: vkCreateGraphicsPipelines = {}", m_Specification.DebugName,
                        VkResultToString( result ) );
+            // Published without a handle: the layout it did build is owned by the record, as before.
+            Publish( std::move( next ), true );
             m_State.store( BuildState::Failed, std::memory_order_release );
             ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
             return;
@@ -657,8 +712,9 @@ namespace Desert::Graphic::API::Vulkan
         // Debug name so RenderDoc/validation identify the pipeline by its spec name.
         if ( !m_Specification.DebugName.empty() )
             VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.DebugName, built );
-        m_Pipeline = built;
-        // Release: the handle written above is visible to whoever reads Built.
+        next->Pipeline = built;
+        // Published BEFORE the state says Built (release on both): a reader that sees Built reads this record.
+        Publish( std::move( next ), true );
         m_State.store( BuildState::Built, std::memory_order_release );
         ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
         LOG_INFO( "Created {} VulkanPipeline", m_Specification.DebugName );
@@ -666,10 +722,9 @@ namespace Desert::Graphic::API::Vulkan
 
     std::pair<uint32_t, VkPushConstantRange> VulkanPipeline::SetUpPushConstantRange() const
     {
-        VulkanShader* vulkanShader =
-             std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
+        const VulkanShader::CompiledProgram& program = *m_Building->Program;
 
-        const auto& pushConstant = vulkanShader->GetShaderPushConstant();
+        const auto& pushConstant = program.Reflection.PushConstantRanges;
         if ( !pushConstant )
         {
             return { 0, {} };

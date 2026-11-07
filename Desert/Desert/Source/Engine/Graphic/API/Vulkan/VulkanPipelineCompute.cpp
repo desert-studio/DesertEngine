@@ -1,10 +1,12 @@
 #include <algorithm>
+#include <utility>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
@@ -27,7 +29,8 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanPipelineCompute::~VulkanPipelineCompute()
     {
-        Release();
+        // At once: the last owner of a pipeline has no frame recording with it.
+        ReleaseHandles( false );
     }
 
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
@@ -388,12 +391,15 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipelineCompute::Invalidate()
     {
-        Release();
+        ReleaseHandles( true );
         RecordShaderCodeGeneration();
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
                               ->GetVulkanLogicalDevice();
         const auto vulkanShader = sp_cast<VulkanShader>( m_Specification.Shader );
+        // THE PROGRAM READ ONCE, held for the build: the stage, the layouts and the push range below come
+        // from one compile even if a reload publishes the next one meanwhile.
+        const std::shared_ptr<const VulkanShader::CompiledProgram> program = vulkanShader->ShareProgram();
 
         // THE STAGE IS FOUND BY WHAT IT IS, NOT BY WHERE IT SITS. This used to be
         // `GetPipelineShaderStageCreateInfos()[0]` at the pipeline-info below, which reads a vector a
@@ -402,13 +408,16 @@ namespace Desert::Graphic::API::Vulkan
         // stage of a graphics program reached by name. Both are refusals, so both are refused here and
         // nothing is built: the caller sees it because ComputePipeline::Create asks this object for the
         // handle it produced.
-        const VkPipelineShaderStageCreateInfo* computeStage = vulkanShader->GetComputeStage();
+        const VkPipelineShaderStageCreateInfo* computeStage = nullptr;
+        for ( const VkPipelineShaderStageCreateInfo& stage : program->StageInfos )
+            if ( stage.stage == VK_SHADER_STAGE_COMPUTE_BIT )
+                computeStage = &stage;
         if ( !computeStage )
         {
             LOG_ERROR( "ComputePipeline '{}': shader '{}' carries no compute stage ({} stage(s) in all) "
                        "— nothing is built and the dispatches using it are skipped.",
                        m_Specification.DebugName, vulkanShader->GetName(),
-                       vulkanShader->GetPipelineShaderStageCreateInfos().size() );
+                       program->StageInfos.size() );
             return;
         }
 
@@ -416,7 +425,7 @@ namespace Desert::Graphic::API::Vulkan
         // the batch ring, and the pool that ring is allocated from. Holding the references is what
         // keeps the layouts alive if the shader recompiles under us, and using only these is what keeps
         // the set and the pipeline layout describing the same contract.
-        m_Layouts          = vulkanShader->GetAllDescriptorSetLayouts();
+        m_Layouts          = program->SetLayouts;
         m_ShaderGeneration = vulkanShader->GetCodeGeneration();
 
         // The material backend allocated its descriptor sets in this pipeline's constructor. If the
@@ -452,7 +461,7 @@ namespace Desert::Graphic::API::Vulkan
         // cannot live inside the if-block (a dangling stack pointer here reads garbage sizes in Release).
         VkPushConstantRange vulkanPushConstantRange{};
 
-        const auto& pushConstantRange = vulkanShader->GetShaderPushConstant();
+        const auto& pushConstantRange = program->Reflection.PushConstantRanges;
         if ( pushConstantRange )
         {
             vulkanPushConstantRange = { .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -500,34 +509,48 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipelineCompute::Release()
     {
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();
-        if ( m_ComputePipeline != VK_NULL_HANDLE )
-        {
-            vkDestroyPipeline( device, m_ComputePipeline, nullptr );
-            m_ComputePipeline = VK_NULL_HANDLE;
-        }
+        ReleaseHandles( true );
+    }
 
-        if ( m_ComputePipelineLayout != VK_NULL_HANDLE )
-        {
-            vkDestroyPipelineLayout( device, m_ComputePipelineLayout, nullptr );
-            m_ComputePipelineLayout = VK_NULL_HANDLE;
-        }
-
-        if ( m_BatchPool != VK_NULL_HANDLE )
-        {
-            // Frees every ring set allocated from it.
-            vkDestroyDescriptorPool( device, m_BatchPool, nullptr );
-            m_BatchPool = VK_NULL_HANDLE;
-            m_BatchRing.clear();
-            m_BatchCursor = 0;
-        }
-
-        // Released LAST: everything above was built from these, so they may only be let go once nothing
-        // is standing on them. This is the release order the ownership is there to make obvious.
-        m_Layouts.clear();
-
+    void VulkanPipelineCompute::ReleaseHandles( const bool deferred )
+    {
+        // THE HANDLES OUTLIVE EVERY FRAME THAT MAY STILL USE THEM. A rebuild after a shader reload runs on the
+        // game thread of frame N while a render worker of frame N-1 may have read m_ComputePipeline, its layout
+        // or a ring set from m_BatchPool into a command buffer: they go through the allocator's deletion queue
+        // (UE: deferred deletion of the replaced PSO), with the set layouts they were built from - released
+        // LAST, in the lambda, since everything else was built from them. At once only from the destructor
+        // or with no renderer.
+        VkPipeline                          pipeline = std::exchange( m_ComputePipeline, VK_NULL_HANDLE );
+        VkPipelineLayout                    layout   = std::exchange( m_ComputePipelineLayout, VK_NULL_HANDLE );
+        VkDescriptorPool                    pool     = std::exchange( m_BatchPool, VK_NULL_HANDLE );
+        std::vector<DescriptorSetLayoutRef> layouts  = std::exchange( m_Layouts, {} );
+        m_BatchRing.clear(); // freed with the pool
+        m_BatchCursor                = 0;
         m_ActiveComputeCommandBuffer = VK_NULL_HANDLE;
+        if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE && pool == VK_NULL_HANDLE )
+            return;
+
+        auto destroy = [pipeline, layout, pool, held = std::move( layouts )]() mutable
+        {
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                  ->GetVulkanLogicalDevice();
+            if ( pipeline != VK_NULL_HANDLE )
+                vkDestroyPipeline( device, pipeline, nullptr );
+            if ( layout != VK_NULL_HANDLE )
+                vkDestroyPipelineLayout( device, layout, nullptr );
+            if ( pool != VK_NULL_HANDLE )
+                vkDestroyDescriptorPool( device, pool, nullptr ); // frees every ring set allocated from it
+            held.clear();
+        };
+        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
+        auto*      allocator =
+             deferred && ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+        if ( allocator == nullptr )
+        {
+            destroy();
+            return;
+        }
+        allocator->RT_DestroyLater( std::move( destroy ) );
     }
 
     void VulkanPipelineCompute::BindDescriptorSets( VkDescriptorSet /*descriptorSet*/, uint32_t frameIndex )

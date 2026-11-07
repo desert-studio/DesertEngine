@@ -92,6 +92,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
+        // Release's body: @p deferred parks the handles in the allocator's deletion queue.
+        void ReleaseHandles( bool deferred );
+
         ComputePipelineSpecification m_Specification;
         VkPipeline                   m_ComputePipeline       = VK_NULL_HANDLE;
         VkPipelineLayout             m_ComputePipelineLayout = VK_NULL_HANDLE;

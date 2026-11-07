@@ -113,11 +113,21 @@ namespace Desert::Graphic::API::Vulkan
     // (every recorder holds the Shader strongly), so only a REPLACED record needs the deferred path below.
     VulkanShader::~VulkanShader() = default;
 
+    std::shared_ptr<const VulkanShader::CompiledProgram> VulkanShader::ShareProgram() const noexcept
+    {
+        const std::lock_guard lock( m_OwnedLock );
+        return m_Owned;
+    }
+
     void VulkanShader::Publish( std::shared_ptr<const CompiledProgram> next ) noexcept
     {
-        std::shared_ptr<const CompiledProgram> replaced = std::move( m_Owned );
-        m_Owned                                         = std::move( next );
-        m_Current.store( m_Owned.get(), std::memory_order_release );
+        std::shared_ptr<const CompiledProgram> replaced;
+        {
+            const std::lock_guard lock( m_OwnedLock );
+            replaced = std::move( m_Owned );
+            m_Owned  = std::move( next );
+            m_Current.store( m_Owned.get(), std::memory_order_release );
+        }
 
         // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT. A render worker of frame N-1 may hold a
         // reference into it (stage infos being turned into a pipeline, the reflection being bound against) while
