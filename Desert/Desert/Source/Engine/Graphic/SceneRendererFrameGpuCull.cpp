@@ -231,6 +231,26 @@ namespace Desert::Graphic
         auto*                      meshes   = m_Systems.Mesh.get();
         const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
         const Core::Camera*        camera   = GetMainCamera();
+        // CPU-ISM-PACK: the scene's tables in this graph whatever draws the view - an ISM's CPU-instanced cell
+        // reads
+        // its instances from them by GpuScene id (MeshRenderer::SetFrameSceneInstances), the bins below reuse
+        // the import (one per graph). Before any mesh pass is added.
+        std::optional<std::string> tablesError; // the import's refusal, said where the bins need the tables
+        if ( meshes != nullptr )
+        {
+            meshes->SetFrameSceneInstances( {} );
+            if ( gpuScene != nullptr )
+            {
+                const Common::ResultStr<GpuDriven::GpuSceneBuffers> tables = gpuScene->ImportTables( graph );
+                if ( tables )
+                {
+                    m_FrameGpuSceneTables = tables.GetValue();
+                    meshes->SetFrameSceneInstances( tables.GetValue().Instances );
+                }
+                else
+                    tablesError = tables.GetError();
+            }
+        }
         if ( meshes == nullptr || gpuScene == nullptr || camera == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
         {
@@ -243,13 +263,12 @@ namespace Desert::Graphic
             refuse( upload.GetError() );
             return;
         }
-        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = gpuScene->ImportTables( graph );
-        if ( !scene )
+        if ( !m_FrameGpuSceneTables )
         {
-            refuse( scene.GetError() );
+            refuse( tablesError.value_or( "GpuScene: no tables" ) );
             return;
         }
-        m_FrameGpuSceneTables = scene.GetValue();
+        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = Common::MakeSuccess( *m_FrameGpuSceneTables );
 
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
                                      .Projection = camera->GetProjectionMatrix() };

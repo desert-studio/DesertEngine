@@ -123,10 +123,14 @@ namespace Desert::Graphic
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
                                      const Geometry::LODView& cullView, const Geometry::LODView& lodView,
                                      std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
-                                     std::vector<uint32_t>& levels )
+                                     std::vector<uint32_t>& levels, std::vector<uint32_t>* indices = nullptr )
     {
         visible.clear();
         levels.clear();
+        // @p indices: each kept instance's index in @p transforms, in kept order (an ISM drawn by GpuScene id,
+        // MeshRenderer's IsmViewCull::Indices); null for a caller that keeps the transforms only.
+        if ( indices != nullptr )
+            indices->clear();
         const InstanceCullDistance lensCull = ScaledByLens( cull, DrawDistanceScale( cullView ) );
         // FOUR INSTANCES PER FRUSTUM TEST (Core::Frustum::IntersectsEach4, Intersects bit for bit): the reaches
         // of instances i .. i + 3, each as IsmInstanceReach gives it, then one batch; an instance the distance
@@ -148,7 +152,11 @@ namespace Desert::Graphic
             const uint32_t inView = frustum.IntersectsEach4( first, transforms.size(), boxOf );
             for ( std::size_t lane = 0; lane < lanes; ++lane )
                 if ( reaches[lane] && ( ( inView >> lane ) & 1u ) != 0u )
+                {
                     visible.push_back( transforms[first + lane] );
+                    if ( indices != nullptr )
+                        indices->push_back( static_cast<uint32_t>( first + lane ) );
+                }
         }
         // The kept instances' levels in one batch, eight per register (Geometry::SelectLODsFromBounds: per
         // instance the per-instance policy bit for bit), in the order they were kept.

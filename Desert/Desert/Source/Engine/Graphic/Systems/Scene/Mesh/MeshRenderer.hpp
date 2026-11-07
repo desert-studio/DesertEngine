@@ -238,6 +238,14 @@ namespace Desert::Graphic::System
             // group shader) declared with the binned tables. Refused (the list fails) for a table without carriers
             // for its groups or a non-empty group without pipeline or carrier. Until the next Clear.
             void SetBinned( BinnedIssue issue );
+            // The scene's GpuScene instance rows in this list's graph (GpuSceneBuffers::Instances): bound to every
+            // CPU block whose shader reads them (an ISM's instanced cell by GpuScene id,
+            // MeshRenderer::SurfaceSceneInstancesVariant). A block that reads them with none set fails the list.
+            // Carried by Append; until the next Clear.
+            void SetSceneInstances( const RDG::BufferRef instances )
+            {
+                m_SceneInstances = instances;
+            }
             // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
             void               Add( MeshDrawCommand command );
             // Moves @p other's commands to the end of this list, as if each had been Added here in its order (the
@@ -332,6 +340,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef               m_IndirectArguments; // SetIndirect; invalid: the commands' own counts
             std::vector<uint32_t>        m_FirstRecords;
             std::optional<BinnedIssue>   m_Binned;       // SetBinned
+            RDG::BufferRef               m_SceneInstances; // SetSceneInstances
             std::vector<uint32_t>        m_GroupBlock;   // per group of m_Binned: its block (kInvalidBlock: empty)
             std::vector<uint32_t>        m_VgGroupBlock; // per group of m_Binned->VirtualGeometry: its block
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
@@ -987,6 +996,13 @@ namespace Desert::Graphic::System
         void ForgetGpuScene()
         {
             m_GpuScene = nullptr;
+        }
+        // The GpuScene instance rows imported into THIS view's graph (SceneRenderer::AddFrameDrawBins, before any
+        // mesh pass is added; invalid when the tables could not be imported): what an ISM's instanced cell reads
+        // its instances from by id (SurfaceSceneInstancesVariant). Without them an ISM packs its transforms.
+        void SetFrameSceneInstances( const RDG::BufferRef instances )
+        {
+            m_FrameSceneInstances = instances;
         }
 
         // The GpuScene instances of SyncGpuScene's @p otherRigid records, in their order. Valid until the next
@@ -2349,7 +2365,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] DataDrivenMaterial* ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
                                                               MeshVertexPath path, MeshPass pass,
                                                               std::optional<uint32_t> view        = std::nullopt,
-                                                              bool                    instanceIds = false );
+                                                              bool                    instanceIds = false,
+                                                              bool sceneInstances = false );
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
@@ -2365,6 +2382,17 @@ namespace Desert::Graphic::System
         // it here, so the cooked hash is the acquired one (UE: a permutation declared once, the cook compiling
         // exactly what ShouldCompilePermutation admits).
         [[nodiscard]] static Core::ShaderVariant SurfaceInstanceIdsVariant( Core::ShaderVariant permutation = {} );
+        // CPU-ISM-PACK: THE PERMUTATION an ISM's Instanced cell draws in on the CPU path
+        // (kSurfaceSceneInstancesDefine,
+        // Mesh/Surface/Vertex_Instanced.glslh): InstanceTransforms holds GpuScene instance ids, the vertex stage
+        // reads
+        // the transform from the scene's rows (UE GPU Scene by InstanceId). @p permutation with the define
+        // appended
+        // LAST, ShippedByCook; the draws (BuildStaticDraws' ISMs, ForwardVirtualCell) and the cook
+        // (MaterialProgramVariants: every Instanced Forward / G-buffer (+ equal depth) / Depth cell) build it
+        // here.
+        [[nodiscard]] static Core::ShaderVariant
+        SurfaceSceneInstancesVariant( Core::ShaderVariant permutation = {} );
         // RENDER-JOB-CPU-4: @p permutation with kSurfaceDrawRowsDefine (a compacted bin's grass cell).
         [[nodiscard]] static Core::ShaderVariant SurfaceDrawRowsVariant( Core::ShaderVariant permutation = {} );
         // Debug.Grass "per-variety draws": every grass section drawn by its own indirect draws, not in the
@@ -3767,6 +3795,12 @@ namespace Desert::Graphic::System
             Graphic::DataDrivenMaterial* Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
+            // CPU-ISM-PACK: the recorder is an ISM's cell by GpuScene id (SurfaceSceneInstancesVariant): the
+            // draws'
+            // instances are SceneInstanceIds (4 bytes each, uploaded in Transforms' place), Transforms stays
+            // empty.
+            bool                        SceneIds = false;
+            std::vector<uint32_t>       SceneInstanceIds;
             std::vector<InstancedDraw>  Draws;
             // A Resolve call (DrawBuildPhase): the ISMs' draws, which the Record call puts behind the auto-batched
             // ones (the Full call's draw order), and the recorder's pipelines and its Materials lend. Their
@@ -3878,6 +3912,10 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>                         Levels;
             std::vector<IsmLevelRun>                      Runs;
             std::vector<glm::mat4>                        Ordered; // the reorder's scratch, swapped with Visible
+            // Per kept instance (Visible's order): its index in the field's transforms - the GpuScene instance
+            // FirstGpuInstance + index an ISM drawn by id names (SurfaceSceneInstancesVariant).
+            std::vector<uint32_t> Indices;
+            std::vector<uint32_t> OrderedIndices; // the reorder's scratch, swapped with Indices
             uint64_t                                      Generation = 0; // the last frame a pass asked for it
             uint64_t                                      Call       = 0; // the last call that looked it up
         };
@@ -4519,6 +4557,7 @@ namespace Desert::Graphic::System
         std::vector<MotionFieldRecord>     m_ScratchFieldRecords;
         GpuDriven::GpuSceneRecordRows      m_ScratchGpuSceneRows;
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
+        RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
         // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads, SkinCacheBonesImport).
         std::vector<RDG::BufferRef> m_SkinCacheReads;
         RDG::ExternalBuffer         m_SkinCacheBonesImport;
