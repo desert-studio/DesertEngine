@@ -52,6 +52,7 @@
 #include <string>
 #include <unordered_map>
 #include <array>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::RayTracing
@@ -340,14 +341,15 @@ namespace Desert::Core
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept ) const;
 
-        // The drawn landscape tiles a raycast tests. Gathering them walks every entity and checks each tile
-        // against its root: 96 of a 115 us ray on Terrain_Grass (FO-3b). A caller tracing many rays at one
-        // moment (a foliage dab traces hundreds) gathers once and passes the set; it borrows the tiles'
-        // heights, so it lives no longer than that moment (no tile added, removed or reloaded meanwhile).
+        // The drawn landscape tiles a raycast tests: a view of the shared landscape tile table
+        // (ECS::LandscapeTileTable, LandscapeRootOf.hpp), which keeps them beside the drawn tiles and rebuilds
+        // them only when a tile or a root changes. A caller tracing many rays at one moment (a foliage dab
+        // traces hundreds) gathers once and passes the set; it borrows the table, so it lives no longer than
+        // that moment (no tile added, removed or reloaded, no root moved meanwhile).
         struct RaycastLandscapeSet
         {
-            std::vector<Common::UUID>                       Entities;
-            std::vector<World::Landscape::LandscapeRayTile> Tiles;
+            std::span<const Common::UUID>                       Entities;
+            std::span<const World::Landscape::LandscapeRayTile> Tiles;
         };
         [[nodiscard]] RaycastLandscapeSet GatherRaycastLandscape() const;
         // The accept-filtered trace against a landscape set gathered earlier.

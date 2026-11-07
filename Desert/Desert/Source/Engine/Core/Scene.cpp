@@ -149,35 +149,17 @@ namespace Desert::Core
         return Raycast( ray, outHit, {} );
     }
 
-    // Every landscape tile that is drawn: loaded heights, under a loaded root they match. A tile the
-    // renderer refuses (LandscapeECSSystem warns why) is not on screen, so it is not pickable either.
+    // Every landscape tile that is drawn: loaded heights, under a loaded root they match — the renderer's
+    // own table (ECS::DrawableLandscapeTiles), so a tile the renderer refuses (LandscapeECSSystem warns why
+    // once) is not on screen and not pickable either, by the same test. Refreshing the table is a cache
+    // update, not a scene edit: the const_cast is the registry-ctx equivalent of a `mutable` cache.
     Scene::RaycastLandscapeSet Scene::GatherRaycastLandscape() const
     {
+        const ECS::DrawableLandscape& drawable =
+             ECS::DrawableLandscapeTiles( const_cast<entt::registry&>( m_Registry ) );
         RaycastLandscapeSet set;
-        for ( const auto& entity : GetAllEntities() )
-        {
-            if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
-                continue;
-            const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
-            if ( !tile.Heights.has_value() )
-                continue;
-            const auto rootEntity = FindEntityByID( tile.Landscape );
-            if ( !rootEntity.has_value() || !rootEntity->get().HasComponent<ECS::LandscapeComponent>() )
-                continue;
-            const auto root = ECS::LandscapeRootOf( rootEntity->get() );
-            // The renderer refuses the same tile (and says so once); a pick is an explicit request, so
-            // it is told why the tile under the cursor cannot answer.
-            const auto fits = World::Landscape::CheckTileMatchesRoot( *tile.Heights, root );
-            if ( !fits.IsSuccess() )
-            {
-                LOG_WARN( "[Landscape] tile ({}, {}) is not pickable: {}", tile.TileX, tile.TileZ,
-                          fits.GetError() );
-                continue;
-            }
-            set.Entities.push_back( entity.GetComponent<ECS::UUIDComponent>().UUID );
-            set.Tiles.push_back(
-                 { &*tile.Heights, World::Landscape::LandscapeTileFrame( root, tile.TileX, tile.TileZ ) } );
-        }
+        set.Entities = drawable.RayEntities;
+        set.Tiles    = drawable.RayTiles;
         return set;
     }
 

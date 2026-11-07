@@ -29,8 +29,6 @@
 #include <bit>
 #include <cstring>
 #include <format>
-#include <map>
-#include <tuple>
 #include <optional>
 #include <string>
 #include <vector>
@@ -111,22 +109,13 @@ namespace Desert::ECS
                                      Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                                      const Common::Timestep&               ts )
     {
-        // Pass 1: every drawable tile, by (root, tile x, tile z) — a tile's heightmap carries a ring row from
-        // each loaded neighbour, so it cannot be built before its neighbours are known.
-        struct Drawable
-        {
-            entt::entity             Entity = entt::null;
-            Landscape::LandscapeRoot Root;
-            bool                     Dirty        = false;
-            bool                     WeightsDirty = false;
-            bool                     GrassDirty   = false;
-        };
-        using Coord = std::tuple<uint64_t, int32_t, int32_t>;
-        std::vector<Drawable>   drawables;
-        std::map<Coord, size_t> byCoord;
-
+        // Pass 1: every drawable tile's dirty flags — a tile's heightmap carries a ring row from each loaded
+        // neighbour, so a neighbour's flags must be known before the tile is built. The tiles, their roots
+        // and their neighbours are the shared table's retained rows (UE: the proxy's component list), rebuilt
+        // only on a tile or root change; this frame only takes the dirty rectangles.
         // Unloaded tiles are in neither list (the loader said why; the sweep below frees them).
         const DrawableLandscape& landscape = DrawableLandscapeTiles( registry );
+        m_TileDirty.resize( landscape.Tiles.size() );
         for ( const RefusedLandscapeTile& refused : landscape.Refused )
         {
             if ( !m_Warned.insert( refused.Entity ).second )
@@ -135,34 +124,19 @@ namespace Desert::ECS
             LOG_WARN( "[Landscape] tile ({}, {}) is not drawn: {}", tileComp.TileX, tileComp.TileZ,
                       refused.Reason );
         }
-        for ( const LandscapeTileRef& tile : landscape.Tiles )
+        for ( size_t i = 0; i < landscape.Tiles.size(); ++i )
         {
-            const entt::entity            entity   = tile.Entity;
-            const LandscapeTileComponent& tileComp = *tile.Component;
-            Landscape::LandscapeTileData& heights  = *tile.Component->Heights;
-            m_Warned.erase( entity );
+            Landscape::LandscapeTileData& heights = *landscape.Tiles[i].Component->Heights;
+            m_Warned.erase( landscape.Tiles[i].Entity );
 
             // ALWAYS taken, drawn or hidden: the list is "what the GPU copy does not have yet", and a hidden
             // tile's copy is refreshed like any other so showing it again shows the current heights.
-            Drawable d;
-            d.Entity = entity;
-            d.Root   = tile.Root;
-            d.Dirty  = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
+            TileDirty& dirty = m_TileDirty[i];
+            dirty.Heights    = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
             // Same rule for the weightmap copy: taken always, so a hidden tile shows its current paint.
-            d.WeightsDirty = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Weights ).empty();
-            d.GrassDirty   = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Grass ).empty();
-            byCoord.emplace( Coord{ static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) ), tileComp.TileX,
-                                    tileComp.TileZ },
-                             drawables.size() );
-            drawables.push_back( d );
+            dirty.Weights = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Weights ).empty();
+            dirty.Grass   = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Grass ).empty();
         }
-
-        const auto neighbourAt = [&]( const LandscapeTileComponent& c, int32_t dx, int32_t dz ) -> const Drawable*
-        {
-            const auto it = byCoord.find(
-                 Coord{ static_cast<uint64_t>( Common::UUID( c.Landscape ) ), c.TileX + dx, c.TileZ + dz } );
-            return it == byCoord.end() ? nullptr : &drawables[it->second];
-        };
 
         // Each root's look (Surface), filled once per frame on first ask and shared by all its tiles.
         ++m_Frame;
@@ -247,36 +221,37 @@ namespace Desert::ECS
         };
 
         // Pass 2: upload what changed, draw what is shown.
-        for ( const Drawable& d : drawables )
+        for ( size_t i = 0; i < landscape.Tiles.size(); ++i )
         {
-            const auto&                         tileComp = registry.get<LandscapeTileComponent>( d.Entity );
+            const LandscapeTileRef&             tile     = landscape.Tiles[i];
+            const TileDirty&                    dirty    = m_TileDirty[i];
+            const LandscapeTileComponent&       tileComp = *tile.Component;
             const Landscape::LandscapeTileData& heights  = *tileComp.Heights;
 
-            const Drawable* west  = neighbourAt( tileComp, -1, 0 );
-            const Drawable* east  = neighbourAt( tileComp, 1, 0 );
-            const Drawable* south = neighbourAt( tileComp, 0, -1 );
-            const Drawable* north = neighbourAt( tileComp, 0, 1 );
-
-            const auto heightsOf = [&]( const Drawable* n ) -> const Landscape::LandscapeTileData*
-            { return ( n != nullptr ) ? &*registry.get<LandscapeTileComponent>( n->Entity ).Heights : nullptr; };
+            const auto heightsOf = [&]( const uint32_t n ) -> const Landscape::LandscapeTileData*
+            {
+                if ( n == NoLandscapeNeighbour )
+                    return nullptr;
+                return &*landscape.Tiles[n].Component->Heights;
+            };
             Landscape::LandscapeTileNeighbours neighbours;
-            neighbours.West     = heightsOf( west );
-            neighbours.East     = heightsOf( east );
-            neighbours.South    = heightsOf( south );
-            neighbours.North    = heightsOf( north );
+            neighbours.West     = heightsOf( tile.West );
+            neighbours.East     = heightsOf( tile.East );
+            neighbours.South    = heightsOf( tile.South );
+            neighbours.North    = heightsOf( tile.North );
             const uint32_t mask = Landscape::LandscapeNeighbourMask( neighbours );
 
             // The ring is a copy of the neighbours' rows, so a neighbour's edit, arrival or departure makes
             // this tile's copy stale as surely as its own edit does.
             bool neighbourDirty = false;
-            for ( const Drawable* n : { west, east, south, north } )
-                neighbourDirty = neighbourDirty || ( ( n != nullptr ) && n->Dirty );
+            for ( const uint32_t n : { tile.West, tile.East, tile.South, tile.North } )
+                neighbourDirty = neighbourDirty || ( n != NoLandscapeNeighbour && m_TileDirty[n].Heights );
 
-            TileGpu& gpu = m_Tiles[d.Entity];
+            TileGpu& gpu = m_Tiles[tile.Entity];
             // In place while the sample count holds (LandscapeTileImage.hpp): the image's address keys the tile's
             // terrain material, so sculpting must not replace it.
             const Graphic::Image2D* previousHeightmap = gpu.Heightmap.get();
-            const bool              heightsDirty      = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
+            const bool              heightsDirty = dirty.Heights || neighbourDirty || gpu.NeighbourMask != mask;
             const auto              heightmap         = RefreshLandscapeTileImage(
                  gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsDirty,
                  [&] { return HeightmapTexels( heights, neighbours ); },
@@ -291,23 +266,23 @@ namespace Desert::ECS
                      "the tile is not drawn",
                      tileComp.TileX, tileComp.TileZ, heights.SamplesX(), heights.SamplesZ(),
                      heightmap.GetError() );
-                m_Tiles.erase( d.Entity );
+                m_Tiles.erase( tile.Entity );
                 continue;
             }
             gpu.NeighbourMask = mask;
             if ( heightsDirty || gpu.Heightmap.get() != previousHeightmap )
                 gpu.HeightRevision = ++m_Revision;
 
-            if ( d.WeightsDirty )
+            if ( dirty.Weights )
             {
-                m_WarnedWeights.erase( d.Entity );
+                m_WarnedWeights.erase( tile.Entity );
             }
-            UpdateWeightmap( gpu, heights, d.Entity, tileComp, d.WeightsDirty );
+            UpdateWeightmap( gpu, heights, tile.Entity, tileComp, dirty.Weights );
 
-            if ( ECS::IsHidden( registry, d.Entity ) )
+            if ( ECS::IsHidden( registry, tile.Entity ) )
                 continue;
 
-            const Landscape::LandscapeRoot&    root = d.Root;
+            const Landscape::LandscapeRoot&    root = tile.Root;
             Graphic::System::LandscapeTileDraw draw;
             draw.OriginX       = root.Origin.x;
             draw.OriginZ       = root.Origin.z;
@@ -320,7 +295,7 @@ namespace Desert::ECS
             draw.MinY = root.Origin.y + Landscape::LandscapeHeightCm( heights.LowestSample(), root.ZScale );
             draw.MaxY = root.Origin.y + Landscape::LandscapeHeightCm( heights.HighestSample(), root.ZScale );
             draw.NeighbourMask = mask;
-            draw.Entity            = static_cast<uint32_t>( d.Entity );
+            draw.Entity        = static_cast<uint32_t>( tile.Entity );
             draw.HeightRevision    = gpu.HeightRevision;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
@@ -354,7 +329,7 @@ namespace Desert::ECS
                         }
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
-                     m_WarnedWeights.insert( d.Entity ).second )
+                     m_WarnedWeights.insert( tile.Entity ).second )
                 {
                     // Not dropped silently: the tile keeps the layer's weights (renaming it back on the root
                     // restores it), it is just not drawn while the root does not name it.
@@ -374,9 +349,10 @@ namespace Desert::ECS
         m_PrevWindSeconds = m_WindSeconds;
         m_WindSeconds += static_cast<double>( ts.GetSeconds() );
         m_GrassRootOrder.clear();
-        for ( const Drawable& d : drawables )
+        for ( size_t i = 0; i < landscape.Tiles.size(); ++i )
         {
-            const auto&     tileComp = registry.get<LandscapeTileComponent>( d.Entity );
+            const LandscapeTileRef&       tile     = landscape.Tiles[i];
+            const LandscapeTileComponent& tileComp = *tile.Component;
             const auto      rootId   = static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) );
             GrassRootTiles& group    = m_GrassTiles[rootId];
             if ( group.Frame != m_Frame )
@@ -385,8 +361,8 @@ namespace Desert::ECS
                 group.Tiles.clear();
                 m_GrassRootOrder.push_back( rootId );
             }
-            group.Tiles.push_back( { &tileComp, d.GrassDirty } );
-            group.Root = d.Root;
+            group.Tiles.push_back( { &tileComp, m_TileDirty[i].Grass } );
+            group.Root = tile.Root;
         }
         std::sort( m_GrassRootOrder.begin(), m_GrassRootOrder.end() ); // the order the per-frame std::map gave
         for ( const uint64_t rootId : m_GrassRootOrder )

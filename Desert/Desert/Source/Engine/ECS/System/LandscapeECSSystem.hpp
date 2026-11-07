@@ -98,6 +98,15 @@ namespace Desert::ECS
         Graphic::ResourceOwnerInstance            m_SceneLedger;
         std::unordered_map<entt::entity, TileGpu> m_Tiles;
         uint64_t                                  m_Revision = 0u; // the last revision handed out
+        // This frame's dirty flags, index i = DrawableLandscape::Tiles[i] (the shared tile table): resized
+        // to the table each frame, so a steady frame reuses the storage.
+        struct TileDirty
+        {
+            bool Heights = false;
+            bool Weights = false;
+            bool Grass   = false;
+        };
+        std::vector<TileDirty> m_TileDirty;
         // Said once per tile, not once per frame: a tile that cannot be drawn stays that way until edited.
         std::unordered_set<entt::entity> m_Warned;
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or
