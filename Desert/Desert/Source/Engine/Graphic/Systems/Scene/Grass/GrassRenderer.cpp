@@ -212,6 +212,9 @@ namespace Desert::Graphic::System
         // GrassVarietyRows.glslh kGrassRowCascadesHeld: the row's cascade lists hold from an earlier frame
         // (VarietyGpu::CascadeKey), GrassCull neither culls nor finalizes them.
         constexpr uint32_t kRowCascadesHeld = 2u;
+        // GrassVarietyRows.glslh kGrassRowCameraHeld: with its cascades, the row's camera list and candidates hold
+        // from an earlier frame (VarietyGpu::CameraKey); GrassCull gives the row no camera cull groups.
+        constexpr uint32_t kRowCameraHeld = 4u;
         // GrassVarietyRows.glslh kGrassChunkHeader / kGrassChunkWords (the chunk contract): Chunks' header (x = the
         // chunks, one per tile slot and cluster, y = the law's slots handed out, z = the room, w = their law
         // generation; GrassCull writes y and w) and the words of one chunk.
@@ -2807,7 +2810,7 @@ namespace Desert::Graphic::System
         const auto cullRows = static_cast<uint32_t>( m_FrameCull.size() );
         if ( cullRows != 0u )
         {
-            if ( const Common::BoolResultStr table = WriteVarietyTable( graph, volumes ); !table )
+            if ( const Common::BoolResultStr table = WriteVarietyTable( graph, volumes, occlusion ); !table )
             {
                 LOG_ERROR( "[Grass] the variety table was not written; no grass is generated or culled this frame: {}",
                            table.GetError() );
@@ -3033,7 +3036,8 @@ namespace Desert::Graphic::System
                        blades.GetError() );
     }
 
-    Common::BoolResultStr GrassRenderer::WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes )
+    Common::BoolResultStr GrassRenderer::WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes,
+                                                            const GrassOcclusion& occlusion )
     {
         // CPU-GRASS-POOL-1/8: the candidates and law scales pools were committed once this frame, after every
         // Allocate of it (CommitListPools), before their addresses go into the rows.
@@ -3150,6 +3154,38 @@ namespace Desert::Graphic::System
                     if ( gpu->CascadesCulled )
                         row.Info.z |= kRowCascadesHeld;
                     gpu->CascadesCulled = true;
+                    // GPU-GRASS-CULL-1, THE CAMERA'S LISTS FOLLOW CHANGE TOO (UE grass / instanced foliage: a
+                    // cluster's cull results stand until the cluster or the view changes): a frame whose cascades
+                    // hold (the instances, the law, the rows' region 0 unchanged) and whose camera planes, HZB
+                    // matrix and camera buffers equal the frame that last culled the camera holds that frame's
+                    // phase-1 list and candidates - no camera cull runs for the row. Phase 2 still retests the
+                    // held candidates against this frame's HZB, so grass an occluder uncovers is drawn; grass one
+                    // covers is drawn until the view changes (depth-tested, never lost).
+                    CameraCullKey camera{};
+                    std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ),
+                               std::begin( camera.Planes ) );
+                    const bool testsHzb = occlusion.Hzb.IsValid();
+                    if ( testsHzb )
+                    {
+                        camera.HzbViewProjection = occlusion.PrevViewProjection;
+                        camera.Hzb               = glm::uvec4( occlusion.Extent, 1u );
+                    }
+                    camera.CameraIds     = row.CameraIds;
+                    camera.CameraArgs    = row.CameraArgs;
+                    camera.PostArgs      = row.PostArgs;
+                    camera.Candidates    = row.Candidates;
+                    camera.LawScales     = row.LawScales;
+                    camera.CameraIdsBase = row.CameraIdsBase;
+                    camera.InstancesBase = row.InstancesBase;
+                    camera.Builds        = gpu->Builds;
+                    if ( !( camera == gpu->CameraKey ) )
+                    {
+                        gpu->CameraKey    = camera;
+                        gpu->CameraCulled = false;
+                    }
+                    if ( gpu->CameraCulled && ( row.Info.z & kRowCascadesHeld ) != 0u )
+                        row.Info.z |= kRowCameraHeld;
+                    gpu->CameraCulled = true;
                 }
                 const size_t at = image.size();
                 image.resize( at + sizeof( GrassVarietyRowGpu ) );
