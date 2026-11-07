@@ -19,6 +19,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/Frustum.hpp>
+#include <Common/Core/Math/AABB.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
@@ -137,6 +138,10 @@ namespace Desert::Graphic
     namespace RDG
     {
         class Builder;
+    }
+    namespace Render
+    {
+        struct StaticSceneSnapshot;
     }
     class FrameTextures;
     struct FrameValues;
@@ -482,6 +487,11 @@ namespace Desert::Graphic
         void SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots, const glm::mat4& transform,
                          const RenderSubmissionExtra& extra );
 
+        // THE RETAINED STATIC SCENE'S REPLAY (Render::DrawStaticSceneCommand): every section of @p scene through
+        // the same per-view admission SubmitMesh applies (readiness, max draw distance, texture demand, the LOD
+        // preview), with the section's cached local bounds instead of a union over the submeshes per call.
+        void SubmitStaticScene( const Render::StaticSceneSnapshot& scene );
+
         // THE VIEW'S LOD PREVIEW (UE LOD Manager / Static Mesh Editor "LOD" preview): draw `entity`'s static mesh
         // at `level` in THIS view only — every pass (G-buffer, shadows, forward) reads it through the draw's
         // ForcedLOD, the authored StaticMeshComponent::ForcedLOD is untouched and other views keep their own pick.
@@ -620,6 +630,10 @@ namespace Desert::Graphic
         float NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
                                  std::span<const Material* const> materials,
                                  const MaterialOverrides*         overrides = nullptr ) const;
+        // The same, for a mesh whose local bounds the caller already holds (@p local, Geometry::LocalBounds).
+        float NoteTextureDemandOfBounds( const Common::Math::AABB& local, std::span<const glm::mat4> transforms,
+                                         std::span<const Material* const> materials,
+                                         const MaterialOverrides*         overrides = nullptr ) const;
 
         void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   uint64_t                                             hiddenSubmeshes,

@@ -9,6 +9,7 @@
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshUploader.hpp>
 
+#include <atomic>
 #include <span>
 
 namespace Desert::Runtime
@@ -115,6 +116,15 @@ namespace Desert::Runtime
         // the service builds only from `m_Entries`.
         bool EvictBuilt( const Assets::AssetHandle& handle );
 
+        // Bumped whenever a mesh `Get` once answered may no longer be the one it answers now (an eviction, a
+        // rebuild over a built entry, Clear). A first build of a pending mesh does not bump it: a caller that was
+        // answered nullptr asks again. What a retained render cache (MeshECSSystem's static scene) keys its
+        // resolved Mesh pointers by, so a dropped mesh is never named past the frame that dropped it.
+        [[nodiscard]] uint64_t GetBuiltRevision() const noexcept
+        {
+            return m_BuiltRevision.load( std::memory_order_acquire );
+        }
+
         // The key of every mesh built right now (AssetEviction's census of what is still resident).
         [[nodiscard]] std::vector<Assets::AssetHandle> BuiltHandles() const
         {
@@ -156,6 +166,7 @@ namespace Desert::Runtime
 
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Mesh>>      m_Meshes;
         Assets::FrameRetireQueue<std::shared_ptr<Mesh>>                             m_Retiring;
+        mutable std::atomic<uint64_t>                                               m_BuiltRevision{ 0 };
         // One mesh the service knows: its shell, its rig (skinned only; found by the registry's Rig tag), the
         // loader requests that read them, and whether it failed — a failure is logged once and not retried,
         // EXCEPT the one a later write can cure: a skinned mesh whose rig had no Skeleton row waits for it.

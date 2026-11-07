@@ -114,7 +114,10 @@ namespace Desert::Runtime
                                                lodScreenSizes.GetError() );
         mesh->SetAuthoredLODScreenSizes( lodScreenSizes.GetValue() );
 
-        m_Meshes[handle] = std::move( mesh );
+        std::shared_ptr<Mesh>& slot = m_Meshes[handle];
+        if ( slot ) // a rebuild over a built mesh: the pointer callers were answered is replaced
+            m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
+        slot = std::move( mesh );
         return BOOLSUCCESS;
     }
 
@@ -366,6 +369,7 @@ namespace Desert::Runtime
         // Parked, not destroyed: the frames recorded before this sweep may still be reading the buffers.
         m_Retiring.Park( std::move( built->second ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         m_Meshes.erase( built );
+        m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
         return true;
     }
 
@@ -378,6 +382,7 @@ namespace Desert::Runtime
     void MeshService::Clear()
     {
         m_Meshes.clear();
+        m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
         m_Retiring.Clear();
         m_Entries.clear();
         m_AssetManager.reset();

@@ -706,6 +706,7 @@ namespace Desert::Core
             m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
             m_RenderStateDirty.clear();
         }
+        m_RenderStateDelta.FrameBoundary();
 
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
@@ -1617,6 +1618,9 @@ namespace Desert::Core
             m_RenderStateDirty.clear();
             m_RenderStateDirtyLastFrame = 0;
         }
+        // The retained render cache rebuilds from the registry as it now stands (MeshECSSystem).
+        m_RenderStateDelta.RequestFullRebuild();
+        m_Registry.ctx_or_set<ECS::RenderStateDeltaLink>().Delta = &m_RenderStateDelta;
     }
 
     void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
@@ -1635,6 +1639,7 @@ namespace Desert::Core
         if ( !subtree )
         {
             m_RenderStateDirty.insert( entity );
+            m_RenderStateDelta.Mark( entity );
             return;
         }
         // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
@@ -1646,6 +1651,7 @@ namespace Desert::Core
             const entt::entity current = pending.back();
             pending.pop_back();
             m_RenderStateDirty.insert( current );
+            m_RenderStateDelta.Mark( current );
             if ( !m_Registry.valid( current ) )
                 continue;
             if ( const auto* relation = m_Registry.try_get<ECS::RelationshipComponent>( current ) )

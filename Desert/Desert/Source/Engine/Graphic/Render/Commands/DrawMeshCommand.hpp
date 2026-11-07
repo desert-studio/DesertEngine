@@ -7,6 +7,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <glm/mat4x4.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 
 namespace Desert::Graphic::Render
 {
@@ -76,6 +77,37 @@ namespace Desert::Graphic::Render
                                        .ReceiveShadows           = ReceiveShadows,
                                        .CastContactShadow        = CastContactShadow,
                                        .TranslucencySortPriority = TranslucencySortPriority } );
+        }
+    };
+
+    // THE RETAINED STATIC SCENE (CPU-SCENE-DELTA; UE FScene: primitives added once, updated by their changes).
+    // MeshECSSystem records ONE of these per update for every lit static-mesh section of the scene: a frame with
+    // no static change records the same snapshot as the last one, so the game thread walks, resolves and copies
+    // nothing per section. The replay submits the snapshot's sections (SceneRenderer::SubmitStaticScene).
+    struct DrawStaticSceneCommand : RenderCommand
+    {
+        std::shared_ptr<const StaticSceneSnapshot> Scene;
+
+        explicit DrawStaticSceneCommand( std::shared_ptr<const StaticSceneSnapshot> scene )
+             : Scene( std::move( scene ) )
+        {
+        }
+
+        // The fence's intake for every section's mesh (an edited DynamicMesh's upload), as DrawStaticMeshCommand.
+        void Prepare() override
+        {
+            if ( !Scene )
+                return;
+            for ( const auto& chunk : Scene->Chunks )
+                for ( const StaticSceneSection& section : chunk->Sections )
+                    if ( section.Mesh != nullptr )
+                        SceneRenderer::PrepareMesh( *section.Mesh );
+        }
+
+        void Execute( SceneRenderer& renderer ) override
+        {
+            if ( Scene )
+                renderer.SubmitStaticScene( *Scene );
         }
     };
 

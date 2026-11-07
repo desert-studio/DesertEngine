@@ -36,6 +36,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -852,6 +853,9 @@ namespace Desert::Core
         void ExecuteSystems( const Common::Timestep& gameplayTs );
 
     private:
+        // The retained render cache's feed of the dirty set (ECS::RenderStateDelta; the registry context links
+        // it). Declared before the registry so it outlives every signal the registry's teardown may fire.
+        ECS::RenderStateDelta m_RenderStateDelta;
         entt::registry m_Registry;
 
         // See MarkRenderStateDirty.

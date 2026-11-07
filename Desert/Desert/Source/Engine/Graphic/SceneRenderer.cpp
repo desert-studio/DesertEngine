@@ -2,6 +2,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
+#include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
@@ -4109,7 +4110,18 @@ namespace Desert::Graphic
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
             return 0.0f;
-        const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+        return NoteTextureDemandOfBounds( Geometry::LocalBounds( mesh.GetSubmeshes() ), transforms, materials,
+                                          overrides );
+    }
+
+    float SceneRenderer::NoteTextureDemandOfBounds( const Common::Math::AABB&              local,
+                                                    const std::span<const glm::mat4>       transforms,
+                                                    const std::span<const Material* const> materials,
+                                                    const MaterialOverrides*               overrides ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
+            return 0.0f;
         if ( Geometry::IsEmpty( local ) )
             return 0.0f;
         const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
@@ -4205,6 +4217,56 @@ namespace Desert::Graphic
                                       .ReceiveShadows           = extra.ReceiveShadows,
                                       .CastContactShadow        = extra.CastContactShadow,
                                       .TranslucencySortPriority = extra.TranslucencySortPriority } );
+    }
+
+    void SceneRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot& scene )
+    {
+        DESERT_PROFILE_SCOPE( "SceneRenderer::SubmitStaticScene" );
+        const auto*                 camera = GetMainCamera();
+        std::optional<Geometry::LODView> lodView;
+        if ( camera != nullptr )
+            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
+        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's.
+        thread_local std::vector<const Material*> parents;
+        for ( const auto& chunk : scene.Chunks )
+        {
+            for ( const Render::StaticSceneSection& section : chunk->Sections )
+            {
+                const MaterialSlotBindingPtr& slots = chunk->Owners[section.Owner];
+                if ( section.Mesh == nullptr || !slots || slots->Slots.empty() )
+                    continue;
+                Mesh* mesh = section.Mesh;
+                if ( !ReadyForDraw( *mesh ) )
+                    continue;
+                // The cached bounds are the mesh's as of the revision they were taken at; an in-place edit
+                // (DynamicMesh, uploaded at this fence) bumped the revision and is measured afresh.
+                const Common::Math::AABB local = section.BoundsRevision == mesh->GetRenderRevision()
+                                                      ? section.LocalBounds
+                                                      : Geometry::LocalBounds( mesh->GetSubmeshes() );
+                if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
+                     !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
+                    continue;
+                parents.clear();
+                for ( const MaterialInstance* slot : slots->Slots )
+                    parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
+                NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), parents );
+                m_Systems.Mesh->SubmitMesh(
+                     { .Entity                   = section.Entity,
+                       .MotionPart               = 0,
+                       .Mesh                     = mesh,
+                       .Transform                = section.Transform,
+                       .MaterialSlots            = slots,
+                       .SectionSlot              = section.SectionSlot,
+                       .Outlined                 = section.Outlined,
+                       .HiddenSubmeshes          = section.HiddenSubmeshes,
+                       .ForcedLOD                = LODPreviewFor( section.Entity, section.ForcedLOD ),
+                       .LODBias                  = section.LODBias,
+                       .CastShadows              = section.CastShadows,
+                       .ReceiveShadows           = section.ReceiveShadows,
+                       .CastContactShadow        = section.CastContactShadow,
+                       .TranslucencySortPriority = section.TranslucencySortPriority } );
+            }
+        }
     }
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
