@@ -2097,6 +2097,8 @@ namespace Desert::Graphic
         // the cloud renderer with the layer itself. HIGH is the calibrated reference, so a renderer
         // nobody pushes to renders correctly rather than cheaply.
         Common::Settings::CloudQuality m_CloudQuality = Common::Settings::CloudQuality::High;
+        // Scalability Effects.CloudFootprintSteps, refreshed with m_CloudQuality and handed with it.
+        bool m_CloudFootprintSteps = true;
         // WHAT THIS MACHINE CAN AFFORD. NOT read from the scene — pushed in by whoever owns the view
         // (SetQuality). See Common/Settings/MachineSettings.hpp for why it stopped being scene data.
         //

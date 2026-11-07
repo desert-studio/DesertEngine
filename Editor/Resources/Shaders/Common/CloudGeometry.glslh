@@ -313,6 +313,35 @@ float CloudCoarseStepKm( float segmentLengthKm, float fineStepKm, float maxCount
 }
 
 // ---------------------------------------------------------------------------------------------------
+// THE FOOTPRINT STEP (GPU-CLOUD-STEPS). The fine step above is a constant along the ray: 62.5 m at the
+// component's 256 whether the sample is two kilometres from the eye or sixty. Past the distance where one
+// trace texel is wider than that, the extra samples resolve depth structure no texel can show — a lit sample
+// per 62.5 m of a horizon ray that a single texel spans hundreds of metres of. The step therefore grows with
+// the ray's distance as the texel's footprint does (Frostbite / Hillaire's distance-scaled step, on top of
+// Unreal's StepT), and every quantity integrated over it — the Beer step, the scattering step, the emissive
+// term — takes the step it actually advanced, so the march still sums the same integral with fewer terms.
+//
+// TWO BOUNDS, and they are what keeps every calibrated relation where it was:
+//   * never finer than the fine step, so the near field — every ray shorter than the crossover — is the
+//     256-step schedule sample for sample, and a footprint of zero is that schedule everywhere (the A/B);
+//   * never coarser than the search stride, so a body the coarse tier can FIND (CloudResolvableChordKm)
+//     is never stepped over by the fine one, and the two-tier cycle's net advance,
+//     (CLOUD_EMPTY_FINE_SAMPLES_BEFORE_COARSE + 1) * fine - coarse, only grows.
+// ---------------------------------------------------------------------------------------------------
+
+// Trace texels of footprint per step: one trace texel is two half-resolution pixels, the grid the march
+// reconstructs its ray through, and the finest lateral detail any one of its samples is drawn into.
+#define CLOUD_FOOTPRINT_STEP_PIXELS 2.0f
+
+// The lit step at @p tKm along the ray, whose half-resolution pixel subtends @p pixelAngle radians.
+// @p fineStepKm and @p coarseStepKm are the segment's two tiers (above). @p pixelAngle 0 = the fine step.
+float CloudFootprintStepKm( float fineStepKm, float coarseStepKm, float tKm, float pixelAngle )
+{
+    float footprintKm = tKm * pixelAngle * CLOUD_FOOTPRINT_STEP_PIXELS;
+    return clamp( footprintKm, fineStepKm, max( coarseStepKm, fineStepKm ) );
+}
+
+// ---------------------------------------------------------------------------------------------------
 // THE EMPTY STRIDE ON THE CONSERVATIVE DENSITY (CLOUD-MARCH-COST-1)
 // ---------------------------------------------------------------------------------------------------
 //

@@ -418,6 +418,14 @@ namespace Common::Scalability
         // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
         // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
         ShadowDistanceFieldCascadeDistance,
+        // 0/1: the cloud march's integration step grows with the ray's pixel footprint (GPU-CLOUD-STEPS; the
+        // Frostbite / Hillaire footprint step on top of UE's StepT = L / SampleCount): past the distance where
+        // one trace texel covers more than the fine step, a lit sample integrates over the texel's footprint,
+        // never past the search stride (CloudFootprintStepKm, Common/CloudGeometry.glslh). 0 = the fixed fine
+        // step of the 256-step schedule, for the A/B and as the rollback. Read by SceneRenderer::BeginScene ->
+        // VolumetricCloudRenderer::SetCloudSettings. Key "Effects.CloudFootprintSteps": equal at every level (it
+        // keeps the integral, it is not a quality step), so only a machine override names it.
+        CloudFootprintSteps,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
