@@ -22,6 +22,7 @@ endif()
 set(_src "${_root}/src/static.c")
 set_source_files_properties("${_src}" PROPERTIES LANGUAGE CXX)
 add_library(Mimalloc SHARED "${_src}")
+desert_own_isa_dispatch(Mimalloc)
 set_target_properties(Mimalloc PROPERTIES FOLDER ThirdParty OUTPUT_NAME mimalloc)
 target_include_directories(Mimalloc PUBLIC "${_root}/include")
 target_compile_definitions(Mimalloc PRIVATE
