@@ -264,6 +264,7 @@ namespace Desert::Graphic::System
         // imports, registers and declares the kind once, not once per variety. A pooled kind is one the grass
         // passes alone read and write, by the variety table's addresses (pool + offset), so the shaders are
         // unchanged.
+        static constexpr uint32_t kNoFeedbackSlot = 0xFFFFFFFFu; // VarietyGpu::FeedbackSlot: none handed out
         struct PoolRange
         {
             uint64_t Offset = 0;
@@ -441,14 +442,23 @@ namespace Desert::Graphic::System
             // fade draws past that view's share are not kept, so it is rebuilt when the eye comes nearer, or
             // recedes far enough to hold too many (UpdateTiles). Stale: built under another lens or Foliage
             // quality's thinning; it keeps drawing until rebuilt.
+            // CPU-GRASS-POOL-2, THE RESIDENT TILES ARE A RING GRID (UE: a component is found by its section
+            // coordinates, not searched for): tile (x, z) lives in cell (x mod TileRingSide, z mod
+            // TileRingSide) of TileRing, which holds its coordinates. The residents lie within a square of
+            // TileSlots tiles about the eye (UpdateTiles' reach, plus the tile-wide band a resident is kept in),
+            // so a ring two tiles wider than the pool's span never holds two of them in one cell; it is sized
+            // with the pool (fresh).
             struct ResidentTile
             {
+                int32_t  X = 0, Z = 0;
                 uint32_t Slot      = 0;
                 float    BuiltNear = 0.0f;
+                bool     Held      = false;
                 bool     Stale     = false;
             };
-            std::unordered_map<uint64_t, ResidentTile> Tiles; // by the tile's world index (TileKey)
-            std::vector<uint32_t>                      FreeSlots;
+            std::vector<ResidentTile> TileRing;
+            uint32_t                  TileRingSide = 0;
+            std::vector<uint32_t>     FreeSlots;
             uint32_t                                   TileSlots = 0;
             uint32_t                                   TilePages = 0;
             float                                      TileSide  = 0.0f; // cm
@@ -461,9 +471,12 @@ namespace Desert::Graphic::System
             // (kGrassTileModeInit).
             uint32_t                                        PoolGeneration = 0;
             bool                                            PoolFresh      = false;
-            std::shared_ptr<ShaderResources::StorageBuffer> TileTable;    // per frame in flight: TileEntries
-            std::shared_ptr<ShaderResources::StorageBuffer> TileFeedback; // per frame in flight: read back
-            RDG::ExternalBuffer                             TileTableImport, TileFeedbackImport;
+            // CPU-GRASS-POOL-2: this frame's run of the shared tile table (GrassRenderer::m_TileTable: its header
+            // entry; a frame without tile passes has none) and the variety's words of the shared tile feedback
+            // (GrassRenderer::m_TileFeedback; kNoFeedbackSlot until EnsureTileFeedback hands one, never given
+            // back).
+            uint32_t TileTableBase = 0;
+            uint32_t FeedbackSlot  = kNoFeedbackSlot;
             // GRASS-TILE-3: THE POOL IS VIDEO MEMORY (UE: the grass HISM's instance buffers are GPU resources, the
             // host only uploads). The records (TileSegments, below) and the free pages and tile headers (TileWords) are
             // written and read by the GPU alone, so they are device-local storage buffers (GRASS-VIEW-LAW-1:
@@ -478,18 +491,18 @@ namespace Desert::Graphic::System
             bool                                            TilePoolMade = false;
             std::shared_ptr<ShaderResources::StorageBuffer> TilePool, TileWords;
             RDG::ExternalBuffer                             TilePoolImport, TileWordsImport;
-            RDG::BufferRef TilePoolRef, TileWordsRef, TileTableRef, TileFeedbackRef;
+            RDG::BufferRef TilePoolRef, TileWordsRef;
             // GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (Common/GrassVarietyRows.glslh; UE: a pooled buffer grows by
             // pages inside its pool's budget, never by a second full copy): the records live in TileSegments, device-
             // local buffers of kGrassTileSegmentPages pages appended as the pool grows; TilePool is their segment
-            // table (persistent: per segment its address, written once when the segment is made). TileRoom: the
+            // table (persistent: per segment its address, written when the segment is taken). CPU-GRASS-POOL-2:
+            // the segments are the renderer's (GrassRenderer::m_TileSegments, shared by every variety, imported
+            // once a frame); TileSegments holds the indices of this pool's, in its pages' order. TileRoom: the
             // pages the free-page stack in TileWords has room for - every slot's tile at its most pages - and so the
             // most the pool grows to; TileGrowFrom: the first page this frame's growth adds (TilePages: none), which
             // the Free pass pushes on the stack. TilePoolCapped: the pool was held at the grass pools' share of the
             // device-local budget (logged once).
-            std::vector<std::shared_ptr<ShaderResources::StorageBuffer>> TileSegments;
-            std::vector<RDG::ExternalBuffer>                             TileSegmentImports;
-            std::vector<RDG::BufferRef>                                  TileSegmentRefs;
+            std::vector<uint32_t>                                        TileSegments;
             uint32_t                                                     TileRoom       = 0;
             uint32_t                                                     TileGrowFrom   = 0;
             bool                                                         TilePoolCapped = false;
@@ -576,6 +589,59 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, FieldGpu>                            m_Fields;
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
+        // CPU-GRASS-POOL-2, THE TILE POOLS' SEGMENTS (UE: one pooled allocator hands every HISM its pages): every
+        // variety's segments (VarietyGpu::TileSegments, indices here). A pool made anew gives its segments back
+        // to m_FreeTileSegments, which the pools growing in the same frame take first; what is still free once
+        // the frame's tiles are updated is released (TrimTileSegments), so a free segment holds no video memory
+        // past its frame. The held ones are imported and registered once a frame (Ref).
+        struct TileSegment
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer> Buffer; // null: the index is free and empty
+            uint64_t                                        Address = 0;
+            bool                                            Held    = false;
+            RDG::ExternalBuffer                             Import;
+            RDG::BufferRef                                  Ref{};
+        };
+        std::vector<TileSegment> m_TileSegments;
+        std::vector<uint32_t>    m_FreeTileSegments;
+        // Takes a segment for a pool (a free one first, else a new one); false (logged) when none could be made.
+        [[nodiscard]] bool TakeTileSegment( uint32_t& index );
+        void               ReleaseTileSegments( VarietyGpu& gpu );
+        void               TrimTileSegments();
+        // The held segments into @p graph, once a frame (TileSegment::Ref); false (logged): no tile pass may run.
+        [[nodiscard]] bool ImportTileSegments( RDG::Builder& graph );
+        // @p pass reads or writes every held segment (@p access): declared once, not once per variety.
+        void DeclareTileSegments( RDG::PassBuilder& pass, RDG::Access access ) const;
+        // CPU-GRASS-POOL-2, THE TILE TABLE AND FEEDBACK ARE SHARED (UE FInstanceCullingContext: one upload, each
+        // primitive at its base): this frame's tile table - every tile-building variety's run of TileEntries,
+        // gathered in m_TileTableImage and written and imported once (per frame in flight) - and the tile
+        // feedback, kGrassTileFeedbackWords per variety at its FeedbackSlot (per frame in flight, read back).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_TileTable;
+        uint32_t                                        m_TileTableRoom = 0; // entries
+        std::vector<glm::uvec4>                         m_TileTableImage;
+        RDG::ExternalBuffer                             m_TileTableImport;
+        RDG::BufferRef                                  m_TileTableRef{};
+        std::shared_ptr<ShaderResources::StorageBuffer> m_TileFeedback;
+        uint32_t                                        m_TileFeedbackRoom  = 0; // slots
+        uint32_t                                        m_TileFeedbackSlots = 0; // handed out
+        RDG::ExternalBuffer                             m_TileFeedbackImport;
+        RDG::BufferRef                                  m_TileFeedbackRef{};
+        // Hands @p gpu its feedback slot and grows m_TileFeedback to every slot handed out; a remade buffer lost
+        // the frames in flight's reports, so every variety's pool is made anew. False (logged): not made.
+        [[nodiscard]] bool EnsureTileFeedback( VarietyGpu& gpu );
+        // Writes m_TileTableImage into m_TileTable and imports the table, the feedback and the segments once;
+        // false (logged): this frame's tile passes do not run.
+        void CommitTileTable( RDG::Builder& graph );
+        // UpdateTiles' scratch, kept across frames (no allocation once grown): the tiles to build, the builds,
+        // the tiles culled.
+        struct TileWant
+        {
+            float   Nearest = 0.0f;
+            int32_t X = 0, Z = 0;
+        };
+        std::vector<TileWant>                   m_TileWants;
+        std::vector<glm::uvec4>                 m_TileBuildScratch;
+        std::vector<std::pair<float, uint32_t>> m_TileCullScratch;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
         // GRASS-VIS-24: this frame's whose camera list is culled (an HZB-tested frame: every one with a list; by
         // the planes alone: those that generate)
@@ -586,8 +652,8 @@ namespace Desert::Graphic::System
         std::vector<VarietyGpu*>         m_FrameTileBuild;
         // GRASS-VRAM-BUDGET-1: this frame's TilePoolCap, read on its first use (empty: not read yet this frame).
         std::optional<uint64_t>          m_FrameTilePoolCap;
-        // CPU-GRASS-VARIETY-1: every variety's TileSegments summed, kept where the segments are made and dropped
-        // (UpdateTiles: its clear and its push_back are the only writers), so TilePoolBytes is O(1), not a walk
+        // CPU-GRASS-VARIETY-1: every variety's TileSegments summed, kept where the segments are taken and given
+        // back (TakeTileSegment / ReleaseTileSegments only), so TilePoolBytes is O(1), not a walk
         // of m_Varieties per variety (O(V^2) a frame). m_Varieties is never erased, so no variety leaves the sum.
         uint64_t                         m_TileSegmentCount = 0u;
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame

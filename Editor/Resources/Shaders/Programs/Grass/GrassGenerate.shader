@@ -7,7 +7,7 @@
 // LODs and fades the HISM's instances): the grid is cut into world tiles of kTileCells x kTileCells cells, and a
 // tile's instances - everything about an instance the view does not change - are built once into the variety's
 // tile pool (TilePool, pages of kTilePageRecords records handed out by TileWords' free-page stack) and kept while
-// the tile stays within the cull radius (GrassRenderer VarietyGpu::Tiles). The build (Count, Allocate, Write) keeps
+// the tile stays within the cull radius (VarietyGpu::TileRing). The build (Count, Allocate, Write) keeps
 // a cell's instance when its bilinear layer weight lies in AllowedDensityRange and beats the cell's random draw
 // (UE's RandomStream.GetFraction), its patches let it grow, and its fade draw beats the field's share at the nearest
 // the tile is built for (TileEntries' w): the thinning below is nested, so an instance dropped there is dropped at
@@ -70,16 +70,18 @@ Shader "GrassGenerate"
             uint TileWordsData[];
         };
 
-        // This frame's tile table (GrassRenderer VarietyGpu::TileTable): [0] x = the pool's generation (TileFeedback's
-        // mark), then each mode's entries from Mode.y - Free: x = slot; Count / Write: x = slot, y, z = the tile
+        // This frame's tile table, every tile-building variety's run of it (GrassRenderer m_TileTable,
+        // CPU-GRASS-POOL-2): at Base.x x = the pool's generation (TileFeedback's mark), then each mode's entries
+        // from Mode.y - Free: x = slot; Count / Write: x = slot, y, z = the tile
         // (world tile index), w = the nearest the tile is built for (float bits, cm); Cull: x = slot.
         ReadBuffer(12) Tiles
         {
             uvec4 TileEntries[];
         };
 
-        // Per frame in flight, read back FramesInFlight frames later: [0] the pool generation that wrote it, [1] the
-        // tiles whose pages ran out, [2] the most pages in use.
+        // Per frame in flight, read back FramesInFlight frames later, kGrassTileFeedbackWords per variety from
+        // Base.y (GrassRenderer m_TileFeedback): [0] the pool generation that wrote it, [1] the tiles whose pages
+        // ran out, [2] the most pages in use.
         Buffer(13) TileFeedback
         {
             uint TileFeedbackData[];
@@ -93,6 +95,9 @@ Shader "GrassGenerate"
             uvec4 Pool; // GRASS-VRAM-BUDGET-1: x = the free-page stack's room (the most pages the pool can grow to;
                         // the tile headers follow the stack), y = the first page this frame's growth adds, z = the
                         // pages it adds (Free pushes them on the stack), w = 0
+            uvec4 Base; // CPU-GRASS-POOL-2, the tile table and the feedback are shared by every variety: x = this
+                        // variety's header entry in Tiles (Mode.y counts from the table's start), y = its first
+                        // TileFeedback word, zw = 0
         };
 
         // GrassRenderer.cpp kGrassTileMode*.
@@ -441,7 +446,7 @@ Shader "GrassGenerate"
                 uint header = HeaderBase() + TileEntries[Mode.y + serial].x * kTileHeaderWords;
                 uint count  = min( TileWordsData[header], kTilePages * kTilePageRecords );
                 uint needed = ( count + kTilePageRecords - 1u ) / kTilePageRecords;
-                TileFeedbackData[0] = TileEntries[0].x;
+                TileFeedbackData[Base.y] = TileEntries[Base.x].x;
                 // Each cluster's run of the tile's records, in cluster order.
                 uint first = 0u;
                 for ( uint c = 0u; c < kTileClusters; ++c )
@@ -456,13 +461,13 @@ Shader "GrassGenerate"
                 if ( int( top ) < int( needed ) )
                 {
                     atomicAdd( TileWordsData[0], needed );
-                    atomicAdd( TileFeedbackData[1], 1u );
+                    atomicAdd( TileFeedbackData[Base.y + 1u], 1u );
                     return;
                 }
                 for ( uint k = 0u; k < needed; ++k )
                     TileWordsData[header + kTilePageWord + k] = TileWordsData[1u + top - needed + k];
                 TileWordsData[header + 1u] = needed;
-                atomicMax( TileFeedbackData[2], Mode.w - ( top - needed ) );
+                atomicMax( TileFeedbackData[Base.y + 2u], Mode.w - ( top - needed ) );
                 return;
             }
             if ( Mode.x == kModeCount || Mode.x == kModeWrite )
