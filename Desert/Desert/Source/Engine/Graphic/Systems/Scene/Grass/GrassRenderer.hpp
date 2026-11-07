@@ -258,6 +258,58 @@ namespace Desert::Graphic::System
             // main camera's origin, w ShadowWindDistanceOf - 0 where every instance casts its rest pose).
             glm::vec4 CascadeWind[kGrassCascadeLists]{};
         };
+        // CPU-GRASS-POOL-1, ONE BUFFER PER KIND OF DATA (UE GPUScene / FInstanceCullingManager: the instances'
+        // data live in a few pooled buffers registered once a frame, and a primitive owns a range of them): a
+        // variety holds a byte range of its kind's pool instead of a buffer of its own, so the frame graph
+        // imports, registers and declares the kind once, not once per variety. A pooled kind is one the grass
+        // passes alone read and write, by the variety table's addresses (pool + offset), so the shaders are
+        // unchanged.
+        struct PoolRange
+        {
+            uint64_t Offset = 0;
+            uint64_t Bytes  = 0; // 0: no range held
+        };
+        class BufferPool
+        {
+        public:
+            BufferPool( const char* name, uint32_t binding ) noexcept : m_Name( name ), m_Binding( binding )
+            {
+            }
+
+            // Hands @p range @p bytes (aligned) of the pool, releasing what it held first: the lowest free run
+            // that fits, else the end. False (@p range empty): the pool would pass a storage buffer's 4 GB.
+            [[nodiscard]] bool Allocate( PoolRange& range, uint64_t bytes );
+            // Gives @p range's bytes back (merged with free neighbours; a run at the end shortens the pool).
+            void Release( PoolRange& range );
+            // Once a frame, after every Allocate of it: the device-local buffer is (re)made when the ranges
+            // handed out passed its room - a remake moves every range (Epoch counts the remakes; what a range
+            // held is lost) - then imported into @p graph and registered once (Ref).
+            [[nodiscard]] Common::BoolResultStr Commit( RDG::Builder& graph );
+            [[nodiscard]] uint64_t              Address( const PoolRange& range ) const noexcept
+            {
+                return m_Address + range.Offset;
+            }
+            [[nodiscard]] uint64_t Epoch() const noexcept
+            {
+                return m_Epoch;
+            }
+            [[nodiscard]] RDG::BufferRef Ref() const noexcept
+            {
+                return m_Ref;
+            }
+
+        private:
+            const char*                                     m_Name;
+            uint32_t                                        m_Binding;
+            std::shared_ptr<ShaderResources::StorageBuffer> m_Buffer;
+            uint64_t                                        m_Address = 0; // m_Buffer's, taken when it is made
+            uint64_t                                        m_Room    = 0; // m_Buffer's bytes
+            uint64_t                                        m_End     = 0; // the bytes the ranges span
+            uint64_t                                        m_Epoch   = 0;
+            std::vector<PoolRange>                          m_Free; // by offset, never adjacent, never at the end
+            RDG::ExternalBuffer                             m_Import;
+            RDG::BufferRef                                  m_Ref{};
+        };
         struct FieldGpu
         {
             std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
@@ -311,12 +363,11 @@ namespace Desert::Graphic::System
             CameraList                                      List = CameraList::Planes;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
-            std::shared_ptr<ShaderResources::StorageBuffer> Candidates;
+            PoolRange                                       Candidates; // of m_CandidatesPool (CPU-GRASS-POOL-1)
             std::shared_ptr<ShaderResources::StorageBuffer> PostArgs;
-            RDG::ExternalBuffer CameraIdsImport, CameraArgsImport, CandidatesImport, PostArgsImport;
+            RDG::ExternalBuffer                             CameraIdsImport, CameraArgsImport, PostArgsImport;
             GpuInstanceRefs     CameraRefs; // phase 1's draws
-            GpuInstanceRefs     PostRefs;   // phase 2's: CameraIds through PostArgs
-            RDG::BufferRef      CandidatesRef;
+            GpuInstanceRefs                                 PostRefs;   // phase 2's: CameraIds through PostArgs
             // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the
             // tile cull's runs of Instances - one subgroup's slots of one bucket, one tile cluster's - with their
             // roots' box, each culled whole by one subgroup of GrassCull's camera cull, whose lanes then cull its
@@ -326,15 +377,16 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                  ChunksRef;
             uint32_t                                        ChunkRoom = 0;
             // GRASS-CULL-COST-3, THE LAW'S SLOTS (Common/GrassVarietyRows.glslh GrassVarietyRow::LawScales; UE GPU
-            // Scene: an instance's data is written once when it changes, the views only cull it): the scale the view
-            // law gave each record before its chunk's cut, written once per law generation by GrassCull's LawChunk and
-            // read by every frame's camera cull; LawCapacity slots, sized by what the law handed out (LawLowFrames:
-            // the frames in a row at half of it).
-            std::shared_ptr<ShaderResources::StorageBuffer> LawScales;
-            RDG::ExternalBuffer                             LawScalesImport;
-            RDG::BufferRef                                  LawScalesRef;
+            // Scene: an instance's data is written once when it changes, the views only cull it): the scale the
+            // view law gave each record before its chunk's cut, written once per law generation by GrassCull's
+            // LawChunk and read by every frame's camera cull; LawCapacity slots, sized by what the law handed out
+            // (LawLowFrames: the frames in a row at half of it). CPU-GRASS-POOL-1: a range of m_LawScalesPool;
+            // LawPoolEpoch the pool's Epoch the range was last lawed in - a remade pool moved it, so it is a new
+            // law generation.
+            PoolRange                                       LawScales;
             uint32_t                                        LawCapacity  = 0;
             uint32_t                                        LawLowFrames = 0;
+            uint64_t                                        LawPoolEpoch = 0;
             // What the view law reads this frame (LawKey: the params with the field eye, the pool's identity, Args,
             // LawScales and its room, the field's revision) and what the chunks were last lawed from (LawedKey);
             // LawGeneration counts its changes - a chunk whose law word carries another generation is lawed anew. A
@@ -578,6 +630,9 @@ namespace Desert::Graphic::System
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Table;
         RDG::ExternalBuffer                             m_TableImport;
+        // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates / LawScales), committed by WriteVarietyTable.
+        BufferPool m_CandidatesPool{ "GrassCandidates", 7u };
+        BufferPool m_LawScalesPool{ "GrassLawScales", 2u };
         // CPU-GRASS-VARIETY-1: WriteVarietyTable's scratch, kept across frames so a frame allocates nothing: the
         // table's bytes (reserved to the header and every row at once) and a row's cascade key, which is swapped
         // into the variety's CascadeKey when it differs (both vectors keep their capacity).
