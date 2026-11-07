@@ -152,10 +152,12 @@ namespace Desert::Runtime
         {
             const std::size_t bytes      = medium.Body.size();
             const std::size_t properties = medium.Properties.size();
+            auto              schema =
+                 std::make_shared<const std::vector<Core::Formats::ShaderParam>>( std::move( medium.Properties ) );
             {
                 const std::unique_lock write( m_Lock );
                 adopt();
-                m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( medium.Properties ) };
+                m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( schema ) };
             }
             LOG_INFO( "[ShaderService] '{}' is a Volume medium ({} bytes of authored source, {} own "
                       "propert(ies)); it compiles into the programs that sample the cloud field rather "
@@ -637,7 +639,7 @@ namespace Desert::Runtime
         return sources;
     }
 
-    const std::vector<Core::Formats::ShaderParam>*
+    std::shared_ptr<const std::vector<Core::Formats::ShaderParam>>
     ShaderService::MediumSchemaOf( const Assets::AssetHandle& handle ) const
     {
         if ( handle.IsNull() )
@@ -648,7 +650,9 @@ namespace Desert::Runtime
         // one mistake is how a log stops being read.
         const std::shared_lock read( m_Lock );
         const auto             it = m_Media.find( handle );
-        return it != m_Media.end() ? &it->second.Properties : nullptr;
+        if ( it == m_Media.end() )
+            return nullptr;
+        return it->second.Properties;
     }
 
     bool ShaderService::RefreshMediumSource( const Assets::AssetHandle& handle, const std::string& content )
@@ -662,8 +666,13 @@ namespace Desert::Runtime
         // back to the default every time they saved would be worse than one frame of stale text. The
         // empty case above is therefore "not a medium", not "an empty medium" — the parser refuses an
         // empty Medium block outright, for the same reason.
+        //
+        // A NEW schema object, never an overwrite of the old one: a render worker may hold that one
+        // (MediumSchemaOf co-owns it), and it dies with its last holder.
+        auto schema =
+             std::make_shared<const std::vector<Core::Formats::ShaderParam>>( std::move( medium.Properties ) );
         const std::unique_lock write( m_Lock );
-        m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( medium.Properties ) };
+        m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( schema ) };
         m_WarnedNotAMedium.erase( static_cast<uint64_t>( handle ) );
         return true;
     }

@@ -8,6 +8,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include <atomic>
+#include <memory>
+
 namespace Desert::Graphic::API::Vulkan
 {
     struct RdgSlotTable; // VulkanRdgPassBindings.hpp
@@ -27,6 +30,34 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<VkDescriptorPool>             Pool;
             std::vector<std::vector<VkDescriptorSet>> DescriptorSets; // frame -> set
+        };
+
+        /**
+         * ONE COMPILED PROGRAM, IMMUTABLE ONCE PUBLISHED: the modules, the stage infos that name them, the
+         * reflection, the slot table and the set layouts built from it, the metadata and the material layout.
+         *
+         * A reload builds a NEW record and publishes it; it never writes into the one readers see. Render
+         * workers record frame N-1 while the game thread hot-reloads in frame N (OVERLAP-ON-7), and every
+         * accessor below hands out a reference into the record - so the record a reader may hold is parked
+         * when it is replaced and destroyed only once every frame in flight has retired
+         * (Graphic::RetireReplacedShaderPrograms; UE: a shader map swapped on the game thread, the old one
+         * released by deferred deletion). The modules die with their record and with nothing else.
+         */
+        struct CompiledProgram
+        {
+            std::vector<VkPipelineShaderStageCreateInfo> StageInfos;
+            std::vector<VkShaderModule>                  Modules;
+            Core::Formats::ShaderProgramMeta             Meta;
+            Core::Formats::MaterialLayout                MaterialLayout;
+            ShaderResource::ReflectionData               Reflection;
+            // Built from Reflection in the same record, so the two never describe different modules.
+            std::shared_ptr<const RdgSlotTable> RdgSlots;
+            std::vector<DescriptorSetLayoutRef> SetLayouts; // indexed by set
+
+            CompiledProgram()                                    = default;
+            CompiledProgram( const CompiledProgram& )            = delete;
+            CompiledProgram& operator=( const CompiledProgram& ) = delete;
+            ~CompiledProgram(); // destroys Modules
         };
 
     public:
@@ -58,17 +89,17 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual const Core::Formats::ShaderProgramMeta& GetProgramMeta() const override
         {
-            return m_ProgramMeta;
+            return Current().Meta;
         }
 
         [[nodiscard]] const Core::Formats::MaterialLayout& GetMaterialLayout() const override
         {
-            return m_MaterialLayout;
+            return Current().MaterialLayout;
         }
 
         const std::vector<VkPipelineShaderStageCreateInfo>& GetPipelineShaderStageCreateInfos() const
         {
-            return m_PipelineShaderStageCreateInfos;
+            return Current().StageInfos;
         }
 
         /**
@@ -87,7 +118,7 @@ namespace Desert::Graphic::API::Vulkan
          */
         [[nodiscard]] const VkPipelineShaderStageCreateInfo* GetComputeStage() const
         {
-            for ( const auto& stage : m_PipelineShaderStageCreateInfos )
+            for ( const auto& stage : Current().StageInfos )
             {
                 if ( stage.stage == VK_SHADER_STAGE_COMPUTE_BIT )
                     return &stage;
@@ -109,7 +140,7 @@ namespace Desert::Graphic::API::Vulkan
          */
         [[nodiscard]] const VkPipelineShaderStageCreateInfo* GetVertexStage() const
         {
-            for ( const auto& stage : m_PipelineShaderStageCreateInfos )
+            for ( const auto& stage : Current().StageInfos )
             {
                 if ( stage.stage == VK_SHADER_STAGE_VERTEX_BIT )
                     return &stage;
@@ -123,7 +154,7 @@ namespace Desert::Graphic::API::Vulkan
         // first: the list IS what a pipeline would be built from.
         [[nodiscard]] virtual bool IsCompiled() const override
         {
-            return !m_PipelineShaderStageCreateInfos.empty();
+            return !Current().StageInfos.empty();
         }
         [[nodiscard]] std::string_view GetDeviceRefusal() const override
         {
@@ -143,58 +174,59 @@ namespace Desert::Graphic::API::Vulkan
          */
         DescriptorSetLayoutRef GetDescriptorSetLayout( uint32_t set ) const
         {
-            return set < m_DescriptorSetLayouts.size() ? m_DescriptorSetLayouts[set] : nullptr;
+            const auto& layouts = Current().SetLayouts;
+            return set < layouts.size() ? layouts[set] : nullptr;
         }
 
         auto GetDescriptorSetLayoutCount() const
         {
-            return m_DescriptorSetLayouts.size();
+            return Current().SetLayouts.size();
         }
 
         const std::vector<DescriptorSetLayoutRef>& GetAllDescriptorSetLayouts() const
         {
-            return m_DescriptorSetLayouts;
+            return Current().SetLayouts;
         }
 
         const ShaderResource::ReflectionData& GetReflectionData() const
         {
-            return m_ReflectionData;
+            return Current().Reflection;
         }
 
         // RDG-PARALLEL-6: the resource slots of GetReflectionData(), built with it (never null once reflected):
         // pass bindings resolve by an index lookup, not by walking the reflection per dispatch.
         const std::shared_ptr<const RdgSlotTable>& GetRdgSlots() const
         {
-            return m_RdgSlots;
+            return Current().RdgSlots;
         }
 
-        auto& GetShaderDescriptorSets()
+        const auto& GetShaderDescriptorSets() const
         {
-            return m_ReflectionData.ShaderDescriptorSets;
+            return Current().Reflection.ShaderDescriptorSets;
         }
 
-        auto& GetShaderPushConstant()
+        const auto& GetShaderPushConstant() const
         {
-            return m_ReflectionData.PushConstantRanges;
+            return Current().Reflection.PushConstantRanges;
         }
 
         // The input locations the vertex stage declares (ShaderReflection::ReflectVertexInputLocations).
         [[nodiscard]] const std::vector<uint32_t>& GetVertexInputLocations() const
         {
-            return m_ReflectionData.VertexInputLocations;
+            return Current().Reflection.VertexInputLocations;
         }
 
         // The vertex stage's inputs by name and type (ShaderReflection::ReflectVertexInputs).
         [[nodiscard]] const std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>&
         GetVertexInputs() const
         {
-            return m_ReflectionData.VertexInputs;
+            return Current().Reflection.VertexInputs;
         }
 
         // The colour locations the fragment stage writes (ShaderReflection::ReflectFragmentOutputLocations).
         [[nodiscard]] const std::vector<uint32_t>& GetFragmentOutputLocations() const
         {
-            return m_ReflectionData.FragmentOutputLocations;
+            return Current().Reflection.FragmentOutputLocations;
         }
 
         auto& GetVulkanDescriptorSetInfo() const
@@ -211,6 +243,14 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
+        [[nodiscard]] const CompiledProgram& Current() const noexcept
+        {
+            return *m_Current.load( std::memory_order_acquire );
+        }
+        // Swap @p next in for readers; the record it replaces is parked until the frames in flight retire.
+        void Publish( std::shared_ptr<const CompiledProgram> next ) noexcept;
+        [[nodiscard]] static const std::shared_ptr<const CompiledProgram>& NeverCompiled() noexcept;
+
         // Fails when a stage declares an image resource the engine cannot bind: reflection refuses to
         // register it, so the descriptor layout would silently lack the binding. Better to lose the
         // shader with a named reason than to bind something of the wrong shape.
@@ -221,7 +261,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr CreateDescriptorsLayout( const ShaderResource::ReflectionData& reflection,
                                                        std::vector<DescriptorSetLayoutRef>&  layouts ) const;
 
-        Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages );
+        Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages,
+                                              const Core::Formats::ShaderProgramMeta&  meta );
         // Everything Reload does after Core::BuildShaderMap answered: the empty-map refusal, the metadata, the
         // device half, the code generation. Shared by Reload and the prebuilt-map constructor - one path.
         Common::BoolResultStr AdoptShaderMap( const Core::ShaderMap& built );
@@ -230,8 +271,6 @@ namespace Desert::Graphic::API::Vulkan
         const std::weak_ptr<Assets::ShaderAsset> m_ShaderAsset;
 
     private:
-        std::vector<VkPipelineShaderStageCreateInfo> m_PipelineShaderStageCreateInfos;
-        std::vector<VkShaderModule>                  m_ShaderModules;
         std::filesystem::path                        m_ShaderPath;
         std::string                                  m_ShaderName;
         std::string                                  m_PassName; // empty = default program
@@ -246,13 +285,11 @@ namespace Desert::Graphic::API::Vulkan
         // ShaderDefines member it replaces was.
         ShaderVariant m_Variant;
 
-        Core::Formats::ShaderProgramMeta             m_ProgramMeta;
-        Core::Formats::MaterialLayout                m_MaterialLayout;
-
-        ShaderResource::ReflectionData      m_ReflectionData;
-        // Built from m_ReflectionData in the same assignment, so the two never describe different modules.
-        std::shared_ptr<const RdgSlotTable> m_RdgSlots;
-        std::vector<DescriptorSetLayoutRef> m_DescriptorSetLayouts; // indexed by set
+        // The published record. m_Owned is touched only by the reloading thread (construction, Reload);
+        // readers on any thread go through m_Current, which is never null (an empty record before the first
+        // successful compile - IsCompiled false, no stage, no layout).
+        std::shared_ptr<const CompiledProgram> m_Owned;
+        std::atomic<const CompiledProgram*>    m_Current{ nullptr };
 
         DescriptorSetInfo m_DescriptorSetInfo;
     };

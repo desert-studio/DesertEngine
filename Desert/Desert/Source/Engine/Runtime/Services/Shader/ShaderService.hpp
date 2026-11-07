@@ -165,7 +165,10 @@ namespace Desert::Runtime
          *         vector. The caller needs both: one means "the shipped medium", the other means "this
          *         medium, which has no parameters".
          */
-        const std::vector<Core::Formats::ShaderParam>* MediumSchemaOf( const Assets::AssetHandle& handle ) const;
+        /// CO-OWNED, NOT BORROWED: the cloud renderer asks from a render worker while the hot-reload poll may
+        /// replace the entry (RefreshMediumSource) - the schema a reader holds outlives that replacement.
+        std::shared_ptr<const std::vector<Core::Formats::ShaderParam>>
+        MediumSchemaOf( const Assets::AssetHandle& handle ) const;
 
         /// Re-read a medium's body after its file changed on disk. Called by the hot-reload poll, which
         /// is the only thing that knows a shader asset was re-read.
@@ -302,7 +305,8 @@ namespace Desert::Runtime
         struct MediumEntry
         {
             std::string                             Source;
-            std::vector<Core::Formats::ShaderParam> Properties;
+            // Shared and immutable: MediumSchemaOf hands it out, a refresh publishes a new one.
+            std::shared_ptr<const std::vector<Core::Formats::ShaderParam>> Properties;
         };
         std::unordered_map<Assets::AssetHandle, MediumEntry> m_Media;
 
