@@ -24,6 +24,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -170,19 +171,95 @@ namespace Desert::Editor
         LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10} {:>10} {:>10}", "scope",
                   "cpu ms", "x", "gpu ms", "gpu self", "x", "cpu self", "cpu wait", "cpu max", "cpu p99" );
 
-        for ( const auto& s : prof.LastFrame() )
+        // GPU-PASS-TIMES-1: THE JOIN. A pass's CPU scope is one row ("Deferred: GBuffer"), its timestamp pair
+        // another: the backend names a view's GPU rows "<view> | <pass>" (GpuViewScopeName), so several views keep
+        // their passes apart. Read side by side they were two rows, the CPU one with a 0.000 GPU column and the
+        // GPU one sorted to the table's bottom by its 0 cpu ms - the table read as "no pass costs GPU time".
+        // Here a view's GPU row is joined onto the CPU row of its pass (summed over views, as the CPU row sums
+        // them), and the per-view rows are listed apart, largest first, in the GPU table below.
+        const std::vector<::Common::Profiling::ScopeResult>& rows = prof.LastFrame();
+        struct JoinedGpu
         {
-            if ( std::string_view( s.Name ).starts_with( gapPrefix ) )
-                continue; // printed below, largest first
-            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>10.3f} "
-                      "{:>10.3f}",
-                      s.Name, s.TotalMs, s.Calls, s.GpuMs, s.GpuSelfMs, s.GpuCalls, s.SelfMs, s.WaitMs, s.MaxMs,
-                      s.P99Ms );
+            double   Ms     = 0.0;
+            double   SelfMs = 0.0;
+            uint32_t Calls  = 0;
+        };
+        std::vector<JoinedGpu> joined( rows.size() );
+        std::vector<uint8_t>   joinedAway( rows.size(), 0 ); // 1: a view's GPU row now read on its pass's row
+        {
+            std::unordered_map<std::string_view, size_t> rowByName;
+            rowByName.reserve( rows.size() );
+            for ( size_t i = 0; i < rows.size(); ++i )
+                rowByName.emplace( rows[i].Name, i );
+            for ( size_t i = 0; i < rows.size(); ++i )
+            {
+                const std::string_view name = rows[i].Name;
+                const size_t           view = name.find( " | " );
+                if ( rows[i].GpuCalls == 0 || rows[i].Calls != 0 || view == std::string_view::npos )
+                    continue;
+                const auto pass = rowByName.find( name.substr( view + 3 ) );
+                if ( pass == rowByName.end() )
+                    continue;
+                // Only onto a CPU row with no GPU time of its own: a row timed under its own name stays as is.
+                const ::Common::Profiling::ScopeResult& cpuRow = rows[pass->second];
+                if ( cpuRow.Calls == 0 || cpuRow.GpuCalls != 0 )
+                    continue;
+                JoinedGpu& into = joined[pass->second];
+                into.Ms += rows[i].GpuMs;
+                into.SelfMs += rows[i].GpuSelfMs;
+                into.Calls += rows[i].GpuCalls;
+                joinedAway[i] = 1;
+            }
+        }
+
+        double gpuAsyncSumMs = 0.0;
+        for ( size_t i = 0; i < rows.size(); ++i )
+        {
+            const auto& s = rows[i];
             // SELF time is the only summable column — the inclusive one counts a parent's microseconds
             // again in each child. The frame bracket is the denominator and the Unaccounted rows are its
-            // remainder, not passes, so they stay out.
+            // remainder, not passes, so they stay out. Only the GRAPHICS queue's self time tiles the frame
+            // bracket: the async compute queue is another timeline overlapping it, summed apart.
             if ( s.GpuCalls > 0 && !isRemainder( s.Name ) )
-                gpuSumMs += s.GpuSelfMs;
+            {
+                gpuSumMs += s.GpuSelfMs - s.GpuAsyncSelfMs;
+                gpuAsyncSumMs += s.GpuAsyncSelfMs;
+            }
+            if ( std::string_view( s.Name ).starts_with( gapPrefix ) || joinedAway[i] != 0 )
+                continue; // gaps are printed below, largest first; a joined view row in the GPU table
+            JoinedGpu gpu{ s.GpuMs, s.GpuSelfMs, s.GpuCalls };
+            if ( joined[i].Calls != 0 )
+                gpu = joined[i];
+            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>10.3f} "
+                      "{:>10.3f}",
+                      s.Name, s.TotalMs, s.Calls, gpu.Ms, gpu.SelfMs, gpu.Calls, s.SelfMs, s.WaitMs, s.MaxMs,
+                      s.P99Ms );
+        }
+
+        // THE GPU TABLE (UE "stat gpu"): every timed GPU row - per view, async segments and waits included - by
+        // self time, largest first, with the queue it ran on. The last column is a word, so a reader of the
+        // per-pass rows' numeric columns (scripts/Dev/profiler_compare.py) does not take these rows for them.
+        {
+            std::vector<const ::Common::Profiling::ScopeResult*> timed;
+            for ( const auto& s : rows )
+                if ( s.GpuCalls > 0 && !isRemainder( s.Name ) )
+                    timed.push_back( &s );
+            std::sort( timed.begin(), timed.end(),
+                       []( const auto* a, const auto* b ) { return a->GpuSelfMs > b->GpuSelfMs; } );
+            LOG_INFO( "[Profiler] ---- GPU per pass ({} timed row(s), gpu self largest first) ----",
+                      timed.size() );
+            LOG_INFO( "[Profiler] {:<60} {:>10} {:>10} {:>6} {:>8}", "gpu scope", "gpu self", "gpu ms", "x",
+                      "queue" );
+            for ( const ::Common::Profiling::ScopeResult* s : timed )
+            {
+                std::string_view queue = "graphics";
+                if ( s->GpuAsyncSelfMs > 0.0 && s->GpuAsyncSelfMs + 1e-9 < s->GpuSelfMs )
+                    queue = "both";
+                else if ( s->GpuAsyncSelfMs > 0.0 )
+                    queue = "async";
+                LOG_INFO( "[Profiler] {:<60} {:>10.3f} {:>10.3f} {:>6} {:>8}", s->Name, s->GpuSelfMs, s->GpuMs,
+                          s->GpuCalls, queue );
+            }
         }
 
         // [Hitch]: each frame of the window over kHitchFactor x its median wall time (slowest first, at most
@@ -214,9 +291,10 @@ namespace Desert::Editor
                       cpuRest, frameMs, frameMs > 0.0001 ? cpuRest / frameMs * 100.0 : 0.0, namedMs );
         }
 
-        LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
-                  "remainder is device work no pass is marked around.",
-                  gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
+        LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %) on the graphics "
+                  "queue; the remainder is device work no pass is marked around. Async compute queue self "
+                  "times (overlapping it, not in that sum): {:.3f} ms.",
+                  gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0, gpuAsyncSumMs );
 
         // UNACCOUNTED, PER QUEUE (UE "stat gpu"): the GPU frame minus the union of the labelled graphics scopes,
         // and the async segments minus the union of their passes - the backend's numbers, not this sum (which

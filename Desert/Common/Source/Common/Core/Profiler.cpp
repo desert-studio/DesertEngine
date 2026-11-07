@@ -20,6 +20,7 @@ namespace Common::Profiling
             double   WaitMs    = 0.0;
             double   GpuMs     = 0.0;
             double   GpuSelfMs = 0.0;
+            double   GpuAsyncSelfMs = 0.0; // the async compute queue's part of GpuSelfMs
             uint32_t Calls     = 0;
             uint32_t GpuCalls  = 0;
 
@@ -35,6 +36,7 @@ namespace Common::Profiling
                 WaitMs += other.WaitMs;
                 GpuMs += other.GpuMs;
                 GpuSelfMs += other.GpuSelfMs;
+                GpuAsyncSelfMs += other.GpuAsyncSelfMs;
                 Calls += other.Calls;
                 GpuCalls += other.GpuCalls;
                 return *this;
@@ -455,6 +457,7 @@ namespace Common::Profiling
                 avg.WaitMs    = result.WaitMs * inv;
                 avg.GpuMs     = result.GpuMs * inv; // avg GPU ms / frame
                 avg.GpuSelfMs = result.GpuSelfMs * inv;
+                avg.GpuAsyncSelfMs = result.GpuAsyncSelfMs * inv;
                 avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
                 std::vector<float>& perFrame = window.RowFrames[id];
                 if ( !perFrame.empty() )
@@ -685,18 +688,21 @@ namespace Common::Profiling
         // lands in a LATER window than the CPU sample of the same scope. Over a window of hundreds of
         // frames that shifts the average by the lag divided by the window — well under a per cent — and it
         // keeps the read off the GPU's critical path, which is the whole point.
-        AddGpuSample( LocalScopeName( {}, name ).Id, inclusiveMs, selfMs );
+        AddGpuSample( LocalScopeName( {}, name ).Id, inclusiveMs, selfMs, GpuQueue::Graphics );
     }
 
-    void Profiler::AddGpuSample( const uint32_t nameId, const double inclusiveMs, const double selfMs )
+    void Profiler::AddGpuSample( const uint32_t nameId, const double inclusiveMs, const double selfMs,
+                                 const GpuQueue queue )
     {
         if ( !ReserveSample( nameId ) )
             return;
+        const double asyncSelfMs = queue == GpuQueue::AsyncCompute ? selfMs : 0.0;
         (void)t_Stats->Write( nameId,
                               [&]( Detail::ThreadStats::Half&, Detail::ScopeAccum& row )
                               {
                                   row.GpuMs += inclusiveMs;
                                   row.GpuSelfMs += selfMs;
+                                  row.GpuAsyncSelfMs += asyncSelfMs;
                                   row.GpuCalls += 1;
                               } );
     }
