@@ -1617,6 +1617,13 @@ namespace Desert::Graphic::System
         // joins a group or a mask (its address). A record past the columns was queued after the sync: skipped.
         const StaticWalkColumns& columns = m_StaticColumns;
         const std::size_t        end     = std::min( last, columns.Count() );
+        // The snapshot's boxes four at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record
+        // that reaches the frustum test is tested once over the snapshot's lanes, kept with the static revision;
+        // each record reads its bit - StaticEntryInView's answer. The chunk's own cursor: chunks run in parallel.
+        const bool lanes      = StaticLanesCurrent();
+        const auto entryGroup = [this, &frustum]( const std::size_t base ) noexcept
+        { return StaticEntriesInView4( frustum, base ); };
+        VisibleInViewQuads entryQuads;
         for ( std::size_t i = first; i < end; ++i )
         {
             const Desert::Mesh* const mesh = columns.Meshes[i];
@@ -1632,7 +1639,8 @@ namespace Desert::Graphic::System
             if ( !walk )
                 continue;
             // The dense snapshot's box (m_StaticSnapshot, built once per static revision), not this entry's mesh.
-            if ( !StaticEntryInView( frustum, i ) )
+            const bool inView = lanes ? entryQuads.Visible( i, entryGroup ) : StaticEntryInView( frustum, i );
+            if ( !inView )
                 continue;
             const StaticMeshRenderData& data = m_StaticQueue[i];
             // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).

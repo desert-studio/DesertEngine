@@ -716,17 +716,23 @@ namespace Desert::Graphic::System
             // The dense snapshot's boxes (m_StaticSnapshot), every entry with a mesh; casters' rows copy theirs.
             m_StaticSnapshot.WorldBounds.resize( m_StaticQueue.size() );
             m_StaticSnapshot.GenericBounds.resize( m_GenericQueue.size() );
+            // The same boxes as columns, in entry order (CPU-SIMD 4): refilled only here, with the revision.
+            m_StaticSnapshot.WorldLanes.Clear();
+            setup.StaticBounds.Clear();
             for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
             {
                 const StaticMeshRenderData& rd = m_StaticQueue[i];
                 setup.Statics[i]               = ShadowCasterRow{};
                 m_StaticSnapshot.WorldBounds[i] = Common::Math::AABB{};
-                if ( rd.Mesh == nullptr )
-                    continue;
-                m_StaticSnapshot.WorldBounds[i] =
-                     worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
-                if ( rd.CastShadows )
-                    setup.Statics[i].WorldBounds = m_StaticSnapshot.WorldBounds[i];
+                if ( rd.Mesh != nullptr )
+                {
+                    m_StaticSnapshot.WorldBounds[i] =
+                         worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
+                    if ( rd.CastShadows )
+                        setup.Statics[i].WorldBounds = m_StaticSnapshot.WorldBounds[i];
+                }
+                m_StaticSnapshot.WorldLanes.PushBack( m_StaticSnapshot.WorldBounds[i] );
+                setup.StaticBounds.PushBack( setup.Statics[i].WorldBounds );
             }
             for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
             {
@@ -756,6 +762,19 @@ namespace Desert::Graphic::System
             return IsVisibleInView( frustum, m_StaticSnapshot.WorldBounds[index] );
         const StaticMeshRenderData& data = m_StaticQueue[index];
         return IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) );
+    }
+
+    bool MeshRenderer::StaticLanesCurrent() const noexcept
+    {
+        return m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+               m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() &&
+               m_StaticSnapshot.WorldLanes.Size() == m_StaticQueue.size();
+    }
+
+    uint32_t MeshRenderer::StaticEntriesInView4( const Core::Frustum& frustum,
+                                                 const std::size_t    base ) const noexcept
+    {
+        return VisibleInView4( frustum, m_StaticSnapshot.WorldLanes, base );
     }
 
     bool MeshRenderer::GenericEntryInView( const Core::Frustum& frustum, const std::size_t index ) const
@@ -1961,6 +1980,24 @@ namespace Desert::Graphic::System
         // record past the columns was queued after the sync: skipped.
         const StaticWalkColumns& columns = m_StaticColumns;
         const std::size_t        statics = drawStatic ? columns.Count() : 0u;
+        // inView four rows at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record that
+        // reaches the test is tested once over the rows' columns (StaticBounds, kept with the rows), the view's
+        // bits AND the union of the strips' - per row the verdict inView gives its box. Rows whose columns are
+        // not of these rows (another count, or rows not finished for this gather) are tested one at a time.
+        const Common::Math::AABBLanes& staticLanes = gathered.StaticBounds;
+        const bool                     staticBatch = gathered.StaticRowsGather == gathered.Gather &&
+                                 staticLanes.Size() == gathered.Statics.size();
+        const auto                     staticGroup = [&]( const std::size_t base ) noexcept
+        {
+            uint32_t bits = VisibleInView4( cascadeFrustum, staticLanes, base );
+            if ( stripCount == 0 || bits == 0u )
+                return bits;
+            uint32_t stripBits = 0u;
+            for ( std::size_t s = 0; s < stripCount; ++s )
+                stripBits |= VisibleInView4( strips[s], staticLanes, base );
+            return bits & stripBits;
+        };
+        VisibleInViewQuads staticQuads;
         for ( std::size_t i = 0; i < statics; ++i )
         {
             const Desert::Mesh* const mesh  = columns.Meshes[i];
@@ -1970,7 +2007,11 @@ namespace Desert::Graphic::System
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
                  walkHidden( mesh, mesh->GetSubmeshes().size(), columns.Primitives[i], columns.Hidden[i] );
-            if ( !walk || !inView( gathered.Statics[i].WorldBounds ) )
+            if ( !walk )
+                continue;
+            const bool caster = staticBatch && i < staticLanes.Size() ? staticQuads.Visible( i, staticGroup )
+                                                                      : inView( gathered.Statics[i].WorldBounds );
+            if ( !caster )
                 continue;
             const StaticMeshRenderData& rd     = m_StaticQueue[i];
             const SubmeshMask           hidden = *walk;

@@ -4142,6 +4142,11 @@ namespace Desert::Graphic::System
             // row: the per-view per-instance culls (CascadeStaticSignature, BuildShadowCascadeDraws) test four
             // boxes per register over them (VisibleInViewBits) instead of one fat row at a time.
             Common::Math::AABBLanes InstanceBounds;
+            // Statics' boxes again as dense columns (CPU-SIMD 4), one per row in row order, made with the rows
+            // by FinishStaticCasterRows and kept with them (SCENE-CACHE-4: only a moved static revision refills
+            // them): the static caster walk of every shadow view (BuildShadowCascadeDraws) tests the four-box
+            // group of a record it asks (VisibleInView4) instead of one fat row at a time.
+            Common::Math::AABBLanes StaticBounds;
             // THE ISM GATHER IS KEPT ACROSS FRAMES (SCENE-CACHE-3) while every input of ShadowIsmInstances is the
             // one it was made from: IsmKey (IsmGatherKey) and the transforms snapshots, held by owner (a freed
             // snapshot whose address came back is another one). IsmRevision moves whenever the gather starts over.
@@ -4172,6 +4177,10 @@ namespace Desert::Graphic::System
         {
             std::vector<Common::Math::AABB> WorldBounds;   // per m_StaticQueue entry
             std::vector<Common::Math::AABB> GenericBounds; // per m_GenericQueue entry
+            // WorldBounds again as dense columns (CPU-SIMD 4; UE FScene::PrimitiveBounds' SoA batch cull), filled
+            // in the same pass: the main view's static chunks test four entries per register
+            // (StaticEntriesInView4).
+            Common::Math::AABBLanes         WorldLanes;
             uint64_t                        Gather = 0;
         };
         StaticInstanceSnapshot m_StaticSnapshot;
@@ -4235,7 +4244,14 @@ namespace Desert::Graphic::System
         // Whether m_StaticQueue entry @p index (whose Mesh is set) is in @p frustum: the snapshot's box when it
         // is of this gather, else the box IsVisibleInView builds from the entry (the same box, the same answer).
         [[nodiscard]] bool StaticEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
-        // The same for m_GenericQueue entry @p index (whose Mesh is set).
+        // Whether the snapshot's lanes (m_StaticSnapshot.WorldLanes) are of this gather and cover every entry:
+        // then StaticEntriesInView4 answers StaticEntryInView for four entries at once.
+        [[nodiscard]] bool StaticLanesCurrent() const noexcept;
+        // StaticEntryInView for entries @p base .. base + 3 (base below the queue's size, StaticLanesCurrent):
+        // bit i for entry base + i, by VisibleInView4 over the snapshot's lanes - the same box, the same answer.
+        [[nodiscard]] uint32_t StaticEntriesInView4( const Core::Frustum& frustum,
+                                                     std::size_t          base ) const noexcept;
+        // StaticEntryInView for m_GenericQueue entry @p index (whose Mesh is set).
         [[nodiscard]] bool GenericEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
         // The world box of m_StaticQueue entry @p index (whose Mesh is set): the snapshot's when it is of this
         // gather, else TransformBounds of its local bounds (the box the glass sort reads its centre from).
