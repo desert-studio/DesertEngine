@@ -61,6 +61,9 @@ struct GrassVarietyRow
     uint  FullIdsBase;
     uint  CameraIdsBase;
     uint  CascadeIdsBase;
+    // CPU-GRASS-POOL-7: Feedback is the variety's range of one readback pool; FinalizeFull writes this mark
+    // (GrassRenderer VarietyGpu::FeedbackMark, never 0) as the written mark: a range's earlier holder is told apart.
+    uint  FeedbackMark;
     // The row ends here; std430 rounds it to its 16-byte alignment.
 };
 

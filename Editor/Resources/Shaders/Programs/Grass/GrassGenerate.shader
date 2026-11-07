@@ -99,6 +99,8 @@ Shader "GrassGenerate"
                         // variety's header entry in Tiles (Mode.y counts from the table's start), y = its first
                         // TileFeedback word, z = its first TileWords word (CPU-GRASS-POOL-3: the words are a
                         // range of the shared words pool, GrassRenderer m_TileWordsPool), w = 0
+            uvec4 Ranges; // CPU-GRASS-POOL-7, the bindings are shared pools: x = this variety's record of Params,
+                          // y = its first word of Chunks, z = its first entry of TilePool (the segment tables), w = 0
         };
 
         // GrassRenderer.cpp kGrassTileMode*.
@@ -193,7 +195,7 @@ Shader "GrassGenerate"
 
         void StoreRecord( uint at, TileRecord r )
         {
-            GrassQuads quads = GrassQuads( TileSegmentData[at / kGrassTileSegmentRecords] );
+            GrassQuads quads = GrassQuads( TileSegmentData[Ranges.z + at / kGrassTileSegmentRecords] );
             uint       quad  = GrassSegmentRecord( at ) * kTilePoolWords;
             quads.Quads[quad] = uvec4( floatBitsToUint( r.Position ), packUnorm2x16( vec2( r.Fade, r.Thin ) ) );
             quads.Quads[quad + 1u] = uvec4( floatBitsToUint( r.Scale ), floatBitsToUint( r.Clump ) );
@@ -377,7 +379,7 @@ Shader "GrassGenerate"
             uint first = TileWordsData[Base.z + cluster + 1u];
             uint room  = TileWordsData[Base.z + header + 1u] * kTilePageRecords;
             uint count = first < room ? min( TileWordsData[Base.z + cluster], room - first ) : 0u;
-            uint at    = GrassChunkAt( chunk );
+            uint at    = Ranges.y + GrassChunkAt( chunk );
             for ( uint i = 0u; i < 6u; ++i )
                 GrassChunkData[at + kGrassChunkBoxWord + i] = floatBitsToUint( FromOrderedBits( TileWordsData[Base.z + cluster + 2u + i] ) );
             GrassChunkData[at + kGrassChunkScaleWord] = scale;
@@ -400,7 +402,7 @@ Shader "GrassGenerate"
 
         void main()
         {
-            GrassParams p    = GrassParamsData[0];
+            GrassParams p    = GrassParamsData[Ranges.x];
             uint        serial = gl_WorkGroupID.x * 64u + gl_LocalInvocationIndex;
             if ( Mode.x == kModeInit )
             {
@@ -413,7 +415,7 @@ Shader "GrassGenerate"
                 if ( serial < Mode.z * kTileHeaderWords )
                     TileWordsData[Base.z + HeaderBase() + serial] = InitialHeaderWord( serial % kTileHeaderWords );
                 if ( serial < Mode.z * kTileClusters )
-                    GrassChunkData[GrassChunkAt( serial ) + kGrassChunkCountWord] = 0u;
+                    GrassChunkData[Ranges.y + GrassChunkAt( serial ) + kGrassChunkCountWord] = 0u;
                 return;
             }
             if ( Mode.x == kModeFree )
@@ -432,7 +434,7 @@ Shader "GrassGenerate"
                     TileWordsData[Base.z + 1u + at + k] = TileWordsData[Base.z + header + kTilePageWord + k];
                 // Its chunks are emptied too: the view law reads no record of a freed slot.
                 for ( uint c = 0u; c < kTileClusters; ++c )
-                    GrassChunkData[GrassChunkAt( TileEntries[Mode.y + serial].x * kTileClusters + c ) +
+                    GrassChunkData[Ranges.y + GrassChunkAt( TileEntries[Mode.y + serial].x * kTileClusters + c ) +
                                    kGrassChunkCountWord] = 0u;
                 for ( uint w = 0u; w < kTilePageWord; ++w )
                     TileWordsData[Base.z + header + w] = InitialHeaderWord( w );
