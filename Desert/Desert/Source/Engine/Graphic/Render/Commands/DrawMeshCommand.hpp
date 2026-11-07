@@ -5,9 +5,10 @@
 // forward-declares the type (see the note there on the include cycle that cost).
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
-#include <glm/mat4x4.hpp>
+#include <glm/mat4x4.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
+#include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
 
 namespace Desert::Graphic::Render
 {
@@ -15,7 +16,7 @@ namespace Desert::Graphic::Render
     {
         // The entity that owns the draw (entt id incl. version): GpuSceneRegistry keys this draw's
         // GpuScene primitive by it (MotionKey), so the velocity of a moving object is its own.
-        uint32_t      Entity;
+        uint32_t Entity;
         // A stable part of that entity (a fracture piece: node + 1) whose previous transform is its own whatever
         // else the entity drew (MotionRecord::Part); 0 = the entity's primitives are numbered by submission.
         uint32_t      MotionPart = 0;
@@ -25,20 +26,20 @@ namespace Desert::Graphic::Render
         // them, which runs user Lua that can add or destroy entities — and is only read afterwards. See
         // Graphic::MaterialSlotBinding for the mechanism this replaces (A8-3). Copying it is one atomic
         // increment; the per-entity slot-vector copy the old raw pointer avoided is still avoided.
-        Graphic::MaterialSlotBindingPtr                MaterialSlots;
+        Graphic::MaterialSlotBindingPtr MaterialSlots;
         // The slot every submesh of this draw shades with (Desert::SectionMaterialSlot, grouped by
         // Rules::SplitMeshSlotDraws): one command per section material, HiddenSubmeshes masking the rest.
-        uint32_t                                       SectionSlot = 0;
-        glm::mat4                                      Transform;
-        bool                                           Outlined        = false;
-        uint64_t                                       HiddenSubmeshes = 0;  // bit i = submesh i hidden
-        int                                            ForcedLOD       = -1; // -1 = auto (by distance)
-        int                                            LODBias         = 0;  // shifts the auto LOD (ignored when forced)
-        bool                                           CastShadows     = true;
-        bool                                           ReceiveShadows  = true;
-        int                                            TranslucencySortPriority = 0; // lower draws first
-        float MaxDrawDistance = 0.0f; // StaticMeshComponent::MaxDrawDistance (cm, 0 = no limit)
-        bool  CastContactShadow = true; // StaticMeshComponent::CastContactShadow (UE bCastContactShadow)
+        uint32_t  SectionSlot = 0;
+        glm::mat4 Transform;
+        bool      Outlined                 = false;
+        uint64_t  HiddenSubmeshes          = 0;  // bit i = submesh i hidden
+        int       ForcedLOD                = -1; // -1 = auto (by distance)
+        int       LODBias                  = 0;  // shifts the auto LOD (ignored when forced)
+        bool      CastShadows              = true;
+        bool      ReceiveShadows           = true;
+        int       TranslucencySortPriority = 0;    // lower draws first
+        float     MaxDrawDistance          = 0.0f; // StaticMeshComponent::MaxDrawDistance (cm, 0 = no limit)
+        bool      CastContactShadow = true; // StaticMeshComponent::CastContactShadow (UE bCastContactShadow)
 
         DrawStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialSlotBindingPtr materialSlots,
                                uint32_t sectionSlot, const glm::mat4& transform, bool outlined = false,
@@ -117,46 +118,41 @@ namespace Desert::Graphic::Render
         }
     };
 
-    // UE-style Instanced Static Mesh: one mesh + one material drawn for every transform. The material
-    // instance and the transform array are both CO-OWNED — both are owned by the ECS component that
-    // recorded this command, and the entity can be destroyed by Lua before the command is executed (A8-3).
-    struct DrawInstancedStaticMeshCommand : RenderCommand
+    // THE RETAINED ISM LIST (UE: an instanced static mesh is a retained proxy with cached mesh draw commands).
+    // MeshECSSystem records ONE of these per update for every Instanced Static Mesh section of the scene: the
+    // snapshot is the same object while no ISM changed, and the frame's values (wind, fade) are a pooled plain
+    // array, so neither the game thread nor a view copies a material handle or a transform snapshot per section
+    // (SceneRenderer::SubmitInstancedScene, MeshRenderer::SubmitInstancedRow).
+    struct DrawInstancedSceneCommand : RenderCommand
     {
-        uint32_t                                      Entity; // keys each instance's GPU-scene row
-        Desert::Mesh*                                 Mesh;
-        Graphic::MaterialInstancePtr                  Material;        // the section group's slot instance
-        Graphic::MaterialInstancePtr DisplacedMaterial; // its displaced sibling; null = the mesh is not displaced
-        uint64_t                                      HiddenSubmeshes; // the sections of the other slots
-        std::shared_ptr<const std::vector<glm::mat4>> Transforms;
-        bool                                          CastShadows;
-        bool CastContactShadow; // InstancedStaticMeshComponent::CastContactShadow (UE bCastContactShadow)
-        InstanceCullDistance                          CullDistance; // the foliage type's (FO-5); {0, 0} = none
-        InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
+        std::shared_ptr<const InstancedSceneSnapshot> Scene;
+        std::shared_ptr<const InstancedSceneFrame>    Frame; // one entry per row of Scene
 
-        DrawInstancedStaticMeshCommand( uint32_t entity, Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
-                                        uint64_t                                      hiddenSubmeshes,
-                                        std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
-                                        bool castContactShadow, const InstanceCullDistance& cullDistance,
-                                        const InstanceWind& wind, Graphic::MaterialInstancePtr displacedMaterial )
-             : Entity( entity ), Mesh( mesh ), Material( std::move( material ) ),
-               DisplacedMaterial( std::move( displacedMaterial ) ),
-               HiddenSubmeshes( hiddenSubmeshes ), Transforms( std::move( transforms ) ),
-               CastShadows( castShadows ), CastContactShadow( castContactShadow ), CullDistance( cullDistance ),
-               Wind( wind )
+        DrawInstancedSceneCommand( std::shared_ptr<const InstancedSceneSnapshot> scene,
+                                   std::shared_ptr<const InstancedSceneFrame>    frame )
+             : Scene( std::move( scene ) ), Frame( std::move( frame ) )
         {
         }
 
+        // The fence's intake for every row's mesh (an edited DynamicMesh's upload), as DrawStaticSceneCommand's:
+        // only when some mesh was marked stale since this snapshot was last prepared.
         void Prepare() override
         {
-            if ( Mesh != nullptr )
-                SceneRenderer::PrepareMesh( *Mesh );
+            if ( !Scene )
+                return;
+            const uint64_t epoch = Desert::Mesh::GetStaleEpoch();
+            if ( Scene->PreparedStaleEpoch == epoch )
+                return;
+            Scene->PreparedStaleEpoch = epoch;
+            for ( const InstancedSceneRow& row : Scene->Rows )
+                if ( row.Mesh != nullptr )
+                    SceneRenderer::PrepareMesh( *row.Mesh );
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Entity, Mesh, Material, HiddenSubmeshes, Transforms, CastShadows,
-                                              CastContactShadow, CullDistance, Wind, DisplacedMaterial );
+            if ( Scene && Frame )
+                renderer.SubmitInstancedScene( *Scene, *Frame );
         }
     };
 } // namespace Desert::Graphic::Render

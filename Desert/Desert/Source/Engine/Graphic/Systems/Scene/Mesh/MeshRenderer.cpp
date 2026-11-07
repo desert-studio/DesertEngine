@@ -371,7 +371,10 @@ namespace Desert::Graphic::System
         m_SkinnedQueue.clear();
         m_GenericQueue.clear(); // capacity kept; its records reference the recording ending with this frame
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
-        m_InstancedQueue.clear();
+        // The ISM queue is not destroyed but kept as the next frame's recycled entries (SubmitInstancedRow); the
+        // ones the frame before did not take back (a row that left) are released here.
+        m_InstancedRecycled.clear();
+        std::swap( m_InstancedQueue, m_InstancedRecycled );
         m_ViewIsmIdsReady = false; // its ranges name the old queue's ISMs (PrepareViewIsmIds)
         m_GpuInstancedQueue.clear();
         // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
@@ -424,10 +427,43 @@ namespace Desert::Graphic::System
         }
     }
 
-    void MeshRenderer::SubmitInstancedMesh( InstancedMeshRenderData&& data )
+    namespace
     {
-        if ( data.Mesh && data.Material && data.Transforms && !data.Transforms->empty() )
-            m_InstancedQueue.push_back( std::move( data ) );
+        // Assigned only when it names another object: an equal handle is left as it is, with no refcount touched.
+        template <typename T>
+        void AssignInstancedHandle( std::shared_ptr<T>& held, const std::shared_ptr<T>& wanted )
+        {
+            if ( held != wanted )
+                held = wanted;
+        }
+    } // namespace
+
+    void MeshRenderer::SubmitInstancedRow( const Render::InstancedSceneRow&      row,
+                                           const Render::InstancedSceneRowFrame& frame )
+    {
+        if ( row.Mesh == nullptr || !row.Material || !row.Transforms || row.Transforms->empty() )
+            return;
+        // The entry of the same position last frame (a still scene queues the same rows in the same order), taken
+        // back by move: the move touches no refcount, and the assignments below only the handles that changed.
+        const std::size_t at = m_InstancedQueue.size();
+        if ( at < m_InstancedRecycled.size() )
+            m_InstancedQueue.push_back( std::move( m_InstancedRecycled[at] ) );
+        else
+            m_InstancedQueue.emplace_back();
+        InstancedMeshRenderData& data = m_InstancedQueue.back();
+        data.Entity                   = row.Entity;
+        data.Mesh                     = row.Mesh;
+        AssignInstancedHandle( data.Material, row.Material );
+        AssignInstancedHandle( data.DisplacedMaterial, row.DisplacedMaterial );
+        AssignInstancedHandle( data.Transforms, row.Transforms );
+        if ( data.InstanceIds )
+            data.InstanceIds.reset(); // set only on a record ApplyDisplacement split; the row is the whole field
+        data.HiddenSubmeshes   = row.HiddenSubmeshes;
+        data.CastShadows       = row.CastShadows;
+        data.CastContactShadow = row.CastContactShadow;
+        data.CullDistance      = frame.CullDistance;
+        data.Wind              = frame.Wind;
+        data.FirstGpuInstance  = 0; // SyncGpuScene assigns this frame's run
     }
 
     void MeshRenderer::SubmitGpuInstanced( GpuInstancedRenderData&& data )

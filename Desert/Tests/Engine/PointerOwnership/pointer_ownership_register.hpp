@@ -693,9 +693,10 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawMeshCommand.hpp",
           "DrawStaticMeshCommand", "Mesh", Guard::FrameScoped,
           "the mesh is held by the ECS component, the primitive factory's process-wide table or MeshService for the whole frame" },
-        { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawMeshCommand.hpp",
-          "DrawInstancedStaticMeshCommand", "Mesh", Guard::FrameScoped,
-          "the mesh is held by the ECS component or the primitive factory's process-wide table for the whole frame" },
+        { "Desert/Desert/Source/Engine/Graphic/Render/InstancedSceneSnapshot.hpp",
+          "InstancedSceneRow", "Mesh", Guard::FrameScoped,
+          "the mesh is held by the ECS component, the primitive factory's process-wide table or MeshService; a "
+          "replaced snapshot is parked by RetireRenderCache past the frames that replay it" },
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawSkinnedMeshCommand.hpp",
           "DrawSkinnedMeshCommand", "Mesh", Guard::FrameScoped,
           "held by the ECS component for the whole frame" },

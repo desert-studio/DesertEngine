@@ -76,6 +76,7 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/TranslucentSortOrder.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
+#include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 namespace Desert::Runtime
@@ -1651,9 +1652,12 @@ namespace Desert::Graphic::System
         void SubmitStaticScene( const Render::StaticSceneSnapshot&            scene,
                                 std::span<const Render::StaticSceneAdmission> admitted, uint64_t revision );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
-        // By move like SubmitGpuInstanced (CPU-TAILS F10): the row's two material instances and its snapshot
-        // are not copied a second time into the queue.
-        void SubmitInstancedMesh( InstancedMeshRenderData&& data );
+        // One row of the retained ISM list (SceneRenderer::SubmitInstancedScene) with this frame's values of it
+        // (CPU-TAILS F10). The entry is refilled from the one at the same position last frame
+        // (m_InstancedRecycled): a handle that already names the row's object is not assigned, so a still
+        // scene queues every ISM section with no refcount touched and no allocation.
+        void SubmitInstancedRow( const Render::InstancedSceneRow&      row,
+                                 const Render::InstancedSceneRowFrame& frame );
         // RENDER-CPU-COST-2: the row is handed over by move (the queue owns it from here), so its buffer handles
         // are not copied; one entry point, so the rule of what the queue accepts is written once.
         void SubmitGpuInstanced( GpuInstancedRenderData&& data );
@@ -3657,6 +3661,10 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
+        // Last frame's queue, swapped out by ClearQueues (capacity of both kept): SubmitInstancedRow takes its
+        // entry of the same position back by move and assigns only what changed; what no row took back is
+        // dropped at the next ClearQueues.
+        std::vector<InstancedMeshRenderData> m_InstancedRecycled;
         // ApplyDisplacement's split of a displaced ISM record by the twin each instance draws (UE keeps a
         // primitive's cached draw commands until its proxy or the resources they name change): derived from the
         // record's transform snapshot and the cache's Find() answers, so it is kept while the record names the
