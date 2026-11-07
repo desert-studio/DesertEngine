@@ -973,8 +973,13 @@ namespace Desert::Graphic
                                                                 Core::Camera*              camera )
     {
         // ONE BRACKET AT A TIME (see Scene::OnUpdate's view loop): a view still recording on the render task
-        // closes before this one opens.
-        ::Desert::Engine::RenderTask::Get().Join();
+        // closes before this one opens. THE VIEWS ONLY, NOT THE QUEUE (CPU-GT-OVERLAP; UE: the game thread opens
+        // the next view family while the rendering thread still submits the last): what this bracket shares with
+        // a job in flight - this renderer's per-frame members, the extension passes' gathered state, the material
+        // render copies PublishPending writes - is a view job's. The previous frame's interface draw, census,
+        // submit and present, this frame's begin and the surface cache's frame statement read none of it, and
+        // they record under this bracket's game-thread half instead of the render thread waiting for it.
+        ::Desert::Engine::RenderTask::Get().JoinViews();
         // THE MATERIAL HAND-OFF for every view, the ones no Scene::OnUpdate opens too (a preview, a capture): a
         // parameter written while the previous view recorded reaches the render copies before this one reads.
         ::Desert::Graphic::MaterialInstance::PublishPending();
