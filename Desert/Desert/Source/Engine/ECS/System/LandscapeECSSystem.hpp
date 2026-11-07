@@ -272,6 +272,7 @@ namespace Desert::ECS
             const void*                                       Service             = nullptr;
             uint32_t                                          InvalidationVersion = 0u;
             uint64_t                                          ContentSerial       = 0u;
+            uint32_t                                          ValuesEditSerial    = 0u; // in-place value edits
             std::shared_ptr<const Graphic::MaterialOverrides> Overrides;            // never null once resolved
         };
         std::unordered_map<uint64_t, ResolvedOverrides> m_RootOverrides;
