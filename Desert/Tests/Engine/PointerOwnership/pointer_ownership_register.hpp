@@ -975,6 +975,20 @@ namespace Desert::Tests::PointerCensus
           "every holder (m_GenericPrograms, the ProgramOf locals) is re-resolved in GenericProgramOf after "
           "SyncProgramFacts clears the map, and a local never outlives the pass that asked" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "SliceProgram", "PipelineRow", Guard::OwnedByThisObject,
+          "points at a row of m_MaterialPipelines (MaterialPipelineTracker::RowOf), a member of this MeshRenderer "
+          "whose node-based maps are never erased from, so the row outlives the slice program holding it; the "
+          "slice program is forgotten with its m_ProgramFacts row (FactsOf, SyncProgramFacts)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "SliceProgram", "Materials", Guard::OwnedByThisObject,
+          "values of m_GenericMaterials (unique_ptr values of a member of this MeshRenderer that only ever "
+          "inserts, so the pointees never move or die before the renderer); the map is forgotten with its "
+          "slice program's m_ProgramFacts row" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "ProgramFacts", "RowMaterials", Guard::OwnedByThisObject,
+          "values of m_GenericMaterials (unique_ptr values of a member of this MeshRenderer that only ever "
+          "inserts); the map is forgotten with its m_ProgramFacts row (FactsOf, SyncProgramFacts)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "MeshRenderer", "m_GenericTextureOrder", Guard::OwnedByThisObject,
           "a reused sort scratch of WriteGenericTextureKey: the pairs it points at are the texture overrides of"
           " the m_GenericQueue record being keyed, and it is cleared and refilled inside that one call" },

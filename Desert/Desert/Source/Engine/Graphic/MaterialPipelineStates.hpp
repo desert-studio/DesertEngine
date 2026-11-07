@@ -123,6 +123,34 @@ namespace Desert::Graphic
     class MaterialPipelineTracker
     {
     public:
+        // One material pipeline's state. Rows live in node-based maps that are never erased from, so a Row's
+        // address is stable for the tracker's life: a draw keeps the address (RowOf, asked once with the name)
+        // and reports and chooses through it with no string hash per draw (CPU-FRAME-ARENA 13; UE keeps its
+        // PSO handle in the cached mesh draw command).
+        struct Row
+        {
+            MaterialPipelineState State     = MaterialPipelineState::Requested;
+            uint8_t               Announced = 0; ///< one bit per state already logged
+        };
+
+        // @p shaderName's row, Requested when it is new (Request's rule): the address a caller keeps.
+        [[nodiscard]] Row& RowOf( const std::string& shaderName )
+        {
+            return m_Rows[shaderName];
+        }
+        static void OnCompiling( Row& row ) noexcept
+        {
+            row.State = MaterialPipelineState::Compiling;
+        }
+        static void OnReady( Row& row ) noexcept
+        {
+            row.State = MaterialPipelineState::Ready;
+        }
+        static void OnFailed( Row& row ) noexcept
+        {
+            row.State = MaterialPipelineState::Failed;
+        }
+
         // Requested, unless it is already known (a request never moves a material backwards).
         void Request( const std::string& shaderName )
         {
@@ -164,7 +192,11 @@ namespace Desert::Graphic
         // is a draw the renderer never asked for — it is Requested here, so it is not silently lost either.
         DrawChoice Choose( const std::string& shaderName )
         {
-            auto& row = m_Rows[shaderName];
+            return Choose( m_Rows[shaderName] );
+        }
+        // The same choice through a kept row (RowOf).
+        static DrawChoice Choose( Row& row ) noexcept
+        {
             if ( row.State == MaterialPipelineState::Ready )
                 return { true, false };
             const auto bit      = static_cast<uint8_t>( 1u << static_cast<uint8_t>( row.State ) );
@@ -254,11 +286,6 @@ namespace Desert::Graphic
         }
 
     private:
-        struct Row
-        {
-            MaterialPipelineState State     = MaterialPipelineState::Requested;
-            uint8_t               Announced = 0; ///< one bit per state already logged
-        };
         // The state @p ownReports moves @p row to (a Requested report never moves it backwards), then the draw.
         static CellChoice ChooseRow( Row& row, const MaterialPipelineState ownReports,
                                      const bool defaultSurfaceReady ) noexcept

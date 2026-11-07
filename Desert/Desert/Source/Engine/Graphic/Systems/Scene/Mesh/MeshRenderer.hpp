@@ -2312,6 +2312,9 @@ namespace Desert::Graphic::System
         // pass state is not built yet waits in m_PendingCellPrecache for the frame that has it.
         void PrecacheRequestedCells();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
+        // The same report through a kept tracker row (SliceRowOf): no name hashed.
+        static void TrackMaterialPipeline( MaterialPipelineTracker::Row& row, const GraphicsPipeline& pipeline );
+
     public:
         // THE ONE PERMUTATION FUNCTION of a generic forward program on the deferred path, asked by every place
         // that builds or cooks it: "Deferred: Generic" (BuildGenericDraws), the prepass's readiness check
@@ -2647,6 +2650,19 @@ namespace Desert::Graphic::System
             // for the G-buffer cell, which draws through CellPipeline). The layouts are constants
             // (ViewTargetLayouts).
             GraphicsPipelineSpecification Spec;
+            // THE DRAW COMMAND'S HANDLES (CPU-FRAME-ARENA 13; UE FMeshDrawCommand keeps its PSO and material
+            // binding, the frame walks them). Made on first use, dropped with the facts (code generation,
+            // RecompileGeneration), so a draw hashes no string and re-checks no spec:
+            // - the pipeline tracker's row of Key (MaterialPipelineTracker::RowOf: rows are never erased);
+            MaterialPipelineTracker::Row* PipelineRow = nullptr;
+            // - GetOrCreateMaterial( Spec )'s answer, while the pipeline cache's Generation is BuiltGeneration
+            //   (a Clear / InvalidateByShader moves it; an insert does not);
+            std::optional<Common::ResultStr<std::shared_ptr<GraphicsPipeline>>> Built;
+            uint64_t                                                            BuiltGeneration = 0;
+            // - the shared Shader Override material of (Key x texture set), by GenericTextureSetOf's id: a
+            //   value of m_GenericMaterials, which only ever inserts. An integer hash per draw, the string key is
+            //   assembled on the first draw of a (slice program x texture set) alone.
+            std::unordered_map<uint32_t, DataDrivenMaterial*> Materials;
         };
         struct ProgramFacts
         {
@@ -2664,6 +2680,9 @@ namespace Desert::Graphic::System
             TranslucentDraw*                FrontLayer      = nullptr; // FrontLayerDrawFor( *FrontLayerCell )'s
             bool                            FrontLayerAsked = false;
             std::array<SliceProgram, kSlicePrograms> Slices{}; // SliceProgramOf's, asked on first use
+            // RegisterGenericRows' shared material of (template name x texture set), by GenericTextureSetOf's
+            // id: a value of m_GenericMaterials (insert only), so a record's row asks no string key a frame.
+            std::unordered_map<uint32_t, DataDrivenMaterial*> RowMaterials;
         };
         // A template program and its facts: what a material or a Shader Override record draws with.
         struct ResolvedProgram
@@ -2706,10 +2725,25 @@ namespace Desert::Graphic::System
         const std::string&               GenericTextureKeyOf( std::size_t index ) const;
         mutable std::vector<std::string> m_GenericTextureKeys; // per queue entry, capacity kept across frames
         mutable std::vector<const std::pair<std::string, uint64_t>*> m_GenericTextureOrder; // its sort scratch
-        std::string m_GenericMaterialKey; // m_GenericMaterials' lookup key, assembled in place per draw
+        // m_GenericQueue entry @p index's texture set as an integer (1..): equal keys, equal ids. Interned when
+        // the key at a queue slot differs from the one the slot held last frame (a compare, never a hash, for
+        // a stable producer order), never per draw.
+        uint32_t                                          GenericTextureSetOf( std::size_t index ) const;
+        mutable std::vector<uint32_t>                     m_GenericTextureSets;       // per queue entry, 0 = none
+        mutable std::string                               m_GenericTextureKeyScratch; // the key being compared
+        mutable std::unordered_map<std::string, uint32_t> m_GenericTextureSetIds;     // interned, insert only
+        // The shared Shader Override material of @p key (m_GenericMaterials, made with @p shader on a miss):
+        // asked on the first use of a (program x texture set) alone; the callers keep the answer by id.
+        DataDrivenMaterial* SharedGenericMaterial( const std::string& key, std::size_t index,
+                                                   const std::shared_ptr<Shader>& shader );
+        std::string         m_GenericMaterialKey; // m_GenericMaterials' lookup key, assembled in place on a miss
         // @p facts' slice program @p index of the template @p program (null: refused or absent, said once).
-        const SliceProgram* SliceProgramOf( ProgramFacts& facts, const std::shared_ptr<Shader>& program,
-                                            uint32_t index );
+        SliceProgram* SliceProgramOf( ProgramFacts& facts, const std::shared_ptr<Shader>& program,
+                                      uint32_t index );
+        // @p slice's pipeline tracker row (RowOf its Key, asked once per slice program).
+        MaterialPipelineTracker::Row& SliceRowOf( SliceProgram& slice );
+        // @p slice's GetOrCreateMaterial( Spec ) answer, asked again only when the cache's Generation moved.
+        const Common::ResultStr<std::shared_ptr<GraphicsPipeline>>& SlicePipelineOf( SliceProgram& slice );
         // @p material's sibling for slice program @p index (MaterialService::GetVariant, asked once per build
         // revision of its asset; see MaterialProgramRow).
         DataDrivenMaterial* SlotVariantOf( DataDrivenMaterial& material, uint32_t index, MeshPass pass,

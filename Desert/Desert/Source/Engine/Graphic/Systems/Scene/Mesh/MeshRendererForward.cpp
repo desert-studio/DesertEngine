@@ -157,19 +157,28 @@ namespace Desert::Graphic::System
             // so each record's values are its own row — the template's defaults, its Overrides.Params and the
             // texture slots of its texture overrides — keyed by its entity part. That is what keeps three spheres
             // differing only in a graph parameter three colours (MAT_ProbeSharedBlock.desce).
-            const std::shared_ptr<Shader>& shader = GenericProgramOf( gi ).Program; // resolved once a frame
+            const ResolvedProgram&         resolved = GenericProgramOf( gi ); // resolved once a frame
+            const std::shared_ptr<Shader>& shader   = resolved.Program;
             if ( !shader || !shader->IsCompiled() ||
                  !Core::Formats::DrawnByMeshPath( shader->GetProgramMeta().Domain ) )
                 continue; // ShaderService named the compile error; BuildGenericDraws names the refused domain
-            // The key is assembled in place (no concatenation per record per frame); a miss alone copies it.
-            m_GenericMaterialKey.assign( g.ShaderName );
-            m_GenericMaterialKey.append( GenericTextureKeyOf( gi ) );
-            auto& shared = m_GenericMaterials[m_GenericMaterialKey];
-            if ( !shared )
-                shared = std::make_unique<DataDrivenMaterial>( shader );
+            // The (template x texture set) material by the record's texture-set id, kept with the template's
+            // facts: the string key is assembled on the first record of that pair alone.
+            DataDrivenMaterial* shared = nullptr;
+            if ( resolved.Facts != nullptr )
+            {
+                auto [row, made] = resolved.Facts->RowMaterials.try_emplace( GenericTextureSetOf( gi ), nullptr );
+                if ( made )
+                    row->second = SharedGenericMaterial( g.ShaderName, gi, shader );
+                shared = row->second;
+            }
+            else
+            {
+                shared = SharedGenericMaterial( g.ShaderName, gi, shader );
+            }
             // The draw-time slices name a refused texture; this row build does not repeat it.
             ApplyGenericOverrides( *shared, g, g.ShaderName, false );
-            const GpuDriven::MaterialRowKey key{ .Material = shared.get(),
+            const GpuDriven::MaterialRowKey key{ .Material = shared,
                                                  .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
                                                           static_cast<uint64_t>( g.MotionPart ) };
             const auto [claimed, fresh] = ClaimFrameMaterialRow( key );
@@ -189,7 +198,7 @@ namespace Desert::Graphic::System
                                g.Entity, g.MotionPart, g.ShaderName );
             }
             g.MaterialRow     = claimed->Index;
-            g.MaterialSurface = { shared.get(), nullptr };
+            g.MaterialSurface = { shared, nullptr };
         }
     }
 
@@ -414,7 +423,7 @@ namespace Desert::Graphic::System
                     break;
             }
             const std::shared_ptr<Shader>& templateShader = resolved.Program;
-            const SliceProgram* const      sliceProgram   = SliceProgramOf( facts, templateShader, sliceIndex );
+            SliceProgram* const            sliceProgram   = SliceProgramOf( facts, templateShader, sliceIndex );
             if ( sliceProgram == nullptr )
                 continue; // its refusal was said when the slice program was asked
             shader = sliceProgram->Program;
@@ -441,14 +450,12 @@ namespace Desert::Graphic::System
                 // different textures still cannot share one. Keying them apart is what stops the row fix
                 // from leaving half the defect standing: two labels in one font share a material and
                 // batch; two labels in different fonts get one material each and both are right.
-                // The key is assembled in place from the cached program key and the record's texture key (made
-                // once a frame): a lookup, no string built per draw.
-                m_GenericMaterialKey.assign( programKey );
-                m_GenericMaterialKey.append( GenericTextureKeyOf( gi ) );
-                auto& shared = m_GenericMaterials[m_GenericMaterialKey];
-                if ( !shared )
-                    shared = std::make_unique<DataDrivenMaterial>( shader );
-                material = shared.get();
+                // Kept with the slice program by the record's texture-set id (an integer hash): the string key
+                // (program key + texture key) is assembled on the first draw of the pair alone.
+                auto [kept, made] = sliceProgram->Materials.try_emplace( GenericTextureSetOf( gi ), nullptr );
+                if ( made )
+                    kept->second = SharedGenericMaterial( programKey, gi, shader );
+                material = kept->second;
             }
 
             GraphicsPipeline* pipeline = nullptr;
@@ -465,15 +472,17 @@ namespace Desert::Graphic::System
             {
                 // The slice's spec, built with the slice program (SliceProgramOf: the prepass and G-buffer target
                 // and depth state included).
-                const GraphicsPipelineSpecification& spec = sliceProgram->Spec;
-                const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+                // Kept with the slice program while the pipeline cache's generation stands (SlicePipelineOf),
+                // and reported through the tracker row it keeps (SliceRowOf): no spec hashed, no name hashed.
+                const auto&                   built = SlicePipelineOf( *sliceProgram );
+                MaterialPipelineTracker::Row& row   = SliceRowOf( *sliceProgram );
                 if ( built )
                 {
-                    TrackMaterialPipeline( programKey, *built.GetValue() );
+                    TrackMaterialPipeline( row, *built.GetValue() );
                 }
                 else
                 {
-                    m_MaterialPipelines.OnFailed( programKey );
+                    MaterialPipelineTracker::OnFailed( row );
                     static std::unordered_set<std::string> s_RefusedPipelines;
                     if ( s_RefusedPipelines.insert( programKey ).second )
                         LOG_ERROR( "[MeshRenderer] material '{}' has no pipeline, its meshes draw the default "
@@ -487,7 +496,7 @@ namespace Desert::Graphic::System
                 // opaque draw of the deferred path has no stand-in: the prepass admits it only when its
                 // depth-normal AND its forward pipeline are Ready (OpaqueGenericAdmitted), so it is drawn in both
                 // passes of a frame or in neither, and counted among the compiling pipelines meanwhile.
-                const auto choice = m_MaterialPipelines.Choose( programKey );
+                const auto choice = MaterialPipelineTracker::Choose( row );
                 if ( slice == GenericSlice::DeferredDepthNormal || slice == GenericSlice::ForwardDepth )
                 {
                     if ( !choice.UseOwnPipeline ||
@@ -522,8 +531,7 @@ namespace Desert::Graphic::System
                     if ( choice.Announce )
                         LOG_INFO( "[MeshRenderer] material '{}' draws the default surface until its pipeline is "
                                   "ready (pipeline {})",
-                                  programKey,
-                                  MaterialPipelineStateName( *m_MaterialPipelines.StateOf( programKey ) ) );
+                                  programKey, MaterialPipelineStateName( row.State ) );
                     const auto standInPipeline = DefaultSurfacePipeline();
                     if ( !standInPipeline || standInPipeline->GetReadiness() != PipelineReadiness::Ready )
                         continue;
@@ -633,6 +641,59 @@ namespace Desert::Graphic::System
             spec.DepthWriteEnabled = false;
         }
         return spec;
+    }
+
+    void MeshRenderer::TrackMaterialPipeline( MaterialPipelineTracker::Row& row, const GraphicsPipeline& pipeline )
+    {
+        switch ( pipeline.GetReadiness() )
+        {
+            case PipelineReadiness::Compiling:
+                MaterialPipelineTracker::OnCompiling( row );
+                break;
+            case PipelineReadiness::Ready:
+                MaterialPipelineTracker::OnReady( row );
+                break;
+            case PipelineReadiness::Failed:
+                MaterialPipelineTracker::OnFailed( row );
+                break;
+        }
+    }
+
+    MaterialPipelineTracker::Row& MeshRenderer::SliceRowOf( SliceProgram& slice )
+    {
+        // Asked once per slice program (its facts are re-made with every code generation and RecompileGeneration);
+        // the row's address is stable for the tracker's life, rows are never erased.
+        if ( slice.PipelineRow == nullptr )
+            slice.PipelineRow = &m_MaterialPipelines.RowOf( slice.Key );
+        return *slice.PipelineRow;
+    }
+
+    const Common::ResultStr<std::shared_ptr<GraphicsPipeline>>&
+    MeshRenderer::SlicePipelineOf( SliceProgram& slice )
+    {
+        // The cache's answer for the slice's spec, asked again only when an entry may have been dropped
+        // (PipelineCache::Generation: a Clear or a hot reload's InvalidateByShader). An insert keeps the kept one.
+        PipelineCache& cache      = m_SceneRenderer->GetPipelineCache();
+        const uint64_t generation = cache.Generation();
+        if ( !slice.Built || slice.BuiltGeneration != generation )
+        {
+            slice.Built.emplace( cache.GetOrCreateMaterial( slice.Spec ) );
+            slice.BuiltGeneration = generation;
+        }
+        return *slice.Built;
+    }
+
+    DataDrivenMaterial* MeshRenderer::SharedGenericMaterial( const std::string& key, const std::size_t index,
+                                                             const std::shared_ptr<Shader>& shader )
+    {
+        // ONE MATERIAL PER (PROGRAM x TEXTURE SET): the key is assembled in place, and the map only ever inserts,
+        // so the address answered here is what the callers keep by texture-set id.
+        m_GenericMaterialKey.assign( key );
+        m_GenericMaterialKey.append( GenericTextureKeyOf( index ) );
+        auto& shared = m_GenericMaterials[m_GenericMaterialKey];
+        if ( !shared )
+            shared = std::make_unique<DataDrivenMaterial>( shader );
+        return shared.get();
     }
 
     void MeshRenderer::TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline )
@@ -1049,17 +1110,18 @@ namespace Desert::Graphic::System
     {
         // The forward slice program "Deferred: Generic" shades this draw with (SliceProgramOf: its permutation,
         // key and spec made once per template): the same cache entry, no name built or variant asked per draw.
-        const SliceProgram* const slice =
+        SliceProgram* const slice =
              SliceProgramOf( facts, shader, ForwardSliceIndex( rayTracedSun, localShadowMasks, virtualLocal ) );
         if ( slice == nullptr )
             return false; // its refusal was said when the slice program was asked
-        const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( slice->Spec );
+        const auto&                   built = SlicePipelineOf( *slice ); // the kept answer, no spec hashed
+        MaterialPipelineTracker::Row& row   = SliceRowOf( *slice );
         if ( !built )
         {
-            m_MaterialPipelines.OnFailed( slice->Key ); // "Deferred: Generic" names the refusal
+            MaterialPipelineTracker::OnFailed( row ); // "Deferred: Generic" names the refusal
             return false;
         }
-        TrackMaterialPipeline( slice->Key, *built.GetValue() );
+        TrackMaterialPipeline( row, *built.GetValue() );
         return built.GetValue()->GetReadiness() == PipelineReadiness::Ready;
     }
 
@@ -3406,10 +3468,23 @@ namespace Desert::Graphic::System
             }
             // The texture-set keys with the programs: each record's once a frame, into strings that keep their
             // capacity (BuildGenericDraws' slices and RegisterGenericRows read them, never rebuild them).
+            // Each slot's texture-set id is kept with its key: the new key is written into a scratch and
+            // compared with the slot's (no hash); only a different key - or a slot not keyed yet - is swapped in
+            // and interned, so equal keys answer one id and the callers keep their materials by it.
             m_GenericTextureKeys.resize( m_GenericQueue.size() );
+            m_GenericTextureSets.resize( m_GenericQueue.size(), 0u );
             for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
-                MeshRendererDetail::WriteGenericTextureKey( m_GenericQueue[gi], m_GenericTextureKeys[gi],
+            {
+                MeshRendererDetail::WriteGenericTextureKey( m_GenericQueue[gi], m_GenericTextureKeyScratch,
                                                             m_GenericTextureOrder );
+                std::string& key = m_GenericTextureKeys[gi];
+                if ( m_GenericTextureSets[gi] != 0u && key == m_GenericTextureKeyScratch )
+                    continue;
+                key.swap( m_GenericTextureKeyScratch );
+                const auto next          = static_cast<uint32_t>( m_GenericTextureSetIds.size() + 1u );
+                const auto interned      = m_GenericTextureSetIds.try_emplace( key, next ).first;
+                m_GenericTextureSets[gi] = interned->second;
+            }
             m_GenericProgramsResolved = true;
         }
         return m_GenericPrograms[index];
@@ -3421,9 +3496,15 @@ namespace Desert::Graphic::System
         return m_GenericTextureKeys[index];
     }
 
-    const MeshRenderer::SliceProgram* MeshRenderer::SliceProgramOf( ProgramFacts&                  facts,
-                                                                    const std::shared_ptr<Shader>& program,
-                                                                    const uint32_t                 index )
+    uint32_t MeshRenderer::GenericTextureSetOf( const std::size_t index ) const
+    {
+        static_cast<void>( GenericProgramOf( index ) ); // made with the keys once a frame
+        return m_GenericTextureSets[index];
+    }
+
+    MeshRenderer::SliceProgram* MeshRenderer::SliceProgramOf( ProgramFacts&                  facts,
+                                                              const std::shared_ptr<Shader>& program,
+                                                              const uint32_t                 index )
     {
         SliceProgram& kept = facts.Slices[index];
         if ( kept.Asked )
