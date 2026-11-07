@@ -32,23 +32,62 @@ namespace Desert::ECS
             m_CameraView = view;
         }
 
-        // WHY THIS IS NOT INSIDE Update. It was, and adding the localisation resolve above pushed that
-        // function's cognitive complexity to 24 against the gate's threshold of 19 — the analyser is
-        // right about the shape rather than about the count: the walk's job is "for every visible text
-        // entity, place a mesh in the frame", and "decide whether the mesh it has is the mesh it needs"
-        // is a separate decision with its own four-way condition.
+        // THE LABEL'S RESOLVE, REDONE ONLY WHEN ONE OF ITS INPUTS MOVED (UE: FSlateFontInfo resolved once to a
+        // cached FFontData, the shaped text kept until the string or the style changes). It ran every frame for
+        // every label: the localisation resolve copied the string, the codepoints were decoded into a vector, and
+        // the font handle went handle -> path -> "path|size" key three times over (RequestGlyphs, Get and the
+        // mesh's font guard), each a heap string. The inputs are the authored string and font, the language
+        // (Localization::Generation) and the font cache (FontService::Generation): equal to what the cache was
+        // made from, the frame compares and resolves nothing.
         //
-        // The layout is built from the RESOLVED string, and the component keeps what the author typed —
-        // nothing is ever written back into it, which is the same rule the canvas follows for a bound
-        // label. @p drawn is also what the cache is keyed on, so a language change rebuilds the glyph
-        // mesh for free: nothing else would have told it to.
-        static void RebuildGlyphMeshIfStale( TextComponent& text, const std::string& drawn,
-                                             const std::string& fontPath, const Runtime::Font& font )
+        // The layout is built from the RESOLVED string, and the component keeps what the author typed - nothing
+        // is ever written back into Text, the same rule the canvas follows for a bound label. A language change
+        // moves the generation, so the glyph mesh rebuilds for free: nothing else would have told it to.
+        static const Runtime::Font* ResolveLabelIfStale( TextComponent& text, Runtime::FontService& fontSvc )
+        {
+            auto&          localization     = Localization::Localization::Get();
+            const uint32_t localeGeneration = localization.Generation();
+            const uint64_t authoredFont     = static_cast<uint64_t>( text.Font );
+            if ( text.ResolvedFont && text.ResolvedFontGeneration == fontSvc.Generation() &&
+                 text.ResolvedLocaleGeneration == localeGeneration &&
+                 static_cast<uint64_t>( text.ResolvedFontAsset ) == authoredFont &&
+                 text.ResolvedSource == text.Text )
+            {
+                return text.ResolvedFont.get();
+            }
+
+            // WORLD TEXT IS AUTHORED TEXT AND GOES THROUGH THE SAME RESOLVER AS A UI LABEL (Ю15): a leading '#'
+            // is a string-table key, anything else is a literal.
+            text.ResolvedText = localization.Resolve( text.Text ).Text;
+
+            // Unset falls back to the built-in default.
+            const uint64_t fontHandle = authoredFont != 0 ? authoredFont : fontSvc.DefaultFontHandle();
+            // Anything beyond ASCII has to be requested before the atlas is resolved (see
+            // FontService::RequestGlyphs) - otherwise Cyrillic/CJK text bakes to nothing.
+            fontSvc.RequestGlyphs( fontHandle, Text::Utf8Decode( text.ResolvedText ) );
+
+            // Read BEFORE the share: a glyph request on another thread that drops this font after it moves the
+            // generation past this value, and the next frame resolves again.
+            const uint64_t fontGeneration = fontSvc.Generation();
+            // The old font's atlas is the DirectTexture of draws still in flight: retired, never dropped here.
+            RetireRenderCache( text.ResolvedFont );
+            text.ResolvedFont             = fontSvc.Share( fontHandle );
+            text.ResolvedSource           = text.Text;
+            text.ResolvedFontAsset        = text.Font;
+            text.ResolvedLocaleGeneration = localeGeneration;
+            text.ResolvedFontGeneration   = fontGeneration;
+            return text.ResolvedFont.get();
+        }
+
+        static void RebuildGlyphMeshIfStale( TextComponent& text, const Runtime::Font& font )
         {
             // The revision too: a glyph request re-bakes the atlas (FontService::RequestGlyphs) with the same
-            // path and size but new UVs, and a mesh laid on the old bake would sample the wrong glyphs.
-            if ( text.RuntimeMesh && text.BuiltText == drawn && text.BuiltFont == fontPath &&
-                 text.BuiltSize == text.Size && text.BuiltFontRevision == font.Revision )
+            // path and size but new UVs, and a mesh laid on the old bake would sample the wrong glyphs. A
+            // revision is unique per bake, so it also stands for the font: two fonts never share one. No
+            // "RuntimeMesh is set" term: a string with nothing to draw (all blanks) lays out to no mesh, and
+            // re-laying it every frame to find that again was a heap round trip per frame.
+            if ( text.BuiltText == text.ResolvedText && text.BuiltSize == text.Size &&
+                 text.BuiltFontRevision == font.Revision )
             {
                 return;
             }
@@ -59,13 +98,45 @@ namespace Desert::ECS
             // it here freed it under the replay. Parked like SetStaticMesh's edited mesh (RetireRenderCache), it
             // dies once no frame in flight names it (FrameManager::RetireAfterFrames: any thread, locked).
             RetireRenderCache( text.RuntimeMesh );
-            TextComponent laidOut = text;
-            laidOut.Text          = drawn;
-            text.RuntimeMesh      = BuildTextMesh( laidOut, font.Baked );
-            text.BuiltText        = drawn;
-            text.BuiltFont        = fontPath;
-            text.BuiltSize        = text.Size;
+            text.RuntimeMesh       = BuildTextMesh( text.ResolvedText, text.Size, font.Baked );
+            text.BuiltText         = text.ResolvedText;
+            text.BuiltSize         = text.Size;
             text.BuiltFontRevision = font.Revision;
+        }
+
+        // The draw's overrides and program hit, built when the colour, the emission or the atlas moves rather than
+        // every frame (two vectors and two strings per label per frame): the command names them by pointer.
+        static void RebuildDrawParamsIfStale( TextComponent& text, const Runtime::Font& font )
+        {
+            uint64_t atlasGeneration = 0;
+            if ( font.Atlas != nullptr )
+                atlasGeneration = font.Atlas->GetResourceGeneration();
+            if ( text.RuntimeDraw && text.DrawColor == text.Color &&
+                 text.DrawEmissiveIntensity == text.EmissiveIntensity && text.DrawFontRevision == font.Revision &&
+                 text.DrawAtlasGeneration == atlasGeneration )
+            {
+                return;
+            }
+
+            auto params = std::make_shared<Graphic::Render::GenericMeshDrawParams>();
+            params->Overrides.Params.emplace_back( "TextColor", text.Color );
+            params->Overrides.Params.emplace_back( "EmissiveIntensity",
+                                                   glm::vec4( text.EmissiveIntensity, 0, 0, 0 ) );
+            // In the ray tracing scene as UE's text render component is (bVisibleInRayTracing): the glyph quads
+            // with the label's own hit group - the SDF coverage as the any hit, the TextSDF colour as the emission
+            // (TextRayTracing.hpp), from the values this draw carries. A font whose atlas is not made yet has no
+            // coverage to test: the label is not traced (the hit stays empty).
+            if ( font.Atlas != nullptr )
+                params->RayHit =
+                     Graphic::RayTracing::TextRayHit( text.Color, text.EmissiveIntensity, *font.Atlas );
+
+            // Named by raw pointer by the draws in flight (DrawGenericMeshCommand::Params): retired, as the mesh.
+            RetireRenderCache( text.RuntimeDraw );
+            text.RuntimeDraw           = std::move( params );
+            text.DrawColor             = text.Color;
+            text.DrawEmissiveIntensity = text.EmissiveIntensity;
+            text.DrawFontRevision      = font.Revision;
+            text.DrawAtlasGeneration   = atlasGeneration;
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -80,33 +151,13 @@ namespace Desert::ECS
                      if ( text.Text.empty() )
                          return;
 
-                     // WORLD TEXT IS AUTHORED TEXT AND GOES THROUGH THE SAME RESOLVER AS A UI LABEL
-                     // (Ю15): a leading '#' is a string-table key, anything else is a literal. Uniform on
-                     // purpose — "every string drawn from a component goes through one function" is a
-                     // property a reader can rely on, and "every string except the ones in the world" is
-                     // not.
-                     //
-                     // The resolved string is also what the mesh cache is keyed on below, so a language
-                     // change rebuilds the glyph mesh for free: nothing else would have told it to.
-                     const std::string drawn = Localization::Localization::Get().Resolve( text.Text ).Text;
-
-                     // Resolve the font asset handle -> baked atlas (unset falls back to the built-in default).
-                     auto*          fontSvc    = Runtime::ResourceRegistry::GetFontService();
-                     const uint64_t fontHandle = static_cast<uint64_t>( text.Font ) != 0
-                                                      ? static_cast<uint64_t>( text.Font )
-                                                      : fontSvc->DefaultFontHandle();
-                     // Anything beyond ASCII has to be requested before the atlas is resolved (see
-                     // FontService::RequestGlyphs) — otherwise Cyrillic/CJK text bakes to nothing.
-                     fontSvc->RequestGlyphs( fontHandle, Text::Utf8Decode( drawn ) );
-
-                     auto* font = fontSvc->Get( fontHandle );
+                     auto* const font = ResolveLabelIfStale( text, *Runtime::ResourceRegistry::GetFontService() );
                      if ( !font )
                          return;
-                     const std::string fontPath = fontSvc->PathForHandle( fontHandle );
-
-                     RebuildGlyphMeshIfStale( text, drawn, fontPath, *font );
+                     RebuildGlyphMeshIfStale( text, *font );
                      if ( !text.RuntimeMesh )
                          return;
+                     RebuildDrawParamsIfStale( text, *font );
 
                      // WORLD transform (walk the parent chain), mirroring the mesh systems.
                      glm::mat4    worldTransform = transform.GetTransform();
@@ -141,43 +192,31 @@ namespace Desert::ECS
                                          glm::vec4( toViewer * scale.z, 0.0f ), glm::vec4( translation, 1.0f ) );
                      }
 
-                     Graphic::MaterialOverrides overrides;
-                     overrides.Params.emplace_back( "TextColor", text.Color );
-                     overrides.Params.emplace_back( "EmissiveIntensity",
-                                                    glm::vec4( text.EmissiveIntensity, 0, 0, 0 ) );
-
-                     // In the ray tracing scene as UE's text render component is (bVisibleInRayTracing): the glyph
-                     // quads with the label's own hit group - the SDF coverage as the any hit, the TextSDF colour
-                     // as the emission (TextRayTracing.hpp), from the values this draw carries. No shadow caster:
-                     // the raster's shadow pass has no alpha test, and the ray tracing shadow mask follows it. A
-                     // font whose atlas is not made yet has no coverage to test: the label is not traced.
-                     const bool                                traced = font->Atlas != nullptr;
-                     Graphic::RayTracing::RayTracingProgramHit rayHit =
-                          traced ? Graphic::RayTracing::TextRayHit( text.Color, text.EmissiveIntensity,
-                                                                    *font->Atlas )
-                                 : Graphic::RayTracing::RayTracingProgramHit{};
+                     // No shadow caster: the raster's shadow pass has no alpha test, and the ray tracing shadow
+                     // mask follows it. The two literals fit the small-string buffer: no heap.
+                     const bool traced = font->Atlas != nullptr;
                      renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
                           static_cast<uint32_t>( entity ), text.RuntimeMesh.get(), worldTransform,
-                          std::string( "TextSDF" ), std::move( overrides ), /*outlined*/ false, font->Atlas.get(),
+                          std::string( "TextSDF" ), *text.RuntimeDraw, /*outlined*/ false, font->Atlas.get(),
                           std::string( "SdfAtlasTexture" ), /*castShadows*/ false, /*maxDrawDistance*/ 0.0f,
-                          /*visibleInRayTracing*/ traced, std::move( rayHit ) );
+                          /*visibleInRayTracing*/ traced );
                  } );
         }
 
     private:
         glm::mat4 m_CameraView{ 1.0f }; // active-camera view matrix snapshot (see SetCameraSnapshot)
 
-        static std::shared_ptr<DynamicMesh> BuildTextMesh( const TextComponent& text,
+        static std::shared_ptr<DynamicMesh> BuildTextMesh( const std::string& drawn, const float size,
                                                            const Text::BakedFont& font )
         {
-            const float worldPerPixel = ( font.PixelHeight > 0.0f ) ? text.Size / font.PixelHeight : 0.0f;
+            const float worldPerPixel = ( font.PixelHeight > 0.0f ) ? size / font.PixelHeight : 0.0f;
             if ( worldPerPixel <= 0.0f )
                 return nullptr;
 
             std::vector<Vertex> verts;
             std::vector<Index>  inds;
-            verts.reserve( text.Text.size() * 4 );
-            inds.reserve( text.Text.size() * 2 );
+            verts.reserve( drawn.size() * 4 );
+            inds.reserve( drawn.size() * 2 );
 
             glm::vec3 mn( std::numeric_limits<float>::max() );
             glm::vec3 mx( std::numeric_limits<float>::lowest() );
@@ -185,9 +224,9 @@ namespace Desert::ECS
             float penX = 0.0f, penY = 0.0f; // pixels; baseline at penY, +X right, lines step -Y
             const float lineStep = font.LineHeight();
 
-            for ( size_t ci = 0; ci < text.Text.size(); )
+            for ( size_t ci = 0; ci < drawn.size(); )
             {
-                const uint32_t ch = Text::Utf8Next( text.Text, ci ); // codepoints, not bytes
+                const uint32_t ch = Text::Utf8Next( drawn, ci ); // codepoints, not bytes
                 if ( ch == '\n' )
                 {
                     penX = 0.0f;

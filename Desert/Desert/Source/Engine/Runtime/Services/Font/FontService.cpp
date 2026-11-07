@@ -25,11 +25,16 @@ namespace Desert::Runtime
 
     Font* FontService::Get( const std::string& ttfPath, float pixelHeight )
     {
+        return Share( ttfPath, pixelHeight ).get();
+    }
+
+    std::shared_ptr<Font> FontService::Share( const std::string& ttfPath, float pixelHeight )
+    {
         const std::string key = std::format( "{}|{}", ttfPath, static_cast<int>( pixelHeight ) );
         {
             const std::shared_lock read( m_Mutex );
             if ( const auto it = m_Fonts.find( key ); it != m_Fonts.end() )
-                return it->second.get();
+                return it->second;
         }
 
         // A MISS BAKES UNDER THE EXCLUSIVE LOCK: one bake per key, and the other askers wait for its result
@@ -37,7 +42,7 @@ namespace Desert::Runtime
         // request.
         const std::unique_lock write( m_Mutex );
         if ( const auto it = m_Fonts.find( key ); it != m_Fonts.end() )
-            return it->second.get();
+            return it->second;
 
         // A zero-byte .ttf is as unusable as a missing one, so both land in the same refusal.
         const auto ttfRead = Common::Utils::FileSystem::ReadByteFileContent( ttfPath );
@@ -121,11 +126,11 @@ namespace Desert::Runtime
         font->Baked = std::move( baked );
         font->Revision = ++m_NextRevision; // under the exclusive lock taken above
         Font* raw   = font.get();
-        m_Fonts[key] = std::move( font );
+        m_Fonts[key] = font;
         LOG_INFO( "[FontService] {} '{}' @ {}px -> {}x{} atlas in {} ms", fromCache ? "Loaded cached" : "Baked",
                   ttfPath, static_cast<int>( pixelHeight ), raw->Baked.AtlasWidth, raw->Baked.AtlasHeight,
                   atlasMs );
-        return raw;
+        return font;
     }
 
     void FontService::Clear()
@@ -140,6 +145,7 @@ namespace Desert::Runtime
         const std::unique_lock write( m_Mutex );
         m_Fonts.clear();
         m_ExtraGlyphs.clear();
+        m_Generation.fetch_add( 1, std::memory_order_release );
         m_Available.clear();
         m_Scanned = false;
     }
@@ -214,10 +220,15 @@ namespace Desert::Runtime
 
     Font* FontService::Get( uint64_t handle, float pixelHeight )
     {
+        return Share( handle, pixelHeight ).get();
+    }
+
+    std::shared_ptr<Font> FontService::Share( uint64_t handle, float pixelHeight )
+    {
         const std::string path = PathForHandle( handle );
         if ( path.empty() )
             return nullptr;
-        return Get( path, pixelHeight );
+        return Share( path, pixelHeight );
     }
 
     // Roboto-Regular ships under the engine's (non-relocatable) FONTS_PATH, so this literal matches the
@@ -291,6 +302,7 @@ namespace Desert::Runtime
             {
                 Engine::FrameManager::GetInstance().RetireAfterFrames( std::move( it->second ) );
                 it = m_Fonts.erase( it );
+                m_Generation.fetch_add( 1, std::memory_order_release );
             }
             else
             {

@@ -686,6 +686,10 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp",
           "DrawGenericMeshCommand", "DirectTexture", Guard::FrameScoped,
           kWhyFramePayload },
+        { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp",
+          "DrawGenericMeshCommand", "Params", Guard::FrameScoped,
+          "the pair is held by the producing TextComponent's RuntimeDraw shared_ptr, and a rebuild or a destroyed "
+          "component parks the old one in ECS::RetireRenderCache, which keeps it past the frames in flight, as Mesh" },
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawMeshCommand.hpp",
           "DrawStaticMeshCommand", "Mesh", Guard::FrameScoped,
           "the mesh is held by the ECS component, the primitive factory's process-wide table or MeshService for the whole frame" },
