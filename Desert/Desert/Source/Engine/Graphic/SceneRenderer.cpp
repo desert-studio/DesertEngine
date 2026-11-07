@@ -2621,12 +2621,17 @@ namespace Desert::Graphic
                 // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
                 // depth), no glass section and no water surface (it writes its own depth).
                 {
+                    // GPU-ASYNC-WAIT: only a draw that WRITES the depth after the composite keeps the march late -
+                    // a generic record in the frustum, or a translucent section whose draw state writes depth
+                    // (MeshRenderer::LateDepthWriterInView); an off-screen generic record or a glass section that
+                    // writes none no longer moves 0.9 ms of clouds out of the probes' window.
                     const auto* waterSurface = m_Systems.Water.get();
-                    const bool  depthFinal =
-                         m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
-                         ( meshRenderer == nullptr || ( meshRenderer->GetGenericQueue().empty() &&
-                                                        !meshRenderer->TranslucentSectionsVisible() ) ) &&
-                         ( waterSurface == nullptr || !waterSurface->HasDraws() );
+                    const bool  noLateMeshDepth =
+                         meshRenderer == nullptr ||
+                         meshRenderer->LateDepthWriterInView() == System::MeshRenderer::LateDepthWriter::None;
+                    const bool depthFinal = m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
+                                            noLateMeshDepth &&
+                                            ( waterSurface == nullptr || !waterSurface->HasDraws() );
                     if ( depthFinal && !m_DebugView.HidesAtmosphere() )
                     {
                         AddFrameVolumetricClouds( graph, textures, frame );

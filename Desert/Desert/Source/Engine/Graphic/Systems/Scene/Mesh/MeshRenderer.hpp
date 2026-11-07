@@ -1252,6 +1252,18 @@ namespace Desert::Graphic::System
         // SceneRenderer's scene-copy decision (UE: the scene colour copy only for a view with a refractive
         // primitive): false, the glass node has nothing to draw and the frame needs no copy for it.
         [[nodiscard]] bool TranslucentSectionsVisible() const;
+        // What writes the scene depth after the composite in this view: a generic draw in the camera's frustum
+        // ("Deferred: Generic", every generic program writes it), else a translucent section in it whose draw
+        // state writes it ("Deferred: Glass": its own cell's pipeline, or the stand-in's while the cell compiles).
+        // SceneRenderer's clouds placement (GPU-ASYNC-WAIT): only with None is the depth final while the screen
+        // probes gather, so the march can fill the graphics queue between their fork and join.
+        enum class LateDepthWriter : uint8_t
+        {
+            None,
+            Generic,
+            Translucent
+        };
+        [[nodiscard]] LateDepthWriter LateDepthWriterInView();
         // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
         // @p blendedOnly).
         [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;
