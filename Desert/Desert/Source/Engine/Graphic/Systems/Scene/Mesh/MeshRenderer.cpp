@@ -759,9 +759,14 @@ namespace Desert::Graphic::System
                 // The draw's push block: the material's, with the draw's own values over it (by value - the
                 // material's block is read, never written, so another pass recording it reads the same bytes).
                 const Common::Memory::Buffer& materialPush = draw.Material->GetPushConstantBuffer();
-                push.assign( materialPush.Size, std::byte{ 0 } );
+                // CPU-DRAW-BIND: copied once (no zero fill the copy overwrites).
                 if ( materialPush.Data != nullptr && materialPush.Size != 0u )
-                    std::memcpy( push.data(), materialPush.Data, materialPush.Size );
+                {
+                    const auto* bytes = static_cast<const std::byte*>( materialPush.Data );
+                    push.assign( bytes, bytes + materialPush.Size );
+                }
+                else
+                    push.assign( materialPush.Size, std::byte{ 0 } );
                 const DrawPushFields::Placement& placement = placements.Of( draw.Material->GetShader().get() );
                 if ( auto written = draw.Push.WriteInto( push, placement ); !written )
                     return Common::MakeFormattedError( "{}: draw {} ('{}'): {}", context.GetPassName(), i,

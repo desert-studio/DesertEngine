@@ -542,11 +542,15 @@ namespace Desert::Graphic::API::Vulkan
 
     VkBuffer VulkanRendererAPI::VisibleRowIdentity( const uint32_t rows )
     {
+        // The draw's path (see the declaration): no lock, no reference count, while the capacity holds.
+        if ( rows <= m_VisibleRowIdentityRows.load( std::memory_order_acquire ) )
+            return m_VisibleRowIdentityBuffer.load( std::memory_order_relaxed );
         const std::lock_guard<std::mutex> grow( m_GrowLock );
-        if ( m_VisibleRowIdentity == nullptr || rows > m_VisibleRowIdentityRows )
+        const uint32_t                    held = m_VisibleRowIdentityRows.load( std::memory_order_relaxed );
+        if ( m_VisibleRowIdentity == nullptr || rows > held )
         {
             // Doubled past the request, so a scene that grows by one draw does not reallocate every frame.
-            const uint32_t        capacity = std::max( { rows, m_VisibleRowIdentityRows * 2u, 1024u } );
+            const uint32_t        capacity = std::max( { rows, held * 2u, 1024u } );
             std::vector<uint32_t> identity( capacity );
             for ( uint32_t row = 0; row < capacity; ++row )
                 identity[row] = row;
@@ -555,9 +559,14 @@ namespace Desert::Graphic::API::Vulkan
                  identity.data(), static_cast<uint32_t>( identity.size() * sizeof( uint32_t ) ) );
             const auto uploaded = m_VisibleRowIdentity->RT_Invalidate();
             DESERT_VERIFY( uploaded.IsSuccess(), "the instance id identity buffer could not be uploaded" );
-            m_VisibleRowIdentityRows = capacity;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+            const VkBuffer handle =
+                 static_cast<const VulkanVertexBuffer*>( m_VisibleRowIdentity.get() )->GetVulkanBuffer();
+            // The handle first, then the rows that publish it (VisibleRowIdentity's lock-free read).
+            m_VisibleRowIdentityBuffer.store( handle, std::memory_order_relaxed );
+            m_VisibleRowIdentityRows.store( capacity, std::memory_order_release );
         }
-        return sp_cast<API::Vulkan::VulkanVertexBuffer>( m_VisibleRowIdentity )->GetVulkanBuffer();
+        return m_VisibleRowIdentityBuffer.load( std::memory_order_relaxed );
     }
 
     void VulkanRendererAPI::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
@@ -1326,7 +1335,9 @@ namespace Desert::Graphic::API::Vulkan
             Recording().BoundGeometry = key;
             GeometryPool::Get().RecordBind( shared );
         }
-        if ( visibleRows != VK_NULL_HANDLE )
+        // CPU-DRAW-BIND: binding 2 is recorded only when this command buffer does not hold the stream already.
+        if ( visibleRows != VK_NULL_HANDLE &&
+             !Recording().BoundVisibleRows.Holds( RecordingTarget(), visibleRows ) )
         {
             const VkDeviceSize zero = 0;
             vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &visibleRows,
@@ -1383,8 +1394,8 @@ namespace Desert::Graphic::API::Vulkan
         // values over it, MeshDrawList::Record; the pipeline layout's full range, zero past what it holds) with
         // the submesh's transform over the first mat4. Stages and size are the LAYOUT's
         // (VulkanPipeline::GetPushConstantRange), never the shader's current reflection, which a recompile can
-        // move past the layout this pipeline holds (pushConstant, above).
-        ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
+        // move past the layout this pipeline holds (pushConstant, above). The layout-vs-reflection stage check ran
+        // in BindGraphicsPassState, against the same reflection (CPU-DRAW-BIND: once per draw, not twice).
         // CPU-FRAME-5: the renderer's scratch (recording is one thread's), so a draw allocates no push block.
         std::vector<std::byte>& push = Recording().SubmeshPush;
         push.clear();
@@ -1394,9 +1405,10 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeFormattedError(
                      "{}: shader '{}' push block of {} bytes cannot hold the transform", pass, shader->GetName(),
                      pushConstant->size );
-            push.assign( pushConstant->size, std::byte{ 0 } );
-            if ( !drawPush.empty() )
-                std::memcpy( push.data(), drawPush.data(), std::min<size_t>( push.size(), drawPush.size() ) );
+            // CPU-DRAW-BIND: each byte written once - the draw's block, then zeros past it to the range's end.
+            const size_t copied = std::min<size_t>( pushConstant->size, drawPush.size() );
+            push.assign( drawPush.begin(), drawPush.begin() + static_cast<std::ptrdiff_t>( copied ) );
+            push.resize( pushConstant->size, std::byte{ 0 } );
         }
 
         // The hidden-submesh mask and the push block of each run (SubmeshRun); @p draw records the run.
@@ -1754,11 +1766,14 @@ namespace Desert::Graphic::API::Vulkan
             return bound;
         // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is consumed,
         // VulkanShaderReflection feeds the consumed locations only), so the bind-skip key of the meshes'
-        // buffers (m_BoundGeometry) is untouched; the next mesh draw binds binding 2 itself.
-        const VkBuffer     rowBuffer = rows.GetValue()->GetBuffer();
-        const VkDeviceSize zero      = 0;
-        vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
-                                &zero );
+        // buffers (m_BoundGeometry) is untouched; binding 2's own record (BoundVisibleRows) names this buffer, so
+        // the next mesh draw binds its stream again.
+        const VkBuffer rowBuffer = rows.GetValue()->GetBuffer();
+        if ( !Recording().BoundVisibleRows.Holds( RecordingTarget(), rowBuffer ) )
+        {
+            const VkDeviceSize zero = 0;
+            vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer, &zero );
+        }
         DrawCounter::RecordBins( 1u, 1u );
         vkCmdDrawIndirect( RecordingTarget(), args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
@@ -1858,8 +1873,8 @@ namespace Desert::Graphic::API::Vulkan
                                              .MaterialPush     = other.PushConstants,
                                              .BlockPushBytes   = bindings.GetPushConstants().size() };
         // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
-        const std::vector<VkDescriptorSet>* kept = memo.GetValue()->Find( key );
-        if ( kept == nullptr )
+        std::optional<std::span<const VkDescriptorSet>> kept = memo.GetValue()->Find( key );
+        if ( !kept.has_value() )
         {
             // CPU-FRAME-5: the other route's filled slots are read only by the resolution, so a draw the memo
             // serves builds none.
@@ -1875,10 +1890,9 @@ namespace Desert::Graphic::API::Vulkan
                                              &materialSlots );
             if ( !written )
                 return Common::MakeError( written.GetError() );
-            memo.GetValue()->Keep( key, written.ExtractValue() );
-            kept = memo.GetValue()->Find( key );
+            kept = memo.GetValue()->Keep( key, written.GetValue() );
         }
-        const std::vector<VkDescriptorSet>& sets = *kept;
+        const std::span<const VkDescriptorSet> sets = *kept;
 
         // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
         // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
@@ -1893,7 +1907,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             const VkPipelineLayout layout = graphics->GetVkPipelineLayout();
             Recording().BoundGraphics.On( cmd.GetValue() );
-            if ( Recording().BoundGraphics.SetsLayout != layout || !std::ranges::equal( Recording().BoundGraphics.Sets, sets ) )
+            if ( Recording().BoundGraphics.SetsLayout != layout ||
+                 !std::ranges::equal( Recording().BoundGraphics.Sets, sets ) )
             {
                 vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0,
                                          static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
