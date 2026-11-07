@@ -1,10 +1,11 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Common/Core/Math/Simd.hpp>
 
 #include <glm/glm.hpp>
 
-#include <array> // m_Planes — reached transitively inside the engine, but not by a test that includes this alone
+#include <cstdint>
 
 namespace Desert::Core
 {
@@ -31,11 +32,6 @@ namespace Desert::Core
             // direction every other failure in this file is made to fall.
             glm::vec3 Normal   = glm::vec3( 0.0f );
             float     Distance = 0.0f;
-
-            float GetDistance( const glm::vec3& point ) const
-            {
-                return glm::dot( point, Normal ) + Distance;
-            }
         };
 
     public:
@@ -45,7 +41,7 @@ namespace Desert::Core
 
         void Rebuild( const glm::mat4& projection, const glm::mat4& view );
 
-        bool IsInside( const glm::vec3& point ) const;
+        [[nodiscard]] bool IsInside( const glm::vec3& point ) const noexcept;
 
         // THE TEST THE RENDER PATH USES, and the reason the point test above could never have been it.
         //
@@ -62,29 +58,87 @@ namespace Desert::Core
         // six half-space tests while touching no part of the frustum, so this says "visible" slightly more
         // often than geometry requires. That error costs one draw call. The opposite error costs a hole in
         // the picture, and this function will not trade in that direction.
-        [[nodiscard]] bool Intersects( const Common::Math::AABB& worldBox ) const;
+        //
+        // FOUR PLANES AT A TIME (UE FConvexVolume::IntersectBox): the planes are kept lane per plane and the six
+        // tests run as two groups of four through Common/Core/Math/Simd.hpp. Each lane does the arithmetic the
+        // plain per-plane loop did, in its order -- the corner picked by `n >= 0`, then
+        // ((x*nx + y*ny) + z*nz) + d, then `>= 0` -- so it accepts and rejects exactly the same boxes, NaN
+        // included. Inline: a caller's loop over many boxes loads the planes once.
+        [[nodiscard]] bool Intersects( const Common::Math::AABB& worldBox ) const noexcept;
 
         // A sphere (a local light's attenuation range): rejected only when it lies wholly behind one plane (the
         // planes are normalised, so the signed distance is in world units). Conservative in the same direction as
         // the box test: a sphere past a corner of two planes is kept.
-        [[nodiscard]] bool IntersectsSphere( const glm::vec3& center, float radius ) const;
+        [[nodiscard]] bool IntersectsSphere( const glm::vec3& center, float radius ) const noexcept;
 
         // Opens the frustum on one side: @p plane accepts every point from now on (a zero plane). The sun's
         // virtual shadow map culls its casters without the plane on the sun's side: they draw with depth clamp, so
         // a caster nearer the sun than a clipmap level's depth range is flattened onto it rather than clipped (UE
         // VSM).
-        void Open( const FrustumPlane plane )
+        void Open( const FrustumPlane plane ) noexcept
         {
-            m_Planes[plane] = Plane{};
+            SetPlane( static_cast<uint32_t>( plane ), Plane{} );
         }
 
         // One plane as Rebuild / Open left it: the GPU cull (GpuDriven::InstanceCulling) tests these same six.
-        [[nodiscard]] const Plane& GetPlane( const FrustumPlane plane ) const
+        [[nodiscard]] Plane GetPlane( const FrustumPlane plane ) const noexcept
         {
-            return m_Planes[plane];
+            const uint32_t lane = static_cast<uint32_t>( plane );
+            return Plane{ glm::vec3( m_Lanes.Nx[lane], m_Lanes.Ny[lane], m_Lanes.Nz[lane] ), m_Lanes.D[lane] };
         }
 
     private:
-        std::array<Plane, 6> m_Planes;
+        void SetPlane( const uint32_t lane, const Plane& plane ) noexcept
+        {
+            m_Lanes.Nx[lane] = plane.Normal.x;
+            m_Lanes.Ny[lane] = plane.Normal.y;
+            m_Lanes.Nz[lane] = plane.Normal.z;
+            m_Lanes.D[lane]  = plane.Distance;
+        }
+
+        // Which lanes of each group of four hold a plane: 0..3, then 4 and 5. Lanes 6 and 7 are padding (zero)
+        // and never vote: a zero plane gives 0 * inf = NaN for an unbounded box, which a real lane rejects -- as
+        // the plain loop did for an Open() plane -- but a padding lane is not a plane at all.
+        static constexpr uint32_t kGroupLanes[2] = { 0xFu, 0x3u };
+
+        // THE planes (the only copy), lane per plane in FrustumPlane order: normal x, y, z and distance. Zero
+        // until Rebuild: a zero normal makes every distance 0, so an unbuilt frustum accepts everything.
+        struct PlaneLanes
+        {
+            float Nx[8] = {};
+            float Ny[8] = {};
+            float Nz[8] = {};
+            float D[8]  = {};
+        };
+        PlaneLanes m_Lanes;
     };
+
+    inline bool Frustum::Intersects( const Common::Math::AABB& worldBox ) const noexcept
+    {
+        namespace S          = Common::Math::Simd;
+        const S::Float4 zero = S::Zero();
+        const S::Float4 minX = S::Splat( worldBox.Min.x );
+        const S::Float4 minY = S::Splat( worldBox.Min.y );
+        const S::Float4 minZ = S::Splat( worldBox.Min.z );
+        const S::Float4 maxX = S::Splat( worldBox.Max.x );
+        const S::Float4 maxY = S::Splat( worldBox.Max.y );
+        const S::Float4 maxZ = S::Splat( worldBox.Max.z );
+        for ( uint32_t group = 0; group < 2u; ++group )
+        {
+            const uint32_t  base = group * 4u;
+            const S::Float4 nx   = S::Load4( m_Lanes.Nx + base );
+            const S::Float4 ny   = S::Load4( m_Lanes.Ny + base );
+            const S::Float4 nz   = S::Load4( m_Lanes.Nz + base );
+            const S::Float4 d    = S::Load4( m_Lanes.D + base );
+            // The corner farthest along each plane's normal: three independent per-axis choices.
+            const S::Float4 px   = S::Select( S::CompareGE( nx, zero ), maxX, minX );
+            const S::Float4 py   = S::Select( S::CompareGE( ny, zero ), maxY, minY );
+            const S::Float4 pz   = S::Select( S::CompareGE( nz, zero ), maxZ, minZ );
+            const S::Float4 dot  = S::Add( S::Add( S::Mul( px, nx ), S::Mul( py, ny ) ), S::Mul( pz, nz ) );
+            const uint32_t  kept = S::MaskBits( S::CompareGE( S::Add( dot, d ), zero ) );
+            if ( ( kept & kGroupLanes[group] ) != kGroupLanes[group] )
+                return false;
+        }
+        return true;
+    }
 } // namespace Desert::Core

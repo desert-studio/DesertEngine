@@ -96,6 +96,23 @@ if(MSVC)
     endif()
 endif()
 
+# ── THE INSTRUCTION SET (CPU-SIMD) ─────────────────────────────────────────────
+# UE: one vector layer (VectorRegister: SSE/AVX behind one header) over the baseline ISA the binary is built for.
+#   DESERT_AVX2      MSVC x64: /arch:AVX2 on every target in EVERY configuration, so Debug compiles the same
+#                    code paths as Release and Shipping (Common/Core/Math/Simd.hpp picks them at compile time
+#                    from _M_X64 / __AVX2__) and a Debug test exercises what ships. The compiler autovectorises
+#                    with AVX2; the hot loops it cannot vectorise (frustum culling) are written by hand through
+#                    Simd.hpp. VS2022's /fp:precise does not contract a*b+c into an FMA (that is /fp:contract),
+#                    so a scalar and a SIMD path of the same arithmetic round alike. A vendored library with its
+#                    OWN instruction-set choice (desert_own_isa_dispatch: Embree's SSE2 ISA build, dav1d's and
+#                    meshoptimizer's cpuid dispatch, Compressonator's, mimalloc, which runs before main) keeps
+#                    its own flags. glm does not follow /arch: its SIMD types switch on only with
+#                    GLM_FORCE_INTRINSICS / GLM_FORCE_*, which nothing defines, so __AVX2__ changes no glm
+#                    layout. clang (macOS ARM64) takes the scalar path.
+if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+    option(DESERT_AVX2 "MSVC x64: /arch:AVX2 on every target without its own ISA dispatch" ON)
+endif()
+
 if(MSVC)
     # MSBuild's ClCompile defaults that differ from cl's own: ExceptionHandling Sync (/EHsc, passed to .c too),
     # RemoveUnreferencedCodeData (/Zc:inline), UseFullPaths (/FC). SupportJustMyCode (/JMC) under UseDebugLibraries
@@ -427,6 +444,11 @@ function(_desert_target_flags target warnings speed debug_opt)
     # DESERT_LTCG on a desert_ltcg target: whole-program code generation (/GL), global data in COMDATs the linker can
     # fold and drop (/Gw), the aggressive inliner (/Ob3, which pays across modules only with /GL). Its archive is
     # written by lib /LTCG, which otherwise restarts itself on the first /GL object.
+    # DESERT_AVX2: /arch:AVX2, every configuration, but not on a target with its own ISA dispatch.
+    get_target_property(_own_isa ${target} DESERT_OWN_ISA_DISPATCH)
+    if(MSVC AND DESERT_AVX2 AND NOT _own_isa)
+        target_compile_options(${target} PRIVATE "$<${_cc}:/arch:AVX2>")
+    endif()
     get_target_property(_ltcg ${target} DESERT_LTCG)
     if(MSVC AND DESERT_LTCG AND _ltcg)
         # /Gw /Ob3 in Release and Shipping; /GL and lib /LTCG in Shipping only (see _shipping_link).
@@ -481,6 +503,11 @@ function(_desert_split_objects owner suffix pch_holder out)
     get_target_property(_ltcg ${owner} DESERT_LTCG)
     if(_ltcg)
         set_property(TARGET ${_obj} PROPERTY DESERT_LTCG ON)
+    endif()
+    # The owner's instruction set (desert_own_isa_dispatch): its split parts keep the same flags.
+    get_target_property(_own_isa ${owner} DESERT_OWN_ISA_DISPATCH)
+    if(_own_isa)
+        set_property(TARGET ${_obj} PROPERTY DESERT_OWN_ISA_DISPATCH ON)
     endif()
     # SYSTEM directories through target_include_directories(SYSTEM), from the owner's DESERT_SYSTEM_INCLUDES
     # (desert_external_includes). The owner's list is already ordinary-then-SYSTEM, so the order is kept.
@@ -764,6 +791,12 @@ endfunction()
 # Applied per target, with its split parts, by desert_finalize_targets().
 function(desert_ltcg target)
     set_property(TARGET ${target} PROPERTY DESERT_LTCG ON)
+endfunction()
+
+# A vendored library that picks its instruction set itself (a cpuid dispatch, an ISA-specific build): no
+# /arch:AVX2 under DESERT_AVX2. Applied per target, with its split parts, by desert_finalize_targets().
+function(desert_own_isa_dispatch target)
+    set_property(TARGET ${target} PROPERTY DESERT_OWN_ISA_DISPATCH ON)
 endfunction()
 
 # DESERT_MIMALLOC: mimalloc.dll as the process allocator of the executable <target>, Release and Shipping
