@@ -1063,6 +1063,13 @@ namespace Desert::Graphic::System
         // growing a storage buffer reallocates the VkBuffer under a draw already recorded
         // against the old one.
         //
+        // GPU-TERRAIN-HZB: the per-tile stages below (Tile LODs, Group textures, Tile params, Displacement, Frame
+        // material) are CPU work only - no dispatch, no copy, no draw is recorded by them - so they are CPU
+        // scopes (DESERT_PROFILE_SCOPE, aggregated by name: one row each per frame), not GPU passes: a
+        // DESERT_PROFILE_PASS wrote a timestamp pair per tile into the frame's buffer (~80 empty GPU rows for
+        // 20 tiles, each spending the frame's query budget). The stages that do record GPU work keep theirs
+        // (Layer inputs: the layer arrays' copies; Tile proxy; Upload rows).
+        //
         // What does not change from frame to frame is the tiles' proxies (TileProxy, ProxyOf): a tile's set, its
         // layer inputs and its samplers are looked up by entity and rebuilt only when a revision moved.
         ++m_PrepareSerial;
@@ -1081,7 +1088,7 @@ namespace Desert::Graphic::System
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         TileLodMap tileLods;
         {
-            DESERT_PROFILE_PASS( "Terrain: Tile LODs" );
+            DESERT_PROFILE_SCOPE( "Terrain: Tile LODs" );
             for ( const auto& t : m_Queue )
                 tileLods[KeyOf( t.Landscape, 0, 0 )] =
                      TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
@@ -1138,7 +1145,7 @@ namespace Desert::Graphic::System
             // The first tile of a set this frame opens its group, in the next of last frame's slots.
             if ( materials.GroupFrame != m_PrepareSerial )
             {
-                DESERT_PROFILE_PASS( "Terrain: Group textures" );
+                DESERT_PROFILE_SCOPE( "Terrain: Group textures" );
                 materials.GroupFrame = m_PrepareSerial;
                 materials.GroupIndex = groupCount;
                 if ( groupCount == m_FrameGroups.size() )
@@ -1192,7 +1199,7 @@ namespace Desert::Graphic::System
                 // The params are the overrides on the schema defaults, written again only when their revision
                 // moved (ProgramMaterials::AppliedOverrides); GetParamRow below still runs every frame (it writes
                 // the texture slots of the images the properties draw now).
-                DESERT_PROFILE_PASS( "Terrain: Tile params" );
+                DESERT_PROFILE_SCOPE( "Terrain: Tile params" );
                 const uint64_t generation = ProgramGeneration( *surface );
                 if ( materials.AppliedOverrides != t.Overrides || materials.AppliedSurface != surface ||
                      materials.AppliedGeneration != generation )
@@ -1209,7 +1216,7 @@ namespace Desert::Graphic::System
             TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
             const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
             {
-                DESERT_PROFILE_PASS( "Terrain: Displacement" );
+                DESERT_PROFILE_SCOPE( "Terrain: Displacement" );
                 ApplyLandscapeDisplacement(
                      instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
                      slab != diceSlabs.end() ? std::optional<glm::vec2>( slab->second ) : std::nullopt, viewHeight,
@@ -1256,7 +1263,7 @@ namespace Desert::Graphic::System
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
             {
-                DESERT_PROFILE_PASS( "Terrain: Frame material" );
+                DESERT_PROFILE_SCOPE( "Terrain: Frame material" );
                 m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
             }
         }
