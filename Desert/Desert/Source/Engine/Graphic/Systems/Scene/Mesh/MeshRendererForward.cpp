@@ -1146,6 +1146,43 @@ namespace Desert::Graphic::System
         return false;
     }
 
+    MeshRenderer::LateDepthWriter MeshRenderer::LateDepthWriterInView()
+    {
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( camera == nullptr )
+            return LateDepthWriter::None;
+        const Core::Frustum frustum = camera->GetFrustum();
+        // "Deferred: Generic" draws the generic queue's records in the frustum (BuildGenericDraws), and each of
+        // their programs writes the depth (blended ones included): one in view is enough.
+        for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
+        {
+            if ( m_GenericQueue[gi].Mesh != nullptr && GenericEntryInView( frustum, gi ) )
+                return LateDepthWriter::Generic;
+        }
+        // "Deferred: Glass": DeclareGlassBindings' walk (translucent flag, frustum), and the draw state it draws
+        // the section with - its cell's pipeline, the stand-in's while the cell is not ready.
+        const auto writesDepth = []( const TranslucentDraw* const draw ) noexcept
+        { return draw != nullptr && draw->Pipeline && draw->Pipeline->GetSpecification().DepthWriteEnabled; };
+        const TranslucentDraw* const standIn = TranslucentStandIn();
+        const StaticWalkColumns&     columns = m_StaticColumns;
+        for ( std::size_t si = 0; si < columns.Count(); ++si )
+        {
+            DataDrivenMaterial* const mat = columns.Surfaces[si];
+            if ( columns.Meshes[si] == nullptr || columns.Instances[si] == nullptr || mat == nullptr ||
+                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u ||
+                 !StaticEntryInView( frustum, si ) )
+                continue;
+            const TranslucentDraw* const own = TranslucentDrawOf( mat );
+            if ( own == nullptr )
+                continue; // refused once, by name: the glass draws nothing for it
+            // The stand-in too whatever the cell's state: whether the cell is still in the driver this frame is
+            // ChoosePipelineDraw's answer, asked (and counted) once, by the glass walk.
+            if ( writesDepth( own ) || writesDepth( standIn ) )
+                return LateDepthWriter::Translucent;
+        }
+        return LateDepthWriter::None;
+    }
+
     bool MeshRenderer::QueuedForwardDrawSamples( const std::string_view textureName, const bool blendedOnly ) const
     {
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;

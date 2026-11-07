@@ -937,19 +937,34 @@ namespace Desert::Graphic::RDG
     // dependency edge (no earlier pass touched its buffer, so nothing it writes can be seen earlier) moves, in its
     // order, to the head. Every edge keeps its direction - an upload has no predecessor, and its readers stay
     // after it - so the graph's result is the same. An upload's exec reads only its own copied bytes, so it
-    // crosses a NeverParallel or ExternalQueue pass freely. An upload with an earlier user of its buffer stays in
-    // place.
+    // crosses a NeverParallel or ExternalQueue pass freely. An upload whose every predecessor is itself a hoisted
+    // upload moves too (GPU-ASYNC-WAIT: the 46 "Upload: GrassParams" ranges of one pooled buffer, each ordered
+    // after the one before by its write; only the first moved, the rest kept the grass cull's fork mid-frame and
+    // the graphics queue waited 0.25 ms before "Deferred: Masked Depth Prepass"): the hoisted keep their order, so
+    // those edges keep their direction. An upload with any other earlier user of its buffer stays in place.
     void Builder::Compiler::HoistQueuedUploads()
     {
-        ScratchVector<bool> hasPredecessor( m_ExecutedCount, false );
+        // Direct predecessors of each position, from the dependency edges (CSR); an edge runs forward in the
+        // executed order, so a position's predecessors are decided before it.
+        ScratchVector<uint32_t> predBegin( m_ExecutedCount + 1, 0 );
         for ( const DependencyEdge& edge : m_Result.Edges )
-            hasPredecessor[m_PositionOf[edge.To]] = true;
+            ++predBegin[m_PositionOf[edge.To] + 1];
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+            predBegin[position + 1] += predBegin[position];
+        ScratchVector<uint32_t> preds( m_Result.Edges.size() );
+        {
+            ScratchVector<uint32_t> fill( predBegin.begin(), predBegin.end() - 1 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+                preds[fill[m_PositionOf[edge.To]]++] = m_PositionOf[edge.From];
+        }
         ScratchVector<bool> hoisted( m_ExecutedCount, false );
         uint32_t          count = 0;
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
-            hoisted[position] = m_Passes[m_Executed[position]].QueuedUpload && !hasPredecessor[position] &&
-                                m_PipeAt[position] == Pipe::Graphics;
+            bool movable = m_Passes[m_Executed[position]].QueuedUpload && m_PipeAt[position] == Pipe::Graphics;
+            for ( uint32_t k = predBegin[position]; movable && k < predBegin[position + 1]; ++k )
+                movable = preds[k] < position && hoisted[preds[k]];
+            hoisted[position] = movable;
             if ( hoisted[position] )
                 ++count;
         }
