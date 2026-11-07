@@ -617,6 +617,8 @@ namespace Common::Profiling
 #define DESERT_PROFILE_SCOPE( NAME )
 #define DESERT_PROFILE_WAIT( NAME )
 #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
+#define DESERT_PROFILE_INTERN_NAME( NAME ) ::Common::Profiling::InternedScopeName{}
+#define DESERT_PROFILE_SCOPE_INTERNED( INTERNED )
 #define DESERT_PROFILE_SCOPE_PREFIXED( PREFIX, NAME )
 #define DESERT_PROFILE_FUNC()
 #define DESERT_PROFILE_PASS( NAME )
@@ -670,6 +672,15 @@ namespace Common::Profiling
     DESERT_PROF_OPTICK_INTERNED_( DESERT_PROF_CONCAT( _desertProfDynName_, __LINE__ ) );                          \
     const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfDyn_, __LINE__ )(                       \
          DESERT_PROF_CONCAT( _desertProfDynName_, __LINE__ ) )
+
+// A runtime name interned ONCE by its owner (DESERT_PROFILE_INTERN_NAME, kept beside what it names - the scene's
+// systems keep theirs per system) and timed by DESERT_PROFILE_SCOPE_INTERNED with no per-scope lookup: what
+// DESERT_PROFILE_SCOPE_DYNAMIC pays every pass (the thread's name cache hashing the characters) is paid once.
+// Under Shipping the name is the empty InternedScopeName and the scope expands to nothing.
+#define DESERT_PROFILE_INTERN_NAME( NAME ) ::Common::Profiling::Profiler::Get().InternScopeName( NAME )
+#define DESERT_PROFILE_SCOPE_INTERNED( INTERNED )                                                                 \
+    DESERT_PROF_OPTICK_INTERNED_( INTERNED );                                                                     \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfInt_, __LINE__ )( INTERNED )
 
 // A runtime NAME under a literal PREFIX, as the row "<PREFIX><NAME>" ("RDG Record: " + a pass's name), WITHOUT
 // building that string: the thread's name cache finds the row by the two parts' characters

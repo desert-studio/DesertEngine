@@ -398,16 +398,27 @@ namespace Desert::Runtime
             bool m_Owns = false;
         };
 
-        // A game-thread WRITER that may destroy a material or write an instance (@p joinRender) joins the render
-        // job BEFORE it locks: those paths join it again inside (ViewResourceRegistry::Forget, the
-        // MaterialInstance setters of OVERLAP-ON-2), and a join under the lock would wait for a job that waits for
-        // the lock. A lookup's miss only inserts (a shell, a request, a built cell) and does not join, as before.
+        // What a writer waits for before it locks (UE: FMaterialUpdateContext flushes the render thread only for
+        // a destroy; a registration is ENQUEUE_RENDER_COMMAND, no flush).
+        //  - LockOnly: the exclusive lock alone. Every render reader holds the shared lock, so the lock serializes
+        //    them; a material the writer retires goes to the graveyard (destroyed frames-in-flight later, behind
+        //    the views), so no job in flight loses one it is recording. Register, Invalidate, Release, the pin and
+        //    the asset manager's binding, and every lookup miss.
+        //  - JoinRender: joins the whole render queue first - for a writer that DESTROYS materials at once (Clear:
+        //    at shutdown there is no next frame to collect a graveyard; ReleaseViewVariants: its owner's ledger
+        //    check follows). Joined BEFORE the lock: a join under it would wait for a job that waits for the lock.
+        enum class Fence : uint8_t
+        {
+            LockOnly,
+            JoinRender
+        };
+
         // A thread that already holds the lock exclusively takes nothing; off the game thread the join returns at
         // once.
         class WriteGuard
         {
         public:
-            explicit WriteGuard( const bool joinRender ) noexcept
+            explicit WriteGuard( const Fence fence ) noexcept
             {
                 if ( t_Held == Held::Exclusive )
                     return;
@@ -419,7 +430,7 @@ namespace Desert::Runtime
                                "runs under the shared lock. A reader called a writer - fix the caller." );
                     return;
                 }
-                if ( joinRender )
+                if ( fence == Fence::JoinRender )
                     ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
                 ServiceLock().lock();
                 t_Held = Held::Exclusive;
@@ -455,7 +466,7 @@ namespace Desert::Runtime
 
     Common::BoolResultStr MaterialService::Register( const std::shared_ptr<Assets::MaterialAsset>& materialAsset )
     {
-        const WriteGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( !materialAsset->GetMetadata().IsValid() )
         {
             return Common::MakeError( "Material asset is invalid" );
@@ -477,8 +488,14 @@ namespace Desert::Runtime
         // reverse index and be handed to a render pass as a live sibling.
         auto& cell =
              m_Materials[handle][VariantSlot( Graphic::MeshVertexPath::Static, Graphic::MeshPass::Forward )];
+        // Parked, not destroyed: the register takes no render fence, so a frame in flight may still be recording
+        // with the cell it replaces (Invalidate's rule).
         if ( cell )
+        {
             m_BuiltToAsset.erase( cell.get() );
+            m_DisplacedBuilt.erase( cell.get() );
+            m_Graveyard.Park( std::move( cell ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        }
         if ( material )
         {
             m_BuiltToAsset[material.get()] = handle;
@@ -506,7 +523,7 @@ namespace Desert::Runtime
         // render job: it builds and destroys no material, and a shell it replaces is read only under this lock or
         // through a strong reference (ShellOf), so a lookup miss's rule holds - a streamed-in scene's first use of
         // a material no longer waits for the frame being recorded.
-        const WriteGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         const auto       handle = materialAsset->GetMetadata().Handle;
         if ( const auto refusal = RefuseOnCollision( handle, materialAsset ); !refusal )
             return refusal;
@@ -574,7 +591,7 @@ namespace Desert::Runtime
 
     void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
     {
-        const WriteGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
              handle,
              "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
@@ -582,14 +599,14 @@ namespace Desert::Runtime
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
-        const WriteGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         m_Assets = assets;
     }
 
     void MaterialService::StartRead( const Assets::AssetHandle&        handle,
                                      std::vector<Assets::AssetHandle>& awaited ) const
     {
-        const WriteGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( handle.IsNull() )
             return;
         // A copy of the pointer, not the iterator: the request below may discover and rehash.
@@ -643,7 +660,7 @@ namespace Desert::Runtime
 
     bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
-        const WriteGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( asset->IsReadyForUse() )
             return true;
         const auto handle = asset->GetMetadata().Handle;
@@ -661,7 +678,7 @@ namespace Desert::Runtime
              [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
                              const std::string& error )
              {
-                 const WriteGuard serviceLock( false );
+                 const WriteGuard serviceLock( Fence::LockOnly );
                  m_Requests.erase( handle );
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
@@ -679,7 +696,7 @@ namespace Desert::Runtime
              },
              [this, handle]
              {
-                 const WriteGuard serviceLock( false );
+                 const WriteGuard serviceLock( Fence::LockOnly );
                  m_Requests.erase( handle );
              } );
         return false;
@@ -829,7 +846,7 @@ namespace Desert::Runtime
             if ( IsKnownMissing( handle ) )
                 return nullptr;
         }
-        const WriteGuard write( false );
+        const WriteGuard write( Fence::LockOnly );
         const auto       it = FindOrDiscover( handle );
         if ( it == m_MaterialAssets.end() )
             return nullptr;
@@ -847,7 +864,7 @@ namespace Desert::Runtime
             if ( const auto found = FindCell( handle, path, pass, displaced ); found.Material || found.Settled )
                 return found.Material;
         }
-        const WriteGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         // Material-instance assets resolve through the parent chain to the BASE material: an
         // instance never builds a runtime Material of its own (its overrides live on the
         // per-entity MaterialInstance, see CreateRuntimeInstance). Depth-capped cycle guard.
@@ -930,7 +947,7 @@ namespace Desert::Runtime
                  found.Material || found.Settled )
                 return AsSurface( found.Material, path, pass );
         }
-        const WriteGuard write( false );
+        const WriteGuard write( Fence::LockOnly );
         const auto       it = m_BuiltToAsset.find( built );
         if ( it == m_BuiltToAsset.end() )
             return nullptr; // invalidated between the two locks
@@ -957,7 +974,9 @@ namespace Desert::Runtime
 
     void MaterialService::ReleaseViewVariants( const void* owner )
     {
-        const WriteGuard serviceLock( true );
+        // The full fence, and destroyed at once: the owner (a view's MeshRenderer, on its destruction) checks its
+        // ledger right after, and the copies hold that view's buffers - a graveyard keeps them past it.
+        const WriteGuard serviceLock( Fence::JoinRender );
         if ( owner == nullptr )
             return;
         for ( auto& [handle, views] : m_ViewMaterials )
@@ -985,7 +1004,7 @@ namespace Desert::Runtime
             if ( auto* copy = FindSibling( built, path, pass, view, permutation, asker ) )
                 return copy;
         }
-        const WriteGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
         const auto* sibling = GetVariant( built, path, pass );
@@ -1155,7 +1174,7 @@ namespace Desert::Runtime
             {
                 float row = 0.0f;
                 {
-                    const WriteGuard subsurface( false );
+                    const WriteGuard subsurface( Fence::LockOnly );
                     row = SubsurfaceProfileRow( *profile );
                 }
                 instance->SetParamFromVec4( "SubsurfaceProfileIndex", glm::vec4( row ) );
@@ -1295,7 +1314,7 @@ namespace Desert::Runtime
 
     void MaterialService::Clear()
     {
-        const WriteGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::JoinRender );
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
         // The revisions outlive the clear and move: a material built after it is a new build of its asset.
@@ -1316,7 +1335,7 @@ namespace Desert::Runtime
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )
     {
-        const WriteGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         auto it = m_Materials.find( handle );
         if ( it == m_Materials.end() )
             return;
@@ -1354,7 +1373,7 @@ namespace Desert::Runtime
 
     void MaterialService::Release( const Assets::AssetHandle& handle )
     {
-        const WriteGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         // The built materials first, through the graveyard — Invalidate already writes that correctly
         // (reverse index dropped now, destruction deferred to a safe point) and it bumps the stamp, which
         // is what makes every cached runtime instance of the dying material rebuild instead of holding a
@@ -1402,7 +1421,7 @@ namespace Desert::Runtime
              [this]()
              {
                  CollectQueued().store( false );
-                 const WriteGuard serviceLock( false );
+                 const WriteGuard serviceLock( Fence::LockOnly );
                  ::Desert::Engine::RenderTask::CheckRenderStateWrite( "MaterialService: graveyard collect" );
                  // Only the materials whose last possible frame has retired are destroyed (the GPU side: the
                  // slot fence of frame N - frames in flight was waited at BeginFrame); the rest wait for a later
@@ -1435,7 +1454,7 @@ namespace Desert::Runtime
             if ( IsKnownMissing( Assets::AssetHandle{ uuid } ) )
                 return Common::UUID::Null();
         }
-        const WriteGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( const auto it = m_ExternalToInternal.find( uuid ); it != m_ExternalToInternal.end() )
             return it->second;
 

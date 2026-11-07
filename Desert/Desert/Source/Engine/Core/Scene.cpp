@@ -1270,17 +1270,20 @@ namespace Desert::Core
         SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
         while ( arena.size() < m_Systems.size() )
             arena.emplace_back( std::make_unique<Graphic::Render::RenderCommandBuffer>() );
+        // The dereference is bound to a reference first because `typeid` on an expression WITH SIDE EFFECTS
+        // evaluates it - `*system` is `unique_ptr::operator*`, a function call. Same dynamic type.
+        while ( m_SystemScopeNames.size() < m_Systems.size() )
+        {
+            [[maybe_unused]] const auto& systemRef = *m_Systems[m_SystemScopeNames.size()];
+            m_SystemScopeNames.push_back( DESERT_PROFILE_INTERN_NAME( typeid( systemRef ).name() ) );
+        }
 
         const auto runOne = [&]( size_t index )
         {
             const auto& system = m_Systems[index];
-            // Per-system timing (named by the system's type) so every ECS system is individually
-            // visible in the profiler — no per-system edits.
-            // The dereference is bound to a reference first because `typeid` on an expression WITH SIDE
-            // EFFECTS evaluates it — `*system` is `unique_ptr::operator*`, a function call, so the operand
-            // is not the plain lvalue it looks like. Same dynamic type, and the intent is now stated.
-            const auto& systemRef = *system;
-            DESERT_PROFILE_SCOPE_DYNAMIC( typeid( systemRef ).name() );
+            // Per-system timing (named by the system's type, interned above) so every ECS system is
+            // individually visible in the profiler — no per-system edits.
+            DESERT_PROFILE_SCOPE_INTERNED( m_SystemScopeNames[index] );
             system->Update( m_Registry, *arena[index], gameplayTs );
         };
 

@@ -4,6 +4,7 @@
 #include "SystemRules.hpp"
 #include "FracturePieceDraw.hpp"
 #include "LandscapeSplineMeshDraw.hpp"
+#include "SelectionOutlineMask.hpp"
 #include "WindField.hpp"
 
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -111,8 +112,9 @@ namespace Desert::ECS
             {
                 auto view = registry.view<StaticMeshComponent, TransformComponent>();
 
-                // Frame-constant: read the current selection ONCE, not per entity (256x/frame otherwise).
-                const auto& selectedAll = Runtime::SelectionContext::GetAll();
+                // Frame-constant: the selection resolved ONCE into a per-entity flag (selected entities and
+                // their subtrees), read in O(1) per mesh below and by the skinned path.
+                m_Outline.Refresh( registry );
 
                 view.each(
                      [&]( entt::entity entity, StaticMeshComponent& mesh,
@@ -256,36 +258,9 @@ namespace Desert::ECS
                              }
                          }
 
-                         bool isSelected = false;
-                         if ( !selectedAll.empty() )
-                         {
-                             // Check this entity itself (multi-selection aware)
-                             if ( registry.has<UUIDComponent>( entity ) &&
-                                  Runtime::SelectionContext::Contains(
-                                       registry.get<UUIDComponent>( entity ).UUID ) )
-                             {
-                                 isSelected = true;
-                             }
-                             else
-                             {
-                                 // Walk ancestor chain — selecting a prefab root outlines all its mesh children
-                                 entt::entity ancestor = entity;
-                                 while ( registry.has<RelationshipComponent>( ancestor ) )
-                                 {
-                                     const auto& rel = registry.get<RelationshipComponent>( ancestor );
-                                     if ( rel.Parent == entt::null )
-                                         break;
-                                     ancestor = rel.Parent;
-                                     if ( registry.has<UUIDComponent>( ancestor ) &&
-                                          Runtime::SelectionContext::Contains(
-                                               registry.get<UUIDComponent>( ancestor ).UUID ) )
-                                     {
-                                         isSelected = true;
-                                         break;
-                                     }
-                                 }
-                             }
-                         }
+                         // Selected itself or under a selected ancestor (a selected prefab root outlines all
+                         // its mesh children): one bit, set by m_Outline.Refresh for the whole subtree.
+                         const bool isSelected = m_Outline.Contains( entity );
 
                          // Outline: editor selection OR the per-entity "Draw outline" toggle.
                          const bool outlined = isSelected || mesh.GetOutlineDraw();
@@ -626,7 +601,9 @@ namespace Desert::ECS
                              skinnedMesh->GetSkeleton().WriteBindSkinningMatrices( boneMatrices );
                          }
 
-                         bool isSelected =
+                         // The entity itself only (a skinned mesh under a selected root stays unoutlined,
+                         // as before): the subtree flag would widen it.
+                         const bool isSelected =
                               registry.has<UUIDComponent>( entity ) &&
                               Runtime::SelectionContext::Contains(
                                    registry.get<UUIDComponent>( entity ).UUID );
@@ -746,6 +723,7 @@ namespace Desert::ECS
             return material->CreateInstance();
         }
 
+        SelectionOutlineMask                         m_Outline; // the selection as a per-entity flag, per frame
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultMaterial;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultSkinnedMaterial;
         bool                                         m_DefaultRefusalLogged = false;

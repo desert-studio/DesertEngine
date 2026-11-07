@@ -6,6 +6,7 @@
 #include <Engine/Graphic/ExtensionPass.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Profiler.hpp>
 #include <Common/Core/Core.hpp>
 #include <Engine/Core/Camera.hpp>
 
@@ -860,6 +861,9 @@ namespace Desert::Core
         std::mutex                       m_RenderStateDirtyMutex;
 
         std::vector<std::unique_ptr<ECS::System>> m_Systems;
+        // Each system's profiler row (its type's name), interned once when ExecuteSystems first meets it
+        // (index-matched to m_Systems): no per-frame name lookup.
+        std::vector<::Common::Profiling::InternedScopeName> m_SystemScopeNames;
 
         // The last directional-light state this scene complained about (degenerate lights | lights that are
         // not the sun | whether there is a sun), kept so the per-frame collector reports each distinct state
