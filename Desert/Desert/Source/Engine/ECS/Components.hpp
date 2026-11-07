@@ -1012,6 +1012,20 @@ namespace Desert::ECS
     struct FoliageComponent
     {
         Assets::AssetHandle FoliageType;
+
+        // RUNTIME, never saved: what a Prefab-type field's children were last realized from
+        // (World::Foliage::RealizePrefabFoliage). A field whose instances, child count, world transform, type and
+        // prefab all match it is skipped - realized on an edit, not re-reconciled every frame (UE: foliage
+        // instances change only by an edit).
+        struct PrefabRealization
+        {
+            uint64_t            InstanceRevision = 0; // InstancedStaticMeshComponent::GetInstanceRevision
+            size_t              ChildCount       = 0;
+            glm::mat4           FieldWorld{ 0.0f };
+            Assets::AssetHandle Type;
+            const void*         Prefab = nullptr; // the PrefabAsset realized; null = never realized
+        };
+        PrefabRealization RuntimePrefabRealized;
     };
 
     // One binding of the sequence re-pointed at another entity of THIS scene (UE: a binding override on

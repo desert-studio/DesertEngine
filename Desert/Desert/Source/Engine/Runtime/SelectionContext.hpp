@@ -2,7 +2,9 @@
 
 #include <Common/Core/UUID.hpp>
 
+#include <cstdint>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Runtime
@@ -20,11 +22,13 @@ namespace Desert::Runtime
         static void Set( const Common::UUID& uuid )
         {
             s_Selected.assign( 1, uuid );
+            Changed();
         }
 
         static void SetAll( std::vector<Common::UUID> uuids )
         {
             s_Selected = std::move( uuids );
+            Changed();
         }
 
         // The primary selection (last selected), or nullopt when nothing is selected.
@@ -42,15 +46,20 @@ namespace Desert::Runtime
 
         static bool Contains( const Common::UUID& uuid )
         {
-            for ( const auto& u : s_Selected )
-                if ( u == uuid )
-                    return true;
-            return false;
+            return s_SelectedSet.contains( uuid );
         }
 
         static void Clear()
         {
             s_Selected.clear();
+            Changed();
+        }
+
+        // Bumped on every selection write: a consumer that derives per-entity state from the selection
+        // (SelectionOutlineMask) re-resolves only when it moved, never per frame.
+        static uint64_t GetRevision()
+        {
+            return s_Revision;
         }
 
         // "Render this entity in its BIND pose, ignoring any animator." Pushed by the editor while Skeleton
@@ -66,7 +75,16 @@ namespace Desert::Runtime
         }
 
     private:
-        static inline std::vector<Common::UUID>   s_Selected;
+        static void Changed()
+        {
+            s_SelectedSet.clear();
+            s_SelectedSet.insert( s_Selected.begin(), s_Selected.end() );
+            ++s_Revision;
+        }
+
+        static inline std::vector<Common::UUID>        s_Selected;
+        static inline std::unordered_set<Common::UUID> s_SelectedSet; // Contains() in O(1); mirrors s_Selected
+        static inline uint64_t                         s_Revision = 0;
         static inline std::optional<Common::UUID> s_BindPosePreview;
     };
 } // namespace Desert::Runtime

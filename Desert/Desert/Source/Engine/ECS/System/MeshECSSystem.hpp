@@ -4,6 +4,7 @@
 #include "SystemRules.hpp"
 #include "FracturePieceDraw.hpp"
 #include "LandscapeSplineMeshDraw.hpp"
+#include "SelectionOutlineMask.hpp"
 #include "WindField.hpp"
 
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -114,6 +115,9 @@ namespace Desert::ECS
             /* =========================
                STATIC MESHES: the retained static scene (RecordStaticScene), only its changes rebuilt
                ========================= */
+            // Frame-constant: the selection resolved ONCE into a per-entity flag (selected entities and their
+            // subtrees), read in O(1) by the retained static rebuild (BuildStaticPrimitive).
+            m_Outline.Refresh( registry );
             RecordStaticScene( registry, renderCommandBuffer, materialsVersion, drawnAsPieces );
 
             /* =========================
@@ -392,10 +396,11 @@ namespace Desert::ECS
                              skinnedMesh->GetSkeleton().WriteBindSkinningMatrices( boneMatrices );
                          }
 
-                         bool isSelected =
+                         // The entity itself only (a skinned mesh under a selected root stays unoutlined,
+                         // as before): the subtree flag would widen it.
+                         const bool isSelected =
                               registry.has<UUIDComponent>( entity ) &&
-                              Runtime::SelectionContext::Contains(
-                                   registry.get<UUIDComponent>( entity ).UUID );
+                              Runtime::SelectionContext::Contains( registry.get<UUIDComponent>( entity ).UUID );
 
                          // WORLD transform (walk the parent chain) — a skinned mesh parented to e.g. the
                          // character controller must follow it; using the local transform left it behind at
@@ -753,11 +758,12 @@ namespace Desert::ECS
                 full = true;
             m_StaticMeshRevision     = meshRevision;
             m_StaticMaterialsVersion = materialsVersion;
-            const auto& selected     = Runtime::SelectionContext::GetAll();
-            if ( selected != m_StaticSelection )
+            // The selection by its revision (SelectionContext bumps it per write), not a UUID list compare.
+            const uint64_t selection = Runtime::SelectionContext::GetRevision();
+            if ( selection != m_StaticSelectionRevision )
             {
-                full              = true;
-                m_StaticSelection = selected;
+                full                      = true;
+                m_StaticSelectionRevision = selection;
             }
             // The fractured set: an entity entering or leaving it stops, or starts, drawing its own mesh.
             for ( const entt::entity entity : drawnAsPieces )
@@ -992,24 +998,9 @@ namespace Desert::ECS
             }
 
             // Outline: editor selection (this entity or any ancestor — selecting a prefab root outlines all its
-            // mesh children) OR the per-entity "Draw outline" toggle. A selection change rebuilds every slot.
-            bool isSelected = false;
-            if ( !Runtime::SelectionContext::GetAll().empty() )
-            {
-                entt::entity ancestor = entity;
-                while ( ancestor != entt::null )
-                {
-                    if ( const auto* id = registry.try_get<UUIDComponent>( ancestor );
-                         id != nullptr && Runtime::SelectionContext::Contains( id->UUID ) )
-                    {
-                        isSelected = true;
-                        break;
-                    }
-                    const auto* rel = registry.try_get<RelationshipComponent>( ancestor );
-                    ancestor        = rel != nullptr ? rel->Parent : entt::null;
-                }
-            }
-            const bool outlined = isSelected || mesh.GetOutlineDraw();
+            // mesh children) OR the per-entity "Draw outline" toggle. A selection change rebuilds every slot; the
+            // subtree flag is m_Outline's, refreshed once per update before RecordStaticScene (O(1) here).
+            const bool outlined = m_Outline.Contains( entity ) || mesh.GetOutlineDraw();
 
             primitive.Mesh            = targetMesh;
             primitive.World           = worldTransform;
@@ -1071,6 +1062,7 @@ namespace Desert::ECS
             return targetMesh->IsGpuStale() || HasUnadoptedSlot( mesh.GetMaterialSlots() );
         }
 
+        SelectionOutlineMask                         m_Outline; // the selection as a per-entity flag, per frame
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultMaterial;
         std::shared_ptr<Graphic::DataDrivenMaterial> m_DefaultSkinnedMaterial;
         bool                                         m_DefaultRefusalLogged = false;
@@ -1098,7 +1090,7 @@ namespace Desert::ECS
         std::vector<std::shared_ptr<Graphic::Render::StaticSceneSnapshot>> m_StaticSpareSnapshots;
         std::vector<entt::entity>                                          m_StaticDirty;  // this update's delta
         std::vector<entt::entity>                                          m_StaticPieces; // last fractured set
-        std::vector<Common::UUID>                                          m_StaticSelection;
+        uint64_t m_StaticSelectionRevision = ~0ull; // SelectionContext::GetRevision as of the last check
         std::vector<Graphic::Render::StaticSceneSection>                   m_StaticPrevious; // scratch
     };
 } // namespace Desert::ECS
