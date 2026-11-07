@@ -199,13 +199,30 @@ namespace Desert::Graphic::System
                 // STATIC MESHES: an entry is one section (its SectionSlot's material by ShadingOf - the answer every
                 // other pass draws it with; HiddenSubmeshes masks the other sections'); the entries of one entity
                 // and part are one instance.
-                for ( const auto& data : m_StaticQueue )
+                // A synced entry's mesh and section surface come from the walk columns (ShadingOf's answer, made
+                // by this view's sync): a surfaceless or translucent section costs its column bytes, not a
+                // dynamic_cast and the template's path. An entry past them (queued after the sync) asks ShadingOf.
+                const StaticWalkColumns& columns = m_StaticColumns;
+                for ( std::size_t at = 0; at < m_StaticQueue.size(); ++at )
                 {
-                    if ( data.Mesh == nullptr )
-                        continue;
-                    const SectionShading shading = ShadingOf( data );
-                    if ( shading.Surface == nullptr || IsTranslucent( shading.Surface ) )
-                        continue;
+                    const StaticMeshRenderData& data = m_StaticQueue[at];
+                    SectionShading              shading;
+                    if ( StaticColumnsHave( at ) )
+                    {
+                        if ( columns.Meshes[at] == nullptr || columns.Surfaces[at] == nullptr ||
+                             ( columns.Flags[at] & StaticWalkColumns::kTranslucent ) != 0u )
+                            continue;
+                        shading.Instance = columns.Instances[at];
+                        shading.Surface  = columns.Surfaces[at];
+                    }
+                    else
+                    {
+                        if ( data.Mesh == nullptr )
+                            continue;
+                        shading = ShadingOf( data );
+                        if ( shading.Surface == nullptr || IsTranslucent( shading.Surface ) )
+                            continue;
+                    }
                     const auto cards = data.Mesh->GetCards();
                     if ( !cards || cards->Cards.empty() )
                         continue;

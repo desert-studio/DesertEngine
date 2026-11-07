@@ -286,23 +286,35 @@ namespace Desert::Graphic::System
             fresh.reserve( staticPart.Entries.size() );
             const auto addStatic = [&fresh, &staticPart, &addFrom]( const uint64_t signature, const auto& boxOf )
             { addFrom( fresh, staticPart.Entries, signature, boxOf ); };
-            for ( const auto& rd : m_StaticQueue )
+            // The static entries from the walk columns (m_StaticColumns, this view's sync): mesh, caster flag,
+            // primitive, hidden submeshes, section surface and the world's stamp (PlacementOf - the primitive's
+            // world names the record's transform: GpuSceneRegistry keys a record's primitive by it). The record is
+            // read only for ForcedLOD, LODBias and SectionSlot, and for the transform of a record whose primitive
+            // has no stamp.
+            const StaticWalkColumns& columns = m_StaticColumns;
+            const std::size_t        synced  = std::min( m_StaticQueue.size(), columns.Count() );
+            for ( std::size_t at = 0; at < synced; ++at )
             {
-                if ( rd.Mesh == nullptr || !rd.CastShadows )
+                const Desert::Mesh* const mesh = columns.Meshes[at];
+                if ( mesh == nullptr || ( columns.Flags[at] & StaticWalkColumns::kCastsShadow ) == 0u )
                     continue;
-                const auto    index = static_cast<uint32_t>( &rd - m_StaticQueue.data() );
-                SignatureHash hash;
-                hash.Add( rd.Mesh->GetRenderRevision() );
-                hash.Add( rd.Transform );
-                hash.Add( rd.HiddenSubmeshes );
+                const StaticMeshRenderData& rd    = m_StaticQueue[at];
+                const auto                  index = static_cast<uint32_t>( at );
+                SignatureHash               hash;
+                hash.Add( mesh->GetRenderRevision() );
+                if ( columns.Placements[at] != 0u )
+                    hash.Add( columns.Placements[at] );
+                else
+                    hash.Add( rd.Transform );
+                hash.Add( columns.Hidden[at] );
                 hash.Add( rd.ForcedLOD );
                 hash.Add( rd.LODBias );
                 // The LOD it is drawn with follows the main camera: a change redraws its pages.
-                hash.Add( std::min( ShadowStaticLod( index ), Geometry::MaxAvailableLOD( rd.Mesh->GetSubmeshes() ) ) );
-                const SectionShading shading = ShadingOf( rd );
+                hash.Add(
+                     std::min( ShadowStaticLod( index ), Geometry::MaxAvailableLOD( mesh->GetSubmeshes() ) ) );
                 hash.Add( rd.SectionSlot );
-                hash.Add( shading.Surface );
-                hash.Add( shading.Instance );
+                hash.Add( columns.Surfaces[at] );
+                hash.Add( columns.Instances[at] );
                 // Its rastered set (VsmRasteredSubmeshes, the levels' walk rule): the clusters' depth is the cut's,
                 // the walk's the mesh LOD's, so a submesh moving between them redraws its pages. The set is this
                 // frame's clusterable submeshes under LAST frame's carrier outcome (this frame's cut and carriers are
@@ -311,8 +323,8 @@ namespace Desert::Graphic::System
                 // next frame's cache).
                 if ( !m_VsmCarriedTwinsLastFrame.empty() )
                 {
-                    VsmRasteredSubmeshes( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame,
-                                          m_ClusterWalkScratch );
+                    VsmRasteredSubmeshes( mesh, columns.Primitives[at], columns.Hidden[at],
+                                          m_VsmCarriedTwinsLastFrame, m_ClusterWalkScratch );
                     addRasteredSet( hash, m_ClusterWalkScratch );
                 }
                 addStatic( hash.Value,
@@ -325,7 +337,11 @@ namespace Desert::Graphic::System
                 const auto    index = static_cast<uint32_t>( &g - m_GenericQueue.data() );
                 SignatureHash hash;
                 hash.Add( g.Mesh->GetRenderRevision() );
-                hash.Add( g.Transform );
+                const uint64_t placement = PlacementOf( g.GpuPrimitive ); // the world's stamp, as the statics
+                if ( placement != 0u )
+                    hash.Add( placement );
+                else
+                    hash.Add( g.Transform );
                 hash.Add( g.VisibleSubmeshMask );
                 hash.Add( ShadowGenericLod( index ) );
                 addStatic( hash.Value,
@@ -494,9 +510,12 @@ namespace Desert::Graphic::System
                     ++count;
             }
         };
-        for ( const StaticMeshRenderData& rd : m_StaticQueue )
-            if ( rd.CastShadows )
-                countOf( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes );
+        // The static casters from the walk columns (this view's sync): no record is read.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        const std::size_t        synced  = std::min( m_StaticQueue.size(), columns.Count() );
+        for ( std::size_t at = 0; at < synced; ++at )
+            if ( ( columns.Flags[at] & StaticWalkColumns::kCastsShadow ) != 0u )
+                countOf( columns.Meshes[at], columns.Primitives[at], columns.Hidden[at] );
         for ( size_t field = 0; field < m_InstancedQueue.size() && field < m_FieldPrimitives.size(); ++field )
         {
             const InstancedMeshRenderData& ism = m_InstancedQueue[field];

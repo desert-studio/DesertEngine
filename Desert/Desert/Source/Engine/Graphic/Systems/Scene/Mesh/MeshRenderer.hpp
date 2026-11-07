@@ -4143,6 +4143,7 @@ namespace Desert::Graphic::System
             std::vector<MaterialInstance*>         Instances;  // the section's surface (ShadingOf): its instance,
             std::vector<DataDrivenMaterial*>       Surfaces;   // and its template (null: no mesh-cell surface)
             std::vector<uint8_t>                   Flags;
+            std::vector<uint64_t>                  Placements; // PlacementOf( Primitives[i] ): its world's stamp
             [[nodiscard]] std::size_t              Count() const noexcept
             {
                 return Primitives.size();
@@ -4155,6 +4156,7 @@ namespace Desert::Graphic::System
                 Instances.clear();
                 Surfaces.clear();
                 Flags.clear();
+                Placements.clear();
             }
         };
         StaticWalkColumns m_StaticColumns;
@@ -4212,6 +4214,36 @@ namespace Desert::Graphic::System
             std::vector<uint8_t> Member;       // per GpuScene primitive: one of the static / generic records'
         };
         StaticCasterTrack m_StaticCasters;
+        // THE PRIMITIVES' PLACEMENT STAMPS (CPU-FRAME-ARENA 15; UE FPrimitiveSceneInfo's transform dirty state -
+        // FScene::UpdatePrimitiveTransform pushes the change, a cached shadow view re-reads no primitive).
+        // Per GpuScene primitive, a stamp that names the world its row holds: a new one, from one counter, each
+        // time that world changes, so one stamp is never two worlds of one primitive nor the worlds of two. A
+        // signature that keyed a record by its transform (the VSM static / generic entries, a local light's static
+        // part) keys it by its primitive's stamp: one word, not 64 bytes per record per view. Advanced by
+        // StampPlacements, run by SyncGpuScene right after the registry synced this view's records, from the
+        // GpuScene change stream: O(changes). A primitive is restamped only when its row's world differs from the
+        // one its stamp names (GpuScene::SetTransform's own test), so a re-added primitive at the same world, like
+        // the old transform hash, keys alike. The window lost, a Discarded frame or the stream's first read: every
+        // live row is compared (O(primitives), rare); another stream (a re-created scene): every stamp is new.
+        struct PrimitivePlacements
+        {
+            uint64_t                             Stream = 0; // GpuScene::GetStreamId the cursor is a serial of
+            uint64_t                             Cursor = 0; // the stream read up to (GetChangeSerial when read)
+            uint64_t                             Next   = 0; // the last stamp given (0: none)
+            std::vector<uint64_t>                Stamps;     // per GpuScene primitive; 0: never stamped
+            std::vector<GpuDriven::GpuAffine3x4> Worlds;     // the row's world each stamp was given for
+        };
+        PrimitivePlacements m_Placements;
+        // Advances m_Placements over the stream since its cursor (above).
+        void StampPlacements( const GpuDriven::GpuScene& scene ) noexcept;
+        // The stamp of GpuScene primitive @p primitive's world (m_Placements); 0 when it has none (an invalid
+        // primitive: the caller keys the record's transform instead).
+        [[nodiscard]] uint64_t PlacementOf( const uint32_t primitive ) const noexcept
+        {
+            if ( primitive < m_Placements.Stamps.size() )
+                return m_Placements.Stamps[primitive];
+            return 0u;
+        }
         // Advances m_StaticCasters over the stream since its cursor and finishes the static / generic rows
         // (FinishStaticCasterRows). After the write-back of the records' rows (GpuPrimitive) in SyncGpuScene.
         void TrackStaticCasters( const GpuDriven::GpuScene& scene );
