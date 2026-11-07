@@ -68,6 +68,8 @@ namespace Desert::ECS
         Physics::PhysicsWorld*                     m_World    = nullptr;
         entt::registry*                            m_Registry = nullptr;
         std::unordered_map<entt::entity, TileBody> m_Bodies;
+        // Reused per Sync (CPU-TAILS G6): sorted once, searched by the sweep - no per-frame node allocations.
+        std::vector<entt::entity> m_Live;
         std::vector<float>                         m_HeightsCm; // reused conversion buffer
     };
 } // namespace Desert::ECS

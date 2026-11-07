@@ -3,7 +3,8 @@
 #include <Engine/ECS/Components.hpp>
 #include <Common/Core/Logger.hpp>
 
-#include <unordered_set>
+#include <algorithm>
+#include <vector>
 
 namespace Desert::ECS
 {
@@ -95,14 +96,15 @@ namespace Desert::ECS
 
     void LandscapeCollision::Sync( std::span<const LandscapeTileRef> tiles )
     {
-        std::unordered_set<entt::entity> live;
+        std::vector<entt::entity>& live = m_Live;
+        live.clear();
         for ( const LandscapeTileRef& tile : tiles )
         {
             const entt::entity              entity    = tile.Entity;
             const LandscapeTileComponent&   component = *tile.Component;
             Landscape::LandscapeTileData&   heights   = *tile.Component->Heights;
             const Landscape::LandscapeFrame frame     = tile.Frame;
-            live.insert( entity );
+            live.push_back( entity );
 
             const auto existing = m_Bodies.find( entity );
             if ( existing != m_Bodies.end() && SameFrame( existing->second.Frame, frame ) )
@@ -142,9 +144,10 @@ namespace Desert::ECS
             m_Bodies[entity] = TileBody{ body.IsSuccess() ? body.GetValue() : Physics::kInvalidBody, frame };
         }
 
+        std::sort( live.begin(), live.end() );
         for ( auto it = m_Bodies.begin(); it != m_Bodies.end(); )
         {
-            if ( live.contains( it->first ) )
+            if ( std::binary_search( live.begin(), live.end(), it->first ) )
             {
                 ++it;
                 continue;
