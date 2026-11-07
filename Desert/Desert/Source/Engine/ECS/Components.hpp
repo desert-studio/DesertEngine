@@ -85,6 +85,7 @@ namespace Desert
     namespace Animation
     {
         class Skeleton;
+        class ClipBindingCache;
         namespace Graph
         {
             struct AnimGraph;
@@ -1291,6 +1292,9 @@ namespace Desert::ECS
          */
         std::shared_ptr<Animation::Graph::AnimGraph> Graph;
         std::shared_ptr<Animation::Graph::Evaluator> GraphEvaluator; // transient runtime state
+        // TRANSIENT: this entity's clips resolved against its rig (AnimationLibrary.hpp), asked again only
+        // when the library's revision or the rig moves. Shared, not unique, for the incomplete type here.
+        std::shared_ptr<Animation::ClipBindingCache> ClipBindings;
 
         /**
          * @brief Parameter writes a script has asked for and the graph has not consumed yet. TRANSIENT.

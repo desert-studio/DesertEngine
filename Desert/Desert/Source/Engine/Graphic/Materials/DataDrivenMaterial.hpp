@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -62,6 +63,22 @@ namespace Desert::Graphic
         const std::string& GetShaderName() const
         {
             return m_ShaderName;
+        }
+        /// MeshCellPath( GetShaderName() ), classified once at construction: the shader name never changes
+        /// after it, and the mesh queues ask this per slot per frame (UE: the vertex factory a material
+        /// was compiled for, known to the proxy without re-deriving it).
+        [[nodiscard]] const std::optional<MeshVertexPath>& GetVertexPath() const noexcept
+        {
+            return m_VertexPath;
+        }
+
+        [[nodiscard]] DataDrivenMaterial* AsDataDriven() noexcept override
+        {
+            return this;
+        }
+        [[nodiscard]] const DataDrivenMaterial* AsDataDriven() const noexcept override
+        {
+            return this;
         }
 
         // The bytes one draw reads, in schema order. The renderer copies this into the shared
@@ -183,6 +200,8 @@ namespace Desert::Graphic
         }
 
         std::string                      m_ShaderName;
+        // Derived from m_ShaderName (declared before it, so it is initialised first) and never written again.
+        std::optional<MeshVertexPath>    m_VertexPath = MeshCellPath( m_ShaderName );
         Core::Formats::ShaderProgramMeta m_Schema;
         // Mutable for the texture slots only: they are a projection of the texture properties, refreshed each
         // time the row is read (GetParamRow).

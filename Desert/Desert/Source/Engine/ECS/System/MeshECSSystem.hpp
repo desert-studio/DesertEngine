@@ -444,8 +444,8 @@ namespace Desert::ECS
         static Graphic::Material* CustomSlotMaterial( const Graphic::MaterialInstance* instance )
         {
             auto* parent = instance ? instance->GetParentMaterial() : nullptr;
-            if ( const auto* surface = dynamic_cast<const Graphic::DataDrivenMaterial*>( parent );
-                 surface == nullptr || Graphic::MeshCellPath( surface->GetShaderName() ) )
+            const Graphic::DataDrivenMaterial* surface = parent != nullptr ? parent->AsDataDriven() : nullptr;
+            if ( surface == nullptr || surface->GetVertexPath() )
                 return nullptr;
             return parent;
         }

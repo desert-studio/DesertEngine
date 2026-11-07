@@ -49,6 +49,9 @@ namespace Desert::Animation
              [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
                              const std::string& error )
              {
+                 // A finished read changes answers whether or not it registers anything: an evicted clip
+                 // that came back is resident again, a failed one is refused instead of pending.
+                 Touch();
                  m_Requests.erase( handle );
                  std::erase_if( m_Unread, [&]( const UnreadRow& row ) { return row.Handle == handle; } );
                  if ( outcome != Assets::LoadOutcome::Loaded )
@@ -64,7 +67,11 @@ namespace Desert::Animation
                  if ( !known )
                      self->Register( std::static_pointer_cast<Assets::AnimationAsset>( loaded ) );
              },
-             [this, handle] { m_Requests.erase( handle ); } );
+             [this, handle]
+             {
+                 Touch();
+                 m_Requests.erase( handle );
+             } );
     }
 
     void AnimationLibrary::CatchUpWrites() const
@@ -72,6 +79,8 @@ namespace Desert::Animation
         const auto written =
              Assets::ContentRegistry::WrittenSince( Common::Content::ContentKind::Animation, m_SeenWrites );
         m_SeenWrites = written.Serial;
+        if ( !written.Rows.empty() )
+            Touch();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         auto* self = const_cast<AnimationLibrary*>( this );
         for ( const Assets::ContentRegistry::PickerRow& row : written.Rows )
@@ -89,28 +98,41 @@ namespace Desert::Animation
     void AnimationLibrary::RequestUnread( const std::string& clipName ) const
     {
         CatchUpWrites();
-        // Copied: a read that completes inside Request would edit m_Unread under the loop.
-        const std::vector<UnreadRow> unread = m_Unread;
-        for ( const UnreadRow& row : unread )
+        // PICKED FIRST, REQUESTED AFTER: a read that completes inside Request edits m_Unread, so the loop
+        // cannot walk the rows while it requests. Only the handles are kept, in a reused buffer, instead of a
+        // copy of every row and its strings per lookup. (The read callbacks never call back in here.)
+        m_RequestScratch.clear();
+        for ( const UnreadRow& row : m_Unread )
         {
             if ( !clipName.empty() && !row.ClipName.empty() && row.ClipName != clipName )
                 continue;
             if ( m_Requests.contains( row.Handle ) )
                 continue;
-            auto asset = m_AssetManager->ProbeByHandle<Assets::AnimationAsset>( row.Handle );
+            m_RequestScratch.push_back( row.Handle );
+        }
+        for ( const Assets::AssetHandle& handle : m_RequestScratch )
+        {
+            if ( m_Requests.contains( handle ) )
+                continue;
+            auto asset = m_AssetManager->ProbeByHandle<Assets::AnimationAsset>( handle );
             if ( !asset )
             {
                 if ( const auto located = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Animation,
-                                                                          static_cast<uint64_t>( row.Handle ) ) )
+                                                                          static_cast<uint64_t>( handle ) ) )
                     asset = m_AssetManager->CreateAsset<Assets::AnimationAsset>( located->Path,
                                                                                  /*loadAfterCreate=*/false );
             }
             if ( !asset )
             {
+                std::string rowName;
+                for ( const UnreadRow& r : m_Unread )
+                    if ( r.Handle == handle )
+                        rowName = r.ClipName;
                 LOG_ERROR( "[AnimationLibrary] clip row '{}' (handle {}) is indexed but its asset could not be "
                            "created; it is dropped from the library.",
-                           row.ClipName, static_cast<uint64_t>( row.Handle ) );
-                std::erase_if( m_Unread, [&]( const UnreadRow& r ) { return r.Handle == row.Handle; } );
+                           rowName, static_cast<uint64_t>( handle ) );
+                std::erase_if( m_Unread, [&]( const UnreadRow& r ) { return r.Handle == handle; } );
+                Touch();
                 continue;
             }
             RequestRead( asset );
@@ -131,6 +153,7 @@ namespace Desert::Animation
             m_Unread.push_back( { row.Handle, row.DisplayName, row.Skeleton } );
             ++indexed;
         }
+        Touch();
         return indexed;
     }
 
@@ -167,6 +190,7 @@ namespace Desert::Animation
         }
 
         m_Clips.push_back( std::move( identity ) );
+        Touch();
     }
 
     void AnimationLibrary::Unregister( const Assets::AssetHandle& handle )
@@ -174,6 +198,7 @@ namespace Desert::Animation
         m_Clips.erase( std::remove_if( m_Clips.begin(), m_Clips.end(),
                                        [&]( const ClipRigIdentity& c ) { return c.Handle == handle; } ),
                        m_Clips.end() );
+        Touch();
     }
 
     SkeletonAssetRef AnimationLibrary::SkeletonRefOf( const Common::Content::AssetGuid& skeleton )
@@ -229,6 +254,28 @@ namespace Desert::Animation
     {
         RequestUnread( clipName );
 
+        // THE NAME INDEX FIRST: the clips of that name, in m_Clips order, judged by the same rule, so the
+        // answer is the one the linear rule gives. Only a miss runs that rule below, which words the refusal.
+        if ( m_NameIndexStale )
+            RebuildNameIndex();
+        // An empty name is refused by the rule below (it names no clip), never matched to an unnamed one.
+        const auto named = clipName.empty() ? m_ClipsByName.end() : m_ClipsByName.find( clipName );
+        if ( named != m_ClipsByName.end() )
+        {
+            for ( const uint32_t i : named->second )
+            {
+                const ClipRigIdentity& clip = m_Clips[i];
+                if ( !ClipPlaysOnMesh( clip.Skeleton, mesh.Skeleton, mesh.Compatible ) )
+                    continue;
+                auto asset = Resolve( clip.Handle );
+                if ( !asset )
+                    return Common::MakeFormattedError<Assets::Asset<Assets::AnimationAsset>>(
+                         "clip '{}' plays on this mesh but its asset could not be resolved or reloaded.",
+                         clipName );
+                return Common::MakeSuccess( std::move( asset ) );
+            }
+        }
+
         const auto index = FindClipForMesh( m_Clips, mesh, clipName );
         if ( !index )
         {
@@ -271,6 +318,97 @@ namespace Desert::Animation
         m_Clips.clear();
         m_Unread.clear();
         m_Requests.clear();
+        Touch();
+    }
+
+    uint64_t AnimationLibrary::Revision() const
+    {
+        CatchUpWrites();
+        return m_Revision;
+    }
+
+    void AnimationLibrary::RebuildNameIndex() const
+    {
+        for ( auto& entry : m_ClipsByName )
+            entry.second.clear();
+        for ( size_t i = 0; i < m_Clips.size(); ++i )
+            m_ClipsByName[m_Clips[i].ClipName].push_back( static_cast<uint32_t>( i ) );
+        std::erase_if( m_ClipsByName, []( const auto& entry ) { return entry.second.empty(); } );
+        m_NameIndexStale = false;
+    }
+
+    bool ClipBindingCache::Revalidate( const uint64_t libraryRevision, const MeshSkeletonIdentity& rig )
+    {
+        if ( m_Keyed && m_LibraryRevision == libraryRevision && m_Skeleton == rig.Skeleton.Guid &&
+             m_Compatible == rig.Compatible )
+            return false;
+        m_Keyed           = true;
+        m_LibraryRevision = libraryRevision;
+        m_Skeleton        = rig.Skeleton.Guid;
+        m_Compatible      = rig.Compatible;
+        ++m_Epoch;
+        return true;
+    }
+
+    void ClipBindingCache::ResolveInto( Binding& binding, const AnimationLibrary& library,
+                                        const MeshSkeletonIdentity& rig )
+    {
+        binding.Epoch = m_Epoch;
+        binding.ReportedOwners.clear();
+        const auto found = library.FindForMesh( rig, binding.Name );
+        if ( found )
+        {
+            binding.Asset   = found.GetValue();
+            binding.Pending = false;
+            binding.Error.clear();
+            return;
+        }
+        binding.Asset   = nullptr;
+        binding.Pending = library.HasPending( binding.Name );
+        binding.Error   = found.GetError();
+    }
+
+    ClipBindingCache::Binding& ClipBindingCache::Resolve( const AnimationLibrary&     library,
+                                                          const MeshSkeletonIdentity& rig,
+                                                          const std::string&          name )
+    {
+        Binding* binding = nullptr;
+        for ( Binding& candidate : m_Bindings )
+        {
+            if ( candidate.Name == name )
+            {
+                binding = &candidate;
+                break;
+            }
+        }
+        if ( binding == nullptr )
+        {
+            binding       = &m_Bindings.emplace_back();
+            binding->Name = name;
+        }
+        const bool evicted = binding->Asset && !binding->Asset->IsReadyForUse();
+        if ( binding->Epoch != m_Epoch || evicted )
+            ResolveInto( *binding, library, rig );
+        return *binding;
+    }
+
+    bool ClipBindingCache::TakeGraphPrefetch( const uint64_t graphSource, const uint32_t graphRevision )
+    {
+        if ( m_Prefetched && m_PrefetchEpoch == m_Epoch && m_PrefetchSource == graphSource &&
+             m_PrefetchRevision == graphRevision )
+            return false;
+        m_Prefetched       = true;
+        m_PrefetchEpoch    = m_Epoch;
+        m_PrefetchSource   = graphSource;
+        m_PrefetchRevision = graphRevision;
+        return true;
+    }
+
+    void ClipBindingCache::RefreshEvicted( const AnimationLibrary& library, const MeshSkeletonIdentity& rig )
+    {
+        for ( Binding& binding : m_Bindings )
+            if ( binding.Asset && !binding.Asset->IsReadyForUse() )
+                ResolveInto( binding, library, rig );
     }
 
     Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& /*assets*/,
