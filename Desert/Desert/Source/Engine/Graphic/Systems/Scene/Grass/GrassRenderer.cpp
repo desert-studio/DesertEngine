@@ -2109,7 +2109,14 @@ namespace Desert::Graphic::System
             if ( found == nullptr )
             {
                 // The cell is empty: the residents left in the ring lie within its span of the eye (TileRing).
-                found       = &gpu.TileRing[RingCell( want.X, want.Z, gpu.TileRingSide )];
+                found = &gpu.TileRing[RingCell( want.X, want.Z, gpu.TileRingSide )];
+                if ( found->Held )
+                {
+                    // Never expected (span covers the kept band); should a resident still sit here, its slot is
+                    // freed rather than leaked with the tile it held.
+                    gpu.TileEntries.push_back( glm::uvec4( found->Slot, 0u, 0u, 0u ) );
+                    gpu.FreeSlots.push_back( found->Slot );
+                }
                 found->X    = want.X;
                 found->Z    = want.Z;
                 found->Slot = gpu.FreeSlots.back();
