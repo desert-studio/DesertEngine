@@ -3,6 +3,9 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <array>
+#include <charconv>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <string_view>
@@ -21,6 +24,36 @@ namespace Desert::Graphic::RDG
         bool IsStorageAccess( Access access )
         {
             return access == Access::StorageRead || access == Access::StorageWrite;
+        }
+
+        // CPU-RDG-ALLOC: the slot name a declared entry views - "<Name>" or "<Name>[<Element>]" - written once
+        // into the graph's frame arena (UE: names in the FRDGAllocator, not heap strings). Copied even for a whole
+        // parameter: a parameter's Name is a view whose source the graph does not own.
+        std::string_view ArenaSlotName( Common::Memory::FrameArena& arena, std::string_view name,
+                                        uint32_t element )
+        {
+            std::array<char, 16> digits{};
+            size_t               digitCount = 0;
+            if ( element != ~0u )
+            {
+                const std::to_chars_result written =
+                     std::to_chars( digits.data(), digits.data() + digits.size(), element );
+                digitCount = static_cast<size_t>( written.ptr - digits.data() );
+            }
+            const size_t length = digitCount == 0 ? name.size() : name.size() + digitCount + 2;
+            if ( length == 0 )
+                return {};
+            char* const storage = static_cast<char*>( arena.Allocate( length, alignof( char ) ) );
+            if ( storage == nullptr )
+                std::abort(); // the arena refuses only when out of memory - no name to view
+            std::memcpy( storage, name.data(), name.size() );
+            if ( digitCount != 0 )
+            {
+                storage[name.size()] = '[';
+                std::memcpy( storage + name.size() + 1, digits.data(), digitCount );
+                storage[length - 1] = ']';
+            }
+            return std::string_view( storage, length );
         }
     } // namespace
 
@@ -481,27 +514,35 @@ namespace Desert::Graphic::RDG
                                                std::shared_ptr<const OtherRouteFill>             other )
     {
         auto& blocks = m_Builder.m_Passes[m_Pass].Blocks; // CPU-FRAME-ARENA: an arena vector
-        blocks.push_back( DeclaredBindingBlock{ layout, std::move( other ), {}, 0 } );
+        // CPU-RDG-ALLOC: the entries live in the graph's arena too - no heap vector per block per frame.
+        blocks.push_back( DeclaredBindingBlock{
+             layout, std::move( other ),
+             Common::Memory::ArenaVector<DeclaredBindingEntry>(
+                  Common::Memory::ArenaAllocator<DeclaredBindingEntry>( m_Builder.m_Arena ) ),
+             0 } );
         return BindingBlockBuilder( *this, BindingBlockRef{ m_Pass, static_cast<uint32_t>( blocks.size() - 1 ) } );
     }
 
     BindingBlockBuilder& BindingBlockBuilder::Texture( TextureParameter parameter, TextureRef texture,
                                                        Access declared, SubresourceRange range )
     {
-        const std::string shaderName = parameter.SlotName();
+        const std::string_view shaderName =
+             ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Texture" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName, ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index, declared, range,
+             { shaderName,
+               ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index, declared, range,
                std::nullopt } );
         return *this;
     }
 
     BindingBlockBuilder& BindingBlockBuilder::Sampler( SamplerParameter parameter, SamplerDesc sampler )
     {
-        const std::string shaderName = parameter.SlotName();
+        const std::string_view shaderName =
+             ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         // No resource and no access: nothing for the graph to declare, only the slot to fill. The same shared
         // state named again by another input of the block is the entry already there.
-        std::vector<DeclaredBindingEntry>& entries =
+        Common::Memory::ArenaVector<DeclaredBindingEntry>& entries =
              m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries;
         const bool already = std::any_of( entries.begin(), entries.end(),
                                           [&]( const DeclaredBindingEntry& e ) {
@@ -510,7 +551,8 @@ namespace Desert::Graphic::RDG
                                           } );
         if ( already )
             return *this;
-        entries.push_back( { shaderName, ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
+        entries.push_back( { shaderName, ShaderResourceKind::Sampler, ResourceKind::Texture,
+                             kInvalidResource,
                              Access::None, SubresourceRange::All(), sampler } );
         return *this;
     }
@@ -518,11 +560,13 @@ namespace Desert::Graphic::RDG
     BindingBlockBuilder& BindingBlockBuilder::Storage( StorageTextureParameter parameter, TextureRef texture,
                                                        Access declared, uint32_t mip )
     {
-        const std::string shaderName = parameter.SlotName();
+        const std::string_view shaderName =
+             ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareTexture( texture, declared, SubresourceRange::Mip( mip ), IsWriteAccess( declared ),
                                "Bindings.Storage" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName, ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index, declared,
+             { shaderName,
+               ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index, declared,
                SubresourceRange::Mip( mip ), std::nullopt } );
         return *this;
     }
@@ -533,14 +577,16 @@ namespace Desert::Graphic::RDG
         m_Pass.DeclareTexture( texture, declared, SubresourceRange::MipLayer( mip, layer ), IsWriteAccess( declared ),
                                "Bindings.StorageLayer" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { parameter.SlotName(), ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
+             { ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element ),
+               ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
                declared, SubresourceRange::MipLayer( mip, layer ), std::nullopt } );
         return *this;
     }
 
     BindingBlockBuilder& BindingBlockBuilder::Uniform( UniformBufferParameter parameter, BufferRef buffer )
     {
-        const std::string shaderName = parameter.SlotName();
+        const std::string_view shaderName =
+             ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareBuffer( buffer, Access::UniformRead, false, "Bindings.Uniform" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
              { shaderName, ShaderResourceKind::UniformBuffer, ResourceKind::Buffer, buffer.Index,
@@ -551,12 +597,19 @@ namespace Desert::Graphic::RDG
     BindingBlockBuilder& BindingBlockBuilder::Storage( StorageBufferParameter parameter, BufferRef buffer,
                                                        Access declared )
     {
-        const std::string shaderName = parameter.SlotName();
+        const std::string_view shaderName =
+             ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         // The call names the shader binding, so an invalid handle says WHICH input the pass was never given.
+        // CPU-RDG-ALLOC: formatted on the stack (the label is read only by an error), not a heap string per bind.
+        std::array<char, 192> label{};
+        const auto            written = fmt::format_to_n( label.data(), label.size(), "Bindings.Storage[{}]",
+                                                          shaderName );
+        const size_t          length  = std::min( static_cast<size_t>( written.size ), label.size() );
         m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ),
-                              fmt::format( "Bindings.Storage[{}]", shaderName ) );
+                              std::string_view( label.data(), length ) );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName, ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index, declared,
+             { shaderName,
+               ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index, declared,
                SubresourceRange::All(), std::nullopt } );
         return *this;
     }
@@ -564,10 +617,12 @@ namespace Desert::Graphic::RDG
     BindingBlockBuilder& BindingBlockBuilder::AccelerationStructure( AccelerationStructureParameter parameter,
                                                                      BufferRef                      tlas )
     {
-        const std::string shaderName = parameter.SlotName();
+        const std::string_view shaderName =
+             ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareBuffer( tlas, Access::AccelStructRead, false, "Bindings.AccelerationStructure" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName, ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer, tlas.Index,
+             { shaderName,
+               ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer, tlas.Index,
                Access::AccelStructRead, SubresourceRange::All(), std::nullopt } );
         return *this;
     }
