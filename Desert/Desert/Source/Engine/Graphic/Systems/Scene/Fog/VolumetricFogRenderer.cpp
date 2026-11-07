@@ -209,12 +209,13 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration>
-    VolumetricFogRenderer::DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
-                                              const VolumetricFogSunInput& sun, const bool virtualLocalShadows,
+    ComputeNodeList
+    VolumetricFogRenderer::DeclareFrameNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
+                                              const ViewFrame& frame, const VolumetricFogSunInput& sun,
+                                              const bool                               virtualLocalShadows,
                                               const std::span<const LocalFogVolumeGpu> localVolumes )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_Result = VolumetricFogFrameResult{};
         if ( !IsActive() )
             return nodes;
@@ -385,7 +386,7 @@ namespace Desert::Graphic::System
             rainOcclusionMap = t.RainOcclusionMap;
 
         using Scattering = VolumetricFogLightScatteringShaderParameters;
-        ComputeNodeDeclaration scattering;
+        ComputeNodeDeclaration scattering( arena );
         scattering.Name = "VolumetricFog: LightScattering";
         auto block = scattering.Access.Bindings( scatteringLayout.Get( scatteringPipeline->GetShader() ),
                                                  Renderer::GetPipelineRouteFill( *scatteringPipeline ) );
@@ -449,7 +450,7 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( scattering ) );
 
-        ComputeNodeDeclaration integration;
+        ComputeNodeDeclaration integration( arena );
         integration.Name = "VolumetricFog: Integration";
         integration.Access
              .Bindings( m_IntegrationLayout.Get( m_IntegrationPipeline->GetShader() ),

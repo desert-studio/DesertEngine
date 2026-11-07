@@ -163,8 +163,8 @@ namespace Desert::Graphic::System
          */
         // @p frame: this view's frame (TAA1 step 3) — the march's and the resolve's matrices and camera position,
         // and whether the view's previous frame may be reprojected at all (ViewFrame::HistoryValid).
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
-                                                               VolumetricCloudHistory& history );
+        ComputeNodeList DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
+                                           VolumetricCloudHistory& history );
         // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted publishes
         // the frame's reconstruction refs and advances the frame index; a refusal publishes none (the composite
         // draws nothing) and drops the sky-occlusion volume rather than claim a resolve that never ran.
@@ -177,8 +177,9 @@ namespace Desert::Graphic::System
         // forever (BuildEnvironmentBake: InputsPending while undecided). The node is the one DeclareFrameNodes
         // declares (SkyOcclusionNode). SettleSkyOcclusionNodes( false ) drops the volume when the graph refused
         // the node.
-        std::vector<ComputeNodeDeclaration> DeclareSkyOcclusionNodes();
-        void                                SettleSkyOcclusionNodes( bool accepted );
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it.
+        ComputeNodeList DeclareSkyOcclusionNodes( Common::Memory::FrameArena& arena );
+        void            SettleSkyOcclusionNodes( bool accepted );
 
         // This frame's cloud images, after SettleFrameNodes. All invalid when the frame has none (clouds off, or
         // the nodes were refused): the composite then draws nothing.
@@ -214,13 +215,13 @@ namespace Desert::Graphic::System
         SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const;
         // The sky-occlusion volume's dispatch over m_ParamsBuffer / m_AuthoredBuffer as this frame uploaded them
         // (DeclareFrameNodes, DeclareSkyOcclusionNodes), writing m_SkyOcclusionVolume (EnsureSkyOcclusionVolume).
-        ComputeNodeDeclaration SkyOcclusionNode();
+        ComputeNodeDeclaration SkyOcclusionNode( Common::Memory::FrameArena& arena );
         // The volume's node when its inputs (SkyOcclusionInputsKey) moved since the bytes it holds were marched,
         // none when they did not: the volume is a pure function of them
         // (Graphic/Clouds/CloudAmortizedRefresh.hpp). Either way the volume may be read this frame. Settled by
         // NoteSkyOcclusionAccepted.
-        void DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
-                                         const CloudGpuPayload&               payload );
+        void DeclareSkyOcclusionIfStale( ComputeNodeList& nodes, Common::Memory::FrameArena& arena,
+                                         const CloudGpuPayload& payload );
         void NoteSkyOcclusionAccepted( bool accepted );
         // Every input of the two cached field producers but the push constant and the wind: the field block as
         // they read it, the authored block (@p withHeroClouds: the shadow map's rigid copies march without slot
@@ -242,7 +243,8 @@ namespace Desert::Graphic::System
          * cloud march reads it as the far half of the clouds' own shadow ray (GPU-CLOUD-MARCH); whether
          * the ground reads it is GetShadowStrength().
          */
-        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it.
+        ComputeNodeList DeclareShadowMapNodes( Common::Memory::FrameArena& arena );
         // HasShadowMap() becomes true only when the graph accepted the shadow-map node DeclareShadowMapNodes
         // built.
         void SettleShadowMapNodes( bool accepted );

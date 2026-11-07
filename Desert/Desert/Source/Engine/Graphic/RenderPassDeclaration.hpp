@@ -8,6 +8,8 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -44,7 +46,11 @@ namespace Desert::Graphic
             std::shared_ptr<Image> Image;
             RDG::Access            Access = RDG::Access::None;
             bool                   Writes = false;
-            std::string            Name; // the graph name of the import, when this entry registers it first
+            // The graph name of the import, when this entry registers it first (empty: ResolveDeclared names it
+            // after the node). CPU-RDG-ALLOC (UE: RDG names live in the graph allocator): a COPY of what the
+            // caller gave, in the declaration's arena (KeepName), never a view into the caller's string and
+            // never a heap string per frame. Valid while the arena is (the frame graph's: until its Reset).
+            std::string_view       Name;
         };
 
         struct TextureUse
@@ -62,15 +68,15 @@ namespace Desert::Graphic
             bool           Writes = false;
         };
 
-        void Read( std::shared_ptr<Image> image, RDG::Access access, std::string name )
+        void Read( std::shared_ptr<Image> image, RDG::Access access, const std::string_view name )
         {
             if ( image )
-                m_Images.push_back( { std::move( image ), access, false, std::move( name ) } );
+                m_Images.push_back( { std::move( image ), access, false, KeepName( name ) } );
         }
-        void Write( std::shared_ptr<Image> image, RDG::Access access, std::string name )
+        void Write( std::shared_ptr<Image> image, RDG::Access access, const std::string_view name )
         {
             if ( image )
-                m_Images.push_back( { std::move( image ), access, true, std::move( name ) } );
+                m_Images.push_back( { std::move( image ), access, true, KeepName( name ) } );
         }
         void Read( RDG::TextureRef texture, RDG::Access access, RDG::SubresourceRange range )
         {
@@ -339,6 +345,26 @@ namespace Desert::Graphic
         }
 
     private:
+        // @p name copied where the declaration's lists live: the frame graph's arena, or - a declaration made
+        // without one - an arena of its own, shared by every copy of the declaration, so a copied ImageUse's view
+        // stays valid. Any caller string is safe to pass (a temporary, a .c_str()): nothing keeps a view into it.
+        [[nodiscard]] std::string_view KeepName( const std::string_view name ) noexcept
+        {
+            if ( name.empty() )
+                return {};
+            Common::Memory::FrameArena* arena = m_Arena;
+            if ( arena == nullptr )
+            {
+                if ( !m_OwnedNames )
+                    m_OwnedNames = std::make_shared<Common::Memory::FrameArena>( 256u );
+                arena = m_OwnedNames.get();
+            }
+            void* const memory = arena->Allocate( name.size(), 1u );
+            if ( memory == nullptr )
+                std::abort(); // out of memory: the ArenaAllocator::allocate rule, never a bad_alloc
+            std::memcpy( memory, name.data(), name.size() );
+            return { static_cast<const char*>( memory ), name.size() };
+        }
         [[nodiscard]] Common::Memory::ArenaAllocator<BlockEntry> EntryAllocator() const noexcept
         {
             if ( m_Arena != nullptr )
@@ -348,6 +374,7 @@ namespace Desert::Graphic
 
         glm::uvec2                                                   m_TargetExtent{ 0u, 0u };
         Common::Memory::FrameArena*                                  m_Arena = nullptr; // null: the heap
+        std::shared_ptr<Common::Memory::FrameArena>                  m_OwnedNames;      // KeepName without m_Arena
         Common::Memory::ArenaVector<ImageUse>                        m_Images;
         Common::Memory::ArenaVector<TextureUse>                      m_Textures;
         Common::Memory::ArenaVector<BufferUse>                       m_Buffers;
@@ -375,13 +402,24 @@ namespace Desert::Graphic
         {
         }
 
-        std::string           Name;
+        // The node's graph name (the graph copies it in AddPass). CPU-RDG-ALLOC (UE: RDG_EVENT_NAME literals): a
+        // view of a literal or another static name, no heap string per node; a name formed for the frame is
+        // copied into the frame graph's arena first. Never a view into a temporary std::string.
+        std::string_view      Name;
         RenderPassDeclaration Access;
         NodeRecordFunc        Record;
         // The frame asks for the async compute queue (RDG::PassFlags::AsyncCompute): set by the frame code that
         // adds the nodes, which knows how far the first reader is, never by the system that declares them.
         bool AsyncCompute = false;
     };
+
+    // A system's compute nodes of one frame (AddComputeNodes). CPU-RDG-ALLOC: in the frame graph's arena
+    // (MakeComputeNodeList over RDG::Builder::GetFrameArena), with every node's lists, no heap list per frame.
+    using ComputeNodeList = Common::Memory::ArenaVector<ComputeNodeDeclaration>;
+    [[nodiscard]] inline ComputeNodeList MakeComputeNodeList( Common::Memory::FrameArena& arena ) noexcept
+    {
+        return ComputeNodeList( Common::Memory::ArenaAllocator<ComputeNodeDeclaration>( arena ) );
+    }
 
     // The graph-ref half of a declaration (textures and buffers named by their handle in THIS graph), kept free of
     // the image imports (FrameTextures) so the device-free RenderGraphCompile suite runs the very code every node

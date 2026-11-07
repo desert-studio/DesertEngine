@@ -186,10 +186,11 @@ namespace Desert::Graphic::System
          * @param localVolumes this frame's local fog volumes (SceneRenderer::AddLocalFogVolume), voxelised
          *        into the froxels; empty = the shader's loop runs zero times.
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
-                                                               const VolumetricFogSunInput& sun,
-                                                               bool virtualLocalShadows,
-                                                               std::span<const LocalFogVolumeGpu> localVolumes );
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it.
+        ComputeNodeList DeclareFrameNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
+                                           const ViewFrame& frame, const VolumetricFogSunInput& sun,
+                                           bool                               virtualLocalShadows,
+                                           std::span<const LocalFogVolumeGpu> localVolumes );
 
         // The integrated volume of THIS frame for the height fog pass (Integrated null when no node was declared).
         [[nodiscard]] const VolumetricFogFrameResult& GetFrameResult() const

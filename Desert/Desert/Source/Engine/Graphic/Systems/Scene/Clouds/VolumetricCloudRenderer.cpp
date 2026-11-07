@@ -1104,9 +1104,9 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    ComputeNodeDeclaration VolumetricCloudRenderer::SkyOcclusionNode()
+    ComputeNodeDeclaration VolumetricCloudRenderer::SkyOcclusionNode( Common::Memory::FrameArena& arena )
     {
-        ComputeNodeDeclaration occlusion;
+        ComputeNodeDeclaration occlusion( arena );
         occlusion.Name = "Clouds: SkyOcclusion";
         // SETUP: the pipeline route (the renderer's own sampled volumes and buffers) and the node's block over
         // it; the volume it writes is the block's entry.
@@ -1177,8 +1177,9 @@ namespace Desert::Graphic::System
         return key.Get();
     }
 
-    void VolumetricCloudRenderer::DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
-                                                              const CloudGpuPayload&               payload )
+    void VolumetricCloudRenderer::DeclareSkyOcclusionIfStale( ComputeNodeList&            nodes,
+                                                              Common::Memory::FrameArena& arena,
+                                                              const CloudGpuPayload&      payload )
     {
         // THE VOLUME IS A PURE FUNCTION OF THE FIELD, and in the frame it is addressed in (wind-shifted, by
         // producer and consumer alike) the wind is not one of its inputs while the field is rigid in it. It used
@@ -1196,7 +1197,7 @@ namespace Desert::Graphic::System
             m_SkyOcclusionBuilt = false;
         if ( m_SkyOcclusionBuilt && m_SkyOcclusionBuiltKey == inputs )
             return;
-        nodes.push_back( SkyOcclusionNode() );
+        nodes.push_back( SkyOcclusionNode( arena ) );
         m_SkyOcclusionPendingKey = inputs;
     }
 
@@ -1210,9 +1211,9 @@ namespace Desert::Graphic::System
         m_SkyOcclusionBuiltKey = *pending;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareSkyOcclusionNodes()
+    ComputeNodeList VolumetricCloudRenderer::DeclareSkyOcclusionNodes( Common::Memory::FrameArena& arena )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_SkyOcclusionValid = false;
 
         if ( !m_SkyOcclusionPipeline || !m_ParamsBuffer || !m_Present || !m_Data.Enabled )
@@ -1241,7 +1242,7 @@ namespace Desert::Graphic::System
 
         if ( m_Data.SkyOcclusionVolume && EnsureSkyOcclusionVolume() )
         {
-            DeclareSkyOcclusionIfStale( nodes, payload );
+            DeclareSkyOcclusionIfStale( nodes, arena, payload );
             m_SkyOcclusionValid = true;
         }
         return nodes;
@@ -1254,9 +1255,9 @@ namespace Desert::Graphic::System
             m_SkyOcclusionValid = false;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes()
+    ComputeNodeList VolumetricCloudRenderer::DeclareShadowMapNodes( Common::Memory::FrameArena& arena )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         // Cleared FIRST and set only at the end, so every early return below leaves consumers with "no
         // cloud shadow this frame" rather than with the projection of a frame the sun has since left.
         m_ShadowMapValid   = false;
@@ -1502,7 +1503,7 @@ namespace Desert::Graphic::System
             CloudShadowPush rigid = push;
             rigid.Depth.y         = static_cast<float>( plan.RowBegin );
             rigid.Wind            = glm::vec4( plan.WindKm, 0.0f );
-            ComputeNodeDeclaration shadow;
+            ComputeNodeDeclaration shadow( arena );
             // m_ShadowMapImage: the copy the plan writes, which the lit passes sample as a scene view input
             // (SceneViewInputsOf) once it is the front.
             const std::shared_ptr<Image> m_ShadowMapImage = m_ShadowMapImages[plan.Target];
@@ -1522,7 +1523,7 @@ namespace Desert::Graphic::System
             hero.Depth.y         = static_cast<float>( patchRect.Y );
             hero.Depth.z         = static_cast<float>( patchRect.X );
             hero.Wind            = glm::vec4( windKm, 1.0f );
-            ComputeNodeDeclaration patch;
+            ComputeNodeDeclaration patch( arena );
             declare( patch, "Clouds: ShadowMapHero", m_ShadowMapImages[front], "Clouds.ShadowMap", hero,
                      patchRect.Width, patchRect.Height );
             nodes.push_back( std::move( patch ) );
@@ -2112,11 +2113,11 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration>
-    VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
-                                                VolumetricCloudHistory& history )
+    ComputeNodeList VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
+                                                                VolumetricCloudHistory& history )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        Common::Memory::FrameArena& arena = graph.GetFrameArena();
+        ComputeNodeList             nodes = MakeComputeNodeList( arena );
         m_FrameResult = {};
         m_PendingResult.reset();
 
@@ -2223,7 +2224,7 @@ namespace Desert::Graphic::System
 
         if ( wantsSkyOcclusion && EnsureSkyOcclusionVolume() )
         {
-            DeclareSkyOcclusionIfStale( nodes, payload );
+            DeclareSkyOcclusionIfStale( nodes, arena, payload );
             skyOcclusionReady = true;
         }
 

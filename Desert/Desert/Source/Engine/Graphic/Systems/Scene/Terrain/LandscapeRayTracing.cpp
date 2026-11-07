@@ -266,8 +266,8 @@ namespace Desert::Graphic::RayTracing
 
         // ── "Landscape: Ray Tracing Vertices": one binding block and one dispatch per tile that changed
         // ──────────
-        ComputeNodeDeclaration vertices;
-        vertices.Name      = std::string( kLandscapeRayTracingVerticesPass );
+        ComputeNodeDeclaration vertices( graph.GetFrameArena() );
+        vertices.Name      = kLandscapeRayTracingVerticesPass;
         const auto& layout = m_Layout.Get( m_Pipeline->GetSpecification().Shader );
         for ( TileWork& job : work )
         {
@@ -317,7 +317,7 @@ namespace Desert::Graphic::RayTracing
             }
             return BOOLSUCCESS;
         };
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
         nodes.push_back( std::move( vertices ) );
         if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
             return Common::MakeFormattedError<bool>( "{}: the node could not be declared",

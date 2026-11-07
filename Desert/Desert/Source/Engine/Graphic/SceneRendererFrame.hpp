@@ -217,9 +217,12 @@ namespace Desert::Graphic
 
         // The per-slot LoadOps of one raster node on @p targets (Graphic::ColorLoads): call in the order the nodes
         // are added (= the frame's order), so a slot's own clear lands on its first writer.
-        std::vector<RDG::LoadOp> ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass )
+        // CPU-RDG-ALLOC: the list in the frame graph's arena (alive until the graph resets), no heap per node.
+        Common::Memory::ArenaVector<RDG::LoadOp>
+        ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass )
         {
-            return Graphic::ColorLoads( targets, pass, m_StartedColors );
+            return Graphic::ColorLoads( targets, pass, m_StartedColors,
+                                        Common::Memory::ArenaAllocator<RDG::LoadOp>( m_Graph.GetFrameArena() ) );
         }
 
     private:
@@ -440,7 +443,7 @@ namespace Desert::Graphic
     // Returns whether every node was added (true for none): the system's Settle*Nodes applies the per-frame state
     // the nodes stand for only then.
     inline bool AddComputeNodes( RDG::Builder& graph, FrameTextures& textures,
-                                 std::vector<ComputeNodeDeclaration> nodes )
+                                 ComputeNodeList nodes )
     {
         // CPU-RDG-ALLOC: each node's resolved images in the graph's arena (alive until the graph resets), no heap
         // list per node.

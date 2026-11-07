@@ -140,13 +140,14 @@ namespace Desert::Graphic::System
         // distant sky light -- are DeclareAtmosphereCachedLutNodes, added at the head of the graph because the sky
         // capture marches them in the same frame (AddSkyCapturePasses). The per-view ones -- the Sky-View LUT and
         // the aerial-perspective volume -- are DeclareAtmosphereLutNodes, in the in-frame compute slot above.
-        std::vector<ComputeNodeDeclaration> DeclareAtmosphereCachedLutNodes();
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it (both Declare*).
+        ComputeNodeList DeclareAtmosphereCachedLutNodes( Common::Memory::FrameArena& arena );
         // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
         void                                SettleAtmosphereCachedLutNodes( bool accepted );
         // @p refs carries the frame's cloud shadow map (CloudShadowMapOrWhite) and @p cloudShadow what was gathered
         // about it (SceneRenderer::GetCloudShadowInput): both fills march the sun's single scattering through it.
-        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes( const FrameGraphRefs&   refs,
-                                                                       const CloudShadowInput& cloudShadow );
+        ComputeNodeList DeclareAtmosphereLutNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
+                                                   const CloudShadowInput& cloudShadow );
         // The sky-view LUT counts as filled only once the frame graph accepted its node.
         void SettleAtmosphereLutNodes( bool accepted );
         // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and

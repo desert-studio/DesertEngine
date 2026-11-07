@@ -125,11 +125,10 @@ namespace Desert::Graphic::System
         m_FogHeightY = fogHeightY;
     }
 
-    std::vector<ComputeNodeDeclaration>
-    HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
-                                          const VolumetricFogFrameResult& volume )
+    ComputeNodeList HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
+                                                          const VolumetricFogFrameResult& volume )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
 
         // THE PARAMETER BLOCK EXISTS EVERY FRAME, fog or not: the translucent surfaces declare it in their cells
         // and evaluate the fog at their own depth from it (Common/ViewFog.glslh), so a frame without fog uploads

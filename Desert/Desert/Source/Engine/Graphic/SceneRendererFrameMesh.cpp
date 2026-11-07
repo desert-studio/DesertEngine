@@ -29,6 +29,7 @@
 #include <array>
 #include <bit>
 #include <functional>
+#include <span>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -53,7 +54,7 @@ namespace Desert::Graphic
         // with this node's PassContext (graph textures bound by name through RDG::PassBindings); its error is the
         // node's. NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
-                        const std::vector<RDG::LoadOp>& colors, const RDG::LoadOp& depth,
+                        std::span<const RDG::LoadOp> colors, const RDG::LoadOp& depth,
                         const std::vector<RDG::TextureRef>&                             sampled,
                         std::function<Common::BoolResultStr( const RDG::PassContext& )> body,
                         const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {} )
@@ -378,7 +379,7 @@ namespace Desert::Graphic
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
 
-        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
+        const Common::Memory::ArenaVector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
         graph.AddPass(
              pass.Name,
              RDG::PassFlags::Raster | RDG::PassFlags::NeverCull |
