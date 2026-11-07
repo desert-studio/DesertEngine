@@ -26,6 +26,12 @@ namespace Desert::ShaderResources::API::Vulkan
         // of the view that is recording.
         NO_DISCARD Common::BoolResultStr BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out );
 
+        // CPU-RDG-PREPARE (ViewCopiedBlock::GetCopyEpoch).
+        NO_DISCARD uint64_t GetCopyEpoch() const noexcept
+        {
+            return m_Block.GetCopyEpoch();
+        }
+
         virtual const void* GetData() const override
         {
             return nullptr;

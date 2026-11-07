@@ -118,6 +118,16 @@ namespace Desert::ShaderResources
             return m_Key;
         }
 
+        // CPU-RDG-PREPARE: stamped from one process-wide counter whenever this block's set of copies changes - a
+        // copy made (MakeActive), every copy dropped (Reset, Grow). A fresh stamp is greater than every earlier
+        // one of ANY block, so the newest stamp over a material's blocks moves whenever one of them changed; a
+        // material's prepare compares it with what its (view, frame) sets last applied
+        // (MaterialExecutor::PrepareForRecording). The block's copies are dropped only through this class.
+        [[nodiscard]] uint64_t GetCopyEpoch() const noexcept
+        {
+            return m_CopyEpoch.load( std::memory_order_acquire );
+        }
+
         // RDG-PARALLEL-6: read from any thread. A chunk asks the size (ClassifyBufferWrite) while another may be
         // growing the block under m_Lock, so the answer is a mirror of m_Contents.size(), never the vector itself.
         // A block only grows between Resets, so a stale answer is smaller, and Write re-checks under the lock.
@@ -131,6 +141,7 @@ namespace Desert::ShaderResources
         {
             std::scoped_lock lock( m_Lock );
             Graphic::ViewResourceRegistry::Forget( m_Key );
+            StampCopyEpoch();
             m_Contents.assign( size, 0 );
             m_Size.store( size, std::memory_order_release );
         }
@@ -143,6 +154,7 @@ namespace Desert::ShaderResources
         {
             std::scoped_lock lock( m_Lock );
             Graphic::ViewResourceRegistry::Forget( m_Key );
+            StampCopyEpoch();
             if ( newSize > m_Contents.size() )
             {
                 m_Contents.resize( newSize, 0 );
@@ -292,7 +304,15 @@ namespace Desert::ShaderResources
                 return Common::MakeError<bool>( filedCopy.GetError() );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             out = static_cast<IBlockCopy*>( filedCopy.GetValue() );
+            StampCopyEpoch();
             return Common::MakeSuccess( true );
+        }
+
+        // GetCopyEpoch: a stamp greater than every one handed out before, by any block.
+        void StampCopyEpoch() noexcept
+        {
+            static std::atomic<uint64_t> s_Next{ 0 };
+            m_CopyEpoch.store( s_Next.fetch_add( 1, std::memory_order_relaxed ) + 1, std::memory_order_release );
         }
 
         // Acquire takes a factory; the copy is already made (and seeded), so this one just hands it over.
@@ -316,6 +336,8 @@ namespace Desert::ShaderResources
         std::vector<uint8_t>     m_Contents;
         // m_Contents.size(), written under m_Lock with it, read without it (GetSize).
         std::atomic<uint32_t>    m_Size{ 0 };
+        // GetCopyEpoch; 0 until the first copy is made.
+        std::atomic<uint64_t> m_CopyEpoch{ 0 };
         // Guards m_Contents and the write of the active copy's bytes (Write), and the make-and-seed of a copy
         // (MakeActive). Taken before any ViewResources lock, never the other way round.
         std::mutex m_Lock;
