@@ -8,6 +8,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <atomic>
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanIndexBuffer : public IndexBuffer
@@ -49,6 +51,8 @@ namespace Desert::Graphic::API::Vulkan
         bool m_HostCopyReleased = false;
 
         VkBuffer      m_VulkanBuffer = nullptr;
+        // GetDeviceAddress, read once per buffer (0: not read yet, or none).
+        mutable std::atomic<uint64_t> m_DeviceAddress{ 0 };
         VmaAllocation m_MemoryAllocation;
     };
 } // namespace Desert::Graphic::API::Vulkan

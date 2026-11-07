@@ -2358,10 +2358,13 @@ namespace Desert::Graphic::API::Vulkan
     {
         using ShaderResources::API::Vulkan::VulkanStorageBuffer;
         // RENDER-CPU-COST-2: a raw cast, no reference count touched; the owning handle is made only when the
-        // import below is built anew.
-        auto* const vulkanBuffer = dynamic_cast<VulkanStorageBuffer*>( buffer.get() );
-        if ( vulkanBuffer == nullptr )
-            return Common::MakeError( "ImportBuffer: not a Vulkan storage buffer" );
+        // import below is built anew. CPU-GRASS-VARIETY-1: a static downcast, not a dynamic_cast per import (the
+        // grass varieties import ~18 buffers each a frame): on the Vulkan backend every StorageBuffer is made by
+        // StorageBuffer::Create / CreateReadback / CreateDeviceLocal, and each makes a VulkanStorageBuffer.
+        if ( buffer == nullptr )
+            return Common::MakeError( "ImportBuffer: no storage buffer" );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the factory makes only this type
+        auto* const vulkanBuffer = static_cast<VulkanStorageBuffer*>( buffer.get() );
         ShaderResources::API::Vulkan::ViewCopyBinding binding;
         const Common::BoolResultStr                   bound =
              vulkanBuffer->BindActiveCopy( Engine::FrameManager::GetInstance().GetCurrentFrameIndex(), binding );

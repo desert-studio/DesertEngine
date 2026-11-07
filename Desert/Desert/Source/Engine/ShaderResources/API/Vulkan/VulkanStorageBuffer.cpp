@@ -305,14 +305,18 @@ namespace Desert::ShaderResources::API::Vulkan
     }
     Common::ResultStr<uint64_t> VulkanStorageBuffer::GetDeviceAddress()
     {
-        if ( !HasDeviceAddress() )
-            return Common::MakeFormattedError<uint64_t>(
-                 "storage buffer '{}' has no device address: the device has no bufferDeviceAddress", m_BufferName );
+        // CPU-GRASS-VARIETY-1: the copy's address, read once when the copy was made (MappedBufferCopy::
+        // DeviceAddress): no driver call and no device cast per question. The device's row is asked only on
+        // the refusal, to name why.
         MappedBufferCopy* copy     = nullptr;
         const auto        resolved = ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
         if ( !resolved.IsSuccess() )
             return Common::MakeFormattedError<uint64_t>( "{}", resolved.GetError() );
-        const uint64_t address = Desert::Graphic::API::Vulkan::CurrentBufferAddress( copy->Binding().Info.buffer );
+        const uint64_t address = copy->DeviceAddress();
+        if ( address == 0 && !HasDeviceAddress() )
+            return Common::MakeFormattedError<uint64_t>(
+                 "storage buffer '{}' has no device address: the device has no bufferDeviceAddress",
+                 m_BufferName );
         if ( address == 0 )
             return Common::MakeFormattedError<uint64_t>( "storage buffer '{}': its buffer has no device address",
                                                          m_BufferName );
