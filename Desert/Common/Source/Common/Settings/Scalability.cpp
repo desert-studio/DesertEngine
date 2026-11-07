@@ -379,6 +379,10 @@ namespace Common::Scalability
              { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
                CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)", 1,
                Vis::Advanced },
+             { P::SurfaceCacheAsyncRadiosity, G::GlobalIllumination,
+               "GlobalIllumination.SurfaceCacheAsyncRadiosity", 0, 1, CL::None,
+               "SceneRenderer -> SurfaceCacheRenderer::AddIndirectLightingPass (IndirectLightingInputs::Async)", 1,
+               Vis::Advanced },
              { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
                CL::None,
                "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "

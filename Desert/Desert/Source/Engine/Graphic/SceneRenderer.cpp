@@ -1242,6 +1242,7 @@ namespace Desert::Graphic
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
+        m_SurfaceCacheAsyncRadiosity = quality.As<int>( Parameter::SurfaceCacheAsyncRadiosity ) != 0;
         m_ScreenProbeDownsample      = quality.As<uint32_t>( Parameter::ScreenProbeDownsample );
         m_ScreenProbeTracedTexels    = quality.As<uint32_t>( Parameter::ScreenProbeTracedTexels );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
