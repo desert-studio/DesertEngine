@@ -26,6 +26,19 @@ namespace Desert::Graphic::RDG
 {
     namespace
     {
+        // CPU-RDG-RECORD: the pass's profiler rows from its Name (CompiledPass::RecordRow / PassRow), interned
+        // once per plan and name, never per recorded pass. The ids are global, so any thread records with them.
+        void InternPassRows( CompiledPass& pass )
+        {
+#if DESERT_DEV_INSTRUMENTS
+            Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
+            pass.RecordRow                        = profiler.LocalScopeName( "RDG Record: ", pass.Name );
+            pass.PassRow                          = profiler.LocalScopeName( {}, pass.Name );
+#else
+            (void)pass;
+#endif
+        }
+
         // One pass's view of one subresource after its declarations are folded together.
         struct RdgSubUse
         {
@@ -2226,6 +2239,7 @@ namespace Desert::Graphic::RDG
         CompiledPass      compiled;
         compiled.Pass        = p;
         compiled.Name        = pass.Name;
+        InternPassRows( compiled );
         compiled.Flags       = pass.Flags;
         compiled.AreaWidth   = pass.AreaWidth;
         compiled.AreaHeight  = pass.AreaHeight;
@@ -2901,8 +2915,13 @@ namespace Desert::Graphic::RDG
         for ( CompiledPass& pass : plan.Passes )
         {
             const PassRecord& record = builder.m_Passes[pass.Pass];
-            pass.Name                = record.Name;
-            pass.External            = record.External;
+            // A name that carries a counter changes; only then are its rows interned again.
+            if ( pass.Name != record.Name )
+            {
+                pass.Name = record.Name;
+                InternPassRows( pass );
+            }
+            pass.External = record.External;
         }
         for ( size_t i = 0; i < plan.CulledPassNames.size(); ++i )
             plan.CulledPassNames[i] = builder.m_Passes[plan.CulledPasses[i]].Name;

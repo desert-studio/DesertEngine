@@ -130,10 +130,15 @@ namespace Desert::Graphic::API::Vulkan
         // Returns the command buffer recording continues in after this segment (the open tail), or VK_NULL_HANDLE.
         Common::ResultStr<VkCommandBuffer> EndSegment( const RDG::PipeSegment&  segment,
                                                        const VulkanRdgQueueSet& queues );
-        // RDG-PARALLEL-10. A chunk replayed in the open segment: its current command buffer ends, @p chunk (a
-        // recorded, ended primary of the segment's queue family) follows it in the same submission, and a fresh
-        // continuation of the segment's pipe is begun and returned (recording goes on in it).
-        Common::ResultStr<VkCommandBuffer> SpliceChunk( VkCommandBuffer chunk, const VulkanRdgQueueSet& queues );
+        // RDG-PARALLEL-10. A chunk replayed in the open segment: its current command buffer ends (when one is
+        // recording), and @p chunk (a recorded, ended primary of the segment's queue family) follows it in the
+        // same submission. CPU-RDG-RECORD (UE: the immediate list is not ended per parallel set): NO continuation
+        // is begun here - adjacent chunks splice back to back (one End, N primaries) and recording resumes in a
+        // continuation only when something records on the segment again (Continue).
+        Common::BoolResultStr SpliceChunk( VkCommandBuffer chunk );
+        // The open segment's recording command buffer: the current one, or - after a SpliceChunk - a fresh
+        // continuation of the segment's pipe, begun now and appended to the submission.
+        Common::ResultStr<VkCommandBuffer> Continue( const VulkanRdgQueueSet& queues );
         // The graph ended (its final barriers are recorded): its compile result is let go, and its submissions
         // and open tail stay for Take.
         void EndGraph();
@@ -154,6 +159,9 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t                           m_NextSegment      = 0;
         size_t                             m_GraphSubmissions = 0; // first submission of the current graph
         std::optional<VulkanRdgSubmission> m_Open;
+        // m_Open->CommandBuffers.back() is the segment's own buffer, still recording (false after a SpliceChunk:
+        // the back is an ended chunk primary until Continue begins a continuation).
+        bool                               m_OpenRecording = false;
         std::vector<VulkanRdgSubmission>   m_Submissions;
     };
 

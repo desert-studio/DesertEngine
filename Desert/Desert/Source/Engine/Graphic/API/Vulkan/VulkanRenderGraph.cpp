@@ -1838,6 +1838,7 @@ namespace Desert::Graphic::API::Vulkan
     // graph's event scope, not outside "stat gpu").
     int32_t VulkanRdgBackend::BeginGraphCommandsScope( std::string_view what )
     {
+        ResumeSegment();
         if ( m_Device.Profiler == nullptr )
             return -1;
         const std::string name = std::format( "RDG Barriers: {} | {}", m_GraphName, what );
@@ -1853,6 +1854,7 @@ namespace Desert::Graphic::API::Vulkan
     // THE one place a pass is labelled and timed: every graph pass gets both, and no pass records its own.
     void VulkanRdgBackend::BeginPass( const RDG::CompiledPass& pass )
     {
+        ResumeSegment();
         Chunk* const          chunk         = BoundChunk();
         const VkCommandBuffer commandBuffer = RecordingBuffer();
         PassSetsState().Clear();
@@ -1868,8 +1870,8 @@ namespace Desert::Graphic::API::Vulkan
                 chunk->Labels.push_back( pass.Name.c_str() );
         }
 #if DESERT_DEV_INSTRUMENTS
-        ( chunk != nullptr ? chunk->CpuScopes : m_CpuScopes )
-             .push_back( std::make_unique<Common::Profiling::ScopedTimer>( pass.Name.c_str() ) );
+        // The plan's interned row (CompiledPass::PassRow): no name lookup and no allocation per pass.
+        ( chunk != nullptr ? chunk->CpuScope : m_CpuScope ).emplace( pass.PassRow );
 #endif
         ProfilerScopesState().push_back(
              m_Device.Profiler != nullptr ? m_Device.Profiler->BeginScope( pass.Name.c_str() ) : -1 );
@@ -1889,9 +1891,7 @@ namespace Desert::Graphic::API::Vulkan
                 m_Device.Profiler->EndScope( scopes.back() );
             scopes.pop_back();
 #if DESERT_DEV_INSTRUMENTS
-            auto& cpuScopes = chunk != nullptr ? chunk->CpuScopes : m_CpuScopes;
-            if ( !cpuScopes.empty() )
-                cpuScopes.pop_back();
+            ( chunk != nullptr ? chunk->CpuScope : m_CpuScope ).reset();
 #endif
         }
         if ( m_Device.CmdEndLabel != nullptr && commandBuffer != VK_NULL_HANDLE )
@@ -1908,6 +1908,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordBarriers( std::span<const RDG::Barrier> barriers )
     {
+        ResumeSegment();
         // At most TWO vkCmdPipelineBarrier: the halves of the graph's cross-pipe pairs first, then everything
         // else. A pair half may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
         // 09633/09634), and a resource that returns to Graphics before a plain barrier hands it on (an async
@@ -2040,6 +2041,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgBackend::BeginRenderPass( const RDG::CompiledPass& pass )
     {
+        ResumeSegment();
         // The planned pass PrepareRecording resolved: only looked up. A fault-adjusted copy (Load -> Clear) or a
         // merged pass re-opening after a fault closed its render pass resolves here, under the lock (the render
         // pass map and the framebuffer list are shared by every recording thread).
@@ -2261,6 +2263,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
     {
+        ResumeSegment();
         const VkCommandBuffer commandBuffer = RecordingBuffer();
         if ( commandBuffer == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "graph '{}': buffer upload outside a recording pass", m_GraphName );
@@ -2313,7 +2316,7 @@ namespace Desert::Graphic::API::Vulkan
             chunk.PassSets.Clear();
             chunk.ProfilerScopes.clear();
 #if DESERT_DEV_INSTRUMENTS
-            chunk.CpuScopes.clear();
+            chunk.CpuScope.reset();
 #endif
             chunk.Labels.clear();
             chunk.CommandBuffer = VK_NULL_HANDLE;
@@ -2393,32 +2396,43 @@ namespace Desert::Graphic::API::Vulkan
         Chunk& chunk = *m_Chunks[index];
         if ( !chunk.Failure.empty() )
             return Common::MakeFormattedError( "{}", chunk.Failure );
-        if ( m_CommandBuffer == VK_NULL_HANDLE )
+        if ( m_CommandBuffer == VK_NULL_HANDLE && !m_ContinuationPending )
             return Common::MakeFormattedError( "graph '{}': chunk {} replayed outside a segment", m_GraphName,
                                                index );
         if ( m_Queues == nullptr )
             return Common::MakeFormattedError( "graph '{}': chunk {} replayed without queues", m_GraphName, index );
         // RDG-PARALLEL-10 (UE: the parallel command lists' primary payloads, submitted in order): what the segment
-        // recorded so far ends, the chunk's primary follows it in the same submission, and recording goes on in a
-        // fresh continuation - no secondary, no render pass re-begun here, no state re-emitted per piece.
-        const Common::ResultStr<VkCommandBuffer> continuation =
-             m_Segments.SpliceChunk( chunk.CommandBuffer, *m_Queues );
-        if ( !continuation )
-        {
-            SetRecording( VK_NULL_HANDLE ); // the ended buffer takes nothing more; the caller abandons the graph
-            return Common::MakeFormattedError( "graph '{}' chunk {}: {}", m_GraphName, index,
-                                               continuation.GetError() );
-        }
-        chunk.CommandBuffer = VK_NULL_HANDLE; // the segment's submission holds it now
-        SetRecording( continuation.GetValue() );
+        // recorded so far ends, the chunk's primary follows it in the same submission - no secondary, no render
+        // pass re-begun here, no state re-emitted per piece. CPU-RDG-RECORD (F6): the continuation is begun only
+        // when the calling thread records again (ResumeSegment), so adjacent chunks cost one End, not one pair.
+        const Common::BoolResultStr spliced = m_Segments.SpliceChunk( chunk.CommandBuffer );
+        SetRecording( VK_NULL_HANDLE ); // the ended buffer takes nothing more
+        if ( !spliced )
+            return Common::MakeFormattedError( "graph '{}' chunk {}: {}", m_GraphName, index, spliced.GetError() );
+        chunk.CommandBuffer   = VK_NULL_HANDLE; // the segment's submission holds it now
+        m_ContinuationPending = true;
 #if DESERT_DEV_INSTRUMENTS
         if ( m_Device.ChunkOrder != nullptr )
             m_Device.ChunkOrder->StampChunkOrder( chunk.Record.GpuScopesMade );
 #endif
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::ResumeSegment()
+    {
+        if ( !m_ContinuationPending || BoundChunk() != nullptr )
+            return;
+        m_ContinuationPending = false;
+        const Common::ResultStr<VkCommandBuffer> continued = m_Segments.Continue( *m_Queues );
+        if ( !continued )
+        {
+            m_ResumeFailure = continued.GetError();
+            return;
+        }
+        SetRecording( continued.GetValue() );
         // The frame recorder's bind cache does not describe the continuation (a freshly begun buffer).
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
-        return Common::MakeSuccess( true );
     }
 
     void VulkanRdgBackend::DiscardChunk( uint32_t index )
@@ -2460,7 +2474,9 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRdgBackend::AbandonGraph()
     {
         // The dispatch has returned, so every chunk secondary is ended; they are simply never executed.
-        m_ChunkCount = 0;
+        m_ChunkCount          = 0;
+        m_ContinuationPending = false;
+        m_ResumeFailure.clear();
         if ( m_OpenRenderPass )
             EndRenderPass();
         while ( !m_ProfilerScopes.empty() )
@@ -2612,6 +2628,11 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )
     {
+        // The segment's own buffer records its closing scopes and barriers: a segment that ended on a chunk
+        // continues once here (one Begin after the segment's run of spliced chunks).
+        ResumeSegment();
+        if ( !m_ResumeFailure.empty() )
+            return Common::MakeError( std::exchange( m_ResumeFailure, {} ) );
         if ( m_OpenRenderPass )
             return Common::MakeError( "a render pass is open across a segment boundary" );
         if ( m_SegmentScope >= 0 )

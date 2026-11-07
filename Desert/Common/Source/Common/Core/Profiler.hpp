@@ -14,6 +14,7 @@
 
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/GpuQueue.hpp>
+#include <Common/Core/ProfilerName.hpp>
 #include <optick.h>
 
 #include <array>
@@ -34,16 +35,7 @@
 
 namespace Common::Profiling
 {
-    // THE INTERNED SCOPE NAME (UE: a stat's FName / TStatId). Every row of the profiler is keyed by a small id
-    // the name table hands out once per distinct name; a closing scope adds to its row BY ID, so no scope end
-    // hashes, compares or allocates a string. Text is the table's copy of the name: the table never frees or
-    // moves one, so it is valid for the process' life (Optick's dynamic events and the published rows read it).
-    inline constexpr uint32_t kNoScopeName = UINT32_MAX;
-    struct InternedScopeName
-    {
-        uint32_t    Id   = kNoScopeName;
-        const char* Text = nullptr;
-    };
+    // InternedScopeName and kNoScopeName: Common/Core/ProfilerName.hpp (a plan stores its rows' ids).
 
     namespace Detail
     {
@@ -618,6 +610,7 @@ namespace Common::Profiling
 #define DESERT_PROFILE_WAIT( NAME )
 #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
 #define DESERT_PROFILE_SCOPE_PREFIXED( PREFIX, NAME )
+#define DESERT_PROFILE_SCOPE_INTERNED( INTERNED )
 #define DESERT_PROFILE_FUNC()
 #define DESERT_PROFILE_PASS( NAME )
 #define DESERT_PROFILE_PASS_DYNAMIC( CSTR )
@@ -680,6 +673,12 @@ namespace Common::Profiling
     DESERT_PROF_OPTICK_INTERNED_( DESERT_PROF_CONCAT( _desertProfPreName_, __LINE__ ) );                          \
     const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfPre_, __LINE__ )(                       \
          DESERT_PROF_CONCAT( _desertProfPreName_, __LINE__ ) )
+
+// A runtime name interned ONCE by its owner (an InternedScopeName lvalue that outlives the scope: a compiled
+// render-graph pass's RecordRow), so opening the scope looks nothing up (UE: FRDGPass's prebuilt event name).
+#define DESERT_PROFILE_SCOPE_INTERNED( INTERNED )                                                                 \
+    DESERT_PROF_OPTICK_INTERNED_( INTERNED );                                                                     \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProfInt_, __LINE__ )( INTERNED )
 
 // Times the enclosing function, named automatically from the function name — drop one line at the top of
 // any method you want to track (don't blanket EVERY tiny getter: the clock read per call adds up and drowns

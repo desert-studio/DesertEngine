@@ -1404,12 +1404,22 @@ namespace Desert::Graphic::RDG
             bool                              Worker         = false;
             bool                              RenderPassOpen = false;
             std::string                       BackendFailure;
+            // CPU-RDG-RECORD: LostRoot[i] is pass LostRootBase + i. A chunk's state covers only its own pass
+            // range (positions keep AddPass order, so a chunk's passes are one contiguous range of indices);
+            // a pass outside it was not recorded by this state and reads as not lost.
+            uint32_t LostRootBase = 0;
+            [[nodiscard]] int32_t LostRootOf( uint32_t pass ) const noexcept
+            {
+                if ( pass < LostRootBase || pass - LostRootBase >= LostRoot.size() )
+                    return -1;
+                return LostRoot[pass - LostRootBase];
+            }
         };
         RecordState graphState{ lostRoot, m_Report.Faults, m_Report.FaultCulled, m_LateSubstitutions };
         const auto  lateFault = [&]( RecordState& state, uint32_t pass, PassFaultStage stage, std::string reason,
                                     std::optional<uint32_t> root )
         {
-            state.LostRoot[pass] = static_cast<int32_t>( root ? *root : pass );
+            state.LostRoot[pass - state.LostRootBase] = static_cast<int32_t>( root ? *root : pass );
             state.Faults.push_back(
                  { pass, std::string( m_Passes[pass].Name ), stage, std::move( reason ), root } );
             state.FaultCulled.push_back( pass );
@@ -1474,9 +1484,10 @@ namespace Desert::Graphic::RDG
             const CompiledPass& planned = result.Passes[position];
             // THE CPU RECORD COST OF EACH PASS, one row per pass (UE: RDG's per-pass CPU event under the pass's
             // name). Prefixed so it never lands in the row the backend fills with the same pass's GPU time, nor
-            // in a DESERT_PROFILE_PASS row the pass's own lambda opens under that name. The row is interned once
-            // per name and thread; no "RDG Record: <pass>" string is built per pass per frame.
-            DESERT_PROFILE_SCOPE_PREFIXED( "RDG Record: ", planned.Name );
+            // in a DESERT_PROFILE_PASS row the pass's own lambda opens under that name. CPU-RDG-RECORD: the row
+            // is the plan's (CompiledPass::RecordRow, interned when the plan got the name), so opening it neither
+            // builds nor hashes "RDG Record: <pass>" per pass per frame.
+            DESERT_PROFILE_SCOPE_INTERNED( planned.RecordRow );
             float* costSlot = nullptr;
             if ( recordMicros != nullptr )
                 costSlot = recordMicros + position;
@@ -1489,7 +1500,7 @@ namespace Desert::Graphic::RDG
             for ( uint32_t incoming = rawBegin[p]; incoming < rawBegin[p + 1]; ++incoming )
             {
                 const DependencyEdge& edge = result.Edges[rawIn[incoming]];
-                if ( state.LostRoot[edge.From] < 0 || skipRoot )
+                if ( state.LostRootOf( edge.From ) < 0 || skipRoot )
                     continue;
                 const ResourceRecord& record     = m_Resources[edge.Resource];
                 const uint32_t        source     = record.Kind == ResourceKind::Texture && !record.IsExternal()
@@ -1510,7 +1521,7 @@ namespace Desert::Graphic::RDG
                 }
                 if ( source == kInvalidResource || other )
                 {
-                    skipRoot   = static_cast<uint32_t>( state.LostRoot[edge.From] );
+                    skipRoot   = static_cast<uint32_t>( state.LostRootOf( edge.From ) );
                     skipReason = std::format( "reads '{}', which pass '{}' did not produce", record.Name,
                                               m_Passes[edge.From].Name );
                     continue;
@@ -1646,9 +1657,10 @@ namespace Desert::Graphic::RDG
         struct RecordChunk
         {
             RecordChunkDesc                  Desc;
-            // By pass; only the chunk's own passes are ever set. Sized where the chunk is made (the calling
-            // thread): the worker that records the chunk only refills it.
+            // By pass - LostRootBase, over the chunk's own pass range only (CPU-RDG-RECORD: not the whole
+            // graph per chunk). Sized once the chunks are cut (the calling thread): the worker only refills it.
             ScratchVector<int32_t>           LostRoot;
+            uint32_t                         LostRootBase = 0;
             std::vector<PassFault>           Faults;
             std::vector<uint32_t>            FaultCulled;
             std::vector<DefaultSubstitution> Late;
@@ -1723,7 +1735,6 @@ namespace Desert::Graphic::RDG
                     {
                         RecordChunk chunk;
                         chunk.Desc = { segment.OnPipe, position, runEnd };
-                        chunk.LostRoot.assign( m_Passes.size(), -1 );
                         chunkAt[position] = static_cast<int32_t>( chunks.size() );
                         chunks.push_back( std::move( chunk ) );
                         chunkMicros.push_back( runMicros );
@@ -1731,6 +1742,12 @@ namespace Desert::Graphic::RDG
                     }
                     position = runEnd + 1;
                 }
+            }
+            for ( RecordChunk& chunk : chunks )
+            {
+                chunk.LostRootBase    = result.Passes[chunk.Desc.FirstPosition].Pass;
+                const uint32_t passes = result.Passes[chunk.Desc.LastPosition].Pass + 1 - chunk.LostRootBase;
+                chunk.LostRoot.assign( passes, -1 );
             }
             // Measured this frame for the next one: only a plan the cache keeps is ever read again.
             if ( !chunks.empty() && backend.GetCompileCache() != nullptr )
@@ -1749,7 +1766,8 @@ namespace Desert::Graphic::RDG
             RecordChunk&          chunk = chunks[c];
             std::fill( chunk.LostRoot.begin(), chunk.LostRoot.end(), -1 ); // a discarded chunk records again
             RecordState state{ chunk.LostRoot, chunk.Faults, chunk.FaultCulled, chunk.Late };
-            state.Worker = true;
+            state.Worker       = true;
+            state.LostRootBase = chunk.LostRootBase;
             backend.BeginChunk( c );
             for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition; ++position )
             {
@@ -1832,8 +1850,8 @@ namespace Desert::Graphic::RDG
             for ( uint32_t position = chunk.Desc.FirstPosition; position <= chunk.Desc.LastPosition; ++position )
             {
                 const uint32_t p = result.Passes[position].Pass;
-                if ( chunk.LostRoot[p] >= 0 )
-                    lostRoot[p] = chunk.LostRoot[p];
+                if ( chunk.LostRoot[p - chunk.LostRootBase] >= 0 )
+                    lostRoot[p] = chunk.LostRoot[p - chunk.LostRootBase];
             }
             m_Report.Faults.insert( m_Report.Faults.end(), chunk.Faults.begin(), chunk.Faults.end() );
             m_Report.FaultCulled.insert( m_Report.FaultCulled.end(), chunk.FaultCulled.begin(),
