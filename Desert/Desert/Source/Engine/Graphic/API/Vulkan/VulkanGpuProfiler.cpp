@@ -744,7 +744,7 @@ namespace Desert::Graphic::API::Vulkan
 
         for ( size_t i = 0; i < scopeCount; ++i )
             if ( m_Inclusive[i] >= 0.0 )
-                profiler.AddGpuSample( scopes[i].Name, m_Inclusive[i], m_Self[i] );
+                profiler.AddGpuSample( scopes[i].Name, m_Inclusive[i], m_Self[i], scopes[i].Queue );
 
         if ( frameMs >= 0.0 )
             PublishUnaccounted( scopes );

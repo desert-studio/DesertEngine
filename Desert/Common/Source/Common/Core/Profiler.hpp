@@ -78,6 +78,10 @@ namespace Common::Profiling
         // summed: the inclusive one counts a parent's microseconds again in every child, which is why a
         // naive total came to 159% of the frame the first time this was run.
         double GpuSelfMs = 0.0;
+        // The part of GpuSelfMs measured on the ASYNC COMPUTE queue (GPU-PASS-TIMES-1): its own timeline, which
+        // overlaps the graphics one, so it never tiles the GPU frame bracket. GpuSelfMs - GpuAsyncSelfMs is the
+        // row's graphics-queue self time - the only part a sum against "GPU frame" may add up.
+        double GpuAsyncSelfMs = 0.0;
         // The row's CPU ms (inclusive, all calls) in its costliest frame of the window, and the 99th percentile
         // over the window's frames (a frame the row did not run in costs 0). The average hides a spike; these
         // are what a hitch is read by.
@@ -263,7 +267,8 @@ namespace Common::Profiling
         // passes, @p selfMs has them subtracted. Into the calling thread's buffer, like AddSample.
         void AddGpuSample( const char* name, double inclusiveMs, double selfMs );
         // The same into row @p nameId (InternedScopeName::Id): what a backend that keeps ids passes, no lookup.
-        void AddGpuSample( uint32_t nameId, double inclusiveMs, double selfMs );
+        // @p queue: the queue the pair was written on; an AsyncCompute sample's self lands in GpuAsyncSelfMs too.
+        void AddGpuSample( uint32_t nameId, double inclusiveMs, double selfMs, GpuQueue queue );
 
         // Installed once by the graphics backend; null in a build with no GPU timing (or a device whose
         // queues report no valid timestamp bits). Not owned.
