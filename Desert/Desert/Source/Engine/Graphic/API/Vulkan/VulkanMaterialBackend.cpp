@@ -221,6 +221,47 @@ namespace Desert::Graphic::API::Vulkan
             sets->Prepared = revision;
     }
 
+    void VulkanMaterialBackend::NotePreparedSets()
+    {
+        if ( m_Layouts.empty() )
+            return;
+        const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        if ( m_PreparedSetsFrame != frame )
+        {
+            m_PreparedSetsFrame = frame;
+            m_PreparedSetsCount = 0;
+        }
+        const uint32_t          slot = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const ViewResources*    view = &ViewResourceRegistry::Active();
+        IViewDescriptorSetCopy* sets = m_ViewSets.FindActive( slot );
+        if ( sets == nullptr )
+            return; // not made: the draw resolves (and names the failure) as before
+        for ( size_t index = 0; index < m_PreparedSetsCount; ++index )
+        {
+            if ( m_PreparedSets[index].View == view && m_PreparedSets[index].Slot == slot )
+            {
+                m_PreparedSets[index].Sets = sets;
+                return;
+            }
+        }
+        if ( m_PreparedSetsCount < m_PreparedSets.size() )
+            m_PreparedSets[m_PreparedSetsCount++] = PreparedSets{ .View = view, .Slot = slot, .Sets = sets };
+    }
+
+    IViewDescriptorSetCopy* VulkanMaterialBackend::PreparedSetsOf( const uint32_t frameIndex ) const noexcept
+    {
+        if ( m_PreparedSetsCount == 0 ||
+             m_PreparedSetsFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
+            return nullptr;
+        const ViewResources* view = &ViewResourceRegistry::Active();
+        for ( size_t index = 0; index < m_PreparedSetsCount; ++index )
+        {
+            if ( m_PreparedSets[index].View == view && m_PreparedSets[index].Slot == frameIndex )
+                return m_PreparedSets[index].Sets;
+        }
+        return nullptr;
+    }
+
     VkDescriptorSet VulkanMaterialBackend::GetDescriptorSet( const uint32_t frameIndex, const uint32_t setIndex )
     {
         // The ACTIVE view resolves here and nowhere else, so a write and the bind that follows it can never
@@ -236,7 +277,9 @@ namespace Desert::Graphic::API::Vulkan
     Common::ResultStr<VulkanMaterialBackend::WrittenSlots>
     VulkanMaterialBackend::GetWrittenSlots( const uint32_t frameIndex )
     {
-        IViewDescriptorSetCopy* sets = ActiveSets( frameIndex );
+        IViewDescriptorSetCopy* sets = PreparedSetsOf( frameIndex );
+        if ( sets == nullptr )
+            sets = ActiveSets( frameIndex );
         if ( sets == nullptr )
             return Common::MakeFormattedError<WrittenSlots>( "material of shader '{}' has no descriptor sets",
                                                              m_VulkanShader->GetName() );

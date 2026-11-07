@@ -14,8 +14,11 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -27,6 +30,7 @@
 namespace Desert::Graphic
 {
     class Material;
+    class ViewResources;
 
     // A pass that applies the material in its exec declares it in setup (PassBuilder::Prepares).
     class MaterialExecutor : public RDG::IRecordPrerequisite
@@ -218,6 +222,32 @@ namespace Desert::Graphic
         mutable uint64_t m_PreparedVersion = 0;
 
     private:
+        // CPU-BIND-PREPARE (UE: a cached mesh draw command is checked once, when it is built, not per draw).
+        // What CheckRecordable answers for a draw is fixed by the prepare unless something is written after it, so
+        // the prepare records its answer and a draw compares counters: m_Writes (every property and field write of
+        // this executor, MaterialProperty::AttachWriteSink) and the owner's registered writes. The answer belongs
+        // to the (view, frame in flight) copy the prepare checked - a field is pending per copy - so each clean
+        // prepare of the frame adds its copy; a write between two prepares of one frame drops the earlier ones.
+        // Anything not recorded here falls back to the whole check, which names what is wrong.
+        struct RecordableCopy
+        {
+            const ViewResources* View = nullptr;
+            uint32_t             Slot = 0;
+        };
+        static constexpr size_t kRecordableCopies = 4;
+        // After a prepare: attaches the write counter, records whether the active copy may be bound as it is.
+        void NoteRecordable( bool fieldsPending ) const noexcept;
+        // Whether a prepare of this frame recorded the active copy recordable and nothing was written since.
+        [[nodiscard]] bool IsRecordableAsPrepared() const noexcept;
+
+        std::shared_ptr<std::atomic<uint64_t>> m_Writes           = std::make_shared<std::atomic<uint64_t>>( 0 );
+        mutable bool                           m_WritesCounted    = true;
+        mutable uint64_t                       m_RecordableFrame  = std::numeric_limits<uint64_t>::max();
+        mutable uint64_t                       m_RecordableWrites = 0;
+        mutable std::optional<uint64_t>        m_RecordableOwnerWrites;
+        mutable std::array<RecordableCopy, kRecordableCopies> m_RecordableCopies{};
+        mutable size_t                                        m_RecordableCount = 0;
+
         // The upload and descriptor writes of the prepare (above).
         void ApplyForRecording() const;
         // Everything GetRouteFill reads besides the property names, one byte per property in the lookups' own
@@ -226,6 +256,8 @@ namespace Desert::Graphic
         mutable std::mutex                                 m_RouteFillLock;
         mutable std::vector<uint8_t>                       m_RouteFillInputs;
         mutable std::shared_ptr<const RDG::OtherRouteFill> m_RouteFill;
+        // Whether a FIELD-filled uniform buffer's active (view x frame) copy is behind one of its fields.
+        [[nodiscard]] bool HasPendingFields() const;
         // The newest write of any property this executor owns.
         [[nodiscard]] uint64_t NewestPropertyWrite() const;
         // CPU-RDG-PREPARE: what a prepare now would apply (PreparedRevision), read with no view lookup.

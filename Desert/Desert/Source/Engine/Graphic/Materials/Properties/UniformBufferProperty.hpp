@@ -157,7 +157,10 @@ namespace Desert::Graphic
             if ( !ClaimFill( ShaderResources::FillKind::Fields, "a field write" ) )
                 return false;
 
-            return field->SetRawBytes( data, size );
+            if ( !field->SetRawBytes( data, size ) )
+                return false;
+            NoteFieldWritten(); // CPU-BIND-PREPARE: the executor's write counter (MaterialProperty)
+            return true;
         }
 
         void SetRawData( const std::byte* data, size_t size )

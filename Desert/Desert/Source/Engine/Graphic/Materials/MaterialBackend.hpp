@@ -50,6 +50,12 @@ namespace Desert::Graphic
         virtual void NotePreparedAt( const PreparedRevision& /*revision*/ )
         {
         }
+        // CPU-BIND-PREPARE: called at the end of every prepare (skipped or whole), on the preparing thread. A
+        // backend that resolves the ACTIVE sets through a lookup keeps them for the draws of this frame, so a draw
+        // reads what the prepare left without one. Nothing kept by a backend that has no sets.
+        virtual void NotePreparedSets()
+        {
+        }
 
         // ApplyPushConstants was declared here and its only implementation had an EMPTY BODY — the
         // second of two routes for the same bytes, and the one nobody took. The renderer pushes them
