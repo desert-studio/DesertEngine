@@ -20,7 +20,6 @@ Shader "SurfaceCacheRadiosityTraceAsync"
             uint lightingPages[];
         };
         #include <Common/SurfaceCacheRadiosityTraceTexel.glslh>
-        #define SURFACE_CACHE_TILES_BINDING 60
         #include <Common/SurfaceCacheLightingTiles.glslh>
 
         // The trace atlas: the history read, the blended sample written (the raster path's colour target).

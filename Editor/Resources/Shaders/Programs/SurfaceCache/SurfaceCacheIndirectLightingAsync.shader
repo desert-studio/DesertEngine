@@ -21,7 +21,6 @@ Shader "SurfaceCacheIndirectLightingAsync"
             uint lightingPages[];
         };
         #include <Common/SurfaceCacheIndirectLightingTexel.glslh>
-        #define SURFACE_CACHE_TILES_BINDING 60
         #include <Common/SurfaceCacheLightingTiles.glslh>
 
         // The raster path's two colour targets (SurfaceCache::Layer::IndirectLighting, FinalLighting).

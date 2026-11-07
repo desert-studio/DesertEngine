@@ -40,10 +40,12 @@ namespace Desert::Core
         // v5 (MAT-BINDLESS): the parser's generated row changed without the authored text changing: every row
         // carries Common/BindlessTextures.glslh, and a template's 2D textures are BindlessTexture row members
         // instead of samplers (Core::Formats::IsRowTexture).
+        // v6 (GPU-SHADER-AUTOBIND): every stage is compiled with glslang auto-mapped bindings and locations, so a
+        // resource declared without `binding` takes the stage's lowest free slot instead of 0.
         const std::string& OptionsFingerprint()
         {
             static const std::string fingerprint =
-                 std::format( "vulkan{}.{}|glsl460|v5", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
+                 std::format( "vulkan{}.{}|glsl460|v6", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
                               VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
             return fingerprint;
         }

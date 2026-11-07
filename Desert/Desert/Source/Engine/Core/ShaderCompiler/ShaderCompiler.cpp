@@ -151,6 +151,14 @@ namespace Desert::Core
             // The oldest accepted device's version (ShaderTarget.hpp), never a literal here.
             options.SetTargetEnvironment( shaderc_target_env_vulkan, kShaderTargetEnvVersion );
             options.SetWarningsAsErrors();
+            // AUTO-NUMBERED SLOTS (GPU-SHADER-AUTOBIND). A resource declared without `binding` takes the
+            // stage's lowest slot no explicit binding holds (glslang reserves every explicit one first), and an
+            // interface variable without `location` the next free location; an explicit number is never moved.
+            // Pass bindings, pipeline layouts and descriptor writes read the numbers back from reflection by
+            // name, so a shader author writes none. Per-stage numbering is made one program-wide answer, or
+            // refused naming both resources, by ShaderMapBuild.cpp CheckProgramSlots.
+            options.SetAutoBindUniforms( true );
+            options.SetAutoMapLocations( true );
 
             // NO SetOptimizationLevel, measured (PSO2, 2026-09-27, 126 shaders of the SPIR-V cache). shaderc's
             // performance/size levels without debug info add StripDebugInfo: every OpName/OpMemberName goes, so

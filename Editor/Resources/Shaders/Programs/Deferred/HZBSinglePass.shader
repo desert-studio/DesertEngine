@@ -20,13 +20,15 @@ Shader "HZBSinglePass"
     Compute
     {
         Uniform sampler PointClampSampler;
-        Uniform(0) texture2D SourceMipTexture; // mip 0: the scene depth; else this HZB's mip below (one mip)
+        // No binding numbers: the compiler numbers each resource (ShaderCompiler.cpp, auto-mapped bindings) and
+        // the passes bind them by name (HZBRenderer's shader parameters).
+        uniform texture2D SourceMipTexture; // mip 0: the scene depth; else this HZB's mip below (one mip)
         #define SourceMipTexture sampler2D(SourceMipTexture, PointClampSampler)
         // The dispatch's mips, lowest first. A slot past Params.y is bound to a scratch target and never written.
-        layout(binding = 1, r32f) writeonly uniform image2D DestinationMip0;
-        layout(binding = 2, r32f) writeonly uniform image2D DestinationMip1;
-        layout(binding = 3, r32f) writeonly uniform image2D DestinationMip2;
-        layout(binding = 4, r32f) writeonly uniform image2D DestinationMip3;
+        layout(r32f) writeonly uniform image2D DestinationMip0;
+        layout(r32f) writeonly uniform image2D DestinationMip1;
+        layout(r32f) writeonly uniform image2D DestinationMip2;
+        layout(r32f) writeonly uniform image2D DestinationMip3;
 
         PushConstant PushConstants
         {
