@@ -462,6 +462,10 @@ namespace Common::Scalability
                "SceneRenderer::AddFrameComposite -> DeferredLightingRenderer (the 8x8 tile lists the "
                "direct and composite passes draw indirectly; 0 = both draw the whole view)",
                1, Vis::Advanced },
+             { P::CloudFootprintSteps, G::Effects, "Effects.CloudFootprintSteps", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings (CloudPush::Visualize.z: "
+               "the march's lit step grows with the trace texel's footprint, CloudFootprintStepKm)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

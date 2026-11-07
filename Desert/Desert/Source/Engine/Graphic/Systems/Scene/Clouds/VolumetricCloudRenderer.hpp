@@ -149,10 +149,13 @@ namespace Desert::Graphic::System
          *                   than being read from a global because this renderer is one of several live at
          *                   once (Docs/RENDERER_FRAME_STATE.md) and a tier is per-view state like any
          *                   other.
+         * @param footprintSteps Scalability Effects.CloudFootprintSteps, taken with @p quality: the march's lit
+         *                   step grows with the trace texel's footprint (CloudFootprintStepKm); false = the
+         *                   fixed fine step, the A/B reference.
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
                                const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
-                               const std::vector<HeroCloudInstance>& heroClouds );
+                               bool footprintSteps, const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
          * @brief Stages S0, S1 and S2 as compute nodes of @p graph, after the scene depth is final.
@@ -879,6 +882,8 @@ namespace Desert::Graphic::System
         // every use because DeclareShadowMapNodes announces the map's size when it CHANGES — the size is a
         // property of the tier, not of the view.
         Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
+        // Scalability Effects.CloudFootprintSteps for this view (SetCloudSettings), CloudPush::Visualize.z.
+        bool m_FootprintSteps = true;
         float              m_ShadowMapScaleInUse = 0.0f;
 
         // The HALF-resolution grid, which is what the sub-pixel jitter and the reconstruction are both

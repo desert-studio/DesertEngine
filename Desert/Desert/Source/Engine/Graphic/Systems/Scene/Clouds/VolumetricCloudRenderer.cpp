@@ -1576,6 +1576,7 @@ namespace Desert::Graphic::System
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
                                                     const glm::vec3& windOffset, const glm::vec3& windDirection,
                                                     Common::Settings::CloudQuality        quality,
+                                                    bool                                  footprintSteps,
                                                     const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Present    = present;
@@ -1583,6 +1584,7 @@ namespace Desert::Graphic::System
         m_WindOffset    = windOffset;
         m_WindDirection = windDirection;
         m_Quality    = quality;
+        m_FootprintSteps = footprintSteps;
 
         // RE-ARM THE WARNINGS WHEN THE ARRANGEMENT CHANGES. A latch that is never released says a thing
         // once and then lies for the rest of the session: an artist who moves a body back inside the
@@ -2270,8 +2272,10 @@ namespace Desert::Graphic::System
         push.Frame =
              glm::vec4( skyOcclusionReady ? 1.0f : 0.0f, perSampleSun ? 1.0f : 0.0f,
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
-        push.Visualize = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
-                                    static_cast<float>( gridPhase.Index() ), 0.0f, 0.0f );
+        // z: the footprint step's gate (Scalability Effects.CloudFootprintSteps, CloudFootprintStepKm).
+        const float footprintSteps = m_FootprintSteps ? 1.0f : 0.0f;
+        push.Visualize             = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
+                                                static_cast<float>( gridPhase.Index() ), footprintSteps, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.

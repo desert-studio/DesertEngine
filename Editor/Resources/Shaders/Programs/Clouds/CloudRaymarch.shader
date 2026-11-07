@@ -394,6 +394,7 @@ Shader "CloudRaymarch"
             // y = this frame's 2x2 lattice phase of the trace grid, 0..3 (Graphic::CloudTraceGridPhase, encoded as
             //     Graphic::CloudTracePhase::Index): only the texels whose (x & 1) | (y & 1) << 1 equals it are
             //     marched (main).
+            // z = 1 when the lit step grows with the pixel footprint (CloudFootprintStepKm), 0 = fixed fine step.
             vec4 CloudVisualize;
         };
 
@@ -585,6 +586,18 @@ Shader "CloudRaymarch"
             vec3 nearP = nearH.xyz / max(nearH.w, 1e-9f);
             vec3 farP  = farH.xyz / max(farH.w, 1e-9f);
             vec3 rayDir = normalize(farP - nearP);
+
+            // The angle one half-resolution pixel subtends along this ray, for the footprint step
+            // (CloudFootprintStepKm): the ray through the next pixel column, against this one. Zero when
+            // Scalability Effects.CloudFootprintSteps is off (CloudVisualize.z), which is the fixed fine step.
+            float pixelAngle = 0.0f;
+            if (CloudVisualize.z > 0.5f)
+            {
+                float ndcPixel  = 2.0f / float(halfSize.x);
+                vec4  farNextH  = InverseViewProjection * vec4(ndc.x + ndcPixel, ndc.y, 0.0f, 1.0f);
+                vec3  farNextP  = farNextH.xyz / max(farNextH.w, 1e-9f);
+                pixelAngle      = length(normalize(farNextP - nearP) - rayDir);
+            }
 
             CloudLayer layer = CloudUnpackLayer();
 
@@ -888,6 +901,10 @@ Shader "CloudRaymarch"
                 if (t >= segment.y)
                     break;
 
+                // The step this sample is integrated over and advances by: the fine step, grown with the texel
+                // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
+                float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
+
                 vec3  samplePos      = originKm + rayDir * t;
 
                 // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
@@ -932,9 +949,9 @@ Shader "CloudRaymarch"
                     {
                         fine     = true;
                         emptyRun = 0;
-                        if (coarseStepKm > stepKm)
+                        if (coarseStepKm > litStepKm)
                         {
-                            t = max(segment.x, t - coarseStepKm + stepKm);
+                            t = max(segment.x, t - coarseStepKm + litStepKm);
                             continue;
                         }
                     }
@@ -953,7 +970,7 @@ Shader "CloudRaymarch"
                         fine     = false;
                         emptyRun = 0;
                     }
-                    t += stepKm;
+                    t += litStepKm;
                     continue;
                 }
 
@@ -1059,7 +1076,7 @@ Shader "CloudRaymarch"
                         luminance += transmittance *
                                      CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
                                                            ambientRadiance * ambientOcclusion, opticalDepth,
-                                                           phase, sigmaT, sampleAlbedo, stepKm);
+                                                           phase, sigmaT, sampleAlbedo, litStepKm);
 
                         // EMISSION: radiance the medium ADDS, per kilometre of march, attenuated by the
                         // ray's own history and by nothing else. It is deliberately NOT multiplied by the
@@ -1068,7 +1085,7 @@ Shader "CloudRaymarch"
                         // however opaque the cloud happens to be there (VolumetricCloud.usf:1381-1384).
                         // The default medium returns a literal zero, so this line costs nothing until a
                         // graph writes the pin.
-                        luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * stepKm;
+                        luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * litStepKm;
 
                         // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
                         // able to contribute, not how much is left after it. Also the guide's front (above),
@@ -1078,14 +1095,14 @@ Shader "CloudRaymarch"
 
                         // The view ray is attenuated by the medium itself, once — the octaves are orders
                         // of scattering INTO this ray, not extra material along it.
-                        transmittance *= CloudBeerTransmittance(sigmaT, stepKm);
+                        transmittance *= CloudBeerTransmittance(sigmaT, litStepKm);
 
                         if (transmittance < stopT)
                             break;
                     }
                 }
 
-                t += stepKm;
+                t += litStepKm;
             }
 
             // AERIAL PERSPECTIVE. Sixty kilometres of air between the camera and a distant cloud is not
