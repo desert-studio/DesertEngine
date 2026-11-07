@@ -11,6 +11,7 @@
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/DeferredTileLists.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
@@ -88,13 +89,6 @@ namespace Desert::Graphic::System
         Fullscreen = 0,
         Simple,
         Complex,
-    };
-
-    // The graph buffer "Deferred: Tile Classify" fills and the tile grid it is dispatched over.
-    struct DeferredTileLists
-    {
-        RDG::BufferRef Buffer;
-        glm::uvec2     Tiles{ 0u };
     };
 
     // The graph textures the deferred composite samples, as refs of THIS frame's graph that the Composite node
@@ -246,6 +240,12 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
+        // True when "Deferred: Tile Classify" can run (its pipeline built at Initialize).
+        [[nodiscard]] bool ClassifyReady() const noexcept
+        {
+            return m_ClassifyPipeline != nullptr;
+        }
+
         // True when this frame's direct program (the arm of @p shadow) and the composite have both tiled
         // permutations built and the classify is ready: the view may draw by tiles (RenderPipeline.TileClassify).
         // A permutation that did not build was said at its build (BuildTiledPrograms), with its reason.
@@ -267,13 +267,14 @@ namespace Desert::Graphic::System
         {
             DeferredTileLists lists;
             lists.Tiles          = glm::uvec2( TileGrid( width ), TileGrid( height ) );
+            lists.Extent         = glm::uvec2( width, height );
             const uint32_t count = lists.Tiles.x * lists.Tiles.y;
             const uint64_t bytes = ( uint64_t{ kTileHeaderWords } + 2u * uint64_t{ count } ) * sizeof( uint32_t );
             lists.Buffer         = graph.CreateBuffer( RDG::BufferDesc{ bytes }, "DeferredTiles" );
-            const std::array<uint32_t, kTileHeaderWords> header = { 0u,    1u,     0u,
-                                                                    0u,    0u,     1u,
-                                                                    count * kTileVertices, 0u, width,
-                                                                    height, lists.Tiles.x, count };
+            // Both draw records, the extent, then both dispatch records (Common/DeferredTiles.glslh).
+            const std::array<uint32_t, kTileHeaderWords> header = {
+                 0u, 1u, 0u, 0u, 0u, 1u, count * kTileVertices, 0u, width, height, lists.Tiles.x, count, 0u, 1u,
+                 1u, 0u, 0u, 1u, 1u, 0u };
             graph.QueueBufferUpload( lists.Buffer, std::as_bytes( std::span<const uint32_t>( header ) ) );
             return lists;
         }
@@ -647,11 +648,11 @@ namespace Desert::Graphic::System
         }
 
         // Common/DeferredTiles.glslh: the header's uints, the vertices per tile, the two draw records' bytes.
-        static constexpr uint32_t    kTileHeaderWords   = 12u;
-        static constexpr uint32_t    kTileVertices      = 6u;
-        static constexpr uint32_t    kTileSize          = 8u;
-        static constexpr uint64_t    kSimpleArgsOffset  = 0u;
-        static constexpr uint64_t    kComplexArgsOffset = 4u * sizeof( uint32_t );
+        static constexpr uint32_t    kTileHeaderWords   = DeferredTileLists::kHeaderWords;
+        static constexpr uint32_t    kTileVertices      = DeferredTileLists::kVertices;
+        static constexpr uint32_t    kTileSize          = DeferredTileLists::kTileSize;
+        static constexpr uint64_t    kSimpleArgsOffset  = DeferredTileLists::kSimpleDrawOffset;
+        static constexpr uint64_t    kComplexArgsOffset = DeferredTileLists::kComplexDrawOffset;
         static constexpr std::size_t kSimpleTiles       = 0; // m_TiledPrograms' second index, TileVariant's list
         static constexpr std::size_t kComplexTiles      = 1;
         static constexpr std::size_t kTiledClassCount   = 2;

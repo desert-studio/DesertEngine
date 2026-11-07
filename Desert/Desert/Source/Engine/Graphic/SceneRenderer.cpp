@@ -2566,6 +2566,7 @@ namespace Desert::Graphic
                 AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, {} );
 
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: SSAO + surface cache" );
+                AddFrameTileClassify( graph, textures, gbuffer );
                 AddFrameSSAO( graph, textures, gbuffer, frame );
                 AddFrameSurfaceCache( graph, textures, frame );
 

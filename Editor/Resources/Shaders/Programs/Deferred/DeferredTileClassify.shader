@@ -54,8 +54,11 @@ Shader "DeferredTileClassify"
         		return;
         	const uint tileCount = deferredTiles[kDeferredTileExtent + 3u];
         	const uint word      = DeferredTilePack(gl_WorkGroupID.xy);
+        	// Every listed tile is a workgroup of the geometry dispatch (SSAO), a complex one of the complex one too.
+        	atomicAdd(deferredTiles[kDeferredTileGeometryDispatch], 1u);
         	if ((s_TileFlags & kTileIsComplex) != 0u)
         	{
+        		atomicAdd(deferredTiles[kDeferredTileComplexDispatch], 1u);
         		const uint slot = atomicAdd(deferredTiles[kDeferredTileComplexArgs], kDeferredTileVertices) /
         		                  kDeferredTileVertices;
         		deferredTiles[kDeferredTileHeaderWords + tileCount + slot] = word;

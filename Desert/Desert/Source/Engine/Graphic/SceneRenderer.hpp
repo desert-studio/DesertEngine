@@ -1745,6 +1745,10 @@ namespace Desert::Graphic
         // The scene sample count the device can run for `requested` (the method's effective count).
         // Recreates the scene target at `samples` when it differs (an anti-aliasing change), next frame.
         void ApplySceneSampleCount( uint32_t samples );
+        // "Deferred: Tile Classify" (async compute) into FrameTransients::DeferredTiles, after the G-buffer and
+        // before SSAO; nothing when RenderPipeline.TileClassify is 0 or the view is a G-buffer view.
+        void AddFrameTileClassify( RDG::Builder& graph, FrameTextures& textures,
+                                   const std::vector<RDG::TextureRef>& gbuffer );
         void AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
                            const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The view's lights as graph buffers and its light grid ("LightGrid" compute node), into

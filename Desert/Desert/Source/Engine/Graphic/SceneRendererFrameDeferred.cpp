@@ -376,15 +376,60 @@ namespace Desert::Graphic
                                                   .TapsPerDirection = m_SSAOSamples,
                                                   .Angles           = kGTAOAngles } );
         // UE r.AmbientOcclusion.Compute: a compute dispatch whose every input is a graph resource, so it runs on
-        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off). Fork:
-        // the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the first
-        // graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap it.
+        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off).
+        // Fork: the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the
+        // first graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap
+        // it. GPU-TILE-CLASSIFY: only the view's listed tiles (the tile list, AddFrameTileClassify, before this on
+        // the same async chain); a tile left out is sky, whose AO texels the composite never reads.
+        const RDG::BufferRef tiles =
+             ssao->DispatchesTiles( textures.Transients.DeferredTiles, aoDesc.Size.Width, aoDesc.Size.Height )
+                  ? textures.Transients.DeferredTiles.Buffer
+                  : RDG::BufferRef{};
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
-             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms ); },
-             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height](
-                  RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssao->Record( context, width, height ); } );
+             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms, tiles ); },
+             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height,
+              tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssao->Record( context, width, height, tiles ); } );
+    }
+
+    void SceneRenderer::AddFrameTileClassify( RDG::Builder& graph, FrameTextures& textures,
+                                              const std::vector<RDG::TextureRef>& gbuffer )
+    {
+        // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles, classified on the
+        // async pipe): the view's ONE tile list, before its first reader (SSAO), read by every screen pass that
+        // writes only geometry texels (System::DeferredTileLists). The Lit view only (and the post view modes
+        // drawn Lit): a G-buffer view writes the sky's texels too, so every pass covers the view there.
+        textures.Transients.DeferredTiles = {};
+        auto* const deferred              = m_Systems.DeferredLighting.get();
+        if ( m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineTileClassify ) == 0 ||
+             deferred == nullptr || !deferred->ClassifyReady() )
+            return;
+        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
+             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+            return;
+        if ( gbuffer.size() < 3 )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] Deferred: Tile Classify needs GBufferB and the shading word, the graph has {}",
+                 gbuffer.size() );
+            return;
+        }
+        // The lighting targets' extent (AddFrameComposite's directDesc); a pass at another extent covers its view.
+        const System::DeferredTileLists lists = System::DeferredLightingRenderer::CreateTileLists(
+             graph, m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        textures.Transients.DeferredTiles = lists;
+        const RDG::TextureRef normal      = gbuffer[1];
+        const RDG::TextureRef shadingWord = gbuffer[2];
+        // ASYNC COMPUTE (UE Substrate's classification on the async pipe): every input is a graph resource. Fork:
+        // the G-buffer's last writer; its readers are SSAO (the same async chain, after it in order) and the
+        // lighting passes, which already wait on that chain for SSAO - no join of its own before Direct Lighting.
+        graph.AddPass(
+             "Deferred: Tile Classify", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, normal, shadingWord, buffer = lists.Buffer]( RDG::PassBuilder& pass )
+             { deferred->DeclareClassifyBindings( pass, normal, shadingWord, buffer ); },
+             [deferred, grid = lists.Tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordClassify( context, grid ); } );
     }
 
     LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
@@ -934,25 +979,12 @@ namespace Desert::Graphic
                                    ? 0
                                    : static_cast<int>( m_DebugView.DeferredDebug );
         // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles): both lighting passes
-        // draw only the 8x8 tiles that hold geometry, a DefaultLit-only tile through the permutation with the
-        // model folded. The Lit view only: a G-buffer view writes the sky's texels too.
-        const bool tiles = m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineTileClassify ) != 0 &&
-                           debugMode == 0 && deferred->TileClassifyReady( shadow );
-        System::DeferredTileLists lists;
-        if ( tiles )
-        {
-            lists = System::DeferredLightingRenderer::CreateTileLists( graph, directDesc.Size.Width,
-                                                                       directDesc.Size.Height );
-            graph.AddPass(
-                 "Deferred: Tile Classify", RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     deferred->DeclareClassifyBindings( pass, inputs.GBufferB, inputs.GBufferShadingWord,
-                                                        lists.Buffer );
-                 },
-                 [deferred, grid = lists.Tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return deferred->RecordClassify( context, grid ); } );
-        }
+        // draw only the 8x8 tiles that hold geometry (the view's tile list, AddFrameTileClassify), a
+        // DefaultLit-only tile through the permutation with the model folded. The list exists in the Lit view
+        // only.
+        const System::DeferredTileLists lists = refs.Transients.DeferredTiles;
+        const bool tiles = lists.Covers( directDesc.Size.Width, directDesc.Size.Height ) && debugMode == 0 &&
+                           deferred->TileClassifyReady( shadow );
         const auto fill = [&]()
         {
             // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.

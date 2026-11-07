@@ -6,14 +6,18 @@
 // and read by the tiled permutations of DeferredLighting.shader (DESERT_DEFERRED_TILES): the vertex stage turns
 // gl_VertexIndex into a corner of a listed tile, the draws take their counts from the buffer's two records.
 //
-// Layout, in uints (mirrored by DeferredLightingRenderer::kTileHeaderWords and CreateTileLists, which uploads the
-// header every frame):
+// Layout, in uints (mirrored by System::DeferredTileLists, DeferredTileLists.hpp, and by
+// DeferredLightingRenderer::CreateTileLists, which uploads the header every frame):
 //   [0..3]   VkDrawIndirectCommand of the SIMPLE tiles: vertexCount (6 per listed tile, the classify's atomic
 //            counter), instanceCount 1, firstVertex 0, firstInstance 0
 //   [4..7]   VkDrawIndirectCommand of the COMPLEX tiles: the same, firstVertex = tile count x 6, so the vertex
 //            stage of either draw reads its tile at kDeferredTileHeaderWords + gl_VertexIndex / 6
 //   [8..11]  the classified extent: width, height (pixels), tiles across, tile count
-//   [12 ..]  the simple list (tile count words), then the complex list (tile count words)
+//   [12..15] VkDispatchIndirectCommand over EVERY listed tile (x = simple + complex count, 1, 1), one pad word:
+//            SSAO's dispatch, its workgroup i reading DeferredTileListWord(i, ..)
+//   [16..19] VkDispatchIndirectCommand over the COMPLEX tiles (x = complex count, 1, 1), one pad word: the
+//            subsurface scatter's, its workgroup i reading kDeferredTileHeaderWords + tile count + i
+//   [20 ..]  the simple list (tile count words), then the complex list (tile count words)
 // A tile holding no geometry (every texel the sky: the G-buffer normal is zero) is in neither list: no draw
 // covers it, and both lighting passes discard such a texel anyway, so the picture is the same.
 // SIMPLE: every geometry texel of the tile is DefaultLit, which the tiled permutation DESERT_DEFERRED_TILE_SIMPLE
@@ -25,7 +29,9 @@ const uint kDeferredTileVertices    = 6u;
 const uint kDeferredTileSimpleArgs  = 0u;
 const uint kDeferredTileComplexArgs = 4u;
 const uint kDeferredTileExtent      = 8u;
-const uint kDeferredTileHeaderWords = 12u;
+const uint kDeferredTileGeometryDispatch = 12u;
+const uint kDeferredTileComplexDispatch  = 16u;
+const uint kDeferredTileHeaderWords = 20u;
 
 uint DeferredTilePack(uvec2 tile)
 {
@@ -35,6 +41,17 @@ uint DeferredTilePack(uvec2 tile)
 uvec2 DeferredTileUnpack(uint word)
 {
 	return uvec2(word & 0xFFFFu, word >> 16u);
+}
+
+// The buffer index of the @p index-th tile of the geometry dispatch (kDeferredTileGeometryDispatch): the simple
+// list's first, then the complex list's. @p simpleVertices is the simple draw record's vertex count
+// (deferredTiles[kDeferredTileSimpleArgs]), @p tileCount the grid's (deferredTiles[kDeferredTileExtent + 3]).
+uint DeferredTileListWord(uint index, uint simpleVertices, uint tileCount)
+{
+	const uint simple = simpleVertices / kDeferredTileVertices;
+	if (index < simple)
+		return kDeferredTileHeaderWords + index;
+	return kDeferredTileHeaderWords + tileCount + (index - simple);
 }
 
 // The screen texture coordinate of corner @p vertexInTile (0..5, two triangles wound as the fullscreen triangle,

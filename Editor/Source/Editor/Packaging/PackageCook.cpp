@@ -11,6 +11,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SSAORenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
@@ -243,6 +244,7 @@ namespace Desert::Editor
             append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
             append( Graphic::System::SSRRenderer::ProgramVariants() );
             append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );
+            append( Graphic::System::SSAORenderer::ProgramVariants() );
             append( Graphic::System::TerrainRenderer::ProgramVariants() );
             append( Graphic::System::VolumetricFogRenderer::ProgramVariants() );
             append( Graphic::TemporalAA::ProgramVariants() );
