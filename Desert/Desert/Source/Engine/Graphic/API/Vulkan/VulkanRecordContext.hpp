@@ -28,6 +28,30 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] bool operator==( const VulkanBoundGeometry& ) const = default;
     };
 
+    // CPU-DRAW-BIND (UE FRHICommandList state cache): the buffer last bound at binding 2, the instance id stream
+    // (GpuDriven::kVisibleRowVertexBinding, offset 0), on CommandBuffer. Its own record, apart from
+    // VulkanBoundGeometry: the cluster path binds binding 2 alone and leaves bindings 0 / 1 as they are.
+    struct VulkanBoundVisibleRows
+    {
+        VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
+        VkBuffer        Buffer        = VK_NULL_HANDLE;
+
+        // Whether @p buffer is bound at binding 2 of @p commandBuffer already; records it as bound when not.
+        [[nodiscard]] bool Holds( VkCommandBuffer commandBuffer, VkBuffer buffer ) noexcept
+        {
+            if ( CommandBuffer == commandBuffer && Buffer == buffer )
+                return true;
+            CommandBuffer = commandBuffer;
+            Buffer        = buffer;
+            return false;
+        }
+        void Forget() noexcept
+        {
+            CommandBuffer = VK_NULL_HANDLE;
+            Buffer        = VK_NULL_HANDLE;
+        }
+    };
+
     // CPU-FRAME-6 (UE: FVulkanCommandListContext's pending graphics state - a bind of what is bound already
     // records nothing): the pipeline and descriptor sets last recorded at the GRAPHICS bind point of
     // CommandBuffer. Vulkan keeps both across render passes and a pipeline bind does not disturb the sets, so a
@@ -77,6 +101,7 @@ namespace Desert::Graphic::API::Vulkan
         VkCommandBuffer                    CommandBuffer = VK_NULL_HANDLE;
         std::optional<VulkanBoundGeometry> BoundGeometry;
         VulkanBoundGraphics                BoundGraphics;
+        VulkanBoundVisibleRows             BoundVisibleRows;
         std::vector<std::byte>             SubmeshPush; // VulkanRendererAPI::WalkMeshSubmeshes' block, reused
         // VulkanGpuProfiler: the scopes this context has open (a chunk's scopes nest under each other, and the
         // first under the scope the dispatching thread had open), and the context's place in the frame's scope
@@ -97,6 +122,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             BoundGeometry.reset();
             BoundGraphics.Forget();
+            BoundVisibleRows.Forget();
         }
 
         // The context bound to the calling thread, or null: the frame's context applies.

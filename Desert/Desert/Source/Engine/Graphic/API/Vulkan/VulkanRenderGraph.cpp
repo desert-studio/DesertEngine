@@ -1482,50 +1482,133 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( &static_cast<VulkanRdgBackend&>( backend ).PassSetsState() );
     }
 
-    bool VulkanRdgPassSetMemo::Matches( const Entry& entry, const Key& key )
+    uint64_t VulkanRdgPassSetMemo::HashOf( const Key& key ) noexcept
     {
+        // A splitmix64-finalised combine over each field: one pass, nothing allocated.
+        uint64_t   hash = 0x9E3779B97F4A7C15ull;
+        const auto mix  = [&hash]( uint64_t value ) noexcept
+        {
+            uint64_t z = hash ^ ( value + 0x9E3779B97F4A7C15ull + ( hash << 6 ) + ( hash >> 2 ) );
+            z          = ( z ^ ( z >> 30 ) ) * 0xBF58476D1CE4E5B9ull;
+            z          = ( z ^ ( z >> 27 ) ) * 0x94D049BB133111EBull;
+            hash       = z ^ ( z >> 31 );
+        };
+        mix( ( static_cast<uint64_t>( key.Block.Pass ) << 32 ) | key.Block.Block );
+        mix( key.Shader );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a handle's bits as a hash input only
+        mix( reinterpret_cast<uint64_t>( key.Layout ) );
+        mix( key.Material );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a handle's bits as a hash input only
+        mix( reinterpret_cast<uint64_t>( key.MaterialSet ) );
+        mix( ( static_cast<uint64_t>( key.BlockPushBytes ) << 1 ) | static_cast<uint64_t>( key.MaterialPush ) );
+        for ( const uint32_t binding : key.MaterialBindings )
+            mix( binding );
+        return hash;
+    }
+
+    bool VulkanRdgPassSetMemo::Matches( const Entry& entry, uint64_t hash, const Key& key ) const noexcept
+    {
+        if ( entry.Hash != hash || entry.BindingsCount != key.MaterialBindings.size() )
+            return false;
+        const std::span<const uint32_t> bindings( m_Bindings.data() + entry.BindingsFirst, entry.BindingsCount );
         return entry.Block.Pass == key.Block.Pass && entry.Block.Block == key.Block.Block &&
                entry.Shader == key.Shader && entry.Layout == key.Layout && entry.Material == key.Material &&
                entry.MaterialSet == key.MaterialSet && entry.MaterialPush == key.MaterialPush &&
-               entry.BlockPushBytes == key.BlockPushBytes &&
-               std::equal( entry.MaterialBindings.begin(), entry.MaterialBindings.end(), key.MaterialBindings.begin(),
-                           key.MaterialBindings.end() );
+               entry.BlockPushBytes == key.BlockPushBytes && std::ranges::equal( bindings, key.MaterialBindings );
     }
 
-    const std::vector<VkDescriptorSet>* VulkanRdgPassSetMemo::Find( const Key& key ) const
+    std::span<const VkDescriptorSet> VulkanRdgPassSetMemo::SetsOf( const Entry& entry ) const noexcept
     {
-        if ( m_LastHit < m_Entries.size() && Matches( m_Entries[m_LastHit], key ) )
-            return &m_Entries[m_LastHit].Sets;
-        for ( size_t index = 0; index < m_Entries.size(); ++index )
+        return { m_Sets.data() + entry.SetsFirst, entry.SetsCount };
+    }
+
+    std::optional<std::span<const VkDescriptorSet>> VulkanRdgPassSetMemo::Find( const Key& key ) const noexcept
+    {
+        if ( m_Entries.empty() )
+            return std::nullopt;
+        const uint64_t hash = HashOf( key );
+        // Consecutive draws of one block and material hit the entry the last lookup found.
+        if ( m_LastHit < m_Entries.size() && Matches( m_Entries[m_LastHit], hash, key ) )
+            return SetsOf( m_Entries[m_LastHit] );
+        const size_t mask = m_Slots.size() - 1;
+        for ( size_t index = static_cast<size_t>( hash ) & mask;; index = ( index + 1 ) & mask )
         {
-            if ( Matches( m_Entries[index], key ) )
+            const Slot& slot = m_Slots[index];
+            if ( slot.Generation != m_Generation )
+                return std::nullopt; // an empty slot ends the probe: at most half the table is live
+            if ( Matches( m_Entries[slot.Entry], hash, key ) )
             {
-                m_LastHit = index;
-                return &m_Entries[index].Sets;
+                m_LastHit = slot.Entry;
+                return SetsOf( m_Entries[slot.Entry] );
             }
         }
-        return nullptr;
     }
 
-    void VulkanRdgPassSetMemo::Keep( const Key& key, std::vector<VkDescriptorSet> sets )
+    void VulkanRdgPassSetMemo::Insert( uint32_t entry ) noexcept
     {
-        m_LastHit = m_Entries.size();
-        Entry entry{ .Block          = key.Block,
-                     .Shader         = key.Shader,
-                     .Layout         = key.Layout,
-                     .Material       = key.Material,
-                     .MaterialSet    = key.MaterialSet,
-                     .MaterialPush   = key.MaterialPush,
-                     .BlockPushBytes = key.BlockPushBytes,
-                     .Sets           = std::move( sets ) };
-        entry.MaterialBindings.assign( key.MaterialBindings.begin(), key.MaterialBindings.end() );
-        m_Entries.push_back( std::move( entry ) );
+        const size_t mask = m_Slots.size() - 1;
+        for ( size_t index = static_cast<size_t>( m_Entries[entry].Hash ) & mask;; index = ( index + 1 ) & mask )
+        {
+            Slot& slot = m_Slots[index];
+            if ( slot.Generation != m_Generation )
+            {
+                slot = Slot{ .Generation = m_Generation, .Entry = entry };
+                return;
+            }
+        }
     }
 
-    void VulkanRdgPassSetMemo::Clear()
+    void VulkanRdgPassSetMemo::Grow() noexcept
+    {
+        // A fresh table: every slot empty (generation 0), the live entries inserted again.
+        size_t size = 64;
+        if ( !m_Slots.empty() )
+            size = m_Slots.size() * 2;
+        m_Slots.assign( size, Slot{} );
+        m_Generation = 1;
+        for ( uint32_t entry = 0; entry < static_cast<uint32_t>( m_Entries.size() ); ++entry )
+            Insert( entry );
+    }
+
+    std::span<const VkDescriptorSet> VulkanRdgPassSetMemo::Keep( const Key&                       key,
+                                                                 std::span<const VkDescriptorSet> sets ) noexcept
+    {
+        const auto entry = static_cast<uint32_t>( m_Entries.size() );
+        m_Entries.push_back( Entry{ .Block          = key.Block,
+                                    .Shader         = key.Shader,
+                                    .Layout         = key.Layout,
+                                    .Material       = key.Material,
+                                    .MaterialSet    = key.MaterialSet,
+                                    .MaterialPush   = key.MaterialPush,
+                                    .BlockPushBytes = key.BlockPushBytes,
+                                    .Hash           = HashOf( key ),
+                                    .BindingsFirst  = static_cast<uint32_t>( m_Bindings.size() ),
+                                    .BindingsCount  = static_cast<uint32_t>( key.MaterialBindings.size() ),
+                                    .SetsFirst      = static_cast<uint32_t>( m_Sets.size() ),
+                                    .SetsCount      = static_cast<uint32_t>( sets.size() ) } );
+        m_Bindings.insert( m_Bindings.end(), key.MaterialBindings.begin(), key.MaterialBindings.end() );
+        m_Sets.insert( m_Sets.end(), sets.begin(), sets.end() );
+        // At most half the slots live; Grow inserts every entry, this one included.
+        if ( m_Entries.size() * 2 > m_Slots.size() )
+            Grow();
+        else
+            Insert( entry );
+        m_LastHit = entry;
+        return SetsOf( m_Entries[entry] );
+    }
+
+    void VulkanRdgPassSetMemo::Clear() noexcept
     {
         m_Entries.clear();
-        m_LastHit = 0;
+        m_Bindings.clear();
+        m_Sets.clear();
+        m_LastHit = ~0u;
+        // A new generation empties every slot without touching one; on wrap the table is wiped once.
+        if ( ++m_Generation == 0 )
+        {
+            std::ranges::fill( m_Slots, Slot{} );
+            m_Generation = 1;
+        }
     }
 
     Common::BoolResultStr VulkanRdgBackend::BeginFrame( uint32_t slot, const VulkanRdgQueueSet& queues,

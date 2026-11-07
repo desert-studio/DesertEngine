@@ -9,6 +9,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>    // m_FrameLoop is owned here
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -227,9 +228,13 @@ namespace Desert::Graphic::API::Vulkan
         // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
         // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
         // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.
+        // CPU-DRAW-BIND: a draw within the current capacity takes no lock and copies no shared_ptr - it reads
+        // m_VisibleRowIdentityRows (acquire), then the handle stored before it (release, under m_GrowLock); a
+        // buffer is only ever replaced by a larger one, so the handle read holds at least the rows read.
         VkBuffer                      VisibleRowIdentity( uint32_t rows );
-        std::shared_ptr<VertexBuffer> m_VisibleRowIdentity;
-        uint32_t                      m_VisibleRowIdentityRows = 0;
+        std::shared_ptr<VertexBuffer> m_VisibleRowIdentity; // under m_GrowLock
+        std::atomic<VkBuffer>         m_VisibleRowIdentityBuffer{ VK_NULL_HANDLE };
+        std::atomic<uint32_t>         m_VisibleRowIdentityRows{ 0 };
         // RENDER-JOB-CPU-1 (UE FMeshDrawCommand merging: draws of one pipeline, bindings and push are one
         // command): a run of drawn submeshes [First, First + Count) - adjacent in the mesh, none hidden between,
         // one submesh transform, so one push block serves every one of them. FirstDrawn is the first one's index

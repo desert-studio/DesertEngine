@@ -553,7 +553,13 @@ namespace Desert::Graphic::API::Vulkan
     // combination was written into; a later draw of the same combination binds them. A set is written before its
     // first bind and never after it, so every draw that binds it reads the same descriptors it would have had in a
     // set of its own. Never kept across passes: a pass's blocks name only its own resources, and the pool the sets
-    // came from is reset with the frame slot.
+    // came from is reset with the frame slot. (The key names the block by its pass index, which restarts with
+    // every graph: a memo kept past EndPass could hand graph B's pass 3 the sets of graph A's pass 3. Reuse ACROSS
+    // passes of equal content is the descriptor cache's (WriteRdgPassSets), keyed by what the sets hold.)
+    // CPU-DRAW-BIND (UE FMeshDrawCommandStateCache: O(1) per draw, nothing allocated): an open-addressing table
+    // over flat entry / binding / set arrays. Clear() empties the arrays (capacity kept) and bumps the table's
+    // generation, so a pass boundary frees nothing and touches no slot; a lookup hashes the key once. One memo per
+    // recording context (the backend's own, each chunk's), never shared between threads.
     class VulkanRdgPassSetMemo
     {
     public:
@@ -574,30 +580,49 @@ namespace Desert::Graphic::API::Vulkan
             size_t                    BlockPushBytes = 0;
         };
 
-        // The sets written for @p key in this pass exec, or null.
-        [[nodiscard]] const std::vector<VkDescriptorSet>* Find( const Key& key ) const;
-        // The sets just written for @p key (its MaterialBindings are copied).
-        void Keep( const Key& key, std::vector<VkDescriptorSet> sets );
-        // A pass exec begins or ends: nothing written for another pass is bound by this one.
-        void Clear();
+        // The sets written for @p key in this pass exec (possibly none: a layout with no sets), or nullopt when
+        // the combination was not written yet. The span is valid until the next Keep or Clear.
+        [[nodiscard]] std::optional<std::span<const VkDescriptorSet>> Find( const Key& key ) const noexcept;
+        // The sets just written for @p key (they and its MaterialBindings are copied); returns the kept copy,
+        // valid until the next Keep or Clear.
+        std::span<const VkDescriptorSet> Keep( const Key& key, std::span<const VkDescriptorSet> sets ) noexcept;
+        // A pass exec begins or ends: nothing written for another pass is bound by this one. O(1), frees nothing.
+        void Clear() noexcept;
 
     private:
         struct Entry
         {
-            RDG::BindingBlockRef         Block;
-            std::uintptr_t               Shader         = 0;
-            VkPipelineLayout             Layout         = VK_NULL_HANDLE;
-            std::uintptr_t               Material       = 0;
-            VkDescriptorSet              MaterialSet    = VK_NULL_HANDLE;
-            std::vector<uint32_t>        MaterialBindings;
-            bool                         MaterialPush   = false;
-            size_t                       BlockPushBytes = 0;
-            std::vector<VkDescriptorSet> Sets;
+            RDG::BindingBlockRef Block;
+            std::uintptr_t       Shader         = 0;
+            VkPipelineLayout     Layout         = VK_NULL_HANDLE;
+            std::uintptr_t       Material       = 0;
+            VkDescriptorSet      MaterialSet    = VK_NULL_HANDLE;
+            bool                 MaterialPush   = false;
+            size_t               BlockPushBytes = 0;
+            uint64_t             Hash           = 0;
+            uint32_t             BindingsFirst  = 0; // into m_Bindings
+            uint32_t             BindingsCount  = 0;
+            uint32_t             SetsFirst      = 0; // into m_Sets
+            uint32_t             SetsCount      = 0;
         };
-        [[nodiscard]] static bool Matches( const Entry& entry, const Key& key );
+        // A table slot: Entry is live only while Generation equals the memo's m_Generation.
+        struct Slot
+        {
+            uint32_t Generation = 0;
+            uint32_t Entry      = 0;
+        };
+        [[nodiscard]] static uint64_t HashOf( const Key& key ) noexcept;
+        [[nodiscard]] bool            Matches( const Entry& entry, uint64_t hash, const Key& key ) const noexcept;
+        [[nodiscard]] std::span<const VkDescriptorSet> SetsOf( const Entry& entry ) const noexcept;
+        void                                           Insert( uint32_t entry ) noexcept; // into m_Slots
+        void                                           Grow() noexcept; // doubles m_Slots, re-inserts the live
 
-        std::vector<Entry> m_Entries;
-        mutable size_t     m_LastHit = 0; // consecutive draws of one block hit the same entry
+        std::vector<Entry>           m_Entries;
+        std::vector<uint32_t>        m_Bindings; // every entry's MaterialBindings, back to back
+        std::vector<VkDescriptorSet> m_Sets;     // every entry's sets, back to back
+        std::vector<Slot>            m_Slots;    // power of two (or empty); at most half live
+        uint32_t                     m_Generation = 1;
+        mutable uint32_t             m_LastHit    = ~0u; // consecutive draws of one block hit the same entry
     };
 
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,
