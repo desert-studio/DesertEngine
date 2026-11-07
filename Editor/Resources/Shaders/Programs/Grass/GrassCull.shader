@@ -1007,9 +1007,37 @@ Shader "GrassCull"
 
         // Mode 2, row @p r: phase 1's camera records and Feedback count, and the phase words frozen for phase 2;
         // returns the candidates frozen (phase 2's threads).
+        // Mode 2, row @p r whose camera holds (kGrassRowCameraHeld; its cascades hold too): the camera's records,
+        // drawn count and phase words stay as the frame that culled it froze them - its counters were restarted
+        // then and no camera cull appended since - and phase 2 restarts its appends, so the held candidates are
+        // retested against this frame's HZB. This frame in flight's Feedback copy gets the held counts; returns the
+        // candidates frozen.
+        uint HeldCamera( uint r )
+        {
+            GrassWords camera  = GrassWords( VarietyRows[r].CameraArgs );
+            uint       buckets = camera.Words[0];
+            uint       records = camera.Words[2];
+            uint       phases  = 4u + records * 5u + buckets * 4u;
+            HeldCascadeFeedback( r, buckets );
+            uint candidates = 0u;
+            for ( uint b = 0u; b < buckets; ++b )
+            {
+                candidates += camera.Words[phases + b * 4u + 1u];
+                camera.Words[phases + b * 4u + 3u] = 0u;
+            }
+            GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            feedback.Words[buckets + 2u] = camera.Words[3];
+            feedback.Words[buckets + 3u] = 0u;
+            feedback.Words[buckets + kFeedbackLawWord] =
+                 GrassWords( VarietyRows[r].Chunks ).Words[kGrassChunkSlotsUsedWord];
+            return candidates;
+        }
+
         uint FinalizeCamera( uint r )
         {
             FinalizeFull( r );
+            if ( ( VarietyRows[r].Info.z & kGrassRowCameraHeld ) != 0u )
+                return HeldCamera( r );
             GrassWords camera  = GrassWords( VarietyRows[r].CameraArgs );
             bool       blade   = ( VarietyRows[r].Info.z & kGrassRowBlade ) != 0u;
             uint       buckets = camera.Words[0];
@@ -1097,6 +1125,9 @@ Shader "GrassCull"
                     chunks.Words[kGrassChunkSlotsUsedWord] = 0u;
                     chunks.Words[kGrassChunkSlotsGenWord]  = VarietyRows[r].LawGeneration;
                 }
+                // A row whose camera holds (and so its cascades and full list) culls nothing this frame.
+                if ( ( VarietyRows[r].Info.z & kGrassRowCameraHeld ) != 0u )
+                    return 0u;
                 return ( ChunkCount( r ) + kChunksPerGroup - 1u ) / kChunksPerGroup;
             }
             return ( FinalizeCamera( r ) + kCullGroupThreads - 1u ) / kCullGroupThreads;

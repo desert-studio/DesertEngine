@@ -265,6 +265,24 @@ namespace Desert::Graphic::System
             // main camera's origin, w ShadowWindDistanceOf - 0 where every instance casts its rest pose).
             glm::vec4 CascadeWind[kGrassCascadeLists]{};
         };
+        // GPU-GRASS-CULL-1: what the camera cull of a variety reads beyond its cascades' key
+        // (VarietyGpu::CameraKey; compared member by member).
+        struct CameraCullKey
+        {
+            glm::vec4  Planes[4]{};
+            glm::mat4  HzbViewProjection{ 0.0f };
+            glm::uvec4 Hzb{ 0u }; // the HZB's mip-0 size and mip count, w = 1 when the cull tests it
+            glm::uvec2 CameraIds{ 0u };
+            glm::uvec2 CameraArgs{ 0u };
+            glm::uvec2 PostArgs{ 0u };
+            glm::uvec2 Candidates{ 0u };
+            glm::uvec2 LawScales{ 0u };
+            uint32_t   CameraIdsBase = 0;
+            uint32_t   InstancesBase = 0;
+            uint64_t   Builds        = 0;
+
+            [[nodiscard]] bool operator==( const CameraCullKey& ) const = default;
+        };
         // CPU-GRASS-POOL-1, ONE BUFFER PER KIND OF DATA (UE GPUScene / FInstanceCullingManager: the instances'
         // data live in a few pooled buffers registered once a frame, and a primitive owns a range of them): a
         // variety holds a byte range of its kind's pool instead of a buffer of its own, so the frame graph
@@ -465,6 +483,13 @@ namespace Desert::Graphic::System
             // frame culled them from it; from the next frame the lists hold (kGrassRowCascadesHeld) until it changes.
             std::vector<uint32_t> CascadeKey;
             bool                  CascadesCulled = false;
+            // GPU-GRASS-CULL-1: what the camera's lists were last culled from (WriteVarietyTable: the camera's
+            // side planes, the HZB they were tested against, the camera's buffers) and whether a frame culled them
+            // from it; a frame whose cascades hold and whose key is unchanged holds the camera's phase-1 list and
+            // its candidates too (kGrassRowCameraHeld) - phase 2 still retests the candidates against this frame's
+            // HZB.
+            CameraCullKey CameraKey{};
+            bool          CameraCulled = false;
             // GRASS-CULL-2: what the camera cull reads of the params, through the variety table (GrassRenderer.cpp
             // GrassVarietyRowGpu): x = the bounds radius, y = the bounds centre height (local), z = the cull pad (cm),
             // and the bucket table's first word in Args.
@@ -644,7 +669,9 @@ namespace Desert::Graphic::System
         // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows,
         // written into m_Table and imported into @p graph (m_TableRef).
         // Refused when a variety's buffer has no device address.
-        [[nodiscard]] Common::BoolResultStr WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes );
+        // @p occlusion: the HZB the camera cull tests this frame (it keys the camera's held lists).
+        [[nodiscard]] Common::BoolResultStr WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes,
+                                                               const GrassOcclusion& occlusion );
         // The one binding block of a pass over the table, GrassCull's: @p hzb the texture it tests and @p dispatch
         // its access to this frame's dispatch buffer (m_FrameDispatch).
         void BindCull( RDG::PassBuilder& pass, RDG::TextureRef hzb, RDG::Access dispatch );
