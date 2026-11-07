@@ -192,13 +192,12 @@ namespace Desert::Graphic
         // the shader declares no such property. Only for a program that legitimately lacks the slot (a shadow
         // variant without the surface's blocks); a slot the shader must have goes through Get.
         // CPU-MAT-VIEW-UB: the executor's raw finders (no shared_ptr copy - the executor owns the property) over
-        // the parameter's own name view; a std::string is built only for an array element ("<Name>[<i>]").
+        // the parameter's own name view; an array element ("<Name>[<i>]") is spelled into a stack buffer, no heap.
         template <typename T>
         T* Find( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
-            if ( parameter.Element != parameter.kWhole )
-                return FindByName<T>( parameter.SlotName() );
-            return FindByName<T>( parameter.Name );
+            RDG::SlotNameBuffer slot;
+            return FindByName<T>( slot.Spell( parameter ) );
         }
 
         // DL-6: the scene frame's blocks of this material's shader, resolved once where its properties were built

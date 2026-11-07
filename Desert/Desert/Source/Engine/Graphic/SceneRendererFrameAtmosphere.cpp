@@ -180,7 +180,7 @@ namespace Desert::Graphic
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
-        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareShadowMapNodes();
+        ComputeNodeList nodes = clouds->DeclareShadowMapNodes( graph.GetFrameArena() );
         // NOT ON THE ASYNC PIPE: the map is two persistent copies now (CloudAmortizedRefresh.hpp), and the copy a
         // node writes was read by the previous frame's lit passes on the graphics queue; on the one queue the
         // graph's barrier from the image's recorded state orders the two, across the queues nothing here does.
@@ -198,7 +198,7 @@ namespace Desert::Graphic
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
-        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareSkyOcclusionNodes();
+        ComputeNodeList nodes = clouds->DeclareSkyOcclusionNodes( graph.GetFrameArena() );
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
     }
@@ -214,7 +214,7 @@ namespace Desert::Graphic
                   m_Systems.VolumetricCloud.get() )
             clouds->AddInputUploads( graph, textures );
         sky->SettleAtmosphereCachedLutNodes(
-             AddComputeNodes( graph, textures, sky->DeclareAtmosphereCachedLutNodes() ) );
+             AddComputeNodes( graph, textures, sky->DeclareAtmosphereCachedLutNodes( graph.GetFrameArena() ) ) );
         sky->AddSkyCapturePasses( graph, textures );
     }
 
@@ -224,7 +224,8 @@ namespace Desert::Graphic
         if ( sky != nullptr )
             sky->SettleAtmosphereLutNodes( AddComputeNodes(
                  graph, textures,
-                 sky->DeclareAtmosphereLutNodes( textures.GraphRefs(), GetCloudShadowInput() ) ) );
+                 sky->DeclareAtmosphereLutNodes( graph.GetFrameArena(), textures.GraphRefs(),
+                                                 GetCloudShadowInput() ) ) );
     }
 
     void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
@@ -269,8 +270,8 @@ namespace Desert::Graphic
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
         AddComputeNodes( graph, textures,
-                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual(),
-                                                    m_LocalFogVolumes ) );
+                         volume->DeclareFrameNodes( graph.GetFrameArena(), textures.GraphRefs(), frame, sun,
+                                                    LocalShadowsAreVirtual(), m_LocalFogVolumes ) );
     }
 
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
@@ -331,7 +332,7 @@ namespace Desert::Graphic
         if ( clouds == nullptr )
             return;
         VolumetricCloudHistory&             history = m_ViewState.Clouds();
-        std::vector<ComputeNodeDeclaration> nodes   = clouds->DeclareFrameNodes( graph, frame, history );
+        ComputeNodeList                     nodes   = clouds->DeclareFrameNodes( graph, frame, history );
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         // One AddPass per node from here: the resolve's index among the nodes (FrameResult::ResolveNode) plus this
         // is the writer whose loss the view's EndFrame checks.

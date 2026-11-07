@@ -125,11 +125,10 @@ namespace Desert::Graphic::System
         m_FogHeightY = fogHeightY;
     }
 
-    std::vector<ComputeNodeDeclaration>
-    HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
-                                          const VolumetricFogFrameResult& volume )
+    ComputeNodeList HeightFogRenderer::DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
+                                                          const VolumetricFogFrameResult& volume )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
 
         // THE PARAMETER BLOCK EXISTS EVERY FRAME, fog or not: the translucent surfaces declare it in their cells
         // and evaluate the fog at their own depth from it (Common/ViewFog.glslh), so a frame without fog uploads
@@ -229,7 +228,7 @@ namespace Desert::Graphic::System
         const RDG::TextureDesc fogDesc{ .Size   = RDG::Extent3D{ .Width = fogWidth, .Height = fogHeight },
                                         .Format = ViewTargetFormats::kHeightFog };
         const RDG::TextureRef  fogImage = graph.CreateTexture( fogDesc, "HeightFog.Fog" );
-        ComputeNodeDeclaration fog;
+        ComputeNodeDeclaration fog( graph.GetFrameArena() );
         fog.Name = "AtmosphericFog";
         // SETUP: the parameter block and every image are entries of the node's one block (block 0), and each entry
         // is the declaration of its read or write.

@@ -539,12 +539,12 @@ namespace Desert::Graphic::System
         return block;
     }
 
-    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereCachedLutNodes()
+    ComputeNodeList SkyboxRenderer::DeclareAtmosphereCachedLutNodes( Common::Memory::FrameArena& arena )
     {
         // One Compute node per dispatch, each declaring the LUT it writes (StorageWrite) and the LUTs it samples
         // (SampledCompute): the graph orders transmittance -> multi-scattering -> distant light and places every
         // barrier. What runs is decided here, while the frame graph is built.
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_LutBakePending.reset();
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
@@ -570,7 +570,7 @@ namespace Desert::Graphic::System
         const AtmosphereLutFingerprint wanted = LutFingerprintOf( m_Sky );
         if ( !m_LutsValid || wanted != m_LutBaked )
         {
-            ComputeNodeDeclaration transmittance;
+            ComputeNodeDeclaration transmittance( arena );
             transmittance.Name = "Sky: TransmittanceLut";
             declareBlock( transmittance.Access, m_TransmittanceLutPipeline.get(), m_TransmittanceLutLayout, 0 )
                  .Storage( SkyboxLutWriteShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
@@ -583,7 +583,7 @@ namespace Desert::Graphic::System
             };
             nodes.push_back( std::move( transmittance ) );
 
-            ComputeNodeDeclaration multiScatter;
+            ComputeNodeDeclaration multiScatter( arena );
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, m_MultiScatterLutPipeline.get(), m_MultiScatterLutLayout, 0 )
                  .Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
@@ -628,7 +628,7 @@ namespace Desert::Graphic::System
             }
             m_DistantLightInputsPending = wantedInputs;
 
-            ComputeNodeDeclaration distant;
+            ComputeNodeDeclaration distant( arena );
             distant.Name = "Sky: DistantSkyLight";
             sampledLuts( declareBlock( distant.Access, m_DistantLightPipeline.get(), m_DistantLightLayout, 0 ) )
                  .Storage( SkyboxLutReadShaderParameters::DistantSkyLightTexture, m_DistantLight,
@@ -673,12 +673,13 @@ namespace Desert::Graphic::System
                   kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
     }
 
-    std::vector<ComputeNodeDeclaration>
-    SkyboxRenderer::DeclareAtmosphereLutNodes( const FrameGraphRefs& refs, const CloudShadowInput& cloudShadow )
+    ComputeNodeList SkyboxRenderer::DeclareAtmosphereLutNodes( Common::Memory::FrameArena& arena,
+                                                               const FrameGraphRefs&       refs,
+                                                               const CloudShadowInput&     cloudShadow )
     {
         // The per-view LUTs, the Sky-View LUT and the aerial-perspective volume, both following the camera. They
         // sample the cached pair DeclareAtmosphereCachedLutNodes added at the head of this graph.
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_SkyViewLutFillPending  = false;
         m_SkyViewLut1FillPending = false;
         m_SkyViewLutInputsPending.reset();
@@ -752,7 +753,7 @@ namespace Desert::Graphic::System
             const std::optional<uint64_t> inputs0 = fillInputs( push0, true );
             if ( !m_SkyViewLutFilled || !inputs0 || m_SkyViewLutInputs != inputs0 )
             {
-                ComputeNodeDeclaration skyView;
+                ComputeNodeDeclaration skyView( arena );
                 skyView.Name = "Sky: SkyViewLut";
                 cloudShadowRead(
                      sampledLuts( declareBlock( skyView.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
@@ -778,7 +779,7 @@ namespace Desert::Graphic::System
                 const std::optional<uint64_t> inputs1 = fillInputs( push1, false );
                 if ( !m_SkyViewLut1Filled || !inputs1 || m_SkyViewLut1Inputs != inputs1 )
                 {
-                    ComputeNodeDeclaration skyView1;
+                    ComputeNodeDeclaration skyView1( arena );
                     skyView1.Name = "Sky: SkyViewLut1";
                     cloudShadowRead( sampledLuts( declareBlock(
                                           skyView1.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
@@ -801,7 +802,7 @@ namespace Desert::Graphic::System
         if ( m_AerialPerspectivePipeline && m_ActiveCamera && EnsureAerialPerspectiveResources() )
         {
             // A volume (Image3D), imported through the one ImportImage path.
-            ComputeNodeDeclaration aerial;
+            ComputeNodeDeclaration aerial( arena );
             aerial.Name = "Sky: AerialPerspectiveLut";
             shadowedFill( m_AerialPerspectivePipeline.get() );
             cloudShadowRead( sampledLuts( declareBlock(

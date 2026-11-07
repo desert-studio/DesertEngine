@@ -199,7 +199,7 @@ namespace Desert::Graphic
         const RDG::ImportedFramebuffer& target = *targets;
         // The first node of the frame on both paths: the scene colour to the engine grey, and every graph colour
         // (the view's velocity) to its own clear (no motion) - FrameTextures::ColorLoads.
-        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, EngineClearColor() );
+        const auto colors = textures.ColorLoads( *targets, EngineClearColor() ); // the frame arena's
         graph.AddPass(
              "ClearMainFramebuffer", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -792,7 +792,7 @@ namespace Desert::Graphic
             return;
         }
         const RDG::ImportedFramebuffer& target = *targets;
-        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not traced, fewer cascades).
@@ -1017,7 +1017,7 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
-        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
         graph.AddPass(
              "Subsurface: Recombine", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )

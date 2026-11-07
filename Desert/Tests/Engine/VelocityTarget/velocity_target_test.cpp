@@ -735,9 +735,9 @@ TEST( VelocityTarget, EachColourSlotTakesItsOwnClearOnItsFirstWriter )
     const GraphColor velocity[] = { GraphColor{ RDG::TextureRef{ 7 }, {}, RDG::ClearValue{} } };
     ASSERT_TRUE( AppendGraphColors( targets, velocity, false ) );
 
-    std::set<uint32_t> started;
-    const RDG::LoadOp  grey  = RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f );
-    const auto         first = ColorLoads( targets, grey, started );
+    StartedColorSet   started;
+    const RDG::LoadOp grey  = RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f );
+    const auto        first = ColorLoads( targets, grey, started );
     ASSERT_EQ( first.size(), 2u );
     EXPECT_EQ( first[0].Action, RDG::LoadAction::Clear );
     EXPECT_EQ( first[0].Value.Color, ( std::array<float, 4>{ 0.1f, 0.1f, 0.1f, 1.0f } ) );

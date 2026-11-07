@@ -879,7 +879,7 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
                    Access::SampledGraphics, "Sky.TransmittanceLut" )
          .Sampler( RenderGraphCompileTestSecondShaderParameters::LinearClampSampler, SamplerDesc::LinearClamp() );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
-    EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
+    EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName(), "Sky.TransmittanceLut" );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( writer ), nullptr );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( reader ), nullptr );
 

@@ -29,6 +29,7 @@
 #include <array>
 #include <bit>
 #include <functional>
+#include <span>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -53,7 +54,7 @@ namespace Desert::Graphic
         // with this node's PassContext (graph textures bound by name through RDG::PassBindings); its error is the
         // node's. NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
-                        const std::vector<RDG::LoadOp>& colors, const RDG::LoadOp& depth,
+                        std::span<const RDG::LoadOp> colors, const RDG::LoadOp& depth,
                         const std::vector<RDG::TextureRef>&                             sampled,
                         std::function<Common::BoolResultStr( const RDG::PassContext& )> body,
                         const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {} )
@@ -364,7 +365,7 @@ namespace Desert::Graphic
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }
-        RenderPassDeclaration declared;
+        RenderPassDeclaration declared( graph.GetFrameArena() );
         // The render area the node draws at: the overlay set's OUTPUT extent when it replaced the scene target,
         // the target framebuffer's otherwise (a layered depth pass lays out nothing in pixels: (0, 0)).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
@@ -373,11 +374,12 @@ namespace Desert::Graphic
             declared.SetTargetExtent( { target->GetFramebufferWidth(), target->GetFramebufferHeight() } );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
-        std::vector<RDG::TextureRef> images;
+        Common::Memory::ArenaVector<RDG::TextureRef> images(
+             Common::Memory::ArenaAllocator<RDG::TextureRef>( graph.GetFrameArena() ) );
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
 
-        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
+        const Common::Memory::ArenaVector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
         graph.AddPass(
              pass.Name,
              RDG::PassFlags::Raster | RDG::PassFlags::NeverCull |
@@ -402,11 +404,12 @@ namespace Desert::Graphic
     {
         if ( !pass.ExecuteFunc || !display.IsValid() )
             return;
-        RenderPassDeclaration declared;
+        RenderPassDeclaration declared( graph.GetFrameArena() );
         declared.SetTargetExtent( extent );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
-        std::vector<RDG::TextureRef> images;
+        Common::Memory::ArenaVector<RDG::TextureRef> images(
+             Common::Memory::ArenaAllocator<RDG::TextureRef>( graph.GetFrameArena() ) );
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
         graph.AddPass(

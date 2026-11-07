@@ -1632,10 +1632,10 @@ namespace Desert::Graphic::System
         const auto  declare =
              [&]( const std::string_view name, const uint32_t phase, const RDG::Access cornerAccess )
         {
-            ComputeNodeDeclaration  node;
+            ComputeNodeDeclaration  node( graph.GetFrameArena() );
             std::vector<glm::uvec4> pushes;
             std::vector<uint32_t>   groups;
-            node.Name = std::string( name );
+            node.Name = name; // kDicePoolCornerPass / kDicePoolPass: static
             for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
             {
                 const DicePoolJob& job = m_DicePoolJobs[i];
@@ -1684,7 +1684,7 @@ namespace Desert::Graphic::System
             };
             return node;
         };
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
         nodes.push_back( declare( kDicePoolCornerPass, 0u, RDG::Access::StorageWrite ) );
         nodes.push_back( declare( kDicePoolPass, 1u, RDG::Access::StorageRead ) );
         if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
@@ -1845,10 +1845,10 @@ namespace Desert::Graphic::System
         }
 
         const auto&               layout = m_DiceCullLayout.Get( m_DiceCullPipeline->GetSpecification().Shader );
-        ComputeNodeDeclaration    node;
+        ComputeNodeDeclaration    node( graph.GetFrameArena() );
         std::vector<DiceCullPush> pushes;
         std::vector<uint32_t>     groups;
-        node.Name = std::string( kDiceCullPass );
+        node.Name = kDiceCullPass;
         for ( std::size_t i = 0; i < m_DiceCullJobs.size(); ++i )
         {
             const DiceCullJob& job = m_DiceCullJobs[i];
@@ -1888,7 +1888,7 @@ namespace Desert::Graphic::System
             }
             return BOOLSUCCESS;
         };
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
         nodes.push_back( std::move( node ) );
         if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
         {
