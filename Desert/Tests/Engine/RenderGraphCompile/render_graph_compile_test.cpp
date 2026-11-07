@@ -259,7 +259,8 @@ namespace
         {
             Calls.push_back( "AbandonGraph" );
         }
-        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t,
+                                            std::span<const std::byte> bytes ) override
         {
             Calls.push_back( std::format( "UploadBuffer {} {} first {}", resource, bytes.size(),
                                           bytes.empty() ? -1 : static_cast<int>( bytes.front() ) ) );

@@ -816,9 +816,10 @@ void main()
         {
             m_Inner.AbandonGraph();
         }
-        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t at,
+                                            std::span<const std::byte> bytes ) override
         {
-            return m_Inner.UploadBuffer( resource, bytes );
+            return m_Inner.UploadBuffer( resource, at, bytes );
         }
         Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
                                           uint64_t targetOffset, uint64_t bytes ) override

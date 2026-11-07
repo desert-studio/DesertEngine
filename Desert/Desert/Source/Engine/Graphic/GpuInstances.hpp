@@ -29,6 +29,12 @@ namespace Desert::Graphic
         // RENDER-JOB-CPU-4: the device address of Args' buffer (a compacted bin's gather copies the records
         // from it, GpuDrawCompactEntry::Records); 0: the producer gave none, the section draws per variety.
         uint64_t ArgsAddress = 0;
+        // CPU-GRASS-POOL-4 (UE GPU Scene: a primitive's instances and arguments are ranges of shared pools, a
+        // consumer addresses its range by offset): the byte offset of this list's header in Args' buffer, which
+        // every indirect read adds (ArgsAddress already includes it). A pooled producer's records state ABSOLUTE
+        // slots of Ids' buffer (firstInstance counts from the pool's start) and its ids absolute rows of
+        // Instances' buffer, so the bound Ids / Instances need no base. 0: the producer owns Args alone.
+        uint64_t ArgsOffset = 0;
     };
 
     // The argument buffer: a 16-byte header (bucket count, total capacity, submesh count, last drawn count), one

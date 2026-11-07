@@ -816,7 +816,7 @@ namespace Desert::Graphic::System
                                 .IndirectArgs       = drawArgs,
                                 .IndirectInstances  = refs.Instances,
                                 .IndirectIds        = refs.Ids,
-                                .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                                .IndirectArgsOffset = argsRefs.ArgsOffset + LevelArgsOffset( gpu, level ),
                                 .IndirectLevels     = levels,
                                 .Push               = DrawPushFields{}
                                              .MaterialIndex( row )
@@ -1297,7 +1297,7 @@ namespace Desert::Graphic::System
                        .IndirectIds       = refs.Ids,
                        // A blade's levels are one draw; its set is the cascade's shadow LOD; the cascade's
                        // own list is its copy of the records, its rest part their twins.
-                       .IndirectArgsOffset = setup.ArgsOffset + shift,
+                       .IndirectArgsOffset = refs.ArgsOffset + setup.ArgsOffset + shift,
                        .IndirectLevels     = LevelsOf( gpu ),
                        .Push =
                             DrawPushFields{}.Transform( glm::mat4( 1.0f ) ).MaterialIndex( row ).Wind( push ) } );

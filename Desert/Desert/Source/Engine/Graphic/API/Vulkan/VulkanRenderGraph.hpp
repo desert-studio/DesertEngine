@@ -731,7 +731,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
         // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
-        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override;
+        Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t at,
+                                            std::span<const std::byte> bytes ) override;
         Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
                                           uint64_t targetOffset, uint64_t bytes ) override;
 

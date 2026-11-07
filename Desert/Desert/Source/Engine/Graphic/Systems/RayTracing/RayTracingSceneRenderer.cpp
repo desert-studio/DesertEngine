@@ -49,6 +49,9 @@ namespace Desert::Graphic::RayTracing
             uint32_t AddressLo    = 0; // the BLAS device address
             uint32_t AddressHi    = 0;
             uint32_t ThroughIds   = 0; // 1: the source's Ids holds each slot's row (GpuInstanceRefs::Ids)
+            // CPU-GRASS-POOL-4: the first word of the source's records in Args (GpuInstanceRefs::ArgsOffset / 4:
+            // a pooled producer's lists are ranges of one buffer). Its ids and rows are rows of the bound buffers.
+            uint32_t ArgsWord = 0;
         };
         constexpr uint32_t kGpuInstanceRowsGroupSize = 64; // the program's LocalSize
 
@@ -120,10 +123,12 @@ namespace Desert::Graphic::RayTracing
                     push.AddressHi    = static_cast<uint32_t>( address >> 32u );
                     if ( source.Refs->Ids.IsValid() )
                         push.ThroughIds = 1u;
+                    push.ArgsWord = static_cast<uint32_t>( source.Refs->ArgsOffset / 4u );
                     m_Sources.push_back( { *source.Refs, push } );
                     m_Rows += source.Rows;
                     for ( const uint64_t value : { address, uint64_t{ source.Rows }, uint64_t{ push.Record },
-                                                   uint64_t{ push.IndexAndMask }, uint64_t{ push.SbtAndFlags } } )
+                                                   uint64_t{ push.IndexAndMask }, uint64_t{ push.SbtAndFlags },
+                                                   uint64_t{ push.ArgsWord } } )
                         m_Key = ( m_Key ^ value ) * 1099511628211ull;
                     list.InstancesByKind[static_cast<std::size_t>( RayTracingPrimitiveKind::GpuInstanced )] +=
                          source.Rows;

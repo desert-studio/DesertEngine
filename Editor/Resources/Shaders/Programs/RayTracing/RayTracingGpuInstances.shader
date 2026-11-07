@@ -43,6 +43,7 @@ Shader "RayTracingGpuInstances"
             uint AddressLo;    // the BLAS device address
             uint AddressHi;
             uint ThroughIds;   // 1: Ids holds each slot's row of Transforms
+            uint ArgsWord;     // the source's first word of Arguments (a pooled producer's range)
         };
 
         void main()
@@ -51,7 +52,7 @@ Shader "RayTracingGpuInstances"
             if ( i >= Rows )
                 return;
             uint row    = ( RowBase + i ) * 16u;
-            uint record = 4u + Record * 5u;
+            uint record = ArgsWord + 4u + Record * 5u;
             if ( i >= Arguments[record + 1u] )
             {
                 for ( uint w = 0u; w < 16u; ++w )
