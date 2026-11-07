@@ -145,9 +145,49 @@ namespace Desert::Graphic::RDG
     // ShaderName VIEWS the slot name - in a graph, characters the builder copied into its frame arena
     // (BindingBlockBuilder, "<Name>" or "<Name>[<Element>]"), so it lives exactly as long as the block; a block
     // built by hand outside a graph views storage its owner keeps (a literal, a kept layout's slot name).
+    // CPU-COMPILE-KEY: FNV-1a 64 of a slot name, streamable - ContinueShaderNameHash( HashShaderName( "A" ), "[2]"
+    // ) equals HashShaderName( "A[2]" ) - so an element's hash continues its array's name hash, computed once when
+    // the parameter constant is made (ShaderParameterOf is constexpr), never per frame from the characters.
+    inline constexpr uint64_t kShaderNameHashSeed = 0xCBF29CE484222325ull;
+
+    [[nodiscard]] constexpr uint64_t ContinueShaderNameHash( uint64_t hash, std::string_view text ) noexcept
+    {
+        for ( const char c : text )
+        {
+            hash ^= static_cast<uint8_t>( c );
+            hash *= 0x100000001B3ull;
+        }
+        return hash;
+    }
+
+    [[nodiscard]] constexpr uint64_t HashShaderName( std::string_view name ) noexcept
+    {
+        return ContinueShaderNameHash( kShaderNameHashSeed, name );
+    }
+
+    // The hash of "<name>[<element>]" from the hash of <name>: the bracket and the decimal digits only.
+    [[nodiscard]] constexpr uint64_t HashShaderNameElement( uint64_t nameHash, uint32_t element ) noexcept
+    {
+        char     digits[10] = {};
+        uint32_t count      = 0;
+        do
+        {
+            digits[count++] = static_cast<char>( '0' + element % 10u );
+            element /= 10u;
+        } while ( element != 0 );
+        uint64_t hash = ContinueShaderNameHash( nameHash, "[" );
+        while ( count != 0 )
+            hash = ContinueShaderNameHash( hash, std::string_view( &digits[--count], 1 ) );
+        return ContinueShaderNameHash( hash, "]" );
+    }
+
     struct DeclaredBindingEntry
     {
         std::string_view           ShaderName;
+        // CPU-COMPILE-KEY: HashShaderName( ShaderName ), made with the name (BindingBlockBuilder, from the
+        // parameter's constexpr hash): what the compile cache key adds for the slot instead of the characters.
+        // Second, so a positional initializer that forgets it does not compile.
+        uint64_t                   NameHash = 0;
         ShaderResourceKind         Kind     = ShaderResourceKind::Texture;
         ResourceKind               Resource = ResourceKind::Texture;
         uint32_t                   Index    = kInvalidResource;

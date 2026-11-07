@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGBackend.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Graphic/RDG/RDGDeclarationKey.hpp>
 #include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
@@ -285,7 +286,10 @@ namespace Desert::Graphic::RDG
             static_assert( std::is_invocable_r_v<Common::BoolResultStr, Exec, PassContext&>,
                            "exec lambda takes PassContext& and returns Common::BoolResultStr" );
             PassBuilder passBuilder = BeginPass( name, flags );
+            // CPU-COMPILE-KEY: a pass declared inside this setup must not close this one into the key.
+            ++m_SetupDepth;
             std::forward<Setup>( setup )( passBuilder );
+            --m_SetupDepth;
             // CPU-FRAME-ARENA (UE: the pass lambda FRDGBuilder::AddPass places in FRDGAllocator): the exec is
             // constructed in the graph's arena, with no heap block of its own, and destroyed by Reset (or the
             // builder's end) - after Execute, which joins every chunk that runs it. A pass whose exec could not
@@ -559,6 +563,8 @@ namespace Desert::Graphic::RDG
             uint32_t            LaterAccessMask = 0;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
             ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
+            // CPU-COMPILE-KEY: in m_RoleResources (a call set Extract / SetFaultDefault / SetFaultPolicy).
+            bool                RoleListed     = false;
 
             [[nodiscard]] bool IsExternal() const
             {
@@ -585,6 +591,21 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
         // RDG-FAULT1: FrameFatal external @p resource as a FrameFault lists it (with its Extract's final access).
         [[nodiscard]] FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
+
+        // CPU-COMPILE-KEY (RDGCompile.cpp, next to Compiler::HashDeclaration, the one place that says what the
+        // key covers). The compile cache key is built while the graph is declared, from data still hot: a
+        // record's fixed fields (kind, descriptor, external role) when it is made, a pass when the next pass
+        // begins (its setup and the calls right after AddPass - QueueBufferUpload's mark - are over). What may
+        // change until Compile - the externals' states, the extraction and fault fields - Compile reads from
+        // m_KeyedExternals and m_RoleResources, never by walking every record.
+        static void AddResourceKey( DeclarationHasher& hash, const ResourceRecord& record ) noexcept;
+        static void AddPassKey( DeclarationHasher& hash, const PassRecord& pass ) noexcept;
+        // The record's extraction and fault fields as one word (UntouchedRoleKey for a record no call touched).
+        [[nodiscard]] static uint64_t RoleKey( const ResourceRecord& record ) noexcept;
+        [[nodiscard]] static uint64_t UntouchedRoleKey() noexcept;
+        void KeyNewResources() noexcept;
+        void KeyClosedPasses() noexcept;
+        void ListRoles( uint32_t resource );
 
         // CPU-FRAME-ARENA: first, so it outlives every record that points into it; Reset() resets it.
         Common::Memory::FrameArena  m_Arena;
@@ -622,5 +643,20 @@ namespace Desert::Graphic::RDG
         FaultDefaults                    m_FaultDefaults;
         ExecuteReport                    m_Report;
         std::vector<DefaultSubstitution> m_LateSubstitutions;
+        // CPU-COMPILE-KEY (see AddResourceKey). The running keys, how many records each covers, the externals
+        // in record order (Compile reads their states), and the records a role call touched, ascending. Plain
+        // vectors that keep their capacity across Reset: a steady frame keys without the heap.
+        struct KeyedExternal
+        {
+            const ExternalTexture* Texture = nullptr;
+            const ExternalBuffer*  Buffer  = nullptr;
+        };
+        DeclarationHasher          m_ResourceKey;
+        DeclarationHasher          m_PassKey;
+        uint32_t                   m_ResourcesKeyed = 0;
+        uint32_t                   m_PassesKeyed    = 0;
+        uint32_t                   m_SetupDepth     = 0; // AddPass setups running (an AddPass inside a setup)
+        std::vector<KeyedExternal> m_KeyedExternals;
+        std::vector<uint32_t>      m_RoleResources;
     };
 } // namespace Desert::Graphic::RDG

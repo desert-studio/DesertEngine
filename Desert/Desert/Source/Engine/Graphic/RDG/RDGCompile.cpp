@@ -7,6 +7,7 @@
 // into an async run's overlap window.
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGDeclarationKey.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGScratch.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -2692,156 +2693,182 @@ namespace Desert::Graphic::RDG
 
     // RDG-RECORD-COMPILE-CACHE ─────────────────────────────────────────────────────────────────────────────
 
-    namespace
-    {
-        // The declaration key: an xxHash64 round per 64-bit word, its avalanche at the end.
-        class DeclarationHasher
-        {
-        public:
-            void Add( uint64_t value )
-            {
-                m_Hash ^= Round( value );
-                m_Hash = std::rotl( m_Hash, 27 ) * kPrime1 + kPrime4;
-            }
-            void AddFloat( float value )
-            {
-                Add( std::bit_cast<uint32_t>( value ) );
-            }
-            void AddText( std::string_view text )
-            {
-                Add( std::hash<std::string_view>{}( text ) );
-                Add( text.size() );
-            }
-            void AddRange( const SubresourceRange& range )
-            {
-                Add( ( static_cast<uint64_t>( range.BaseMip ) << 32 ) | range.MipCount );
-                Add( ( static_cast<uint64_t>( range.BaseLayer ) << 32 ) | range.LayerCount );
-            }
-            void AddState( const AccessState& state )
-            {
-                Add( static_cast<uint64_t>( state.Stages ) );
-                Add( static_cast<uint64_t>( state.Memory ) );
-                Add( static_cast<uint64_t>( state.Layout ) );
-            }
-            [[nodiscard]] uint64_t Finish() const
-            {
-                uint64_t hash = m_Hash;
-                hash ^= hash >> 33;
-                hash *= kPrime2;
-                hash ^= hash >> 29;
-                hash *= kPrime3;
-                hash ^= hash >> 32;
-                return hash;
-            }
-
-        private:
-            static constexpr uint64_t kPrime1 = 0x9E3779B185EBCA87ull;
-            static constexpr uint64_t kPrime2 = 0xC2B2AE3D27D4EB4Full;
-            static constexpr uint64_t kPrime3 = 0x165667B19E3779F9ull;
-            static constexpr uint64_t kPrime4 = 0x85EBCA77C2B2AE63ull;
-            static constexpr uint64_t kPrime5 = 0x27D4EB2F165667C5ull;
-
-            static uint64_t Round( uint64_t value )
-            {
-                return std::rotl( value * kPrime2, 31 ) * kPrime1;
-            }
-
-            uint64_t m_Hash = kPrime5;
-        };
-    } // namespace
-
-    // Everything Compile reads that is not a name: the graph switches, the fault defaults, every resource's
-    // kind, descriptors, external / extraction role, final access and the externals' states and created usage
-    // (InitialState, FoldUse), every pass's flags, uses, attachments (load op with its clear value, store),
+    // CPU-COMPILE-KEY. Everything Compile reads that is not a name: the graph switches, the fault defaults, every
+    // resource's kind, descriptors, external / extraction role, final access and the externals' states and created
+    // usage (InitialState, FoldUse), every pass's flags, uses, attachments (load op with its clear value, store),
     // render area, ExternalQueue presence (its timeline values are rebound, not keyed), declaration error and
     // binding blocks (ValidatePassBindings: the layout and other-route fill by address - PinnedObjects keeps them
-    // alive while the plan is stored - the entries' slot names and kinds, the push-constant size). Not keyed:
-    // names (messages only, rebound), prerequisites and exec lambdas (Execute's), the external objects' addresses
-    // (a plan names resources by graph index; Execute writes final states back through this graph's records).
+    // alive while the plan is stored - the entries' slot names (by NameHash) and kinds, the push-constant size).
+    // Not keyed: names (messages only, rebound), prerequisites and exec lambdas (Execute's), the external objects'
+    // addresses (a plan names resources by graph index; Execute writes final states back through this graph's
+    // records).
+    //
+    // Gathered while the graph is declared, so Compile walks no record for it: AddResourceKey when a record is
+    // made (what never changes after), AddPassKey when the next pass begins (a closed pass never changes again),
+    // and at Compile only what can still change - the externals' states (m_KeyedExternals, record order) and the
+    // role fields of the records a role call touched (m_RoleResources, ascending; a touched record whose fields
+    // are back at the untouched value is skipped, so it keys as one never touched). The same fields as keying
+    // every record at Compile, so the cache hits and misses on the same declarations.
+    void Builder::AddResourceKey( DeclarationHasher& hash, const ResourceRecord& record ) noexcept
+    {
+        const TextureDesc& texture = record.Texture;
+        hash.Add( static_cast<uint64_t>( record.Kind ) );
+        hash.Add( ( static_cast<uint64_t>( texture.Size.Width ) << 32 ) | texture.Size.Height );
+        hash.Add( texture.Size.Depth );
+        hash.Add( static_cast<uint64_t>( texture.Format ) );
+        hash.Add( ( static_cast<uint64_t>( texture.Mips ) << 32 ) | texture.Layers );
+        hash.Add( ( static_cast<uint64_t>( texture.Dim ) << 32 ) | texture.Samples );
+        hash.Add( record.Buffer.Bytes );
+        uint64_t external = record.ExternalTex != nullptr ? 1u : 0u;
+        external |= record.ExternalBuf != nullptr ? 2u : 0u;
+        hash.Add( external );
+    }
+
+    uint64_t Builder::RoleKey( const ResourceRecord& record ) noexcept
+    {
+        uint64_t roles = record.HasFinalAccess ? 16u : 0u;
+        roles |= record.ExtractTex != nullptr ? 4u : 0u;
+        roles |= record.ExtractBuf != nullptr ? 8u : 0u;
+        roles |= static_cast<uint64_t>( record.FinalAccess ) << 8;
+        roles |= static_cast<uint64_t>( record.Default ) << 16;
+        roles |= static_cast<uint64_t>( record.Policy ) << 24;
+        roles |= static_cast<uint64_t>( record.LaterAccessMask ) << 32;
+        return roles;
+    }
+
+    uint64_t Builder::UntouchedRoleKey() noexcept
+    {
+        // The defaults of ResourceRecord's role fields (RDGBuilder.hpp), spelled as RoleKey spells them.
+        uint64_t roles = static_cast<uint64_t>( Access::None ) << 8;
+        roles |= static_cast<uint64_t>( FaultDefault::None ) << 16;
+        roles |= static_cast<uint64_t>( ExternalFaultPolicy::KeepsContents ) << 24;
+        return roles;
+    }
+
+    void Builder::AddPassKey( DeclarationHasher& hash, const PassRecord& pass ) noexcept
+    {
+        uint64_t marks = static_cast<uint64_t>( pass.Flags ) << 8;
+        marks |= pass.QueuedUpload ? 1u : 0u;
+        marks |= pass.External.has_value() ? 2u : 0u;
+        marks |= pass.DeclarationError.empty() ? 0u : 4u;
+        hash.Add( marks );
+        hash.Add( ( static_cast<uint64_t>( pass.AreaWidth ) << 32 ) | pass.AreaHeight );
+        hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
+        for ( const ResourceUse& use : pass.Uses )
+        {
+            hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) );
+            hash.AddRange( use.Range );
+            hash.Add( static_cast<uint32_t>( use.Attachment ) );
+        }
+        for ( const AttachmentRecord& attachment : pass.Attachments )
+        {
+            const uint64_t kind = ( attachment.IsDepth ? 1u : 0u ) | ( attachment.IsResolve ? 2u : 0u ) |
+                                  ( static_cast<uint64_t>( attachment.Load.Action ) << 8 ) |
+                                  ( static_cast<uint64_t>( attachment.Store ) << 16 );
+            hash.Add( ( static_cast<uint64_t>( attachment.Slot ) << 32 ) | kind );
+            hash.Add( ( static_cast<uint64_t>( attachment.Resource ) << 32 ) | attachment.Mip );
+            hash.Add( ( static_cast<uint64_t>( attachment.BaseLayer ) << 32 ) | attachment.LayerCount );
+            for ( const float channel : attachment.Load.Value.Color )
+                hash.AddFloat( channel );
+            hash.AddFloat( attachment.Load.Value.Depth );
+            hash.Add( attachment.Load.Value.Stencil );
+        }
+        hash.Add( pass.Blocks.size() );
+        for ( const DeclaredBindingBlock& block : pass.Blocks )
+        {
+            hash.Add( reinterpret_cast<uintptr_t>( block.Layout.get() ) );
+            hash.Add( reinterpret_cast<uintptr_t>( block.Other.get() ) );
+            hash.Add( ( static_cast<uint64_t>( block.PushConstantBytes ) << 32 ) | block.Entries.size() );
+            for ( const DeclaredBindingEntry& entry : block.Entries )
+            {
+                // The slot name as the word BindingBlockBuilder made with it (HashShaderName), plus its length
+                // as the characters were keyed before - no per-frame pass over the characters.
+                hash.Add( entry.NameHash );
+                hash.Add( entry.ShaderName.size() );
+                uint64_t shape = static_cast<uint64_t>( entry.Kind );
+                shape |= static_cast<uint64_t>( entry.Resource ) << 8;
+                shape |= static_cast<uint64_t>( entry.Declared ) << 16;
+                shape |= static_cast<uint64_t>( entry.Index ) << 32;
+                hash.Add( shape );
+                hash.AddRange( entry.Range );
+            }
+        }
+    }
+
+    void Builder::KeyNewResources() noexcept
+    {
+        for ( ; m_ResourcesKeyed < m_Resources.size(); ++m_ResourcesKeyed )
+        {
+            const ResourceRecord& record = m_Resources[m_ResourcesKeyed];
+            AddResourceKey( m_ResourceKey, record );
+            if ( record.IsExternal() )
+                m_KeyedExternals.push_back( KeyedExternal{ record.ExternalTex, record.ExternalBuf } );
+        }
+    }
+
+    void Builder::KeyClosedPasses() noexcept
+    {
+        for ( ; m_PassesKeyed < m_Passes.size(); ++m_PassesKeyed )
+            AddPassKey( m_PassKey, m_Passes[m_PassesKeyed] );
+    }
+
+    void Builder::ListRoles( uint32_t resource )
+    {
+        ResourceRecord& record = m_Resources[resource];
+        if ( record.RoleListed )
+            return;
+        record.RoleListed = true;
+        // Ascending: role calls come mostly in record order, so this is an append.
+        m_RoleResources.insert( std::upper_bound( m_RoleResources.begin(), m_RoleResources.end(), resource ),
+                                resource );
+    }
+
     uint64_t Builder::Compiler::HashDeclaration( const Builder& builder, const PipeCapabilities& pipes )
     {
         DeclarationHasher hash;
         hash.Add( ( builder.m_PassCulling ? 1u : 0u ) | ( pipes.SeparateComputeFamily ? 2u : 0u ) );
         for ( const FaultDefault value : { FaultDefault::Black, FaultDefault::White, FaultDefault::BlackCube } )
             hash.Add( builder.m_FaultDefaults.GetSource( value ) );
+
+        // Every record is keyed when it is made (KeyNewResources); a record made some other way is keyed here,
+        // in the same order, so the key never lacks one.
         hash.Add( builder.m_Resources.size() );
-        for ( const ResourceRecord& record : builder.m_Resources )
+        DeclarationHasher resources = builder.m_ResourceKey;
+        for ( size_t r = builder.m_ResourcesKeyed; r < builder.m_Resources.size(); ++r )
+            AddResourceKey( resources, builder.m_Resources[r] );
+        hash.Add( resources.Finish() );
+        const auto addExternal = [&hash]( const ExternalTexture* texture, const ExternalBuffer* buffer )
         {
-            const TextureDesc& texture = record.Texture;
-            hash.Add( static_cast<uint64_t>( record.Kind ) );
-            hash.Add( ( static_cast<uint64_t>( texture.Size.Width ) << 32 ) | texture.Size.Height );
-            hash.Add( texture.Size.Depth );
-            hash.Add( static_cast<uint64_t>( texture.Format ) );
-            hash.Add( ( static_cast<uint64_t>( texture.Mips ) << 32 ) | texture.Layers );
-            hash.Add( ( static_cast<uint64_t>( texture.Dim ) << 32 ) | texture.Samples );
-            hash.Add( record.Buffer.Bytes );
-            uint64_t roles = record.HasFinalAccess ? 16u : 0u;
-            roles |= record.ExternalTex != nullptr ? 1u : 0u;
-            roles |= record.ExternalBuf != nullptr ? 2u : 0u;
-            roles |= record.ExtractTex != nullptr ? 4u : 0u;
-            roles |= record.ExtractBuf != nullptr ? 8u : 0u;
-            roles |= static_cast<uint64_t>( record.FinalAccess ) << 8;
-            roles |= static_cast<uint64_t>( record.Default ) << 16;
-            roles |= static_cast<uint64_t>( record.Policy ) << 24;
-            roles |= static_cast<uint64_t>( record.LaterAccessMask ) << 32;
-            hash.Add( roles );
-            if ( record.ExternalTex != nullptr )
+            if ( texture != nullptr )
             {
-                hash.Add( ( static_cast<uint64_t>( record.ExternalTex->CreatedAccessMask ) << 32 ) |
-                          record.ExternalTex->SubresourceStates.size() );
-                for ( const AccessState& state : record.ExternalTex->SubresourceStates )
+                hash.Add( ( static_cast<uint64_t>( texture->CreatedAccessMask ) << 32 ) |
+                          texture->SubresourceStates.size() );
+                for ( const AccessState& state : texture->SubresourceStates )
                     hash.AddState( state );
             }
-            if ( record.ExternalBuf != nullptr )
-                hash.AddState( record.ExternalBuf->State );
-        }
-        hash.Add( builder.m_Passes.size() );
-        for ( const PassRecord& pass : builder.m_Passes )
+            if ( buffer != nullptr )
+                hash.AddState( buffer->State );
+        };
+        for ( const KeyedExternal& external : builder.m_KeyedExternals )
+            addExternal( external.Texture, external.Buffer );
+        for ( size_t r = builder.m_ResourcesKeyed; r < builder.m_Resources.size(); ++r )
+            addExternal( builder.m_Resources[r].ExternalTex, builder.m_Resources[r].ExternalBuf );
+        const uint64_t untouched = UntouchedRoleKey();
+        for ( const uint32_t r : builder.m_RoleResources )
         {
-            uint64_t marks = static_cast<uint64_t>( pass.Flags ) << 8;
-            marks |= pass.QueuedUpload ? 1u : 0u;
-            marks |= pass.External.has_value() ? 2u : 0u;
-            marks |= pass.DeclarationError.empty() ? 0u : 4u;
-            hash.Add( marks );
-            hash.Add( ( static_cast<uint64_t>( pass.AreaWidth ) << 32 ) | pass.AreaHeight );
-            hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
-            for ( const ResourceUse& use : pass.Uses )
-            {
-                hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) );
-                hash.AddRange( use.Range );
-                hash.Add( static_cast<uint32_t>( use.Attachment ) );
-            }
-            for ( const AttachmentRecord& attachment : pass.Attachments )
-            {
-                const uint64_t kind = ( attachment.IsDepth ? 1u : 0u ) | ( attachment.IsResolve ? 2u : 0u ) |
-                                      ( static_cast<uint64_t>( attachment.Load.Action ) << 8 ) |
-                                      ( static_cast<uint64_t>( attachment.Store ) << 16 );
-                hash.Add( ( static_cast<uint64_t>( attachment.Slot ) << 32 ) | kind );
-                hash.Add( ( static_cast<uint64_t>( attachment.Resource ) << 32 ) | attachment.Mip );
-                hash.Add( ( static_cast<uint64_t>( attachment.BaseLayer ) << 32 ) | attachment.LayerCount );
-                for ( const float channel : attachment.Load.Value.Color )
-                    hash.AddFloat( channel );
-                hash.AddFloat( attachment.Load.Value.Depth );
-                hash.Add( attachment.Load.Value.Stencil );
-            }
-            hash.Add( pass.Blocks.size() );
-            for ( const DeclaredBindingBlock& block : pass.Blocks )
-            {
-                hash.Add( reinterpret_cast<uintptr_t>( block.Layout.get() ) );
-                hash.Add( reinterpret_cast<uintptr_t>( block.Other.get() ) );
-                hash.Add( ( static_cast<uint64_t>( block.PushConstantBytes ) << 32 ) | block.Entries.size() );
-                for ( const DeclaredBindingEntry& entry : block.Entries )
-                {
-                    hash.AddText( entry.ShaderName );
-                    uint64_t shape = static_cast<uint64_t>( entry.Kind );
-                    shape |= static_cast<uint64_t>( entry.Resource ) << 8;
-                    shape |= static_cast<uint64_t>( entry.Declared ) << 16;
-                    shape |= static_cast<uint64_t>( entry.Index ) << 32;
-                    hash.Add( shape );
-                    hash.AddRange( entry.Range );
-                }
-            }
+            const uint64_t roles = RoleKey( builder.m_Resources[r] );
+            if ( roles == untouched )
+                continue;
+            hash.Add( r );
+            hash.Add( roles );
         }
+
+        // Every pass before the last is keyed when the next one begins (KeyClosedPasses); the rest here.
+        hash.Add( builder.m_Passes.size() );
+        DeclarationHasher passes = builder.m_PassKey;
+        for ( size_t p = builder.m_PassesKeyed; p < builder.m_Passes.size(); ++p )
+            AddPassKey( passes, builder.m_Passes[p] );
+        hash.Add( passes.Finish() );
         return hash.Finish();
     }
 

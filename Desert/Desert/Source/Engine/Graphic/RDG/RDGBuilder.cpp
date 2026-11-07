@@ -378,6 +378,7 @@ namespace Desert::Graphic::RDG
         record.Kind    = ResourceKind::Texture;
         record.Texture = desc;
         m_Resources.push_back( std::move( record ) );
+        KeyNewResources();
         return TextureRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
@@ -410,6 +411,7 @@ namespace Desert::Graphic::RDG
         record.Kind   = ResourceKind::Buffer;
         record.Buffer = desc;
         m_Resources.push_back( std::move( record ) );
+        KeyNewResources();
         return BufferRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
@@ -485,6 +487,7 @@ namespace Desert::Graphic::RDG
         record.Texture     = texture.Desc;
         record.ExternalTex = &texture;
         m_Resources.push_back( std::move( record ) );
+        KeyNewResources();
         return TextureRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
@@ -497,6 +500,7 @@ namespace Desert::Graphic::RDG
         record.Buffer      = buffer.Desc;
         record.ExternalBuf = &buffer;
         m_Resources.push_back( std::move( record ) );
+        KeyNewResources();
         return BufferRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
@@ -530,6 +534,7 @@ namespace Desert::Graphic::RDG
                                       m_Name, record.Name ) );
             return;
         }
+        ListRoles( texture.Index );
         record.ExtractTex     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
@@ -575,6 +580,7 @@ namespace Desert::Graphic::RDG
                                       m_Name, record.Name ) );
             return;
         }
+        ListRoles( buffer.Index );
         record.ExtractBuf     = &into;
         record.HasFinalAccess = true;
         record.FinalAccess    = final;
@@ -598,6 +604,13 @@ namespace Desert::Graphic::RDG
         m_FaultDefaults   = FaultDefaults{};
         m_Report          = ExecuteReport{};
         m_LateSubstitutions.clear();
+        m_ResourceKey    = DeclarationHasher{};
+        m_PassKey        = DeclarationHasher{};
+        m_ResourcesKeyed = 0;
+        m_PassesKeyed    = 0;
+        m_SetupDepth     = 0;
+        m_KeyedExternals.clear();
+        m_RoleResources.clear();
         m_Arena.Reset();
     }
 
@@ -607,6 +620,9 @@ namespace Desert::Graphic::RDG
         const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
+        // CPU-COMPILE-KEY: every earlier pass is closed (no setup is running), so it joins the key now.
+        if ( m_SetupDepth == 0 )
+            KeyClosedPasses();
         PassRecord record( m_Arena );
         record.Name.assign( name.data(), name.size() );
         // SetAsyncCompute( false ): the request is dropped here, before Compile sees it (the declaration check
@@ -652,6 +668,7 @@ namespace Desert::Graphic::RDG
                                       m_Name, texture.Index ) );
             return;
         }
+        ListRoles( texture.Index );
         m_Resources[texture.Index].Default = value;
     }
 
@@ -665,6 +682,7 @@ namespace Desert::Graphic::RDG
                                       m_Name, external.Index ) );
             return;
         }
+        ListRoles( external.Index );
         m_Resources[external.Index].Policy = policy;
     }
 
@@ -678,6 +696,7 @@ namespace Desert::Graphic::RDG
                                       m_Name, external.Index ) );
             return;
         }
+        ListRoles( external.Index );
         m_Resources[external.Index].Policy = policy;
     }
 

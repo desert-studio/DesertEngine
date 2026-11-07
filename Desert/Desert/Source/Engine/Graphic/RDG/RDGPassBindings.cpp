@@ -530,7 +530,7 @@ namespace Desert::Graphic::RDG
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Texture" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName,
+             { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index, declared, range,
                std::nullopt } );
         return *this;
@@ -551,7 +551,8 @@ namespace Desert::Graphic::RDG
                                           } );
         if ( already )
             return *this;
-        entries.push_back( { shaderName, ShaderResourceKind::Sampler, ResourceKind::Texture,
+        entries.push_back( { shaderName, parameter.SlotNameHash(), ShaderResourceKind::Sampler,
+                             ResourceKind::Texture,
                              kInvalidResource,
                              Access::None, SubresourceRange::All(), sampler } );
         return *this;
@@ -565,7 +566,7 @@ namespace Desert::Graphic::RDG
         m_Pass.DeclareTexture( texture, declared, SubresourceRange::Mip( mip ), IsWriteAccess( declared ),
                                "Bindings.Storage" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName,
+             { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index, declared,
                SubresourceRange::Mip( mip ), std::nullopt } );
         return *this;
@@ -578,6 +579,7 @@ namespace Desert::Graphic::RDG
                                "Bindings.StorageLayer" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
              { ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element ),
+               parameter.SlotNameHash(),
                ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
                declared, SubresourceRange::MipLayer( mip, layer ), std::nullopt } );
         return *this;
@@ -589,7 +591,8 @@ namespace Desert::Graphic::RDG
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareBuffer( buffer, Access::UniformRead, false, "Bindings.Uniform" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName, ShaderResourceKind::UniformBuffer, ResourceKind::Buffer, buffer.Index,
+             { shaderName, parameter.SlotNameHash(), ShaderResourceKind::UniformBuffer, ResourceKind::Buffer,
+               buffer.Index,
                Access::UniformRead, SubresourceRange::All(), std::nullopt } );
         return *this;
     }
@@ -608,7 +611,7 @@ namespace Desert::Graphic::RDG
         m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ),
                               std::string_view( label.data(), length ) );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName,
+             { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index, declared,
                SubresourceRange::All(), std::nullopt } );
         return *this;
@@ -621,7 +624,7 @@ namespace Desert::Graphic::RDG
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareBuffer( tlas, Access::AccelStructRead, false, "Bindings.AccelerationStructure" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { shaderName,
+             { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer, tlas.Index,
                Access::AccelStructRead, SubresourceRange::All(), std::nullopt } );
         return *this;
