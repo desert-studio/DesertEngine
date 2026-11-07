@@ -109,10 +109,24 @@ namespace Desert::Runtime
         }
     }
 
-    Common::ResultStr<VFXSystemService::System> VFXSystemService::Get( const Assets::AssetHandle& handle )
+    void VFXSystemService::Refresh()
     {
         FollowAssetEdits();
         ReissueOnModuleWrites();
+    }
+
+    const VFXSystemService::System* VFXSystemService::Find( const Assets::AssetHandle& handle )
+    {
+        Request( handle );
+        const auto found = m_Ready.find( handle );
+        if ( found == m_Ready.end() || !found->second.Issued )
+            return nullptr;
+        return &found->second.Issued;
+    }
+
+    Common::ResultStr<VFXSystemService::System> VFXSystemService::Get( const Assets::AssetHandle& handle )
+    {
+        Refresh();
         Request( handle );
         if ( const auto failed = m_Failed.find( handle ); failed != m_Failed.end() )
             return Common::MakeError<System>( failed->second );

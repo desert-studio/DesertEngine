@@ -18,10 +18,17 @@
 //
 // Kept out of PhysicsECSSystem.hpp so a suite can drive it with a bare registry and a real PhysicsWorld —
 // that header includes Scene, and Scene includes the renderer.
+//
+// It is also the one owner of the body -> entity map (contacts, projectile hits and the pose write-back name
+// a Jolt body by its entity). UE Chaos keeps that link on the body itself, set when the body is created and
+// gone with it; here an entry is added where the body is made (Track) and erased by the same release that
+// gives the body back, so the map is never rebuilt per frame and never names a body that is gone.
 
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <entt/entt.hpp>
+
+#include <unordered_map>
 
 namespace Desert::ECS
 {
@@ -43,6 +50,17 @@ namespace Desert::ECS
         // Stops listening. Must run before the world it releases into is shut down.
         void Detach();
 
+        // @p body (a rigid body, or a character's inner body) now belongs to @p entity. Called once, where the
+        // body is created; the entry goes with the body's release below.
+        void Track( Physics::BodyHandle body, entt::entity entity );
+
+        using BodyEntityMap = std::unordered_map<Physics::BodyHandle, entt::entity>;
+        // Every live tracked body of the attached registry, by handle.
+        [[nodiscard]] const BodyEntityMap& GetBodyEntities() const noexcept
+        {
+            return m_BodyEntities;
+        }
+
     private:
         void OnRigidBodyDestroyed( entt::registry& registry, entt::entity entity );
         void OnColliderDestroyed( entt::registry& registry, entt::entity entity );
@@ -50,5 +68,6 @@ namespace Desert::ECS
 
         Physics::PhysicsWorld* m_World    = nullptr;
         entt::registry*        m_Registry = nullptr;
+        BodyEntityMap          m_BodyEntities;
     };
 } // namespace Desert::ECS

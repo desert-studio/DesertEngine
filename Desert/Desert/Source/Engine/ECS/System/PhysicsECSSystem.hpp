@@ -88,7 +88,6 @@ namespace Desert::ECS
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_Ragdolls.reset();
                     m_RefusedColliders.clear();
-                    m_BodyEntities.clear();
                     m_PosedLastFrame.clear(); // entities of the Play that ends
                     if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
                         queue->Events.clear();
@@ -222,6 +221,7 @@ namespace Desert::ECS
                     continue;
                 }
                 rb.RuntimeBody = created.GetValue();
+                m_Lifetime->Track( rb.RuntimeBody, entity );
             }
 
             // Create a Jolt CharacterVirtual for any character entity that doesn't have one (authored pose).
@@ -242,6 +242,9 @@ namespace Desert::ECS
                                created.GetError() );
                     continue;
                 }
+                // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that
+                // walks into a trigger is named by its entity.
+                m_Lifetime->Track( m_World->GetCharacterBody( cc.RuntimeCharacter ), entity );
             }
 
             if ( !playing )
@@ -345,7 +348,7 @@ namespace Desert::ECS
             // so ScriptSystem's OnHit and ComponentEventSystem's RigidBodyData::OnHit see them with the rest. A
             // projectile whose Life Span ran out is destroyed here (UE InitialLifeSpan -> Destroy).
             ProjectileMovement::FrameResult projectiles =
-                 ProjectileMovement::Step( registry, *m_World, m_BodyEntities, ts.GetSeconds() );
+                 ProjectileMovement::Step( registry, *m_World, m_Lifetime->GetBodyEntities(), ts.GetSeconds() );
             if ( !projectiles.Hits.empty() )
             {
                 auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
@@ -522,14 +525,15 @@ namespace Desert::ECS
         // last step moved (PhysicsWorld::CollectMovingBodies; UE FPhysScene syncs the awake bodies), not every
         // dynamic body: a sleeping body is not read from Jolt at all. A body written last frame from an
         // interpolated pose that has since left the set is written once more, at its exact resting pose.
-        // m_BodyEntities is this frame's (PublishEvents ran before).
+        // The body -> entity map is PhysicsBodyLifetime's, kept at body creation and release.
         template <typename BodyView>
         void WriteBackMovingBodies( entt::registry& registry, BodyView& bodies )
         {
             m_World->CollectMovingBodies( m_MovingBodies );
             m_PoseTargets.clear();
+            const PhysicsBodyLifetime::BodyEntityMap& bodyEntities = m_Lifetime->GetBodyEntities();
             for ( const Physics::BodyHandle body : m_MovingBodies )
-                if ( const auto found = m_BodyEntities.find( body ); found != m_BodyEntities.end() )
+                if ( const auto found = bodyEntities.find( body ); found != bodyEntities.end() )
                     m_PoseTargets.push_back( found->second );
             std::sort( m_PoseTargets.begin(), m_PoseTargets.end() );
             m_PoseTargets.erase( std::unique( m_PoseTargets.begin(), m_PoseTargets.end() ), m_PoseTargets.end() );
@@ -561,38 +565,10 @@ namespace Desert::ECS
             auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
             queue.Events.clear();
             ++queue.Publication;
-            for ( auto entity : registry.view<RigidBodyComponent>() )
-            {
-                const auto& rb = registry.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody != Physics::kInvalidBody )
-                    m_BodyEntities[rb.RuntimeBody] = entity;
-            }
-            // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that walks
-            // into a trigger is named by its entity.
-            for ( auto entity : registry.view<CharacterControllerComponent>() )
-            {
-                const auto& cc = registry.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
-                    continue;
-                if ( const Physics::BodyHandle body = m_World->GetCharacterBody( cc.RuntimeCharacter );
-                     body != Physics::kInvalidBody )
-                    m_BodyEntities[body] = entity;
-            }
-            NameContactEvents( m_World->GetContactEvents(), m_BodyEntities, queue.Events );
+            // Bodies are named through the map PhysicsBodyLifetime keeps at creation and release (UE Chaos: the
+            // body carries its owner), so no per-frame walk of every body rebuilds it.
+            NameContactEvents( m_World->GetContactEvents(), m_Lifetime->GetBodyEntities(), queue.Events );
             LogVolumeOverlaps( registry, queue.Events );
-
-            std::erase_if( m_BodyEntities,
-                           [&]( const auto& entry )
-                           {
-                               if ( !registry.valid( entry.second ) )
-                                   return true;
-                               if ( const auto* rb = registry.try_get<RigidBodyComponent>( entry.second );
-                                    rb != nullptr && rb->RuntimeBody == entry.first )
-                                   return false;
-                               const auto* cc = registry.try_get<CharacterControllerComponent>( entry.second );
-                               return cc == nullptr || cc->RuntimeCharacter == Physics::kInvalidCharacter ||
-                                      m_World->GetCharacterBody( cc->RuntimeCharacter ) != entry.first;
-                           } );
         }
 
         // One fixed step of every character controller: the script's intent resolved against the camera basis,
@@ -646,7 +622,6 @@ namespace Desert::ECS
         float m_AppliedGravity = 0.0f;
         // Entities whose collider was refused during this Play; cleared with the world.
         std::unordered_set<entt::entity> m_RefusedColliders;
-        std::unordered_map<Physics::BodyHandle, entt::entity> m_BodyEntities; // see PublishEvents
         // WriteBackMovingBodies' storage, reused across frames (no per-frame allocation once warm).
         std::vector<Physics::BodyHandle>                      m_MovingBodies;
         std::vector<entt::entity>                             m_PoseTargets;

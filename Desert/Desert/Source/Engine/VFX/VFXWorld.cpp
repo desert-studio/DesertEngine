@@ -234,6 +234,7 @@ namespace Desert::VFX
         const double tickSeconds = static_cast<double>( m_Plan.StepCount ) * stepSeconds;
 
         Runtime::VFXSystemService* systems = Runtime::ResourceRegistry::GetVFXSystemService();
+        systems->Refresh(); // once per tick; Find below is a lookup per placement
         // Once per new pointer per tick; empty on a tick where no system changed (the common one).
         auto& stackKeys = m_TickStackKeys;
         stackKeys.clear();
@@ -245,10 +246,10 @@ namespace Desert::VFX
                      return; // an empty slot plays nothing
                  // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
                  // service, naming the handle.
-                 const auto resolved = systems->Get( vfx.Data.System );
-                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
+                 const Runtime::VFXSystemService::System* resolved = systems->Find( vfx.Data.System );
+                 if ( resolved == nullptr )
                      return;
-                 const std::shared_ptr<const Assets::Serialization::VFXSystemData> data = resolved.GetValue();
+                 const Runtime::VFXSystemService::System& data = *resolved;
 
                  const std::uint64_t        uuid   = id.UUID;
                  SystemInstance&            system = m_Systems[uuid];
@@ -410,8 +411,9 @@ namespace Desert::VFX
                  placed.push_back( { &system, &vfx, uuid, emitterCm, type, &typeName, candidate } );
              } );
 
-        const std::vector<VFXScalabilityVerdict> verdicts =
-             EvaluateVFXScalability( views, candidates, tickSeconds );
+        std::vector<VFXScalabilityVerdict>& verdicts = m_TickVerdicts;
+        verdicts.resize( candidates.size() );
+        EvaluateVFXScalability( views, candidates, tickSeconds, verdicts, m_TickScalability );
         using Reaction = Assets::Serialization::VFXCullReaction;
         for ( const Placed& p : placed )
         {

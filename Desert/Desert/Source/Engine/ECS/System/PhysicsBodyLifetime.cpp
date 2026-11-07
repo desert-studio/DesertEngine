@@ -29,11 +29,20 @@ namespace Desert::ECS
         m_Registry->on_destroy<ColliderComponent>().disconnect( this );
         m_Registry->on_destroy<CharacterControllerComponent>().disconnect( this );
         m_Registry = nullptr;
+        // The entries name entities of the registry let go of; a new one tracks its own bodies as they are made.
+        m_BodyEntities.clear();
+    }
+
+    void PhysicsBodyLifetime::Track( Physics::BodyHandle body, entt::entity entity )
+    {
+        if ( body != Physics::kInvalidBody )
+            m_BodyEntities.insert_or_assign( body, entity );
     }
 
     void PhysicsBodyLifetime::OnRigidBodyDestroyed( entt::registry& registry, entt::entity entity )
     {
         auto& rb = registry.get<RigidBodyComponent>( entity );
+        m_BodyEntities.erase( rb.RuntimeBody );
         m_World->RemoveBody( rb.RuntimeBody );
         rb.RuntimeBody = Physics::kInvalidBody;
     }
@@ -45,6 +54,7 @@ namespace Desert::ECS
         // so a collider added back later builds a fresh one rather than being skipped as "already built".
         if ( auto* rb = registry.try_get<RigidBodyComponent>( entity ) )
         {
+            m_BodyEntities.erase( rb->RuntimeBody );
             m_World->RemoveBody( rb->RuntimeBody );
             rb->RuntimeBody = Physics::kInvalidBody;
         }
@@ -53,6 +63,7 @@ namespace Desert::ECS
     void PhysicsBodyLifetime::OnCharacterDestroyed( entt::registry& registry, entt::entity entity )
     {
         auto& cc = registry.get<CharacterControllerComponent>( entity );
+        m_BodyEntities.erase( m_World->GetCharacterBody( cc.RuntimeCharacter ) );
         m_World->RemoveCharacter( cc.RuntimeCharacter );
         cc.RuntimeCharacter = Physics::kInvalidCharacter;
     }
