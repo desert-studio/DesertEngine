@@ -4178,6 +4178,9 @@ namespace Desert::Graphic::System
         // m_GBufferDraws in the old order once the tasks joined. Members so the vectors keep their capacity.
         std::array<MeshRendererDetail::MeshDrawList, 3> m_GBufferHalfDraws;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
+        // CPU-ISM-PACK 6: a shadow view's opaque ISM batches by GpuScene id, each a slice of
+        // m_ScratchShadowIsmIds.
+        std::vector<ShadowBatch> m_ScratchShadowIdBatches;
         // A per-object caster: its entry and the submeshes it hides (the entry's, plus a VSM level's clustered
         // ones).
         struct ShadowSingle
