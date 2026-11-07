@@ -97,7 +97,8 @@ Shader "GrassGenerate"
                         // pages it adds (Free pushes them on the stack), w = 0
             uvec4 Base; // CPU-GRASS-POOL-2, the tile table and the feedback are shared by every variety: x = this
                         // variety's header entry in Tiles (Mode.y counts from the table's start), y = its first
-                        // TileFeedback word, zw = 0
+                        // TileFeedback word, z = its first TileWords word (CPU-GRASS-POOL-3: the words are a
+                        // range of the shared words pool, GrassRenderer m_TileWordsPool), w = 0
         };
 
         // GrassRenderer.cpp kGrassTileMode*.
@@ -363,7 +364,7 @@ Shader "GrassGenerate"
         // Record @p slot of the tile whose header is at @p header: its index in the pool.
         uint TileRecordAt( uint header, uint slot )
         {
-            return TileWordsData[header + kTilePageWord + slot / kTilePageRecords] * kTilePageRecords +
+            return TileWordsData[Base.z + header + kTilePageWord + slot / kTilePageRecords] * kTilePageRecords +
                    slot % kTilePageRecords;
         }
 
@@ -373,17 +374,17 @@ Shader "GrassGenerate"
         // its run continues on. A run is one cluster's, at most one page long, so it spans two pages at most.
         void WriteTileChunk( uint header, uint cluster, uint chunk, uint scale )
         {
-            uint first = TileWordsData[cluster + 1u];
-            uint room  = TileWordsData[header + 1u] * kTilePageRecords;
-            uint count = first < room ? min( TileWordsData[cluster], room - first ) : 0u;
+            uint first = TileWordsData[Base.z + cluster + 1u];
+            uint room  = TileWordsData[Base.z + header + 1u] * kTilePageRecords;
+            uint count = first < room ? min( TileWordsData[Base.z + cluster], room - first ) : 0u;
             uint at    = GrassChunkAt( chunk );
             for ( uint i = 0u; i < 6u; ++i )
-                GrassChunkData[at + kGrassChunkBoxWord + i] = floatBitsToUint( FromOrderedBits( TileWordsData[cluster + 2u + i] ) );
+                GrassChunkData[at + kGrassChunkBoxWord + i] = floatBitsToUint( FromOrderedBits( TileWordsData[Base.z + cluster + 2u + i] ) );
             GrassChunkData[at + kGrassChunkScaleWord] = scale;
             GrassChunkData[at + kGrassChunkFirstWord] = count != 0u ? TileRecordAt( header, first ) : 0u;
             uint next = first / kTilePageRecords + 1u;
             GrassChunkData[at + kGrassChunkPageWord] =
-                 count != 0u && next < kTilePages ? TileWordsData[header + kTilePageWord + next] : 0u;
+                 count != 0u && next < kTilePages ? TileWordsData[Base.z + header + kTilePageWord + next] : 0u;
             GrassChunkData[at + kGrassChunkCountWord] = count;
             // The chunk's records are new: GrassCull laws them anew (the chunk contract's law words).
             GrassChunkData[at + kGrassChunkLawWord] = 0u;
@@ -406,11 +407,11 @@ Shader "GrassGenerate"
                 // A new (or grown and reset) pool: every page free, every slot empty, every chunk empty - a reset pool
                 // keeps its chunk buffer, whose counts would name records of pages handed out again.
                 if ( serial == 0u )
-                    TileWordsData[0] = Mode.w;
+                    TileWordsData[Base.z + 0] = Mode.w;
                 if ( serial < Mode.w )
-                    TileWordsData[1u + serial] = serial;
+                    TileWordsData[Base.z + 1u + serial] = serial;
                 if ( serial < Mode.z * kTileHeaderWords )
-                    TileWordsData[HeaderBase() + serial] = InitialHeaderWord( serial % kTileHeaderWords );
+                    TileWordsData[Base.z + HeaderBase() + serial] = InitialHeaderWord( serial % kTileHeaderWords );
                 if ( serial < Mode.z * kTileClusters )
                     GrassChunkData[GrassChunkAt( serial ) + kGrassChunkCountWord] = 0u;
                 return;
@@ -420,21 +421,21 @@ Shader "GrassGenerate"
                 // GRASS-VRAM-BUDGET-1: the pages a grown pool's new segments add go on the stack, free; no tile is
                 // built again and no record moves.
                 if ( serial < Pool.z )
-                    TileWordsData[1u + atomicAdd( TileWordsData[0], 1u )] = Pool.y + serial;
+                    TileWordsData[Base.z + 1u + atomicAdd( TileWordsData[Base.z + 0], 1u )] = Pool.y + serial;
                 // A tile left the radius or is rebuilt: its pages go back on the stack, its slot is emptied.
                 if ( serial >= Mode.z )
                     return;
                 uint header = HeaderBase() + TileEntries[Mode.y + serial].x * kTileHeaderWords;
-                uint held   = TileWordsData[header + 1u];
-                uint at     = atomicAdd( TileWordsData[0], held );
+                uint held   = TileWordsData[Base.z + header + 1u];
+                uint at     = atomicAdd( TileWordsData[Base.z + 0], held );
                 for ( uint k = 0u; k < held; ++k )
-                    TileWordsData[1u + at + k] = TileWordsData[header + kTilePageWord + k];
+                    TileWordsData[Base.z + 1u + at + k] = TileWordsData[Base.z + header + kTilePageWord + k];
                 // Its chunks are emptied too: the view law reads no record of a freed slot.
                 for ( uint c = 0u; c < kTileClusters; ++c )
                     GrassChunkData[GrassChunkAt( TileEntries[Mode.y + serial].x * kTileClusters + c ) +
                                    kGrassChunkCountWord] = 0u;
                 for ( uint w = 0u; w < kTilePageWord; ++w )
-                    TileWordsData[header + w] = InitialHeaderWord( w );
+                    TileWordsData[Base.z + header + w] = InitialHeaderWord( w );
                 return;
             }
             if ( Mode.x == kModeAllocate )
@@ -444,7 +445,7 @@ Shader "GrassGenerate"
                 if ( serial >= Mode.z )
                     return;
                 uint header = HeaderBase() + TileEntries[Mode.y + serial].x * kTileHeaderWords;
-                uint count  = min( TileWordsData[header], kTilePages * kTilePageRecords );
+                uint count  = min( TileWordsData[Base.z + header], kTilePages * kTilePageRecords );
                 uint needed = ( count + kTilePageRecords - 1u ) / kTilePageRecords;
                 TileFeedbackData[Base.y] = TileEntries[Base.x].x;
                 // Each cluster's run of the tile's records, in cluster order.
@@ -452,21 +453,22 @@ Shader "GrassGenerate"
                 for ( uint c = 0u; c < kTileClusters; ++c )
                 {
                     uint word                = header + kTileClusterWord + c * kTileClusterWords;
-                    TileWordsData[word + 1u] = first;
-                    first += TileWordsData[word];
+                    TileWordsData[Base.z + word + 1u] = first;
+                    first += TileWordsData[Base.z + word];
                 }
                 if ( needed == 0u )
                     return;
-                uint top = atomicAdd( TileWordsData[0], 0u - needed );
+                uint top = atomicAdd( TileWordsData[Base.z + 0], 0u - needed );
                 if ( int( top ) < int( needed ) )
                 {
-                    atomicAdd( TileWordsData[0], needed );
+                    atomicAdd( TileWordsData[Base.z + 0], needed );
                     atomicAdd( TileFeedbackData[Base.y + 1u], 1u );
                     return;
                 }
                 for ( uint k = 0u; k < needed; ++k )
-                    TileWordsData[header + kTilePageWord + k] = TileWordsData[1u + top - needed + k];
-                TileWordsData[header + 1u] = needed;
+                    TileWordsData[Base.z + header + kTilePageWord + k] =
+                         TileWordsData[Base.z + 1u + top - needed + k];
+                TileWordsData[Base.z + header + 1u] = needed;
                 atomicMax( TileFeedbackData[Base.y + 2u], Mode.w - ( top - needed ) );
                 return;
             }
@@ -510,16 +512,16 @@ Shader "GrassGenerate"
                     barrier();
                     if ( lane == 0u )
                     {
-                        TileWordsData[cluster] = s_ClusterCount;
+                        TileWordsData[Base.z + cluster] = s_ClusterCount;
                         for ( uint i = 0u; i < 6u; ++i )
-                            TileWordsData[cluster + 2u + i] = s_ClusterBox[i];
+                            TileWordsData[Base.z + cluster + 2u + i] = s_ClusterBox[i];
                         if ( s_ClusterCount != 0u )
                         {
-                            atomicAdd( TileWordsData[header], s_ClusterCount );
+                            atomicAdd( TileWordsData[Base.z + header], s_ClusterCount );
                             for ( uint i = 0u; i < 3u; ++i )
                             {
-                                atomicMin( TileWordsData[header + 4u + i], s_ClusterBox[i] );
-                                atomicMax( TileWordsData[header + 7u + i], s_ClusterBox[3u + i] );
+                                atomicMin( TileWordsData[Base.z + header + 4u + i], s_ClusterBox[i] );
+                                atomicMax( TileWordsData[Base.z + header + 7u + i], s_ClusterBox[3u + i] );
                             }
                         }
                     }
@@ -547,8 +549,8 @@ Shader "GrassGenerate"
                     if ( other < r.Fade || ( other == r.Fade && j < lane ) )
                         ++rank;
                 }
-                uint slot = TileWordsData[cluster + 1u] + rank;
-                if ( slot >= TileWordsData[header + 1u] * kTilePageRecords )
+                uint slot = TileWordsData[Base.z + cluster + 1u] + rank;
+                if ( slot >= TileWordsData[Base.z + header + 1u] * kTilePageRecords )
                     return;
                 StoreRecord( TileRecordAt( header, slot ), r );
                 return;

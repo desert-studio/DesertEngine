@@ -169,6 +169,10 @@ namespace
         {
             return Common::MakeSuccess( true );
         }
+        Common::BoolResultStr CopyBuffer( uint32_t, uint64_t, uint32_t, uint64_t, uint64_t ) override
+        {
+            return Common::MakeSuccess( true );
+        }
         std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;

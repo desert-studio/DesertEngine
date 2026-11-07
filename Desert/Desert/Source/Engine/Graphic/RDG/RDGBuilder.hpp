@@ -270,6 +270,14 @@ namespace Desert::Graphic::RDG
         // indirect arguments), which are not copied: the upload takes no heap block for its payload. @p bytes must
         // outlive the graph's Execute; refused as QueueBufferUpload is.
         void QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+        // CPU-GRASS-POOL-3 (UE: AddCopyBufferPass). A Copy pass "Copy: <source> -> <target>" added HERE that
+        // copies @p bytes of @p source from @p sourceOffset into @p target at @p targetOffset (Access::CopySrc /
+        // CopyDst), ordered against the buffers' other passes by the graph like any pass: what a pooled buffer
+        // held moves into the one replacing it when the pool grows. Refused by name - a Declaration fault of the
+        // pass - for a handle that is not a buffer of this graph, the same buffer on both sides, an empty copy,
+        // a range past either buffer's end, or an offset or size that is not a multiple of 4 bytes.
+        void AddCopyBufferPass( BufferRef source, uint64_t sourceOffset, BufferRef target, uint64_t targetOffset,
+                                uint64_t bytes );
 
         // The AddPass index the next AddPass gets: the index ExecuteReport::FaultCulled names that pass by, for an
         // owner that must know after Execute whether its writer survived (a history it extracts).

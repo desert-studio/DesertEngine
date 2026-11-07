@@ -732,6 +732,8 @@ namespace Desert::Graphic::API::Vulkan
         void                  AbandonGraph() override;
         // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
         Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override;
+        Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
+                                          uint64_t targetOffset, uint64_t bytes ) override;
 
         // The compatibility key of the render pass this backend has open on its command buffer, empty between
         // passes. Pipelines bound by an exec lambda are resolved against it

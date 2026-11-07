@@ -265,6 +265,13 @@ namespace
                                           bytes.empty() ? -1 : static_cast<int>( bytes.front() ) ) );
             return Common::MakeSuccess( true );
         }
+        Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
+                                          uint64_t targetOffset, uint64_t bytes ) override
+        {
+            Calls.push_back(
+                 std::format( "CopyBuffer {} {} {} {} {}", source, sourceOffset, target, targetOffset, bytes ) );
+            return Common::MakeSuccess( true );
+        }
         [[nodiscard]] std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;

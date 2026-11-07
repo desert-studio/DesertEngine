@@ -275,6 +275,13 @@ namespace Desert::Graphic::RDG
         // already refused an empty payload, one larger than the buffer, and a size that is not a multiple of 4.
         // The bytes are consumed before the call returns (the backend keeps no pointer into them).
         virtual Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) = 0;
+        // CPU-GRASS-POOL-3 (UE: AddCopyBufferPass). Records a copy of @p bytes from buffer @p source at
+        // @p sourceOffset into buffer @p target at @p targetOffset on the current pass's command buffer. Called
+        // only from the exec of the pass Builder::AddCopyBufferPass adds, after the graph's barriers put the
+        // source in CopySrc and the target in CopyDst; the builder has already refused an empty copy, a range
+        // past either buffer's end, the same buffer on both sides and offsets / sizes not a multiple of 4.
+        virtual Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
+                                                  uint64_t targetOffset, uint64_t bytes ) = 0;
 
         // Physical resource of a used resource, valid between BeginGraph and EndGraph / AbandonGraph.
         [[nodiscard]] virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;

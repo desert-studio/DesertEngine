@@ -283,8 +283,10 @@ namespace Desert::Graphic::System
             // Gives @p range's bytes back (merged with free neighbours; a run at the end shortens the pool).
             void Release( PoolRange& range );
             // Once a frame, after every Allocate of it: the device-local buffer is (re)made when the ranges
-            // handed out passed its room - a remake moves every range (Epoch counts the remakes; what a range
-            // held is lost) - then imported into @p graph and registered once (Ref).
+            // handed out passed its room, then imported into @p graph and registered once (Ref). CPU-GRASS-POOL-3
+            // (UE GPU Scene's resize, AddCopyBufferPass): a grown pool's predecessor is copied into it by a Copy
+            // pass of @p graph, so every range keeps its offset and its contents and only Address moves. Epoch
+            // counts the pools whose ranges hold nothing carried: the first, and one whose copy could not run.
             [[nodiscard]] Common::BoolResultStr Commit( RDG::Builder& graph );
             [[nodiscard]] uint64_t              Address( const PoolRange& range ) const noexcept
             {
@@ -310,6 +312,9 @@ namespace Desert::Graphic::System
             std::vector<PoolRange>                          m_Free; // by offset, never adjacent, never at the end
             RDG::ExternalBuffer                             m_Import;
             RDG::BufferRef                                  m_Ref{};
+            // The buffer a growth replaced, held until the next Commit: this frame's graph copies from it.
+            std::shared_ptr<ShaderResources::StorageBuffer> m_Previous;
+            RDG::ExternalBuffer                             m_PreviousImport;
         };
         struct FieldGpu
         {
@@ -489,9 +494,12 @@ namespace Desert::Graphic::System
             // reason. UpdateTiles makes the pool for a new PoolGeneration; TilePoolMade: a frame's graph has run
             // its Init pass on it (AddFrame); false until then, and a new pool is made by the next frame's.
             bool                                            TilePoolMade = false;
-            std::shared_ptr<ShaderResources::StorageBuffer> TilePool, TileWords;
-            RDG::ExternalBuffer                             TilePoolImport, TileWordsImport;
-            RDG::BufferRef TilePoolRef, TileWordsRef;
+            // CPU-GRASS-POOL-3: TileWords is a range of m_TileWordsPool (GrassGeneratePush Base.z its first word),
+            // carried with its contents when the pool grows.
+            std::shared_ptr<ShaderResources::StorageBuffer> TilePool;
+            PoolRange                                       TileWords;
+            RDG::ExternalBuffer                             TilePoolImport;
+            RDG::BufferRef                                  TilePoolRef;
             // GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (Common/GrassVarietyRows.glslh; UE: a pooled buffer grows by
             // pages inside its pool's budget, never by a second full copy): the records live in TileSegments, device-
             // local buffers of kGrassTileSegmentPages pages appended as the pool grows; TilePool is their segment
@@ -632,6 +640,10 @@ namespace Desert::Graphic::System
         // Writes m_TileTableImage into m_TileTable and imports the table, the feedback and the segments once;
         // false (logged): this frame's tile passes do not run.
         void CommitTileTable( RDG::Builder& graph );
+        // CPU-GRASS-POOL-3: on a frame with tile passes, after every variety's UpdateTiles, commits the shared
+        // words pool (BufferPool::Commit: a grown pool's words copied over). Words not carried (a first pool, a
+        // refused copy) leave only the pools Init writes this frame: every other variety's is made anew.
+        void CommitTileWords( RDG::Builder& graph );
         // UpdateTiles' scratch, kept across frames (no allocation once grown): the tiles to build, the builds,
         // the tiles culled.
         struct TileWant
@@ -699,6 +711,10 @@ namespace Desert::Graphic::System
         // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates / LawScales), committed by WriteVarietyTable.
         BufferPool m_CandidatesPool{ "GrassCandidates", 7u };
         BufferPool m_LawScalesPool{ "GrassLawScales", 2u };
+        // CPU-GRASS-POOL-3: every variety's tile pool words (VarietyGpu::TileWords), imported and registered once
+        // on a frame with tile passes; m_TileWordsEpoch the pool's Epoch the held words were last carried in.
+        BufferPool m_TileWordsPool{ "GrassTileWords", 15u };
+        uint64_t   m_TileWordsEpoch = 0;
         // CPU-GRASS-VARIETY-1: WriteVarietyTable's scratch, kept across frames so a frame allocates nothing: the
         // table's bytes (reserved to the header and every row at once) and a row's cascade key, which is swapped
         // into the variety's CascadeKey when it differs (both vectors keep their capacity).
