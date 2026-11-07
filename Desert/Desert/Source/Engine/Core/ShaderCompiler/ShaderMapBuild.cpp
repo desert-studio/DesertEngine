@@ -84,9 +84,13 @@ namespace Desert::Core
             // Every stage is compiled: the one place every binding of the program is a number
             // (SharedSamplerBinding).
             // Auto-numbered slots and locations (ShaderCompiler.cpp) are per stage; one program-wide answer, or
-            // a refusal naming both holders, before any number is patched.
+            // a refusal naming both holders, before any number is patched. Then the program numbers what the DSL
+            // left unnumbered (kAutoResourceBinding, one slot per name for all stages), and the shared samplers
+            // after every resource.
             if ( const auto checked = CheckProgramSlots( built.Stages, request.Name ); !checked )
                 return Common::MakeError<ShaderMap>( checked.GetError() );
+            if ( const auto resources = AssignProgramBindings( built.Stages, request.Name ); !resources )
+                return Common::MakeError<ShaderMap>( resources.GetError() );
             if ( const auto numbered = AssignSharedSamplerBindings( built.Stages, request.Name ); !numbered )
                 return Common::MakeError<ShaderMap>( numbered.GetError() );
             if ( const auto stored = StoreShaderMap( mapKey, built ); !stored )
@@ -418,6 +422,90 @@ namespace Desert::Core
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AssignProgramBindings( std::vector<ShaderMapStage>& stages,
+                                                 const std::string_view       shaderName )
+    {
+        struct Marked
+        {
+            uint32_t                               Set = 0;
+            std::vector<std::pair<size_t, size_t>> Words; // (stage index, binding word)
+            std::string                            Stage; // the first stage that marked it
+        };
+        struct Explicit
+        {
+            uint32_t    Set     = 0;
+            uint32_t    Binding = 0;
+            std::string Stage;
+        };
+        std::map<std::string, Marked>   marked;      // ordered: numbered by name
+        std::map<std::string, Explicit> numbered;    // name -> its explicit slot (CheckProgramSlots: one per name)
+        std::map<uint32_t, uint32_t>    lastBinding; // set -> one past the highest explicit binding
+        for ( size_t s = 0; s < stages.size(); ++s )
+        {
+            auto read = ReadSpvResources( stages[s].Spirv );
+            if ( !read.IsSuccess() )
+                return Common::MakeFormattedError( "shader '{}' [{}]: {}", shaderName,
+                                                   Graphic::Shader::GetStringShaderStage( stages[s].Stage ),
+                                                   read.GetError() );
+            for ( const SpvResource& resource : read.GetValue() )
+            {
+                // A nameless resource is refused by the shared-sampler rule; a shared sampler is numbered by it,
+                // after every resource this pass numbers.
+                if ( resource.Name.empty() || resource.Binding == kAutoSamplerBinding )
+                    continue;
+                if ( resource.Binding != kAutoResourceBinding )
+                {
+                    numbered.try_emplace( resource.Name,
+                                          Explicit{ resource.Set, resource.Binding,
+                                                    Graphic::Shader::GetStringShaderStage( stages[s].Stage ) } );
+                    uint32_t& last = lastBinding[resource.Set];
+                    last           = std::max( last, resource.Binding + 1 );
+                    continue;
+                }
+                Marked& entry = marked[resource.Name];
+                if ( !entry.Words.empty() && entry.Set != resource.Set )
+                    return Common::MakeFormattedError(
+                         "shader '{}': '{}' is declared without a binding in set {} [{}] and in set {} [{}]; one "
+                         "resource is one slot",
+                         shaderName, resource.Name, entry.Set, entry.Stage, resource.Set,
+                         Graphic::Shader::GetStringShaderStage( stages[s].Stage ) );
+                if ( entry.Words.empty() )
+                    entry.Stage = Graphic::Shader::GetStringShaderStage( stages[s].Stage );
+                entry.Set = resource.Set;
+                entry.Words.emplace_back( s, resource.BindingWord );
+            }
+        }
+
+        for ( const auto& [name, entry] : marked )
+        {
+            uint32_t binding = 0;
+            if ( const auto held = numbered.find( name ); held != numbered.end() )
+            {
+                // Declared with a number in another stage: that number is the resource's slot in every stage.
+                if ( held->second.Set != entry.Set )
+                    return Common::MakeFormattedError( "shader '{}': '{}' is on set {} in [{}] and declared "
+                                                       "without a binding in set {} in [{}]; "
+                                                       "one resource is one slot",
+                                                       shaderName, name, held->second.Set, held->second.Stage,
+                                                       entry.Set, entry.Stage );
+                binding = held->second.Binding;
+            }
+            else
+            {
+                uint32_t& last = lastBinding[entry.Set];
+                binding        = last;
+                last           = binding + 1;
+            }
+            if ( binding >= kAutoResourceBinding )
+                return Common::MakeFormattedError(
+                     "shader '{}': '{}' would be numbered {}, at or past the marker {}", shaderName, name, binding,
+                     kAutoResourceBinding );
+            for ( const auto& [stage, word] : entry.Words )
+                stages[stage].Spirv[word] = binding;
+        }
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr CheckProgramSlots( const std::vector<ShaderMapStage>& stages,
                                              const std::string_view             shaderName )
     {
@@ -442,8 +530,9 @@ namespace Desert::Core
             for ( const SpvResource& resource : read.GetValue() )
             {
                 // A nameless resource is refused by the shared-sampler rule with its own message; a marked shared
-                // sampler is numbered by that rule after this check.
-                if ( resource.Name.empty() || resource.Binding == kAutoSamplerBinding )
+                // sampler and a marked unnumbered resource are numbered once for the program after this check.
+                if ( resource.Name.empty() || resource.Binding == kAutoSamplerBinding ||
+                     resource.Binding == kAutoResourceBinding )
                     continue;
                 const Holder holder{ resource.Set, resource.Binding, resource.Name, stageName };
                 const auto [named, firstName] = byName.try_emplace( resource.Name, holder );

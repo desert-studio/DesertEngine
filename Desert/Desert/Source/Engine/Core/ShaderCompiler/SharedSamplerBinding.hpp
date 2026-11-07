@@ -23,4 +23,12 @@ namespace Desert::Core
     // The marker the DSL writes for `Uniform sampler <name>;`. Never a real slot: every marked binding is
     // renumbered before reflection sees the SPIR-V, and a non-sampler resource on it is refused.
     inline constexpr uint32_t kAutoSamplerBinding = 1023;
+
+    // THE PROGRAM NUMBERS EVERY UNNUMBERED RESOURCE (GPU-SHADER-AUTOBIND), as UE's ShaderParameterMap does after
+    // every stage is compiled: the DSL writes this marker for a paren-less `Uniform` / `ReadBuffer` /
+    // `WriteBuffer` / `Buffer` declaration (any resource but `Uniform sampler`), and AssignProgramBindings gives
+    // each marked NAME one slot for all stages of the program — the slot an explicit declaration of that name in
+    // another stage holds, else, per set, the next binding after the last explicit one, in name order. Explicit
+    // numbers never move. Never a real slot: reflection refuses SPIR-V still carrying it.
+    inline constexpr uint32_t kAutoResourceBinding = 1022;
 } // namespace Desert::Core

@@ -211,6 +211,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                      resource.name, set, binding ) );
                 return;
             }
+            // Likewise the unnumbered-resource marker (ShaderMapBuild.cpp AssignProgramBindings).
+            if ( binding == Core::kAutoResourceBinding )
+            {
+                diagnostics.push_back( std::format( "resource '{}' (set {}) is still on the unnumbered-resource "
+                                                    "marker binding {}: the SPIR-V did "
+                                                    "not come through the program build that numbers paren-less "
+                                                    "DSL declarations (BuildShaderMap)",
+                                                    resource.name, set, binding ) );
+                return;
+            }
             const auto [it, inserted] = claimed.emplace( std::pair{ set, binding }, resource.name );
             if ( !inserted && it->second != resource.name )
             {

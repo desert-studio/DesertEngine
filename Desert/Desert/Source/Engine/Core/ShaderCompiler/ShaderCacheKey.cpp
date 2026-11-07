@@ -42,10 +42,12 @@ namespace Desert::Core
         // instead of samplers (Core::Formats::IsRowTexture).
         // v6 (GPU-SHADER-AUTOBIND): every stage is compiled with glslang auto-mapped bindings and locations, so a
         // resource declared without `binding` takes the stage's lowest free slot instead of 0.
+        // v7 (GPU-SHADER-AUTOBIND): a paren-less DSL `Uniform`/`Buffer`/`ReadBuffer`/`WriteBuffer` is written on
+        // kAutoResourceBinding instead of a number of its own text, and the program build numbers it.
         const std::string& OptionsFingerprint()
         {
             static const std::string fingerprint =
-                 std::format( "vulkan{}.{}|glsl460|v6", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
+                 std::format( "vulkan{}.{}|glsl460|v7", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
                               VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
             return fingerprint;
         }
