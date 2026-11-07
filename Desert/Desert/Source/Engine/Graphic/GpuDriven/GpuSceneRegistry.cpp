@@ -154,16 +154,24 @@ namespace Desert::Graphic::GpuDriven
             }
             ++it;
         }
-        // The static slots as the map's entries. GpuScene rolled the frame's transforms back, so no list a
-        // caller holds is current any more: KeepStatic refuses until the next SyncStatic.
-        for ( StaticSlot& slot : m_StaticSlots )
+        // The static slots as the map's entries, only those the discarded frame stamped one by one (written or
+        // folded); the list's stamp rolls back as a whole. GpuScene rolled the frame's transforms back, so no
+        // list a caller holds is current any more: KeepStatic refuses until the next SyncStatic.
+        for ( const uint32_t index : m_StaticWritten )
         {
+            StaticSlot& slot = m_StaticSlots[index];
             if ( !slot.Live )
                 continue;
             if ( slot.Held.Frame == m_Frame )
                 slot.Held.Frame = slot.Held.PrevFrame;
             if ( slot.Held.Frame == kNoFrame ) // added by the discarded frame
                 RemoveStatic( slot );
+        }
+        m_StaticWritten.clear();
+        if ( m_StaticListFrame == m_Frame )
+        {
+            m_StaticListFrame     = m_StaticListPrevFrame;
+            m_StaticListPrevFrame = kNoFrame;
         }
         m_StaticToken = 0;
         for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
@@ -203,9 +211,8 @@ namespace Desert::Graphic::GpuDriven
                 it = m_Entries.erase( it );
             }
         if ( m_Started ) // the static slots the frame that ended did not queue (they left the view or the scene)
-            for ( StaticSlot& slot : m_StaticSlots )
-                if ( slot.Live && slot.Held.Frame != m_Frame )
-                    RemoveStatic( slot );
+            RetireStatic();
+        m_StaticWritten.clear();
         if ( m_Started ) // the scratch of entities the frame that ended did not name (they left the view or scene)
             std::erase_if( m_EntityScratch, [this]( const auto& held ) { return held.second.Frame != m_Frame; } );
         if ( m_Started )
@@ -292,13 +299,68 @@ namespace Desert::Graphic::GpuDriven
         m_StaticToken = 0; // the token's list no longer names the rows its caller holds
     }
 
+    void GpuSceneRegistry::FoldListFrame( const uint32_t index )
+    {
+        StaticSlot& slot = m_StaticSlots[index];
+        if ( !slot.Live || slot.List != m_StaticListSerial || m_StaticListFrame == kNoFrame ||
+             slot.Held.Frame == m_StaticListFrame )
+            return;
+        // Within one list a member's own frame is never later than the list's stamp (SyncStatic writes both).
+        slot.Held.PrevFrame = m_StaticListPrevFrame;
+        slot.Held.Frame     = m_StaticListFrame;
+        if ( slot.Held.Frame == m_Frame )
+            m_StaticWritten.push_back( index );
+    }
+
+    void GpuSceneRegistry::OrphanStatic( const uint32_t index )
+    {
+        StaticSlot& slot = m_StaticSlots[index];
+        FoldListFrame( index );
+        if ( !slot.Live || slot.Orphan )
+            return;
+        slot.Orphan = true;
+        m_StaticOrphans.push_back( index );
+    }
+
+    void GpuSceneRegistry::RetireStatic()
+    {
+        // m_Frame is the frame that ended. A current list it did not queue is dissolved: each member stands on
+        // its own frame (an earlier list's stamp folded into it), the ones still queued become orphans.
+        if ( !m_StaticTokenSlots.empty() && m_StaticListFrame != m_Frame )
+        {
+            for ( const uint32_t index : m_StaticTokenSlots )
+                OrphanStatic( index );
+            m_StaticTokenSlots.clear();
+            ++m_StaticListSerial;
+            m_StaticListFrame     = kNoFrame;
+            m_StaticListPrevFrame = kNoFrame;
+            m_StaticToken         = 0;
+        }
+        std::size_t kept = 0;
+        for ( const uint32_t index : m_StaticOrphans )
+        {
+            StaticSlot& slot = m_StaticSlots[index];
+            if ( slot.Live && slot.List != m_StaticListSerial && slot.Held.Frame != m_Frame )
+                RemoveStatic( slot );
+            if ( !slot.Live || slot.List == m_StaticListSerial ) // gone, or the current list holds it again
+            {
+                slot.Orphan = false;
+                continue;
+            }
+            m_StaticOrphans[kept++] = index; // queued by the frame that ended outside the list: may lapse later
+        }
+        m_StaticOrphans.resize( kept );
+    }
+
     bool GpuSceneRegistry::KeepStatic( const uint64_t token )
     {
         if ( token == 0 || token != m_StaticToken )
             return false;
-        for ( const uint32_t slot : m_StaticTokenSlots )
-            if ( Entry& held = m_StaticSlots[slot].Held; held.Frame != m_Frame )
-                Queued( held );
+        if ( m_StaticListFrame != m_Frame ) // the first view of this frame to keep it: one stamp, no slot visited
+        {
+            m_StaticListPrevFrame = m_StaticListFrame;
+            m_StaticListFrame     = m_Frame;
+        }
         return true;
     }
 
@@ -311,7 +373,14 @@ namespace Desert::Graphic::GpuDriven
         out.StaticInstances.clear();
         out.StaticPrimitives.reserve( records.size() );
         out.StaticInstances.reserve( records.size() );
+        // The list this one replaces: each member's frame brought up to the list's stamp, and each a candidate
+        // for removal (the new list takes back the ones it names; BeginFrame drops the others no view queued).
+        for ( const uint32_t index : m_StaticTokenSlots )
+            OrphanStatic( index );
         m_StaticTokenSlots.clear();
+        ++m_StaticListSerial;
+        m_StaticListFrame     = m_Frame;
+        m_StaticListPrevFrame = kNoFrame;
         for ( const StaticPrimitiveRecord& record : records )
         {
             if ( record.Primitive >= m_StaticSlots.size() )
@@ -320,17 +389,23 @@ namespace Desert::Graphic::GpuDriven
             if ( slot.Live && slot.Entity != record.Record.Entity ) // the slot was given to another entity
                 RemoveStatic( slot );
             Entry& entry = slot.Held;
-            // The slot's first record in this Sync (a fresh entry's ContentSync is 0, the serial never is).
-            if ( !slot.Live || entry.ContentSync != m_SyncSerial )
+            if ( slot.List != m_StaticListSerial ) // the slot's first record in this list
+            {
+                slot.List = m_StaticListSerial;
                 m_StaticTokenSlots.push_back( record.Primitive );
+            }
             if ( !slot.Live )
             {
                 Write( entry, true, record.Record );
                 slot.Live   = true;
                 slot.Entity = record.Record.Entity;
+                m_StaticWritten.push_back( record.Primitive );
             }
             else if ( entry.Frame != m_Frame ) // the slot's first record this frame
+            {
                 Write( entry, false, record.Record );
+                m_StaticWritten.push_back( record.Primitive );
+            }
             else // another section of the slot (AddContent ignores a slot an earlier view of the frame synced)
                 AddContent( entry, record.Record.Content );
             out.StaticPrimitives.push_back( entry.Primitive );

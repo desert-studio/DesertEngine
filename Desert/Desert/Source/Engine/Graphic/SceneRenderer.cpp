@@ -4269,11 +4269,16 @@ namespace Desert::Graphic
         std::optional<Geometry::LODView> lodView;
         if ( camera != nullptr )
             lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
-        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's, and the sections this
-        // view admits, chunk-major (MeshRenderer::SubmitStaticScene keeps its queue while the list holds).
-        thread_local std::vector<const Material*>              parents;
-        thread_local std::vector<Render::StaticSceneAdmission> admitted;
-        admitted.clear();
+        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's. The sections this view
+        // admits, chunk-major, are written over the list built last frame, each compared as it is written: a
+        // list that differs anywhere takes a new revision (MeshRenderer::SubmitStaticScene keeps its queue while
+        // the revision holds, with no compare of its own).
+        thread_local std::vector<const Material*> parents;
+        static std::atomic<uint64_t>              s_NextAdmittedRevision{ 0 };
+        std::vector<Render::StaticSceneAdmission>& admitted = m_StaticAdmitted;
+        const std::size_t                          before   = admitted.size();
+        std::size_t                                count    = 0;
+        bool                                       differs  = m_StaticAdmittedRevision == 0;
         for ( uint32_t c = 0; c < static_cast<uint32_t>( scene.Chunks.size() ); ++c )
         {
             const Render::StaticSceneChunk& chunk = *scene.Chunks[c];
@@ -4298,13 +4303,28 @@ namespace Desert::Graphic
                 for ( const MaterialInstance* slot : slots->Slots )
                     parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
                 NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), parents );
-                admitted.push_back( { .Chunk        = c,
-                                      .Section      = s,
-                                      .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
-                                      .MeshRevision = mesh->GetRenderRevision() } );
+                const Render::StaticSceneAdmission entry{ .Chunk        = c,
+                                                          .Section      = s,
+                                                          .ForcedLOD    = LODPreviewFor( section.Entity,
+                                                                                         section.ForcedLOD ),
+                                                          .MeshRevision = mesh->GetRenderRevision() };
+                if ( count < admitted.size() )
+                {
+                    if ( !differs && !( admitted[count] == entry ) )
+                        differs = true;
+                    admitted[count] = entry;
+                }
+                else
+                    admitted.push_back( entry );
+                ++count;
             }
         }
-        m_Systems.Mesh->SubmitStaticScene( scene, admitted );
+        if ( count != before )
+            differs = true;
+        admitted.resize( count );
+        if ( differs )
+            m_StaticAdmittedRevision = s_NextAdmittedRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        m_Systems.Mesh->SubmitStaticScene( scene, admitted, m_StaticAdmittedRevision );
     }
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,

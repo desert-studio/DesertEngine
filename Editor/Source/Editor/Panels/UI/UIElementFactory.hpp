@@ -101,12 +101,11 @@ namespace Desert::Editor
         auto& reg = scene.GetRegistry();
         if ( !reg.has<ECS::RelationshipComponent>( handle ) )
             reg.emplace<ECS::RelationshipComponent>( handle );
-        reg.get<ECS::RelationshipComponent>( handle ).Parent = parent;
         if ( !reg.has<ECS::RelationshipComponent>( parent ) )
             reg.emplace<ECS::RelationshipComponent>( parent );
-        reg.get<ECS::RelationshipComponent>( parent ).Children.push_back( handle );
-        // A direct parent write, so the world-transform cache is recomposed here (Scene::Attach does it).
-        ECS::UpdateWorldTransforms( reg, handle );
+        // THE ONE WRITER OF A PARENT LINK (Scene::Attach): the links, the world-transform cache of the subtree
+        // and its render state, never a direct RelationshipComponent::Parent write.
+        scene.Attach( ECS::Entity( parent, reg ), e );
         return handle;
     }
 

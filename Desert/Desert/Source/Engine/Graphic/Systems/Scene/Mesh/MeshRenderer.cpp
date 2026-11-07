@@ -263,7 +263,8 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot&                  scene,
-                                          const std::span<const Render::StaticSceneAdmission> admitted )
+                                          const std::span<const Render::StaticSceneAdmission> admitted,
+                                          const uint64_t                                      revision )
     {
         DESERT_PROFILE_SCOPE( "MeshRenderer::SubmitStaticScene" );
         m_StaticSceneSubmitted = true;
@@ -277,36 +278,39 @@ namespace Desert::Graphic::System
                 m_StaticSuffixScratch.push_back( std::move( m_StaticQueue[i] ) );
             m_StaticQueue.resize( m_StaticRetained );
         }
-        const bool sameList = admitted.size() == m_StaticRetained &&
-                              m_RetainedChunks.size() == scene.Chunks.size() &&
-                              std::equal( admitted.begin(), admitted.end(), m_RetainedAdmissions.begin() );
+        // The list's revision names its contents (SceneRenderer::SubmitStaticScene): equal = the same entries.
+        const bool sameList = revision != 0 && revision == m_RetainedAdmissionsRevision &&
+                              admitted.size() == m_StaticRetained &&
+                              m_RetainedChunks.size() == scene.Chunks.size();
         bool refilled = false;
+        // The same sections of the same chunk positions: only the entries of a chunk the snapshot replaced are
+        // read again (the admitted list is chunk-major, SceneRenderer::SubmitStaticScene); a snapshot that
+        // replaced none (the steady frame) reads no entry.
+        bool replaced = false;
         if ( sameList )
+            for ( std::size_t c = 0; c < scene.Chunks.size() && !replaced; ++c )
+                replaced = m_RetainedChunks[c] != scene.Chunks[c];
+        if ( sameList && replaced )
         {
-            // The same sections of the same chunk positions: only the entries of a chunk the snapshot replaced
-            // are read again (the admitted list is chunk-major, SceneRenderer::SubmitStaticScene).
-            std::size_t i        = 0;
-            bool        replaced = false;
+            std::size_t i = 0;
             for ( std::size_t c = 0; c < scene.Chunks.size(); ++c )
             {
                 const bool changed = m_RetainedChunks[c] != scene.Chunks[c];
                 if ( changed )
-                {
                     m_RetainedChunks[c] = scene.Chunks[c];
-                    replaced            = true;
-                }
                 for ( ; i < admitted.size() && admitted[i].Chunk == c; ++i )
                     if ( changed )
                         FillRetainedStatic( m_StaticQueue[i], admitted[i] );
             }
             refilled = i != admitted.size(); // not chunk-major: refilled whole below
-            if ( replaced && !refilled )
+            if ( !refilled )
                 m_StaticToken = NextStaticToken();
         }
         if ( !sameList || refilled )
         {
             m_RetainedChunks.assign( scene.Chunks.begin(), scene.Chunks.end() );
             m_RetainedAdmissions.assign( admitted.begin(), admitted.end() );
+            m_RetainedAdmissionsRevision = revision;
             m_StaticQueue.resize( admitted.size() );
             for ( std::size_t i = 0; i < admitted.size(); ++i )
                 FillRetainedStatic( m_StaticQueue[i], admitted[i] );
@@ -328,6 +332,7 @@ namespace Desert::Graphic::System
                              m_StaticQueue.begin() + static_cast<std::ptrdiff_t>( m_StaticRetained ) );
         m_StaticRetained = 0;
         m_RetainedAdmissions.clear();
+        m_RetainedAdmissionsRevision = 0;
         m_RetainedChunks.clear();
         m_StaticToken        = 0;
         m_StaticColumnsToken = 0;

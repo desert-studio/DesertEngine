@@ -219,8 +219,8 @@ namespace Desert::Graphic::GpuDriven
         void SyncStatic( std::span<const StaticPrimitiveRecord> records, uint64_t token, GpuSceneRecordRows& out );
         // The cheap frame of an unchanged static scene: true when the last SyncStatic was of @p token and no
         // primitive of it was removed, discarded or rolled back since - then its primitives are queued for this
-        // frame and nothing else is read or written (the rows the caller kept from that SyncStatic still name
-        // them). false: call SyncStatic.
+        // frame and nothing else is read or written, O(1): one stamp for the whole list (the rows the caller
+        // kept from that SyncStatic still name them). false: call SyncStatic.
         [[nodiscard]] bool KeepStatic( uint64_t token );
 
         // The scene material table row of @p key holding @p row: added the first time a frame asks, its slots
@@ -322,16 +322,32 @@ namespace Desert::Graphic::GpuDriven
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
         std::unordered_map<uint32_t, EntityScratch>                           m_EntityScratch;
         // The retained static scene's primitives by persistent slot (SyncStatic). Live: the slot holds a row.
+        // THE FRAME DOES NOT WALK THE SLOTS (UE FScene: only the added / updated / removed primitives are
+        // visited). The current list (m_StaticTokenSlots, its members' List == m_StaticListSerial) is queued as
+        // a whole by one stamp, m_StaticListFrame (KeepStatic writes nothing per slot); a member's Held.Frame is
+        // brought up to that stamp (FoldListFrame) only when it leaves the list. A live slot outside the list is
+        // an orphan (m_StaticOrphans): BeginFrame visits only the orphans, and the list's members only when the
+        // frame that ended did not queue the list.
         struct StaticSlot
         {
             Entry    Held;
+            uint64_t List   = 0; // the list (m_StaticListSerial) that last named the slot
             uint32_t Entity = 0;
             bool     Live   = false;
+            bool     Orphan = false; // listed in m_StaticOrphans
         };
         void                    RemoveStatic( StaticSlot& slot );
+        void                    FoldListFrame( uint32_t index );
+        void                    OrphanStatic( uint32_t index );
+        void                    RetireStatic();
         std::vector<StaticSlot> m_StaticSlots;
         std::vector<uint32_t>   m_StaticTokenSlots; // the distinct slots of the last SyncStatic's list
         uint64_t                m_StaticToken = 0;  // that list's token; 0 once any of its rows changed hands
+        uint64_t                m_StaticListSerial    = 0;        // names the current list (one per SyncStatic)
+        uint64_t                m_StaticListFrame     = kNoFrame; // the last frame that queued the current list
+        uint64_t                m_StaticListPrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
+        std::vector<uint32_t>   m_StaticOrphans;  // live slots outside the current list (may lapse)
+        std::vector<uint32_t>   m_StaticWritten;  // slots whose Held.Frame this frame set (DiscardFrame's undo)
         // The palettes of the frame being synced and of the frame before it, swapped at BeginFrame (and back at
         // DiscardFrame): the previous frame's bones are read from where they were written, never kept twice.
         std::vector<glm::mat4> m_FramePalettes;
