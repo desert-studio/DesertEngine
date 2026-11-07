@@ -17,6 +17,8 @@
 #include <Engine/Graphic/LightGrid.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <glm/glm.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -66,6 +68,33 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DeferredDirectSpecularImage );
         DESERT_SHADER_PARAMETER( Texture, DeferredDirectSpecularTexture );
         DESERT_SHADER_PARAMETER( Texture, DeferredDirectLightingTexture );
+    };
+
+    // "Deferred: Tile Classify" (DeferredTileClassify.shader) and the tile list the tiled permutations of
+    // DeferredLighting.shader read in their vertex stage (Common/DeferredTiles.glslh).
+    struct DeferredTileShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DeferredTilesUB );
+    };
+
+    // GPU-TILE-CLASSIFY (UE Substrate ClassificationTiles): how a lighting pass covers the view. Fullscreen: one
+    // triangle (RenderPipeline.TileClassify 0, or a G-buffer view). Simple / Complex: the tiles of that list
+    // (Common/DeferredTiles.glslh), drawn indirectly; a tile with no geometry is drawn by neither.
+    enum class DeferredTileClass : uint8_t
+    {
+        Fullscreen = 0,
+        Simple,
+        Complex,
+    };
+
+    // The graph buffer "Deferred: Tile Classify" fills and the tile grid it is dispatched over.
+    struct DeferredTileLists
+    {
+        RDG::BufferRef Buffer;
+        glm::uvec2     Tiles{ 0u };
     };
 
     // The graph textures the deferred composite samples, as refs of THIS frame's graph that the Composite node
@@ -149,8 +178,25 @@ namespace Desert::Graphic::System
         {
             std::vector<Core::CookedProgramVariant> variants;
             for ( std::size_t index = kCascadeProgram; index < kProgramDebugNames.size(); ++index )
+            {
                 variants.push_back( { "DeferredLighting", ProgramVariant( index ) } );
+                for ( std::size_t tiled = 0; tiled < kTiledClassCount; ++tiled )
+                    variants.push_back( { "DeferredLighting", TileVariant( ProgramVariant( index ), tiled ) } );
+            }
+            for ( std::size_t tiled = 0; tiled < kTiledClassCount; ++tiled )
+                variants.push_back( { "DeferredLighting", TileVariant( Core::ShaderVariant{}, tiled ) } );
             return variants;
+        }
+
+        // @p variant drawn as the tiles of list @p tiled (kSimpleTiles / kComplexTiles; DeferredLighting.shader
+        // DESERT_DEFERRED_TILES, and DESERT_DEFERRED_TILE_SIMPLE for the DefaultLit-only list), cooked.
+        [[nodiscard]] static Core::ShaderVariant TileVariant( Core::ShaderVariant variant, const std::size_t tiled )
+        {
+            variant.Defines.emplace_back( kTilesDefine );
+            if ( tiled == kSimpleTiles )
+                variant.Defines.emplace_back( kTileSimpleDefine );
+            variant.ShippedByCook = true;
+            return variant;
         }
 
         virtual Common::BoolResultStr Initialize() override
@@ -187,7 +233,76 @@ namespace Desert::Graphic::System
             m_WorldViewShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridWorldView" );
             if ( !m_WorldViewShader )
                 return Common::MakeError( "LightGridWorldView shader not found" );
+
+            m_ClassifyShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredTileClassify" );
+            if ( !m_ClassifyShader )
+                return Common::MakeError( "DeferredTileClassify shader not found" );
+            const auto classifyPipeline =
+                 ComputePipeline::Create( { .Shader = m_ClassifyShader, .DebugName = "DeferredTileClassify" } );
+            if ( !classifyPipeline )
+                return Common::MakeError( classifyPipeline.GetError() );
+            m_ClassifyPipeline = classifyPipeline.GetValue();
+            BuildTiledPrograms();
             return BOOLSUCCESS;
+        }
+
+        // True when this frame's direct program (the arm of @p shadow) and the composite have both tiled
+        // permutations built and the classify is ready: the view may draw by tiles (RenderPipeline.TileClassify).
+        // A permutation that did not build was said at its build (BuildTiledPrograms), with its reason.
+        [[nodiscard]] bool TileClassifyReady( const DeferredShadowInput& shadow ) const
+        {
+            if ( !m_ClassifyPipeline )
+                return false;
+            const std::size_t program = ActiveProgramOf( shadow );
+            for ( std::size_t tiled = 0; tiled < kTiledClassCount; ++tiled )
+                if ( !m_TiledPrograms[program][tiled].Pipeline || !m_TiledComposite[tiled].Pipeline )
+                    return false;
+            return true;
+        }
+
+        // GRAPH BUILD (before "Deferred: Tile Classify"): the tile lists of a @p width x @p height view (the
+        // lighting targets' extent), their header uploaded - both draw records empty, the complex one's first
+        // vertex past the simple list, and the extent the classify and the vertex stage read.
+        static DeferredTileLists CreateTileLists( RDG::Builder& graph, const uint32_t width, const uint32_t height )
+        {
+            DeferredTileLists lists;
+            lists.Tiles          = glm::uvec2( TileGrid( width ), TileGrid( height ) );
+            const uint32_t count = lists.Tiles.x * lists.Tiles.y;
+            const uint64_t bytes = ( uint64_t{ kTileHeaderWords } + 2u * uint64_t{ count } ) * sizeof( uint32_t );
+            lists.Buffer         = graph.CreateBuffer( RDG::BufferDesc{ bytes }, "DeferredTiles" );
+            const std::array<uint32_t, kTileHeaderWords> header = { 0u,    1u,     0u,
+                                                                    0u,    0u,     1u,
+                                                                    count * kTileVertices, 0u, width,
+                                                                    height, lists.Tiles.x, count };
+            graph.QueueBufferUpload( lists.Buffer, std::as_bytes( std::span<const uint32_t>( header ) ) );
+            return lists;
+        }
+
+        // SETUP of "Deferred: Tile Classify": the G-buffer normal and shading word read, the lists written.
+        void DeclareClassifyBindings( RDG::PassBuilder& pass, const RDG::TextureRef normal,
+                                      const RDG::TextureRef shadingWord, const RDG::BufferRef tiles ) const
+        {
+            if ( !m_ClassifyPipeline )
+                return;
+            pass.Bindings( m_ClassifyLayout.Get( m_ClassifyShader ),
+                           Renderer::GetPipelineRouteFill( *m_ClassifyPipeline ) )
+                 .Sampler( DeferredTileShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Texture( DeferredTileShaderParameters::GBufferBTexture, normal, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( DeferredTileShaderParameters::GBufferShadingWordTexture, shadingWord,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Storage( DeferredTileShaderParameters::DeferredTilesUB, tiles, RDG::Access::StorageWrite );
+        }
+
+        // EXEC of the same node: one workgroup per tile (DeferredTileClassify.shader LocalSize 8 x 8).
+        [[nodiscard]] Common::BoolResultStr RecordClassify( const RDG::PassContext& context,
+                                                            const glm::uvec2&       tiles ) const
+        {
+            if ( !m_ClassifyPipeline )
+                return Common::MakeError( "Deferred: Tile Classify: the classify pipeline is not initialised" );
+            DESERT_PROFILE_PASS( "Deferred: Tile Classify" );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::GetInstance().DispatchCompute( bindings, *m_ClassifyPipeline, tiles.x, tiles.y, 1 );
         }
 
         // The Shadows methods this renderer could not build a program for on this device (Initialize), which
@@ -211,6 +326,7 @@ namespace Desert::Graphic::System
                 if ( const Common::BoolResultStr built = BuildProgram( index ); !built )
                     RefuseProgram( index, built.GetError() );
             }
+            BuildTiledPrograms();
         }
 
         // The "Light Grid (World)" view mode's pipeline for a target of @p format at @p samples (the view's post
@@ -359,23 +475,24 @@ namespace Desert::Graphic::System
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
                            bool ssaoEnabled, const CloudShadowInput& cloudShadow,
-                           const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection )
+                           const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection,
+                           const bool tiles )
         {
-            // The sun's arm picks the program this frame's composite draws with; MegaLights' local lights pick
-            // theirs, by the sun's arm: Stochastic's sun follows its visibility source (rayquery: the ray-traced
-            // mask, vsm+screen: the virtual map's mask, screen: the cascades).
-            const bool sunMask = std::holds_alternative<DeferredScreenShadowMask>( shadow.Sun );
-            m_Active = shadow.MegaLightsLocalLights  ? ( sunMask ? kMegaLightsProgram : kMegaLightsCascadeProgram )
-                       : shadow.VirtualLocalLights   ? kVirtualLocalProgram
-                       : shadow.RayTracedLocalLights ? kRayTracedLocalProgram
-                                                     : shadow.Sun.index();
-            // One frame's values for both passes: the direct program this arm picked, and the composite (the
-            // environment's reader).
+            m_Active = ActiveProgramOf( shadow );
+            // One frame's values for every pass that draws: the direct program this arm picked and the composite
+            // (the environment's reader) - their two tiled permutations when @p tiles (the caller asked
+            // TileClassifyReady), else the fullscreen ones.
             if ( m_Composite.Material )
                 ReportEnvironmentGap( environment );
-            for ( const CompositeProgram* program : { &m_Programs[m_Active], &m_Composite } )
+            std::array<CompositeProgram*, 2 * kTiledClassCount> programs{};
+            if ( tiles )
+                programs = { &m_TiledPrograms[m_Active][kSimpleTiles], &m_TiledPrograms[m_Active][kComplexTiles],
+                             &m_TiledComposite[kSimpleTiles], &m_TiledComposite[kComplexTiles] };
+            else
+                programs = { &m_Programs[m_Active], &m_Composite, nullptr, nullptr };
+            for ( const CompositeProgram* program : programs )
             {
-                if ( !program->Material )
+                if ( program == nullptr || !program->Material )
                     continue;
                 program->Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
                                                invJitteredViewProjection, debugMode, pointCount, spotCount,
@@ -391,16 +508,20 @@ namespace Desert::Graphic::System
         // separate texture read through the three sampler states the pass binds once. It reads no GI, AO or
         // reflection: nothing the async chain writes, so the graph runs it on the graphics queue inside the async
         // window.
+        // @p tileClass: the whole view, or one tile list of @p tiles (the classify's buffer, read by the vertex
+        // stage and as the draw's indirect record).
         void DeclareDirectBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
-                                    const ViewLightBuffers& lights ) const
+                                    const ViewLightBuffers& lights, const DeferredTileClass tileClass,
+                                    const RDG::BufferRef tiles ) const
         {
-            const CompositeProgram& program = m_Programs[m_Active];
+            const CompositeProgram& program = DirectProgramOf( m_Active, tileClass );
             // RENDER-THREADS M1: the program is chosen ONCE, here; the exec draws this one (the one whose material
             // the graph prepared), whatever m_Active says by then.
-            m_DeclaredProgram = nullptr;
+            const std::size_t classIndex   = static_cast<std::size_t>( tileClass );
+            m_DeclaredPrograms[classIndex] = nullptr;
             if ( !program.Pipeline || !program.Material )
                 return;
-            m_DeclaredProgram                      = &program;
+            m_DeclaredPrograms[classIndex]         = &program;
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const SlottedLayout&            slotted = program.Layout.GetSlotted( program.Shader );
@@ -429,9 +550,13 @@ namespace Desert::Graphic::System
                                inputs.LocalShadowMasks, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, slotted.Slots );
+            if ( tileClass != DeferredTileClass::Fullscreen )
+                DeclareTileReads( pass, block, tiles );
             // Every geometry texel is written; a sky texel is discarded and never read (the composite returns
-            // first).
-            pass.ColorTarget( 0, inputs.DirectLighting, RDG::LoadOp::DontCare() );
+            // first). The complex tiles' pass follows the simple tiles' into the same target: it keeps them.
+            const RDG::LoadOp load =
+                 tileClass == DeferredTileClass::Complex ? RDG::LoadOp::Load() : RDG::LoadOp::DontCare();
+            pass.ColorTarget( 0, inputs.DirectLighting, load );
         }
 
         // SETUP of "Deferred: Composite", after "Deferred: Direct Lighting"'s: the node's one block (block 0) -
@@ -439,13 +564,15 @@ namespace Desert::Graphic::System
         // two targets and the scene/view inputs the composite's layout declares (the sky's cubes and LUT, the
         // captures, the radiance cache). No light and no shadow: the direct pass summed them (UE
         // DiffuseIndirectComposite).
-        void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs ) const
+        void DeclareCompositeBindings( RDG::PassBuilder& pass, const DeferredCompositeInputs& inputs,
+                                       const DeferredTileClass tileClass, const RDG::BufferRef tiles ) const
         {
-            const CompositeProgram& program = m_Composite;
-            m_DeclaredComposite             = nullptr;
+            const CompositeProgram& program    = CompositeProgramOf( tileClass );
+            const std::size_t       classIndex = static_cast<std::size_t>( tileClass );
+            m_DeclaredComposites[classIndex]   = nullptr;
             if ( !program.Pipeline || !program.Material )
                 return;
-            m_DeclaredComposite                    = &program;
+            m_DeclaredComposites[classIndex]       = &program;
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const SlottedLayout&            slotted = program.Layout.GetSlotted( program.Shader );
@@ -471,36 +598,84 @@ namespace Desert::Graphic::System
                            inputs.DirectSpecular, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, slotted.Slots );
+            if ( tileClass != DeferredTileClass::Fullscreen )
+                DeclareTileReads( pass, block, tiles );
         }
 
-        // EXEC of "Deferred: Direct Lighting": the direct program DeclareDirectBindings chose, into the direct
-        // target.
-        [[nodiscard]] Common::BoolResultStr RecordDirect( const RDG::PassContext& context )
+        // EXEC of "Deferred: Direct Lighting" (or of one tile list's pass): the direct program
+        // DeclareDirectBindings chose, into the direct target.
+        [[nodiscard]] Common::BoolResultStr RecordDirect( const RDG::PassContext& context,
+                                                          const DeferredTileClass tileClass,
+                                                          const RDG::BufferRef    tiles )
         {
-            if ( m_DeclaredProgram == nullptr )
+            const CompositeProgram* program = m_DeclaredPrograms[static_cast<std::size_t>( tileClass )];
+            if ( program == nullptr )
                 return Common::MakeError(
                      "Deferred: Direct Lighting: the deferred-lighting pipeline is not initialised" );
-            const CompositeProgram& program = *m_DeclaredProgram;
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *program.Pipeline,
-                                                           program.Material->GetMaterialExecutor() );
+            return DrawClass( bindings, *program, tileClass, tiles );
         }
 
         // EXEC of "Deferred: Composite": shades the G-buffer into the scene target, inside the render pass the
         // frame graph opens on it with LOAD (which preserves the forward-rendered sky/grid; the shader discards
         // non-geometry texels), from block 0 that DeclareCompositeBindings declared.
-        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context )
+        [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context,
+                                                    const DeferredTileClass tileClass, const RDG::BufferRef tiles )
         {
-            if ( m_DeclaredComposite == nullptr )
+            const CompositeProgram* program = m_DeclaredComposites[static_cast<std::size_t>( tileClass )];
+            if ( program == nullptr )
                 return Common::MakeError(
                      "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
-            const CompositeProgram& program = *m_DeclaredComposite;
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            return Renderer::GetInstance().DrawFullscreen( bindings, *program.Pipeline,
-                                                           program.Material->GetMaterialExecutor() );
+            return DrawClass( bindings, *program, tileClass, tiles );
         }
 
     private:
+        // The arm of @p shadow, the direct program it draws with: the sun's arm, or MegaLights' local lights by
+        // the sun's arm (Stochastic's sun follows its visibility source: rayquery the ray-traced mask, vsm+screen
+        // the virtual map's mask, screen the cascades).
+        [[nodiscard]] static std::size_t ActiveProgramOf( const DeferredShadowInput& shadow )
+        {
+            const bool sunMask = std::holds_alternative<DeferredScreenShadowMask>( shadow.Sun );
+            if ( shadow.MegaLightsLocalLights )
+                return sunMask ? kMegaLightsProgram : kMegaLightsCascadeProgram;
+            if ( shadow.VirtualLocalLights )
+                return kVirtualLocalProgram;
+            if ( shadow.RayTracedLocalLights )
+                return kRayTracedLocalProgram;
+            return shadow.Sun.index();
+        }
+
+        // Common/DeferredTiles.glslh: the header's uints, the vertices per tile, the two draw records' bytes.
+        static constexpr uint32_t    kTileHeaderWords   = 12u;
+        static constexpr uint32_t    kTileVertices      = 6u;
+        static constexpr uint32_t    kTileSize          = 8u;
+        static constexpr uint64_t    kSimpleArgsOffset  = 0u;
+        static constexpr uint64_t    kComplexArgsOffset = 4u * sizeof( uint32_t );
+        static constexpr std::size_t kSimpleTiles       = 0; // m_TiledPrograms' second index, TileVariant's list
+        static constexpr std::size_t kComplexTiles      = 1;
+        static constexpr std::size_t kTiledClassCount   = 2;
+        static constexpr std::array<std::string_view, kTiledClassCount> kTiledDebugNames = { "SimpleTiles",
+                                                                                             "ComplexTiles" };
+        static constexpr std::string_view kTilesDefine      = "DESERT_DEFERRED_TILES";
+        static constexpr std::string_view kTileSimpleDefine = "DESERT_DEFERRED_TILE_SIMPLE";
+        [[nodiscard]] static uint32_t     TileGrid( const uint32_t pixels )
+        {
+            return ( pixels + kTileSize - 1u ) / kTileSize;
+        }
+        [[nodiscard]] static std::size_t TiledIndex( const DeferredTileClass tileClass )
+        {
+            return tileClass == DeferredTileClass::Simple ? kSimpleTiles : kComplexTiles;
+        }
+
+        template <typename Block>
+        static void DeclareTileReads( RDG::PassBuilder& pass, Block& block, const RDG::BufferRef tiles )
+        {
+            // A storage read and the indirect-argument read of one buffer in one pass are one use (RDGCompile.cpp:
+            // a buffer has no layout), as SSR's trace list.
+            block.Storage( DeferredTileShaderParameters::DeferredTilesUB, tiles, RDG::Access::StorageRead );
+            pass.Read( tiles, RDG::Access::IndirectArgs );
+        }
         // The DeferredLighting shader's layout, kept between frames (follows the shader object and its reload).
         // §1.4: a resource that did not arrive is logged with its reason, never quietly replaced — and a
         // resource that is absent BY DEFINITION is not a failure. The ambient IS the sky light, so the report
@@ -677,6 +852,75 @@ namespace Desert::Graphic::System
             program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
             return BOOLSUCCESS;
         }
+        [[nodiscard]] static Common::BoolResultStr DrawClass( const RDG::PassBindings& bindings,
+                                                              const CompositeProgram&  program,
+                                                              const DeferredTileClass  tileClass,
+                                                              const RDG::BufferRef     tiles )
+        {
+            if ( tileClass == DeferredTileClass::Fullscreen )
+                return Renderer::GetInstance().DrawFullscreen( bindings, *program.Pipeline,
+                                                               program.Material->GetMaterialExecutor() );
+            const uint64_t offset =
+                 tileClass == DeferredTileClass::Simple ? kSimpleArgsOffset : kComplexArgsOffset;
+            return Renderer::DrawProceduralIndirect( bindings, *program.Pipeline,
+                                                     program.Material->GetMaterialExecutor(), tiles, offset );
+        }
+        [[nodiscard]] const CompositeProgram& DirectProgramOf( const std::size_t      program,
+                                                               const DeferredTileClass tileClass ) const
+        {
+            if ( tileClass == DeferredTileClass::Fullscreen )
+                return m_Programs[program];
+            return m_TiledPrograms[program][TiledIndex( tileClass )];
+        }
+        [[nodiscard]] const CompositeProgram& CompositeProgramOf( const DeferredTileClass tileClass ) const
+        {
+            if ( tileClass == DeferredTileClass::Fullscreen )
+                return m_Composite;
+            return m_TiledComposite[TiledIndex( tileClass )];
+        }
+        // The tiled permutations of every direct program that built and of the composite, each one missing
+        // acquired and built again. One that does not build is said here with its reason; the view then draws
+        // the whole screen (TileClassifyReady is false for its arm), the picture is the same.
+        void BuildTiledPrograms()
+        {
+            const RenderTargetLayout direct{ .ColorFormats = { ViewTargetFormats::kDeferredDirectLighting },
+                                             .DepthFormat  = std::nullopt,
+                                             .Samples      = 1 };
+            for ( std::size_t tiled = 0; tiled < kTiledClassCount; ++tiled )
+            {
+                for ( std::size_t index = 0; index < m_Programs.size(); ++index )
+                {
+                    CompositeProgram& program = m_TiledPrograms[index][tiled];
+                    if ( !m_Programs[index].Pipeline || program.Pipeline )
+                        continue;
+                    const std::string name =
+                         std::format( "{} {}", kProgramDebugNames[index], kTiledDebugNames[tiled] );
+                    const Core::ShaderVariant variant = TileVariant( ProgramVariant( index ), tiled );
+                    if ( const Common::BoolResultStr built = BuildVariant( program, variant, direct, name ); !built )
+                        LOG_ERROR( "Deferred lighting: {}: {} (the view draws this arm fullscreen)", name,
+                                   built.GetError() );
+                }
+                CompositeProgram& composite = m_TiledComposite[tiled];
+                if ( composite.Pipeline )
+                    continue;
+                const std::string name = std::format( "DeferredLighting Composite {}", kTiledDebugNames[tiled] );
+                const Core::ShaderVariant  variant = TileVariant( Core::ShaderVariant{}, tiled );
+                const RenderTargetLayout   scene   = SceneTargetLayout();
+                if ( const Common::BoolResultStr built = BuildVariant( composite, variant, scene, name ); !built )
+                    LOG_ERROR( "Deferred lighting: {}: {} (the view draws fullscreen)", name, built.GetError() );
+            }
+        }
+        Common::BoolResultStr BuildVariant( CompositeProgram& program, const Core::ShaderVariant& variant,
+                                            const RenderTargetLayout& targetLayout, const std::string_view name )
+        {
+            program       = CompositeProgram{};
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "DeferredLighting",
+                                                                                           variant );
+            if ( !acquired )
+                return Common::MakeError( std::string( acquired.GetError() ) );
+            program.Shader = acquired.ExtractValue();
+            return BuildPipeline( program, targetLayout, name );
+        }
         void RefuseProgram( const std::size_t index, const std::string_view reason )
         {
             for ( const Common::Scalability::ShadowMethod method : kProgramShadowMethods[index] )
@@ -686,9 +930,18 @@ namespace Desert::Graphic::System
         CompositeProgram                m_Composite; // "Deferred: Composite": the shader without defines
         ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
-        // The program DeclareCompositeBindings chose this frame (null: none could draw); Record draws it.
-        mutable const CompositeProgram* m_DeclaredProgram   = nullptr; // the direct pass's
-        mutable const CompositeProgram* m_DeclaredComposite = nullptr;
+        // Their tiled permutations (TileVariant): [arm][kSimpleTiles / kComplexTiles], and the composite's [list].
+        std::array<std::array<CompositeProgram, kTiledClassCount>, 6> m_TiledPrograms;
+        std::array<CompositeProgram, kTiledClassCount>                m_TiledComposite;
+        // The programs the declares chose this frame, by DeferredTileClass (null: none could draw); the execs
+        // draw them.
+        mutable std::array<const CompositeProgram*, 3> m_DeclaredPrograms{}; // the direct passes'
+        mutable std::array<const CompositeProgram*, 3> m_DeclaredComposites{};
+
+        // "Deferred: Tile Classify": the tile lists the tiled permutations draw.
+        mutable ShaderBindingLayoutCache m_ClassifyLayout;
+        std::shared_ptr<Shader>          m_ClassifyShader;
+        std::shared_ptr<ComputePipeline> m_ClassifyPipeline;
 
         // "LightGrid": the froxel light lists the composite reads.
         mutable ShaderBindingLayoutCache m_GridLayout;

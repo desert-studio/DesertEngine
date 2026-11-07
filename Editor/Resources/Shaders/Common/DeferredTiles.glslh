@@ -1,0 +1,49 @@
+// #pragma once
+//
+// THE DEFERRED LIGHTING'S TILE LISTS (GPU-TILE-CLASSIFY; UE Substrate's ClassificationTiles and its tiled
+// indirect draws, SubstrateTileClassification + FSubstrateTilePassVS). One storage buffer, "DeferredTilesUB",
+// written by "Deferred: Tile Classify" (Programs/Deferred/DeferredTileClassify.shader, one workgroup per tile)
+// and read by the tiled permutations of DeferredLighting.shader (DESERT_DEFERRED_TILES): the vertex stage turns
+// gl_VertexIndex into a corner of a listed tile, the draws take their counts from the buffer's two records.
+//
+// Layout, in uints (mirrored by DeferredLightingRenderer::kTileHeaderWords and CreateTileLists, which uploads the
+// header every frame):
+//   [0..3]   VkDrawIndirectCommand of the SIMPLE tiles: vertexCount (6 per listed tile, the classify's atomic
+//            counter), instanceCount 1, firstVertex 0, firstInstance 0
+//   [4..7]   VkDrawIndirectCommand of the COMPLEX tiles: the same, firstVertex = tile count x 6, so the vertex
+//            stage of either draw reads its tile at kDeferredTileHeaderWords + gl_VertexIndex / 6
+//   [8..11]  the classified extent: width, height (pixels), tiles across, tile count
+//   [12 ..]  the simple list (tile count words), then the complex list (tile count words)
+// A tile holding no geometry (every texel the sky: the G-buffer normal is zero) is in neither list: no draw
+// covers it, and both lighting passes discard such a texel anyway, so the picture is the same.
+// SIMPLE: every geometry texel of the tile is DefaultLit, which the tiled permutation DESERT_DEFERRED_TILE_SIMPLE
+// shades with the shading model folded to SHADING_MODEL_INDEX_DEFAULT_LIT (the same function the dispatch would
+// call for those texels). COMPLEX: any other model is in the tile.
+
+const uint kDeferredTileSize        = 8u;
+const uint kDeferredTileVertices    = 6u;
+const uint kDeferredTileSimpleArgs  = 0u;
+const uint kDeferredTileComplexArgs = 4u;
+const uint kDeferredTileExtent      = 8u;
+const uint kDeferredTileHeaderWords = 12u;
+
+uint DeferredTilePack(uvec2 tile)
+{
+	return tile.x | (tile.y << 16u);
+}
+
+uvec2 DeferredTileUnpack(uint word)
+{
+	return uvec2(word & 0xFFFFu, word >> 16u);
+}
+
+// The screen texture coordinate of corner @p vertexInTile (0..5, two triangles wound as the fullscreen triangle,
+// Common/FullscreenTriangle.glslh) of the tile @p tileWord over an @p extent pixel view. A corner past the view's
+// edge is clamped to it, so a border tile covers only the pixels it holds.
+vec2 DeferredTileCornerUV(uint tileWord, uint vertexInTile, uvec2 extent)
+{
+	const uvec2 kCorner[6] = uvec2[6](uvec2(0u, 0u), uvec2(0u, 1u), uvec2(1u, 0u),
+	                                  uvec2(1u, 0u), uvec2(0u, 1u), uvec2(1u, 1u));
+	const uvec2 pixel = min((DeferredTileUnpack(tileWord) + kCorner[vertexInTile]) * kDeferredTileSize, extent);
+	return vec2(pixel) / vec2(extent);
+}

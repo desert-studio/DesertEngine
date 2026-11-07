@@ -928,33 +928,73 @@ namespace Desert::Graphic
         // graphics queue runs it inside the async window (it is declared after the chain's fork and before its
         // first consumer). The composite then adds only the ambient, the emissive and the subsurface split.
         // FillMaterial fills both programs' materials.
-        graph.AddPass(
-             "Deferred: Direct Lighting", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
-                 const FrameSun light1 = GetFrameLight1();
-                 deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
-                                         frame.InvJitteredViewProjection,
-                                         m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
-                                              ? 0 // a post view mode: the lighting draws Lit
-                                              : static_cast<int>( m_DebugView.DeferredDebug ),
-                                         pointCount, spotCount,
-                                         shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
-                                         frame.JitteredViewProjection );
-                 deferred->DeclareDirectBindings( pass, inputs, lights );
-             },
-             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return deferred->RecordDirect( context ); } );
-        graph.AddPass(
-             "Deferred: Composite", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 deferred->DeclareCompositeBindings( pass, inputs );
-                 DeferredFrameNodes::LoadTarget( pass, target, loads );
-             },
-             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return deferred->Record( context ); } );
+        // A post view mode draws Lit; a G-buffer view writes the sky's texels too (the composite's black).
+        const int debugMode = m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
+                                   ? 0
+                                   : static_cast<int>( m_DebugView.DeferredDebug );
+        // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles): both lighting passes
+        // draw only the 8x8 tiles that hold geometry, a DefaultLit-only tile through the permutation with the
+        // model folded. The Lit view only: a G-buffer view writes the sky's texels too.
+        const bool tiles = m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineTileClassify ) != 0 &&
+                           debugMode == 0 && deferred->TileClassifyReady( shadow );
+        System::DeferredTileLists lists;
+        if ( tiles )
+        {
+            lists = System::DeferredLightingRenderer::CreateTileLists( graph, directDesc.Size.Width,
+                                                                       directDesc.Size.Height );
+            graph.AddPass(
+                 "Deferred: Tile Classify", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     deferred->DeclareClassifyBindings( pass, inputs.GBufferB, inputs.GBufferShadingWord,
+                                                        lists.Buffer );
+                 },
+                 [deferred, grid = lists.Tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return deferred->RecordClassify( context, grid ); } );
+        }
+        const auto fill = [&]()
+        {
+            // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
+            const FrameSun light1 = GetFrameLight1();
+            deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
+                                    frame.InvJitteredViewProjection, debugMode, pointCount, spotCount, shadow,
+                                    compositeGI, m_EnableSSAO, cloudShadow, environment,
+                                    frame.JitteredViewProjection, tiles );
+        };
+        using System::DeferredTileClass;
+        constexpr std::array<DeferredTileClass, 1> kWhole = { DeferredTileClass::Fullscreen };
+        constexpr std::array<DeferredTileClass, 2> kTiled = { DeferredTileClass::Simple, DeferredTileClass::Complex };
+        const std::span<const DeferredTileClass> classes =
+             tiles ? std::span<const DeferredTileClass>( kTiled ) : std::span<const DeferredTileClass>( kWhole );
+        // One pass per list, so each class has its own GPU timing line.
+        constexpr std::array<std::string_view, 3> kDirectNames = { "Deferred: Direct Lighting",
+                                                                   "Deferred: Direct Lighting (Simple Tiles)",
+                                                                   "Deferred: Direct Lighting (Complex Tiles)" };
+        constexpr std::array<std::string_view, 3> kCompositeNames = { "Deferred: Composite",
+                                                                      "Deferred: Composite (Simple Tiles)",
+                                                                      "Deferred: Composite (Complex Tiles)" };
+        const RDG::BufferRef tileBuffer = lists.Buffer;
+        for ( const DeferredTileClass tileClass : classes )
+            graph.AddPass(
+                 kDirectNames[static_cast<std::size_t>( tileClass )], RDG::PassFlags::Raster,
+                 [&, tileClass]( RDG::PassBuilder& pass )
+                 {
+                     if ( tileClass == classes.front() )
+                         fill();
+                     deferred->DeclareDirectBindings( pass, inputs, lights, tileClass, tileBuffer );
+                 },
+                 [deferred, tileClass, tileBuffer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return deferred->RecordDirect( context, tileClass, tileBuffer ); } );
+        for ( const DeferredTileClass tileClass : classes )
+            graph.AddPass(
+                 kCompositeNames[static_cast<std::size_t>( tileClass )], RDG::PassFlags::Raster,
+                 [&, tileClass]( RDG::PassBuilder& pass )
+                 {
+                     deferred->DeclareCompositeBindings( pass, inputs, tileClass, tileBuffer );
+                     DeferredFrameNodes::LoadTarget( pass, target, loads );
+                 },
+                 [deferred, tileClass, tileBuffer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return deferred->Record( context, tileClass, tileBuffer ); } );
     }
 
     bool SceneRenderer::SubsurfaceRuns() const
