@@ -104,6 +104,25 @@ namespace Desert::Runtime
             return m_Entries.find( handle ) != m_Entries.end();
         }
 
+        // WHERE A MESH STANDS, ASKED WITHOUT ASKING FOR IT (UE: the async package's EAsyncLoadingResult::Failed
+        // kept on the request, so a caller does not re-request a package that will not load). Map lookups only:
+        // it neither discovers, requests nor builds — `Get` does those, and a caller asks this after `Get`
+        // answered nullptr to learn whether asking again next frame can change the answer.
+        //   Unknown — no shell on record (never asked, or no content-registry row names the handle);
+        //   Pending — on record, its read (or its rig's) has not landed or the build has not run yet;
+        //   Ready   — built, `Get` answers it;
+        //   Failed  — logged once and not retried. The one curable failure (a skinned mesh waiting on its rig's
+        //             Skeleton row) also reads Failed: what cures it is a content-registry write, so a caller
+        //             keyed on ContentRegistry::WriteSerial asks again exactly when it can succeed.
+        enum class State : uint8_t
+        {
+            Unknown,
+            Pending,
+            Ready,
+            Failed
+        };
+        [[nodiscard]] State StateOf( const Assets::AssetHandle& handle ) const noexcept;
+
         void                Clear();
         std::optional<bool> IsSkinned( const Assets::AssetHandle& handle ) const;
 

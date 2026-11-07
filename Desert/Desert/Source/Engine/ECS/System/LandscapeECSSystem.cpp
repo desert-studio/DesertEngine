@@ -550,9 +550,9 @@ namespace Desert::ECS
         auto*           types         = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
         GrassDrawCache& draws         = m_GrassDraws[rootId];
         const uint64_t  contentSerial = Assets::ContentRegistry::WriteSerial();
-        bool            stale         = !draws.Draw || !draws.Complete ||
-                         draws.MeshRevision != meshes->GetBuiltRevision() ||
-                         draws.MaterialVersion != materials->GetInvalidationVersion();
+        bool            stale         = draws.Generation == 0u || !draws.Complete ||
+                     draws.MeshRevision != meshes->GetBuiltRevision() ||
+                     draws.MaterialVersion != materials->GetInvalidationVersion();
         if ( !draws.TypesResolved || draws.LayerSignature != surface.LayerSignature ||
              draws.ContentSerial != contentSerial )
         {
@@ -579,14 +579,32 @@ namespace Desert::ECS
         }
         if ( stale )
             BuildGrassVarieties( rootId, draws );
-        if ( draws.Draw->Varieties.empty() )
+        if ( draws.Built.Varieties.empty() )
             return;
 
-        // Each frame: the field (a sculpt rebuilds it, not the varieties) and the wind, nothing else. In place
-        // while no command holds the draw; a copy while one does (a frame in flight keeps the draw it was given).
-        if ( draws.Draw.use_count() > 1 )
-            draws.Draw = std::make_shared<Graphic::System::GrassFieldDraw>( *draws.Draw );
-        Graphic::System::GrassFieldDraw& draw = *draws.Draw;
+        // Each frame: the field (a sculpt rebuilds it, not the varieties) and the wind, nothing else, written into
+        // the ring slot no frame in flight holds (GrassDrawSlot). The slots are made on a root's first frames
+        // and refilled (copy assignment over their storage) only after a build.
+        if ( draws.Ring.empty() )
+            draws.Ring.resize( kGrassDrawRing );
+        const size_t   ringSize = draws.Ring.size();
+        GrassDrawSlot* slot     = nullptr;
+        for ( size_t s = 0; s < ringSize && slot == nullptr; ++s )
+        {
+            GrassDrawSlot& candidate = draws.Ring[( m_Frame + s ) % ringSize];
+            if ( !candidate.Draw || candidate.Draw.use_count() == 1 )
+                slot = &candidate;
+        }
+        if ( slot == nullptr )
+            slot = &draws.Ring.emplace_back(); // every slot is in flight: the pipeline is deeper than the ring
+        if ( !slot->Draw )
+            slot->Draw = std::make_shared<Graphic::System::GrassFieldDraw>();
+        Graphic::System::GrassFieldDraw& draw = *slot->Draw;
+        if ( slot->Generation != draws.Generation )
+        {
+            draw             = draws.Built;
+            slot->Generation = draws.Generation;
+        }
         if ( draw.Field != cache.Field )
             draw.Field = cache.Field;
         const glm::vec3 air = ECS::WindAt( registry, root.Origin ).Velocity;
@@ -597,7 +615,7 @@ namespace Desert::ECS
                                                                    glm::vec2( air.x, air.z ), m_WindSeconds,
                                                                    m_PrevWindSeconds );
         }
-        std::shared_ptr<const Graphic::System::GrassFieldDraw> frozen = draws.Draw;
+        std::shared_ptr<const Graphic::System::GrassFieldDraw> frozen = slot->Draw;
         renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( frozen ) );
     }
 
@@ -627,10 +645,10 @@ namespace Desert::ECS
         };
         std::vector<CoverSum> coverSums( grassLayers.size() );
 
-        // Copy on write: a frame in flight may still read the last draw; one no command holds is refilled.
-        if ( !cache.Draw || cache.Draw.use_count() > 1 )
-            cache.Draw = std::make_shared<Graphic::System::GrassFieldDraw>();
-        Graphic::System::GrassFieldDraw& draw = *cache.Draw;
+        // Built is never handed to a frame (the ring slots are, EmitGrass): it is refilled in place, and the new
+        // Generation tells each slot to take it before its next frame.
+        Graphic::System::GrassFieldDraw& draw = cache.Built;
+        ++cache.Generation;
         draw.Root                             = rootId;
         draw.Field                            = m_Grass[rootId].Field;
         draw.Varieties.clear();
@@ -679,8 +697,11 @@ namespace Desert::ECS
                     asset = meshes->GetAsset( handle );
                     if ( mesh == nullptr || asset == nullptr )
                     {
-                        complete = false; // still loading (asked again next frame), or
-                        continue;         // MeshService said why it failed
+                        // Still loading: asked again next frame. Failed (MeshService said why, once) or no row
+                        // names it: not asked again until the content registry or the mesh revision moves the key.
+                        if ( meshes->StateOf( handle ) == Runtime::MeshService::State::Pending )
+                            complete = false;
+                        continue;
                     }
                 }
                 const void* source = blade ? static_cast<const void*>( &ref ) : mesh;

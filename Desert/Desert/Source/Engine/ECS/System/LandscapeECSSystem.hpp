@@ -180,8 +180,19 @@ namespace Desert::ECS
         // the grass data changes only when the landscape, a type or a material does): per root, the varieties as
         // the grass renderer takes them, built once per key and shared with the frame's command by pointer. A
         // frame whose key holds touches no variety: it only writes the wind (MakeInstanceWind of each variety's
-        // response at this frame's air and clock), in place when no command still holds the draw, else into a
-        // copy (copy on write: a frame in flight keeps reading the one it was handed).
+        // response at this frame's air and clock) into one draw of the root's ring.
+        // THE RING (UE: a render proxy's per-frame-in-flight uniform buffers, reused once the GPU frame retires):
+        // the frame's command holds its draw until the frame is done, so a frame writes a slot no command holds -
+        // starting at its frame number modulo the ring - and the ring holds kGrassDrawRing draws (the frames in
+        // flight). A slot whose varieties predate the last build takes Built by copy assignment, which reuses its
+        // storage; nothing is allocated in a frame whose key holds. More frames in flight than slots grows the
+        // ring once (the deeper pipeline is then the steady state), never a copy per frame.
+        static constexpr size_t kGrassDrawRing = 3u;
+        struct GrassDrawSlot
+        {
+            std::shared_ptr<Graphic::System::GrassFieldDraw> Draw;
+            uint64_t Generation = 0u; // GrassDrawCache::Generation it holds
+        };
         struct GrassTypeSlot
         {
             uint32_t Layer    = 0u; // the grass layer's index in the field
@@ -190,11 +201,16 @@ namespace Desert::ECS
         };
         struct GrassDrawCache
         {
-            std::shared_ptr<Graphic::System::GrassFieldDraw> Draw;
-            // Per variety of Draw, the wind response (Strength, Speed, Height) MakeInstanceWind takes.
+            // The varieties as BuildGrassVarieties made them (wind unset); Generation counts its builds (0 =
+            // none).
+            Graphic::System::GrassFieldDraw Built;
+            uint64_t                        Generation = 0u;
+            std::vector<GrassDrawSlot> Ring; // kGrassDrawRing slots, grown only past that many frames in flight
+            // Per variety of Built, the wind response (Strength, Speed, Height) MakeInstanceWind takes.
             std::vector<glm::vec3> WindResponse;
             // The key. Types: re-parsed when the layers or the content registry moved; Complete: every type,
-            // mesh and material was ready (a pending one is asked for again next frame).
+            // mesh and material was ready or failed for good (a pending one is asked for again next frame; a
+            // failed mesh or type is not, until the content registry or its service's revision moves).
             std::vector<GrassTypeSlot>                                        Types;
             uint64_t                                                          LayerSignature  = 0u;
             uint64_t                                                          ContentSerial   = 0u;
