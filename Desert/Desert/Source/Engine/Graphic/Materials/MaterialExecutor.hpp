@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Memory/Buffer.hpp>
 
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
@@ -85,6 +86,12 @@ namespace Desert::Graphic
         std::shared_ptr<StorageBufferProperty> GetStorageBufferProperty( const std::string& name ) const;
         std::shared_ptr<Texture2DProperty>     GetTexture2DProperty( const std::string& name ) const;
         std::shared_ptr<TextureCubeProperty>   GetTextureCubeProperty( const std::string& name ) const;
+
+        // TEX-STREAMING (CPU-STREAM-DEMAND; UE UMaterialInterface::GetUsedTextures, cached per material): the
+        // texture assets this executor's 2D slots bind (Image::GetOwningAsset, unowned images left out), resolved
+        // again only when a 2D slot was written since (Texture2DProperty::GetVersion) - not by name, not per
+        // frame. Any thread; null when no slot binds an asset image.
+        [[nodiscard]] std::shared_ptr<const std::vector<Common::AssetHandle>> GetStreamedTextureAssets() const;
 
         // CPU-MAT-VIEW-UB (UE: FShaderParameter resolves to an index, a draw takes no reference): the property
         // itself, owned by this executor for as long as its properties are not re-initialised - no shared_ptr
@@ -246,5 +253,10 @@ namespace Desert::Graphic
         // GetSceneBlocks: filled by ResolveSceneBlocks at the end of InitializeProperties.
         SceneBlocks m_SceneBlocks;
         void        ResolveSceneBlocks() noexcept;
+
+        // GetStreamedTextureAssets: the list and the newest 2D slot write it was resolved at.
+        mutable std::mutex                                              m_StreamedTexturesLock;
+        mutable uint64_t                                                m_StreamedTexturesVersion = 0;
+        mutable std::shared_ptr<const std::vector<Common::AssetHandle>> m_StreamedTextures;
     };
 } // namespace Desert::Graphic

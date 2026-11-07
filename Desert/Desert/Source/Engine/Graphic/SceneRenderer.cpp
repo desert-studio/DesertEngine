@@ -4088,20 +4088,6 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}", uploaded.GetError() );
     }
 
-    namespace
-    {
-        // TEX-STREAMING: a draw's world bounding sphere (the LOD rule's: box centre, half-diagonal x largest
-        // scale) through @p transform.
-        std::pair<glm::vec3, float> WorldSphere( const Common::Math::AABB& local, const glm::mat4& transform )
-        {
-            const float scale = glm::max(
-                 glm::length( glm::vec3( transform[0] ) ),
-                 glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
-            return { glm::vec3( transform * glm::vec4( 0.5f * ( local.Min + local.Max ), 1.0f ) ),
-                     glm::length( local.Max - local.Min ) * 0.5f * scale };
-        }
-    } // namespace
-
     float SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
                                             const std::span<const Material* const> materials,
                                             const MaterialOverrides*               overrides ) const
@@ -4117,7 +4103,7 @@ namespace Desert::Graphic
         float pixels = 0.0f;
         for ( const glm::mat4& transform : transforms )
         {
-            const auto [center, radius] = WorldSphere( local, transform );
+            const auto [center, radius] = TextureStreamingDemand::WorldSphere( local, transform );
             pixels                      = std::max(
                  pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
         }
@@ -4127,6 +4113,26 @@ namespace Desert::Graphic
         if ( overrides != nullptr )
             for ( const auto& [slot, asset] : overrides->Textures )
                 demand.NoteAsset( Common::AssetHandle( asset ), pixels );
+        return pixels;
+    }
+
+    float SceneRenderer::NoteInstanceFieldDemand( const Mesh&                                          mesh,
+                                                  const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                                  const std::span<const Material* const> materials ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( camera == nullptr || !transforms || transforms->empty() || GetViewExtent().Height == 0 )
+            return 0.0f;
+        const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+        if ( Geometry::IsEmpty( local ) )
+            return 0.0f;
+        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        auto&                   demand = TextureStreamingDemand::Get();
+        // The field's bounds tree, built once per instance snapshot and measured once per view: the nearest
+        // instance's size without walking the instances (CPU-STREAM-DEMAND).
+        const float pixels = demand.FieldScreenPixels( transforms, local, view, GetViewExtent().Height );
+        for ( const Material* material : materials )
+            demand.Note( material, pixels );
         return pixels;
     }
 
@@ -4373,7 +4379,7 @@ namespace Desert::Graphic
             const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
                                               displacedMaterial ? displacedMaterial->GetParentMaterial()
                                                                 : nullptr };
-            NoteTextureDemand( *mesh, *transforms, drawn );
+            NoteInstanceFieldDemand( *mesh, transforms, drawn );
         }
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie

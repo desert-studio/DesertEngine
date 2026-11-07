@@ -620,6 +620,11 @@ namespace Desert::Graphic
         float NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
                                  std::span<const Material* const> materials,
                                  const MaterialOverrides*         overrides = nullptr ) const;
+        /// NoteTextureDemand for an instanced field: the same size, the nearest of @p transforms, measured
+        /// through the field's cached bounds tree (TextureStreamingDemand::FieldScreenPixels).
+        float NoteInstanceFieldDemand( const Mesh&                                          mesh,
+                                       const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                       std::span<const Material* const>                     materials ) const;
 
         void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   uint64_t                                             hiddenSubmeshes,
