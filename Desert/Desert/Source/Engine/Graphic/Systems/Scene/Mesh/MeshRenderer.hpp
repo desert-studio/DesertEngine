@@ -42,6 +42,7 @@
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
+#include <Engine/Graphic/PassNameTable.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/RainOcclusion.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
@@ -290,6 +291,15 @@ namespace Desert::Graphic::System
             // command i's first record is record @p firstRecords[i] of @p arguments, which the node declares
             // Access::IndirectArgs. Until the next Clear.
             void SetIndirect( RDG::BufferRef arguments, std::vector<uint32_t> firstRecords );
+            // The first-record storage handed out empty (CPU-FRAME-ARENA 7): a caller fills it and gives it back
+            // through SetIndirect, so a list kept across frames reuses its capacity instead of a new vector.
+            [[nodiscard]] std::vector<uint32_t> TakeFirstRecords() noexcept
+            {
+                std::vector<uint32_t> records = std::move( m_FirstRecords );
+                m_FirstRecords.clear(); // a moved-from vector is valid but unspecified
+                records.clear();
+                return records;
+            }
             // The GPU-driven mesh pass Record's draws are counted under (DrawCounter::LastFrameMeshPass, DesertCtl
             // `state views.meshPasses`); set once by the owner (MeshRenderer::Initialize), kept across Clear.
             // Unset: a list outside the binned passes (glass, debug, card capture), counted only globally.
@@ -836,7 +846,8 @@ namespace Desert::Graphic::System
         // [.Parallax].Binned.VirtualGeometry` on the VSM caster state), whose vertex stage takes the level's
         // matrix and fragment stage the level's page table from the cluster's view. The carriers are made by
         // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
-        // twin draws (CpuWalkHidden). Returns per group whether its clusters are drawn. A group with clusters
+        // twin draws (CpuWalkHidden). Writes per group whether its clusters are drawn into the caller's @p drawn
+        // (kept by the caller across frames: no vector per frame; left empty when refused). A group with clusters
         // binned and no twin is one of two states, both kept in the CPU walk (no shadow is lost):
         //  - a FALLBACK (UE: a material with no Nanite path renders the fallback mesh - a known state, not an
         //    error) when its template declares no `.VirtualGeometry` twin (DeclaresVirtualGeometryTwin): counted
@@ -845,10 +856,10 @@ namespace Desert::Graphic::System
         //    cell, counted (VsmRefusedGroups; must be 0).
         // Refused without the VSM caster pipelines, a draw command cache or for bins of another group count;
         // nothing is attached then.
-        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
+        [[nodiscard]] Common::BoolResultStr
         SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                   const GpuDriven::DrawCommandBuffers&     upload,
-                                  const GpuDriven::GpuSceneBuffers&        scene );
+                                  const GpuDriven::GpuSceneBuffers& scene, std::vector<uint8_t>& drawn );
         // THE ONE RULE "this submesh of a static entry or an ISM / foliage field would be drawn as clusters in @p
         // pass" (MeshPass::ShadowCascade: a sun cascade's static layer; MeshPass::VirtualShadow: the VSM levels;
         // one rule for both, VIRT-GEOM steps 24-25): bit i of @p words (word i / 64, for EVERY submesh of the mesh
@@ -1208,7 +1219,8 @@ namespace Desert::Graphic::System
         // (IShadowCaster: the terrain). SceneRenderer::AddFrameShadowDepths adds them after the cascades, LOADING
         // the atlas. The cache decision is made here (PlanLocalShadowCache), not in UpdateLocalShadows: a
         // non-mesh caster's draws are resolved after that (TerrainRenderer::PrepareFrame), and its key is theirs.
-        [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
+        // The span views this renderer's kept list (m_LocalShadowPassList): valid until the next call.
+        [[nodiscard]] std::span<const SystemRasterPass> LocalShadowPasses();
 
         // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp): a top-down depth of every caster in a box around
         // the camera, which the wetted surfaces read to stay dry under a roof. The budget comes from the
@@ -1274,7 +1286,8 @@ namespace Desert::Graphic::System
             std::vector<VsmInvalidationBox> MovableBoxes; // every mover instance, now and last frame: merged layer
             bool                            StaticCastersChanged = false;
         };
-        [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
+        // Into the caller's @p result (kept by the caller across frames: no box vectors per frame).
+        void CollectVirtualShadowInvalidation( VirtualShadowInvalidation& result );
         // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over
         // the 16k virtual map): every caster of the level's view (BuildShadowCascadeDraws, kVsmViewBase + l)
         // through the VirtualShadowDepth cells, then the non-mesh casters (IShadowCaster::DeclareVirtualShadow);
@@ -2594,6 +2607,63 @@ namespace Desert::Graphic::System
         // FrontLayerDrawFor's, by `Static.FrontLayer` cell shader (null = refused, said once).
         std::unordered_map<std::string, std::unique_ptr<TranslucentDraw>> m_FrontLayer;
 
+        // A TEMPLATE PROGRAM'S FACTS, RESOLVED ONCE (CPU-FRAME-ARENA 10; UE FMeshPassProcessor: a draw's shaders
+        // are resolved once per material into its cached mesh draw command, and a frame walks typed handles).
+        // Keyed by the template's Shader serial, valid for its code generation and while the shader service's
+        // RecompileGeneration stands (a Register / Recompile / Clear may add or drop a cell, so every row is
+        // forgotten then; BinnedCellFacts' rule). The generic slices, the translucency pass, the front layer and
+        // the "who samples this texture" asks read them: no name, TemplateCellShader, FrontLayerShaderFor or
+        // GetByName per draw per frame. The TranslucentDraw answers point into m_Translucent / m_FrontLayer,
+        // which only ever insert.
+        struct ProgramFacts
+        {
+            uint64_t                CodeGeneration = 0;
+            bool                    Opaque         = false; // no blend, depth written
+            std::shared_ptr<Shader> GBufferCell; // TemplateCellShader( Static, GBuffer ): set = surface override
+            std::shared_ptr<Shader> DepthCell;   // ... ( Static, Depth )
+            std::shared_ptr<Shader> DepthNormalCell;      // ... ( Static, DepthNormal )
+            std::optional<std::string> FrontLayerCell;    // FrontLayerShaderFor( template )
+            std::shared_ptr<Shader>    FrontLayerProgram; // its registered program (null: not registered)
+            // TranslucentDrawFor's answer per m_ForwardVirtualLocal, asked on first use (null = refused, said
+            // once).
+            std::array<TranslucentDraw*, 2> Translucent{};
+            std::array<bool, 2>             TranslucentAsked{};
+            TranslucentDraw*                FrontLayer      = nullptr; // FrontLayerDrawFor( *FrontLayerCell )'s
+            bool                            FrontLayerAsked = false;
+        };
+        // A template program and its facts: what a material or a Shader Override record draws with.
+        struct ResolvedProgram
+        {
+            std::shared_ptr<Shader> Program; // null: no such shader is registered
+            ProgramFacts*           Facts = nullptr;
+        };
+        // A material's template, kept by the material's address with the name it was resolved from: the name is
+        // compared (never hashed or looked up) so a material freed and another built at its address re-resolves.
+        struct MaterialProgramRow
+        {
+            std::string             Name;
+            std::shared_ptr<Shader> Program;
+        };
+        mutable std::unordered_map<uint64_t, ProgramFacts>                        m_ProgramFacts;
+        mutable std::unordered_map<const DataDrivenMaterial*, MaterialProgramRow> m_MaterialPrograms;
+        mutable uint64_t                                                          m_ProgramFactsRegistry = 0;
+        mutable bool                                                              m_ProgramFactsValid    = false;
+        // Every m_GenericQueue record's template program, resolved once a frame (the first ask after the queue
+        // changed): a slot draw's through m_MaterialPrograms (no name asked), a Shader Override's by its name.
+        mutable std::vector<ResolvedProgram> m_GenericPrograms;
+        mutable bool                         m_GenericProgramsResolved = false;
+        // Forgets every row when the shader service's RecompileGeneration moved.
+        void SyncProgramFacts() const;
+        // @p shader's facts (made on the first ask of its serial at its code generation).
+        ProgramFacts& FactsOf( const Shader& shader ) const;
+        // @p material's template program and facts (its name resolved once, see MaterialProgramRow).
+        ResolvedProgram ProgramOf( const DataDrivenMaterial& material ) const;
+        // m_GenericQueue entry @p index's (a non-DataDriven slot material resolves to none).
+        const ResolvedProgram& GenericProgramOf( std::size_t index ) const;
+        // The translucency pass's / the front layer's draw state of @p mat's (non-null) template, by its facts.
+        TranslucentDraw* TranslucentDrawOf( const DataDrivenMaterial* mat );
+        TranslucentDraw* FrontLayerDrawOf( const DataDrivenMaterial* mat );
+
         // (Static x GBuffer) for meshes whose FORWARD material is not one MaterialService owns — in
         // practice only MeshECSSystem's default material, which stands in for a mesh whose slot did not
         // resolve. It has no `.demat`, so it has no sibling in any other pass, and the deferred pass
@@ -2822,7 +2892,7 @@ namespace Desert::Graphic::System
         // is redrawn; Movable (a sun level's movers) the merged layer of every drawn page.
         [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode(
              RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
-             uint32_t level, uint32_t view, ShadowCasterLayer layer, uint32_t resolution, std::string name,
+             uint32_t level, uint32_t view, ShadowCasterLayer layer, uint32_t resolution, std::string_view name,
              MeshRendererDetail::MeshDrawList& draws, std::vector<VsmCasterEntry>& casters );
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
@@ -2853,8 +2923,75 @@ namespace Desert::Graphic::System
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_VsmKeySnapshots;
         // Per still ISM (by its signature): what each instance cast last frame, 0 = faded out by its cull
         // distance, else 1 + its LOD - both follow the main camera, and an instance whose state changed redraws
-        // the pages under it.
-        std::unordered_map<uint64_t, std::vector<uint32_t>> m_VsmIsmStates;
+        // the pages under it. Kept in place (CPU-FRAME-ARENA 7): a row is stamped with the collect that wrote it
+        // (m_VsmIsmCollect), compared only when the previous collect wrote it, and erased when a collect does not
+        // name it, so a still field's vector keeps its capacity instead of a new map + vector per frame.
+        struct VsmIsmStateRow
+        {
+            std::vector<uint32_t> States;
+            uint64_t              Collect = 0;
+        };
+        std::unordered_map<uint64_t, VsmIsmStateRow> m_VsmIsmStates;
+        uint64_t                                     m_VsmIsmCollect = 0;
+        // CollectVirtualShadowInvalidation's working lists, the other half of the kept ones (m_VsmStillCasters,
+        // m_VsmMovingBoxes, m_VsmKeySnapshots, m_VsmStaticStill.Entries are swapped with them at the end, so both
+        // halves keep their capacity; UE FMemStack-style frame scratch with no allocation once warm). Empty
+        // between collects; the collect runs on the render thread alone.
+        struct VsmCollectScratch
+        {
+            std::vector<ShadowCasterEntry>                             Still;
+            std::vector<ShadowCasterEntry>                             Fresh;
+            std::vector<ShadowCasterEntry>                             Others;
+            std::vector<VsmInvalidationBox>                            Moving;
+            std::vector<VsmInvalidationBox>                            NowSorted;
+            std::vector<std::shared_ptr<const std::vector<glm::mat4>>> Snapshots;
+            std::vector<uint32_t>                                      States;
+        };
+        VsmCollectScratch m_VsmCollectScratch;
+        // The VSM frame's other kept working storage (render thread, one user at a time):
+        // ResetVirtualShadowGeometry rotates the carried list through m_VsmCarriedScratch (empty between frames);
+        // SetVirtualShadowGeometry's per-group fallback marks; AddVirtualShadowRasterNode's cull lists (copied
+        // into the graph's uploads by AddCasterCulling at the call) and one non-mesh caster's draws.
+        std::vector<const GraphicsPipeline*> m_VsmCarriedScratch;
+        std::vector<uint8_t>                 m_VsmFallbackScratch;
+        VsmCasterCull                        m_VsmCasterCullScratch;
+        std::vector<VirtualShadowCasterDraw> m_VsmCasterDrawsScratch;
+        // The VSM raster nodes' names (PassNameTable, made once): the sun's per clipmap level [still, movable],
+        // and the local mips' per raster index, keyed by (light, view, mip) so a row is formatted again only when
+        // the raster at that index changes.
+        std::array<PassNameTable, 2> m_VsmRasterNames;
+        PassNameTable                m_VsmLocalRasterNames;
+        // SetVirtualShadowGeometry's answer per group cell (CPU-FRAME-ARENA 8), so a frame asks no name of a
+        // group: keyed by the group pipeline's Shader serial, valid for that shader's code generation and while
+        // the shader service's RecompileGeneration stands (a Register / Recompile / Clear may add or drop the
+        // `.VirtualGeometry` twin DeclaresVirtualGeometryTwin looks up, so every row is forgotten then).
+        enum class VsmCellClass : uint8_t
+        {
+            NoPermutation, // not a Static / Instanced binned cell: holds no clusters
+            Fallback,      // its template declares no `.VirtualGeometry` twin
+            Twin,          // declares the twin: a group of it without a VG pipeline is a held refusal
+        };
+        // CPU-FRAME-ARENA 9: the row is every pass's answer about a cell (ResolveVirtualGeometryPipeline,
+        // SetFrameVirtualGeometry, the VSM carriers), made once by BinnedCellFacts: no name, MeshCellPath or
+        // GetByName per call or per group per frame.
+        struct VsmCellRow
+        {
+            uint64_t     CodeGeneration = 0;
+            VsmCellClass Class          = VsmCellClass::NoPermutation;
+            bool         Binned         = false; // IsBinnedCell( name )
+            bool         DeclaresTwin   = false; // DeclaresVirtualGeometryTwin( name ), whatever the path
+            bool         RefusalSaid    = false; // m_BinnedRefused asked for "<cell>|vsm-vg" already
+            bool         VgRefusalSaid  = false; // ... for "<cell>|vg" (SetFrameVirtualGeometry)
+            bool         CarrierSaid    = false; // ... for "<cell>|vsm-vg-carrier" (a refused VSM carrier)
+            std::string  TwinCell;               // VirtualGeometryCellOf( name ), when Class == Twin
+        };
+        std::unordered_map<uint64_t, VsmCellRow> m_VsmCellClasses;
+        uint64_t                                 m_VsmCellClassesRegistry = 0;
+        bool                                     m_VsmCellClassesValid    = false;
+        // @p shader's row of m_VsmCellClasses, made (its name read, MeshCellPath / DeclaresVirtualGeometryTwin
+        // asked) only for a shader not met at this code generation since the shader service last moved
+        // (RecompileGeneration: a Register / Recompile / Clear forgets every row).
+        VsmCellRow& BinnedCellFacts( const Shader& shader );
         // A masked caster's pipeline was still compiling when a level was drawn (BuildShadowCascadeDraws).
         bool m_VsmCastersPending = false;
 
@@ -2918,6 +3055,25 @@ namespace Desert::Graphic::System
             AtlasTile Tile;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
+        // What each shadowed local light asks UpdateLocalShadows for (a tile size from its screen size): the
+        // per-call list, kept so its storage survives the frame (cleared and refilled each call).
+        struct LocalShadowRequest
+        {
+            uint64_t                        Key          = 0;
+            bool                            Spot         = false;
+            std::size_t                     Index        = 0;
+            uint32_t                        Size         = 0;
+            float                           ScreenRadius = 0.0f;
+            float                           Distance     = 0.0f; // from the eye to the light, cm
+            const LocalLightShadowSettings* Settings     = nullptr;
+        };
+        std::vector<LocalShadowRequest> m_LocalShadowRequests;
+        // LocalShadowPasses' output, kept: the first m_LocalShadowPassCount entries are this frame's passes, the
+        // ones past it are cleared (no captured atlas). Names come from m_LocalShadowPassNames, one per slot, made
+        // once ("MeshShadowLocal<slot>") and copied into the kept pass's string (its capacity reused).
+        std::vector<SystemRasterPass> m_LocalShadowPassList;
+        std::size_t                   m_LocalShadowPassCount = 0;
+        std::vector<std::string>      m_LocalShadowPassNames;
         // What PlanLocalShadowCache decides from: each light given views this frame, where it reaches.
         struct LocalShadowCachePlan
         {
@@ -3051,10 +3207,21 @@ namespace Desert::Graphic::System
                                                                         const DataDrivenMaterial& cell,
                                                                         bool                      twoSided,
                                                                         const GraphicsPipeline*   standIn );
-        // The same choice for a pipeline the caller already holds (the glass pass's per-cell pipelines); @p key
-        // names it in the tracker and the log.
-        [[nodiscard]] MaterialPipelineTracker::CellDraw
-        ChoosePipelineDraw( const GraphicsPipeline* own, const std::string& key, const GraphicsPipeline* standIn );
+        // A cell whose own pipeline was refused (null): what names it in the tracker (CellKey) and the log.
+        struct RefusedCell
+        {
+            const GraphicsPipeline*   PassState = nullptr;
+            const DataDrivenMaterial* Cell      = nullptr;
+            bool                      TwoSided  = false;
+        };
+        // The same choice for a pipeline the caller already holds (the glass pass's per-cell pipelines); @p own
+        // itself is its tracker key (CellKey::Pipeline), @p refused only when @p own is null ({} else).
+        [[nodiscard]] MaterialPipelineTracker::CellDraw ChoosePipelineDraw( const GraphicsPipeline* own,
+                                                                            const GraphicsPipeline* standIn,
+                                                                            const RefusedCell&      refused );
+        // The log line's name of a cell: its pipeline's DebugName, or "<pass state> <cell shader>[_TwoSided]" when
+        // refused. Built only when a line is logged, never per draw.
+        [[nodiscard]] static std::string CellLogName( const GraphicsPipeline* own, const RefusedCell& refused );
         // The default surface's cell of (@p path x @p pass) as a RECORDING material of its own: its Materials[]
         // rows, per-frame blocks and (skinned) bones are written once per pass by the objects standing in, never
         // shared with the renderer's spare materials, whose buffers other groups fill in the same pass.
@@ -3500,6 +3667,16 @@ namespace Desert::Graphic::System
         // BoneOffset push constant. ONE buffer per material per pass instead of one upload per draw,
         // which is what makes a shared skinned material correct — see Material::SetSkinnedBoneOffset.
         std::vector<glm::mat4>                   m_ScratchBones;
+        // The sun cascade's opaque skinned casters of one cascade (RenderShadowCascade), kept for capacity:
+        // the opaque sections of an entry are ONE depth draw over one copy of its pose.
+        struct OpaqueSkinnedCaster
+        {
+            const SkinnedMeshRenderData* Data       = nullptr;
+            uint32_t                     BoneOffset = 0;
+            uint64_t                     Hidden     = 0;
+            std::size_t                  Index      = 0; // into m_SkinnedQueue
+        };
+        std::vector<OpaqueSkinnedCaster> m_ScratchOpaqueSkinnedCasters;
         std::vector<glm::mat4>      m_ScratchInstTransforms; // geometry + shadow instanced SSBOs
         // Per-batch LOD levels and the surviving ISM transforms. Members rather than locals for the
         // reason every accumulator in this file is one: their capacity persists, so a frame that culls
@@ -3668,6 +3845,36 @@ namespace Desert::Graphic::System
                     list.assign( group.second.begin(), group.second.end() );
                     into.emplace_back( group.first, std::move( list ) );
                 }
+            }
+            // THE SKINNED PATH'S GROUPS, kept across calls as the static ones (CPU-FRAME-ARENA 6):
+            // BuildSkinnedDraws recycles them on entry, so a group's (or the stand-in's) section list keeps its
+            // capacity. The unit is a SECTION of an entry (its own material, masked to its own submeshes).
+            struct SkinnedSectionRef
+            {
+                const SkinnedMeshRenderData* Obj     = nullptr;
+                const SkinnedSection*        Section = nullptr;
+            };
+            using SkinnedGroup = std::pair<DataDrivenMaterial*, std::vector<SkinnedSectionRef>>;
+            std::vector<SkinnedGroup>                   SkinnedGroups;
+            std::vector<std::vector<SkinnedSectionRef>> SpareSkinnedLists;
+            void                                        RecycleSkinnedGroups() noexcept
+            {
+                for ( SkinnedGroup& group : SkinnedGroups )
+                    GiveSkinnedList( std::move( group.second ) );
+                SkinnedGroups.clear();
+            }
+            void GiveSkinnedList( std::vector<SkinnedSectionRef>&& list ) noexcept
+            {
+                list.clear();
+                SpareSkinnedLists.push_back( std::move( list ) );
+            }
+            [[nodiscard]] std::vector<SkinnedSectionRef> TakeSkinnedList() noexcept
+            {
+                if ( SpareSkinnedLists.empty() )
+                    return {};
+                std::vector<SkinnedSectionRef> list = std::move( SpareSkinnedLists.back() );
+                SpareSkinnedLists.pop_back();
+                return list;
             }
             // ONE CHUNK OF THE STATIC WALK (BuildStaticDraws: one setup task each, WalkStaticChunk), reused by
             // index so its vectors keep their capacity: its groups in first-seen order (GroupCount of Groups in
@@ -3948,8 +4155,27 @@ namespace Desert::Graphic::System
         };
         std::vector<std::unique_ptr<MaskedCasterSet>> m_ScratchMaskedSets;
         std::vector<MaskedCasterDraw>                 m_ScratchMaskedDraws;
-        std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
-                                                                  m_MaskedCasterPipelines; // null = refused
+        // A masked caster's pipeline by IDENTITY (CPU-FRAME-ARENA 6, no name formatted per call): the cell
+        // program (Shader::GetSerial - one object per permutation, so strictly finer than name # variant hash)
+        // x the shared caster state set it was built over (CasterPipelinesOf: its Static member names the set).
+        struct MaskedCasterKey
+        {
+            uint64_t                Program = 0;
+            const GraphicsPipeline* Casters = nullptr;
+
+            bool operator==( const MaskedCasterKey& ) const = default;
+        };
+        struct MaskedCasterKeyHash
+        {
+            size_t operator()( const MaskedCasterKey& key ) const noexcept
+            {
+                const size_t seed = std::hash<uint64_t>{}( key.Program );
+                return seed ^ ( std::hash<const void*>{}( key.Casters ) + 0x9e3779b97f4a7c15ull + ( seed << 6 ) +
+                                ( seed >> 2 ) );
+            }
+        };
+        std::unordered_map<MaskedCasterKey, std::shared_ptr<GraphicsPipeline>, MaskedCasterKeyHash>
+                                                 m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<DataDrivenMaterial*>         m_ScratchGenericRecorders; // distinct recording materials
         float                                                     m_WorldTimeSeconds = 0.0f;

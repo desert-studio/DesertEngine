@@ -26,6 +26,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
@@ -231,6 +232,7 @@ namespace Desert::Graphic::System
         m_StaticQueue.clear();
         m_SkinnedQueue.clear();
         m_GenericQueue.clear();
+        m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         m_InstancedQueue.clear();
         m_GpuInstancedQueue.clear();
         // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
@@ -276,7 +278,10 @@ namespace Desert::Graphic::System
         // Two valid shapes: an override draw (ShaderName set) or a per-slot draw (SlotMaterial
         // set — the shader name comes from the material at draw time).
         if ( data.Mesh && ( !data.ShaderName.empty() || data.SlotMaterial ) )
+        {
             m_GenericQueue.push_back( data );
+            m_GenericProgramsResolved = false;
+        }
     }
 
     void MeshRenderer::SubmitInstancedMesh( const InstancedMeshRenderData& data )
@@ -1210,17 +1215,15 @@ namespace Desert::Graphic::System
         // twins (Forward.Binned, DepthNormal.Binned: ResolveGenericProgramBinned), and casts through the shared
         // caster.
         {
-            auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
-            const auto  isRegistered = [shaders]( std::string_view name )
-            { return shaders->GetByName( std::string( name ) ) != nullptr; };
-            for ( const auto& g : m_GenericQueue )
+            for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
             {
+                const GenericMeshRenderData& g = m_GenericQueue[gi];
                 if ( g.Mesh == nullptr || !g.MaterialRow )
                     continue;
-                const bool surfaceOverride =
-                     g.SlotMaterial == nullptr &&
-                     TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
-                          .has_value();
+                // The record's template facts (GenericProgramOf, resolved once a frame): no cell name asked here.
+                const ResolvedProgram& resolved = GenericProgramOf( gi );
+                const bool             surfaceOverride = g.SlotMaterial == nullptr && resolved.Facts != nullptr &&
+                                                         resolved.Facts->GBufferCell != nullptr;
                 claim( g.GpuPrimitive, g.Mesh, MeshVertexPath::Static, g.GpuInstance, 1, ~g.VisibleSubmeshMask,
                        *g.MaterialRow, g.MaterialSurface, true, !surfaceOverride );
             }
@@ -1423,8 +1426,15 @@ namespace Desert::Graphic::System
                 // The binning still places a VG cluster of this group here: it is not drawn. A template without
                 // the permutation is a fallback (its meshes draw through the bins), not an error: said only for a
                 // twin the template declares.
-                const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
-                if ( DeclaresVirtualGeometryTwin( cell ) && m_BinnedRefused.insert( cell + "|vg" ).second )
+                // The cell's facts (BinnedCellFacts): said once per twin-declaring cell, no name per frame.
+                const std::shared_ptr<Shader>& groupShader = indirect.Pipeline->GetSpecification().Shader;
+                if ( !groupShader )
+                    continue;
+                VsmCellRow& facts = BinnedCellFacts( *groupShader );
+                if ( !facts.DeclaresTwin || std::exchange( facts.VgRefusalSaid, true ) )
+                    continue;
+                if ( const std::string cell = groupShader->GetName();
+                     m_BinnedRefused.insert( cell + "|vg" ).second )
                     LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` pipeline (no such cell, or it is "
                               "compiling): virtual-geometry clusters drawn with it are not rastered",
                               cell );
@@ -1447,17 +1457,49 @@ namespace Desert::Graphic::System
              pass != GpuDriven::MeshPass::ShadowCascade && pass != GpuDriven::MeshPass::VirtualShadow )
             return nullptr;
         const std::shared_ptr<Shader>& shader = group.GetSpecification().Shader;
-        if ( !shader || !IsBinnedCell( shader->GetName() ) )
+        if ( !shader )
             return nullptr;
-        // Static and Instanced (an ISM's group: its clusters are its instances', UE Nanite ISM).
-        if ( const auto path = MeshCellPath( shader->GetName() );
-             !path || !HasVirtualGeometryPermutation( *path ) )
-            return nullptr;
-        // A template without the permutation is a fallback (DeclaresVirtualGeometryTwin), not an error here.
-        if ( !DeclaresVirtualGeometryTwin( shader->GetName() ) )
+        // The cell's facts, made once (BinnedCellFacts): a `.Binned` cell of Static or Instanced (an ISM's group:
+        // its clusters are its instances', UE Nanite ISM) whose template declares the twin. A template without
+        // the permutation is a fallback (DeclaresVirtualGeometryTwin), not an error here.
+        const VsmCellRow& facts = BinnedCellFacts( *shader );
+        if ( !facts.Binned || facts.Class != VsmCellClass::Twin )
             return nullptr;
         // The group's own state (its two-sided cull mode included), the cell swapped.
-        return BinnedCellPipeline( VirtualGeometryCellOf( shader->GetName() ), &group, false );
+        return BinnedCellPipeline( facts.TwinCell, &group, false );
+    }
+
+    MeshRenderer::VsmCellRow& MeshRenderer::BinnedCellFacts( const Shader& shader )
+    {
+        const uint64_t registry = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
+        if ( !m_VsmCellClassesValid || m_VsmCellClassesRegistry != registry )
+        {
+            m_VsmCellClasses.clear();
+            m_VsmCellClassesRegistry = registry;
+            m_VsmCellClassesValid    = true;
+        }
+        const uint64_t code = shader.GetCodeGeneration();
+        auto [row, fresh]   = m_VsmCellClasses.try_emplace( shader.GetSerial() );
+        VsmCellRow& facts   = row->second;
+        if ( !fresh && facts.CodeGeneration == code )
+            return facts;
+        const std::string cell = shader.GetName();
+        facts                  = VsmCellRow{ .CodeGeneration = code };
+        facts.Binned           = IsBinnedCell( cell );
+        // Only a cell of a path with the VG permutation (Static, Instanced) can hold clusters. The template with
+        // no `.VirtualGeometry` permutation is the fallback (UE: no Nanite path -> the fallback mesh), a known
+        // state.
+        facts.DeclaresTwin = DeclaresVirtualGeometryTwin( cell );
+        if ( const auto path = MeshCellPath( cell ); !path || !HasVirtualGeometryPermutation( *path ) )
+            facts.Class = VsmCellClass::NoPermutation;
+        else if ( !facts.DeclaresTwin )
+            facts.Class = VsmCellClass::Fallback;
+        else
+        {
+            facts.Class    = VsmCellClass::Twin;
+            facts.TwinCell = VirtualGeometryCellOf( cell );
+        }
+        return facts;
     }
 
     bool MeshRenderer::DeclaresVirtualGeometryTwin( const std::string& binnedCell )

@@ -246,9 +246,10 @@ namespace Desert::Graphic::VirtualGeometry
         void BeginFrame( uint64_t frameIndex );
         // Hands this frame's cut @p culled of @p kind. @p bins: its raster's bins when the pass drew them, with
         // @p drawnGroups (one flag per group of bins: the pass drew that group's clusters); null = drew nothing.
-        // A VirtualShadow cut's bins carry GroupViewCounts (AddRasterBinning countViews = levels).
+        // A VirtualShadow cut's bins carry GroupViewCounts (AddRasterBinning countViews = levels). The flags are
+        // copied into the slot's kept entry (CPU-FRAME-ARENA 8: no vector handed over per cut per frame).
         void Add( RDG::Builder& graph, ClusterCutKind kind, const ClusterCullResult& culled,
-                  const RasterBins* bins, std::vector<uint8_t> drawnGroups );
+                  const RasterBins* bins, std::span<const uint8_t> drawnGroups );
         // A frame with no cut: nothing is handed, and the counts read so far are forgotten.
         void                                 Forget();
         [[nodiscard]] const ClusterCutCount& LastCount() const
@@ -267,15 +268,21 @@ namespace Desert::Graphic::VirtualGeometry
             uint32_t             CountViews = 0;
             std::vector<uint8_t> DrawnGroups;
         };
+        // Entries[0..Used) are this slot's frame; the ones past it keep their DrawnGroups storage for the next
+        // frame the slot comes round (BeginFrame releases their buffers, never the vectors).
         struct Slot
         {
             std::vector<Entry> Entries;
+            size_t             Used = 0;
         };
         void Count( const Slot& slot );
 
         std::vector<Slot> m_Slots;
         Slot*             m_Current = nullptr; // this frame's slot (BeginFrame)
         ClusterCutCount   m_Last;
+        // Count's kept working storage: the per-level sums and the other half of m_Last.VsmClustersDrawn.
+        std::vector<uint64_t> m_LevelSums;
+        std::vector<uint32_t> m_CountLevels;
         std::string       m_LastError; // logged once per message
     };
 } // namespace Desert::Graphic::VirtualGeometry

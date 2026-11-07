@@ -14,11 +14,13 @@
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <algorithm>
 #include <bit>
 #include <format>
 #include <tuple>
+#include <iterator>
 #include <utility>
 
 namespace
@@ -179,9 +181,12 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    MeshRenderer::VirtualShadowInvalidation MeshRenderer::CollectVirtualShadowInvalidation()
+    void MeshRenderer::CollectVirtualShadowInvalidation( VirtualShadowInvalidation& result )
     {
-        VirtualShadowInvalidation result;
+        // The caller's kept lists (CPU-FRAME-ARENA 8): refilled in place, their capacity kept across frames.
+        result.Boxes.clear();
+        result.MovableBoxes.clear();
+        result.StaticCastersChanged = false;
         // The pages drawn last frame lack a masked caster whose pipeline was still compiling: drop them all.
         result.StaticCastersChanged = std::exchange( m_VsmCastersPending, false );
         // Every caster's box, LOD and kept instances are this frame's gather (GatherShadowCasters), the ones the
@@ -191,7 +196,7 @@ namespace Desert::Graphic::System
             LOG_ERROR( "[Shadows] virtual shadow pages invalidated from casters gathered for other mesh queues (a "
                        "queue changed after MeshRenderer::GatherShadowCasters); every cached page drops." );
             result.StaticCastersChanged = true;
-            return result;
+            return;
         }
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
 
@@ -212,8 +217,11 @@ namespace Desert::Graphic::System
             const VsmInvalidationBox box = boxOf();
             into.push_back( { .Signature = signature, .Min = box.Min, .Max = box.Max } );
         };
-        // The ISM fields and the non-mesh casters, against last frame's (m_VsmStillCasters).
-        std::vector<ShadowCasterEntry> still;
+        // The ISM fields and the non-mesh casters, against last frame's (m_VsmStillCasters). Into the persistent
+        // other half (m_VsmCollectScratch, swapped in at the end), so no list is allocated per frame.
+        VsmCollectScratch&              scratch = m_VsmCollectScratch;
+        std::vector<ShadowCasterEntry>& still   = scratch.Still;
+        still.clear();
         still.reserve( m_VsmStillCasters.size() );
         const auto addStill = [this, &still, &addFrom]( const uint64_t signature, const auto& boxOf )
         { addFrom( still, m_VsmStillCasters, signature, boxOf ); };
@@ -273,7 +281,8 @@ namespace Desert::Graphic::System
              staticPart.LodKey != gathered.StaticLodKey || staticPart.Carriers != m_VsmCarriedTwinsRevision ||
              staticPart.VgUploads != vgUploads || staticPart.VgTable != vgTable )
         {
-            std::vector<ShadowCasterEntry> fresh;
+            std::vector<ShadowCasterEntry>& fresh = scratch.Fresh;
+            fresh.clear();
             fresh.reserve( staticPart.Entries.size() );
             const auto addStatic = [&fresh, &staticPart, &addFrom]( const uint64_t signature, const auto& boxOf )
             { addFrom( fresh, staticPart.Entries, signature, boxOf ); };
@@ -324,7 +333,8 @@ namespace Desert::Graphic::System
             }
             std::sort( fresh.begin(), fresh.end(), bySignature );
             diffInto( staticPart.Entries, fresh );
-            staticPart.Entries   = std::move( fresh );
+            staticPart.Entries.swap( fresh ); // the old entries' storage becomes next time's scratch
+            fresh.clear();
             staticPart.Valid     = tracked;
             staticPart.Revision  = m_StaticCasters.Revision;
             staticPart.LodKey    = gathered.StaticLodKey;
@@ -335,9 +345,13 @@ namespace Desert::Graphic::System
 
         // THE CASTERS THAT MOVE BY THEMSELVES (swaying foliage, skinned meshes): their box now; last frame's box
         // is added below, so the pages they left are redrawn too.
-        std::vector<VsmInvalidationBox>                            moving;
-        std::vector<std::shared_ptr<const std::vector<glm::mat4>>> snapshots;
-        std::unordered_map<uint64_t, std::vector<uint32_t>>        ismStates;
+        std::vector<VsmInvalidationBox>&                            moving    = scratch.Moving;
+        std::vector<std::shared_ptr<const std::vector<glm::mat4>>>& snapshots = scratch.Snapshots;
+        moving.clear();
+        snapshots.clear();
+        // The ISM states are kept in place (rows by signature, stamped with the collect they were seen in): a
+        // field's vector keeps its capacity, and only a row no field named this time is erased below.
+        const uint64_t collect = ++m_VsmIsmCollect;
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
@@ -382,19 +396,25 @@ namespace Desert::Graphic::System
             // instance's own invalidation, not its component's), its padded box: a mover coming to rest leaves its
             // sway's pages.
             const uint32_t        maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
-            std::vector<uint32_t> states( ism.Transforms->size(), 0u );
+            std::vector<uint32_t>& states   = scratch.States;
+            states.assign( ism.Transforms->size(), 0u );
             for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
                 if ( !gathered.Instances[k].Sways )
                     states[gathered.InstanceIndex[k]] = 1u + std::min( gathered.Instances[k].LodLevel, maxLevel );
-            if ( const auto before = m_VsmIsmStates.find( hash.Value );
-                 before != m_VsmIsmStates.end() && before->second.size() == states.size() )
+            // Compared against the row only when the previous collect wrote it (as the old per-frame map held the
+            // previous collect's rows alone); a row older than that is stale and is overwritten silently.
+            VsmIsmStateRow& row = m_VsmIsmStates[hash.Value];
+            if ( row.Collect + 1u == collect && row.States.size() == states.size() )
             {
                 for ( size_t i = 0; i < states.size(); ++i )
-                    if ( before->second[i] != states[i] )
+                    if ( row.States[i] != states[i] )
                         result.Boxes.push_back( WorldBox( local, ( *ism.Transforms )[i], WindBoundsPad( ism.Wind ) ) );
             }
-            ismStates.insert_or_assign( hash.Value, std::move( states ) );
+            row.States.assign( states.begin(), states.end() );
+            row.Collect = collect;
         }
+        std::erase_if( m_VsmIsmStates,
+                       [collect]( const auto& entry ) { return entry.second.Collect != collect; } );
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
@@ -405,7 +425,8 @@ namespace Desert::Graphic::System
         }
 
         // The casters that are not meshes (the terrain) say what they draw themselves.
-        std::vector<ShadowCasterEntry> others;
+        std::vector<ShadowCasterEntry>& others = scratch.Others;
+        others.clear();
         for ( const auto& weak : m_ShadowCasters )
             if ( const auto caster = weak.lock() )
                 caster->AppendVirtualShadowEntries( others );
@@ -422,18 +443,25 @@ namespace Desert::Graphic::System
             return std::tie( a.Min.x, a.Min.y, a.Min.z, a.Max.x, a.Max.y, a.Max.z ) <
                    std::tie( b.Min.x, b.Min.y, b.Min.z, b.Max.x, b.Max.y, b.Max.z );
         };
-        std::vector<VsmInvalidationBox> nowSorted = moving;
+        std::vector<VsmInvalidationBox>& nowSorted = scratch.NowSorted;
+        nowSorted.assign( moving.begin(), moving.end() );
         std::sort( nowSorted.begin(), nowSorted.end(), boxLess );
-        result.MovableBoxes = moving;
+        result.MovableBoxes.assign( moving.begin(), moving.end() );
         for ( const VsmInvalidationBox& old : m_VsmMovingBoxes )
             if ( !std::binary_search( nowSorted.begin(), nowSorted.end(), old, boxLess ) )
                 result.MovableBoxes.push_back( old );
 
-        m_VsmStillCasters = std::move( still );
-        m_VsmMovingBoxes  = std::move( moving );
-        m_VsmKeySnapshots = std::move( snapshots );
-        m_VsmIsmStates    = std::move( ismStates );
-        return result;
+        // This frame's lists become the kept state; last frame's storage becomes next frame's scratch (cleared
+        // here, so the old snapshots are released only after the new ones are held).
+        m_VsmStillCasters.swap( still );
+        m_VsmMovingBoxes.swap( moving );
+        m_VsmKeySnapshots.swap( snapshots );
+        still.clear();
+        moving.clear();
+        snapshots.clear();
+        others.clear();
+        nowSorted.clear();
+        scratch.States.clear();
     }
 
     uint32_t MeshRenderer::CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const
@@ -442,8 +470,10 @@ namespace Desert::Graphic::System
         // (its m_FieldPrimitives row), each VG submesh it shows that the VirtualShadow table bins at lod 0 into a
         // fallback group - the lookup ClusterableSubmeshes reads its twin through, so clustered, fallback and
         // refused partition an entry's VG submeshes.
-        uint32_t   count   = 0;
-        const auto countOf =
+        uint32_t count = 0;
+        // One kept list per thread (this is const), filled per mesh without an allocation once warm.
+        thread_local std::vector<VirtualGeometry::VirtualMeshDagSpan> spans;
+        const auto                                                    countOf =
              [&]( const Desert::Mesh* mesh, const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden )
         {
             if ( mesh == nullptr )
@@ -453,8 +483,8 @@ namespace Desert::Graphic::System
                 return;
             const std::size_t submeshes = mesh->GetSubmeshes().size();
             const SubmeshMask own{ hidden };
-            for ( const VirtualGeometry::VirtualMeshDagSpan& span :
-                  VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
+            VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index(), spans );
+            for ( const VirtualGeometry::VirtualMeshDagSpan& span : spans )
             {
                 if ( span.Submesh >= submeshes || own.Hides( span.Submesh ) )
                     continue;
@@ -488,8 +518,9 @@ namespace Desert::Graphic::System
             return;
         // No uploaded DAG rows: no candidate this frame (MakeVirtualGeometryCandidates reads the same spans), so
         // not a VG primitive - words stay empty.
-        const std::vector<VirtualGeometry::VirtualMeshDagSpan> spans =
-             VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() );
+        // Into a per-thread kept list (this is const and may run from several gather tasks): no copy per mesh.
+        thread_local std::vector<VirtualGeometry::VirtualMeshDagSpan> spans;
+        VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index(), spans );
         if ( spans.empty() )
             return;
         const std::size_t submeshes = mesh->GetSubmeshes().size();
@@ -629,14 +660,18 @@ namespace Desert::Graphic::System
     {
         // Only a recorded raster's carrier outcome is what last frame's pages hold
         // (CollectVirtualShadowInvalidation).
-        std::vector<const GraphicsPipeline*> carried;
+        // The three lists rotate their storage (m_VsmCarriedScratch is empty between frames), so none is
+        // allocated per frame once warm.
+        std::vector<const GraphicsPipeline*>& carried = m_VsmCarriedScratch;
+        carried.clear();
         if ( std::exchange( m_VsmClusteredThisFrame, false ) )
-            carried = std::move( m_VsmCarriedTwins );
+            carried.swap( m_VsmCarriedTwins );
         // The page cache's kept static part is keyed by the outcome (m_VsmCarriedTwinsRevision): a set other than
         // the one before moves it (both sorted and unique, AddVirtualShadowRasterPasses).
         if ( carried != m_VsmCarriedTwinsLastFrame )
             ++m_VsmCarriedTwinsRevision;
-        m_VsmCarriedTwinsLastFrame = std::move( carried );
+        m_VsmCarriedTwinsLastFrame.swap( carried );
+        carried.clear();
         m_VsmCarriedTwins.clear();
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;
@@ -644,29 +679,30 @@ namespace Desert::Graphic::System
         m_ClusterWalkWords.clear();
     }
 
-    Common::ResultStr<std::vector<uint8_t>>
-    MeshRenderer::SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
-                                            const GpuDriven::DrawCommandBuffers&     upload,
-                                            const GpuDriven::GpuSceneBuffers&        scene )
+    Common::BoolResultStr MeshRenderer::SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
+                                                                  const GpuDriven::DrawCommandBuffers&     upload,
+                                                                  const GpuDriven::GpuSceneBuffers&        scene,
+                                                                  std::vector<uint8_t>&                    drawn )
     {
-        using Result                        = std::vector<uint8_t>;
         constexpr GpuDriven::MeshPass kPass = GpuDriven::MeshPass::VirtualShadow;
+        drawn.clear();
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;
         m_VsmFallbackSubmeshes = 0;
         if ( !m_DrawCommandCache )
-            return Common::MakeError<Result>(
-                 "virtual shadow map clusters: no draw command cache to bin them by" );
+            return Common::MakeError( "virtual shadow map clusters: no draw command cache to bin them by" );
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
-            return Common::MakeError<Result>( pipelines.GetError() );
+            return pipelines;
         const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( kPass );
         if ( issue.GroupCount != table.Groups.size() )
-            return Common::MakeError<Result>(
-                 std::format( "virtual shadow map clusters: {} cluster bins for {} groups", issue.GroupCount,
-                              table.Groups.size() ) );
-        Result               drawn( table.Groups.size(), uint8_t{ 0 } );
-        std::vector<uint8_t> fallback( table.Groups.size(), uint8_t{ 0 } );
-        bool                 anyFallback = false;
+            return Common::MakeError( std::format( "virtual shadow map clusters: {} cluster bins for {} groups",
+                                                   issue.GroupCount, table.Groups.size() ) );
+        // Each group cell's class from BinnedCellFacts: its name is read (and MeshCellPath /
+        // DeclaresVirtualGeometryTwin asked) only for a shader not met since the service last moved.
+        drawn.assign( table.Groups.size(), uint8_t{ 0 } );
+        std::vector<uint8_t>& fallback = m_VsmFallbackScratch; // kept; refilled per frame
+        fallback.assign( table.Groups.size(), uint8_t{ 0 } );
+        bool anyFallback = false;
         for ( size_t group = 0; group < table.Groups.size(); ++group )
         {
             const GpuDriven::IndirectGroup& indirect = table.Groups[group];
@@ -677,19 +713,23 @@ namespace Desert::Graphic::System
                 drawn[group] = 1u;
                 continue;
             }
-            // Only a group of a path with the VG permutation (Static, Instanced) can hold clusters.
-            const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
-            if ( const auto path = MeshCellPath( cell ); !path || !HasVirtualGeometryPermutation( *path ) )
+            const std::shared_ptr<Shader>& shader = indirect.Pipeline->GetSpecification().Shader;
+            if ( !shader )
                 continue;
-            // The template has no `.VirtualGeometry` permutation: the fallback (UE: no Nanite path -> the fallback
-            // mesh), a known state - its submeshes are counted below, nothing is logged.
-            if ( !DeclaresVirtualGeometryTwin( cell ) )
+            VsmCellRow& cellRow = BinnedCellFacts( *shader );
+            if ( cellRow.Class == VsmCellClass::NoPermutation )
+                continue;
+            if ( cellRow.Class == VsmCellClass::Fallback )
             {
                 fallback[group] = 1u;
                 anyFallback     = true;
                 continue;
             }
             ++m_VsmRefusedGroups;
+            // Said once per cell (m_BinnedRefused); the row only spares the name and the key's concatenation.
+            if ( std::exchange( cellRow.RefusalSaid, true ) )
+                continue;
+            const std::string cell = shader->GetName();
             if ( m_BinnedRefused.insert( cell + "|vsm-vg" ).second )
                 LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` twin (no such cell, or it is compiling): "
                           "its virtual-geometry meshes cast into the virtual shadow map through the CPU walk",
@@ -707,7 +747,7 @@ namespace Desert::Graphic::System
         binned.BinsIssued      = false;
         binned.VirtualGeometry = std::move( issue );
         m_VsmGeometry          = std::move( binned );
-        return Common::MakeSuccess( std::move( drawn ) );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterPasses( RDG::Builder&                   graph,
@@ -770,7 +810,12 @@ namespace Desert::Graphic::System
                     if ( vg.GroupCarriers[group] != nullptr )
                         continue;
                     ++m_VsmRefusedGroups;
-                    if ( const std::string& cell = twin->GetSpecification().Shader->GetName();
+                    // Said once per twin cell: the row (BinnedCellFacts) spares the name and the key's
+                    // concatenation every frame the carrier stays refused.
+                    const std::shared_ptr<Shader>& twinShader = twin->GetSpecification().Shader;
+                    if ( !twinShader || std::exchange( BinnedCellFacts( *twinShader ).CarrierSaid, true ) )
+                        continue;
+                    if ( const std::string cell = twinShader->GetName();
                          m_BinnedRefused.insert( cell + "|vsm-vg-carrier" ).second )
                         LOG_WARN( "[MeshRenderer] virtual shadow map clusters of '{}' have no carrier ({}): its "
                                   "virtual-geometry meshes cast through the CPU walk",
@@ -809,15 +854,20 @@ namespace Desert::Graphic::System
             // (the merged layer of every drawn page, over the static layer "VSM: Clear Pages" copied there).
             for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
             {
+                // The node names from the tables (made the first frame the level is drawn).
+                const auto stillName = [level]( std::string& out )
+                { std::format_to( std::back_inserter( out ), "VSM: Raster L{}", level ); };
+                const auto movingName = [level]( std::string& out )
+                { std::format_to( std::back_inserter( out ), "VSM: Raster Movable L{}", level ); };
                 if ( auto added = AddVirtualShadowRasterNode( graph, frame, map, level, kVsmViewBase + level,
                                                               ShadowCasterLayer::Static, kVsmVirtualResolution,
-                                                              std::format( "VSM: Raster L{}", level ),
+                                                              m_VsmRasterNames[0].Get( level, 0u, stillName ),
                                                               m_VsmDraws[level], m_VsmCasters[level] );
                      !added.IsSuccess() )
                     return added;
                 if ( auto added = AddVirtualShadowRasterNode(
                           graph, frame, map, level, kVsmMovableViewBase + level, ShadowCasterLayer::Movable,
-                          kVsmVirtualResolution, std::format( "VSM: Raster Movable L{}", level ),
+                          kVsmVirtualResolution, m_VsmRasterNames[1].Get( level, 0u, movingName ),
                           m_VsmMovableDraws[level], m_VsmMovableCasters[level] );
                      !added.IsSuccess() )
                     return added;
@@ -878,11 +928,19 @@ namespace Desert::Graphic::System
                      "virtual shadow map local light {} view {} mip {} has no caster materials", raster.Light,
                      raster.View, raster.Mip ) );
             VsmLocalRasterDraws& entry = *m_VsmLocalDraws[k];
+            const uint64_t nameKey =
+                 ( uint64_t{ raster.Light } << 32u ) | ( uint64_t{ raster.View } << 16u ) | uint64_t{ raster.Mip };
+            const std::string_view name = m_VsmLocalRasterNames.Get(
+                 k, nameKey,
+                 [&raster]( std::string& out )
+                 {
+                     std::format_to( std::back_inserter( out ), "VSM: Raster Local {} V{} M{}", raster.Light,
+                                     raster.View, raster.Mip );
+                 } );
             if ( auto added = AddVirtualShadowRasterNode(
                       graph, frame, map, raster.Level, view, ShadowCasterLayer::All,
                       raster.ResolutionPages * kVsmPageSize,
-                      std::format( "VSM: Raster Local {} V{} M{}", raster.Light, raster.View, raster.Mip ),
-                      entry.Draws, entry.Casters );
+                      name, entry.Draws, entry.Casters );
                  !added.IsSuccess() )
                 return added;
         }
@@ -892,7 +950,7 @@ namespace Desert::Graphic::System
     Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode(
          RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
          const uint32_t level, const uint32_t view, const ShadowCasterLayer layer, const uint32_t resolution,
-         std::string name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
+         std::string_view name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
     {
         draws.Clear();
         {
@@ -910,8 +968,15 @@ namespace Desert::Graphic::System
         // THE LEVEL'S CULL (UE CullPerPageDrawCommands): every draw's argument records (instance counts 0) and
         // every instance it may draw with its world box; "VSM: Cull Casters" keeps the instances over a page
         // drawn this frame. Mesh draws first, in list order, then the non-mesh casters' draws.
-        VsmCasterCull         cull;
-        std::vector<uint32_t> firstRecords;
+        // Kept storage (CPU-FRAME-ARENA 7): the cull lists are a member reused by every node (AddCasterCulling
+        // copies them into the graph's uploads at the call; the nodes are added one after another), the first
+        // records the list's own, handed back by SetIndirect.
+        VsmCasterCull& cull = m_VsmCasterCullScratch;
+        cull.Instances.clear();
+        cull.Draws.clear();
+        cull.Arguments.clear();
+        cull.RemapSize                     = 0;
+        std::vector<uint32_t> firstRecords = draws.TakeFirstRecords();
         firstRecords.reserve( draws.GetCommands().size() );
         for ( const MeshDrawCommand& command : draws.GetCommands() )
         {
@@ -948,7 +1013,7 @@ namespace Desert::Graphic::System
             cull.RemapSize += static_cast<uint32_t>( command.Instances.size() );
         }
         casters.clear();
-        std::vector<VirtualShadowCasterDraw> casterDraws;
+        std::vector<VirtualShadowCasterDraw>& casterDraws = m_VsmCasterDrawsScratch; // kept; cleared per caster
         // The non-mesh casters (the terrain) stand still: the static layer's node draws them.
         for ( const auto& weak : m_ShadowCasters )
         {
@@ -1007,7 +1072,7 @@ namespace Desert::Graphic::System
                                RDG::Access::StorageRead );
         };
         graph.AddPass(
-             std::move( name ), RDG::PassFlags::Raster,
+             name, RDG::PassFlags::Raster,
              [this, &draws, &casters, resolution, arguments, &parameters]( RDG::PassBuilder& pass )
              {
                  pass.RenderArea( resolution, resolution );

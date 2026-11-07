@@ -190,34 +190,65 @@ namespace Desert::Graphic
             CellDraw Draw     = CellDraw::Nothing;
             bool     Announce = false; ///< first time for this cell in this state: the caller logs once
         };
+        // A graph pass's cell by IDENTITY, never by a name built per draw (CPU-FRAME-ARENA 6; UE keys its PSO
+        // cache by the initializer's state, not a string): the cell's own pipeline when it has one (one per pass
+        // state x cell x cull permutation, rebuilt in place by a recompile), else the pass state x the cell
+        // material x two-sidedness that would have built it. Its row carries the state reported this frame and
+        // the announce bits. An address is not an identity (a freed pipeline's or material's address comes back
+        // on a later allocation, a hot reload frees and rebuilds), so the key also names the PROGRAM the row is
+        // about - Shader::GetSerial (never reused) x Shader::GetCodeGeneration (moves with every reload) - as UE
+        // keys a PSO by FShader x permutation: a reused address over another program, or the same program after
+        // a recompile, is a fresh row that announces again and never inherits a stale state.
+        struct CellKey
+        {
+            const void* Pipeline       = nullptr; ///< the cell's own pipeline, or null when it was refused
+            const void* PassState      = nullptr; ///< refused only: the pass state the cell is drawn through
+            const void* Cell           = nullptr; ///< refused only: the cell material
+            bool        TwoSided       = false;   ///< refused only: the cull permutation it asked for
+            uint64_t    ShaderSerial   = 0;       ///< the program: own pipeline's shader, else the cell's (0 none)
+            uint64_t    CodeGeneration = 0;       ///< that program's Shader::GetCodeGeneration when asked
+
+            bool operator==( const CellKey& ) const = default;
+        };
+        struct CellKeyHash
+        {
+            size_t operator()( const CellKey& key ) const noexcept
+            {
+                const auto mix = []( const size_t seed, const size_t value ) noexcept
+                { return seed ^ ( value + 0x9e3779b97f4a7c15ull + ( seed << 6 ) + ( seed >> 2 ) ); };
+                size_t seed = std::hash<const void*>{}( key.Pipeline );
+                seed        = mix( seed, std::hash<const void*>{}( key.PassState ) );
+                seed        = mix( seed, std::hash<const void*>{}( key.Cell ) );
+                seed        = mix( seed, static_cast<size_t>( key.TwoSided ) );
+                seed        = mix( seed, std::hash<uint64_t>{}( key.ShaderSerial ) );
+                return mix( seed, std::hash<uint64_t>{}( key.CodeGeneration ) );
+            }
+        };
+
         CellChoice ChooseCell( const std::string& key, const MaterialPipelineState ownReports,
                                const bool defaultSurfaceReady )
         {
-            switch ( ownReports )
-            {
-                case MaterialPipelineState::Requested:
-                    Request( key );
-                    break;
-                case MaterialPipelineState::Compiling:
-                    OnCompiling( key );
-                    break;
-                case MaterialPipelineState::Ready:
-                    OnReady( key );
-                    break;
-                case MaterialPipelineState::Failed:
-                    OnFailed( key );
-                    break;
-            }
-            const DrawChoice choice = Choose( key );
-            if ( choice.UseOwnPipeline )
-                return { CellDraw::Own, false };
-            return { defaultSurfaceReady ? CellDraw::DefaultSurface : CellDraw::Nothing, choice.Announce };
+            return ChooseRow( m_Rows[key], ownReports, defaultSurfaceReady );
+        }
+        CellChoice ChooseCell( const CellKey& key, const MaterialPipelineState ownReports,
+                               const bool defaultSurfaceReady )
+        {
+            return ChooseRow( m_CellRows[key], ownReports, defaultSurfaceReady );
+        }
+        [[nodiscard]] std::optional<MaterialPipelineState> StateOf( const CellKey& key ) const
+        {
+            const auto it = m_CellRows.find( key );
+            if ( it == m_CellRows.end() )
+                return std::nullopt;
+            return it->second.State;
         }
 
         [[nodiscard]] size_t Count( const MaterialPipelineState state ) const
         {
             size_t n = 0;
             for ( const auto& [name, row] : m_Rows )
+                n += row.State == state ? 1 : 0;
+            for ( const auto& [key, row] : m_CellRows )
                 n += row.State == state ? 1 : 0;
             return n;
         }
@@ -228,6 +259,21 @@ namespace Desert::Graphic
             MaterialPipelineState State     = MaterialPipelineState::Requested;
             uint8_t               Announced = 0; ///< one bit per state already logged
         };
-        std::unordered_map<std::string, Row> m_Rows;
+        // The state @p ownReports moves @p row to (a Requested report never moves it backwards), then the draw.
+        static CellChoice ChooseRow( Row& row, const MaterialPipelineState ownReports,
+                                     const bool defaultSurfaceReady ) noexcept
+        {
+            if ( ownReports != MaterialPipelineState::Requested )
+                row.State = ownReports;
+            if ( row.State == MaterialPipelineState::Ready )
+                return { CellDraw::Own, false };
+            const auto bit      = static_cast<uint8_t>( 1u << static_cast<uint8_t>( row.State ) );
+            const bool announce = ( row.Announced & bit ) == 0;
+            row.Announced       = static_cast<uint8_t>( row.Announced | bit );
+            return { defaultSurfaceReady ? CellDraw::DefaultSurface : CellDraw::Nothing, announce };
+        }
+
+        std::unordered_map<std::string, Row>          m_Rows;
+        std::unordered_map<CellKey, Row, CellKeyHash> m_CellRows; ///< graph-pass cells (ChooseCell by CellKey)
     };
 } // namespace Desert::Graphic

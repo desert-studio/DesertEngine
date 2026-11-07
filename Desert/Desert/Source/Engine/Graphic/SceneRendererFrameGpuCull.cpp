@@ -752,15 +752,17 @@ namespace Desert::Graphic
                                                       .PrimitiveDraws  = in.Upload.Passes[pass].PrimitiveDraws,
                                                       .GroupCount      = bins.GroupCount } );
             // The groups the pass draws (SetFrameVirtualGeometry made a carrier for each of them, or refused).
-            std::vector<uint8_t> drawn;
+            // Kept storage (CPU-FRAME-ARENA 8): Add copies the flags into its slot's kept entry.
+            thread_local std::vector<uint8_t> drawn;
+            drawn.clear();
             if ( attached )
             {
-                drawn.reserve( passTable.Groups.size() );
                 for ( const GpuDriven::IndirectGroup& group : passTable.Groups )
                     drawn.push_back( static_cast<uint8_t>( group.BinCount != 0u && group.Pipeline != nullptr &&
                                                            group.VirtualGeometryPipeline != nullptr ) );
             }
-            counts.Add( graph, kind, culled.GetValue(), attached ? &bins : nullptr, std::move( drawn ) );
+            const VirtualGeometry::RasterBins* const drawnBins = attached ? &bins : nullptr;
+            counts.Add( graph, kind, culled.GetValue(), drawnBins, drawn );
             return culled;
         }
     } // namespace
@@ -1083,25 +1085,25 @@ namespace Desert::Graphic
             return;
         }
         const VirtualGeometry::RasterBins& raster = rasterBins.GetValue();
-        auto                               drawn  = meshes->SetVirtualShadowGeometry(
+        const auto                         set    = meshes->SetVirtualShadowGeometry(
              System::MeshRendererDetail::VirtualGeometryIssue{ .GroupArgs = raster.GroupArgs,
-                                                                                              .Rows = raster.Rows,
-                                                                                              .VisibleClusters = raster.VisibleClusters,
-                                                                                              .Clusters = vgMeshes.Clusters,
-                                                                                              .Dags = vgMeshes.Dags,
-                                                                                              .PrimitiveDraws =
+                                                                                          .Rows = raster.Rows,
+                                                                                          .VisibleClusters = raster.VisibleClusters,
+                                                                                          .Clusters = vgMeshes.Clusters,
+                                                                                          .Dags = vgMeshes.Dags,
+                                                                                          .PrimitiveDraws =
                                                                     bins.Upload.Passes[tableIndex].PrimitiveDraws,
-                                                                                              .GroupCount = raster.GroupCount },
-             bins.Upload, bins.Scene );
-        if ( !drawn )
+                                                                                          .GroupCount = raster.GroupCount },
+             bins.Upload, bins.Scene, m_VsmDrawnGroups );
+        if ( !set.IsSuccess() )
         {
             m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(),
                                      nullptr, {} );
-            logOnce( std::format( "VSM levels: {}", drawn.GetError() ) );
+            logOnce( std::format( "VSM levels: {}", set.GetError() ) );
             return;
         }
         m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), &raster,
-                                 std::move( drawn.GetValue() ) );
+                                 m_VsmDrawnGroups );
     }
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const

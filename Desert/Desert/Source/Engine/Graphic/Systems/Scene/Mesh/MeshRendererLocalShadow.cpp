@@ -280,17 +280,9 @@ namespace Desert::Graphic::System
         // light's projected radius, times ShadowResolutionScale, under the pool's maximum). A cube face may take
         // an eighth of the atlas side, a spot a quarter: six faces of a light that fills the screen then cover
         // 6/64 of the pool, a spot 1/16.
-        struct Request
-        {
-            uint64_t                        Key          = 0;
-            bool                            Spot         = false;
-            std::size_t                     Index        = 0;
-            uint32_t                        Size         = 0;
-            float                           ScreenRadius = 0.0f;
-            float                           Distance     = 0.0f; // from the eye to the light, cm
-            const LocalLightShadowSettings* Settings     = nullptr;
-        };
-        const auto* camera         = m_SceneRenderer->GetMainCamera();
+        // The kept list (MeshRenderer::m_LocalShadowRequests): refilled per call, its storage kept across frames.
+        using Request                  = LocalShadowRequest;
+        const auto*     camera         = m_SceneRenderer->GetMainCamera();
         const float viewportHeight = static_cast<float>( std::max( m_SceneRenderer->GetViewExtent().Height, 1u ) );
         const float tanHalfFov     = camera != nullptr && camera->GetProjectionMatrix()[1][1] != 0.0f
                                           ? 1.0f / std::abs( camera->GetProjectionMatrix()[1][1] )
@@ -302,7 +294,8 @@ namespace Desert::Graphic::System
                                      : viewportHeight;
         };
 
-        std::vector<Request> requests;
+        std::vector<Request>& requests = m_LocalShadowRequests;
+        requests.clear();
         for ( std::size_t i = 0; i < points.size() && i < pointShadows.size(); ++i )
         {
             const LocalLightShadowSettings& s = pointShadows[i];
@@ -503,12 +496,21 @@ namespace Desert::Graphic::System
         m_LocalCachePlans.clear();
     }
 
-    std::vector<SystemRasterPass> MeshRenderer::LocalShadowPasses()
+    std::span<const SystemRasterPass> MeshRenderer::LocalShadowPasses()
     {
-        std::vector<SystemRasterPass> passes;
+        // Last frame's passes go (and the atlas their bodies captured); the kept list keeps its storage and each
+        // entry's name buffer, so a frame with no more passes than a past one allocates nothing for them.
+        for ( std::size_t i = 0; i < m_LocalShadowPassCount; ++i )
+        {
+            SystemRasterPass& stale = m_LocalShadowPassList[i];
+            stale.ExecuteFunc       = nullptr;
+            stale.Declare           = nullptr;
+            stale.TargetFramebuffer.reset();
+        }
+        m_LocalShadowPassCount = 0;
         const LocalShadowCache* const cache = m_SceneRenderer->GetFrameLocalShadows();
         if ( !m_ShadowPipeline || cache == nullptr || !cache->GetAtlas() )
-            return passes;
+            return {};
         PlanLocalShadowCache();
         const std::shared_ptr<Framebuffer> atlas = cache->GetAtlas();
         for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
@@ -517,7 +519,6 @@ namespace Desert::Graphic::System
             const uint32_t   slot = view - kLocalShadowViewBase;
             const AtlasTile  tile = redraw.Tile;
             SystemRasterPass pass{
-                 .Name        = std::format( "MeshShadowLocal{}", slot ),
                  .ExecuteFunc = [this, slot, tile, atlas]( RDG::PassContext& context,
                                                            const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
@@ -570,9 +571,22 @@ namespace Desert::Graphic::System
                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                     declared.Read( streams, RDG::Access::StorageRead );
             };
-            passes.push_back( std::move( pass ) );
+            // Its name from the table (one string per slot, made the first frame the slot is drawn), copied into
+            // the kept entry's own string, whose buffer survives the move below.
+            while ( m_LocalShadowPassNames.size() <= slot )
+            {
+                const std::size_t next = m_LocalShadowPassNames.size();
+                m_LocalShadowPassNames.push_back( std::format( "MeshShadowLocal{}", next ) );
+            }
+            if ( m_LocalShadowPassCount == m_LocalShadowPassList.size() )
+                m_LocalShadowPassList.emplace_back();
+            SystemRasterPass& kept = m_LocalShadowPassList[m_LocalShadowPassCount++];
+            std::string       name = std::move( kept.Name );
+            kept                   = std::move( pass );
+            kept.Name              = std::move( name );
+            kept.Name.assign( m_LocalShadowPassNames[slot] );
         }
-        return passes;
+        return std::span<const SystemRasterPass>( m_LocalShadowPassList.data(), m_LocalShadowPassCount );
     }
 
     std::shared_ptr<Image2D> MeshRenderer::GetLocalShadowAtlasImage() const

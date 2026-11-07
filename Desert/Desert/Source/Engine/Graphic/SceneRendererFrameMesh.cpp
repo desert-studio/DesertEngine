@@ -137,7 +137,7 @@ namespace Desert::Graphic
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).
-            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            const std::span<const SystemRasterPass> local = mesh->LocalShadowPasses();
             AddSystemRasters( graph, textures, local, false );
             // The rain occlusion's top-down depth, when its box moved or its casters changed (it clears its own
             // target); otherwise the map keeps the depth it was drawn with.

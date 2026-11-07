@@ -1586,19 +1586,52 @@ namespace Desert::Graphic::System
             own = CullPermutation( own, true );
 
         // Keyed by the PIPELINE, not the shader: one cell has a pipeline per pass state and cull permutation,
-        // and they leave the driver at different moments.
-        const std::string key =
-             own != nullptr
-                  ? own->GetSpecification().DebugName
-                  : std::format( "{} {}{}", passState != nullptr ? passState->GetSpecification().DebugName : "?",
-                                 cell.GetShaderName(), twoSided ? "_TwoSided" : "" );
-        return ChoosePipelineDraw( own, key, standIn );
+        // and they leave the driver at different moments. By identity (CellKey), so no name is built per draw.
+        if ( own != nullptr )
+            return ChoosePipelineDraw( own, standIn, {} );
+        return ChoosePipelineDraw( nullptr, standIn, { passState, &cell, twoSided } );
+    }
+
+    std::string MeshRenderer::CellLogName( const GraphicsPipeline* own, const RefusedCell& refused )
+    {
+        if ( own != nullptr )
+            return own->GetSpecification().DebugName;
+        const char* const pass =
+             refused.PassState != nullptr ? refused.PassState->GetSpecification().DebugName.c_str() : "?";
+        const char* const cull = refused.TwoSided ? "_TwoSided" : "";
+        if ( refused.Cell == nullptr )
+            return std::format( "{} ?{}", pass, cull );
+        return std::format( "{} {}{}", pass, refused.Cell->GetShaderName(), cull );
     }
 
     MaterialPipelineTracker::CellDraw MeshRenderer::ChoosePipelineDraw( const GraphicsPipeline* own,
-                                                                        const std::string&      key,
-                                                                        const GraphicsPipeline* standIn )
+                                                                        const GraphicsPipeline* standIn,
+                                                                        const RefusedCell&      refused )
     {
+        // The program by identity too (CellKey: serial x code generation), so an address reused after a free or
+        // a hot reload is a new row and never a stale one.
+        MaterialPipelineTracker::CellKey key;
+        const Shader*                    program = nullptr;
+        std::shared_ptr<Shader>          cellProgram; // refused only: the executor hands its shader out by value
+        if ( own != nullptr )
+        {
+            key.Pipeline = own;
+            program      = own->GetShader().get();
+        }
+        else
+        {
+            key = { nullptr, refused.PassState, refused.Cell, refused.TwoSided };
+            const MaterialExecutor* const executor =
+                 refused.Cell != nullptr ? refused.Cell->GetMaterialExecutor() : nullptr;
+            if ( executor != nullptr )
+                cellProgram = executor->GetShader();
+            program = cellProgram.get();
+        }
+        if ( program != nullptr )
+        {
+            key.ShaderSerial   = program->GetSerial();
+            key.CodeGeneration = program->GetCodeGeneration();
+        }
         MaterialPipelineState reports = MaterialPipelineState::Failed; // refused: its builder logged why
         if ( own != nullptr )
         {
@@ -1623,11 +1656,11 @@ namespace Desert::Graphic::System
         if ( choice.Draw != MaterialPipelineTracker::CellDraw::Own )
             ++m_StandInDraws;
         else if ( before && *before != MaterialPipelineState::Ready )
-            LOG_INFO( "[MeshRenderer] '{}' draws its own pipeline now (it was {})", key,
+            LOG_INFO( "[MeshRenderer] '{}' draws its own pipeline now (it was {})", CellLogName( own, refused ),
                       MaterialPipelineStateName( *before ) );
         if ( choice.Announce )
             LOG_INFO( "[MeshRenderer] '{}' draws the default surface until its pipeline is ready (pipeline {}{})",
-                      key, MaterialPipelineStateName( reports ),
+                      CellLogName( own, refused ), MaterialPipelineStateName( reports ),
                       choice.Draw == MaterialPipelineTracker::CellDraw::Nothing
                            ? "; the default surface is not ready either, so it is not drawn yet"
                            : "" );
@@ -1693,12 +1726,15 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         // Per shared state too: a sun cascade's caster is pancaked, a local view's clips (CasterPipelinesOf).
-        const std::string key = std::format( "{}#{:016x}@{}", name,
-                                             static_cast<unsigned long long>( program->GetVariant().Hash() ),
-                                             static_cast<const void*>( casters.Static ) );
+        // By identity (MaskedCasterKey): one program object per permutation, so its serial names name # variant.
+        const MaskedCasterKey key{ program->GetSerial(), casters.Static };
         if ( const auto found = m_MaskedCasterPipelines.find( key ); found != m_MaskedCasterPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_MaskedCasterPipelines[key];
+        // Its name (the log and the pipeline's DebugName), built once: on the miss that builds it.
+        const std::string label = std::format( "{}#{:016x}@{}", name,
+                                               static_cast<unsigned long long>( program->GetVariant().Hash() ),
+                                               static_cast<const void*>( casters.Static ) );
 
         // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or
         // the virtual map's render area) — only the program differs, which is the whole difference between an
@@ -1719,11 +1755,12 @@ namespace Desert::Graphic::System
         }
         if ( shared == nullptr )
         {
-            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: the path has no shared caster pipeline", key );
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: the path has no shared caster pipeline",
+                       label );
             return nullptr;
         }
         GraphicsPipelineSpecification spec = shared->GetSpecification();
-        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", key );
+        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", label );
         spec.Shader                        = program;
         const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
@@ -2188,14 +2225,9 @@ namespace Desert::Graphic::System
             // Per section, as the static entries: a masked section through its template's caster, masked to its
             // own submeshes; the opaque sections of an entry are ONE depth draw (no material to tell apart),
             // drawing their union over one copy of the pose.
-            struct OpaqueCaster
-            {
-                const SkinnedMeshRenderData* Data       = nullptr;
-                uint32_t                     BoneOffset = 0;
-                uint64_t                     Hidden     = 0;
-                std::size_t                  Index      = 0; // into m_SkinnedQueue
-            };
-            std::vector<OpaqueCaster> opaqueCasters;
+            using OpaqueCaster  = OpaqueSkinnedCaster;
+            auto& opaqueCasters = m_ScratchOpaqueSkinnedCasters; // a member: its capacity persists
+            opaqueCasters.clear();
             for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
             {
                 const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
