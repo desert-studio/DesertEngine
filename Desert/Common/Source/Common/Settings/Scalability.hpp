@@ -407,6 +407,18 @@ namespace Common::Scalability
         // (RenderConfig::ParallelSetupOverride). Key "RenderPipeline.ParallelSetup": equal at every level (a CPU
         // scheduling choice, not a quality step), so only a machine override names it.
         ParallelSetup,
+        // 0/1: the view's hierarchical Z-buffers are built up to four mips per dispatch through group-shared
+        // memory (GPU-TERRAIN-HZB; UE BuildHZB, AMD SPD: HZBSinglePass.shader). 0 = one dispatch per mip
+        // (HZB.shader): the same texels bit for bit, for the A/B and as the rollback. Read by
+        // SceneRenderer::OnUpdate -> HZBRenderer::SetSinglePass. Key "RenderPipeline.HZBSinglePass": equal at
+        // every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
+        HZBSinglePass,
+        // 0/1: the landscape's dice pool is kept across frames and re-evaluated only when a diced row, its maps
+        // or their revisions change (GPU-TERRAIN-HZB; UE Landscape's persistent displaced geometry). 0 = the pool
+        // is a transient evaluated every frame: the same vertices, for the A/B and as the rollback. Read by
+        // SceneRenderer::OnUpdate -> TerrainRenderer::SetDicePoolCache. Key
+        // "RenderPipeline.LandscapeDicePoolCache": equal at every level, so only a machine override names it.
+        LandscapeDicePoolCache,
         // The landscape grass blades' shadow LOD bias (GPU-COST-20; UE r.Shadow LOD bias / grass shadow LOD): each
         // step draws a blade into every cascade as if the cascade's texel were twice as wide - a strip level
         // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->

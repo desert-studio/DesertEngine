@@ -449,6 +449,14 @@ namespace Common::Scalability
                "two early-Z halves' static draws, recorded on task workers after a serial resolve and applied "
                "on the render thread in a fixed order; the masked prepass and skinned draws stay serial)",
                1, Vis::Advanced },
+             { P::HZBSinglePass, G::ViewDistance, "RenderPipeline.HZBSinglePass", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> HZBRenderer::SetSinglePass (the closest and furthest HZBs built up to "
+               "four mips per dispatch through group-shared memory; 0 = one dispatch per mip, the same texels)",
+               1, Vis::Advanced },
+             { P::LandscapeDicePoolCache, G::ViewDistance, "RenderPipeline.LandscapeDicePoolCache", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetDicePoolCache (the dice pool kept across frames, "
+               "evaluated only when a diced row or its maps change; 0 = a transient evaluated every frame)",
+               1, Vis::Advanced },
              { P::ShadowFoliageLodBias, G::Shadows, "Shadows.FoliageShadowLodBias", 0, 3, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
                "and thinning per cascade, MeshRenderer::BladeShadowSet)",

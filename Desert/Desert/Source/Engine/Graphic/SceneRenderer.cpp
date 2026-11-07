@@ -1699,6 +1699,16 @@ namespace Desert::Graphic
         // resolved scene depth, AddFrameParticlesPostOpaque) are NOT among them: they are graphics-queue passes.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
         graph.SetParallelExecute( m_Quality.As<int>( Common::Scalability::Parameter::ParallelExecute ) != 0 );
+        // RenderPipeline.HZBSinglePass (GPU-TERRAIN-HZB): up to four HZB mips per dispatch, or one (the A/B).
+        if ( m_Systems.HZB )
+            m_Systems.HZB->SetSinglePass( m_Quality.As<int>( Common::Scalability::Parameter::HZBSinglePass ) !=
+                                          0 );
+        // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB): the kept dice pool, or a per-frame one.
+        if ( m_Systems.Terrain )
+        {
+            const int diceCache = m_Quality.As<int>( Common::Scalability::Parameter::LandscapeDicePoolCache );
+            m_Systems.Terrain->SetDicePoolCache( diceCache != 0 );
+        }
         // RenderPipeline.ParallelSetup (RENDER-PARALLEL-SETUP): the view's pure setup on Common::TaskGroup tasks;
         // the Editor's --parallel-setup overrides it for the session (RenderConfig::ParallelSetupOverride).
         const int  setupOverride = ::Desert::Graphic::RenderConfig::ParallelSetupOverride.load();

@@ -511,7 +511,9 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp",
                "\"SSDHistoryConvolution\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp", "\"HZB\"",
-               Verdict::Shipped, "" },
+               Verdict::Shipped, "RenderPipeline.HZBSinglePass 0: one dispatch per mip" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp", "\"HZBSinglePass\"",
+               Verdict::Shipped, "up to four HZB mips per dispatch (GPU-TERRAIN-HZB)" },
 
              // ── post processing ─────────────────────────────────────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp", "name",
