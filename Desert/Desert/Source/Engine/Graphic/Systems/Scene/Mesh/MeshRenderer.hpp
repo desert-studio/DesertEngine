@@ -3768,9 +3768,10 @@ namespace Desert::Graphic::System
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
             std::vector<InstancedDraw>  Draws;
-            // A Resolve call (DrawBuildPhase): the ISMs' instances and draws, which the Record call puts behind
-            // the auto-batched ones (the Full call's order), and the recorder's pipelines and its Materials lend.
-            std::vector<glm::mat4>     IsmTransforms;
+            // A Resolve call (DrawBuildPhase): the ISMs' draws, which the Record call puts behind the auto-batched
+            // ones (the Full call's draw order), and the recorder's pipelines and its Materials lend. Their
+            // instances go straight into Transforms, AHEAD of the ones the Record call packs (each draw names its
+            // own slice, so only the draw order is the Full call's; nothing is copied twice - AUDIT-CPU-3 G2).
             std::vector<InstancedDraw> IsmDraws;
             GraphicsPipeline*          OneSided = nullptr; // CellPipeline( instanced state, Mat )
             GraphicsPipeline*          TwoSided = nullptr; // CullPermutation( OneSided, true )
@@ -3855,6 +3856,13 @@ namespace Desert::Graphic::System
         {
             [[nodiscard]] std::size_t operator()( const IsmViewCullKey& key ) const noexcept;
         };
+        // One LOD level's slice of a cull entry's level-ordered Visible: [First, First + Count).
+        struct IsmLevelRun
+        {
+            uint32_t Level = 0;
+            uint32_t First = 0;
+            uint32_t Count = 0;
+        };
         struct IsmViewCull
         {
             std::shared_ptr<const std::vector<glm::mat4>> Snapshot; // the key's transforms, held
@@ -3862,8 +3870,14 @@ namespace Desert::Graphic::System
             std::array<glm::vec4, 6>                      Planes{}; // (normal, distance) per Core::FrustumPlane
             Geometry::LODView                             View{};
             std::vector<float>                            LodScreenSizes;
+            // The kept instances ORDERED BY LEVEL, ascending, each level's in the order the cull kept them (a
+            // stable partition, OrderIsmViewCullByLevel - once per rebuild, not per pass per frame), with their
+            // levels; Runs names each level's contiguous slice, so a pass packs one range per level (AUDIT-CPU-3
+            // G2).
             std::vector<glm::mat4>                        Visible;
             std::vector<uint32_t>                         Levels;
+            std::vector<IsmLevelRun>                      Runs;
+            std::vector<glm::mat4>                        Ordered; // the reorder's scratch, swapped with Visible
             uint64_t                                      Generation = 0; // the last frame a pass asked for it
             uint64_t                                      Call       = 0; // the last call that looked it up
         };
@@ -3886,6 +3900,10 @@ namespace Desert::Graphic::System
                                                            const Geometry::LODView&       view );
         static void CollectIsmViewCull( IsmViewCull& entry, const InstancedMeshRenderData& ism,
                                         const Core::Frustum& frustum );
+        // @p entry's Visible / Levels as a stable partition by level, ascending, and its Runs: what every pass
+        // used to do per level per pass (DistinctLODs, then a filter over all the kept instances), done once per
+        // rebuild.
+        static void                              OrderIsmViewCullByLevel( IsmViewCull& entry ) noexcept;
         uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the

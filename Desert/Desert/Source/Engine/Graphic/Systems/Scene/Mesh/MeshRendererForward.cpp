@@ -1591,6 +1591,51 @@ namespace Desert::Graphic::System
         DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
         CollectIsmInstances( *ism.Transforms, entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
                              entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels );
+        OrderIsmViewCullByLevel( entry );
+    }
+
+    void MeshRenderer::OrderIsmViewCullByLevel( IsmViewCull& entry ) noexcept
+    {
+        // The distinct levels, ascending (Geometry::DistinctLODs' order), with their counts.
+        std::vector<IsmLevelRun>& runs = entry.Runs;
+        runs.clear();
+        for ( const uint32_t level : entry.Levels )
+        {
+            const auto found = std::find_if( runs.begin(), runs.end(),
+                                             [level]( const IsmLevelRun& run ) { return run.Level == level; } );
+            if ( found != runs.end() )
+                ++found->Count;
+            else
+                runs.push_back( { .Level = level, .First = 0, .Count = 1 } );
+        }
+        std::sort( runs.begin(), runs.end(),
+                   []( const IsmLevelRun& a, const IsmLevelRun& b ) { return a.Level < b.Level; } );
+        uint32_t first = 0;
+        for ( IsmLevelRun& run : runs )
+        {
+            run.First = first;
+            first += run.Count;
+        }
+        if ( runs.size() <= 1 )
+            return; // one level (or none): Visible is its run already
+        // The stable partition: each kept instance at its level's next slot, in kept order (Count is the cursor,
+        // back to the count when every instance is placed).
+        for ( IsmLevelRun& run : runs )
+            run.Count = 0;
+        entry.Ordered.resize( entry.Visible.size() );
+        for ( std::size_t i = 0; i < entry.Visible.size(); ++i )
+        {
+            const uint32_t level = entry.Levels[i];
+            for ( IsmLevelRun& run : runs )
+                if ( run.Level == level )
+                {
+                    entry.Ordered[run.First + run.Count++] = entry.Visible[i];
+                    break;
+                }
+        }
+        entry.Visible.swap( entry.Ordered );
+        for ( const IsmLevelRun& run : runs )
+            std::fill_n( entry.Levels.begin() + run.First, run.Count, run.Level );
     }
 
     void MeshRenderer::WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum,
@@ -1913,7 +1958,6 @@ namespace Desert::Graphic::System
             set.Inst               = inst;
             set.Transforms.clear();
             set.Draws.clear();
-            set.IsmTransforms.clear();
             set.IsmDraws.clear();
             set.OneSided = nullptr;
             set.TwoSided = nullptr;
@@ -2646,7 +2690,6 @@ namespace Desert::Graphic::System
                 InstancedBatchSet* const       ismSet      = queued.Set;
                 const bool                     ismStandsIn = queued.StandsIn;
                 const std::vector<glm::mat4>&  visible     = queued.Cull->Visible;
-                const std::vector<uint32_t>&   levels      = queued.Cull->Levels;
                 if ( mode.Half != DeferredPrepassHalf::Depth )
                     ismInstances += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
@@ -2661,24 +2704,28 @@ namespace Desert::Graphic::System
                 if ( !materialIndex )
                     continue;
 
-                // A Resolve call packs them apart; its Record call puts them behind the auto-batched instances.
-                std::vector<glm::mat4>& ismTransforms = resolveCall ? ismSet->IsmTransforms : ismSet->Transforms;
-                std::vector<InstancedDraw>& ismDraws  = resolveCall ? ismSet->IsmDraws : ismSet->Draws;
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                // The instances go into the set's one array in every call (a Resolve call's ahead of the
+                // auto-batched ones its Record call packs); a Resolve call keeps the draws apart, its Record call
+                // puts them behind the auto-batched draws (the Full call's draw order).
+                std::vector<glm::mat4>&     ismTransforms = ismSet->Transforms;
+                std::vector<InstancedDraw>& ismDraws      = resolveCall ? ismSet->IsmDraws : ismSet->Draws;
+                // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
+                const InstanceWindPush ismWind = PackViewInstanceWind( ism.Wind );
+                // One draw per level, its instances one contiguous slice of the entry's level-ordered Visible
+                // (OrderIsmViewCullByLevel): the same instances in the same order a per-level filter gave.
+                for ( const IsmLevelRun& run : queued.Cull->Runs )
                 {
                     InstancedDraw d;
                     d.Mesh          = ism.Mesh;
                     d.FirstInstance = static_cast<uint32_t>( ismTransforms.size() );
                     d.MaterialIndex = *materialIndex;
                     d.HiddenSubmeshMask = queued.Hidden;
-                    d.LodLevel      = level;
-                    // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
-                    d.Wind           = PackViewInstanceWind( ism.Wind );
+                    d.LodLevel          = run.Level;
+                    d.Wind              = ismWind;
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
-                    for ( std::size_t i = 0; i < visible.size(); ++i )
-                        if ( levels[i] == level )
-                            ismTransforms.push_back( visible[i] );
-                    d.InstanceCount = static_cast<uint32_t>( ismTransforms.size() ) - d.FirstInstance;
+                    const auto first    = visible.begin() + run.First;
+                    ismTransforms.insert( ismTransforms.end(), first, first + run.Count );
+                    d.InstanceCount = run.Count;
                     ismDraws.push_back( d );
                 }
             }
@@ -2717,15 +2764,10 @@ namespace Desert::Graphic::System
                 }
                 if ( recordCall )
                 {
-                    // The Resolve call's ISM instances, behind the auto-batched ones (the Full call's order).
-                    const auto base = static_cast<uint32_t>( set.Transforms.size() );
-                    set.Transforms.insert( set.Transforms.end(), set.IsmTransforms.begin(),
-                                           set.IsmTransforms.end() );
-                    for ( InstancedDraw d : set.IsmDraws )
-                    {
-                        d.FirstInstance += base;
-                        set.Draws.push_back( d );
-                    }
+                    // The Resolve call's ISM draws, behind the auto-batched ones (the Full call's draw order);
+                    // their instances already lead the set's array (the Resolve call packed them there), so each
+                    // draw's FirstInstance stands.
+                    set.Draws.insert( set.Draws.end(), set.IsmDraws.begin(), set.IsmDraws.end() );
                 }
                 if ( set.Draws.empty() )
                     continue;
