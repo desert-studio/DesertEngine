@@ -1003,7 +1003,15 @@ namespace Desert::Graphic::System
         void SetFrameSceneInstances( const RDG::BufferRef instances )
         {
             m_FrameSceneInstances = instances;
+            m_ViewIsmIdsReady     = false; // PrepareViewIsmIds fills this frame's
         }
+        // CPU-ISM-PACK (UE FInstanceCullingContext: the instance ids uploaded ONCE per view): every queued ISM's
+        // main-view cull (LookUpIsmViewCull, the stale ones on setup tasks) and its kept GpuScene instances
+        // (FirstGpuInstance + Indices, level-ordered) appended into the view's one uint32 buffer, uploaded at its
+        // final size - after SetFrameSceneInstances, before any mesh pass is added (SceneRenderer::
+        // AddFrameDrawBins). Every scene-id cell of every pass is lent that buffer and draws base + run ranges of
+        // it. Nothing when the scene's instance rows are not in this graph: the ISMs then pack their transforms.
+        void PrepareViewIsmIds();
 
         // The GpuScene instances of SyncGpuScene's @p otherRigid records, in their order. Valid until the next
         // sync.
@@ -3799,11 +3807,9 @@ namespace Desert::Graphic::System
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
             // CPU-ISM-PACK: the recorder is an ISM's cell by GpuScene id (SurfaceSceneInstancesVariant): the
-            // draws'
-            // instances are SceneInstanceIds (4 bytes each, uploaded in Transforms' place), Transforms stays
-            // empty.
+            // draws' instances are ranges of the VIEW's id buffer (PrepareViewIsmIds, lent to the cell's
+            // InstanceTransforms in place of a per-set upload); Transforms stays empty.
             bool                        SceneIds = false;
-            std::vector<uint32_t>       SceneInstanceIds;
             std::vector<InstancedDraw>  Draws;
             // A Resolve call (DrawBuildPhase): the ISMs' draws, which the Record call puts behind the auto-batched
             // ones (the Full call's draw order), and the recorder's pipelines and its Materials lend. Their
@@ -3919,10 +3925,14 @@ namespace Desert::Graphic::System
             // FirstGpuInstance + index an ISM drawn by id names (SurfaceSceneInstancesVariant).
             std::vector<uint32_t> Indices;
             std::vector<uint32_t> OrderedIndices; // the reorder's scratch, swapped with Indices
+            // How many times its inputs changed (LookUpIsmViewCull, Stale): a view id range is the entry's only
+            // while this is the count it was filled from (PrepareViewIsmIds).
+            uint64_t                                      Rebuilds   = 0;
             uint64_t                                      Generation = 0; // the last frame a pass asked for it
             uint64_t                                      Call       = 0; // the last call that looked it up
         };
         std::unordered_map<IsmViewCullKey, IsmViewCull, IsmViewCullKeyHash> m_IsmViewCulls;
+        static constexpr uint32_t kNoViewIsmIds = ~0u; // an ISM with no view id range (PrepareViewIsmIds)
         uint64_t                                                            m_IsmViewCullGeneration = 0;
         uint64_t m_IsmViewCullCall = 0; // one per Full / Resolve call's ISM loop (BuildStaticDraws)
         // ISM @p ism's entry for the main view @p frustum / @p view, stamped for this frame and call - serial, it
@@ -4129,6 +4139,7 @@ namespace Desert::Graphic::System
                 DataDrivenMaterial*            Mat      = nullptr;
                 InstancedBatchSet*             Set      = nullptr;
                 const IsmViewCull*             Cull     = nullptr;
+                uint32_t                       IdBase   = kNoViewIsmIds; // by id: its view id range's first
                 bool                           StandsIn = false;
             };
             struct StaleIsmCull
@@ -4561,6 +4572,25 @@ namespace Desert::Graphic::System
         GpuDriven::GpuSceneRecordRows      m_ScratchGpuSceneRows;
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
+        // PrepareViewIsmIds: the view's id buffer (per frame in flight, owned here and lent to every scene-id
+        // cell), its CPU image, each m_InstancedQueue entry's first word in it (kNoViewIsmIds: none this frame)
+        // with the cull entry's rebuild count it was filled from, and the stale culls' scratch (capacities kept).
+        struct ViewIsmIdRange
+        {
+            uint32_t           Base     = kNoViewIsmIds;
+            uint64_t           Rebuilds = 0;
+            const IsmViewCull* Entry    = nullptr; // map nodes: stable until ClearQueues erases
+        };
+        std::shared_ptr<ShaderResources::StorageBuffer> m_ViewIsmIds;
+        std::vector<uint32_t>                           m_ViewIsmIdWords;
+        std::vector<ViewIsmIdRange>                     m_ViewIsmIdRanges;
+        std::vector<DrawBuildScratch::StaleIsmCull>     m_ViewIsmStale;
+        bool                                            m_ViewIsmIdsReady        = false;
+        bool                                            m_ViewIsmIdsMismatchSaid = false;
+        // The stale entries' culls in about WorkerCount() + 1 contiguous slices of about equal instance counts,
+        // one setup task each (ParallelSetup 0: inline, in order); each entry written by its one task.
+        void RunStaleIsmViewCulls( std::span<const DrawBuildScratch::StaleIsmCull> stale,
+                                   const Core::Frustum&                            frustum );
         // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads, SkinCacheBonesImport).
         std::vector<RDG::BufferRef> m_SkinCacheReads;
         RDG::ExternalBuffer         m_SkinCacheBonesImport;

@@ -246,6 +246,8 @@ namespace Desert::Graphic
                 {
                     m_FrameGpuSceneTables = tables.GetValue();
                     meshes->SetFrameSceneInstances( tables.GetValue().Instances );
+                    // The view's ISM ids, once, before any pass reads them (PrepareViewIsmIds).
+                    meshes->PrepareViewIsmIds();
                 }
                 else
                     tablesError = tables.GetError();
