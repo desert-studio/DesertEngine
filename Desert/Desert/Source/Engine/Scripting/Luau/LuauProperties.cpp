@@ -420,6 +420,19 @@ namespace Desert::Scripting::LuauProperties
             return true;
         }
 
+        /// `pairs(Properties)` walks the values exactly like `for name, value in Properties do`: Luau's pairs
+        /// ignores __iter, so Install replaces the shared `pairs` with this one before luaL_sandbox (every
+        /// slot's imports resolve to it). Any other table iterates as itself, as with luaB_pairs. Upvalue 1 is
+        /// the built-in `next`, so the VM's FORGPREP_NEXT fast path still applies.
+        int PairsThroughProxy( lua_State* L )
+        {
+            luaL_checktype( L, 1, LUA_TTABLE );
+            lua_pushvalue( L, lua_upvalueindex( 1 ) );
+            PushValues( L, 1 );
+            lua_pushnil( L );
+            return 3;
+        }
+
         const luaL_Reg kModule[] = {
              { "Float", &Scalar<PropertyType::Number> },
              { "Int", &Scalar<PropertyType::Int> },
@@ -446,6 +459,10 @@ namespace Desert::Scripting::LuauProperties
             lua_setfield( L, -2, entry->name );
         }
         lua_setglobal( L, "Property" );
+
+        lua_getglobal( L, "next" );
+        lua_pushcclosure( L, &PairsThroughProxy, "pairs", 1 );
+        lua_setglobal( L, "pairs" );
     }
 
     void WatchPropertiesLine( lua_State* thread )

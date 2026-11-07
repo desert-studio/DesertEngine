@@ -958,6 +958,14 @@ namespace Desert::Core
         std::array<SystemCommandArena, 2> m_SystemCommandArenas;
         std::size_t                       m_RecordingArena = 0; // the arena this update's systems record into
 
+        // THE FRAME'S RENDERER INPUT (SceneRenderer::UpdateInfo), ONE PER ARENA, indexed like it: OnUpdate
+        // writes the slot of the arena it records into, and that update's view jobs and reflection captures read
+        // it BY REFERENCE (UE: the view family is handed to the rendering thread, not copied into every view's
+        // command). Its lifetime is the arena's: the update after next rewrites it, after every view of this one
+        // joined. The slot's DirLights keep their capacity (no per-frame heap). Defined in Scene.cpp.
+        struct FrameRendererInfos;
+        std::unique_ptr<FrameRendererInfos> m_FrameRendererInfos;
+
         SceneSettings m_Settings;
         std::string   m_SceneName;
         std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;

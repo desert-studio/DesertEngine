@@ -388,6 +388,11 @@ namespace Desert::Core
         }
     } // namespace
 
+    struct Scene::FrameRendererInfos
+    {
+        std::array<Graphic::SceneRenderer::UpdateInfo, 2> Slots; // index-matched to m_SystemCommandArenas
+    };
+
     const std::vector<Scene*>& Scene::LiveScenes()
     {
         return LiveSceneList();
@@ -399,8 +404,10 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
+           m_DistanceFields(
+                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
+           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -413,8 +420,10 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
+           m_DistanceFields(
+                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
+           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -720,7 +729,16 @@ namespace Desert::Core
 
         // The renderers step by the world's Delta; the wall-clock step goes beside it for what is about
         // the machine rather than the world (the sky's re-bake debounce).
-        Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
+        // The slot of the arena this update records into (flipped below, "ECS Systems"; m_FrameRendererInfos):
+        // reset to its defaults, its light list's capacity kept. The views and the captures read it by reference.
+        const std::size_t                   frameSlot = ( m_RecordingArena + 1 ) % m_SystemCommandArenas.size();
+        Graphic::SceneRenderer::UpdateInfo& sceneRendererInfo = m_FrameRendererInfos->Slots[frameSlot];
+        {
+            auto lights = std::move( sceneRendererInfo.DirLights.DirectionLights );
+            lights.clear();
+            sceneRendererInfo                           = Graphic::SceneRenderer::UpdateInfo{};
+            sceneRendererInfo.DirLights.DirectionLights = std::move( lights );
+        }
         sceneRendererInfo.Timestep     = Common::Timestep( m_WorldTime.GetDeltaSeconds() );
         sceneRendererInfo.RealTimestep = ts;
 
@@ -788,7 +806,7 @@ namespace Desert::Core
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             // THE OTHER ARENA (m_SystemCommandArenas): the previous update's views may still replay from theirs.
-            m_RecordingArena = ( m_RecordingArena + 1 ) % m_SystemCommandArenas.size();
+            m_RecordingArena = frameSlot;
             ExecuteSystems( gameplayTs );
         }
 
@@ -1027,9 +1045,10 @@ namespace Desert::Core
             // that view's BeginScene joins first - and the recorded arena is cleared only behind this update's
             // views.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
-            const SystemCommandArena* const recorded = &arena;
+            const SystemCommandArena* const                 recorded = &arena;
+            const Graphic::SceneRenderer::UpdateInfo* const info     = &sceneRendererInfo;
             ::Desert::Engine::RenderTask::Get().AfterViews(
-                 [this, recorded, info = sceneRendererInfo]()
+                 [this, recorded, info]()
                  {
                      DESERT_PROFILE_SCOPE( "Scene: Reflection Captures (fence)" );
                      for ( auto& view : m_Views.All() )
@@ -1039,7 +1058,7 @@ namespace Desert::Core
                          // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured
                          // again for is rendered into the captures with that sky, not under the old one. Index 0
                          // is the atmosphere sun (ECS::Rules::AtmosphereSunDirection, the one negation).
-                         const auto& suns = info.DirLights.DirectionLights;
+                         const auto& suns = info->DirLights.DirectionLights;
                          const bool  skyFollows =
                               !suns.empty() &&
                               view.Renderer->SkyLightRecapturesFor(
@@ -1052,7 +1071,7 @@ namespace Desert::Core
                                   for ( const auto& buffer : *recorded )
                                       buffer->ExecuteAll( face );
                               },
-                              info.Timestep, info.RealTimestep, info.DirLights, environment, skyFollows );
+                              info->Timestep, info->RealTimestep, info->DirLights, environment, skyFollows );
                          break;
                      }
                  } );
@@ -1090,7 +1109,8 @@ namespace Desert::Core
                 // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game
                 // thread enqueues the view family and goes on to the interface). BeginScene reads the registry
                 // and the live camera; from here the renderer works from its own copies (the frozen camera, the
-                // recorded draws, `info` copied by value). The next view's BeginScene joins this job first, so
+                // recorded draws) and from `info`, this update's slot of m_FrameRendererInfos, by reference (it
+                // lives as long as the arena). The next view's BeginScene joins this job first, so
                 // two brackets are never open at once. Its failure is reported by the render task.
                 //
                 // THE REPLAY IS THE JOB'S (CPU-ONE-SYNC step 3; UE: the mesh draw commands are built on the
@@ -1109,17 +1129,18 @@ namespace Desert::Core
                 // (SetStaticMesh, RetireRenderCache). Registration order - NOT
                 // completion order - so the frame's submission order is the old sequential path's.
                 auto* const                     renderer = &*view.Renderer;
-                const SystemCommandArena* const replayed = &arena;
+                const SystemCommandArena* const                 replayed = &arena;
+                const Graphic::SceneRenderer::UpdateInfo* const info     = &sceneRendererInfo;
                 ::Desert::Engine::RenderTask::Get().EnqueueView(
                      "Scene view",
-                     [renderer, replayed, info = sceneRendererInfo]() -> Common::BoolResultStr
+                     [renderer, replayed, info]() -> Common::BoolResultStr
                      {
                          {
                              DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
                              for ( const auto& buffer : *replayed )
                                  buffer->ExecuteAll( *renderer );
                          }
-                         renderer->OnUpdate( info );
+                         renderer->OnUpdate( *info );
                          DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
                          return renderer->EndScene();
                      } );
