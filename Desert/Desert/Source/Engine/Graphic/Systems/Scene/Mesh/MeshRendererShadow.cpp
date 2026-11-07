@@ -2,6 +2,7 @@
 #include "MeshRendererInternal.hpp"
 
 #include <Common/Core/GlslAsCpp.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Shader.hpp>
@@ -598,9 +599,8 @@ namespace Desert::Graphic::System
             // level invalidates and culls it by too.
             setup.Skinned[i].WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
         }
-        // A field's instances are gathered by the first view that walks it (ShadowIsmInstances). A kept gather's
-        // fields carry over to this gather (their rows stay in Instances); a field no view walked yet stays
-        // ungathered and is appended when one does.
+        // Every casting field's instances are gathered here when the gather starts over (GatherIsmCasters, on
+        // the setup tasks); a kept gather's fields carry over to this gather (their rows stay in Instances).
         if ( keepIsm )
         {
             for ( ShadowIsmField& field : setup.Fields )
@@ -618,12 +618,15 @@ namespace Desert::Graphic::System
         setup.IsmSources.resize( m_InstancedQueue.size() );
         for ( std::size_t i = 0; i < m_InstancedQueue.size(); ++i )
             setup.IsmSources[i] = m_InstancedQueue[i].Transforms;
+        GatherIsmCasters();
     }
 
     uint64_t MeshRenderer::IsmGatherKey() const
     {
-        // Every input of ShadowIsmInstances but the transforms' content (held by owner, GatherShadowCasters) and
-        // the kShadowWindEdge constant.
+        // Every input of GatherIsmCasters but the transforms' content (held by owner, GatherShadowCasters) and
+        // the kShadowWindEdge constant. The camera's EXACT position and lens: the GPU bins cull and pick levels
+        // from them each frame, and a cached layer keyed by a coarser cell would keep an instance that crossed
+        // its cull distance, level or wind ring inside the cell (CPU-ISM-SHADOW REMAINDER says what replaces it).
         const auto*             camera = m_SceneRenderer->GetMainCamera();
         const Geometry::LODView lodView =
              camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
@@ -876,25 +879,99 @@ namespace Desert::Graphic::System
         return glm::vec4( origin, ShadowWindDistanceOf( view ) );
     }
 
-    const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field )
+    const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field ) const
     {
-        ShadowCasterSetup& setup  = m_ShadowCasterSetup;
-        ShadowIsmField&    caster = setup.Fields[field];
-        if ( caster.Gather == setup.Gather )
-            return caster;
-        caster =
-             ShadowIsmField{ .Gather = setup.Gather, .First = static_cast<uint32_t>( setup.Instances.size() ) };
-        const InstancedMeshRenderData& ism = m_InstancedQueue[field];
+        return m_ShadowCasterSetup.Fields[field];
+    }
+
+    void MeshRenderer::GatherIsmCasters()
+    {
+        ShadowCasterSetup& setup = m_ShadowCasterSetup;
         // THE LOD AND THE CULL DISTANCE ARE THE MAIN CAMERA'S, as the geometry pass measures them: an instance
         // faded out of the view casts no shadow either, and a caster drawn at a coarser level than the object the
         // camera sees casts a silhouette that does not match it (CollectIsmInstances' rule, asked once here).
-        const auto*             camera = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView =
-             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
-                               : Geometry::LODView{};
-        const Common::Math::AABB      localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-        const InstanceCullDistance    lensCull    = ScaledByLens( ism.CullDistance, DrawDistanceScale( lodView ) );
-        const std::vector<glm::mat4>& transforms  = *ism.Transforms;
+        const auto*       camera = m_SceneRenderer->GetMainCamera();
+        Geometry::LODView lodView{};
+        if ( camera != nullptr )
+            lodView = Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        // The runs of every field a caster view asks (each one's filter: a mesh, CastShadows, instances), in field
+        // order and, within a field, in index order.
+        std::size_t runs = 0;
+        for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            const InstancedMeshRenderData& ism = m_InstancedQueue[f];
+            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                continue;
+            const auto count = static_cast<uint32_t>( ism.Transforms->size() );
+            for ( uint32_t begin = 0; begin < count; begin += kIsmGatherRun )
+            {
+                if ( runs == m_IsmGatherRuns.size() )
+                    m_IsmGatherRuns.emplace_back();
+                IsmGatherRun& run = m_IsmGatherRuns[runs++];
+                run.Field         = static_cast<uint32_t>( f );
+                run.Begin         = begin;
+                run.End           = count - begin > kIsmGatherRun ? begin + kIsmGatherRun : count;
+            }
+        }
+        if ( runs != 0 )
+        {
+            // About WorkerCount() + 1 contiguous slices of runs (a run costs at most kIsmGatherRun instances),
+            // each one setup task; the joining thread runs one too (the ISM view culls' split,
+            // BuildStaticDraws).
+            DESERT_PROFILE_SCOPE( "Mesh: ISM shadow gather" );
+            const std::size_t   participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+            const std::size_t   slices       = std::min( runs, participants );
+            ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+            for ( std::size_t s = 0; s < slices; ++s )
+            {
+                const std::size_t first = runs * s / slices;
+                const std::size_t last  = runs * ( s + 1 ) / slices;
+                tasks.Launch( "Mesh: ISM shadow gather run",
+                              [this, &lodView, first, last]() noexcept
+                              {
+                                  for ( std::size_t r = first; r < last; ++r )
+                                      GatherIsmRun( m_IsmGatherRuns[r], lodView );
+                              } );
+            }
+            tasks.Join();
+        }
+        // The runs appended in field and run order: the rows, their indices and their boxes' columns, as the one
+        // serial walk pushed them.
+        std::size_t r = 0;
+        for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            ShadowIsmField& field = setup.Fields[f];
+            field = ShadowIsmField{ .Gather = setup.Gather,
+                                    .First  = static_cast<uint32_t>( setup.Instances.size() ) };
+            for ( ; r < runs && m_IsmGatherRuns[r].Field == f; ++r )
+            {
+                const IsmGatherRun& run = m_IsmGatherRuns[r];
+                setup.Instances.insert( setup.Instances.end(), run.Rows.begin(), run.Rows.end() );
+                setup.InstanceIndex.insert( setup.InstanceIndex.end(), run.Index.begin(), run.Index.end() );
+                for ( const ShadowCasterRow& row : run.Rows )
+                    setup.InstanceBounds.PushBack( row.WorldBounds );
+            }
+            field.Count = static_cast<uint32_t>( setup.Instances.size() ) - field.First;
+        }
+    }
+
+    void MeshRenderer::GatherIsmRun( IsmGatherRun& run, const Geometry::LODView& lodView ) const noexcept
+    {
+        run.Rows.clear();
+        run.Index.clear();
+        const InstancedMeshRenderData& ism         = m_InstancedQueue[run.Field];
+        const Common::Math::AABB       localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+        const float                    lensScale   = DrawDistanceScale( lodView );
+        const InstanceCullDistance     lensCull    = ScaledByLens( ism.CullDistance, lensScale );
+        const std::vector<glm::mat4>&  transforms  = *ism.Transforms;
+        // The run's levels eight per register (SelectLODsFromBounds: per instance SelectLODFromBounds bit for
+        // bit), the culled instances' too: one pass over the run's transforms in place costs less than copying
+        // the kept.
+        const std::span<const glm::mat4> runTransforms( transforms.data() + run.Begin, run.End - run.Begin );
+        run.Levels.resize( runTransforms.size() );
+        Geometry::SelectLODsFromBounds( runTransforms, localBounds, lodView, ism.Mesh->GetLODScreenSizes(), -1, 0,
+                                        run.Levels );
+
         // WHO SWAYS IN THE SHADOWS (UE WPO Disable Distance;
         // r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange):
         // a swaying instance nearer the main camera than Shadows.WindAnimationDistance is a mover; a farther one
@@ -912,7 +989,7 @@ namespace Desert::Graphic::System
         // its GpuScene row (LocalBoundsExtent, LocalBoundsCenter.w = WindBoundsPad), for the per-cascade ring.
         const glm::vec3 boundsExtent = ( localBounds.Max - localBounds.Min ) * 0.5f;
         const float     windPad      = WindBoundsPad( ism.Wind );
-        for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
+        for ( uint32_t k = run.Begin; k < run.End; ++k )
         {
             const std::optional<Common::Math::AABB> reach =
                  IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
@@ -924,20 +1001,16 @@ namespace Desert::Graphic::System
             glm::vec2 casterReach( 0.0f );
             if ( fieldSways )
                 casterReach = ShadowWindCasterReach( transforms[k], boundsExtent, windPad );
-            setup.Instances.push_back(
+            run.Rows.push_back(
                  { .WorldBounds  = *reach,
-                   .LodLevel     = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
-                                                                  ism.Mesh->GetLODScreenSizes(), -1, 0 ),
+                   .LodLevel     = run.Levels[k - run.Begin],
                    .Sways        = fieldSways && ( nearEdge || !ShadowWindCastsRestPose( point, lodView.Origin,
                                                                                          m_ShadowWindDistance ) ),
                    .NearWindEdge = nearEdge,
                    .WindPoint    = point,
                    .CasterReach  = casterReach } );
-            setup.InstanceIndex.push_back( k );
-            setup.InstanceBounds.PushBack( *reach );
+            run.Index.push_back( k );
         }
-        caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
-        return caster;
     }
 
     std::size_t MeshRenderer::ShadowBucketKeyHash::operator()( const ShadowBucketKey& key ) const noexcept
@@ -1067,54 +1140,65 @@ namespace Desert::Graphic::System
             bool          ismMovable = false;
             bool          nearEdge   = false;
             bool          ismSplit   = false;
+            // The fields' headers in queue order, each field's rows in runs of kIsmGatherRun on the setup tasks
+            // (SignIsmRun: the walk this loop made per row), their hashes added in field and run order.
+            std::size_t runs = 0;
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                     continue;
+                const auto            field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
+                const ShadowIsmField& kept  = ShadowIsmInstances( field );
+                for ( uint32_t first = 0; first < kept.Count; first += kIsmGatherRun )
+                {
+                    if ( runs == m_IsmSignatureRuns.size() )
+                        m_IsmSignatureRuns.emplace_back();
+                    IsmSignatureRun& run = m_IsmSignatureRuns[runs++];
+                    run.Field            = field;
+                    run.First            = kept.First + first;
+                    run.Count            = std::min( kIsmGatherRun, kept.Count - first );
+                }
+            }
+            const IsmSignatureView signView{ .CasterFrustum = &frustum,
+                                             .Wind          = cascadeWind,
+                                             .Ring          = cascadeRing,
+                                             .RingOrigin    = ringOrigin,
+                                             .WithLod       = withLod };
+            if ( runs != 0 )
+            {
+                const std::size_t   participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+                const std::size_t   slices       = std::min( runs, participants );
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                for ( std::size_t s = 0; s < slices; ++s )
+                {
+                    const std::size_t first = runs * s / slices;
+                    const std::size_t last  = runs * ( s + 1 ) / slices;
+                    tasks.Launch( "Mesh: ISM cascade signature run",
+                                  [this, &signView, first, last]() noexcept
+                                  {
+                                      for ( std::size_t r = first; r < last; ++r )
+                                          SignIsmRun( m_IsmSignatureRuns[r], signView );
+                                  } );
+                }
+                tasks.Join();
+            }
+            std::size_t r = 0;
+            for ( const auto& ism : m_InstancedQueue )
+            {
+                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                    continue;
+                const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
                 ismHash.Add( ism.Mesh->GetRenderRevision() );
                 ismHash.Add( ism.Transforms.get() );
                 ismHash.Add( ism.Transforms->size() );
                 ismHash.Add( ism.Material.get() );
-                const ShadowIsmField& kept =
-                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-                // `reaches` for every row of the field at once, four boxes per register (VisibleInViewBits: the
-                // same verdict per row as IsVisibleInView on its WorldBounds).
-                m_ScratchSignatureBits.resize( ( std::size_t{ kept.Count } + 63u ) / 64u );
-                VisibleInViewBits( frustum, m_ShadowCasterSetup.InstanceBounds, kept.First, kept.Count,
-                                   m_ScratchSignatureBits );
-                for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+                for ( ; r < runs && m_IsmSignatureRuns[r].Field == field; ++r )
                 {
-                    const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
-                    if ( !VisibleBit( m_ScratchSignatureBits, k - kept.First ) )
-                        continue;
-                    // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
-                    // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
-                    // each frame until it leaves the edge.
-                    if ( row.NearWindEdge && cascadeWind > 0.0f )
-                    {
-                        ismSplit = true;
-                        ismHash.Add( m_ShadowCasterSetup.Gather );
-                        nearEdge = true;
-                    }
-                    if ( row.Sways && cascadeWind > 0.0f )
-                    {
-                        ismSplit = true;
-                        const ShadowWindRingSide side =
-                             ShadowWindRingSideOf( row.WindPoint, row.CasterReach, cascadeRing, ringOrigin );
-                        if ( side == ShadowWindRingSide::Edge )
-                        {
-                            ismHash.Add( m_ShadowCasterSetup.Gather );
-                            nearEdge = true;
-                        }
-                        if ( side != ShadowWindRingSide::Rest )
-                        {
-                            ismMovable = true;
-                            continue;
-                        }
-                    }
-                    ismHash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
-                    if ( withLod )
-                        ismHash.Add( row.LodLevel );
+                    const IsmSignatureRun& run = m_IsmSignatureRuns[r];
+                    ismHash.Add( run.Hash );
+                    ismMovable = ismMovable || run.Movable;
+                    nearEdge   = nearEdge || run.NearEdge;
+                    ismSplit   = ismSplit || run.Split;
                 }
             }
             part.Valid    = !nearEdge;
@@ -1229,6 +1313,54 @@ namespace Desert::Graphic::System
         if ( m_GpuInstancedCastersExpected ) // submitted later this frame (ExpectGpuInstancedCasters)
             movers.Unkeyed = "particle mesh casters (submitted after the plan)";
         return hash.Value;
+    }
+
+    void MeshRenderer::SignIsmRun( IsmSignatureRun& run, const IsmSignatureView& view ) const noexcept
+    {
+        // CascadeStaticSignature's per-row walk over Instances[First, First + Count): `reaches` four boxes per
+        // register (VisibleInViewBits: the same verdict per row as IsVisibleInView on its WorldBounds).
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        SignatureHash            hash;
+        run.Movable  = false;
+        run.NearEdge = false;
+        run.Split    = false;
+        run.Bits.resize( ( std::size_t{ run.Count } + 63u ) / 64u );
+        VisibleInViewBits( *view.CasterFrustum, setup.InstanceBounds, run.First, run.Count, run.Bits );
+        for ( uint32_t k = run.First; k < run.First + run.Count; ++k )
+        {
+            const ShadowCasterRow& row = setup.Instances[k];
+            if ( !VisibleBit( run.Bits, k - run.First ) )
+                continue;
+            // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
+            // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
+            // each frame until it leaves the edge.
+            if ( row.NearWindEdge && view.Wind > 0.0f )
+            {
+                run.Split = true;
+                hash.Add( setup.Gather );
+                run.NearEdge = true;
+            }
+            if ( row.Sways && view.Wind > 0.0f )
+            {
+                run.Split = true;
+                const ShadowWindRingSide side =
+                     ShadowWindRingSideOf( row.WindPoint, row.CasterReach, view.Ring, view.RingOrigin );
+                if ( side == ShadowWindRingSide::Edge )
+                {
+                    hash.Add( setup.Gather );
+                    run.NearEdge = true;
+                }
+                if ( side != ShadowWindRingSide::Rest )
+                {
+                    run.Movable = true;
+                    continue;
+                }
+            }
+            hash.Add( setup.InstanceIndex[k] );
+            if ( view.WithLod )
+                hash.Add( row.LodLevel );
+        }
+        run.Hash = hash.Value;
     }
 
     void MeshRenderer::PlanCascadeCache()

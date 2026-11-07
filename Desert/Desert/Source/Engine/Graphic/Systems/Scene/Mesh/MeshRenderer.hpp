@@ -2101,7 +2101,7 @@ namespace Desert::Graphic::System
         // A hash of the static casters cascade @p cascade's caster box reaches (what they draw and where), and
         // whether a movable caster reaches it: the cache key of the cascade's static layer. A still ISM field's
         // part is its snapshot and the instances the gather keeps in the box with their levels
-        // (ShadowIsmInstances, gathered here when no view walked the field yet): what the layer draws.
+        // (ShadowIsmInstances, this gather's): what the layer draws.
         // @p casterVP: the box the casters are taken from (this frame's caster matrix, or the one a scrolled cache
         // was drawn with). @p withLod: the levels the camera chose are part of the key (a content key leaves them
         // out: a scrolled cache keeps the level it was drawn at, PlanCascadeCache). @p windSplit: a reached caster
@@ -2134,7 +2134,7 @@ namespace Desert::Graphic::System
         // itself every frame: the part of a local view's key the meshes give, and the rain occlusion map's key
         // (the terrain under it changes only with the box, which RainOcclusionNeedsRecentre redraws on). Every
         // caster's box is this frame's gather (GatherShadowCasters), an ISM field's the instances it keeps
-        // (ShadowIsmInstances, gathered here when no view walked the field yet): what the views draw.
+        // (ShadowIsmInstances, this gather's): what the views draw.
         [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius );
         // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
         // its casters and its views; the views of a light whose key changed (or that has none) go to
@@ -3824,10 +3824,9 @@ namespace Desert::Graphic::System
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
         // The per-instance caster cull's bits (VisibleInViewBits, one bit per gathered instance of a field): the
-        // view's, the scrolled strips' union, and CascadeStaticSignature's own.
+        // view's and the scrolled strips' union (CascadeStaticSignature's are its runs', IsmSignatureRun::Bits).
         std::vector<uint64_t> m_ScratchCasterBits;
         std::vector<uint64_t> m_ScratchStripBits;
-        std::vector<uint64_t> m_ScratchSignatureBits;
         // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
         // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
         // do not). The key is every input CollectIsmInstances reads that is the field's own: its immutable
@@ -4149,7 +4148,7 @@ namespace Desert::Graphic::System
             // them): the static caster walk of every shadow view (BuildShadowCascadeDraws) tests the four-box
             // group of a record it asks (VisibleInView4) instead of one fat row at a time.
             Common::Math::AABBLanes StaticBounds;
-            // THE ISM GATHER IS KEPT ACROSS FRAMES (SCENE-CACHE-3) while every input of ShadowIsmInstances is the
+            // THE ISM GATHER IS KEPT ACROSS FRAMES (SCENE-CACHE-3) while every input of GatherIsmCasters is the
             // one it was made from: IsmKey (IsmGatherKey) and the transforms snapshots, held by owner (a freed
             // snapshot whose address came back is another one). IsmRevision moves whenever the gather starts over.
             uint64_t                                                 IsmKey      = 0;
@@ -4384,9 +4383,50 @@ namespace Desert::Graphic::System
         // The level of static / generic caster @p index, asked of the camera once per gather.
         [[nodiscard]] uint32_t ShadowStaticLod( uint32_t index );
         [[nodiscard]] uint32_t ShadowGenericLod( uint32_t index );
-        // ISM field @p field's kept instances (Instances / InstanceIndex), gathered on the first view that walks
-        // the field this gather: a field every view leaves to its bins costs no per-instance work.
-        const ShadowIsmField& ShadowIsmInstances( uint32_t field );
+        // ISM field @p field's kept instances (Instances / InstanceIndex) of this gather (GatherIsmCasters: every
+        // field that casts, on the setup tasks, when the gather starts over).
+        [[nodiscard]] const ShadowIsmField& ShadowIsmInstances( uint32_t field ) const;
+        // THE ISM FIELDS' GATHER (CPU-ISM-SHADOW; UE FInstanceCullingContext's per-instance pass over a batch):
+        // every casting field cut into runs of kIsmGatherRun instances, each run one slot (IsmGatherRun) a setup
+        // task fills - the reach and cull distance per instance, the levels of the whole run eight per register
+        // (Geometry::SelectLODsFromBounds, the scalar policy bit for bit) - then appended to Instances in field
+        // and run order, so the rows are the ones the serial walk made, in its order.
+        static constexpr uint32_t kIsmGatherRun = 4096u;
+        struct IsmGatherRun
+        {
+            uint32_t                     Field = 0;
+            uint32_t                     Begin = 0; // the field's transforms [Begin, End)
+            uint32_t                     End   = 0;
+            std::vector<ShadowCasterRow> Rows;   // the kept instances of the run, in index order
+            std::vector<uint32_t>        Index;  // each row's index in the field's transforms
+            std::vector<uint32_t>        Levels; // the level of every instance of the run (kept or not)
+        };
+        std::vector<IsmGatherRun> m_IsmGatherRuns; // slots kept with their capacity across gathers
+        void                      GatherIsmCasters();
+        void GatherIsmRun( IsmGatherRun& run, const Geometry::LODView& lodView ) const noexcept;
+        // THE ISM PART OF A CASCADE'S SIGNATURE, per run of a field's gathered rows (CascadeStaticSignature): the
+        // same walk the serial loop did, one slot per run on the setup tasks, the runs' hashes added in order.
+        struct IsmSignatureRun
+        {
+            uint32_t              Field = 0;
+            uint32_t              First = 0; // Instances[First, First + Count)
+            uint32_t              Count = 0;
+            std::vector<uint64_t> Bits;
+            uint64_t              Hash     = 0;
+            bool                  Movable  = false;
+            bool                  NearEdge = false;
+            bool                  Split    = false;
+        };
+        struct IsmSignatureView
+        {
+            const Core::Frustum* CasterFrustum = nullptr;
+            float                Wind          = 0.0f;
+            glm::vec4            Ring{ 0.0f };
+            glm::vec3            RingOrigin{ 0.0f };
+            bool                 WithLod = false;
+        };
+        std::vector<IsmSignatureRun> m_IsmSignatureRuns;
+        void SignIsmRun( IsmSignatureRun& run, const IsmSignatureView& view ) const noexcept;
         // A view's static caster buckets by (mesh, hidden submeshes): the index of each key's bucket, so the walk
         // finds it without a search (BuildShadowCascadeDraws); a member so its nodes persist.
         struct ShadowBucketKey
