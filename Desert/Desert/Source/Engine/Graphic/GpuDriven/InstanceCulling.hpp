@@ -133,6 +133,10 @@ namespace Desert::Graphic::GpuDriven
         std::vector<CulledDraws>       Draws; // one per CullViewInput, same order
         OcclusionCarry                 Carry;
         VirtualGeometryCandidateOutput VirtualGeometry; // invalid refs when the input was
+        // uint[ContentRegions x CascadeContentHash::kCells x kWords]: the content-hash views' cells (always valid;
+        // 16 zero bytes when no view hashes).
+        RDG::BufferRef ContentHash;
+        uint32_t       ContentRegions = 0;
     };
 
     class InstanceCulling

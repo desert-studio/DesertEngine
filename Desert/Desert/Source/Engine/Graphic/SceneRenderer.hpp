@@ -2400,6 +2400,8 @@ namespace Desert::Graphic
         {
             std::vector<GpuDriven::CullViewInput> Views;
             std::vector<uint32_t>                 ViewKeys;
+            // The cascade views of the content-hash cull views, by region (CullViewFlags::kContentHash).
+            std::vector<uint32_t>                 ContentViews;
             std::vector<std::string>              ViewNames;
             GpuDriven::OcclusionCarry             Carry;
             GpuDriven::DrawCommandBuffers         Upload;

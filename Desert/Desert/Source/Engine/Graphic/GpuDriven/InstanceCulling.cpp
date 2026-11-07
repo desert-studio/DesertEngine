@@ -43,6 +43,7 @@ namespace Desert::Graphic::GpuDriven
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgCutViewOf );
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgCandidates );
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgCandidateCount );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullContentHash );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, GpuCullHzbTexture );
         };
@@ -144,6 +145,8 @@ namespace Desert::Graphic::GpuDriven
             RDG::TextureRef Hzb;
             // The VG candidate append (VirtualGeometryCandidateInput / Output); zero buffers when it is off.
             RDG::BufferRef VgPrimitiveDags, VgDagEntries, VgCutViewOf, VgCandidates, VgCandidateCount;
+            // The cascade content hash (MainPhaseResult::ContentHash); phase 2 binds an unread zero buffer.
+            RDG::BufferRef ContentHash;
         };
 
         // Fills the VG slots of a dispatch that appends no candidate (Params3 = 0): every slot is bound.
@@ -184,6 +187,7 @@ namespace Desert::Graphic::GpuDriven
                  .Storage( P::GpuCullVgCutViewOf, b.VgCutViewOf, R )
                  .Storage( P::GpuCullVgCandidates, b.VgCandidates, W )
                  .Storage( P::GpuCullVgCandidateCount, b.VgCandidateCount, W )
+                 .Storage( P::GpuCullContentHash, b.ContentHash, W )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::GpuCullHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CullPush ) ) );
@@ -307,6 +311,16 @@ namespace Desert::Graphic::GpuDriven
                  ZeroBuffer( graph, "GPUDriven.VgCandidateCount",
                              std::max<uint64_t>( 16u, ( uint64_t{ virtualGeometry.CutViews } + 1u ) * 4u ) );
         }
+        // THE CASCADE CONTENT HASH (CullViewFlags::kContentHash): one region per content-hash view's
+        // ContentCells.w, zeroed here, summed by the views' instances.
+        for ( const CullViewInput& view : views )
+            if ( ( view.View.Flags & CullViewFlags::kContentHash ) != 0u && view.View.ContentCells.w >= 0 )
+                result.ContentRegions =
+                     std::max( result.ContentRegions, static_cast<uint32_t>( view.View.ContentCells.w ) + 1u );
+        result.ContentHash =
+             ZeroBuffer( graph, "GPUDriven.CascadeContentHash",
+                         std::max<uint64_t>( 16u, uint64_t{ result.ContentRegions } * CascadeContentHash::kCells *
+                                                       CascadeContentHash::kWords * sizeof( uint32_t ) ) );
 
         for ( uint32_t p = 0; p < kMeshPassCount; ++p )
         {
@@ -314,6 +328,7 @@ namespace Desert::Graphic::GpuDriven
                 continue;
             DispatchBinds binds;
             binds.Views         = viewBuffer;
+            binds.ContentHash   = result.ContentHash;
             if ( appendsVg )
             {
                 binds.VgPrimitiveDags  = virtualGeometry.PrimitiveDags;
@@ -441,6 +456,7 @@ namespace Desert::Graphic::GpuDriven
             binds.Visibility    = carry.Visibility;
             binds.DirtyMask     = ZeroBuffer( graph, "GPUDriven.NoVsmMask2" );
             BindNoVirtualGeometry( graph, binds, std::format( "2.P{}", p ) ); // phase 2 appends no candidate
+            binds.ContentHash = ZeroBuffer( graph, std::format( "GPUDriven.NoContentHash2.P{}", p ) );
 
             const PassDrawTable&   table   = tables[p];
             const PassDrawBuffers& pass    = passes[p];

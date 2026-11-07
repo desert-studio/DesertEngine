@@ -141,6 +141,13 @@ Shader "InstanceCull"
             uint VgCandidateCounts[]; // per cut view: rows appended to its region (may pass Params3.y: the cut clamps)
         };
 
+        // THE CASCADE CONTENT HASH (GpuDriven::CascadeContentHash): per region kCells cells of kWords sums, zeroed
+        // by the frame's upload, written by the content-hash views only (DESERT_GPU_CULL_VIEW_CONTENT_HASH).
+        Buffer(22) GpuCullContentHash
+        {
+            uint ContentHash[];
+        };
+
         Uniform sampler PointClampSampler;
         Uniform(15) texture2D GpuCullHzbTexture; // the furthest HZB of the dispatch's HZB view (last frame's in step 1)
 
@@ -329,6 +336,81 @@ Shader "InstanceCull"
             return true;
         }
 
+        // One word of the content hash of (a, b): an integer finaliser (murmur3's), seeded per word.
+        uint ContentMix( uint a, uint b, uint seed )
+        {
+            uint h = a * 0x9E3779B1u + seed;
+            h ^= b * 0x85EBCA77u + ( h >> 15u );
+            h *= 0x2C1B3C6Du;
+            h ^= h >> 12u;
+            h *= 0x297A2D39u;
+            h ^= h >> 15u;
+            return h;
+        }
+
+        void AddContentCell( uint row, uvec4 add )
+        {
+            const uint at = row * DESERT_CONTENT_HASH_WORDS;
+            atomicAdd( ContentHash[at + 0u], add.x );
+            atomicAdd( ContentHash[at + 1u], add.y );
+            atomicAdd( ContentHash[at + 2u], add.z );
+            atomicAdd( ContentHash[at + 3u], add.w );
+        }
+
+        // A content-hash view's instance (CullMain: past the static layer's split, distance fade and frustum): what
+        // the layer draws of it - its row, its rest pose and its LOD - added into the cells its box covers in the
+        // map's absolute texel grid (GpuDriven::CascadeContentHash; MeshRenderer::CascadeContentAnswer reads them).
+        // Only an instance the layer draws: its primitive has bins in the pass, or DAG rows the cluster cut takes.
+        void AddContentHash( GpuCullView view, uint instanceRow, uint primitiveRow, uint lod, bool restPose, bool empty,
+                             vec3 boxMin, vec3 boxMax )
+        {
+            const bool binned = primitiveRow < Params2.z && PrimitiveDraws[primitiveRow].SubmeshCount != 0u &&
+                                PrimitiveDraws[primitiveRow].LodCount != 0u;
+            const bool clustered = Params3.x != 0u && primitiveRow < Params3.x && VgPrimitiveDags[primitiveRow].y != 0u;
+            if ( !binned && !clustered )
+                return;
+            const uint  base = uint( view.ContentCells.w ) * DESERT_CONTENT_HASH_CELLS;
+            const uint  rest = restPose ? 1u : 0u;
+            const uint  lodKey = rest | ( lod << 1u );
+            const uvec4 add = uvec4( ContentMix( instanceRow, rest, 0x68E31DA4u ), ContentMix( instanceRow, rest, 0xB5297A4Du ),
+                                     ContentMix( instanceRow, lodKey, 0x1B56C4E9u ), ContentMix( instanceRow, lodKey, 0x7F4A7C15u ) );
+            const int cellTexels = view.ContentCells.z;
+            if ( empty || cellTexels <= 0 )
+            {
+                AddContentCell( base + DESERT_CONTENT_HASH_GRID * DESERT_CONTENT_HASH_GRID, add );
+                return;
+            }
+            // The box's corners through the caster matrix to framebuffer texels (x right, y down: MeshRenderer's
+            // MovableRect), then to absolute texels (CascadePlacement::ShiftTo's frame).
+            const float side = float( cellTexels ) * float( DESERT_CONTENT_HASH_CELLS_PER_MAP );
+            vec2        low  = vec2( 3.0e38 );
+            vec2        high = vec2( -3.0e38 );
+            for ( uint c = 0u; c < 8u; ++c )
+            {
+                const vec3 corner = vec3( ( c & 1u ) != 0u ? boxMax.x : boxMin.x, ( c & 2u ) != 0u ? boxMax.y : boxMin.y,
+                                          ( c & 4u ) != 0u ? boxMax.z : boxMin.z );
+                const vec4 clip   = view.ViewProjection * vec4( corner, 1.0 );
+                const vec2 ndc    = clip.xy / clip.w;
+                const vec2 texel  = vec2( ( ndc.x + 1.0 ) * 0.5 * side, ( 1.0 - ndc.y ) * 0.5 * side ) +
+                                   vec2( float( view.ContentCells.x ), -float( view.ContentCells.y ) );
+                low  = min( low, texel );
+                high = max( high, texel );
+            }
+            const ivec2 lowCell  = ivec2( floor( low / float( cellTexels ) ) );
+            const ivec2 highCell = ivec2( floor( high / float( cellTexels ) ) );
+            const ivec2 span     = highCell - lowCell + ivec2( 1 );
+            if ( span.x <= 0 || span.y <= 0 || span.x > int( DESERT_CONTENT_HASH_MAX_SPAN ) ||
+                 span.y > int( DESERT_CONTENT_HASH_MAX_SPAN ) )
+            {
+                AddContentCell( base + DESERT_CONTENT_HASH_GRID * DESERT_CONTENT_HASH_GRID, add );
+                return;
+            }
+            const int wrap = int( DESERT_CONTENT_HASH_GRID ) - 1;
+            for ( int y = lowCell.y; y <= highCell.y; ++y )
+                for ( int x = lowCell.x; x <= highCell.x; ++x )
+                    AddContentCell( base + uint( y & wrap ) * DESERT_CONTENT_HASH_GRID + uint( x & wrap ), add );
+        }
+
         void InitDraws()
         {
             const uint i = ThreadIndex();
@@ -398,6 +480,12 @@ Shader "InstanceCull"
                 }
             }
             const uint lod  = SelectLod( view, primitive, world, empty );
+            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_CONTENT_HASH ) != 0u )
+            {
+                Visibility[cell] = 0u; // draws nothing: the cells are its output
+                AddContentHash( view, instanceRow, instance.Primitive, lod, restPose, empty, boxMin, boxMax );
+                return;
+            }
             const uint word = DESERT_GPU_CULL_VISIBILITY_IN_VIEW | min( lod, DESERT_GPU_CULL_VISIBILITY_LOD_MASK );
             if ( Params3.x != 0u && AppendVgCandidates( view.ViewIndex, instanceRow, instance.Primitive ) )
             {
