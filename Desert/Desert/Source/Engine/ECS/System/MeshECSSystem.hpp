@@ -45,6 +45,8 @@ namespace Desert::ECS
         ~MeshECSSystem() override
         {
             RetireGenericDraws();
+            if ( m_IsmScene )
+                RetireRenderCache( m_IsmScene ); // the ISM rows a view in flight may still replay
         }
 
         // Render-data collector (only touches mesh components' runtime caches) — safe to run concurrently with the other collectors.
@@ -130,6 +132,11 @@ namespace Desert::ECS
                INSTANCED STATIC MESHES (UE-style ISM: one entity = N instances, one instanced draw)
                ========================= */
             {
+                // THE RETAINED ISM LIST (CPU-TAILS F10): rows staged in walk order, one snapshot published only
+                // when a row changed, one command per update; the frame's values go to a pooled array.
+                Graphic::Render::InstancedSceneFrame& ismFrame   = AcquireInstancedFrame();
+                size_t                                ismRows    = 0;
+                bool                                  ismChanged = false;
                 auto view = registry.view<InstancedStaticMeshComponent>();
                 view.each(
                      [&]( entt::entity entity, InstancedStaticMeshComponent& ism )
@@ -261,16 +268,25 @@ namespace Desert::ECS
                                                                    type->Wind.Height, glm::vec2( air.x, air.z ),
                                                                    m_WindSeconds, m_PrevWindSeconds );
                              }
+                         // Each section group is a row of the retained ISM list (StageInstancedRow: compared by
+                         // handle identity, assigned only on a change) and an entry of this frame's values.
+                         const auto fade =
+                              Graphic::ClipToMaxDrawDistance( cullDistance, ism.GetMaxDrawDistance() );
+                         const auto& displaced = ism.RuntimeDisplacedInstances();
                          for ( const auto& d : ismSplit.SectionDraws )
-                             renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                                  static_cast<uint32_t>( entity ), targetMesh,
-                                  ism.RuntimeMaterialInstances()[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot(),
-                                  d.CastShadows, ism.GetCastContactShadow(),
-                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.GetMaxDrawDistance() ), wind,
-                                  d.Slot < ism.RuntimeDisplacedInstances().size()
-                                       ? ism.RuntimeDisplacedInstances()[d.Slot]
-                                       : Graphic::MaterialInstancePtr{} );
+                         {
+                             const Graphic::MaterialInstancePtr& displacedSlot =
+                                  d.Slot < displaced.size() ? displaced[d.Slot] : m_NoInstance;
+                             const bool changed = StageInstancedRow(
+                                  ismRows, static_cast<uint32_t>( entity ), targetMesh,
+                                  ism.RuntimeMaterialInstances()[d.Slot], displacedSlot, d.HiddenMask,
+                                  ism.RuntimeInstanceSnapshot(), d.CastShadows, ism.GetCastContactShadow() );
+                             ismChanged = ismChanged || changed;
+                             ++ismRows;
+                             ismFrame.Rows.push_back( Graphic::Render::InstancedSceneRowFrame{ fade, wind } );
+                         }
                      } );
+                PublishInstancedScene( ismRows, ismChanged, renderCommandBuffer );
             }
 
             /* =========================
@@ -755,6 +771,78 @@ namespace Desert::ECS
                            { return spare.use_count() == 1 && freeKept++ >= rebuiltChunks; } );
         }
 
+        // THE RETAINED ISM LIST (CPU-TAILS F10; UE: an ISM proxy's cached mesh draw commands). The row at
+        // @p index takes this section group's values; returns whether it changed. Compared by handle identity:
+        // the component's material instances are rebuilt (new handles) on a slot, mesh or invalidation change, and
+        // its transform snapshot is new on every instance revision (the one writer, SetInstancedStaticMesh), so
+        // an equal row is the same draw and nothing is copied.
+        bool StageInstancedRow( const size_t index, const uint32_t entity, Desert::Mesh* const mesh,
+                                const Graphic::MaterialInstancePtr& material,
+                                const Graphic::MaterialInstancePtr& displaced, const uint64_t hiddenSubmeshes,
+                                const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                const bool castShadows, const bool castContactShadow )
+        {
+            if ( index == m_IsmRows.size() )
+                m_IsmRows.emplace_back();
+            Graphic::Render::InstancedSceneRow& row = m_IsmRows[index];
+            if ( row.Entity == entity && row.Mesh == mesh && row.Material == material &&
+                 row.DisplacedMaterial == displaced && row.HiddenSubmeshes == hiddenSubmeshes &&
+                 row.Transforms == transforms && row.CastShadows == castShadows &&
+                 row.CastContactShadow == castContactShadow )
+                return false;
+            row.Entity            = entity;
+            row.Mesh              = mesh;
+            row.Material          = material;
+            row.DisplacedMaterial = displaced;
+            row.HiddenSubmeshes   = hiddenSubmeshes;
+            row.Transforms        = transforms;
+            row.CastShadows       = castShadows;
+            row.CastContactShadow = castContactShadow;
+            return true;
+        }
+
+        // This update's frame values: a pooled array no recorded command holds any more (or a new one, only
+        // while every pooled one is in flight), emptied with its capacity kept.
+        Graphic::Render::InstancedSceneFrame& AcquireInstancedFrame()
+        {
+            size_t free = m_IsmFrames.size();
+            for ( size_t i = 0; i < m_IsmFrames.size(); ++i )
+                if ( m_IsmFrames[i].use_count() == 1 )
+                {
+                    free = i;
+                    break;
+                }
+            if ( free == m_IsmFrames.size() )
+                m_IsmFrames.push_back( std::make_shared<Graphic::Render::InstancedSceneFrame>() );
+            m_IsmFrameIndex = free;
+            m_IsmFrames[free]->Rows.clear();
+            return *m_IsmFrames[free];
+        }
+
+        // The rows past @p rows left the list; any change publishes a new snapshot (the replaced one is parked
+        // through RetireRenderCache: a view may still replay it). One command names the snapshot and the frame.
+        void PublishInstancedScene( const size_t rows, bool changed,
+                                    Graphic::Render::RenderCommandBuffer& renderCommandBuffer )
+        {
+            if ( rows != m_IsmRows.size() )
+            {
+                m_IsmRows.resize( rows );
+                changed = true;
+            }
+            if ( changed || !m_IsmScene )
+            {
+                auto snapshot      = std::make_shared<Graphic::Render::InstancedSceneSnapshot>();
+                snapshot->Rows     = m_IsmRows;
+                snapshot->Revision = ++m_IsmRevision;
+                if ( m_IsmScene )
+                    RetireRenderCache( m_IsmScene );
+                m_IsmScene = std::move( snapshot );
+            }
+            if ( !m_IsmScene->Rows.empty() )
+                renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedSceneCommand>(
+                     m_IsmScene, m_IsmFrames[m_IsmFrameIndex] );
+        }
+
         // THE STATIC PATH, per update: the delta applied to the slots, the touched chunks rebuilt, the snapshot
         // recorded once, and the few entities that draw off the batched path (a slot of a custom-shader material,
         // a MaterialComponent shader) recorded from their slot's cached state.
@@ -1134,5 +1222,13 @@ namespace Desert::ECS
         std::vector<entt::entity> m_StaticEdited;             // the in-place edit scan's slots (scratch)
         uint64_t                  m_StaticStaleEpoch = ~0ull; // Mesh::GetStaleEpoch as of the last scan
         std::vector<Graphic::Render::StaticSceneSection>                   m_StaticPrevious; // scratch
+
+        // The retained ISM list's state (StageInstancedRow / PublishInstancedScene, CPU-TAILS F10).
+        std::vector<Graphic::Render::InstancedSceneRow>                    m_IsmRows;  // staged, walk order
+        std::shared_ptr<Graphic::Render::InstancedSceneSnapshot>           m_IsmScene; // published
+        uint64_t                                                           m_IsmRevision = 0;
+        std::vector<std::shared_ptr<Graphic::Render::InstancedSceneFrame>> m_IsmFrames; // pooled frame values
+        size_t                                                             m_IsmFrameIndex = 0;
+        const Graphic::MaterialInstancePtr m_NoInstance; // a section with no displaced sibling names this
     };
 } // namespace Desert::ECS

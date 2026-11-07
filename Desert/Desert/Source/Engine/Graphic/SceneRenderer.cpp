@@ -3,6 +3,7 @@
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
+#include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
@@ -4493,38 +4494,26 @@ namespace Desert::Graphic
         return found->GetForwardPrepassStats();
     }
 
-    void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
-                                             const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
-                                             const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                             bool castShadows, bool castContactShadow,
-                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind,
-                                             const MaterialInstancePtr& displacedMaterial )
+    void SceneRenderer::SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
+                                              const Render::InstancedSceneFrame&    frame )
     {
-        if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
-            return;
-        if ( transforms )
+        DESERT_PROFILE_SCOPE( "SceneRenderer::SubmitInstancedScene" );
+        // Index for index (MeshECSSystem writes both in one walk); a shorter frame array draws only its rows.
+        const std::size_t count = std::min( scene.Rows.size(), frame.Rows.size() );
+        for ( std::size_t i = 0; i < count; ++i )
         {
-            const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
-                                              displacedMaterial ? displacedMaterial->GetParentMaterial()
-                                                                : nullptr };
-            NoteInstanceFieldDemand( *mesh, transforms, drawn );
+            const Render::InstancedSceneRow& row = scene.Rows[i];
+            // An ISM's mesh is often a DynamicMesh (every primitive one, the Foliage tool's): the queue takes a
+            // Mesh, never a downcast StaticMesh.
+            if ( row.Mesh == nullptr || !row.Material || !row.Transforms || row.Transforms->empty() ||
+                 !ReadyForDraw( *row.Mesh ) )
+                continue;
+            const Material* const drawn[] = { row.Material->GetParentMaterial(),
+                                              row.DisplacedMaterial ? row.DisplacedMaterial->GetParentMaterial()
+                                                                    : nullptr };
+            NoteInstanceFieldDemand( *row.Mesh, row.Transforms, drawn );
+            m_Systems.Mesh->SubmitInstancedRow( row, frame.Rows[i] );
         }
-        // NO CAST, AND THAT IS THE POINT. This used to read
-        // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
-        // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the
-        // component's own `RuntimeMesh` member is a `shared_ptr<DynamicMesh>`. The queue never used it
-        // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
-        // something untrue, and a reader who believed it would reach for members that are not there.
-        m_Systems.Mesh->SubmitInstancedMesh( { .Entity            = entity,
-                                               .Mesh              = mesh,
-                                               .Material          = material,
-                                               .DisplacedMaterial = displacedMaterial,
-                                               .HiddenSubmeshes   = hiddenSubmeshes,
-                                               .Transforms        = transforms,
-                                               .CastShadows       = castShadows,
-                                               .CastContactShadow = castContactShadow,
-                                               .CullDistance      = cullDistance,
-                                               .Wind              = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )

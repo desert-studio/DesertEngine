@@ -143,6 +143,8 @@ namespace Desert::Graphic
     namespace Render
     {
         struct StaticSceneSnapshot;
+        struct InstancedSceneSnapshot;
+        struct InstancedSceneFrame;
     }
     class FrameTextures;
     struct FrameValues;
@@ -643,12 +645,11 @@ namespace Desert::Graphic
                                        const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                        std::span<const Material* const>                     materials ) const;
 
-        void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
-                                  uint64_t                                             hiddenSubmeshes,
-                                  const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool castShadows, bool castContactShadow,
-                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind,
-                                  const MaterialInstancePtr& displacedMaterial );
+        // THE RETAINED ISM LIST'S REPLAY (Render::DrawInstancedSceneCommand): every row of @p scene that is ready
+        // to draw, with @p frame's values of the same index, into this view's instanced queue
+        // (MeshRenderer::SubmitInstancedRow: no handle copied that the queue entry already holds).
+        void SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
+                                   const Render::InstancedSceneFrame&    frame );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
