@@ -1000,7 +1000,7 @@ Shader "GrassCull"
                 drawn += min( args.Words[table + b * 4u], args.Words[table + b * 4u + 2u] );
                 feedback.Words[b] = args.Words[table + b * 4u];
             }
-            feedback.Words[buckets]      = 1u;
+            feedback.Words[buckets]      = VarietyRows[r].FeedbackMark;
             feedback.Words[buckets + 1u] = drawn;
             args.Words[3]                = drawn;
         }

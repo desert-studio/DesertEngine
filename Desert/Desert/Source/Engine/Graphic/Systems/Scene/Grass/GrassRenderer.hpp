@@ -266,15 +266,31 @@ namespace Desert::Graphic::System
         // passes alone read and write, by the variety table's addresses (pool + offset), so the shaders are
         // unchanged.
         static constexpr uint32_t kNoFeedbackSlot = 0xFFFFFFFFu; // VarietyGpu::FeedbackSlot: none handed out
+        static constexpr uint32_t kParamsWords    = 60u; // GrassRenderer.cpp GrassParamsGpu's words (asserted)
         struct PoolRange
         {
             uint64_t Offset = 0;
             uint64_t Bytes  = 0; // 0: no range held
         };
+        // CPU-GRASS-POOL-7: where a pool's buffer lives. DeviceLocal: one video-memory buffer every frame shares,
+        // carried over a growth by a Copy pass. Readback (UE FRHIGPUBufferReadback, one staging buffer for every
+        // primitive): per frame in flight, host-cached (StorageBuffer::CreateReadback), so the host reads a
+        // range FramesInFlight frames after the GPU wrote it; a growth carries nothing (Epoch moves) and the
+        // address is the frame in flight's copy, taken every Commit.
+        enum class PoolMemory : uint8_t
+        {
+            DeviceLocal,
+            Readback
+        };
         class BufferPool
         {
         public:
-            BufferPool( const char* name, uint32_t binding ) noexcept : m_Name( name ), m_Binding( binding )
+            // @p alignment: the bytes a range starts on and is rounded to (a power of two, at most 256); a pool
+            // whose ranges are all one record's size at an alignment dividing it holds an array of records
+            // (CPU-GRASS-POOL-7: the params pool, read as GrassParamsData[Offset / record]).
+            BufferPool( const char* name, uint32_t binding, uint64_t alignment = 256u,
+                        PoolMemory memory = PoolMemory::DeviceLocal ) noexcept
+                 : m_Name( name ), m_Binding( binding ), m_Alignment( alignment ), m_Memory( memory )
             {
             }
 
@@ -311,6 +327,8 @@ namespace Desert::Graphic::System
         private:
             const char*                                     m_Name;
             uint32_t                                        m_Binding;
+            uint64_t                                        m_Alignment;
+            PoolMemory                                      m_Memory;
             std::shared_ptr<ShaderResources::StorageBuffer> m_Buffer;
             uint64_t                                        m_Address = 0; // m_Buffer's, taken when it is made
             uint64_t                                        m_Room    = 0; // m_Buffer's bytes
@@ -352,7 +370,11 @@ namespace Desert::Graphic::System
             uint64_t              ArgsEpoch = 0;
             // Counts the (re)builds: a build at the same ranges is still a new pool of rows (ApplyVariety's keys).
             uint64_t                                        Builds = 0;
-            std::shared_ptr<ShaderResources::StorageBuffer> Params;
+            // CPU-GRASS-POOL-7: Params is one record (GrassParamsGpu, kParamsWords words) of m_ParamsPool,
+            // ParamsWords this frame's (ApplyVariety), uploaded into it once every variety applied
+            // (CommitVarietyPools).
+            PoolRange                                       Params;
+            std::array<uint32_t, kParamsWords>              ParamsWords{};
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
             // GRASS-VIS-MESH-1, Kind Mesh: per section (the variety's Sections order) its raster-stream rows
@@ -363,10 +385,15 @@ namespace Desert::Graphic::System
             // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.
             uint32_t              PrepassBuckets = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
-            // GPU-count feedback (GrassCull FinalizeFull): per frame in flight, each bucket's unclamped count and a written
-            // mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a row its
-            // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
-            std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
+            // GPU-count feedback (GrassCull FinalizeFull): per frame in flight, each bucket's unclamped count and
+            // a written mark, read back FramesInFlight frames later; LowFrames counts, per bucket, the frames in a
+            // row its capacity has been at least two steps above what the counts ask for (the shrink's
+            // hysteresis). CPU-GRASS-POOL-7: Feedback is a range of m_FeedbackPool (one readback buffer for every
+            // variety), and FeedbackMark the written mark GrassCull's FinalizeFull stamps into it (the variety
+            // table's FeedbackMark): unique to this range's hand-out, so a copy the range's previous holder wrote,
+            // or one a remade pool never had written, is told apart from this variety's own counts.
+            PoolRange                                       Feedback;
+            uint32_t                                        FeedbackMark = 0;
             std::vector<uint32_t>                           LowFrames;
             // Read-backs still to come, after the last one that overflowed a bucket, before this variety's draw is
             // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
@@ -377,8 +404,6 @@ namespace Desert::Graphic::System
             std::optional<glm::uvec3>                       Drawn;
             // GPU-COST-21: the same copy's drawn count of each cascade view's list (0: the view had none).
             std::array<uint32_t, kGrassCascadeLists>        DrawnCascades{};
-            RDG::ExternalBuffer                             ParamsImport, FeedbackImport;
-            RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
             // GRASS-VIS, the camera's list (List not None: CameraIds / CameraArgs sized like FullIds / Args;
             // PlanesAndHzb: Candidates / PostArgs too; otherwise one-word stand-ins the passes bind and never
@@ -392,13 +417,16 @@ namespace Desert::Graphic::System
             PoolRange                                       PostArgs;   // of m_ArgsPool
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs                                 PostRefs;   // phase 2's: CameraIds through PostArgs
-            // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the
-            // tile cull's runs of Instances - one subgroup's slots of one bucket, one tile cluster's - with their
-            // roots' box, each culled whole by one subgroup of GrassCull's camera cull, whose lanes then cull its
-            // instances; room for ChunkRoom chunks (one per slot of Instances).
-            std::shared_ptr<ShaderResources::StorageBuffer> Chunks;
-            RDG::ExternalBuffer                             ChunksImport;
-            RDG::BufferRef                                  ChunksRef;
+            // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks):
+            // the tile cull's runs of Instances - one subgroup's slots of one bucket, one tile cluster's - with
+            // their roots' box, each culled whole by one subgroup of GrassCull's camera cull, whose lanes then
+            // cull its instances; room for ChunkRoom chunks (one per slot of Instances). CPU-GRASS-POOL-7: a range
+            // of m_ChunksPool; ChunkInit the words a fresh pool's range starts with (header and empty chunks),
+            // uploaded by CommitVarietyPools and emptied; ChunksEpoch the chunks pool's Epoch they were uploaded
+            // in (0: pending) - a remade pool lost them, so the tile pool is made anew.
+            PoolRange                                       Chunks;
+            std::vector<uint32_t>                           ChunkInit;
+            uint64_t                                        ChunksEpoch = 0;
             uint32_t                                        ChunkRoom = 0;
             // GRASS-CULL-COST-3, THE LAW'S SLOTS (Common/GrassVarietyRows.glslh GrassVarietyRow::LawScales; UE GPU
             // Scene: an instance's data is written once when it changes, the views only cull it): the scale the
@@ -447,7 +475,6 @@ namespace Desert::Graphic::System
             PoolRange                                       CascadeIds;  // of m_IdsPool
             PoolRange                                       CascadeArgs; // of m_ArgsPool
             GpuInstanceRefs                                 CascadeRefs;
-            RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;
             // GRASS-VIEW-LAW-1: the field's buffer this frame (the variety table's Field address) and the full list
             // (GrassCull.shader CullInstance: the records the views keep, in Args' buckets; Refs.Ids).
@@ -512,10 +539,12 @@ namespace Desert::Graphic::System
             bool                                            TilePoolMade = false;
             // CPU-GRASS-POOL-3: TileWords is a range of m_TileWordsPool (GrassGeneratePush Base.z its first word),
             // carried with its contents when the pool grows.
-            std::shared_ptr<ShaderResources::StorageBuffer> TilePool;
-            PoolRange                                       TileWords;
-            RDG::ExternalBuffer                             TilePoolImport;
-            RDG::BufferRef                                  TilePoolRef;
+            // CPU-GRASS-POOL-7: TilePool (the segment table) is a range of m_SegmentTablesPool, written from
+            // TileSegments' addresses by CommitVarietyPools when TilePoolEpoch is not the pool's Epoch (0: a
+            // segment was taken since the last upload).
+            PoolRange TilePool;
+            uint64_t  TilePoolEpoch = 0;
+            PoolRange TileWords;
             // GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (Common/GrassVarietyRows.glslh; UE: a pooled buffer grows by
             // pages inside its pool's budget, never by a second full copy): the records live in TileSegments, device-
             // local buffers of kGrassTileSegmentPages pages appended as the pool grows; TilePool is their segment
@@ -741,6 +770,22 @@ namespace Desert::Graphic::System
         // on a frame with tile passes; m_TileWordsEpoch the pool's Epoch the held words were last carried in.
         BufferPool m_TileWordsPool{ "GrassTileWords", 15u };
         uint64_t   m_TileWordsEpoch = 0;
+        // CPU-GRASS-POOL-7 (UE GPU Scene: every per-primitive buffer a range of a shared pool, imported once a
+        // frame; one readback buffer for every primitive's counts): the varieties' params (one GrassParamsGpu
+        // record each, 16-byte aligned so the ranges are an array of records), the build's chunks, the tile
+        // pools' segment tables (VarietyGpu::Params / Chunks / TilePool) and the GPU counts read back
+        // (VarietyGpu::Feedback). The marks handed to the feedback ranges (never 0: an unwritten copy).
+        BufferPool m_ParamsPool{ "GrassParams", 1u, 16u };
+        BufferPool m_ChunksPool{ "GrassChunks", 8u };
+        BufferPool m_SegmentTablesPool{ "GrassTileSegments", 14u, 16u };
+        BufferPool m_FeedbackPool{ "GrassFeedback", 1u, 16u, PoolMemory::Readback };
+        uint32_t   m_FeedbackMarks = 0;
+        // Once a frame, after every variety's ApplyVariety (so every Allocate of these pools ran): commits the
+        // four pools above and queues this frame's params, a fresh pool's chunks and a changed segment table into
+        // their ranges. Chunks a remade chunks pool lost are written empty and their tile pools made anew next
+        // frame. Refused: no variety is generated, culled or drawn from its ranges this frame (m_Frame emptied).
+        [[nodiscard]] Common::BoolResultStr CommitVarietyPools( RDG::Builder& graph );
+        std::vector<uint64_t> m_SegmentTableScratch; // CommitVarietyPools' (no allocation once grown)
         // CPU-GRASS-VARIETY-1: WriteVarietyTable's scratch, kept across frames so a frame allocates nothing: the
         // table's bytes (reserved to the header and every row at once) and a row's cascade key, which is swapped
         // into the variety's CascadeKey when it differs (both vectors keep their capacity).
