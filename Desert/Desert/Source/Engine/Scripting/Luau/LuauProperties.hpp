@@ -20,7 +20,8 @@ namespace Desert::Scripting::LuauProperties
     /// Installs the global `Property` module (Float, Int, Bool, String, Color, Vector, Asset, Entity, Enum,
     /// Array) on the main state, before luaL_sandbox. Each constructor validates its arguments where the script
     /// calls it — a wrong option is an error naming the script's line — and returns a DECLARATION, which only
-    /// means something as an entry of the script's `Properties` table.
+    /// means something as an entry of the script's `Properties` table. Also replaces the global `pairs` with one
+    /// that walks a `Properties` proxy's values (Luau's pairs ignores __iter); every other table as before.
     void Install( lua_State* L );
 
     /// Before a slot's top level runs: the sandbox's globals remember the line `Properties` is assigned on, so
