@@ -1630,8 +1630,9 @@ namespace Desert::Core
 
     void Scene::OnRelationshipConstructed( entt::registry& registry, entt::entity entity )
     {
-        if ( registry.get<ECS::RelationshipComponent>( entity ).Parent != entt::null )
-            ECS::UpdateWorldTransforms( registry, entity );
+        // Unconditional: a root emplaced with its Children already listed (scene load restores children before
+        // their parent's relationship) has to push its world down to them as well.
+        ECS::UpdateWorldTransforms( registry, entity );
     }
 
     void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
