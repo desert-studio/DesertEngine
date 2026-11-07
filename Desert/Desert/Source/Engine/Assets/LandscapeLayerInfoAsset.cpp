@@ -51,6 +51,7 @@ namespace Desert::Assets
         if ( m_Data.Header )
             if ( const auto guid = Common::Content::AssetGuidFromText( m_Data.Header->Guid ); guid )
                 m_Guid = guid.GetValue();
+        ++m_Revision;
         m_Ready = true;
         return BOOLSUCCESS;
     }
@@ -59,6 +60,7 @@ namespace Desert::Assets
     {
         m_Data  = Serialization::LandscapeLayerInfoData{};
         m_Ready = false;
+        ++m_Revision;
         return BOOLSUCCESS;
     }
 

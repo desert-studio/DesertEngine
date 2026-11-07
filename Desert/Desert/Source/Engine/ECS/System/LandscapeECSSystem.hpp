@@ -108,10 +108,48 @@ namespace Desert::ECS
             const LandscapeTileComponent* Tile  = nullptr;
             bool                          Dirty = false;
         };
+        // Each root's look, resolved once per frame and shared by all its tiles. The material is a `.demat`
+        // like every other: its values (Tint) arrive as named overrides that TerrainRenderer applies on top
+        // of the shader's schema defaults. A root without a LandscapeMaterial draws with those defaults.
+        // Kept per root across frames (m_Surfaces) so the vectors and strings keep their capacity; Frame says
+        // whether this frame filled it yet.
+        struct Surface
+        {
+            uint64_t Frame = 0u;
+            // Never null: the root's overrides of this material revision (m_RootOverrides), empty for no material.
+            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
+            // The root's weight layers (their `.delayerinfo` data, owned by the LandscapeLayerInfoService: valid
+            // for this frame), which give each tile channel its colour and blend by name. Pending: a layer is
+            // still loading, so a channel that names nothing yet is not reported as unknown.
+            std::vector<const Assets::Serialization::LandscapeLayerInfoData*> Layers;
+            // The layers' identity: each one's data address and asset Revision, in root order. What the grass
+            // draw cache (GrassDrawCache) keys the layers' grass types by: a hot reload or Save moves it.
+            uint64_t LayerSignature = 0u;
+            bool     LayersPending  = false;
+            // The root's FIRST layer's colour with a = 1 (UE shows its first layer where nothing is
+            // painted); a = 0 while the root names none or that layer is not loaded: white ground.
+            glm::vec4 Ground = glm::vec4( 0.0f );
+            // That first layer's LayerName: the material input the ground draws with is matched by it.
+            std::string GroundLayer;
+        };
+        std::unordered_map<uint64_t, Surface> m_Surfaces;
+        uint64_t                              m_Frame = 0u;
+        // Pass 3's per-frame grouping of the drawn tiles by root, kept for its capacity.
+        struct GrassRootTiles
+        {
+            uint64_t                        Frame = 0u;
+            World::Landscape::LandscapeRoot Root;
+            std::vector<GrassTile>          Tiles;
+        };
+        std::unordered_map<uint64_t, GrassRootTiles> m_GrassTiles;
+        std::vector<uint64_t>                        m_GrassRootOrder; // this frame's roots, ascending
+
         void EmitGrass( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                        uint64_t rootId, const World::Landscape::LandscapeRoot& root,
-                        const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
-                        const std::vector<GrassTile>&                                     tiles );
+                        uint64_t rootId, const World::Landscape::LandscapeRoot& root, const Surface& surface,
+                        const std::vector<GrassTile>& tiles );
+        // Builds the root's varieties and far cover anew into @p cache (EmitGrass, when its key moved).
+        struct GrassDrawCache;
+        void BuildGrassVarieties( uint64_t rootId, GrassDrawCache& cache );
 
         // GRASS-GPU: per landscape root, the packed grass field (rebuilt when a tile's heights or weights, the
         // tile set or the grass layers change) and the varieties' resolved section materials.
@@ -138,6 +176,36 @@ namespace Desert::ECS
             };
             std::optional<CoverLook> Cover;
         };
+        // GRASS-EMIT (UE: ULandscapeGrassType / ALandscapeProxy::UpdateGrass - the types are resolved on load and
+        // the grass data changes only when the landscape, a type or a material does): per root, the varieties as
+        // the grass renderer takes them, built once per key and shared with the frame's command by pointer. A
+        // frame whose key holds touches no variety: it only writes the wind (MakeInstanceWind of each variety's
+        // response at this frame's air and clock), in place when no command still holds the draw, else into a
+        // copy (copy on write: a frame in flight keeps reading the one it was handed).
+        struct GrassTypeSlot
+        {
+            uint32_t Layer    = 0u; // the grass layer's index in the field
+            uint64_t Handle   = 0u; // the type's handle, from its GUID text (parsed once per key)
+            uint64_t Revision = 0u; // the type asset's Revision when built; 0 = was not ready
+        };
+        struct GrassDrawCache
+        {
+            std::shared_ptr<Graphic::System::GrassFieldDraw> Draw;
+            // Per variety of Draw, the wind response (Strength, Speed, Height) MakeInstanceWind takes.
+            std::vector<glm::vec3> WindResponse;
+            // The key. Types: re-parsed when the layers or the content registry moved; Complete: every type,
+            // mesh and material was ready (a pending one is asked for again next frame).
+            std::vector<GrassTypeSlot>                                        Types;
+            uint64_t                                                          LayerSignature  = 0u;
+            uint64_t                                                          ContentSerial   = 0u;
+            uint64_t                                                          MeshRevision    = 0u;
+            uint32_t                                                          MaterialVersion = 0u;
+            bool                                                              TypesResolved   = false;
+            bool                                                              Complete        = false;
+        };
+        std::unordered_map<uint64_t, GrassDrawCache> m_GrassDraws;
+        // This frame's grass layers of the root EmitGrass works on (the Surface's layers that name a grass type).
+        std::vector<const Assets::Serialization::LandscapeLayerInfoData*> m_GrassLayers;
         std::unordered_map<uint64_t, GrassRootCache> m_Grass;
         std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
         uint64_t                                     m_GrassRevision   = 0;
