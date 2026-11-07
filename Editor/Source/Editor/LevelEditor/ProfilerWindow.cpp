@@ -411,6 +411,13 @@ namespace Desert::Editor
                  "atlas had no free slot; rejected / nan = the traced probes of the coverage, or of the coarser "
                  "level its untraced cells fell back to, saw the point behind something / weighed NaN)",
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
+            // GPU-FARFIELD-1: what the far-field leg's own trace did with its rays (ScreenProbeMissReasons
+            // [6..8]).
+            LOG_INFO(
+                 "[Profiler] ScreenProbes far field rays: listed {} global-field hit {} outside the cache {} "
+                 "(a frame, frames in flight late; a hit is lit by the cards or in place with a visibility ray "
+                 "per light; outside = marched to the full trace distance)",
+                 rays[6], rays[7], rays[8] );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the

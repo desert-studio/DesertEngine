@@ -201,6 +201,9 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 	hit.primitive    = 0u;
 	hit.barycentrics = vec2(0.0);
 	hit.frontFace    = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
+	hit.velocity     = vec3(0.0);
+	hit.motionKnown  = false;
+	hit.globalField  = false;
 	radiance = GIHitRadianceLit(hit, L, GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness,
 	                                                 payload.Emissive, true));
 	hitPoint = hit.position;

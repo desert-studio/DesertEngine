@@ -114,6 +114,10 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                          ( !previousInBand && GlobalDistanceFieldStepNoise( objectSeed, step ) <=
                                                   GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD ) ) )
         {
+            // A shadow ray (no dither, GITraceNearField) reads only that it hit: no normal (six more fetches).
+            tEnd = t;
+            if ( !ditheredTransparency )
+                return true;
             const float h = voxelVolume;
             const vec3  g = vec3( DistanceToMeshSurfaceStandalone( clamp( v + vec3( h, 0, 0 ), -extent, extent ), assetIndex ) -
                                       DistanceToMeshSurfaceStandalone( clamp( v - vec3( h, 0, 0 ), -extent, extent ), assetIndex ),
@@ -123,7 +127,6 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                                       DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, 0, h ), -extent, extent ), assetIndex ) );
             const vec3 worldGradient = g.x * r0.xyz + g.y * r1.xyz + g.z * r2.xyz;
             normal = dot( worldGradient, worldGradient ) > 1e-12 ? normalize( worldGradient ) : -direction;
-            tEnd   = t;
             return true;
         }
         previousInBand = inBand;
@@ -176,6 +179,10 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
             {
                 hit       = true;
                 hitObject = object;
+                // A shadow ray is answered by any hit (UE's shadow traces are any-hit): the rest of the list could
+                // only move it closer.
+                if ( !dithered )
+                    break;
             }
         }
         if ( hit )
@@ -200,6 +207,7 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
                                           dot( DistanceFieldObjects[motionBase + 2u], hitAt ) );
             result.surface.velocity    = result.surface.position - previous;
             result.surface.motionKnown = true;
+            result.surface.globalField = false;
             farStart                    = tHit;
             return result;
         }
@@ -226,13 +234,19 @@ GITraceResult GITraceFarField( GITraceInput ray )
         return result;
 
     const vec3 start = ray.origin + ray.direction * globalStart;
-    const GlobalDistanceFieldHit march = TraceGlobalDistanceField( start, ray.direction, ray.tMax - globalStart,
-                                                                   GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed );
+    // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
+    // (normal, level) is never built - its callers read .hit alone.
+    const bool                   anyHit = !dithered;
+    const GlobalDistanceFieldHit march  = TraceGlobalDistanceField(
+         start, ray.direction, ray.tMax - globalStart, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed,
+         anyHit );
     if ( !march.Hit )
         return result;
 
     result.hit                   = true;
     result.surface.distance      = globalStart + march.T;
+    if ( anyHit )
+        return result;
     result.surface.position      = start + ray.direction * march.T;
     result.surface.meshCards     = GI_NO_MESH_CARDS;
     result.surface.instance      = GI_NO_INSTANCE;
@@ -242,6 +256,7 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface.normal        = -ray.direction;
     result.surface.velocity      = vec3( 0.0 );
     result.surface.motionKnown   = false;
+    result.surface.globalField   = true;
     const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
     if ( level >= 0 )
     {
@@ -276,6 +291,22 @@ float GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT 
     ray.coneAngle = 0.0;
     ray.flags     = GI_TRACE_SHADOW_RAY;
     return GITraceRay( ray ).hit ? 0.0 : 1.0;
+}
+
+// Visibility through the global field alone, from @p farTMin on (UE: a global-SDF hit's lighting never traces the
+// mesh SDFs). The shadow test of a global-field hit no card holds: the hit is a surface of the coarse field, so
+// the near field's precision has nothing to add to it.
+float GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, float maxT )
+{
+    GITraceInput ray;
+    ray.origin    = origin;
+    ray.tMin      = 0.0;
+    ray.farTMin   = farTMin;
+    ray.direction = direction;
+    ray.tMax      = maxT;
+    ray.coneAngle = 0.0;
+    ray.flags     = GI_TRACE_SHADOW_RAY;
+    return GITraceFarField( ray ).hit ? 0.0 : 1.0;
 }
 
 // The voxel of the finest clipmap holding @p position (the coarsest one's outside them all), cm.

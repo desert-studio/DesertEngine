@@ -321,7 +321,7 @@ namespace Desert::Graphic::GlobalIllumination
         }
 
         // ScreenProbes.MissReasons, zeroed per frame: one word per RADIANCE_CACHE_READ_* (Common/RadianceCache.glslh).
-        constexpr std::array<uint32_t, ScreenProbeMissReasons::kReasons> kMissReasonsReset{};
+        constexpr std::array<uint32_t, ScreenProbeMissReasons::kWords> kMissReasonsReset{};
 #endif
     } // namespace
 
