@@ -512,6 +512,7 @@ namespace Desert::Graphic::System
             m_IndirectArguments = {};
             m_FirstRecords.clear();
             m_Binned.reset();
+            m_SceneInstances = {};
             m_GroupBlock.clear();
             m_VgGroupBlock.clear();
             m_Layouts.DropExpired();
@@ -725,6 +726,9 @@ namespace Desert::Graphic::System
                     m_Commands.push_back( std::move( other.m_Commands[c] ) );
                 }
                 m_Triangles += other.m_Triangles;
+                // The scene's instance rows of one view graph: whichever list set them, the same handle.
+                if ( other.m_SceneInstances.IsValid() )
+                    m_SceneInstances = other.m_SceneInstances;
                 if ( other.m_Error )
                     Fail( std::move( *other.m_Error ) );
             }
@@ -780,6 +784,18 @@ namespace Desert::Graphic::System
                                         m_Binned->SubmeshTransforms } } )
                         if ( slots.Has( entry.Slot ) )
                             block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+                }
+                // A CPU block whose shader reads the scene's instance rows (an ISM's instanced cell by GpuScene
+                // id,
+                // Vertex_Instanced.glslh DESERT_SURFACE_SCENE_INSTANCES): the rows SetSceneInstances named.
+                if ( !declared.Binned && slots.Has( SceneViewSlot::GpuSceneInstances ) )
+                {
+                    if ( m_SceneInstances.IsValid() )
+                        block.Storage( SceneResources::kGpuSceneInstances, m_SceneInstances,
+                                       RDG::Access::StorageRead );
+                    else // never by construction: a GpuScene-id set is made with the rows (BuildStaticDraws)
+                        LOG_ERROR( "[MeshRenderer] a mesh cell reads GpuSceneInstances but its list was given "
+                                   "none" );
                 }
                 if ( declared.VirtualGeometry && m_Binned && m_Binned->VirtualGeometry )
                 {

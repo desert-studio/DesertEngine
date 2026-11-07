@@ -398,6 +398,11 @@ namespace Desert::Graphic
     // Pass_VisibilityResolve.glslh): the instance index names a slot of GpuInstanceIds, the slot the row of
     // InstanceTransforms (MeshRenderer::BuildGpuInstancedDraws / BuildGpuInstancedShadowDraws).
     inline constexpr std::string_view kSurfaceInstanceIdsDefine = "DESERT_SURFACE_INSTANCE_IDS";
+    // CPU-ISM-PACK: an ISM's Instanced cell drawn on the CPU path by GpuScene id
+    // (Mesh/Surface/Vertex_Instanced.glslh):
+    // InstanceTransforms holds GpuScene instance rows, the transform is Primitive.LocalToWorld x
+    // Instance.InstanceToPrimitive (MeshRenderer::SurfaceSceneInstancesVariant).
+    inline constexpr std::string_view kSurfaceSceneInstancesDefine = "DESERT_SURFACE_SCENE_INSTANCES";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";

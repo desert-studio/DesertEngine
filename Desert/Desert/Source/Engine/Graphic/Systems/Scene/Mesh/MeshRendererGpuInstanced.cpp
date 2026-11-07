@@ -144,6 +144,13 @@ namespace Desert::Graphic::System
         return permutation;
     }
 
+    Core::ShaderVariant MeshRenderer::SurfaceSceneInstancesVariant( Core::ShaderVariant permutation )
+    {
+        permutation.Defines.emplace_back( kSurfaceSceneInstancesDefine );
+        permutation.ShippedByCook = true;
+        return permutation;
+    }
+
     Core::ShaderVariant MeshRenderer::SurfaceDrawRowsVariant( Core::ShaderVariant permutation )
     {
         permutation.Defines.emplace_back( Core::Preprocess::kSurfaceDrawRowsDefine );

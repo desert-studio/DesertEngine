@@ -717,7 +717,8 @@ namespace Desert::Graphic::System
     DataDrivenMaterial* MeshRenderer::ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
                                                           const MeshVertexPath path, const MeshPass pass,
                                                           const std::optional<uint32_t> view,
-                                                          const bool                    instanceIds )
+                                                          const bool                    instanceIds,
+                                                          const bool                    sceneInstances )
     {
         if ( !m_ForwardVirtualLocal || pass != MeshPass::Forward || cell == nullptr )
             return cell;
@@ -738,6 +739,10 @@ namespace Desert::Graphic::System
         // A GPU-instanced list of ids keeps its define, last (SurfaceInstanceIdsVariant, as the cook lists it).
         if ( instanceIds )
             permutation = SurfaceInstanceIdsVariant( std::move( permutation ) );
+        // An ISM's cell by GpuScene id keeps its define, last (SurfaceSceneInstancesVariant, as the cook lists
+        // it).
+        if ( sceneInstances )
+            permutation = SurfaceSceneInstancesVariant( std::move( permutation ) );
         return view ? materials->GetViewVariant( built, path, pass, *view, permutation, this )
                     : materials->GetVariant( built, path, pass, permutation );
     }
@@ -979,6 +984,39 @@ namespace Desert::Graphic::System
             for ( const MeshVertexPath path : kDrawRowsPaths )
                 AppendDrawRowsVariants( materials, shaders, handle, path, /*ids*/ true, listed, variants );
         }
+        // CPU-ISM-PACK: the cells an ISM is drawn through on the CPU path by GpuScene id (BuildStaticDraws'
+        // instancedCellOf): every material's Instanced Forward / G-buffer / Depth cell in
+        // SurfaceSceneInstancesVariant; the G-buffer one also over the equal-depth permutation (an early-Z
+        // admitted
+        // template, as above), the forward one also over the virtual shadow map's (ForwardVirtualCell).
+        for ( const ::Common::AssetHandle& handle : handles )
+            for ( const MeshPass pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::Depth } )
+            {
+                const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::Instanced, pass );
+                if ( !cell )
+                    continue;
+                const auto program = shaders.GetByName( cell.GetValue() );
+                if ( program == nullptr )
+                    continue;
+                std::vector<Core::ShaderVariant> under{ Core::ShaderVariant{} };
+                if ( pass == MeshPass::GBuffer )
+                {
+                    const Core::Formats::SurfaceBlendMode blend = program->GetProgramMeta().Blend;
+                    if ( blend == Core::Formats::SurfaceBlendMode::Masked ||
+                         blend == Core::Formats::SurfaceBlendMode::Opaque )
+                        under.push_back( SurfaceDepthEqualVariant() );
+                }
+                if ( pass == MeshPass::Forward )
+                    if ( Core::ShaderVariant vsm = ForwardShadowMaskVariant( *program, false, false, true );
+                         !vsm.IsDefault() )
+                        under.push_back( std::move( vsm ) );
+                for ( Core::ShaderVariant& base : under )
+                {
+                    Core::ShaderVariant permutation = SurfaceSceneInstancesVariant( std::move( base ) );
+                    if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                        variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+                }
+            }
         // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
         // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.
         for ( const MeshVertexPath path :
@@ -1590,7 +1628,7 @@ namespace Desert::Graphic::System
     {
         DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
         CollectIsmInstances( *ism.Transforms, entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
-                             entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels );
+                             entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels, &entry.Indices );
         OrderIsmViewCullByLevel( entry );
     }
 
@@ -1622,18 +1660,26 @@ namespace Desert::Graphic::System
         // back to the count when every instance is placed).
         for ( IsmLevelRun& run : runs )
             run.Count = 0;
+        // The indices move with their transforms (an entry the cull filled without them has none).
+        const bool indexed = entry.Indices.size() == entry.Visible.size();
         entry.Ordered.resize( entry.Visible.size() );
+        entry.OrderedIndices.resize( indexed ? entry.Indices.size() : 0u );
         for ( std::size_t i = 0; i < entry.Visible.size(); ++i )
         {
             const uint32_t level = entry.Levels[i];
             for ( IsmLevelRun& run : runs )
                 if ( run.Level == level )
                 {
-                    entry.Ordered[run.First + run.Count++] = entry.Visible[i];
+                    const uint32_t slot = run.First + run.Count++;
+                    entry.Ordered[slot] = entry.Visible[i];
+                    if ( indexed )
+                        entry.OrderedIndices[slot] = entry.Indices[i];
                     break;
                 }
         }
         entry.Visible.swap( entry.Ordered );
+        if ( indexed )
+            entry.Indices.swap( entry.OrderedIndices );
         for ( const IsmLevelRun& run : runs )
             std::fill_n( entry.Levels.begin() + run.First, run.Count, run.Level );
     }
@@ -1922,12 +1968,28 @@ namespace Desert::Graphic::System
         // A `.demat`'s (Instanced x pass) and per-object (Static x pass) cells: the Forward ones through their
         // virtual-shadow permutation (ForwardVirtualCell), the others the service's sibling.
         // After the deferred early-Z pass (c.DepthEqual): the G-buffer's DepthEqualCell.
-        const auto instancedCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
+        // @p sceneIds: an ISM's cell by GpuScene id (SurfaceSceneInstancesVariant, over the same permutations).
+        const auto instancedCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat,
+                                          const bool sceneIds ) -> DataDrivenMaterial*
         {
+            if ( !sceneIds )
+            {
+                if ( c.DepthEqual )
+                    return DepthEqualCell( mat, MeshVertexPath::Instanced );
+                return ForwardVirtualCell( materialService->GetVariant( mat, MeshVertexPath::Instanced, c.Pass ),
+                                           mat, MeshVertexPath::Instanced, c.Pass );
+            }
+            // The service's permutation lookup interns the sibling (a write): asked serially (the ISM loop's
+            // first step), never on a setup task.
+            if ( materialService == nullptr || MissInSetupTask( "an ISM's GpuScene-id cell" ) )
+                return nullptr;
             if ( c.DepthEqual )
-                return DepthEqualCell( mat, MeshVertexPath::Instanced );
-            return ForwardVirtualCell( materialService->GetVariant( mat, MeshVertexPath::Instanced, c.Pass ), mat,
-                                       MeshVertexPath::Instanced, c.Pass );
+                return materialService->GetVariant( mat, MeshVertexPath::Instanced, MeshPass::GBuffer,
+                                                    SurfaceSceneInstancesVariant( SurfaceDepthEqualVariant() ) );
+            DataDrivenMaterial* const cell =
+                 materialService->GetVariant( mat, MeshVertexPath::Instanced, c.Pass,
+                                              SurfaceSceneInstancesVariant() );
+            return ForwardVirtualCell( cell, mat, MeshVertexPath::Instanced, c.Pass, std::nullopt, false, true );
         };
         const auto perObjectCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
         {
@@ -1946,10 +2008,12 @@ namespace Desert::Graphic::System
         // Reused by index so the inner vectors keep their capacity; clearing the outer vector would
         // destroy them and put an allocation per material back into the steady state.
         auto& instSets = scratch.InstSets; // InstSetCount reset above (a Record call keeps its Resolve's sets)
-        const auto setFor     = [&]( DataDrivenMaterial* recorder, MaterialInstance* inst ) -> InstancedBatchSet&
+        // @p sceneIds: the recorder is an ISM's cell by GpuScene id (its instances are ids, SceneInstanceIds).
+        const auto setFor = [&]( DataDrivenMaterial* recorder, MaterialInstance* inst,
+                                 const bool sceneIds ) -> InstancedBatchSet&
         {
             for ( std::size_t i = 0; i < scratch.InstSetCount; ++i )
-                if ( instSets[i]->Mat == recorder )
+                if ( instSets[i]->Mat == recorder && instSets[i]->SceneIds == sceneIds )
                     return *instSets[i];
             if ( scratch.InstSetCount == instSets.size() )
                 instSets.push_back( std::make_unique<InstancedBatchSet>() );
@@ -1957,6 +2021,8 @@ namespace Desert::Graphic::System
             set.Mat                = recorder;
             set.Inst               = inst;
             set.Transforms.clear();
+            set.SceneIds = sceneIds;
+            set.SceneInstanceIds.clear();
             set.Draws.clear();
             set.IsmDraws.clear();
             set.OneSided = nullptr;
@@ -1970,22 +2036,23 @@ namespace Desert::Graphic::System
         // all. The DECISION is SelectInstancedRecorder — two booleans, so that the branch that was wrong
         // is testable without a Vulkan device; this lambda is only the wiring from the answer to a
         // material, an instance and a bucket.
-        const auto setForGroup = [&]( DataDrivenMaterial* group ) -> InstancedBatchSet*
+        // @p sceneIds: an ISM drawn by GpuScene id (its cells in SurfaceSceneInstancesVariant); false for a group.
+        const auto setForGroup = [&]( DataDrivenMaterial* group, const bool sceneIds ) -> InstancedBatchSet*
         {
             if ( !instancingOn || group == nullptr )
                 return nullptr;
 
             auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
             const bool          hasAsset  = materials != nullptr && materials->Owns( group );
-            DataDrivenMaterial* variant = hasAsset ? instancedCellOf( cells, group ) : nullptr;
+            DataDrivenMaterial* variant = hasAsset ? instancedCellOf( cells, group, sceneIds ) : nullptr;
             // Paired with the prepass: batched only when BOTH passes have the cell, so both batch alike.
-            if ( variant != nullptr && companion && instancedCellOf( *companion, group ) == nullptr )
+            if ( variant != nullptr && companion && instancedCellOf( *companion, group, sceneIds ) == nullptr )
                 variant = nullptr;
 
             switch ( SelectInstancedRecorder( hasAsset, variant != nullptr ) )
             {
                 case InstancedRecorder::RendererSpare:
-                    return &setFor( instancedMaterial, instancedInstance );
+                    return &setFor( instancedMaterial, instancedInstance, false );
 
                 case InstancedRecorder::AssetVariant:
                 {
@@ -2000,7 +2067,7 @@ namespace Desert::Graphic::System
                     if ( !cached )
                         cached = variant->CreateInstance( std::string( "InstancedBatch_" ) +
                                                           MeshPassName( instancedPass ) );
-                    return &setFor( variant, cached.get() );
+                    return &setFor( variant, cached.get(), sceneIds );
                 }
 
                 case InstancedRecorder::None:
@@ -2380,7 +2447,7 @@ namespace Desert::Graphic::System
                 // Where this group's batches accumulate, and WITH WHICH MATERIAL they will be recorded.
                 // Asked once per group rather than per mesh bucket: the answer depends on the material
                 // alone, and the ISM loop below asks the same question of its own materials.
-                plan.Set = setForGroup( groups[gi].first );
+                plan.Set = setForGroup( groups[gi].first, false );
                 planned += groups[gi].second.size();
             }
             DESERT_PROFILE_PHASE( planPhases, "Mesh: Static bucketing (tasks + join)" );
@@ -2619,8 +2686,14 @@ namespace Desert::Graphic::System
                 const bool ismStandsIn = ismDraw == CellDraw::DefaultSurface;
                 if ( ismStandsIn && mode.Half == DeferredPrepassHalf::Depth )
                     continue; // no stand-in in the early-Z pass: the Rest half draws it with its own depth
+                // By GpuScene id (SurfaceSceneInstancesVariant) whenever this view's graph has the scene's
+                // instance
+                // rows: the pass uploads 4 bytes per drawn instance, the vertex stage reads its transform from the
+                // scene. The stand-in (the renderer's spare, until the cell is Ready) packs its transforms.
+                const bool         ismSceneIds = !ismStandsIn && m_FrameSceneInstances.IsValid();
                 InstancedBatchSet* ismSet =
-                     ismStandsIn ? &setFor( instancedMaterial, instancedInstance ) : setForGroup( mat );
+                     ismStandsIn ? &setFor( instancedMaterial, instancedInstance, false )
+                                 : setForGroup( mat, ismSceneIds );
                 if ( ismSet == nullptr )
                     continue;
 
@@ -2707,8 +2780,10 @@ namespace Desert::Graphic::System
                 // The instances go into the set's one array in every call (a Resolve call's ahead of the
                 // auto-batched ones its Record call packs); a Resolve call keeps the draws apart, its Record call
                 // puts them behind the auto-batched draws (the Full call's draw order).
-                std::vector<glm::mat4>&     ismTransforms = ismSet->Transforms;
-                std::vector<InstancedDraw>& ismDraws      = resolveCall ? ismSet->IsmDraws : ismSet->Draws;
+                std::vector<glm::mat4>&      ismTransforms = ismSet->Transforms;
+                std::vector<uint32_t>&       ismIds        = ismSet->SceneInstanceIds;
+                const std::vector<uint32_t>& indices       = queued.Cull->Indices;
+                std::vector<InstancedDraw>&  ismDraws      = resolveCall ? ismSet->IsmDraws : ismSet->Draws;
                 // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                 const InstanceWindPush ismWind = PackViewInstanceWind( ism.Wind );
                 // One draw per level, its instances one contiguous slice of the entry's level-ordered Visible
@@ -2723,8 +2798,20 @@ namespace Desert::Graphic::System
                     d.LodLevel          = run.Level;
                     d.Wind              = ismWind;
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
-                    const auto first    = visible.begin() + run.First;
-                    ismTransforms.insert( ismTransforms.end(), first, first + run.Count );
+                    if ( ismSet->SceneIds )
+                    {
+                        // The field's GpuScene run (SyncGpuScene: instance k is FirstGpuInstance + k).
+                        d.FirstInstance  = static_cast<uint32_t>( ismIds.size() );
+                        const auto first = indices.begin() + run.First;
+                        ismIds.insert( ismIds.end(), first, first + run.Count );
+                        for ( std::size_t k = d.FirstInstance; k < ismIds.size(); ++k )
+                            ismIds[k] += ism.FirstGpuInstance;
+                    }
+                    else
+                    {
+                        const auto first = visible.begin() + run.First;
+                        ismTransforms.insert( ismTransforms.end(), first, first + run.Count );
+                    }
                     d.InstanceCount = run.Count;
                     ismDraws.push_back( d );
                 }
@@ -2795,6 +2882,9 @@ namespace Desert::Graphic::System
                     set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
                 }
                 const bool setTwoSided = set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided();
+                // Its cell reads the scene's instance rows (MeshDrawList binds them to the set's block).
+                if ( set.SceneIds )
+                    list.SetSceneInstances( m_FrameSceneInstances );
 
                 for ( const auto& d : set.Draws )
                 {
@@ -2854,7 +2944,14 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::UploadInstanceTransforms( InstancedBatchSet& set )
     {
-        if ( auto* sb = set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
+        auto* const sb = set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms );
+        if ( sb == nullptr )
+            return;
+        // An ISM's cell by GpuScene id reads uint ids from the same block (Vertex_Instanced.glslh).
+        if ( set.SceneIds )
+            sb->SetRawData( set.SceneInstanceIds.data(),
+                            static_cast<uint32_t>( set.SceneInstanceIds.size() * sizeof( uint32_t ) ) );
+        else
             sb->SetRawData( set.Transforms.data(),
                             static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
     }

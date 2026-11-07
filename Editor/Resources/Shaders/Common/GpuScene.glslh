@@ -257,17 +257,26 @@ objectBones;
 // cull's compaction (InstanceCulling) and bound by RenderMeshIndirectGroup. Never gl_InstanceIndex: whether it includes firstInstance differs
 // across drivers (MoltenVK), an instance-rate attribute does not. Transforms never ride a vertex stream.
 // UE: GetSceneDataIntermediates through the instance id stream (SceneData.ush). Needs DESERT_GPU_SCENE_PRIMITIVES.
+// THE SCENE'S INSTANCE ROWS: the binned draw's (below) and a CPU-instanced ISM cell's (DESERT_GPU_SCENE_INSTANCES,
+// Mesh/Surface/Vertex_Instanced.glslh DESERT_SURFACE_SCENE_INSTANCES: the draw names GpuScene instances by id and
+// reads their InstanceToPrimitive here, UE GPU Scene's instance data by InstanceId). Needs
+// DESERT_GPU_SCENE_PRIMITIVES.
+#if defined( DESERT_GPU_SCENE_DRAWS ) || defined( DESERT_GPU_SCENE_INSTANCES )
+#ifndef DESERT_GPU_SCENE_PRIMITIVES
+#error "the GpuScene instance rows name their primitive: define DESERT_GPU_SCENE_PRIMITIVES too"
+#endif
+layout( std430, binding = kGpuSceneInstancesBinding ) readonly buffer GpuSceneInstances
+{
+    GpuSceneInstance Instances[];
+}
+gpuSceneInstances;
+#endif
 #ifdef DESERT_GPU_SCENE_DRAWS
 #ifndef DESERT_GPU_SCENE_PRIMITIVES
 #error "DESERT_GPU_SCENE_DRAWS reads the primitive table: define DESERT_GPU_SCENE_PRIMITIVES too"
 #endif
 layout( location = 9 ) in uint a_VisibleRow; // GpuDriven::kVisibleRowVertexLocation
 
-layout( std430, binding = kGpuSceneInstancesBinding ) readonly buffer GpuSceneInstances
-{
-    GpuSceneInstance Instances[];
-}
-gpuSceneInstances;
 #ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
 layout( std430, binding = kGpuSceneVisibleInstancesBinding ) readonly buffer GpuSceneVisibleInstances
 {
