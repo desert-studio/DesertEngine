@@ -68,18 +68,15 @@ layout( binding = kSunDistanceFieldShadowBinding ) uniform texture2D DistanceFie
 #define DistanceFieldShadowTexture sampler2D(DistanceFieldShadowTexture, PointClampSampler)
 
 // The cascades, cross-faded into the mask across the band at the last cascade's border and replaced by it past
-// the cascades - DeferredLighting.shader's DesertSunShadowWithDistanceField, the same band (one formula,
-// DistanceFieldShadowBandWeight).
+// the cascades - DeferredLighting.shader's DesertDirectionalShadowWithDistanceField for slot 0 (the mask's r),
+// the same band (one statement,
+// Mesh/CascadedShadow.glslh DistanceFieldShadowHandOver).
 float DesertForwardSunShadow( vec3 worldPos, vec3 N, vec3 L, out int cascade )
 {
     const float cascades = ShadowFactor( kShadowLightSun, worldPos, N, L, cascade );
     if ( ShadowFilter.z < 0.5 || DirectionalShadow[kShadowLightSun].y < 0.5 )
         return cascades;
-    const int count = int( DirectionalShadow[kShadowLightSun].z );
-    float     band  = 1.0;
-    if ( count > 0 )
-        band = DistanceFieldShadowBandWeight( LightViewProjection[cascadeView( kShadowLightSun, count - 1 )],
-                                              worldPos, kDistanceFieldShadowBand );
+    const float band = DistanceFieldShadowHandOver( kShadowLightSun, cascade, worldPos );
     if ( band <= 0.0 )
         return cascades;
     return mix( cascades, texelFetch( DistanceFieldShadowTexture, ivec2( gl_FragCoord.xy ), 0 ).r, band );

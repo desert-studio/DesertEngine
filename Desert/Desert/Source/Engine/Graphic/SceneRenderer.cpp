@@ -2629,11 +2629,11 @@ namespace Desert::Graphic
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
-                // "Shadows: Distance Field Sun": the cascade arm's sun past its last cascade (the composite's
+                // "Shadows: Distance Field Sun" / "... Light 1": the cascade arm's directional lights past their
+                // last cascades, one trace per slot that casts, each into its channel of one mask (the composite's
                 // DeferredCascadeShadow::DistanceField, SceneViewInputs::SunDistanceFieldShadow).
-                if ( SunDistanceFieldShadowRuns() )
-                    textures.Transients.SunDistanceFieldShadow =
-                         AddFrameDistanceFieldShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame );
+                if ( DistanceFieldShadowRuns() )
+                    AddFrameDistanceFieldShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame );
                 // GPU-DRIVEN CULL validation: the GPU's visible sets beside the CPU's, after the VSM pages exist.
                 if ( m_DebugView.ValidateGpuCulling )
                     AddFrameGpuCull( graph, textures, frame );
@@ -3381,14 +3381,18 @@ namespace Desert::Graphic
         return SunShadowIsRayTraced() || SunShadowIsVirtual();
     }
 
-    bool SceneRenderer::SunDistanceFieldShadowRuns() const
+    bool SceneRenderer::DistanceFieldShadowRuns() const
     {
         if ( !m_RenderMethods.DistanceFieldShadows || m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer ||
              SunShadowIsScreenMask() )
             return false;
         const auto* const meshRenderer = m_Systems.Mesh.get();
-        return meshRenderer != nullptr &&
-               meshRenderer->DirectionalShadows()[SceneResources::kDirectionalShadowSun].CastShadows;
+        if ( meshRenderer == nullptr )
+            return false;
+        for ( const SceneResources::DirectionalShadowView& view : meshRenderer->DirectionalShadows() )
+            if ( view.CastShadows )
+                return true;
+        return false;
     }
 
     bool SceneRenderer::SunDistanceFieldShadowBudget() const
@@ -3415,19 +3419,17 @@ namespace Desert::Graphic
         return true;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                                const std::vector<RDG::TextureRef>& gbuffer,
-                                                                const glm::vec3&                    directionToSun,
-                                                                const ViewFrame&                    frame )
+    void SceneRenderer::AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                     const std::vector<RDG::TextureRef>& gbuffer,
+                                                     const glm::vec3& directionToSun, const ViewFrame& frame )
     {
         if ( !EnsureDistanceFieldShadowResources() )
-            return {};
+            return;
         const auto* const meshRenderer = m_Systems.Mesh.get();
         if ( meshRenderer == nullptr )
-            return {};
+            return;
         const SceneResources::DirectionalShadowViews views = meshRenderer->DirectionalShadows();
-        const SceneResources::DirectionalShadowView& sun   = views[SceneResources::kDirectionalShadowSun];
-        const FrameTransients&                       t     = textures.Transients;
+        FrameTransients&                             t     = textures.Transients;
         System::DistanceFieldShadowInputs            in;
         in.Depth                     = textures.Depth( m_GBuffer, "GBuffer" );
         in.Normal                    = gbuffer[1];
@@ -3436,20 +3438,37 @@ namespace Desert::Graphic
         in.Levels                    = t.GlobalDistanceFieldLevels;
         in.InvJitteredViewProjection = frame.InvJitteredViewProjection;
         in.CameraPosition            = frame.CameraPosition;
-        in.DirectionToSun            = directionToSun;
-        in.SourceTanHalf             = sun.SourceTanHalf;
-        if ( sun.CascadeVP != nullptr && sun.Count > 0 )
-            in.LastCascade = &sun.CascadeVP[sun.Count - 1];
-        in.Width  = frame.Split.Render.Width;
-        in.Height = frame.Split.Render.Height;
-        const Common::ResultStr<RDG::TextureRef> mask = m_DistanceFieldShadow.AddPasses( graph, in );
-        if ( !mask )
+        in.Width                     = frame.Split.Render.Width;
+        in.Height                    = frame.Split.Render.Height;
+        // Slot 1 travels along GetFrameLight1's direction (the composite's Light1Direction: L1 = -it).
+        const std::array<glm::vec3, SceneResources::kMaxShadowedDirectionalLights> towardLight{
+             directionToSun, -glm::vec3( GetFrameLight1().Direction ) };
+        RDG::TextureRef mask;
+        uint32_t        written = 0;
+        for ( uint32_t light = 0; light < SceneResources::kMaxShadowedDirectionalLights; ++light )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun keeps its cascades alone this frame",
-                       m_ViewResources.GetName(), mask.GetError() );
-            return {};
+            // A slot casting nothing is lit past its cascades (DistanceFieldShadowHandOver = 0): no pass.
+            const SceneResources::DirectionalShadowView& view = views[light];
+            if ( !view.CastShadows )
+                continue;
+            in.DirectionToLight = towardLight[light];
+            in.SourceTanHalf    = view.SourceTanHalf;
+            in.LastCascade      = nullptr;
+            if ( view.CascadeVP != nullptr && view.Count > 0 )
+                in.LastCascade = &view.CascadeVP[view.Count - 1];
+            const Common::ResultStr<RDG::TextureRef> traced =
+                 m_DistanceFieldShadow.AddPasses( graph, in, light, mask );
+            if ( !traced )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; that light keeps its cascades alone this frame",
+                           m_ViewResources.GetName(), traced.GetError() );
+                continue;
+            }
+            mask = traced.GetValue();
+            written |= 1u << light;
         }
-        return mask.GetValue();
+        t.SunDistanceFieldShadow    = mask;
+        t.DistanceFieldShadowLights = written;
     }
 
     bool SceneRenderer::EnsureVirtualShadowResources()
@@ -4890,7 +4909,7 @@ namespace Desert::Graphic
         // The hand-over to the distance-field mask: the same predicate the frame records the pass by (a renderer
         // latched failed records none, binds System.White and hands over nothing).
         SceneResources::ShadowFilterSettings filter = m_ShadowFilter;
-        filter.SunDistanceField                     = SunDistanceFieldShadowRuns() && !m_DistanceFieldShadowFailed;
+        filter.DistanceField                        = DistanceFieldShadowRuns() && !m_DistanceFieldShadowFailed;
         return filter;
     }
 

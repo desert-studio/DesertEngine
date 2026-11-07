@@ -3,7 +3,10 @@
 // resolution trace, written from memory): every full-resolution pixel takes the four half-resolution texels around
 // it, each weighted bilinearly and by how close its receiver's distance from the camera lies to the pixel's own - a
 // tap on another surface (a trunk in front of the field behind it) gives nothing - into the screen mask the deferred
-// direct lighting cross-fades with the cascades (Common/DistanceFieldShadow.glslh, the band). r = visibility.
+// direct lighting cross-fades with the cascades (Common/DistanceFieldShadow.glslh, the band). One pass per
+// directional slot that casts (UE: a distance-field shadow per directional light), each into ITS channel of the
+// one mask (r = slot 0 the sun, g = slot 1 atmosphere light 1): the frame's first slot writes the texel with its
+// channel and 1 (lit) in the others, a later slot keeps the channels already there.
 Shader "DistanceFieldShadowUpsample"
 {
     Compute
@@ -23,7 +26,21 @@ Shader "DistanceFieldShadowUpsample"
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
         Uniform(2) texture2D DistanceFieldShadowHalfTexture; // r = visibility, g = receiver distance (m), 0 = sky
         #define DistanceFieldShadowHalfTexture sampler2D(DistanceFieldShadowHalfTexture, PointClampSampler)
-        layout(binding = 3, rgba16f) writeonly uniform image2D DistanceFieldShadowTexture;
+        layout(binding = 3, rgba16f) restrict uniform image2D DistanceFieldShadowTexture;
+        PushConstant DistanceFieldShadowUpsamplePush
+        {
+            uint Channel; // the directional slot this pass writes: 0 = r (the sun), 1 = g (atmosphere light 1)
+            uint Merge;   // 1 = an earlier slot wrote the mask this frame: keep its channels
+        };
+
+        void StoreMask(ivec2 pixel, float visibility)
+        {
+            vec4 texel = vec4(1.0);
+            if (Merge != 0u)
+                texel = imageLoad(DistanceFieldShadowTexture, pixel);
+            texel[Channel] = visibility;
+            imageStore(DistanceFieldShadowTexture, pixel, texel);
+        }
 
         // The relative distance difference at which a tap's weight halves.
         const float kDepthTolerance = 0.02;
@@ -37,7 +54,7 @@ Shader "DistanceFieldShadowUpsample"
             const float depth = texelFetch(GBufferDepthTexture, pixel, 0).r;
             if (depth <= 0.0)
             {
-                imageStore(DistanceFieldShadowTexture, pixel, vec4(1.0));
+                StoreMask(pixel, 1.0);
                 return;
             }
             const vec2  uv       = (vec2(pixel) + 0.5) / ShadowParams.extent.xy;
@@ -62,7 +79,7 @@ Shader "DistanceFieldShadowUpsample"
                 sum    += s.x * w;
                 weight += w;
             }
-            imageStore(DistanceFieldShadowTexture, pixel, vec4(weight > 0.0 ? sum / weight : 1.0));
+            StoreMask(pixel, weight > 0.0 ? sum / weight : 1.0);
         }
     }
 }

@@ -1360,22 +1360,25 @@ namespace Desert::Graphic
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
         bool            EnsureRayTracedShadowResources();
-        // THE ONE ANSWER TO "does the sun read a distance-field shadow past its last cascade this frame"
-        // (PostProcessSettings DistanceFieldShadows, UE r.DFShadow*): the deferred path's cascade arm with the sun
-        // casting shadows. It makes the frame bring the global distance field up (GlobalDistanceFieldRead), the
-        // cascades end nearer (RebudgetShadowsFor) and the composite cross-fade into the mask (CompositeView.x).
-        [[nodiscard]] bool SunDistanceFieldShadowRuns() const;
+        // THE ONE ANSWER TO "does a directional light read a distance-field shadow past its last cascade this
+        // frame" (PostProcessSettings DistanceFieldShadows, UE r.DFShadow*): the deferred path's cascade arm with
+        // a directional slot (the sun, atmosphere light 1) casting shadows. It makes the frame bring the global
+        // distance field up (GlobalDistanceFieldRead), the cascades end nearer (RebudgetShadowsFor) and the
+        // composite cross-fade into the mask (CompositeView.x for the sun, .w for light 1).
+        [[nodiscard]] bool DistanceFieldShadowRuns() const;
         // The cascade budget's DF key (RebudgetShadowsFor -> ShadowQualityOf): the view's RESOLVED method only -
         // DistanceFieldShadows on the deferred cascade arm, its renderer not latched failed - never the per-frame
         // sun state, so a frame whose sun stops casting does not re-allocate the maps. A failed renderer gives the
         // cascades their full Shadows.Distance back (the composite then has no mask past them).
         [[nodiscard]] bool SunDistanceFieldShadowBudget() const;
-        // "Shadows: Distance Field Sun" (System::DistanceFieldShadowRenderer) over the G-buffer and this frame's
-        // distance fields: the mask the deferred composite's cascade arm reads past the last cascade. Invalid
-        // (logged) when a pass could not be declared; the composite then keeps the cascades alone.
-        RDG::TextureRef AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                     const std::vector<RDG::TextureRef>& gbuffer,
-                                                     const glm::vec3& directionToSun, const ViewFrame& frame );
+        // "Shadows: Distance Field Sun" / "... Light 1" (System::DistanceFieldShadowRenderer) over the G-buffer
+        // and this frame's distance fields: one trace per directional slot that casts, each into its channel of
+        // the mask the deferred composite's cascade arm reads past the last cascades
+        // (FrameTransients::SunDistanceFieldShadow, the slots written in DistanceFieldShadowLights). A slot whose
+        // passes could not be declared (logged) keeps its cascades alone; none casting records no pass.
+        void AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
+                                          const std::vector<RDG::TextureRef>& gbuffer,
+                                          const glm::vec3& directionToSun, const ViewFrame& frame );
         bool            EnsureDistanceFieldShadowResources();
         // This frame's local lights are MegaLights' (the Shadows method resolved to Stochastic, its sun ray
         // traced): the composite's MegaLights program reads AddFrameMegaLights' lighting in place of the
@@ -2316,7 +2319,7 @@ namespace Desert::Graphic
         Assets::FrameRetireQueue<std::unique_ptr<System::ScreenSpaceDenoiser>> m_RetiredLocalShadowDenoisers;
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
-        // "Shadows: Distance Field Sun", created on the first frame SunDistanceFieldShadowRuns; latched like the
+        // "Shadows: Distance Field Sun", created on the first frame DistanceFieldShadowRuns; latched like the
         // ray-traced sun's.
         System::DistanceFieldShadowRenderer m_DistanceFieldShadow;
         bool                                m_DistanceFieldShadowReady  = false;
