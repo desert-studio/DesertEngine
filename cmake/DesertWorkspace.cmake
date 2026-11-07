@@ -78,7 +78,8 @@ endforeach()
 # ── WHOLE-PROGRAM OPTIMISATION AND THE PROCESS ALLOCATOR (CPU-TOOLCHAIN-LTCG-PGO) ──
 # UE: bAllowLTCG for the shipped code, FMallocMimalloc / FMallocBinned as the process allocator. MSVC only; clang's
 # counterpart (ThinLTO, mimalloc's static override) is its own A/B later, not a value of these switches.
-#   DESERT_LTCG      /GL /Gw /Ob3 in Release and Shipping on the runtime libraries marked desert_ltcg (Common,
+#   DESERT_LTCG      /Gw /Ob3 in Release and Shipping, /GL + /LTCG in Shipping only (the 4 GB archive limit, see
+#                    _shipping_link), on the runtime libraries marked desert_ltcg (Common,
 #                    every engine module library -- one shared PCH, so all or none -- and Jolt); executables link
 #                    /LTCG:INCREMENTAL (Release) and /LTCG (Shipping). Editor-only libraries stay without /GL, so
 #                    link time and memory grow only with the code the game runs; at most two links run at once
@@ -106,8 +107,10 @@ if(MSVC)
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG    "/DEBUG /INCREMENTAL" CACHE STRING "" FORCE)
     set(_release_link "/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF")
     set(_shipping_link "/INCREMENTAL:NO /OPT:REF /OPT:ICF")
+    # Whole-program code generation in Shipping only (UE bAllowLTCG: Shipping, not Development). Release keeps
+    # /Z7 debug info, and /GL IL + /Z7 in every object put DesertRenderer.lib past the 4 GB archive limit
+    # (lib.exe hangs at 4294967295 bytes, 11-07).
     if(DESERT_LTCG)
-        string(APPEND _release_link " /LTCG:INCREMENTAL")
         string(APPEND _shipping_link " /LTCG")
     endif()
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE  "${_release_link}" CACHE STRING "" FORCE)
@@ -426,10 +429,12 @@ function(_desert_target_flags target warnings speed debug_opt)
     # written by lib /LTCG, which otherwise restarts itself on the first /GL object.
     get_target_property(_ltcg ${target} DESERT_LTCG)
     if(MSVC AND DESERT_LTCG AND _ltcg)
-        target_compile_options(${target} PRIVATE "$<$<AND:$<NOT:$<CONFIG:Debug>>,${_cc}>:/GL;/Gw;/Ob3>")
+        # /Gw /Ob3 in Release and Shipping; /GL and lib /LTCG in Shipping only (see _shipping_link).
+        target_compile_options(${target} PRIVATE "$<$<AND:$<NOT:$<CONFIG:Debug>>,${_cc}>:/Gw;/Ob3>")
+        target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:Shipping>,${_cc}>:/GL>")
         get_target_property(_type ${target} TYPE)
         if(_type STREQUAL "STATIC_LIBRARY")
-            set_property(TARGET ${target} APPEND PROPERTY STATIC_LIBRARY_OPTIONS "$<$<NOT:$<CONFIG:Debug>>:/LTCG>")
+            set_property(TARGET ${target} APPEND PROPERTY STATIC_LIBRARY_OPTIONS "$<$<CONFIG:Shipping>:/LTCG>")
         endif()
     endif()
 endfunction()
