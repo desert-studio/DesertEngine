@@ -1604,7 +1604,11 @@ namespace Desert::Graphic::System
     {
         // Last frame's predecessor was copied from in last frame's graph; the device keeps it alive for the
         // frames in flight (the storage buffer's release is deferred), the pool no longer needs it.
-        m_Previous.reset();
+        if ( m_Previous )
+        {
+            m_Retired[m_RetiredNext] = std::move( m_Previous );
+            m_RetiredNext            = ( m_RetiredNext + 1u ) % kRetired;
+        }
         const uint64_t need     = std::max( m_End, kPoolAlignment );
         uint64_t       carried  = 0u; // the predecessor's bytes this frame's graph copies into the new buffer
         if ( !m_Buffer || m_Room < need )
@@ -1616,8 +1620,11 @@ namespace Desert::Graphic::System
             // CPU-GRASS-POOL-7: a readback pool's copies are the frames in flight's GPU writes, which a copy
             // of this frame's cannot carry: a remade one starts empty (Epoch).
             const bool readback = m_Memory == PoolMemory::Readback;
-            if ( readback )
-                m_Buffer.reset();
+            if ( readback && m_Buffer )
+            {
+                m_Retired[m_RetiredNext] = std::move( m_Buffer );
+                m_RetiredNext            = ( m_RetiredNext + 1u ) % kRetired;
+            }
             m_Previous = std::move( m_Buffer );
             carried    = m_Previous ? m_Room : uint64_t{ 0u };
             m_Address  = 0u;
@@ -3170,11 +3177,12 @@ namespace Desert::Graphic::System
                  pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
                  pass.Read( m_CandidatesPool.Ref(),
                             RDG::Access::StorageRead ); // every variety's (CPU-GRASS-POOL-1)
-                 for ( const VarietyGpu* gpu : m_FrameCull )
+                 // Every list's ids and records are ranges of one pool each (CPU-GRASS-POOL-5): the full
+                 // list's counts are read and the camera list's written in the same buffer, one access.
+                 if ( !m_FrameCull.empty() )
                  {
-                     pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
-                     pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
-                     pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
+                     pass.Write( m_IdsPool.Ref(), RDG::Access::StorageWrite );
+                     pass.Write( m_ArgsPool.Ref(), RDG::Access::StorageWrite );
                  }
              },
              [this, post, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -3190,10 +3198,9 @@ namespace Desert::Graphic::System
              [this, bound]( RDG::PassBuilder& pass )
              {
                  BindCull( pass, bound, RDG::Access::StorageRead );
-                 for ( const VarietyGpu* gpu : m_FrameCull )
+                 if ( !m_FrameCull.empty() )
                  {
-                     pass.Read( gpu->CameraRefs.Args, RDG::Access::StorageRead );
-                     pass.Write( gpu->PostRefs.Args, RDG::Access::StorageWrite );
+                     pass.Write( m_ArgsPool.Ref(), RDG::Access::StorageWrite ); // camera -> post records
                      pass.Write( m_FeedbackPool.Ref(), RDG::Access::StorageWrite );
                  }
              },

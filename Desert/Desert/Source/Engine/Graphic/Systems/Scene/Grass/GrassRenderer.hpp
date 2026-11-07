@@ -339,6 +339,11 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                  m_Ref{};
             // The buffer a growth replaced, held until the next Commit: this frame's graph copies from it.
             std::shared_ptr<ShaderResources::StorageBuffer> m_Previous;
+            // Buffers a growth replaced, held for kRetired more Commits: a graph in flight (the frames in flight,
+            // or another view of this frame) still names them until its fence (RDG checks the import alive).
+            static constexpr std::size_t                    kRetired = 8u;
+            std::array<std::shared_ptr<ShaderResources::StorageBuffer>, kRetired> m_Retired{};
+            std::size_t                                     m_RetiredNext = 0u;
             RDG::ExternalBuffer                             m_PreviousImport;
         };
         struct FieldGpu
