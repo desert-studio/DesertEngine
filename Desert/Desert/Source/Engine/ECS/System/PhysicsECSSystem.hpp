@@ -323,6 +323,7 @@ namespace Desert::ECS
             // This frame's root motion has been stepped (the velocity); its turn goes onto the character here, the
             // one place a character's transform is written from movement. The next frame's animation states both
             // again (or not).
+            auto characters = registry.view<TransformComponent, CharacterControllerComponent>();
             for ( auto entity : characters )
             {
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
@@ -346,6 +347,7 @@ namespace Desert::ECS
             // its own queue; the Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on.
             m_Destructibles->PublishEvents( registry );
 
+            auto bodies = registry.view<TransformComponent, RigidBodyComponent, ColliderComponent>();
             WriteBackMovingBodies( registry, bodies );
 
             for ( auto entity : characters )

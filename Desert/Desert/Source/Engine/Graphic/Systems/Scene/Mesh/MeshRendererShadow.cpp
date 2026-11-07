@@ -271,14 +271,21 @@ namespace Desert::Graphic::System
                  DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::ShadowDepth );
             std::shared_ptr<Shader> idShader;
             if ( !cellName )
+            {
                 LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: no instanced caster cell" );
-            else if ( Common::ResultStr<std::shared_ptr<Shader>> sceneIds =
-                           Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-                                *cellName, SurfaceSceneInstancesVariant() );
-                      !sceneIds )
-                LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", sceneIds.GetError() );
+            }
             else
-                idShader = sceneIds.ExtractValue();
+            {
+                Common::ResultStr<std::shared_ptr<Shader>> sceneIds =
+                     Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( *cellName,
+                                                                                     SurfaceSceneInstancesVariant() );
+                if ( sceneIds )
+                    idShader = sceneIds.ExtractValue();
+                else
+                {
+                    LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", sceneIds.GetError() );
+                }
+            }
             if ( idShader )
             {
                 m_ShadowInstancedIdShader         = std::move( idShader );
