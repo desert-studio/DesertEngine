@@ -24,6 +24,11 @@ namespace Desert::Assets
     class VFXEffectTypeAsset;
 }
 
+namespace Desert::ECS
+{
+    struct VFXComponent;
+}
+
 namespace Desert::VFX
 {
     // One fixed step of one emitter, as the simulation will run it.
@@ -81,6 +86,16 @@ namespace Desert::VFX
     // value, a curve key, a bound or a lifecycle number moved in the `.dfx` window) re-reads the plans and keeps
     // every instance running; any other new pointer (a renamed system, a module added, a capacity changed, a
     // module file rewritten) starts the instance over under a new Generation.
+    // What VFXWorld::Tick reads of one system data every tick, derived once per data pointer (a new snapshot is
+    // a new pointer): the enabled emitters' fixed-bounds extent and the resolved effect type (a pointer into the
+    // held asset, read live; null = missing, spawns nothing).
+    struct SystemDerived
+    {
+        const Assets::Serialization::VFXSystemData*     For = nullptr;
+        std::optional<Assets::Serialization::VFXBounds> Extent;
+        const Assets::Serialization::VFXEffectTypeData* Type = nullptr;
+    };
+
     struct SystemInstance
     {
         std::shared_ptr<const Assets::Serialization::VFXSystemData> System;
@@ -110,6 +125,8 @@ namespace Desert::VFX
         // The VFXComponent's User overrides the plans were compiled with: a change recompiles the plans and
         // keeps every instance running (UE: a SetVariable mid-flight changes the next spawns, not the past).
         std::vector<ECS::VFXUserOverride> Overrides;
+        // Derived from System (see SystemDerived); recomputed by Tick when System's pointer moved.
+        SystemDerived Derived;
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
@@ -320,5 +337,25 @@ namespace Desert::VFX
         std::size_t                                        m_CulledSystems = 0;
         // Resolved effect types by name; a null entry is a type that failed to resolve (logged once).
         std::unordered_map<std::string, std::shared_ptr<Assets::VFXEffectTypeAsset>> m_EffectTypes;
+
+        // Tick's working sets, members so a tick allocates nothing once they reached the scene's size: one
+        // placed system this tick, the views it decides by, the scalability candidates, and the stack keys of
+        // the system pointers that changed this tick.
+        struct TickPlacement
+        {
+            SystemInstance*                                 System;
+            ECS::VFXComponent*                              Component;
+            std::uint64_t                                   UUID;
+            glm::vec3                                       EmitterCm;
+            const Assets::Serialization::VFXEffectTypeData* Type;
+            const std::string*                              TypeName;
+            std::size_t                                     Candidate;
+        };
+        using StackKeyMemo =
+             std::unordered_map<const Assets::Serialization::VFXSystemData*, std::vector<std::uint64_t>>;
+        std::vector<VFXViewReport>           m_TickViews;
+        std::vector<TickPlacement>           m_TickPlaced;
+        std::vector<VFXScalabilityCandidate> m_TickCandidates;
+        StackKeyMemo                         m_TickStackKeys;
     };
 } // namespace Desert::VFX

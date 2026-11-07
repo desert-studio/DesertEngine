@@ -442,6 +442,12 @@ namespace Desert::Physics
         [[nodiscard]] glm::vec3 GetPointVelocity( BodyHandle handle, const glm::vec3& point ) const;
         /// Jolt has not put the body to sleep. A static body is never active.
         [[nodiscard]] bool IsActive( BodyHandle handle ) const;
+        /// The bodies whose DRAWN pose (GetInterpolatedPosition / Rotation) may differ from the simulated one
+        /// or move between frames: every body Jolt has active now, and every body that was active before the
+        /// last step (it moved in that step, including one Jolt put to sleep at its end). A body outside the
+        /// set is asleep or static and draws exactly its simulated pose (UE: FPhysScene syncs only the awake
+        /// bodies). @p out is cleared and refilled; a handle may appear twice. Not from the pre-step callback.
+        void CollectMovingBodies( std::vector<BodyHandle>& out ) const;
 
         // How many bodies / characters the world holds right now. The measure of "destroying an entity gave
         // its body back" — without it, a leak is only visible as a collision with something that is not there.

@@ -38,6 +38,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <format>
 #include <memory>
 #include <optional>
@@ -88,6 +89,7 @@ namespace Desert::ECS
                     m_Ragdolls.reset();
                     m_RefusedColliders.clear();
                     m_BodyEntities.clear();
+                    m_PosedLastFrame.clear(); // entities of the Play that ends
                     if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
                         queue->Events.clear();
                     m_RefusedCharacters.clear();
@@ -327,19 +329,7 @@ namespace Desert::ECS
             // its own queue; the Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on.
             m_Destructibles->PublishEvents( registry );
 
-            // Write the pose to DRAW back into the transform for moving bodies: interpolated between the last
-            // two fixed steps, so motion is smooth at any frame rate.
-            for ( auto entity : bodies )
-            {
-                auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
-                    continue;
-
-                LocalTransform transform = bodies.get<TransformComponent>( entity ).GetLocal();
-                transform.Translation    = m_World->GetInterpolatedPosition( rb.RuntimeBody );
-                transform.Rotation       = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
-                SetLocalTransform( registry, entity, transform );
-            }
+            WriteBackMovingBodies( registry, bodies );
 
             for ( auto entity : characters )
             {
@@ -527,6 +517,45 @@ namespace Desert::ECS
             }
         }
 
+        // Write the pose to DRAW back into the transform of the dynamic bodies that MOVE: interpolated between
+        // the last two fixed steps, so motion is smooth at any frame rate. Only the awake bodies and those the
+        // last step moved (PhysicsWorld::CollectMovingBodies; UE FPhysScene syncs the awake bodies), not every
+        // dynamic body: a sleeping body is not read from Jolt at all. A body written last frame from an
+        // interpolated pose that has since left the set is written once more, at its exact resting pose.
+        // m_BodyEntities is this frame's (PublishEvents ran before).
+        template <typename BodyView>
+        void WriteBackMovingBodies( entt::registry& registry, BodyView& bodies )
+        {
+            m_World->CollectMovingBodies( m_MovingBodies );
+            m_PoseTargets.clear();
+            for ( const Physics::BodyHandle body : m_MovingBodies )
+                if ( const auto found = m_BodyEntities.find( body ); found != m_BodyEntities.end() )
+                    m_PoseTargets.push_back( found->second );
+            std::sort( m_PoseTargets.begin(), m_PoseTargets.end() );
+            m_PoseTargets.erase( std::unique( m_PoseTargets.begin(), m_PoseTargets.end() ), m_PoseTargets.end() );
+            const size_t movingCount = m_PoseTargets.size();
+            for ( const entt::entity entity : m_PosedLastFrame )
+                if ( !std::binary_search( m_PoseTargets.begin(), m_PoseTargets.begin() + movingCount, entity ) )
+                    m_PoseTargets.push_back( entity );
+
+            for ( const entt::entity entity : m_PoseTargets )
+            {
+                if ( !registry.valid( entity ) || !bodies.contains( entity ) )
+                    continue;
+                const auto& rb = bodies.template get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
+                    continue;
+
+                LocalTransform transform = bodies.template get<TransformComponent>( entity ).GetLocal();
+                transform.Translation    = m_World->GetInterpolatedPosition( rb.RuntimeBody );
+                transform.Rotation       = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+                SetLocalTransform( registry, entity, transform );
+            }
+            // Next frame's "written from a possibly interpolated pose": this frame's moving ones only.
+            m_PoseTargets.resize( movingCount );
+            m_PosedLastFrame.swap( m_PoseTargets );
+        }
+
         void PublishEvents( entt::registry& registry )
         {
             auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
@@ -618,6 +647,10 @@ namespace Desert::ECS
         // Entities whose collider was refused during this Play; cleared with the world.
         std::unordered_set<entt::entity> m_RefusedColliders;
         std::unordered_map<Physics::BodyHandle, entt::entity> m_BodyEntities; // see PublishEvents
+        // WriteBackMovingBodies' storage, reused across frames (no per-frame allocation once warm).
+        std::vector<Physics::BodyHandle>                      m_MovingBodies;
+        std::vector<entt::entity>                             m_PoseTargets;
+        std::vector<entt::entity>                             m_PosedLastFrame;
         std::unordered_set<entt::entity> m_RefusedCharacters;
         bool                                                  m_ProfilesRefused = false;
     };

@@ -217,28 +217,27 @@ namespace Desert::VFX
         // calculator (VFXScalability) decides all of them at once - the instance limits rank across the whole
         // world - and the second pass applies each verdict through its type's cull reaction and plans the births.
         // No view (headless) = nothing culled, the system as authored.
-        std::vector<VFXViewReport> views;
+        // The tick's working sets are the world's members, cleared rather than rebuilt: no allocation per tick
+        // once they reached the scene's size. The pending views swap in; the last tick's buffer becomes the
+        // next frame's SubmitView storage.
+        std::vector<VFXViewReport>& views = m_TickViews;
+        views.clear();
         views.swap( m_PendingViews );
         m_CulledSystems = 0;
 
         constexpr std::size_t kNoCandidate = std::numeric_limits<std::size_t>::max();
-        struct Placed
-        {
-            SystemInstance*                                 System;
-            ECS::VFXComponent*                              Component;
-            std::uint64_t                                   UUID;
-            glm::vec3                                       EmitterCm;
-            const Assets::Serialization::VFXEffectTypeData* Type;
-            const std::string*                              TypeName;
-            std::size_t                                     Candidate;
-        };
-        std::vector<Placed>                  placed;
-        std::vector<VFXScalabilityCandidate> candidates;
-        const double                         tickSeconds = static_cast<double>( m_Plan.StepCount ) * stepSeconds;
+        using Placed                       = TickPlacement;
+        std::vector<Placed>&                  placed     = m_TickPlaced;
+        std::vector<VFXScalabilityCandidate>& candidates = m_TickCandidates;
+        placed.clear();
+        candidates.clear();
+        const double tickSeconds = static_cast<double>( m_Plan.StepCount ) * stepSeconds;
 
         Runtime::VFXSystemService* systems = Runtime::ResourceRegistry::GetVFXSystemService();
-        std::unordered_map<const Assets::Serialization::VFXSystemData*, std::vector<std::uint64_t>> stackKeys;
-        auto                       view    = registry.view<ECS::VFXComponent, ECS::UUIDComponent>();
+        // Once per new pointer per tick; empty on a tick where no system changed (the common one).
+        auto& stackKeys = m_TickStackKeys;
+        stackKeys.clear();
+        auto view = registry.view<ECS::VFXComponent, ECS::UUIDComponent>();
         view.each(
              [&]( entt::entity entity, ECS::VFXComponent& vfx, const ECS::UUIDComponent& id )
              {
@@ -360,21 +359,38 @@ namespace Desert::VFX
                          ResetInstance( emitter );
                  }
 
-                 const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
-                 const glm::mat4 world = transform ? glm::mat4( transform->GetTransform() ) : glm::mat4( 1.0f );
+                 // The placement's WORLD transform (UE: the component's ComponentToWorld), the cached
+                 // parent x local of the TransformComponent: an effect on a child entity plays where the child
+                 // is in the world, not at its parent-relative offset.
+                 glm::mat4 world( 1.0f );
+                 if ( const auto* transform = registry.try_get<ECS::TransformComponent>( entity ) )
+                     world = transform->GetWorldTransform();
                  const glm::vec3 emitterCm( world[3] );
                  system.Transform = world;
+                 // What the tick reads of the system data, kept on the instance per data pointer (a new snapshot
+                 // = a new pointer; UE: Niagara caches its system data on the instance). A placement still
+                 // playing its previous system while the new one's programs compile reads the new data uncached.
+                 SystemDerived  pendingDerived;
+                 SystemDerived* derived = &system.Derived;
+                 if ( system.System != data )
+                     derived = &pendingDerived;
+                 if ( derived->For != data.get() )
+                 {
+                     derived->For    = data.get();
+                     derived->Extent = Assets::Serialization::VFXSystemExtent( *data );
+                     // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns
+                     // nothing. The pointer is into the held asset, read live (EffectType).
+                     derived->Type = EffectType( data->EffectType.value() );
+                 }
                  // The world box of the enabled emitters' fixed bounds, placed as the renderer culls them
                  // (VFXBoundsAt: the placement's full transform); no enabled emitter - the placement's point.
-                 const auto extent = Assets::Serialization::VFXSystemExtent( *data );
-                 const Common::Math::AABB worldBounds =
-                      extent ? Assets::Serialization::VFXBoundsAt( *extent, world )
-                             : Common::Math::AABB{ emitterCm, emitterCm };
-                 const glm::vec3 minCm = worldBounds.Min;
-                 const glm::vec3 maxCm = worldBounds.Max;
-                 // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns nothing.
+                 Common::Math::AABB worldBounds{ emitterCm, emitterCm };
+                 if ( derived->Extent )
+                     worldBounds = Assets::Serialization::VFXBoundsAt( *derived->Extent, world );
+                 const glm::vec3                                 minCm    = worldBounds.Min;
+                 const glm::vec3                                 maxCm    = worldBounds.Max;
                  const std::string&                              typeName = data->EffectType.value();
-                 const Assets::Serialization::VFXEffectTypeData* type     = EffectType( typeName );
+                 const Assets::Serialization::VFXEffectTypeData* type     = derived->Type;
 
                  std::size_t candidate = kNoCandidate;
                  if ( !system.Deactivated )
