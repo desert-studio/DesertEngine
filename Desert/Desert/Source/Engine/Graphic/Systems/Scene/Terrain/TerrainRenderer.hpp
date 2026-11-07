@@ -14,6 +14,7 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 
 #include <glm/glm.hpp>
@@ -172,6 +173,16 @@ namespace Desert::Graphic::System
         // Whether this frame's deferred G-buffer draws the ground over its own depth prepass: the early-Z pass
         // runs and both prepassed pipelines exist. "Deferred: Terrain Depth Prepass" is added exactly then.
         [[nodiscard]] bool PrepassesGBuffer() const;
+
+        // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB), set per frame by SceneRenderer::OnUpdate: true
+        // = the dice pool is kept across frames and re-evaluated only when its jobs' keys change; false = a
+        // transient evaluated every frame (the old path, the A/B). Turning it off drops the kept pool.
+        void SetDicePoolCache( const bool cache ) noexcept
+        {
+            if ( !cache )
+                m_DicePoolKeysValid = false;
+            m_DicePoolCache = cache;
+        }
 
         // THE WIREFRAME VIEW (DebugViewState::WireframeMode, as MeshRenderer::SetWireframe): the forward base pass
         // draws through the line-polygon twin of its pipeline, writing its own depth, and the depth prepass draws
@@ -582,8 +593,47 @@ namespace Desert::Graphic::System
             // buffer (AddDicePoolPass).
             uint32_t Corners     = 0;
             uint32_t FirstCorner = 0;
+            // The maps' texel revisions (sculpting and painting edit them in place): part of the pool's key.
+            uint64_t HeightRevision = 0u;
+            uint64_t WeightRevision = 0u;
         };
         std::vector<DicePoolJob>         m_DicePoolJobs;
+        // GPU-TERRAIN-HZB, THE PERSISTENT DICE POOL (UE Landscape: displaced geometry kept until its inputs
+        // change): everything one job's dispatch reads - its row, counts, ranges and maps (pointer, device
+        // generation, texel revision). AddDicePoolPass evaluates the pool and its corner nodes into buffers that
+        // outlive the graph and dispatches nothing on a frame whose keys equal the ones they were evaluated for.
+        struct DicePoolKey
+        {
+            TerrainInstance Row;
+            const void*     Heightmap        = nullptr;
+            const void*     Weightmap        = nullptr;
+            const void*     LayerHeights     = nullptr;
+            uint64_t        HeightGeneration = 0u;
+            uint64_t        WeightGeneration = 0u;
+            uint64_t        LayerGeneration  = 0u;
+            uint64_t        HeightRevision   = 0u;
+            uint64_t        WeightRevision   = 0u;
+            uint32_t        Vertices         = 0;
+            uint32_t        Corners          = 0;
+            uint32_t        FirstCorner      = 0;
+        };
+        [[nodiscard]] static bool SameDicePoolKey( const DicePoolKey& a, const DicePoolKey& b ) noexcept;
+        // RenderPipeline.LandscapeDicePoolCache (SceneRenderer::OnUpdate): false = the old path, the pool a
+        // transient evaluated every frame (the A/B and the rollback).
+        bool                                            m_DicePoolCache = true;
+        std::vector<DicePoolKey>                        m_DicePoolKeys;      // what the persistent pool holds
+        std::vector<DicePoolKey>                        m_DicePoolFrameKeys; // this frame's (capacity reused)
+        bool                                            m_DicePoolKeysValid = false;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_DicePoolBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_DicePoolCornerBuffer;
+        RDG::ExternalBuffer                             m_DicePoolImport;
+        RDG::ExternalBuffer                             m_DicePoolCornerImport;
+        uint64_t                                        m_DicePoolBytes       = 0u; // m_DicePoolBuffer's size
+        uint64_t                                        m_DicePoolCornerBytes = 0u;
+        // The persistent pool and corner nodes in @p graph, (re)made when they are smaller than @p poolBytes /
+        // @p cornerBytes (which drops the keys); sets m_DicePool and m_DicePoolCornerNodes.
+        Common::BoolResultStr            ImportPersistentDicePool( RDG::Builder& graph, uint64_t poolBytes,
+                                                                   uint64_t cornerBytes );
         uint32_t                         m_DicePoolVertices = 0;
         uint32_t                         m_DicePoolCorners  = 0;
         // Puts @p row's pooled vertices (@p pooled > 0, LandscapeDicePoolVertexCount) at the pool's end: sets its

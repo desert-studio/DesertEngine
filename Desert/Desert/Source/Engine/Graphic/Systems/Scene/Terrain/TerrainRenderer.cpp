@@ -1000,17 +1000,19 @@ namespace Desert::Graphic::System
         row.DicePool.x = static_cast<float>( m_DicePoolVertices );
         const uint32_t corners =
              LandscapeDicePoolCornerCount( t.Landscape.QuadsPerTile, static_cast<uint32_t>( row.Params.w ), row );
-        m_DicePoolJobs.push_back( { .Row          = row,
-                                    .Heightmap    = t.Heightmap,
-                                    .Weightmap    = t.Weights.Weightmap != nullptr
-                                                         ? std::shared_ptr<Image>( t.Weights.Weightmap )
-                                                         : FallbackTextures::Get().GetFallbackTexture2D(
+        m_DicePoolJobs.push_back( { .Row            = row,
+                                    .Heightmap      = t.Heightmap,
+                                    .Weightmap      = t.Weights.Weightmap != nullptr
+                                                           ? std::shared_ptr<Image>( t.Weights.Weightmap )
+                                                           : FallbackTextures::Get().GetFallbackTexture2D(
                                                              Core::Formats::ImageFormat::RGBA8F ),
-                                    .HasWeightmap = t.Weights.Weightmap != nullptr,
-                                    .LayerHeights = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
-                                    .Vertices     = pooled,
-                                    .Corners      = corners,
-                                    .FirstCorner  = m_DicePoolCorners } );
+                                    .HasWeightmap   = t.Weights.Weightmap != nullptr,
+                                    .LayerHeights   = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
+                                    .Vertices       = pooled,
+                                    .Corners        = corners,
+                                    .FirstCorner    = m_DicePoolCorners,
+                                    .HeightRevision = t.Landscape.HeightRevision,
+                                    .WeightRevision = t.Weights.Revision } );
         m_DicePoolVertices += pooled;
         m_DicePoolCorners += corners;
     }
@@ -1636,11 +1638,13 @@ namespace Desert::Graphic::System
         if ( m_DicePoolVertices >= ( 1u << 24 ) )
             return Common::MakeFormattedError<bool>( "{}: {} pooled vertices exceed the 2^24 a row can address",
                                                      kDicePoolPass, m_DicePoolVertices );
-        const uint64_t vertices = std::max<uint32_t>( m_DicePoolVertices, 1u );
-        m_DicePool =
-             graph.CreateBuffer( RDG::BufferDesc{ vertices * 2u * sizeof( glm::vec4 ) }, "Landscape.DicePool" );
+        const uint64_t vertices    = std::max<uint32_t>( m_DicePoolVertices, 1u );
+        const uint64_t poolBytes   = vertices * 2u * sizeof( glm::vec4 );
+        const uint64_t cornerCount = std::max<uint32_t>( m_DicePoolCorners, 1u );
+        const uint64_t cornerBytes = cornerCount * 2u * sizeof( glm::vec4 );
         if ( m_DicePoolJobs.empty() )
         {
+            m_DicePool = graph.CreateBuffer( RDG::BufferDesc{ poolBytes }, "Landscape.DicePool" );
             // No tile is diced this frame: nothing reads the pool, but every terrain vertex stage binds it.
             const std::array<std::byte, 2 * sizeof( glm::vec4 )> zero{};
             graph.QueueBufferUpload( m_DicePool, zero );
@@ -1662,6 +1666,43 @@ namespace Desert::Graphic::System
             m_DicePoolPipeline = pipeline.GetValue();
         }
 
+        // GPU-TERRAIN-HZB: the kept pool is evaluated only when a job's key differs from what it holds.
+        if ( m_DicePoolCache )
+        {
+            m_DicePoolFrameKeys.clear();
+            for ( const DicePoolJob& job : m_DicePoolJobs )
+            {
+                DicePoolKey key;
+                key.Row              = job.Row;
+                key.Heightmap        = job.Heightmap.get();
+                key.Weightmap        = job.Weightmap.get();
+                key.LayerHeights     = job.LayerHeights.get();
+                key.HeightGeneration = job.Heightmap ? job.Heightmap->GetResourceGeneration() : 0u;
+                key.WeightGeneration = job.Weightmap ? job.Weightmap->GetResourceGeneration() : 0u;
+                key.LayerGeneration  = job.LayerHeights ? job.LayerHeights->GetResourceGeneration() : 0u;
+                key.HeightRevision   = job.HeightRevision;
+                key.WeightRevision   = job.WeightRevision;
+                key.Vertices         = job.Vertices;
+                key.Corners          = job.Corners;
+                key.FirstCorner      = job.FirstCorner;
+                m_DicePoolFrameKeys.push_back( key );
+            }
+            if ( const Common::BoolResultStr imported = ImportPersistentDicePool( graph, poolBytes, cornerBytes );
+                 !imported )
+                return imported;
+            if ( m_DicePoolKeysValid &&
+                 std::equal( m_DicePoolFrameKeys.begin(), m_DicePoolFrameKeys.end(), m_DicePoolKeys.begin(),
+                             m_DicePoolKeys.end(), &TerrainRenderer::SameDicePoolKey ) )
+                return BOOLSUCCESS; // the kept pool is this frame's: no dispatch
+            m_DicePoolKeysValid = false;
+        }
+        else
+        {
+            m_DicePool = graph.CreateBuffer( RDG::BufferDesc{ poolBytes }, "Landscape.DicePool" );
+            m_DicePoolCornerNodes =
+                 graph.CreateBuffer( RDG::BufferDesc{ cornerBytes }, "Landscape.DicePool.Corners" );
+        }
+
         std::vector<std::byte> rowBytes( m_DicePoolJobs.size() * sizeof( TerrainInstance ) );
         for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
             std::memcpy( rowBytes.data() + i * sizeof( TerrainInstance ), &m_DicePoolJobs[i].Row,
@@ -1672,10 +1713,7 @@ namespace Desert::Graphic::System
 
         // The diced tiles' corner nodes (TERRAIN-COST-2): every sub-vertex reads its cell's three from here
         // instead of evaluating them (LandscapeDicePool.shader, LandscapeDicePoolCornerCount).
-        const RDG::BufferRef corners = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t{ std::max<uint32_t>( m_DicePoolCorners, 1u ) } * 2u * sizeof( glm::vec4 ) },
-             "Landscape.DicePool.Corners" );
-        m_DicePoolCornerNodes = corners;
+        const RDG::BufferRef corners = m_DicePoolCornerNodes;
 
         // Two nodes, one binding block and one dispatch per diced tile each: the corner nodes (Tile.w = 0), then -
         // after the graph's barrier on the corners - the pool's sub-vertices from them (Tile.w = 1), every tile
@@ -1745,6 +1783,63 @@ namespace Desert::Graphic::System
             m_DicePool = {};
             return Common::MakeFormattedError<bool>( "{}: the node could not be declared", kDicePoolPass );
         }
+        if ( m_DicePoolCache )
+        {
+            m_DicePoolKeys.swap( m_DicePoolFrameKeys );
+            m_DicePoolKeysValid = true;
+        }
+        return BOOLSUCCESS;
+    }
+
+    bool TerrainRenderer::SameDicePoolKey( const DicePoolKey& a, const DicePoolKey& b ) noexcept
+    {
+        return std::memcmp( &a.Row, &b.Row, sizeof( TerrainInstance ) ) == 0 && a.Heightmap == b.Heightmap &&
+               a.Weightmap == b.Weightmap && a.LayerHeights == b.LayerHeights &&
+               a.HeightGeneration == b.HeightGeneration && a.WeightGeneration == b.WeightGeneration &&
+               a.LayerGeneration == b.LayerGeneration && a.HeightRevision == b.HeightRevision &&
+               a.WeightRevision == b.WeightRevision && a.Vertices == b.Vertices && a.Corners == b.Corners &&
+               a.FirstCorner == b.FirstCorner;
+    }
+
+    Common::BoolResultStr TerrainRenderer::ImportPersistentDicePool( RDG::Builder& graph, const uint64_t poolBytes,
+                                                                     const uint64_t cornerBytes )
+    {
+        if ( poolBytes > UINT32_MAX || cornerBytes > UINT32_MAX )
+            return Common::MakeFormattedError<bool>( "{}: a {} / {} byte pool exceeds a storage buffer's 4 GB",
+                                                     kDicePoolPass, poolBytes, cornerBytes );
+        // Grown, never shrunk: a bigger buffer than this frame's pool is read only up to its rows' vertices.
+        if ( !m_DicePoolBuffer || m_DicePoolBytes < poolBytes )
+        {
+            m_DicePoolKeysValid = false;
+            m_DicePoolBytes     = 0u;
+            m_DicePoolBuffer    = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "Landscape.DicePool", static_cast<uint32_t>( poolBytes ), 0u );
+            if ( !m_DicePoolBuffer )
+                return Common::MakeFormattedError<bool>( "{}: the kept pool ({} bytes) was not made",
+                                                         kDicePoolPass, poolBytes );
+            m_DicePoolBytes = poolBytes;
+        }
+        if ( !m_DicePoolCornerBuffer || m_DicePoolCornerBytes < cornerBytes )
+        {
+            m_DicePoolKeysValid    = false;
+            m_DicePoolCornerBytes  = 0u;
+            m_DicePoolCornerBuffer = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "Landscape.DicePool.Corners", static_cast<uint32_t>( cornerBytes ), 0u );
+            if ( !m_DicePoolCornerBuffer )
+                return Common::MakeFormattedError<bool>( "{}: the kept corner nodes ({} bytes) were not made",
+                                                         kDicePoolPass, cornerBytes );
+            m_DicePoolCornerBytes = cornerBytes;
+        }
+        Common::BoolResultStr imported = Renderer::ImportBuffer( m_DicePoolBuffer, m_DicePoolImport );
+        if ( imported )
+            imported = Renderer::ImportBuffer( m_DicePoolCornerBuffer, m_DicePoolCornerImport );
+        if ( !imported )
+        {
+            m_DicePoolKeysValid = false;
+            return imported;
+        }
+        m_DicePool            = graph.RegisterExternal( m_DicePoolImport, "Landscape.DicePool" );
+        m_DicePoolCornerNodes = graph.RegisterExternal( m_DicePoolCornerImport, "Landscape.DicePool.Corners" );
         return BOOLSUCCESS;
     }
 
