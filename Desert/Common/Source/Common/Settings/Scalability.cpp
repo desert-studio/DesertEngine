@@ -478,6 +478,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings (CloudPush::Visualize.z: "
                "the march's lit step grows with the trace texel's footprint, CloudFootprintStepKm)",
                1, Vis::Advanced },
+             { P::RenderPipelineGrassCullAsync, G::ViewDistance, "RenderPipeline.GrassCullAsync", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
+               "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

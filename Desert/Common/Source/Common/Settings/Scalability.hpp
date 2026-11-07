@@ -448,6 +448,14 @@ namespace Common::Scalability
         // VolumetricCloudRenderer::SetCloudSettings. Key "Effects.CloudFootprintSteps": equal at every level (it
         // keeps the integral, it is not a quality step), so only a machine override names it.
         CloudFootprintSteps,
+        // 0/1: the grass camera cull - its dispatch, the cull, the finalize and the camera's and cascades' draw
+        // gathers - runs as one async compute segment (GPU-HZB-SPD; UE InstanceCulling / Nanite culling on the
+        // async pipe): the graph forks it after the tile builds and joins it before the first pass that reads its
+        // lists (the first grass draw). 0 = the same passes on the graphics queue, for the A/B and as the
+        // rollback; RenderPipeline.AsyncCompute 0 or a device without a compute family demotes them anyway.
+        // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
+        // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
+        RenderPipelineGrassCullAsync,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

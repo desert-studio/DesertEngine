@@ -1706,6 +1706,13 @@ namespace Desert::Graphic
         if ( m_Systems.HZB )
             m_Systems.HZB->SetSinglePass( m_Quality.As<int>( Common::Scalability::Parameter::HZBSinglePass ) !=
                                           0 );
+        // RenderPipeline.GrassCullAsync (GPU-HZB-SPD): the grass camera cull as an async segment, or graphics.
+        if ( m_Systems.Grass )
+        {
+            const int cullAsync =
+                 m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineGrassCullAsync );
+            m_Systems.Grass->SetCullAsync( cullAsync != 0 );
+        }
         // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB): the kept dice pool, or a per-frame one.
         if ( m_Systems.Terrain )
         {
