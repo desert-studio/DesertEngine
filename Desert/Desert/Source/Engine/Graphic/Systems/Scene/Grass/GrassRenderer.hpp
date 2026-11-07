@@ -337,13 +337,10 @@ namespace Desert::Graphic::System
             std::vector<PoolRange>                          m_Free; // by offset, never adjacent, never at the end
             RDG::ExternalBuffer                             m_Import;
             RDG::BufferRef                                  m_Ref{};
-            // The buffer a growth replaced, held until the next Commit: this frame's graph copies from it.
-            std::shared_ptr<ShaderResources::StorageBuffer> m_Previous;
-            // Buffers a growth replaced, held for kRetired more Commits: a graph in flight (the frames in flight,
-            // or another view of this frame) still names them until its fence (RDG checks the import alive).
-            static constexpr std::size_t                    kRetired = 8u;
-            std::array<std::shared_ptr<ShaderResources::StorageBuffer>, kRetired> m_Retired{};
-            std::size_t                                     m_RetiredNext = 0u;
+            // CPU-GRASS-POOL-8 (UE FRHIResource deferred deletion): a buffer a growth replaced is parked with the
+            // frame that replaced it (FrameManager::RetireAfterFrames) and dies once no frame in flight names it -
+            // after this frame's graph copied from it and every graph that imported it finished (RDG checks the
+            // import alive at its end), however many frames are in flight.
             RDG::ExternalBuffer                             m_PreviousImport;
         };
         struct FieldGpu
@@ -373,6 +370,12 @@ namespace Desert::Graphic::System
             // Epoch they were last uploaded in (0: never - a (re)build uploads them on its first frame).
             std::vector<uint32_t> ArgsWords, CameraArgsWords, PostArgsWords, CascadeArgsWords;
             uint64_t              ArgsEpoch = 0;
+            // CPU-GRASS-POOL-8: the instances and args pools' Epochs the lists were last culled in
+            // (CommitListPools, once a frame after every variety applied): a remade pool's ranges hold nothing, so
+            // a new Epoch is a new generation (both pools) and a new law generation (args: a mesh level's half
+            // screen size).
+            uint64_t InstancesPoolEpoch = 0;
+            uint64_t ArgsPoolEpoch      = 0;
             // Counts the (re)builds: a build at the same ranges is still a new pool of rows (ApplyVariety's keys).
             uint64_t                                        Builds = 0;
             // CPU-GRASS-POOL-7: Params is one record (GrassParamsGpu, kParamsWords words) of m_ParamsPool,
@@ -758,7 +761,7 @@ namespace Desert::Graphic::System
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Table;
         RDG::ExternalBuffer                             m_TableImport;
-        // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates / LawScales), committed by WriteVarietyTable.
+        // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates / LawScales), committed by CommitListPools.
         BufferPool m_CandidatesPool{ "GrassCandidates", 7u };
         BufferPool m_LawScalesPool{ "GrassLawScales", 2u };
         // CPU-GRASS-POOL-5: the rows, the id lists and the draw records of every variety (VarietyGpu::Instances,
@@ -767,10 +770,22 @@ namespace Desert::Graphic::System
         BufferPool m_InstancesPool{ "GrassInstances", 2u };
         BufferPool m_IdsPool{ "GrassIds", 5u };
         BufferPool m_ArgsPool{ "GrassArgs", 3u };
-        // Commits the three pools above and queues each variety's args words whose upload the args pool's
-        // Epoch asks for (a (re)build, a remade pool), after the commit's grow copy so the upload is ordered
-        // after it.
-        [[nodiscard]] Common::BoolResultStr CommitListPools( RDG::Builder& graph, std::span<VarietyPlan> plans );
+        // CPU-GRASS-POOL-8 (UE GPUScene: every pool committed and registered ONCE a frame, after every upload was
+        // gathered): once a frame after the field loop (every Allocate of the frame ran), commits the five pools
+        // above, queues the args words of m_Frame's varieties whose upload the args pool's Epoch asks for (a
+        // (re)build, a remade pool; after the grow copy, so the graph orders the upload after it), turns a
+        // remade instances / args pool into a new generation, and sets every variety's list refs.
+        [[nodiscard]] Common::BoolResultStr CommitListPools( RDG::Builder& graph );
+        // CPU-GRASS-POOL-8: what the field loop leaves for after CommitListPools - a variety applied this frame
+        // whose sections name the list pools' buffers and refs, in m_Frame's order (kept across frames, so a
+        // frame allocates nothing once grown). The varieties point into AddFrame's fields.
+        struct FrameSubmit
+        {
+            const GrassVarietyDraw* Variety   = nullptr;
+            class Desert::Mesh*     MeshAsset = nullptr;
+            VarietyGpu*             Gpu       = nullptr;
+        };
+        std::vector<FrameSubmit> m_FrameSubmits;
         // CPU-GRASS-POOL-3: every variety's tile pool words (VarietyGpu::TileWords), imported and registered once
         // on a frame with tile passes; m_TileWordsEpoch the pool's Epoch the held words were last carried in.
         BufferPool m_TileWordsPool{ "GrassTileWords", 15u };

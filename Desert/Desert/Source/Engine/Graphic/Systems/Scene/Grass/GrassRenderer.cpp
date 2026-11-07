@@ -10,6 +10,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Device.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
@@ -1510,9 +1511,9 @@ namespace Desert::Graphic::System
         gpu.FrameKey.push_back( gpu.Capacity );
         // The pool's identity: a new pool is a new generation (UpdateTiles).
         gpu.FrameKey.push_back( gpu.PoolGeneration );
-        // CPU-GRASS-POOL-5: the rows' and records' identity - the build, their ranges and their pools' Epochs.
-        for ( const uint64_t identity : { gpu.Builds, gpu.Instances.Offset, gpu.Args.Offset, m_InstancesPool.Epoch(),
-                                          m_ArgsPool.Epoch() } )
+        // CPU-GRASS-POOL-5: the rows' and records' identity - the build and their ranges. CPU-GRASS-POOL-8: their
+        // pools' Epochs are committed after every apply; CommitListPools makes a remade pool a new generation.
+        for ( const uint64_t identity : { gpu.Builds, gpu.Instances.Offset, gpu.Args.Offset } )
         {
             gpu.FrameKey.push_back( static_cast<uint32_t>( identity ) );
             gpu.FrameKey.push_back( static_cast<uint32_t>( identity >> 32u ) );
@@ -1530,7 +1531,7 @@ namespace Desert::Graphic::System
         gpu.LawKey.push_back( gpu.LawCapacity );
         gpu.LawKey.push_back( static_cast<uint32_t>( gpu.LawScales.Offset ) );
         gpu.LawKey.push_back( static_cast<uint32_t>( gpu.LawScales.Offset >> 32u ) );
-        for ( const uint64_t identity : { gpu.Builds, gpu.Args.Offset, m_ArgsPool.Epoch() } )
+        for ( const uint64_t identity : { gpu.Builds, gpu.Args.Offset } ) // the Epoch: CommitListPools
         {
             gpu.LawKey.push_back( static_cast<uint32_t>( identity ) );
             gpu.LawKey.push_back( static_cast<uint32_t>( identity >> 32u ) );
@@ -1602,15 +1603,19 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr GrassRenderer::BufferPool::Commit( RDG::Builder& graph )
     {
-        // Last frame's predecessor was copied from in last frame's graph; the device keeps it alive for the
-        // frames in flight (the storage buffer's release is deferred), the pool no longer needs it.
-        if ( m_Previous )
+        // CPU-GRASS-POOL-8: the buffer a growth replaces, which this frame's graph copies from; parked with this
+        // frame on every way out (FrameManager::RetireAfterFrames: it dies once no frame in flight names it).
+        std::shared_ptr<ShaderResources::StorageBuffer> previous;
+        struct RetireOnExit
         {
-            m_Retired[m_RetiredNext] = std::move( m_Previous );
-            m_RetiredNext            = ( m_RetiredNext + 1u ) % kRetired;
-        }
-        const uint64_t need     = std::max( m_End, kPoolAlignment );
-        uint64_t       carried  = 0u; // the predecessor's bytes this frame's graph copies into the new buffer
+            std::shared_ptr<ShaderResources::StorageBuffer>* Buffer;
+            ~RetireOnExit()
+            {
+                ::Desert::Engine::FrameManager::GetInstance().RetireAfterFrames( std::move( *Buffer ) );
+            }
+        } retire{ &previous };
+        const uint64_t need    = std::max( m_End, kPoolAlignment );
+        uint64_t       carried = 0u; // the predecessor's bytes this frame's graph copies into the new buffer
         if ( !m_Buffer || m_Room < need )
         {
             // Half again over what is asked, so a variety's growth rarely remakes the pool. UE's GPU Scene
@@ -1620,13 +1625,9 @@ namespace Desert::Graphic::System
             // CPU-GRASS-POOL-7: a readback pool's copies are the frames in flight's GPU writes, which a copy
             // of this frame's cannot carry: a remade one starts empty (Epoch).
             const bool readback = m_Memory == PoolMemory::Readback;
-            if ( readback && m_Buffer )
-            {
-                m_Retired[m_RetiredNext] = std::move( m_Buffer );
-                m_RetiredNext            = ( m_RetiredNext + 1u ) % kRetired;
-            }
-            m_Previous = std::move( m_Buffer );
-            carried    = m_Previous ? m_Room : uint64_t{ 0u };
+            previous            = std::move( m_Buffer );
+            if ( !readback && previous )
+                carried = m_Room;
             m_Address  = 0u;
             m_Room     = 0u;
             const auto size = static_cast<uint32_t>( room );
@@ -1637,15 +1638,13 @@ namespace Desert::Graphic::System
             // Nothing to carry into on a refusal: what the ranges held is lost; the next Commit makes a pool.
             if ( !m_Buffer )
             {
-                m_Previous.reset();
                 ++m_Epoch;
                 return Common::MakeFormattedError( "the {} pool ({} bytes) was not made", m_Name, room );
             }
             const Common::ResultStr<uint64_t> address = m_Buffer->GetDeviceAddress();
             if ( !address )
             {
-                m_Buffer.reset();
-                m_Previous.reset();
+                m_Buffer.reset(); // never imported: no graph names it
                 ++m_Epoch;
                 return Common::MakeFormattedError( "the {} pool has no device address: {}", m_Name,
                                                    address.GetError() );
@@ -1673,44 +1672,66 @@ namespace Desert::Graphic::System
         m_Ref = graph.RegisterExternal( m_Import, m_Name );
         if ( carried != 0u )
         {
-            if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( m_Previous, m_PreviousImport );
+            if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( previous, m_PreviousImport );
                  !imported )
             {
                 ++m_Epoch; // the copy cannot run: the ranges start empty in the new buffer
-                m_Previous.reset();
                 return imported;
             }
-            const RDG::BufferRef previous = graph.RegisterExternal( m_PreviousImport, m_Name );
-            graph.AddCopyBufferPass( previous, 0u, m_Ref, 0u, carried );
+            const RDG::BufferRef source = graph.RegisterExternal( m_PreviousImport, m_Name );
+            graph.AddCopyBufferPass( source, 0u, m_Ref, 0u, carried );
         }
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr GrassRenderer::CommitListPools( RDG::Builder& graph, const std::span<VarietyPlan> plans )
+    Common::BoolResultStr GrassRenderer::CommitListPools( RDG::Builder& graph )
     {
-        for ( BufferPool* pool : { &m_InstancesPool, &m_IdsPool, &m_ArgsPool } )
+        if ( m_Frame.empty() )
+            return BOOLSUCCESS; // nothing reads the pools this frame
+        for ( BufferPool* pool :
+              { &m_InstancesPool, &m_IdsPool, &m_ArgsPool, &m_CandidatesPool, &m_LawScalesPool } )
             if ( const Common::BoolResultStr committed = pool->Commit( graph ); !committed )
                 return committed;
+        // GPU-COST-22: every list reads the one Instances through its ids (GpuInstanceRefs::Ids); the ids are
+        // absolute, so only Args' offset is the list's own.
+        const auto refsOf = [this]( GpuInstanceRefs& refs, const PoolRange& args ) noexcept
+        {
+            refs.Instances   = m_InstancesPool.Ref();
+            refs.Ids         = m_IdsPool.Ref();
+            refs.Args        = m_ArgsPool.Ref();
+            refs.ArgsOffset  = args.Offset;
+            refs.ArgsAddress = m_ArgsPool.Address( args ); // a compacted bin's gather reads them
+        };
         // After the commit: its grow copy (a Copy pass of this graph) carries every range first, then each
         // upload writes its own range, ordered after that copy by the graph.
-        const uint64_t epoch = m_ArgsPool.Epoch();
-        for ( VarietyPlan& plan : plans )
+        const uint64_t instancesEpoch = m_InstancesPool.Epoch();
+        const uint64_t epoch          = m_ArgsPool.Epoch();
+        for ( VarietyGpu* const gpu : m_Frame )
         {
-            if ( plan.Gpu == nullptr )
+            // A remade pool's ranges hold nothing: the lists are culled anew (and lawed anew: Args holds a mesh
+            // level's half screen size the law reads).
+            if ( gpu->InstancesPoolEpoch != instancesEpoch || gpu->ArgsPoolEpoch != epoch )
+                ++gpu->Generation;
+            if ( gpu->ArgsPoolEpoch != epoch )
+                ++gpu->LawGeneration;
+            gpu->InstancesPoolEpoch = instancesEpoch;
+            gpu->ArgsPoolEpoch      = epoch;
+            refsOf( gpu->Refs, gpu->Args );
+            refsOf( gpu->CameraRefs, gpu->CameraArgs );
+            refsOf( gpu->PostRefs, gpu->PostArgs );
+            refsOf( gpu->CascadeRefs, gpu->CascadeArgs ); // the cascades' bins gather them
+            if ( gpu->ArgsEpoch == epoch || gpu->Args.Bytes == 0u )
                 continue;
-            VarietyGpu& gpu = *plan.Gpu;
-            if ( gpu.ArgsEpoch == epoch || gpu.Args.Bytes == 0u )
-                continue;
-            for ( const auto& [range, words] : { std::pair{ &gpu.Args, &gpu.ArgsWords },
-                                                 std::pair{ &gpu.CameraArgs, &gpu.CameraArgsWords },
-                                                 std::pair{ &gpu.PostArgs, &gpu.PostArgsWords },
-                                                 std::pair{ &gpu.CascadeArgs, &gpu.CascadeArgsWords } } )
+            for ( const auto& [range, words] : { std::pair{ &gpu->Args, &gpu->ArgsWords },
+                                                 std::pair{ &gpu->CameraArgs, &gpu->CameraArgsWords },
+                                                 std::pair{ &gpu->PostArgs, &gpu->PostArgsWords },
+                                                 std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsWords } } )
                 if ( range->Bytes != 0u && !words->empty() )
                 {
                     const std::span<const uint32_t> view( words->data(), words->size() );
                     graph.QueueBufferUpload( m_ArgsPool.Ref(), range->Offset, std::as_bytes( view ) );
                 }
-            gpu.ArgsEpoch = epoch;
+            gpu->ArgsEpoch = epoch;
         }
         return BOOLSUCCESS;
     }
@@ -2443,6 +2464,7 @@ namespace Desert::Graphic::System
                 m_CascadeGuards[list].View = kNoCascadeView;
         }
         m_Frame.clear();
+        m_FrameSubmits.clear();
         m_FrameCull.clear();
         m_FrameTileFree.clear();
         m_FrameTileBuild.clear();
@@ -2560,14 +2582,6 @@ namespace Desert::Graphic::System
                 for ( VarietyPlan& plan : plans )
                     if ( !EnsureTileFeedback( *plan.Gpu ) )
                         break;
-                // CPU-GRASS-POOL-5: every Allocate of the frame ran (PrepareVariety); the list pools are in the
-                // graph, and the (re)built records uploaded, before any variety's refs name them.
-                if ( const Common::BoolResultStr committed = CommitListPools( graph, plans ); !committed )
-                {
-                    LOG_ERROR( "[Grass] the varieties' rows, lists and records are not in the frame graph: {}",
-                               committed.GetError() );
-                    plans.clear();
-                }
                 for ( VarietyPlan& plan : plans )
                 {
                     const GrassVarietyDraw& variety = *plan.Variety;
@@ -2580,28 +2594,8 @@ namespace Desert::Graphic::System
                     DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Register refs" );
                     // CPU-GRASS-POOL-7: no buffer of the variety's own is imported - its params, chunks, segment
                     // table and feedback are ranges of the shared pools CommitVarietyPools commits once after each
-                    // variety. RENDER-JOB-CPU-2: the pool's words are read and written by the tile passes alone
-                    // (bindGenerate), which run only for a variety that frees or builds tiles this frame.
-                    // CPU-GRASS-POOL-2: the pool's segments, the tile table and the tile feedback are shared,
-                    // imported once after every variety (ImportTileSegments, CommitTileTable).
-                    // CPU-GRASS-POOL-5: the rows, the id lists and the records are ranges of the pools
-                    // CommitListPools put in the graph once (GPU-COST-22: every list reads the one Instances
-                    // through its ids, GpuInstanceRefs::Ids; the ids are absolute, so only Args' offset is the
-                    // list's own).
-                    const auto refsOf = [this]( GpuInstanceRefs& refs, const PoolRange& args ) noexcept
-                    {
-                        refs.Instances   = m_InstancesPool.Ref();
-                        refs.Ids         = m_IdsPool.Ref();
-                        refs.Args        = m_ArgsPool.Ref();
-                        refs.ArgsOffset  = args.Offset;
-                        refs.ArgsAddress = m_ArgsPool.Address( args ); // a compacted bin's gather reads them
-                    };
-                    refsOf( gpu->Refs, gpu->Args );
-                    refsOf( gpu->CameraRefs, gpu->CameraArgs );
-                    refsOf( gpu->PostRefs, gpu->PostArgs );
-                    refsOf( gpu->CascadeRefs, gpu->CascadeArgs ); // the cascades' bins gather them
-                    // CPU-GRASS-POOL-1: Candidates and LawScales are ranges of their pools, which
-                    // WriteVarietyTable imports and registers once for every variety.
+                    // variety; CPU-GRASS-POOL-8: its rows, ids, records, candidates and law scales are ranges
+                    // of the pools CommitListPools commits once after the field loop, which sets the list refs.
                     gpu->FieldRef    = fieldGpu.Ref;
                     gpu->FieldBuffer = fieldGpu.Buffer;
                     DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
@@ -2654,91 +2648,119 @@ namespace Desert::Graphic::System
                     NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
                                               ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
-                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
-                    // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no
-                    // allocation once grown) and handed to the mesh renderer by move, so no buffer handle is
-                    // copied twice.
-                    thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
-                    std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
-                    sections.clear();
-                    sections.reserve( variety.Sections.size() );
-                    // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
-                    // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are
-                    // 0, 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw
-                    // the grass mesh's own first triangle, not the screen.
-                    Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
-                    if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
-                        resolveMesh = nullptr;
-                    gpu->BinSlots     = 0u;
-                    gpu->BinCastSlots = 0u;
-                    for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
-                    {
-                        std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
-                        if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
-                            meshRows = gpu->MeshVisibility[s];
-                        sections.push_back(
-                             { .Mesh     = mesh,
-                               .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
-                               .Material = variety.Sections[s].Material,
-                               .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
-                               .CastShadows      = variety.Placement.CastDynamicShadow,
-                               .Wind             = variety.Wind,
-                               .Instances        = m_InstancesPool.Buffer(),
-                               .CameraIds        = m_IdsPool.Buffer(),
-                               .BladeShape       = gpu->Shape,
-                               .MeshVisibility   = meshRows,
-                               .ResolveMesh      = resolveMesh,
-                               .Refs             = &gpu->Refs,
-                               .CameraRefs       = &gpu->CameraRefs,
-                               .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
-                               .CascadeIds       = m_IdsPool.Buffer(),
-                               .FullIds          = m_IdsPool.Buffer(),
-                               .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
-                               .CascadeMask      = gpu->CascadeMask,
-                               .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
-                               .CascadeRestShift = gpu->CascadeRestShift,
-                               .Capacity         = gpu->Capacity,
-                               .BucketCapacities = gpu->BucketCapacities,
-                               .Levels           = variety.Blade ? 1u : gpu->Buckets,
-                               .PrepassBuckets   = gpu->PrepassBuckets,
-                               .ShadowLod        = gpu->ShadowLod,
-                               .Key              = gpu->Index * 64u + s,
-                               // The grass stands still but for the wind: a cached cascade keeps its rest pose.
-                               .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
-                                    .Generation = gpu->Generation, .Reach = gpu->Reach } } );
-                        // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
-                        sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
-                        // The section's slots of one bin list: what AddDrawGather sizes the tables by.
-                        const uint32_t binSlots = MeshRenderer::DrawBinSlots( sections.back() );
-                        gpu->BinSlots += binSlots;
-                        if ( sections.back().CastShadows )
-                            gpu->BinCastSlots += binSlots;
-                    }
-                    // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
-                    // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf
-                    // rules for a mesh (RayTracingGather.cpp).
-                    if ( variety.Blade && m_BladeRayTracing.IsRequired() )
-                    {
-                        uint64_t nonOpaque = 0;
-                        for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
-                            if ( MeshRenderer::ShadingOf( section ).Masked )
-                                nonOpaque |= ~section.HiddenSubmeshes;
-                        const auto blas = m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh,
-                                                                            gpu->ShapeData, nonOpaque );
-                        if ( blas )
-                            for ( MeshRenderer::GpuInstancedRenderData& section : sections )
-                                section.BladeGeometry = blas.GetValue();
-                        else
-                            LOG_ERROR(
-                                 "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
-                                 blas.GetError() );
-                    }
-                    for ( MeshRenderer::GpuInstancedRenderData& section : sections )
-                        meshes.SubmitGpuInstanced( std::move( section ) );
-                    sections.clear();
+                    // CPU-GRASS-POOL-8: the sections name the list pools' buffers and refs, so they are built
+                    // after CommitListPools (below the field loop).
+                    m_FrameSubmits.push_back( FrameSubmit{ .Variety = &variety, .MeshAsset = mesh, .Gpu = gpu } );
                 }
             }
         }
+        // CPU-GRASS-POOL-8 (UE GPUScene: each pool committed and registered once a frame, after every upload was
+        // gathered): every field's varieties applied, so every Allocate of the frame ran - the list, candidate
+        // and law pools are committed once, the (re)built records uploaded and the list refs set, before any
+        // section or pass names them.
+        if ( const Common::BoolResultStr committed = CommitListPools( graph ); !committed )
+        {
+            LOG_ERROR( "[Grass] the varieties' rows, lists and records are not in the frame graph; no grass is "
+                       "generated, culled or drawn this frame: {}",
+                       committed.GetError() );
+            for ( VarietyGpu* gpu : m_Frame )
+                gpu->TilePoolMade = false; // a pool the skipped Init pass was to write is made anew
+            m_Frame.clear();
+            m_FrameSubmits.clear();
+            m_FrameCull.clear();
+            m_FrameTileFree.clear();
+            m_FrameTileBuild.clear();
+        }
+        for ( const FrameSubmit& submit : m_FrameSubmits )
+        {
+            const GrassVarietyDraw& variety = *submit.Variety;
+            Desert::Mesh* const     mesh    = submit.MeshAsset;
+            VarietyGpu* const       gpu     = submit.Gpu;
+            DESERT_PROFILE_PHASES( varietyPhases );
+            DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
+            // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no
+            // allocation once grown) and handed to the mesh renderer by move, so no buffer handle is
+            // copied twice.
+            thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
+            std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
+            sections.clear();
+            sections.reserve( variety.Sections.size() );
+            // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
+            // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are
+            // 0, 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw
+            // the grass mesh's own first triangle, not the screen.
+            Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
+            if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
+                resolveMesh = nullptr;
+            gpu->BinSlots     = 0u;
+            gpu->BinCastSlots = 0u;
+            for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
+            {
+                std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
+                if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
+                    meshRows = gpu->MeshVisibility[s];
+                sections.push_back(
+                     { .Mesh     = mesh,
+                       .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
+                       .Material = variety.Sections[s].Material,
+                       .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
+                       .CastShadows      = variety.Placement.CastDynamicShadow,
+                       .Wind             = variety.Wind,
+                       .Instances        = m_InstancesPool.Buffer(),
+                       .CameraIds        = m_IdsPool.Buffer(),
+                       .BladeShape       = gpu->Shape,
+                       .MeshVisibility   = meshRows,
+                       .ResolveMesh      = resolveMesh,
+                       .Refs             = &gpu->Refs,
+                       .CameraRefs       = &gpu->CameraRefs,
+                       .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
+                       .CascadeIds       = m_IdsPool.Buffer(),
+                       .FullIds          = m_IdsPool.Buffer(),
+                       .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
+                       .CascadeMask      = gpu->CascadeMask,
+                       .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
+                       .CascadeRestShift = gpu->CascadeRestShift,
+                       .Capacity         = gpu->Capacity,
+                       .BucketCapacities = gpu->BucketCapacities,
+                       .Levels           = variety.Blade ? 1u : gpu->Buckets,
+                       .PrepassBuckets   = gpu->PrepassBuckets,
+                       .ShadowLod        = gpu->ShadowLod,
+                       .Key              = gpu->Index * 64u + s,
+                       // The grass stands still but for the wind: a cached cascade keeps its rest pose.
+                       .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
+                            .Generation = gpu->Generation, .Reach = gpu->Reach } } );
+                // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
+                sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
+                // The section's slots of one bin list: what AddDrawGather sizes the tables by.
+                const uint32_t binSlots = MeshRenderer::DrawBinSlots( sections.back() );
+                gpu->BinSlots += binSlots;
+                if ( sections.back().CastShadows )
+                    gpu->BinCastSlots += binSlots;
+            }
+            // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
+            // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf
+            // rules for a mesh (RayTracingGather.cpp).
+            if ( variety.Blade && m_BladeRayTracing.IsRequired() )
+            {
+                uint64_t nonOpaque = 0;
+                for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                    if ( MeshRenderer::ShadingOf( section ).Masked )
+                        nonOpaque |= ~section.HiddenSubmeshes;
+                const auto blas = m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh,
+                                                                    gpu->ShapeData, nonOpaque );
+                if ( blas )
+                    for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                        section.BladeGeometry = blas.GetValue();
+                else
+                    LOG_ERROR(
+                         "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
+                         blas.GetError() );
+            }
+            for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                meshes.SubmitGpuInstanced( std::move( section ) );
+            sections.clear();
+        }
+        m_FrameSubmits.clear();
         // CPU-GRASS-POOL-2: the shared tile buffers, once for every variety: the segments no pool took back this
         // frame released, the held ones imported (every cull reads them), the tile table written and imported.
         TrimTileSegments();
@@ -3006,11 +3028,8 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr GrassRenderer::WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes )
     {
-        // CPU-GRASS-POOL-1: every Allocate of the frame ran (PrepareVariety), so the pools are made and in the
-        // graph before their addresses go into the rows.
-        for ( BufferPool* pool : { &m_CandidatesPool, &m_LawScalesPool } )
-            if ( const Common::BoolResultStr committed = pool->Commit( graph ); !committed )
-                return committed;
+        // CPU-GRASS-POOL-1/8: the candidates and law scales pools were committed once this frame, after every
+        // Allocate of it (CommitListPools), before their addresses go into the rows.
         const auto split = []( const uint64_t value ) noexcept
         { return glm::uvec2( static_cast<uint32_t>( value ), static_cast<uint32_t>( value >> 32u ) ); };
         GrassVarietyTableGpu header{};
