@@ -12,6 +12,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -19,25 +20,34 @@
 #include <unordered_set>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::Graphic::System
 {
     // One water zone of this frame, submitted from the ECS (ECS::WaterZoneECSSystem -> WaterZoneCommand ->
     // SceneRenderer::SubmitWaterZone): the zone and the bodies' footprints inside it. Graphic-side, no ECS types.
-    struct WaterZoneDraw
+    // The frame's visible water bodies, as every zone of the frame draws them. Immutable once built and shared by
+    // every zone's draw: the collector keeps it across frames and builds a new one only when a body changed.
+    struct WaterZoneBodies
     {
-        Water::WaterQuadTreeDesc              Zone;
-        std::vector<Water::WaterQuadTreeBody> Bodies;
-        // Each body's water material (ECS::WaterBodyData::WaterMaterial), in Bodies' order.
-        std::vector<Assets::AssetHandle> BodyMaterials;
+        std::vector<Water::WaterQuadTreeBody> Footprints;
+        // Each body's water material (ECS::WaterBodyData::WaterMaterial), in Footprints' order.
+        std::vector<Assets::AssetHandle> Materials;
         // Each body's wave set (ECS::WaterBodyData::WaterWaves; Null = a flat body) and its WaveOrigin (the
-        // entity's X, Z), in Bodies' order.
-        std::vector<Assets::AssetHandle> BodyWaves;
-        std::vector<glm::vec2>           BodyWaveOrigins;
+        // entity's X, Z), in Footprints' order.
+        std::vector<Assets::AssetHandle> Waves;
+        std::vector<glm::vec2>           WaveOrigins;
         // Each body's TargetWaveMaskDepth (cm, UE): the depth below which the GPU waves damp, read against the
         // WaterInfo ground exactly as Water::QueryWaterBody damps the CPU's.
-        std::vector<float> BodyWaveMaskDepths;
+        std::vector<float> WaveMaskDepths;
+    };
+
+    struct WaterZoneDraw
+    {
+        Water::WaterQuadTreeDesc Zone;
+        // Never null for a submitted zone: a frame without a visible body submits no zone.
+        std::shared_ptr<const WaterZoneBodies> Bodies;
         // The zone's bottom seen from above (UE WaterInfo ground depth); null over no landscape.
         std::shared_ptr<const Water::WaterInfoGround> Ground;
     };
@@ -150,5 +160,22 @@ namespace Desert::Graphic::System
 
         std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
         std::vector<FrameDraw>                                   m_FrameDraws;
+
+        // THE RETAINED QUADTREES (UE: FWaterQuadTree is built once per water body set and only traversed per
+        // view): one per submitted zone, in queue order, rebuilt only when that zone's desc or its WaterZoneBodies
+        // changed (the collector shares one WaterZoneBodies until a body changes, so the pointer is the body set's
+        // identity).
+        struct ZoneTree
+        {
+            Water::WaterQuadTreeDesc               Zone;
+            std::shared_ptr<const WaterZoneBodies> Bodies;
+            std::optional<Water::WaterQuadTree>    Tree;
+        };
+        std::vector<ZoneTree> m_ZoneTrees;
+        // Per-view scratch the frame reuses, so a steady frame allocates nothing: the traversal's tiles, the
+        // upload (the waves block, then the tile rows), and RenderManual's push block.
+        Water::WaterTraversalBuffers m_Traversal;
+        std::vector<std::byte>       m_Upload;
+        std::vector<std::byte>       m_Push;
     };
 } // namespace Desert::Graphic::System

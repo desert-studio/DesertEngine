@@ -167,7 +167,7 @@ namespace Desert::Core
                 {
                     LOG_ERROR( "[Landscape] '{0}': tile ({1}, {2}) was refused: {3}", sceneName, tile.TileX,
                                tile.TileZ, refused.GetError() );
-                    tile.Heights.reset();
+                    ECS::SetLandscapeTileHeights( *entity.GetRegistry(), entity.GetHandle(), std::nullopt );
                 }
             }
         }

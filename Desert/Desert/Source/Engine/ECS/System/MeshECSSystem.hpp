@@ -41,6 +41,12 @@ namespace Desert::ECS
         {
         }
 
+        // The Shader Override draws' params are named by raw pointer by the draws in flight: parked, never freed.
+        ~MeshECSSystem() override
+        {
+            RetireGenericDraws();
+        }
+
         // Render-data collector (only touches mesh components' runtime caches) — safe to run concurrently with the other collectors.
         bool CanRunParallel() const override
         {
@@ -537,7 +543,28 @@ namespace Desert::ECS
             Graphic::MaterialSlotBindingPtr                  Slots;
             std::vector<Graphic::Render::StaticSceneSection> Sections;
             std::vector<StaticSlotDraw>                      SlotDraws;
+            // A Generic slot's draw values (UE: a proxy's cached mesh draw command, rebuilt on a material change),
+            // built by BuildStaticPrimitive when GenericRevision differs from the MaterialComponent's revision and
+            // only named by the per-update record. Kept across a rebuild (ClearStaticPrimitive leaves it), so a
+            // moved mesh keeps it; dropped through RetireGenericDraw, since the draws in flight name it.
+            std::shared_ptr<const Graphic::Render::GenericMeshDrawParams> GenericDraw;
+            uint64_t                                                      GenericRevision = 0;
         };
+
+        static void RetireGenericDraw( StaticPrimitive& primitive )
+        {
+            if ( !primitive.GenericDraw )
+                return;
+            RetireRenderCache( primitive.GenericDraw );
+            primitive.GenericDraw.reset();
+            primitive.GenericRevision = 0;
+        }
+
+        void RetireGenericDraws()
+        {
+            for ( StaticPrimitive& primitive : m_StaticPrimitives )
+                RetireGenericDraw( primitive );
+        }
 
         static void SetSlotMembership( std::vector<uint32_t>& list, const uint32_t slot, const bool member )
         {
@@ -595,6 +622,7 @@ namespace Desert::ECS
         {
             StaticPrimitive& primitive = m_StaticPrimitives[slot];
             ClearStaticPrimitive( primitive );
+            RetireGenericDraw( primitive );
             primitive.Entity = entt::null;
             SetSlotMembership( m_StaticPolls, slot, false );
             SetSlotMembership( m_StaticImmediate, slot, false );
@@ -651,6 +679,8 @@ namespace Desert::ECS
             ClearStaticPrimitive( primitive );
             const bool polls = BuildStaticPrimitive( registry, entity, *mesh, *transform, materialsVersion,
                                                      drawnAsPieces, primitive );
+            if ( !primitive.Generic )
+                RetireGenericDraw( primitive );
             if ( primitive.Slots != previousSlots || !SameSections( m_StaticPrevious, primitive.Sections ) )
                 MarkStaticChunk( slot );
             m_StaticPrevious.clear();
@@ -765,6 +795,7 @@ namespace Desert::ECS
 
             if ( full )
             {
+                RetireGenericDraws();
                 m_StaticPrimitives.clear();
                 m_StaticFree.clear();
                 m_StaticSlotOf.clear();
@@ -830,7 +861,7 @@ namespace Desert::ECS
                 const StaticPrimitive& primitive = m_StaticPrimitives[slot];
                 if ( primitive.Generic )
                 {
-                    RecordStaticGeneric( registry, renderCommandBuffer, primitive );
+                    RecordStaticGeneric( renderCommandBuffer, primitive );
                     continue;
                 }
                 for ( const StaticSlotDraw& d : primitive.SlotDraws )
@@ -841,32 +872,42 @@ namespace Desert::ECS
         }
 
         // A MaterialComponent assigning a NON-Lit shader takes the mesh off the batched Lit path onto the generic
-        // per-object data-driven path; its overrides are read from the component as it stands.
-        static void RecordStaticGeneric( const entt::registry&                 registry,
-                                         Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
+        // per-object data-driven path. Its shader and overrides are the slot's GenericDraw, built per material
+        // revision (BuildGenericDraw): a steady update copies no string and no vector into the command.
+        static void RecordStaticGeneric( Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                                          const StaticPrimitive&                primitive )
         {
-            const auto* matc = registry.try_get<MaterialComponent>( primitive.Entity );
-            if ( matc == nullptr || matc->GetShaderName().empty() )
+            if ( !primitive.GenericDraw )
                 return;
-            std::vector<std::pair<std::string, glm::vec4>> overrides;
-            overrides.reserve( matc->GetParams().size() );
-            for ( const auto& p : matc->GetParams() )
-                overrides.emplace_back( p.Name, p.Value );
-
-            std::vector<std::pair<std::string, uint64_t>> texOverrides;
-            texOverrides.reserve( matc->GetTextures().size() );
-            for ( const auto& t : matc->GetTextures() )
-                texOverrides.emplace_back( t.Name, t.TextureHandle );
-
             // This draw REPLACES the entity's lit draw, so it is the only draw that could carry the caster — and
             // before it did, a Shader Override mesh cast no shadow at all.
             renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
-                 static_cast<uint32_t>( primitive.Entity ), primitive.Mesh, primitive.World, matc->GetShaderName(),
-                 Graphic::MaterialOverrides{ std::move( overrides ), std::move( texOverrides ) },
-                 primitive.Outlined,
+                 static_cast<uint32_t>( primitive.Entity ), primitive.Mesh, primitive.World,
+                 /*shaderName: GenericDraw's*/ std::string{}, *primitive.GenericDraw, primitive.Outlined,
                  /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{}, primitive.CastShadows,
                  primitive.MaxDrawDistance, /*visibleInRayTracing*/ true );
+        }
+
+        // The slot's draw values from the component as it stands, when its revision moved (or none is built).
+        static void BuildGenericDraw( const MaterialComponent& matc, StaticPrimitive& primitive )
+        {
+            if ( primitive.GenericDraw && primitive.GenericRevision == matc.GetRevision() )
+                return;
+            auto draw        = std::make_shared<Graphic::Render::GenericMeshDrawParams>();
+            draw->ShaderName = matc.GetShaderName();
+            std::vector<std::pair<std::string, glm::vec4>> overrides;
+            overrides.reserve( matc.GetParams().size() );
+            for ( const auto& p : matc.GetParams() )
+                overrides.emplace_back( p.Name, p.Value );
+
+            std::vector<std::pair<std::string, uint64_t>> texOverrides;
+            texOverrides.reserve( matc.GetTextures().size() );
+            for ( const auto& t : matc.GetTextures() )
+                texOverrides.emplace_back( t.Name, t.TextureHandle );
+            draw->Overrides = Graphic::MaterialOverrides{ std::move( overrides ), std::move( texOverrides ) };
+            RetireGenericDraw( primitive );
+            primitive.GenericDraw     = std::move( draw );
+            primitive.GenericRevision = matc.GetRevision();
         }
 
         // One entity's sections from its components (the immediate path's per-entity body, run only when the
@@ -1013,6 +1054,7 @@ namespace Desert::ECS
                  matc != nullptr && !matc->GetShaderName().empty() )
             {
                 primitive.Generic = true;
+                BuildGenericDraw( *matc, primitive );
                 return targetMesh->IsGpuStale();
             }
 

@@ -135,8 +135,10 @@ namespace Desert::Water
         }
 
         /// Replaces the bodies and the ground; the ground's heights are BORROWED and must outlive the queries.
-        void SetWorld( std::vector<WaterBodyState>                     bodies,
-                       std::vector<World::Landscape::LandscapeRayTile> ground );
+        /// The body and ground rows are copied into the subsystem's own storage, reused frame to frame (the
+        /// bodies' wave sets are shared, not copied), so a steady frame allocates nothing.
+        void SetWorld( std::span<const WaterBodyState>                     bodies,
+                       std::span<const World::Landscape::LandscapeRayTile> ground );
 
         [[nodiscard]] std::span<const WaterBodyState> Bodies() const
         {

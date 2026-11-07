@@ -1186,6 +1186,11 @@ namespace Desert::ECS
     // HELD BY VALUE, because the component is its one owner (PointerOwnership's Q1): a pointer here would
     // answer a sharing question nobody has asked yet. A consumer that must keep the tile across frames
     // (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
+    //
+    // ONE WRITER after construction: ECS::SetLandscapeTileHeights / ECS::EditLandscapeTile
+    // (LandscapeRootOf.hpp), both a registry.patch, so the shared tile table (DrawableLandscapeTiles) is
+    // rebuilt on exactly the changes that can move or refuse a tile. Sample values edited in place report
+    // through the tile's dirty rectangles instead.
     struct LandscapeTileComponent
     {
         Common::UUID Landscape = Common::UUID::Null(); // the root entity; null = no frame
@@ -1232,8 +1237,12 @@ namespace Desert::ECS
     class MaterialComponent
     {
     public:
-        MaterialComponent() = default;
-        explicit MaterialComponent( MaterialDesc desc ) : m_Desc( std::move( desc ) ) {}
+        MaterialComponent() : m_Revision( NextRevision() )
+        {
+        }
+        explicit MaterialComponent( MaterialDesc desc ) : m_Desc( std::move( desc ) ), m_Revision( NextRevision() )
+        {
+        }
 
         [[nodiscard]] const MaterialDesc& GetDesc() const
         {
@@ -1251,9 +1260,24 @@ namespace Desert::ECS
         {
             return m_Desc.Textures;
         }
+        // UE: the material's uniform-expression cache is keyed by the material's revision. Process-unique, taken
+        // again by every SetMaterial that changes the desc, so a draw built from this component (MeshECSSystem's
+        // GenericMeshDrawParams) is rebuilt only when it moves. Runtime only: not part of the desc, not serialized
+        // (MaterialComponentSer is built from GetDesc). A copy keeps it, since it keeps the same desc.
+        [[nodiscard]] uint64_t GetRevision() const
+        {
+            return m_Revision;
+        }
 
     private:
+        [[nodiscard]] static uint64_t NextRevision()
+        {
+            static std::atomic<uint64_t> s_Revision{ 0 };
+            return s_Revision.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        }
+
         MaterialDesc m_Desc;
+        uint64_t     m_Revision = 0; // see GetRevision
 
         friend bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc );
     };
@@ -1266,7 +1290,12 @@ namespace Desert::ECS
         {
             if ( component->m_Desc == desc )
                 return false;
-            registry.patch<MaterialComponent>( entity, [&desc]( MaterialComponent& c ) { c.m_Desc = desc; } );
+            registry.patch<MaterialComponent>( entity,
+                                               [&desc]( MaterialComponent& c )
+                                               {
+                                                   c.m_Desc     = desc;
+                                                   c.m_Revision = MaterialComponent::NextRevision();
+                                               } );
             return true;
         }
         registry.emplace<MaterialComponent>( entity, desc );

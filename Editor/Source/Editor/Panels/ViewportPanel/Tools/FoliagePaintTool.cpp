@@ -716,124 +716,38 @@ namespace Desert::Editor::Tools
             return Common::MakeSuccess( std::move( names ) );
         }
 
-        // The landscape tile entity @p entity names, with its frame; nullopt when it is not a drawn tile.
-        struct TileSample
-        {
-            const World::Landscape::LandscapeTileData* Tile = nullptr;
-            World::Landscape::LandscapeFrame           Frame;
-        };
-        std::optional<TileSample> TileOf( ::Desert::Core::Scene& scene, const Common::UUID& entity )
-        {
-            const auto ref = scene.FindEntityByID( entity );
-            if ( !ref || !ref->get().HasComponent<ECS::LandscapeTileComponent>() )
-                return std::nullopt;
-            const auto& tile = ref->get().GetComponent<ECS::LandscapeTileComponent>();
-            if ( !tile.Heights )
-                return std::nullopt;
-            const auto root = scene.FindEntityByID( tile.Landscape );
-            if ( !root || !root->get().HasComponent<ECS::LandscapeComponent>() )
-                return std::nullopt;
-            return TileSample{ &*tile.Heights,
-                               World::Landscape::LandscapeTileFrame( ECS::LandscapeRootOf( root->get() ),
-                                                                     tile.TileX, tile.TileZ ) };
-        }
-
-        // UE ULandscapeInfo::XYtoComponentMap: the drawn tiles, gathered once per dab and found by entity or by
-        // the tile coordinate a world (x, z) falls in. Walking every entity per question cost 43 ms for the
-        // 828 instances under a second dab on Terrain_Grass (FO-3b).
+        // UE ULandscapeInfo::XYtoComponentMap: the drawn tiles found by entity or by the tile coordinate a world
+        // (x, z) falls in. A view over the registry's retained tile table (ECS::LandscapeTileTable, rebuilt only
+        // when a tile or a root changes), so a dab no longer walks every entity (43 ms for the 828 instances under
+        // a second dab on Terrain_Grass, FO-3b) nor builds an index of its own. Hold it for one dab.
         class LandscapeTileIndex
         {
         public:
             explicit LandscapeTileIndex( ::Desert::Core::Scene& scene )
+                 : m_Table( ECS::RefreshLandscapeTileTable( scene.GetRegistry() ) )
             {
-                for ( const auto& entity : scene.GetAllEntities() )
-                {
-                    if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
-                        continue;
-                    const Common::UUID id     = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                    const auto         sample = TileOf( scene, id );
-                    if ( !sample )
-                        continue;
-                    const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
-                    m_ByEntity.emplace( id, *sample );
-                    LandscapeTiles* landscape = LandscapeOf( scene, tile.Landscape );
-                    if ( landscape == nullptr )
-                        continue;
-                    landscape->ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
-                }
             }
 
-            [[nodiscard]] const TileSample* OfEntity( const Common::UUID& entity ) const
+            [[nodiscard]] const World::Landscape::LandscapeRayTile* OfEntity( const Common::UUID& entity ) const
             {
-                const auto it = m_ByEntity.find( entity );
-                return it == m_ByEntity.end() ? nullptr : &it->second;
+                return Row( ECS::FindLandscapeTileOf( m_Table, entity ) );
             }
 
-            // The tile whose rectangle holds (x, z), both edges inclusive; a point on a shared edge is also
-            // looked for in the tile below it, so the last tile's far edge is found too.
-            [[nodiscard]] const TileSample* At( float x, float z ) const
+            // The tile whose rectangle holds (x, z), both edges inclusive (ECS::FindLandscapeTileAt).
+            [[nodiscard]] const World::Landscape::LandscapeRayTile* At( float x, float z ) const
             {
-                for ( const auto& landscape : m_Landscapes )
-                {
-                    const auto tx =
-                         static_cast<int32_t>( std::floor( ( x - landscape.OriginX ) / landscape.ExtentCm ) );
-                    const auto tz =
-                         static_cast<int32_t>( std::floor( ( z - landscape.OriginZ ) / landscape.ExtentCm ) );
-                    for ( const int32_t dz : { 0, -1 } )
-                        for ( const int32_t dx : { 0, -1 } )
-                        {
-                            const auto it = landscape.ByCoord.find( Key( tx + dx, tz + dz ) );
-                            if ( it != landscape.ByCoord.end() && Holds( it->second, x, z ) )
-                                return &it->second;
-                        }
-                }
-                return nullptr;
+                return Row( ECS::FindLandscapeTileAt( m_Table, x, z ) );
             }
 
         private:
-            struct LandscapeTiles
+            [[nodiscard]] const World::Landscape::LandscapeRayTile* Row( const uint32_t index ) const
             {
-                Common::UUID                            Root;
-                float                                   OriginX  = 0.0f;
-                float                                   OriginZ  = 0.0f;
-                float                                   ExtentCm = 1.0f; // one tile's side
-                std::unordered_map<int64_t, TileSample> ByCoord;
-            };
-
-            static int64_t Key( int32_t tileX, int32_t tileZ )
-            {
-                return ( static_cast<int64_t>( tileX ) << 32 ) ^
-                       static_cast<int64_t>( static_cast<uint32_t>( tileZ ) );
-            }
-
-            static bool Holds( const TileSample& sample, float x, float z )
-            {
-                const float spanX = sample.Frame.SpacingCm * static_cast<float>( sample.Tile->SamplesX() - 1u );
-                const float spanZ = sample.Frame.SpacingCm * static_cast<float>( sample.Tile->SamplesZ() - 1u );
-                return x >= sample.Frame.OriginX && x <= sample.Frame.OriginX + spanX &&
-                       z >= sample.Frame.OriginZ && z <= sample.Frame.OriginZ + spanZ;
-            }
-
-            // Null when the root is not in the scene: the tile is then skipped like any TileOf refuses.
-            LandscapeTiles* LandscapeOf( ::Desert::Core::Scene& scene, const Common::UUID& root )
-            {
-                for ( auto& landscape : m_Landscapes )
-                    if ( landscape.Root == root )
-                        return &landscape;
-                const auto rootEntity = scene.FindEntityByID( root );
-                if ( !rootEntity )
+                if ( index == ECS::NoLandscapeNeighbour )
                     return nullptr;
-                const auto layout = ECS::LandscapeRootOf( rootEntity->get() );
-                auto&      added  = m_Landscapes.emplace_back();
-                added.Root        = root;
-                added.OriginX     = layout.Origin.x;
-                added.OriginZ     = layout.Origin.z;
-                added.ExtentCm    = static_cast<float>( layout.QuadsPerTile ) * layout.SpacingCm;
-                return &added;
+                return &m_Table.Drawable.RayTiles[index];
             }
 
-            std::unordered_map<Common::UUID, TileSample> m_ByEntity;
-            std::vector<LandscapeTiles>                  m_Landscapes;
+            const ECS::LandscapeTileTable& m_Table;
         };
 
         // A field that goes leaves the palette's state of it behind: not active, not edited, nothing selected.
@@ -1429,7 +1343,7 @@ namespace Desert::Editor::Tools
             const auto* tile = tiles.At( p.x, p.z );
             if ( !tile )
                 return std::nullopt;
-            return MaxLayerWeight( *tile->Tile, tile->Frame, layerNames[typeIndex], p.x, p.z );
+            return MaxLayerWeight( *tile->Heights, tile->Frame, layerNames[typeIndex], p.x, p.z );
         };
 
         // Every foliage field, by UUID: the plan names them by index into this list.
@@ -1757,12 +1671,12 @@ namespace Desert::Editor::Tools
                         {
                             out.Surface = FoliageSurface::Landscape;
                             if ( !names.empty() )
-                                out.LayerWeight =
-                                     MaxLayerWeight( *tile->Tile, tile->Frame, names, hit.Point.x, hit.Point.z );
+                                out.LayerWeight = MaxLayerWeight( *tile->Heights, tile->Frame, names, hit.Point.x,
+                                                                  hit.Point.z );
                             if ( filter.LayerFiltered )
                                 out.BrushLayerWeight =
-                                     MaxLayerWeight( *tile->Tile, tile->Frame, Core::FoliagePaint::BrushLayers(),
-                                                     hit.Point.x, hit.Point.z );
+                                     MaxLayerWeight( *tile->Heights, tile->Frame,
+                                                     Core::FoliagePaint::BrushLayers(), hit.Point.x, hit.Point.z );
                         }
                         else
                             out.Surface = FoliageSurface::StaticMesh;
@@ -1774,7 +1688,7 @@ namespace Desert::Editor::Tools
                         const auto* tile = tiles.At( p.x, p.z );
                         if ( !tile )
                             return std::nullopt;
-                        return MaxLayerWeight( *tile->Tile, tile->Frame, names, p.x, p.z );
+                        return MaxLayerWeight( *tile->Heights, tile->Frame, names, p.x, p.z );
                     };
 
                     if ( m_StrokeTool == Core::FoliageTool::Erase )

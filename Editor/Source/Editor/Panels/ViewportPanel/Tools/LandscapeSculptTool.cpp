@@ -92,7 +92,7 @@ namespace Desert::Editor::Tools
         std::optional<glm::vec3> TraceLandscape( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
                                                  const Common::Math::Ray& ray )
         {
-            const auto drawable = ECS::DrawableLandscapeTiles( scene.GetRegistry() );
+            const auto& drawable = ECS::DrawableLandscapeTiles( scene.GetRegistry() );
             std::vector<World::Landscape::LandscapeRayTile> tiles;
             for ( const auto& tile : drawable.Tiles )
                 if ( tile.Component->Landscape == landscape )

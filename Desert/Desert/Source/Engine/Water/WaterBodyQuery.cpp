@@ -137,11 +137,11 @@ namespace Desert::Water
         m_Time = seconds;
     }
 
-    void WaterSubsystem::SetWorld( std::vector<WaterBodyState>                     bodies,
-                                   std::vector<World::Landscape::LandscapeRayTile> ground )
+    void WaterSubsystem::SetWorld( std::span<const WaterBodyState>                     bodies,
+                                   std::span<const World::Landscape::LandscapeRayTile> ground )
     {
-        m_Bodies = std::move( bodies );
-        m_Ground = std::move( ground );
+        m_Bodies.assign( bodies.begin(), bodies.end() );
+        m_Ground.assign( ground.begin(), ground.end() );
     }
 
     std::optional<WaterQueryHit> WaterSubsystem::Query( const glm::vec3& point ) const

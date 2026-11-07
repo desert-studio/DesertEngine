@@ -266,10 +266,11 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
-            // The water the step's bodies are in: this frame's bodies over this frame's ground, gathered every
-            // frame so a moved, added or removed body is the water at once. The landscape tiles' heights are
-            // borrowed from the registry for the step's queries only. The water's clock advances by the FIXED
-            // step, once per substep, in the pre-step callback below.
+            // The water the step's bodies are in: this frame's bodies over this frame's ground. The body list is
+            // retained (WaterBodyGather: re-walked only when a body is added, patched or removed) and its values
+            // read every frame, so a moved or edited body is the water at once; nothing is allocated in a steady
+            // frame. The landscape tiles' heights are borrowed from the registry for the step's queries only. The
+            // water's clock advances by the FIXED step, once per substep, in the pre-step callback below.
             m_Water->SetWorld( m_WaterGather.Gather(
                                     registry, []( const Assets::AssetHandle& waves )
                                     { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); } ),

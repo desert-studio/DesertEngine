@@ -18,11 +18,16 @@ namespace Desert::Graphic::Render
 {
     // A DRAW'S PER-OBJECT VALUES KEPT BY ITS PRODUCER (UE: a proxy's material relevance built on change, not per
     // frame): the material overrides and the program hit a producer builds when its colour/emission/atlas moves
-    // and hands every frame by pointer, so a steady frame copies no vector and no string (TextECSSystem).
+    // and hands every frame by pointer, so a steady frame copies no vector and no string (TextECSSystem, and
+    // MeshECSSystem's Shader Override meshes, built per MaterialComponent revision).
     struct GenericMeshDrawParams
     {
         Graphic::MaterialOverrides                Overrides;
         Graphic::RayTracing::RayTracingProgramHit RayHit;
+        // Non-empty: the draw's shader, read instead of the command's ShaderName (a MaterialComponent shader name
+        // can pass the small-string buffer, so a per-frame copy into the command would allocate). Empty: the
+        // command's ShaderName (text passes a short literal).
+        std::string ShaderName;
     };
 
     // A static mesh drawn with a generic data-driven material (a MaterialComponent assigning a non-lit
@@ -96,14 +101,17 @@ namespace Desert::Graphic::Render
         {
             if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
                 return;
-            const Graphic::MaterialOverrides*                overrides = &Overrides;
-            const Graphic::RayTracing::RayTracingProgramHit* rayHit    = &RayHit;
+            const Graphic::MaterialOverrides*                overrides  = &Overrides;
+            const Graphic::RayTracing::RayTracingProgramHit* rayHit     = &RayHit;
+            const std::string*                               shaderName = &ShaderName;
             if ( Params != nullptr )
             {
                 overrides = &Params->Overrides;
                 rayHit    = &Params->RayHit;
+                if ( !Params->ShaderName.empty() )
+                    shaderName = &Params->ShaderName;
             }
-            renderer.SubmitGenericMesh( Entity, Mesh, Transform, ShaderName, *overrides, Outlined, DirectTexture,
+            renderer.SubmitGenericMesh( Entity, Mesh, Transform, *shaderName, *overrides, Outlined, DirectTexture,
                                         DirectTextureSampler, CastShadows, VisibleInRayTracing, *rayHit );
         }
     };

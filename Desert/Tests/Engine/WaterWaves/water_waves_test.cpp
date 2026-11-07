@@ -319,7 +319,8 @@ TEST( WaterQuery, TheSubsystemClockIsTheSumOfThePhysicsStepsAndItsQueryUsesIt )
         water.Advance( 1.0 / 60.0 );
     EXPECT_NEAR( water.Time(), 2.0f, 1e-6f );
 
-    water.SetWorld( { WavedOcean( 0.0f ) }, {} );
+    const Desert::Water::WaterBodyState bodies[] = { WavedOcean( 0.0f ) };
+    water.SetWorld( bodies, {} );
     // Below the deepest trough, so the point is in the water at any wave phase.
     const float     belowTroughs = -( Desert::Water::MaxWaveHeight( *water.Bodies().front().Waves ) + 10.0f );
     const glm::vec3 point( 120.0f, belowTroughs, 40.0f );
