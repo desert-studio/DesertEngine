@@ -313,6 +313,16 @@ namespace Desert::Runtime
         return m_Meshes[handle].get();
     }
 
+    MeshService::State MeshService::StateOf( const Assets::AssetHandle& handle ) const noexcept
+    {
+        if ( m_Meshes.find( handle ) != m_Meshes.end() )
+            return State::Ready;
+        const auto it = m_Entries.find( handle );
+        if ( it == m_Entries.end() )
+            return State::Unknown;
+        return it->second.Failed ? State::Failed : State::Pending;
+    }
+
     Assets::MeshAsset* MeshService::GetAsset( const Assets::AssetHandle& handle ) const
     {
         Entry* entry = FindOrDiscover( handle );
