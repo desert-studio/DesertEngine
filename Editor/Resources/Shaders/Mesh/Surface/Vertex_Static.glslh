@@ -100,6 +100,27 @@ void main()
     const mat4 world = m_PushConstants.Transform;
 #endif
     const vec4 worldPos = world * vec4( a_Position, 1.0 );
+#ifdef DESERT_SURFACE_VIEW_DEPTH_CELL
+    // THE VIEW'S DEPTH CELL (UE DepthOnlyVertexShader.usf: the position and, for a masked material, the mask's
+    // UV): no shading frame (the normal matrix's inverse, three normalised axes), no previous world, no clip pair.
+    // An opaque cell's fragment stage reads none of the block; a masked one reads only the opacity mask's UV
+    // (DShaderParser OpacityMaskFunction samples `i.UV<set>`), as Vertex_Instanced's masked depth cells. The
+    // position is the expression every cell evaluates, so gl_Position stays invariant against the base pass.
+    v_Surface.WorldPosition = worldPos.xyz;
+    v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cell's fragment stage
+    v_Surface.UV0           = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1           = DesertMeshTextureUV( a_TexCoord1 );
+    v_Surface.VertexColor   = a_Color;
+    v_Surface.ObjectScaleUp = 1.0;
+    v_Surface.TBN           = mat3( 1.0 ); // not read by the depth cell's fragment stage
+    v_Surface.Clip          = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved   = 0.0;
+#ifdef DESERT_SURFACE_BINNED
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
+#endif
+#else // every other cell
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( world ) ) );
     const vec3 T             = normalize( normalMatrix * a_Tangent );
@@ -128,6 +149,7 @@ void main()
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.ObjectMoved = 0.0;
 #endif
+#endif // DESERT_SURFACE_VIEW_DEPTH_CELL
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
 #ifdef DESERT_VSM_CLUSTER_RASTER

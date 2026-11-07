@@ -317,8 +317,23 @@ namespace Desert::Graphic::System
             {
                 m_CountedPass = pass;
             }
+            // THE DEPTH PASS'S DRAW ORDER (UE CalculateDepthPassMeshStaticSortKey: the depth pass sorts the masked
+            // draws after the opaque ones). Set: Record issues the GPU-culled bins and the VG clusters (the
+            // scene's opaque occluders) BEFORE the CPU commands (the alpha-tested GPU-instanced grass and
+            // foliage), so the masked fragments behind them fail the early depth test before their clip runs. The
+            // depth the list writes is the nearest fragment whatever the order, so only the cost moves. Set once
+            // by the owner (MeshRenderer::Initialize), kept across Clear; unset: the commands first (every other
+            // list).
+            void RecordBinnedFirst()
+            {
+                m_BinnedFirst = true;
+            }
 
         private:
+            [[nodiscard]] Common::BoolResultStr RecordCommands( const RDG::PassContext&       context,
+                                                                const RDG::OpenBindingBlocks& blocks ) const;
+            [[nodiscard]] Common::BoolResultStr RecordBinned( const RDG::PassContext&       context,
+                                                              const RDG::OpenBindingBlocks& blocks ) const;
             // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
             // shader keys its layout (every draw of the block records with a pipeline of that same shader).
             struct Block
@@ -350,6 +365,7 @@ namespace Desert::Graphic::System
             // declared on one thread at a time, as m_Layouts is used). Mutable: Declare is const.
             mutable std::vector<RDG::BufferRef> m_DeclaredReads;
             std::optional<GpuDriven::MeshPass>  m_CountedPass;
+            bool                                m_BinnedFirst = false; // RecordBinnedFirst
         };
     } // namespace MeshRendererDetail
 
@@ -2202,6 +2218,16 @@ namespace Desert::Graphic::System
         // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
         // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
         std::vector<MaskedPrepassedSection> m_MaskedPrepassedPost;
+        // THE FRONT-TO-BACK WALK of phase 1's masked depth prepass (BuildGpuInstancedDraws, GPU-MASKED-PREPASS-2):
+        // the queue indices of the GPU-instanced sections, nearest box first (squared distance from the camera to
+        // the section's WorldBounds; a section without a box first), so a near section's surviving texels are in
+        // the depth before a far one's clip runs. Only that serial call writes it; capacity kept across frames.
+        struct PrepassSectionOrder
+        {
+            float    DistanceSq = 0.0f;
+            uint32_t Queue      = 0;
+        };
+        std::vector<PrepassSectionOrder> m_PrepassSectionOrder;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
