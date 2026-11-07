@@ -7,7 +7,8 @@
 
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
-#include <functional>
+#include <Common/Core/Memory/ArenaFunction.hpp>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,10 +20,17 @@ namespace Desert::Graphic
     // AddSystemRasters), the way UE's FDeferredShadingSceneRenderer::Render calls AddBasePass, RenderTranslucency
     // and AddPostProcessingPasses in order. The graph opens the render pass on TargetFramebuffer and merges
     // consecutive nodes on one framebuffer into one.
+    // CPU-RDG-ALLOC (UE: FRDGBuilder::AddPass, whose raster lambda lives in FRDGAllocator): a pass is built for
+    // one frame and MOVED, never copied - into the vector the frame build hands SceneRenderer::AddSystemRasters,
+    // and its body into the graph node's closure (Builder::AddPass places that in the graph's arena). Its bodies
+    // are move-only ArenaFunctions: a capture set that fits the inline buffer takes no heap block.
     struct SystemRasterPass
     {
+        // What the pass reads from the graph (Declare below): called once, while the frame graph is built.
+        using DeclareFunc = Common::Memory::ArenaFunction<void( RenderPassDeclaration&, const FrameGraphRefs& )>;
+
         std::string                  Name;
-        NodeRecordFunc               ExecuteFunc;
+        NodeRecord                   ExecuteFunc;
         std::shared_ptr<Framebuffer> TargetFramebuffer;
         // Or ONE LAYER of a graph depth array, with no framebuffer (the sun's cascades: layer c of the cascade
         // array, UE's whole-scene shadow depth target). Exactly one of the two is set; the pass's pipelines were
@@ -32,7 +40,7 @@ namespace Desert::Graphic
 
         // What the pass reads from the graph (its draw list and binding blocks are built here, before any command
         // is recorded): the graph textures it samples, by this frame's FrameGraphRefs.
-        std::function<void( RenderPassDeclaration&, const FrameGraphRefs& )> Declare;
+        DeclareFunc Declare;
 
         // The values the pass clears its target to when the frame build opens it with a CLEAR (the first pass of a
         // clearing sequence on that framebuffer); unset = the RenderPassSpecification defaults.

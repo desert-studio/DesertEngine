@@ -273,17 +273,21 @@ namespace Desert::Engine::Neural
     namespace
     {
         // The exec of one NN pass: its block's bindings, the push, one dispatch. Barriers are the graph's.
-        Graphic::RDG::Builder::ExecFunction RecordNnDispatch( std::shared_ptr<Graphic::ComputePipeline> pipeline,
+        // Built over @p graph's arena (CPU-RDG-ALLOC): a capture set beyond the inline buffer spills there.
+        Graphic::RDG::Builder::ExecFunction RecordNnDispatch( Graphic::RDG::Builder&                    graph,
+                                                              std::shared_ptr<Graphic::ComputePipeline> pipeline,
                                                               const NeuralMlpPush values, const uint32_t groupsX,
                                                               const uint32_t groupsY )
         {
-            return [pipeline = std::move( pipeline ), values, groupsX,
-                    groupsY]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
-            {
-                Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                bindings.PushConstants( &values, sizeof( values ) );
-                return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
-            };
+            return Graphic::RDG::Builder::ExecFunction(
+                 graph.GetFrameArena(),
+                 [pipeline = std::move( pipeline ), values, groupsX,
+                  groupsY]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &values, sizeof( values ) );
+                     return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
+                 } );
         }
     } // namespace
 
@@ -356,7 +360,7 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             RecordNnDispatch( forward.Pipeline, NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = L },
+             RecordNnDispatch( graph, forward.Pipeline, NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = L },
                                inputs.Batch / kFusedMlpBatchGranularity, 1 ) );
         return Common::MakeSuccess( std::move( out ) );
     }
@@ -387,7 +391,7 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnOutput, output, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             RecordNnDispatch( inference.Pipeline,
+             RecordNnDispatch( graph, inference.Pipeline,
                                NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = inputs.Shape.MatrixCount() },
                                inputs.Batch / kFusedMlpBatchGranularity, 1 ) );
         return Common::MakeSuccess( output );
@@ -441,7 +445,7 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnGrads, out.Grads, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             RecordNnDispatch( backward.Pipeline, push, batch / kFusedMlpBatchGranularity, 1 ) );
+             RecordNnDispatch( graph, backward.Pipeline, push, batch / kFusedMlpBatchGranularity, 1 ) );
 
         // Weight gradient: dW_l = sum_b g_l (x) h_l, after the backward wrote every g_l.
         graph.AddPass(
@@ -455,7 +459,7 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnWeightGrad, out.WeightGrad, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             RecordNnDispatch( weightGrad.Pipeline, push, weightGradGroups, L ) );
+             RecordNnDispatch( graph, weightGrad.Pipeline, push, weightGradGroups, L ) );
         return Common::MakeSuccess( std::move( out ) );
     }
 

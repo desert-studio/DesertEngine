@@ -84,7 +84,7 @@ namespace Desert::Graphic
     } // namespace
 
     void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
-                                          const std::span<const SystemRasterPass> passes, const bool clearFirst,
+                                          const std::span<SystemRasterPass> passes, const bool clearFirst,
                                           const OverlayTargets& overlay, const bool clearDepth )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
@@ -98,7 +98,7 @@ namespace Desert::Graphic
         // declaration shows.
         const RenderPassSpecification defaults;
         std::shared_ptr<Framebuffer>  previous;
-        for ( const SystemRasterPass& pass : passes )
+        for ( SystemRasterPass& pass : passes )
         {
             // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
             if ( ( !pass.TargetFramebuffer && !pass.TargetDepthArray.IsValid() ) || !pass.ExecuteFunc )
@@ -115,14 +115,14 @@ namespace Desert::Graphic
                  clears && clearDepth
                       ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
                       : RDG::LoadOp::Load();
-            AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
+            AddPassNode( graph, textures, std::move( pass ), color, depth, overlay );
         }
     }
 
     void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
-                                         const SystemRasterPass& pass, const OverlayTargets& overlay )
+                                         SystemRasterPass&& pass, const OverlayTargets& overlay )
     {
-        AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &pass, 1 ), false, overlay );
+        AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &pass, 1 ), false, overlay );
     }
 
     void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
@@ -138,12 +138,12 @@ namespace Desert::Graphic
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).
-            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
             AddSystemRasters( graph, textures, local, false );
             // The rain occlusion's top-down depth, when its box moved or its casters changed (it clears its own
             // target); otherwise the map keeps the depth it was drawn with.
-            if ( const std::optional<SystemRasterPass> rain = mesh->RainOcclusionPass() )
-                AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &*rain, 1 ), true );
+            if ( std::optional<SystemRasterPass> rain = mesh->RainOcclusionPass() )
+                AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &*rain, 1 ), true );
         }
     }
 
@@ -153,7 +153,7 @@ namespace Desert::Graphic
         {
             // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
             const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
-            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
+            System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
             // A scrolled cascade first (UE's CSM scrolling): its layer cleared to the far plane (1, standard Z) and
             // the part of its cache the new placement still covers copied in, shifted.
             for ( const auto& scroll : cascades.Scrolls )
@@ -249,8 +249,8 @@ namespace Desert::Graphic
         // The outlined meshes' mask, cleared every frame so the Jump Flood outline has a fresh input.
         if ( auto* mesh = m_Systems.Mesh.get() )
         {
-            const SystemRasterPass silhouette = mesh->SilhouettePass();
-            AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &silhouette, 1 ), true );
+            SystemRasterPass silhouette = mesh->SilhouettePass();
+            AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &silhouette, 1 ), true );
         }
     }
 
@@ -311,27 +311,31 @@ namespace Desert::Graphic
                      return ctx;
                  };
                  // The pass's functions are COPIED into the node: the scene may replace the registration while the
-                 // graph built this frame still holds the node.
-                 SystemRasterPass node;
+                 // graph built this frame still holds the node. The node's bodies are bound to the graph's arena,
+                 // so a copied std::function pair that does not fit the inline buffer spills into it.
+                 Common::Memory::FrameArena& arena = graph.GetFrameArena();
+                 SystemRasterPass            node;
                  node.Name              = extension.Name;
                  node.TargetFramebuffer = target;
-                 node.ExecuteFunc =
-                      [context, execute = extension.Execute]( RDG::PassContext& pass, const FrameGraphRefs& refs )
-                 { return execute( context( refs ), pass ); };
+                 node.ExecuteFunc       = NodeRecord(
+                      arena, [context, execute = extension.Execute](
+                                  RDG::PassContext& pass, const FrameGraphRefs& refs ) -> Common::BoolResultStr
+                      { return execute( context( refs ), pass ); } );
                  if ( extension.Declare )
-                     node.Declare = [context, declare = extension.Declare]( RenderPassDeclaration& declared,
-                                                                            const FrameGraphRefs&  refs )
-                     { declare( declared, context( refs ) ); };
-                 AddPassNode( graph, textures, node, target, node.Name, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
+                     node.Declare = SystemRasterPass::DeclareFunc(
+                          arena, [context, declare = extension.Declare]( RenderPassDeclaration& declared,
+                                                                         const FrameGraphRefs&  refs )
+                          { declare( declared, context( refs ) ); } );
+                 AddPassNode( graph, textures, std::move( node ), RDG::LoadOp::Load(), RDG::LoadOp::Load(),
                               overlay );
              } );
     }
 
-    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
-                                     const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
                                      const RDG::LoadOp& color, const RDG::LoadOp& depth,
                                      const OverlayTargets& overlay )
     {
+        const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
         // A pass on one layer of a graph depth array declares that layer alone; one on a framebuffer, all of it.
         const bool                   layered = pass.TargetDepthArray.IsValid();
         std::optional<RasterTargets> targets;
@@ -341,7 +345,7 @@ namespace Desert::Graphic
             targets->Depth = pass.TargetDepthArray;
         }
         else
-            targets = TargetsOf( textures, target, debugName, pass.Name );
+            targets = TargetsOf( textures, target, pass.Name, pass.Name );
         if ( !targets )
             return;
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
@@ -394,12 +398,14 @@ namespace Desert::Graphic
                                        layered ? pass.TargetLayer : RDG::kAllRemaining );
                  DeclareResolves( node, targets->Resolves );
              },
-             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+             // CPU-RDG-ALLOC: the body MOVED into the closure, which AddPass places in the graph's arena; Reset
+             // destroys the closure (and the body's captures) before it rewinds that arena.
+             [execute = std::move( pass.ExecuteFunc ), refs = textures.GraphRefs()](
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
     void SceneRenderer::AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures,
-                                                 const SystemRasterPass& pass, const RDG::TextureRef display,
+                                                 SystemRasterPass&& pass, const RDG::TextureRef display,
                                                  const RDG::TextureRef depth, const glm::uvec2 extent )
     {
         if ( !pass.ExecuteFunc || !display.IsValid() )
@@ -423,7 +429,7 @@ namespace Desert::Graphic
                  if ( depth.IsValid() )
                      node.DepthTarget( depth, RDG::LoadOp::Load(), /*write*/ false );
              },
-             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+             [execute = std::move( pass.ExecuteFunc ), refs = textures.GraphRefs()](
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 

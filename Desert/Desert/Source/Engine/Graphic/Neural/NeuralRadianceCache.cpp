@@ -87,18 +87,22 @@ namespace Desert::Engine::Neural
             return z ^ ( z >> 31 );
         }
 
-        // The exec of one NeuralRadianceCache.shader pass: its push and one dispatch.
-        RDG::Builder::ExecFunction RecordDispatch( std::shared_ptr<Graphic::ComputePipeline> pipeline,
+        // The exec of one NeuralRadianceCache.shader pass: its push and one dispatch. Built over @p graph's
+        // arena (CPU-RDG-ALLOC): a capture set beyond the inline buffer spills there, never onto the heap.
+        RDG::Builder::ExecFunction RecordDispatch( RDG::Builder&                             graph,
+                                                   std::shared_ptr<Graphic::ComputePipeline> pipeline,
                                                    const NrcPush push, const uint32_t groupsX,
                                                    const uint32_t groupsY )
         {
-            return [pipeline = std::move( pipeline ), push, groupsX,
-                    groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
-            {
-                RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
-            };
+            return RDG::Builder::ExecFunction(
+                 graph.GetFrameArena(),
+                 [pipeline = std::move( pipeline ), push, groupsX,
+                  groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
+                 } );
         }
     } // namespace
 
@@ -424,7 +428,7 @@ namespace Desert::Engine::Neural
                       .Storage( NrcSlots::NnInput, input, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
              },
-             RecordDispatch( m_Encode.Pipeline, push, Groups( dispatched ), 1 ) );
+             RecordDispatch( graph, m_Encode.Pipeline, push, Groups( dispatched ), 1 ) );
         return input;
     }
 
@@ -488,7 +492,7 @@ namespace Desert::Engine::Neural
                               .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                      },
-                     RecordDispatch( m_Composite.Pipeline, push, Groups( rows ), 1 ) );
+                     RecordDispatch( graph, m_Composite.Pipeline, push, Groups( rows ), 1 ) );
             }
 
         // ---- The cache at the self-training suffix ends, before this frame's training. ----
@@ -533,7 +537,7 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcLossPartialsUB, lossPartials, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
-                 RecordDispatch( m_Loss.Pipeline, lossPush, Groups( kNrcTrainingBatch ), 1 ) );
+                 RecordDispatch( graph, m_Loss.Pipeline, lossPush, Groups( kNrcTrainingBatch ), 1 ) );
 
             const auto backward = m_Mlp->AddBackwardPasses(
                  graph, mlpInputs( input, kNrcTrainingBatch, outputGrad, cache.Weights ), forward.GetValue(), m_Path );
@@ -556,7 +560,7 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
-                 RecordDispatch( m_InputGrad.Pipeline, gradPush, Groups( kNrcTrainingBatch ), 1 ) );
+                 RecordDispatch( graph, m_InputGrad.Pipeline, gradPush, Groups( kNrcTrainingBatch ), 1 ) );
 
             const uint32_t t = static_cast<uint32_t>( ++m_AdamStep );
             NrcPush        mlpPush;
@@ -581,7 +585,7 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
-                 RecordDispatch( m_AdamMlp.Pipeline, mlpPush, Groups( kWeightElements ), 1 ) );
+                 RecordDispatch( graph, m_AdamMlp.Pipeline, mlpPush, Groups( kWeightElements ), 1 ) );
 
             NrcPush hashPush = mlpPush;
             hashPush.Rows.z  = kHashElements;
@@ -601,7 +605,7 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
-                 RecordDispatch( m_AdamHash.Pipeline, hashPush, kHashGroupsX,
+                 RecordDispatch( graph, m_AdamHash.Pipeline, hashPush, kHashGroupsX,
                                  ( kHashElements + kHashGroupsX * kGroup - 1 ) / ( kHashGroupsX * kGroup ) ) );
         }
         m_Stats.TrainingSteps = m_AdamStep;

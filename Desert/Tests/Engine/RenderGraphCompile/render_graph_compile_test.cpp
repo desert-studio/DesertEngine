@@ -2435,7 +2435,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "system[terrain->GeometryPass()]",
          "rasters[passes,true]",
          "system[mesh->SilhouettePass()]",
-         "rasters[std::span<constSystemRasterPass>(&silhouette,1),true]",
+         "rasters[std::span<SystemRasterPass>(&silhouette,1),true]",
          "Deferred: GBuffer",
          "TerrainGBuffer",
          "Deferred: DepthResolve",
@@ -3839,14 +3839,14 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly)",
             "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
-            "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )
+            "AddPassNode(graph,textures,std::move(pass),color,depth,overlay);" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the system raster node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
     // The declaration lives on the pass registration, not in a list in SceneRenderer.
     EXPECT_NE( source( "SystemRasterPass.hpp" )
-                    .find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
+                    .find( "ArenaFunction<void(RenderPassDeclaration&,constFrameGraphRefs&)>;" ),
                std::string::npos );
     EXPECT_NE( source( "ExtensionPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constExtensionPassContext&)>Declare;" ),
