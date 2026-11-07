@@ -20,6 +20,7 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -98,8 +99,9 @@ namespace Desert::Graphic::System
             if ( slots == nullptr || sectionSlot >= slots->Slots.size() || slots->Slots[sectionSlot] == nullptr )
                 return {};
             MaterialInstance* inst    = slots->Slots[sectionSlot];
-            auto*             surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
-            if ( surface != nullptr && MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Static )
+            Material*           parent  = inst->GetParentMaterial();
+            DataDrivenMaterial* surface = parent != nullptr ? parent->AsDataDriven() : nullptr;
+            if ( surface != nullptr && surface->GetVertexPath() == MeshVertexPath::Static )
                 return { inst, surface };
             return {};
         }
@@ -2346,29 +2348,34 @@ namespace Desert::Graphic::System
                 {
                     // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections
                     // of one slot are one draw, masked to them. Up to 64 submeshes, the masks' width.
+                    // A fixed array, not a vector per skinned mesh per frame: at most 64 sections, so at most
+                    // 64 distinct slots.
                     using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
                     const auto&  slots = data.MaterialSlots->Slots;
                     const size_t count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
-                    std::vector<SlotSections> visibleBySlot;
+                    std::array<SlotSections, 64> visibleBySlot{};
+                    size_t                       groups = 0;
                     for ( size_t si = 0; si < count; ++si )
                     {
                         const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
-                        const auto   it   = std::ranges::find( visibleBySlot, slot, &SlotSections::first );
-                        if ( it != visibleBySlot.end() )
+                        const auto   end  = visibleBySlot.begin() + static_cast<std::ptrdiff_t>( groups );
+                        const auto   it   = std::find_if( visibleBySlot.begin(), end,
+                                                          [slot]( const SlotSections& g )
+                                                          { return g.first == slot; } );
+                        if ( it != end )
                             it->second |= 1ull << si;
                         else
-                            visibleBySlot.emplace_back( slot, 1ull << si );
+                            visibleBySlot[groups++] = { slot, 1ull << si };
                     }
-                    for ( const SlotSections& group : visibleBySlot )
+                    for ( size_t g = 0; g < groups; ++g )
                     {
-                        const size_t        slot    = group.first;
-                        const uint64_t      visible = group.second;
+                        const size_t        slot    = visibleBySlot[g].first;
+                        const uint64_t      visible = visibleBySlot[g].second;
                         MaterialInstance*   inst    = slots[slot];
                         DataDrivenMaterial* surface = nullptr;
-                        if ( inst != nullptr )
-                            surface = dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() );
-                        if ( surface != nullptr &&
-                             MeshCellPath( surface->GetShaderName() ) == MeshVertexPath::Skinned )
+                        if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
+                            surface = parent->AsDataDriven();
+                        if ( surface != nullptr && surface->GetVertexPath() == MeshVertexPath::Skinned )
                         {
                             skinnedData.Sections.push_back(
                                  { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );

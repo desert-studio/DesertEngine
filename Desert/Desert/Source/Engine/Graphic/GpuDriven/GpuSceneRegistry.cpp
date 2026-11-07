@@ -140,7 +140,8 @@ namespace Desert::Graphic::GpuDriven
             Entry& entry = it->second;
             if ( entry.BonesFrame == m_Frame )
             {
-                entry.Bones.swap( entry.PrevBones );
+                entry.BoneOffset = entry.PrevBoneOffset;
+                entry.BoneCount  = entry.PrevBoneCount;
                 entry.BonesFrame = entry.PrevBonesFrame;
             }
             if ( entry.Frame == m_Frame )
@@ -168,6 +169,8 @@ namespace Desert::Graphic::GpuDriven
         }
         m_Frame         = m_PreviousFrame;
         m_PreviousFrame = m_FrameBeforePrevious;
+        // The restored frame's palette is current again; the discarded one is never read (no entry names it).
+        m_FramePalettes.swap( m_PreviousPalettes );
     }
 
     void GpuSceneRegistry::BeginFrame( const uint64_t frame )
@@ -206,6 +209,7 @@ namespace Desert::Graphic::GpuDriven
         m_Started             = true;
         m_Committed           = false;
         m_Scene.BeginFrame();
+        m_PreviousPalettes.swap( m_FramePalettes );
         m_FramePalettes.clear();
     }
 
@@ -329,17 +333,27 @@ namespace Desert::Graphic::GpuDriven
                 // Both palettes go into the ONE buffer every pass that draws the primitive skins it from. The
                 // previous one: what this primitive was drawn with in the last synced frame, unless it was not
                 // drawn then or its bone count changed (a mesh swap: the old palette indexes other bones).
-                const bool history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
-                                     entry.Bones.size() == record.Bones.size();
-                entry.BoneOffset = static_cast<uint32_t>( m_FramePalettes.size() );
+                // The history is read where the last frame wrote it (m_PreviousPalettes), not from a copy.
+                const size_t count   = record.Bones.size();
+                const bool   history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
+                                     entry.BoneCount == count &&
+                                     size_t( entry.BoneOffset ) + count <= m_PreviousPalettes.size();
+                const uint32_t written = static_cast<uint32_t>( m_FramePalettes.size() );
                 m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
                 entry.PrevOffset = static_cast<uint32_t>( m_FramePalettes.size() );
                 if ( history )
-                    m_FramePalettes.insert( m_FramePalettes.end(), entry.Bones.begin(), entry.Bones.end() );
+                {
+                    const auto first =
+                         m_PreviousPalettes.begin() + static_cast<std::ptrdiff_t>( entry.BoneOffset );
+                    const auto last  = first + static_cast<std::ptrdiff_t>( count );
+                    m_FramePalettes.insert( m_FramePalettes.end(), first, last );
+                }
                 else
                     m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
-                entry.PrevBones.swap( entry.Bones );
-                entry.Bones.assign( record.Bones.begin(), record.Bones.end() );
+                entry.PrevBoneOffset = entry.BoneOffset;
+                entry.PrevBoneCount  = entry.BoneCount;
+                entry.BoneOffset     = written;
+                entry.BoneCount      = static_cast<uint32_t>( count );
                 entry.PrevBonesFrame = entry.BonesFrame;
                 entry.BonesFrame     = m_Frame;
                 palettesChanged  = true;

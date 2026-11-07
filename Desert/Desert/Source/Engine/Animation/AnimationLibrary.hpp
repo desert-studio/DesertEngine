@@ -66,6 +66,14 @@ namespace Desert::Animation
         // A lookup that failed while this is true is "not yet", not "never" — callers stay quiet.
         [[nodiscard]] bool HasPending( const std::string& clipName ) const;
 
+        /// THE STAMP A CACHED ANSWER IS VALID FOR. Moves whenever any lookup above could answer differently:
+        /// a clip registered, unregistered or re-read, a read finished or cancelled, a registry write caught
+        /// up (asked here, so a `.anim` an import wrote moves it), the library cleared. Not moved by a
+        /// read merely being STARTED — that changes no answer, the pending one stays pending. An eviction
+        /// does not move it either: a cached asset is checked with IsReadyForUse by its holder
+        /// (ClipBindingCache), because the library never hears of one.
+        [[nodiscard]] uint64_t Revision() const;
+
     private:
         /// The handle -> asset step both lookups share, INCLUDING the reload. One place, so a third lookup
         /// cannot be written that forgets it.
@@ -95,6 +103,13 @@ namespace Desert::Animation
         // other becomes an unread row. A rewritten clip loses its old record first, since its rig may differ.
         void CatchUpWrites() const;
         void RequestRead( const Assets::Asset<Assets::AnimationAsset>& asset ) const;
+        /// m_ClipsByName rebuilt from m_Clips when a Register/Unregister/Clear marked it stale.
+        void RebuildNameIndex() const;
+        void Touch() const
+        {
+            ++m_Revision;
+            m_NameIndexStale = true;
+        }
 
         Assets::AssetManager* m_AssetManager;
         // Rows indexed but not yet read, and the reads in flight. Mutable: a const lookup is what asks.
@@ -108,6 +123,72 @@ namespace Desert::Animation
         // of them, so the library went on offering the previous project's clips out of the half nobody
         // remembered. A single container cannot fall out of step with itself.
         std::vector<ClipRigIdentity> m_Clips;
+        // DERIVED from m_Clips, never written on its own: clip name -> indices into m_Clips in ascending order
+        // (so the first that plays is the one the linear rule picked). Rebuilt lazily after any edit of
+        // m_Clips (Touch), which keeps the "one container cannot fall out of step" property above.
+        mutable std::unordered_map<std::string, std::vector<uint32_t>> m_ClipsByName;
+        mutable bool                                                   m_NameIndexStale = true;
+        mutable uint64_t                                               m_Revision       = 1;
+        // RequestUnread's handles to read, reused: a read that completes inside Request edits m_Unread, so
+        // the rows are picked first and requested after, without copying the rows themselves.
+        mutable std::vector<Assets::AssetHandle> m_RequestScratch;
+    };
+
+    /**
+     * @brief ONE ENTITY'S CLIPS, RESOLVED ONCE — the AnimationComponent's half of the lookup above.
+     *
+     * UE: FAnimNode_SequencePlayer holds the UAnimSequence* resolved at load, and the tick never asks by
+     * name. Here a graph names its clips and the library resolves a name against a rig; that answer is
+     * kept per (name, rig, AnimationLibrary::Revision) and asked again only when the rig or the library's
+     * revision moves — or when the asset it holds was evicted (IsReadyForUse), which the library cannot see.
+     * A refusal is formatted once per revision, not once per tick. A pending clip stays pending until the
+     * read it waits for finishes, which is exactly a revision move.
+     */
+    class ClipBindingCache
+    {
+    public:
+        struct Binding
+        {
+            std::string                           Name;
+            Assets::Asset<Assets::AnimationAsset> Asset;   ///< null = pending or refused
+            std::string                           Error;   ///< the refusal, when not pending
+            bool                                  Pending = false;
+            uint64_t                              Epoch   = 0; ///< the cache epoch it was resolved at
+            /// The owners (state / node names) the refusal was already reported for, this epoch.
+            std::vector<std::string> ReportedOwners;
+        };
+
+        /// Moves the epoch when the library revision or the rig differs from the last call: every binding is
+        /// then resolved again on its next ask. Returns whether it moved.
+        bool Revalidate( uint64_t libraryRevision, const MeshSkeletonIdentity& rig );
+
+        /// @p name resolved on the rig of the last Revalidate; resolved through @p library on its first ask
+        /// this epoch, or again when the asset it held was evicted.
+        [[nodiscard]] Binding& Resolve( const AnimationLibrary& library, const MeshSkeletonIdentity& rig,
+                                        const std::string& name );
+
+        /// Whether a graph's clips must be asked for again (UE: an AnimBP's hard references): the epoch
+        /// moved, or another graph (its source handle) or graph revision is attached. Records the answer.
+        [[nodiscard]] bool TakeGraphPrefetch( uint64_t graphSource, uint32_t graphRevision );
+
+        /// Every held asset that was evicted is asked for again (the library starts its read), so a state
+        /// entered later finds its clip resident, as the per-tick prefetch it replaces guaranteed.
+        void RefreshEvicted( const AnimationLibrary& library, const MeshSkeletonIdentity& rig );
+
+    private:
+        void ResolveInto( Binding& binding, const AnimationLibrary& library, const MeshSkeletonIdentity& rig );
+
+        std::vector<Binding>                    m_Bindings;
+        uint64_t                                m_Epoch           = 0;
+        uint64_t                                m_LibraryRevision = 0;
+        Common::Content::AssetGuid              m_Skeleton;
+        std::vector<Common::Content::AssetGuid> m_Compatible;
+        bool                                    m_Keyed = false;
+
+        uint64_t m_PrefetchEpoch    = 0;
+        uint64_t m_PrefetchSource   = 0;
+        uint32_t m_PrefetchRevision = 0;
+        bool     m_Prefetched       = false;
     };
 
     /// What one population run put in the library, so a caller can say which half is empty.

@@ -58,6 +58,8 @@ namespace Desert::Graphic
         return castContactShadow ? 0u : PrimitiveFlag::NoContactShadow;
     }
 
+    class DataDrivenMaterial;
+
     class Material : public IPropertyOwner
     {
     public:
@@ -72,6 +74,17 @@ namespace Desert::Graphic
                            const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
 
         virtual ~Material() = default;
+
+        /// The material as the data-driven class, or null: the per-draw question the mesh queues ask of a
+        /// slot's parent, answered by the type itself instead of a dynamic_cast per slot per frame.
+        [[nodiscard]] virtual DataDrivenMaterial* AsDataDriven() noexcept
+        {
+            return nullptr;
+        }
+        [[nodiscard]] virtual const DataDrivenMaterial* AsDataDriven() const noexcept
+        {
+            return nullptr;
+        }
 
         MaterialInstancePtr CreateInstance( const std::string& name = "" );
 

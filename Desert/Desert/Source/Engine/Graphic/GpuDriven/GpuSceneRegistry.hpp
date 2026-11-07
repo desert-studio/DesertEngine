@@ -239,12 +239,16 @@ namespace Desert::Graphic::GpuDriven
             float                  BoundsPad = 0.0f;
             float                  CullStart = 0.0f;
             float                  CullEnd   = 0.0f;
-            uint64_t               BonesFrame = kNoFrame; // the frame Bones / BoneOffset were written for
-            uint64_t               PrevBonesFrame = kNoFrame; // the frame PrevBones were written for
-            uint32_t               BoneOffset = 0;
-            uint32_t               PrevOffset = 0;
-            std::vector<glm::mat4> Bones;
-            std::vector<glm::mat4> PrevBones; // the palette before Bones (DiscardFrame swaps it back)
+            // THE PALETTE LIVES IN THE FRAME BUFFERS, NOT HERE (UE: FSkeletalMeshObjectGPUSkin's double-buffered
+            // bone buffer). BoneOffset/BoneCount name this primitive's palette inside the frame palette of
+            // BonesFrame; the frame after reads its history straight out of m_PreviousPalettes there.
+            uint64_t BonesFrame     = kNoFrame; // the frame BoneOffset / BoneCount were written for
+            uint64_t PrevBonesFrame = kNoFrame; // the frame before it (DiscardFrame restores it)
+            uint32_t BoneOffset     = 0;
+            uint32_t BoneCount      = 0;
+            uint32_t PrevOffset     = 0;        // where the history copy sits in the frame palette
+            uint32_t PrevBoneOffset = 0;        // BoneOffset as of PrevBonesFrame (DiscardFrame restores it)
+            uint32_t PrevBoneCount  = 0;
             // The primitive's records' Content words as of the last Sync that queued it (an order-free sum of
             // their mixes: a merged record of the primitive adds its own), and the one Sync gathers now.
             uint64_t Content      = 0;
@@ -288,7 +292,10 @@ namespace Desert::Graphic::GpuDriven
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
         std::unordered_map<uint32_t, EntityScratch>                           m_EntityScratch;
-        std::vector<glm::mat4>                              m_FramePalettes;
+        // The palettes of the frame being synced and of the frame before it, swapped at BeginFrame (and back at
+        // DiscardFrame): the previous frame's bones are read from where they were written, never kept twice.
+        std::vector<glm::mat4> m_FramePalettes;
+        std::vector<glm::mat4> m_PreviousPalettes;
         uint64_t                                            m_SyncSerial = 0;
         std::vector<std::pair<Entry*, bool>>                m_ContentTouched; // entry, added this Sync
         uint64_t                                            m_Frame         = kNoFrame;

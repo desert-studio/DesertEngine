@@ -96,6 +96,11 @@ namespace Desert::ECS
             // Animation::AnimationAdvanceSeconds.
             const float gameplaySeconds = ts.GetSeconds();
             auto view = registry.view<ECS::SkinnedMeshComponent, ECS::AnimationComponent>();
+            // ONCE PER TICK: the stamp every entity's ClipBindingCache is checked against. A read that finishes
+            // during this tick moves it, and the entities see that on the next one.
+            uint64_t libraryRevision = 0;
+            if ( m_AnimationLibrary != nullptr )
+                libraryRevision = m_AnimationLibrary->Revision();
 
             for ( auto entity : view )
             {
@@ -154,6 +159,11 @@ namespace Desert::ECS
                 // or detached, so this is settled for the frame.
                 const Animation::MeshSkeletonIdentity clipRig =
                      ClipSkeletonOf( registry, entity, skinnedMesh, anim.Animator->GetRetarget() != nullptr );
+                // Every clip below is read out of this entity's resolved bindings, asked again only when the
+                // library or this rig moved (UE: a sequence player's resolved UAnimSequence*).
+                if ( !anim.ClipBindings )
+                    anim.ClipBindings = std::make_shared<Animation::ClipBindingCache>();
+                const bool bindingsMoved = anim.ClipBindings->Revalidate( libraryRevision, clipRig );
 
                 // BEFORE the graph path, because it is what puts a graph there: the entity names a
                 // `.danimgraph` and this is where that handle becomes the object below.
@@ -208,7 +218,7 @@ namespace Desert::ECS
                     // footstep is an audible desync. Asserted by Tests/Engine/AnimGraphScript so it stays a
                     // decision and not a habit.
                     DrainGraphParams( anim );
-                    RequestGraphClips( *anim.Graph, clipRig );
+                    RequestGraphClips( anim, *anim.Graph, graphRevision, clipRig );
 
                     if ( anim.Playing )
                     {
@@ -225,16 +235,10 @@ namespace Desert::ECS
                             // entered by the machine's transition as a clip state is; the row already on top
                             // only takes the clips (Animator::PlayBlendSpace).
                             const auto& samples = res.Current->BlendSpace->Space.Samples;
-                            std::vector<const Animation::AnimationClip*> clips( samples.size(), nullptr );
+                            std::vector<const Animation::AnimationClip*>& clips = m_BlendSpaceClips;
+                            clips.assign( samples.size(), nullptr );
                             for ( size_t s = 0; s < samples.size(); ++s )
-                            {
-                                const auto found = m_AnimationLibrary->FindForMesh( clipRig, samples[s].Clip );
-                                if ( found )
-                                    clips[s] = &found.GetValue()->GetClip();
-                                else if ( !m_AnimationLibrary->HasPending( samples[s].Clip ) )
-                                    ReportUnplayableState( clipRig, res.Current->Name, samples[s].Clip,
-                                                           found.GetError() );
-                            }
+                                clips[s] = BoundClip( anim, clipRig, res.Current->Name, samples[s].Clip );
                             if ( const auto entering = anim.GraphEvaluator->EnteringTransition() )
                                 anim.Animator->CrossFadeBlendSpace( *res.Current->BlendSpace, clips,
                                                                     entering->Duration, entering->Curve,
@@ -245,10 +249,10 @@ namespace Desert::ECS
                         }
                         else if ( res.Current )
                         {
-                            const auto found = m_AnimationLibrary->FindForMesh( clipRig, res.Current->Clip );
-                            if ( found )
+                            if ( const Animation::AnimationClip* bound =
+                                      BoundClip( anim, clipRig, res.Current->Name, res.Current->Clip ) )
                             {
-                                const auto& clip = found.GetValue()->GetClip();
+                                const auto& clip = *bound;
                                 const auto* cur  = anim.Animator->GetCurrentClip();
                                 // A blend space on top is never this clip, even when its heaviest sample is.
                                 if ( !cur || anim.Animator->GetCurrentBlendSpace() != nullptr ||
@@ -265,11 +269,6 @@ namespace Desert::ECS
                                     else
                                         anim.Animator->Play( clip, res.Current->Loop );
                                 }
-                            }
-                            else if ( !m_AnimationLibrary->HasPending( res.Current->Clip ) )
-                            {
-                                ReportUnplayableState( clipRig, res.Current->Name, res.Current->Clip,
-                                                       found.GetError() );
                             }
                             anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed * res.Current->Speed );
                         }
@@ -302,10 +301,10 @@ namespace Desert::ECS
                     // SAME RULE AS THE PICKER that wrote this name into the component. It used to be an
                     // exact-signature scan here against a tolerant one in the Details panel, so a clip an
                     // artist had just chosen could fail to play with nothing said.
-                    const auto found = m_AnimationLibrary->FindForMesh( clipRig, anim.CurrentClip );
-                    if ( found )
+                    if ( const Animation::AnimationClip* bound =
+                              BoundClip( anim, clipRig, s_CurrentClipOwner, anim.CurrentClip ) )
                     {
-                        const auto& clip    = found.GetValue()->GetClip();
+                        const auto& clip    = *bound;
                         const auto* current = anim.Animator->GetCurrentClip();
 
                         // Cross-fade on change (smooth idle<->walk<->run) — LocomotionSystem used to do this
@@ -315,14 +314,11 @@ namespace Desert::ECS
                         else if ( current->AnimationName != clip.AnimationName )
                             anim.Animator->CrossFade( clip, 0.15f, anim.Loop );
                     }
-                    else if ( !m_AnimationLibrary->HasPending( anim.CurrentClip ) )
-                    {
-                        ReportUnplayableState( clipRig, "AnimationComponent.CurrentClip", anim.CurrentClip,
-                                               found.GetError() );
-                    }
                 }
 
-                else
+                // Asked again only when the library or the rig moved: the answer cannot change in between, and
+                // the ask builds the list of every clip the rig plays.
+                else if ( bindingsMoved )
                 {
                     const auto animations = m_AnimationLibrary->GetForMesh( clipRig );
 
@@ -441,11 +437,44 @@ namespace Desert::ECS
         /// for several ticks and the transition's blend was lost. Every clip the graph can play is asked for
         /// on every tick (a resident clip is a lookup; an evicted one is read again), so the machine never
         /// enters a state whose clip it has not already requested.
-        void RequestGraphClips( const Animation::Graph::AnimGraph&     graph,
-                                const Animation::MeshSkeletonIdentity& rig )
+        ///
+        /// ASKED ONCE PER (graph, graph revision, rig, library revision), not per tick: the answers land in the
+        /// entity's ClipBindingCache, which the states then read. What the per-tick ask also did — read an
+        /// evicted clip again before its state is entered — is RefreshEvicted, a pointer check per binding.
+        void RequestGraphClips( ECS::AnimationComponent& anim, const Animation::Graph::AnimGraph& graph,
+                                const uint32_t graphRevision, const Animation::MeshSkeletonIdentity& rig )
         {
-            for ( const std::string& clip : Animation::Graph::GraphClipNames( graph ) )
-                static_cast<void>( m_AnimationLibrary->FindForMesh( rig, clip ) );
+            Animation::ClipBindingCache& bindings = *anim.ClipBindings;
+            if ( bindings.TakeGraphPrefetch( anim.BuiltGraphSource, graphRevision ) )
+            {
+                for ( const std::string& clip : Animation::Graph::GraphClipNames( graph ) )
+                    static_cast<void>( bindings.Resolve( *m_AnimationLibrary, rig, clip ) );
+                return;
+            }
+            bindings.RefreshEvicted( *m_AnimationLibrary, rig );
+        }
+
+        /// THE ONE CLIP LOOKUP OF THE TICK: @p clipName out of the entity's resolved bindings. Null while it is
+        /// read (quietly) or when the rule refused it — then the refusal, formatted once when it was resolved,
+        /// is reported once per owner (a state or node name) until the binding is resolved again.
+        const Animation::AnimationClip* BoundClip( ECS::AnimationComponent&               anim,
+                                                   const Animation::MeshSkeletonIdentity& rig,
+                                                   const std::string& owner, const std::string& clipName )
+        {
+            Animation::ClipBindingCache::Binding& binding =
+                 anim.ClipBindings->Resolve( *m_AnimationLibrary, rig, clipName );
+            if ( binding.Asset )
+                return &binding.Asset->GetClip();
+            if ( binding.Pending )
+                return nullptr;
+            const bool reported = std::find( binding.ReportedOwners.begin(), binding.ReportedOwners.end(),
+                                             owner ) != binding.ReportedOwners.end();
+            if ( !reported )
+            {
+                binding.ReportedOwners.push_back( owner );
+                ReportUnplayableState( rig, owner, clipName, binding.Error );
+            }
+            return nullptr;
         }
 
         void DrainGraphParams( ECS::AnimationComponent& anim )
@@ -509,14 +538,10 @@ namespace Desert::ECS
         void PlaySequence( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
                            const std::string& nodeName, const Animation::Graph::SequencePlayerNode& sequence )
         {
-            const auto found = m_AnimationLibrary->FindForMesh( clipRig, sequence.Clip );
-            if ( !found )
-            {
-                if ( !m_AnimationLibrary->HasPending( sequence.Clip ) )
-                    ReportUnplayableState( clipRig, nodeName, sequence.Clip, found.GetError() );
+            const Animation::AnimationClip* bound = BoundClip( anim, clipRig, nodeName, sequence.Clip );
+            if ( bound == nullptr )
                 return;
-            }
-            const auto& clip = found.GetValue()->GetClip();
+            const auto& clip = *bound;
             const auto* cur  = anim.Animator->GetCurrentClip();
             if ( cur == nullptr || cur->AnimationName != clip.AnimationName )
                 anim.Animator->Play( clip, sequence.Loop );
@@ -567,33 +592,28 @@ namespace Desert::ECS
                     for ( size_t i = 0; i < node->BlendSpace->Samples.size(); ++i )
                     {
                         const std::string& sampleClip = node->BlendSpace->Samples[i].Clip;
-                        const auto         found      = m_AnimationLibrary->FindForMesh( clipRig, sampleClip );
-                        if ( found )
-                            anim.Animator->SetPoseGraphBlendSample( n, i, found.GetValue()->GetClip() );
-                        else if ( !m_AnimationLibrary->HasPending( sampleClip ) )
-                            ReportUnplayableState( clipRig, node->Name, sampleClip, found.GetError() );
+                        if ( const Animation::AnimationClip* bound =
+                                  BoundClip( anim, clipRig, node->Name, sampleClip ) )
+                            anim.Animator->SetPoseGraphBlendSample( n, i, *bound );
                     }
                     continue;
                 }
-                std::string         clip  = node->Sequence ? node->Sequence->Clip : std::string();
-                std::string         owner = node->Name;
-                bool                loop  = node->Sequence ? node->Sequence->Loop : true;
+                const std::string* clip  = node->Sequence ? &node->Sequence->Clip : nullptr;
+                const std::string* owner = &node->Name;
+                bool               loop  = node->Sequence ? node->Sequence->Loop : true;
                 if ( node->Machine )
                 {
                     const AG::State* current = evaluator.CurrentState( node->Name );
                     if ( current == nullptr )
                         continue;
-                    clip  = current->Clip;
-                    owner = current->Name;
+                    clip  = &current->Clip;
+                    owner = &current->Name;
                     loop  = current->Loop;
                 }
-                if ( clip.empty() )
+                if ( clip == nullptr || clip->empty() )
                     continue;
-                const auto found = m_AnimationLibrary->FindForMesh( clipRig, clip );
-                if ( found )
-                    anim.Animator->SetPoseGraphSource( n, found.GetValue()->GetClip(), loop );
-                else if ( !m_AnimationLibrary->HasPending( clip ) )
-                    ReportUnplayableState( clipRig, owner, clip, found.GetError() );
+                if ( const Animation::AnimationClip* bound = BoundClip( anim, clipRig, *owner, *clip ) )
+                    anim.Animator->SetPoseGraphSource( n, *bound, loop );
             }
             SyncLinkedLayers( anim, poseGraphSet );
 
@@ -636,25 +656,22 @@ namespace Desert::ECS
                 for ( size_t n = 0; n < layerGraph.Nodes.size(); ++n )
                 {
                     const AG::PoseNode& node  = layerGraph.Nodes[n];
-                    std::string         clip  = node.Sequence ? node.Sequence->Clip : std::string();
-                    std::string         owner = node.Name;
-                    bool                loop  = node.Sequence ? node.Sequence->Loop : true;
+                    const std::string* clip  = node.Sequence ? &node.Sequence->Clip : nullptr;
+                    const std::string* owner = &node.Name;
+                    bool               loop  = node.Sequence ? node.Sequence->Loop : true;
                     if ( node.Machine && machines != nullptr )
                     {
                         const AG::State* current = machines->CurrentState( node.Name );
                         if ( current == nullptr )
                             continue;
-                        clip  = current->Clip;
-                        owner = current->Name;
+                        clip  = &current->Clip;
+                        owner = &current->Name;
                         loop  = current->Loop;
                     }
-                    if ( clip.empty() )
+                    if ( clip == nullptr || clip->empty() )
                         continue;
-                    const auto found = m_AnimationLibrary->FindForMesh( clipRig, clip );
-                    if ( found )
-                        anim.Animator->SetLinkedLayerSource( slot, n, found.GetValue()->GetClip(), loop );
-                    else if ( !m_AnimationLibrary->HasPending( clip ) )
-                        ReportUnplayableState( clipRig, owner, clip, found.GetError() );
+                    if ( const Animation::AnimationClip* bound = BoundClip( anim, clipRig, *owner, *clip ) )
+                        anim.Animator->SetLinkedLayerSource( slot, n, *bound, loop );
                 }
             }
         }
@@ -1240,5 +1257,10 @@ namespace Desert::ECS
         // state whose clip failed for one reason and then for another stayed silent about the second.
         // Mutable because reporting is a property of the log, not of the world being simulated.
         mutable std::unordered_map<std::string, std::string> m_Reported;
+
+        /// The blend-space state's sample clips, reused tick to tick (PlayBlendSpace reads them as a span).
+        std::vector<const Animation::AnimationClip*> m_BlendSpaceClips;
+        /// The owner name the CurrentClip path reports under, built once rather than per tick.
+        inline static const std::string s_CurrentClipOwner = "AnimationComponent.CurrentClip";
     };
 } // namespace Desert::ECS
