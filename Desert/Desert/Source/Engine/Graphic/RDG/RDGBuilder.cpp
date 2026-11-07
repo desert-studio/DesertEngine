@@ -470,6 +470,65 @@ namespace Desert::Graphic::RDG
             RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
     }
 
+    void Builder::AddCopyBufferPass( const BufferRef source, const uint64_t sourceOffset, const BufferRef target,
+                                     const uint64_t targetOffset, const uint64_t bytes )
+    {
+        CheckNotInSetupTask( m_Name, "AddCopyBufferPass" );
+        const ResourceRecord* from   = FindResource( source.Index, ResourceKind::Buffer );
+        const ResourceRecord* into   = FindResource( target.Index, ResourceKind::Buffer );
+        const auto            nameOf = []( const ResourceRecord* record, const BufferRef buffer )
+        {
+            if ( record == nullptr )
+                return fmt::format( "#{}", buffer.Index );
+            return std::string( record->Name.data(), record->Name.size() );
+        };
+        const std::string fromName = nameOf( from, source );
+        const std::string intoName = nameOf( into, target );
+        std::string       error;
+        if ( from == nullptr || into == nullptr )
+            error = fmt::format( "graph '{}': copy {} -> {} names an invalid buffer handle", m_Name, fromName,
+                                 intoName );
+        else if ( source.Index == target.Index )
+            error = fmt::format( "graph '{}': copy of buffer '{}' into itself", m_Name, fromName );
+        else if ( bytes == 0u )
+            error = fmt::format( "graph '{}': copy {} -> {} carries no bytes", m_Name, fromName, intoName );
+        else if ( ( bytes | sourceOffset | targetOffset ) % 4u != 0u )
+            error = fmt::format( "graph '{}': copy {} -> {} of {} bytes ({} -> {}) is not 4-byte aligned", m_Name,
+                                 fromName, intoName, bytes, sourceOffset, targetOffset );
+        else if ( sourceOffset > from->Buffer.Bytes || bytes > from->Buffer.Bytes - sourceOffset )
+            error = fmt::format( "graph '{}': copy of {} bytes at {} out of buffer '{}' of {} bytes", m_Name,
+                                 bytes, sourceOffset, fromName, from->Buffer.Bytes );
+        else if ( targetOffset > into->Buffer.Bytes || bytes > into->Buffer.Bytes - targetOffset )
+            error = fmt::format( "graph '{}': copy of {} bytes at {} into buffer '{}' of {} bytes", m_Name, bytes,
+                                 targetOffset, intoName, into->Buffer.Bytes );
+        const bool declared = from != nullptr && into != nullptr && source.Index != target.Index;
+
+        AddPass(
+             std::format( "Copy: {} -> {}", fromName, intoName ), PassFlags::Copy,
+             [&]( PassBuilder& pass )
+             {
+                 // Declared even when refused: the faulted write makes the target's readers Dependency faults.
+                 if ( declared )
+                 {
+                     pass.Read( source, Access::CopySrc );
+                     pass.Write( target, Access::CopyDst );
+                 }
+             },
+             [source, sourceOffset, target, targetOffset, bytes]( PassContext& context ) -> Common::BoolResultStr
+             {
+                 const Common::ResultStr<BufferBinding> read = context.GetBuffer( source, Access::CopySrc );
+                 if ( !read )
+                     return Common::MakeFormattedError( "{}", read.GetError() );
+                 const Common::ResultStr<BufferBinding> written = context.GetBuffer( target, Access::CopyDst );
+                 if ( !written )
+                     return Common::MakeFormattedError( "{}", written.GetError() );
+                 return context.GetBackend().CopyBuffer( read.GetValue().Resource, sourceOffset,
+                                                         written.GetValue().Resource, targetOffset, bytes );
+             } );
+        if ( !error.empty() )
+            RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
+    }
+
     TextureRef Builder::RegisterExternal( ExternalTexture& texture, std::string_view name )
     {
         CheckNotInSetupTask( m_Name, "RegisterExternal" );

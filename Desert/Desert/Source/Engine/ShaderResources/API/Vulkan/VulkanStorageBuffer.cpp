@@ -16,9 +16,12 @@ namespace Desert::ShaderResources::API::Vulkan
         // ParticleRenderer::DrawPass reads it through Renderer::DrawProceduralIndirect); TRANSFER_DST because a
         // persistent buffer imported into a graph is filled by the graph's upload
         // (RDG::Builder::QueueBufferUpload, a copy) when its content changes, so a frame in flight never reads a
-        // buffer the CPU is writing (GlobalDistanceField's mesh SDF records).
+        // buffer the CPU is writing (GlobalDistanceField's mesh SDF records); TRANSFER_SRC because a pooled buffer
+        // that grows is copied into its successor by the graph (RDG::Builder::AddCopyBufferPass, GrassRenderer
+        // BufferPool::Commit), so the ranges it held keep their contents.
         constexpr VkBufferUsageFlags kUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                               VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                              VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                               VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
         // GRASS-CULL-2: a storage buffer is also READ BY ADDRESS where the device has bufferDeviceAddress (its own

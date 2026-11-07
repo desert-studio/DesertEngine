@@ -2364,6 +2364,35 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRdgBackend::CopyBuffer( const uint32_t source, const uint64_t sourceOffset,
+                                                        const uint32_t target, const uint64_t targetOffset,
+                                                        const uint64_t bytes )
+    {
+        const VkCommandBuffer commandBuffer = RecordingBuffer();
+        if ( commandBuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "graph '{}': buffer copy outside a recording pass", m_GraphName );
+        if ( OpenRenderPassState().has_value() )
+            return Common::MakeFormattedError( "graph '{}': buffer copy inside a render pass", m_GraphName );
+        const auto find = [this]( const uint32_t resource ) noexcept -> VulkanRdgBuffer*
+        {
+            if ( resource >= m_Buffers.size() )
+                return nullptr;
+            return m_Buffers[resource].get();
+        };
+        const VulkanRdgBuffer* const from = find( source );
+        const VulkanRdgBuffer* const into = find( target );
+        if ( from == nullptr || into == nullptr )
+            return Common::MakeFormattedError( "graph '{}': buffer copy {} -> {} names a resource with no Vulkan "
+                                               "buffer",
+                                               m_GraphName, source, target );
+        VkBufferCopy region{};
+        region.srcOffset = from->GetOffset() + sourceOffset;
+        region.dstOffset = into->GetOffset() + targetOffset;
+        region.size      = bytes;
+        vkCmdCopyBuffer( commandBuffer, from->GetBuffer(), into->GetBuffer(), 1, &region );
+        return Common::MakeSuccess( true );
+    }
+
     void VulkanRdgBackend::EndRenderPass()
     {
         const VkCommandBuffer commandBuffer = RecordingBuffer(); // the chunk's primary on a worker
