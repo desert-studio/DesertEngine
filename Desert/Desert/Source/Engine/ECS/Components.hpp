@@ -1666,6 +1666,18 @@ namespace Desert::ECS
     class TransformComponent;
     bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
 
+    // Recomposes the cached WORLD transform of `root` (from its nearest transformed ancestor's cached world)
+    // and of every entity under it, parent before child (UE USceneComponent::UpdateComponentToWorld, which
+    // propagates to the attached children). Called by every hierarchy write: SetLocalTransform, Scene::Attach /
+    // Detach, and Core::Scene's construct/replace hooks. Cost is the subtree, on the write; reads are a load.
+    void UpdateWorldTransforms( entt::registry& registry, entt::entity root );
+    // Whether `transform` still holds the root-only world its constructor gave it (a fresh emplace or a
+    // registry.replace), i.e. its parent chain has not been composed into it yet. Core::Scene's hooks ask.
+    [[nodiscard]] bool WorldTransformPending( const TransformComponent& transform );
+    // The cached world transform of the nearest ancestor of `entity` that has a TransformComponent (identity
+    // at a root): what a child composes under, and what an entity without a transform of its own stands at.
+    [[nodiscard]] glm::mat4 ParentWorldTransform( const entt::registry& registry, entt::entity entity );
+
     // THE ENTITY'S LOCAL TRANSFORM, READ-ONLY. Nothing may write it in place: every write goes through
     // SetLocalTransform (below), which is a registry.patch, so EnTT's on_update<TransformComponent> fires for
     // every change and Core::Scene's render-state dirty set (UE MarkRenderStateDirty) sees it at the source —
@@ -1677,7 +1689,7 @@ namespace Desert::ECS
     {
     public:
         TransformComponent() = default;
-        TransformComponent( const LocalTransform& local ) : m_Local( local ) {}
+        TransformComponent( const LocalTransform& local ) : m_Local( local ), m_World( local.GetTransform() ) {}
 
         [[nodiscard]] const LocalTransform& GetLocal() const
         {
@@ -1699,11 +1711,24 @@ namespace Desert::ECS
         {
             return m_Local.GetTransform();
         }
+        // THE CACHED WORLD TRANSFORM (UE USceneComponent::ComponentToWorld): parent world x local, kept current
+        // by UpdateWorldTransforms on every hierarchy write, so a reader neither walks the parent chain nor
+        // recomposes a TRS. Copies with the component (registry copy, duplicate) stay consistent with it.
+        [[nodiscard]] const glm::mat4& GetWorldTransform() const
+        {
+            return m_World;
+        }
 
     private:
         LocalTransform m_Local;
+        glm::mat4      m_World = glm::mat4( 1.0f );
+        // False until UpdateWorldTransforms composed the parent chain in; a constructed component holds the
+        // root-only world (local), which is right for an unparented entity in a registry without hooks.
+        bool m_WorldComposed = false;
 
         friend bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
+        friend void UpdateWorldTransforms( entt::registry& registry, entt::entity root );
+        friend bool WorldTransformPending( const TransformComponent& transform );
     };
 
     // THE ONE WRITER of a TransformComponent (UE USceneComponent::SetRelativeTransform, which ends in
@@ -1714,8 +1739,14 @@ namespace Desert::ECS
     {
         if ( registry.get<TransformComponent>( entity ).m_Local == local )
             return false;
-        registry.patch<TransformComponent>( entity, [&local]( TransformComponent& component )
-                                            { component.m_Local = local; } );
+        // The world cache (this entity's and its subtree's) is recomposed inside the patch, so every
+        // on_update<TransformComponent> listener already reads the new world.
+        registry.patch<TransformComponent>( entity,
+                                            [&registry, entity, &local]( TransformComponent& component )
+                                            {
+                                                component.m_Local = local;
+                                                UpdateWorldTransforms( registry, entity );
+                                            } );
         return true;
     }
 

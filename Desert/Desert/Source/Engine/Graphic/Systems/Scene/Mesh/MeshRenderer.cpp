@@ -1996,12 +1996,24 @@ namespace Desert::Graphic::System
         StaticCasterTrack& track = m_StaticCasters;
         // The queues' primitives in queue order (identity, not content: what each record draws is the stream's):
         // the kept rows and cascade parts are per queue entry, so another set or order is another revision.
-        uint64_t   order = 0xCBF29CE484222325ull;
-        const auto fold  = [&order]( const uint64_t value ) { order = ( order ^ value ) * 0x100000001B3ull; };
+        // The retained prefix's share is folded once per token (its primitives stand while the prefix is kept).
+        uint64_t          order    = 0xCBF29CE484222325ull;
+        const auto        fold     = [&order]( const uint64_t value )
+        { order = ( order ^ value ) * 0x100000001B3ull; };
+        const std::size_t retained = std::min( m_StaticRetained, m_StaticQueue.size() );
+        if ( keptPrefix && m_StaticOrderToken != 0u && m_StaticOrderToken == m_StaticToken )
+            order = m_StaticPrefixOrder;
+        else
+        {
+            for ( std::size_t si = 0; si < retained; ++si )
+                fold( m_StaticQueue[si].GpuPrimitive );
+            m_StaticPrefixOrder = order;
+            m_StaticOrderToken  = m_StaticToken;
+        }
         fold( m_StaticQueue.size() );
         fold( m_GenericQueue.size() );
-        for ( const auto& data : m_StaticQueue )
-            fold( data.GpuPrimitive );
+        for ( std::size_t si = retained; si < m_StaticQueue.size(); ++si )
+            fold( m_StaticQueue[si].GpuPrimitive );
         for ( const auto& data : m_GenericQueue )
             fold( data.GpuPrimitive );
         // Another stream (a scene re-created), a lost window (not read for kPrimitiveChangeFrames), the frame put
@@ -2371,7 +2383,7 @@ namespace Desert::Graphic::System
             m_OtherGpuInstances.push_back( rows.RigidInstances[record++] );
         // The static casters' revision and rows (SCENE-CACHE-4): this view's records are synced and every
         // static / generic entry names its primitive.
-        TrackStaticCasters( scene );
+        TrackStaticCasters( scene, keptStatic );
         for ( size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             m_SkinnedQueue[i].GpuPrimitive = rows.SkinnedPrimitives[i];
@@ -2388,19 +2400,65 @@ namespace Desert::Graphic::System
         // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
         // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
         BeginMaterialRowSync();
+        // The retained prefix kept (its entries, columns and rows as registered for this token): its distinct
+        // keys are claimed and revision-checked, its entries keep their MaterialRow. Any key resolving to another
+        // row than the one its entries hold re-registers the prefix entry by entry (the key list stands: the
+        // same token is the same prefix, and every one of its keys is claimed by then).
+        const bool rowsKept = keptStatic && m_StaticRowsToken != 0u && m_StaticRowsToken == m_StaticToken;
+        bool       rowsMoved = false;
+        if ( rowsKept )
+            for ( StaticPrefixRow& held : m_StaticPrefixRows )
+            {
+                const uint32_t index = RegisterMaterialRow( registry, held.Surface, held.Instance, held.Receive );
+                if ( index != held.Index )
+                {
+                    held.Index = index;
+                    rowsMoved  = true;
+                }
+            }
+        std::size_t firstRegistered = retained;
+        if ( !rowsKept )
+        {
+            firstRegistered = 0u;
+            m_StaticPrefixRows.clear();
+            m_StaticRowsToken = m_StaticToken;
+        }
+        else if ( rowsMoved )
+            firstRegistered = 0u;
+        // Whether this sync already claimed the key (the prefix's distinct keys are collected on first claim).
+        const auto claimedThisSync = [this]( DataDrivenMaterial* surface, MaterialInstance* inst, bool receive )
+        {
+            uint32_t variant = 0u;
+            if ( !receive )
+                variant = GpuDriven::kMaterialRowNoSunShadows;
+            const GpuDriven::MaterialRowKey key{ .Material = surface, .Instance = inst, .Variant = variant };
+            const auto                      found = m_FrameMaterialRows.find( key );
+            return found != m_FrameMaterialRows.end() && found->second.Sync == m_MaterialRowSync;
+        };
+        const auto registerPrefixed = [&]( DataDrivenMaterial* surface, MaterialInstance* inst, bool receive,
+                                           bool prefix ) -> uint32_t
+        {
+            if ( !prefix || claimedThisSync( surface, inst, receive ) )
+                return RegisterMaterialRow( registry, surface, inst, receive );
+            const uint32_t index = RegisterMaterialRow( registry, surface, inst, receive );
+            m_StaticPrefixRows.push_back(
+                 StaticPrefixRow{ .Surface = surface, .Instance = inst, .Receive = receive, .Index = index } );
+            return index;
+        };
         // The section's surface from its column (the gather's ShadingOf: SectionSurface, the same answer).
-        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
+        for ( std::size_t si = firstRegistered; si < m_StaticQueue.size(); ++si )
         {
             StaticMeshRenderData&     data    = m_StaticQueue[si];
             MaterialInstance* const   inst    = columns.Instances[si];
             DataDrivenMaterial* const surface = columns.Surfaces[si];
             if ( inst == nullptr || surface == nullptr )
                 continue;
-            const uint32_t receiving = RegisterMaterialRow( registry, surface, inst, true );
+            const bool     prefix    = si < retained;
+            const uint32_t receiving = registerPrefixed( surface, inst, true, prefix );
             if ( data.ReceiveShadows )
                 data.MaterialRow = receiving;
             else
-                data.MaterialRow = RegisterMaterialRow( registry, surface, inst, false );
+                data.MaterialRow = registerPrefixed( surface, inst, false, prefix );
         }
         for ( const auto& data : m_InstancedQueue )
             if ( data.Material )
