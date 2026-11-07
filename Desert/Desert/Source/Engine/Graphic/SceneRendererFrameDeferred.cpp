@@ -1078,9 +1078,17 @@ namespace Desert::Graphic
                                                .GBufferB          = gbuffer[1],
                                                .Depth             = textures.Depth( m_GBuffer, "GBuffer" ) };
         const System::SubsurfaceSettings settings{ .Scale = m_SubsurfaceScale };
-        const System::SubsurfaceScatter  scatter = subsurface->AddScatter(
-             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings, frame,
-             m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        const uint32_t                   width  = m_TargetFramebuffer->GetFramebufferWidth();
+        const uint32_t                   height = m_TargetFramebuffer->GetFramebufferHeight();
+        // GPU-TILE-CLASSIFY (UE Substrate: the SSS over the complex ClassificationTiles): the scatter and the
+        // recombine cover only the view's complex tiles (a scattered texel is never DefaultLit). The list exists
+        // in the Lit view only (AddFrameTileClassify); without it both cover the view.
+        const System::DeferredTileLists& lists = textures.Transients.DeferredTiles;
+        const RDG::BufferRef             tiles =
+             subsurface->DispatchesTiles( lists, width, height ) ? lists.Buffer : RDG::BufferRef{};
+        const System::SubsurfaceScatter scatter =
+             subsurface->AddScatter( graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(),
+                                     inputs, settings, frame, width, height, tiles );
         if ( !scatter.Scattered.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Subsurface: Burley was not added (no atlas rows or no pipeline)" );
@@ -1095,11 +1103,11 @@ namespace Desert::Graphic
              "Subsurface: Recombine", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 subsurface->DeclareRecombineBindings( pass, inputs, scatter );
+                 subsurface->DeclareRecombineBindings( pass, inputs, scatter, tiles );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
-             [subsurface]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return subsurface->RecordRecombine( context ); } );
+             [subsurface, tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return subsurface->RecordRecombine( context, tiles ); } );
     }
 
     bool SceneRenderer::GlobalDistanceFieldRead() const
