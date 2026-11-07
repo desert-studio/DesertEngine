@@ -628,9 +628,16 @@ namespace Desert::Graphic
     {
         // THE INTERFACE'S WRITE TO WHAT THE RENDER TASK READS (UE: ENQUEUE_RENDER_COMMAND). On the render task
         // itself, or with nothing in flight, @p apply runs now; otherwise it waits for the fence
-        // (RenderTask::AfterJoin), which runs it after the views in flight and before the next BeginScene of any
-        // view. Tested here rather than left to AfterJoin so the common case (a setter called between frames)
+        // (RenderTask::AfterViews), which runs it after the views in flight and before the next BeginScene of any
+        // view. Tested here rather than left to the fence so the common case (a setter called between frames)
         // builds no std::function. The renderer outlives a deferred write: its destructor joins first.
+        // THE VIEWS ARE ITS WHOLE FENCE (CPU-GT-OVERLAP): every setter routed here writes this renderer's own
+        // view state (m_Quality, m_DebugView, the outline system's settings, the LOD preview, the watched
+        // primitive, the temporal-history reset), which only this renderer's view jobs (EnqueueView) read. The
+        // frame jobs still in flight at JoinViews (the interface draw, the census, submit/present, frame begin,
+        // the surface-cache frame) record no SceneRenderer, so the write no longer races them. The editor pushes
+        // three of these per view every frame (SceneWorkspace, before the tick): as AfterJoin they turned every
+        // frame's first BeginScene into a full Join behind frame N-1's interface, submit and present.
         template <typename Apply>
         void BetweenRecordings( Apply&& apply )
         {
@@ -640,7 +647,7 @@ namespace Desert::Graphic
                 apply();
                 return;
             }
-            task.AfterJoin( std::forward<Apply>( apply ) );
+            task.AfterViews( std::forward<Apply>( apply ) );
         }
     } // namespace
 

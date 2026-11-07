@@ -54,6 +54,9 @@ namespace Desert::Editor
 
         // Queue the conversion of Target() and end the placement UI. The heavy swap happens in ProcessPending.
         static void RequestConvert();
+        // A conversion is queued: what ProcessPending would act on. The editor defers the swap behind the render
+        // work (RenderTask::AfterJoin) only then, so a frame with nothing queued defers no full fence.
+        [[nodiscard]] static bool ConvertPending() noexcept;
 
         // Runs a queued conversion (no-op otherwise). Reads the entity's static geometry, auto-weights it to
         // the placed bones, builds a runtime SkinnedMesh + Skeleton and swaps the component. Safe to call every

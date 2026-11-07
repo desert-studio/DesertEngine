@@ -1381,8 +1381,8 @@ namespace Desert::Runtime
         // interface, submit and present had to finish before the world tick could start, and the render thread
         // idled through the tick ("Render task: wait for game thread" 0.76 ms). Now the graveyard is only LOOKED
         // AT here - the reader lock, no join - and when it holds anything the destruction runs as a command
-        // behind the render work in flight (RenderTask::AfterJoin): at the frame's own fence (Scene::OnUpdate's
-        // join, step 4b SyncPreviousFrame), or at once when nothing is in flight (serial mode, tests, bakes).
+        // behind the views in flight (RenderTask::AfterViews): at the next view bracket's fence (BeginScene's
+        // JoinViews, step 4b SyncPreviousFrame), or at once when nothing is in flight (serial mode, tests, bakes).
         {
             const ReadGuard serviceLock;
             if ( m_Graveyard.Size() == 0 )
@@ -1390,12 +1390,19 @@ namespace Desert::Runtime
         }
         if ( CollectQueued().exchange( true ) )
             return;
-        ::Desert::Engine::RenderTask::Get().AfterJoin(
+        // BEHIND THE VIEWS ONLY (RenderTask::AfterViews, CPU-GT-OVERLAP): a full-fence command here made the next
+        // view bracket's JoinViews a full Join on every frame the graveyard held anything. It no longer races the
+        // frame jobs still in flight at JoinViews (frame N-1's interface draw, census, submit/present; frame N's
+        // begin and surface-cache frame): none of them reads a Material or this service's tables - the view jobs
+        // (their render passes and workers) are the only readers, and they are drained when this runs. What
+        // Collect destroys was parked at least frames-in-flight frames ago, so no recorded command buffer of a
+        // frame still in flight names its pools either. Hence the writer's guard does not join: the views are
+        // drained, and a join here would wait for exactly the frame jobs this fence lets run.
+        ::Desert::Engine::RenderTask::Get().AfterViews(
              [this]()
              {
                  CollectQueued().store( false );
-                 // No job is in flight here (a deferred command), so the writer's join below returns at once.
-                 const WriteGuard serviceLock( true );
+                 const WriteGuard serviceLock( false );
                  ::Desert::Engine::RenderTask::CheckRenderStateWrite( "MaterialService: graveyard collect" );
                  // Only the materials whose last possible frame has retired are destroyed (the GPU side: the
                  // slot fence of frame N - frames in flight was waited at BeginFrame); the rest wait for a later

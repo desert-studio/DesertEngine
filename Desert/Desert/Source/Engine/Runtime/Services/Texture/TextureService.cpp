@@ -318,7 +318,9 @@ namespace Desert::Runtime
         // waiters (RebuildWhenReady) and asking them (AwaitedBy); the settle and the invalidations it raises wait
         // for that work, as the texture's own swap does. AfterJoin may run the command at once, so this is called
         // with the table lock released, and the materials are invalidated with it released again: the material
-        // service's lock comes BEFORE this one in the one order, never under it.
+        // service's lock comes BEFORE this one in the one order, never under it. The full fence stays (not
+        // AfterViews, CPU-GT-OVERLAP): MaterialService::Invalidate's writer guard joins the whole queue anyway,
+        // and this runs once per texture creation, not per frame.
         Engine::RenderTask::Get().AfterJoin(
              [this, texture]() noexcept
              {
@@ -522,6 +524,10 @@ namespace Desert::Runtime
     void TextureService::AdoptAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
                                          Graphic::Texture2D::StagedLevels           staged )
     {
+        // THE FULL FENCE STAYS (AfterJoin, not AfterViews; CPU-GT-OVERLAP), here and in StreamOutAtHandOff: the
+        // swap moves the live Image2D (its views, layout and bindless row), and the interface draw of frame N-1 -
+        // still in flight when a view bracket's JoinViews returns - samples that same image wherever a panel shows
+        // it (UICacheTextureImGui caches an ImTextureID per Image2D). Only a streaming frame defers these.
         Engine::RenderTask::Get().AfterJoin(
              [texture, staged = std::move( staged )]() noexcept
              {
