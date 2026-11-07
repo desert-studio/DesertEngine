@@ -2589,6 +2589,9 @@ namespace Desert::Graphic::System
             MeshVertexPath            Path     = MeshVertexPath::Static;
             bool                      TwoSided = false;
             bool                      PerObject = false;
+            // An ISM's GpuScene-id cell (SurfaceSceneInstancesVariant): Own = both passes draw it by id, anything
+            // else = by its packed transforms (the plain key's draw).
+            bool SceneInstances                             = false;
             auto operator<=>( const PrepassCellKey& ) const = default;
         };
         // A flat vector sorted by key (was a std::map: a node allocation per cell per frame); clear() per frame keeps

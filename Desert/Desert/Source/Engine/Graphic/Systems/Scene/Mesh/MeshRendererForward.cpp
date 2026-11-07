@@ -2144,7 +2144,7 @@ namespace Desert::Graphic::System
                 // unpaired: no twin, refused out loud by the group loop below
             }
             if ( instancingOn )
-                if ( DataDrivenMaterial* const variant = instancedCellOf( c, mat ) )
+                if ( DataDrivenMaterial* const variant = instancedCellOf( c, mat, /*sceneIds*/ false ) )
                     worst = worse( worst,
                                    ChooseCellDraw( c.InstancedState, *variant, twoSided, c.InstancedStandIn ) );
             return worst;
@@ -2166,6 +2166,55 @@ namespace Desert::Graphic::System
             if ( mode.Pass == MeshPass::Depth )
                 RecordPrepassCellDraw( key, draw );
             return draw;
+        };
+        // AN ISM's CELL, the PSO precache's rule (UE: a draw waits for ITS pipeline and draws as before until it
+        // is ready): by GpuScene id once the scene-id cell (SurfaceSceneInstancesVariant) is Ready in this pass
+        // and in its companion and this graph has the scene's instance rows; until then its packed transforms
+        // through the plain instanced cell (cellDrawOf, perObject false) - the ISM is drawn on every frame of the
+        // switch. Paired with the prepass both answers are the prepass's record (the plain key holds the ISM's
+        // effective draw, so DeferredHalfTakes splits it by what is actually drawn).
+        struct IsmCellChoice
+        {
+            CellDraw Draw     = CellDraw::Nothing;
+            bool     SceneIds = false;
+        };
+        const auto sceneIdCellReadyIn = [&]( const StaticPassCells& c, DataDrivenMaterial* mat,
+                                             const bool twoSided ) -> bool
+        {
+            if ( !instancingOn || materialService == nullptr || !materialService->Owns( mat ) )
+                return false; // a renderer-owned material is recorded by the spare (packed transforms)
+            DataDrivenMaterial* const cell = instancedCellOf( c, mat, /*sceneIds*/ true );
+            return cell != nullptr &&
+                   ChooseCellDraw( c.InstancedState, *cell, twoSided, c.InstancedStandIn ) == CellDraw::Own;
+        };
+        const auto ismCellOf = [&]( DataDrivenMaterial* mat, const bool twoSided ) -> IsmCellChoice
+        {
+            const bool sceneRows = m_FrameSceneInstances.IsValid();
+            if ( !companion )
+            {
+                if ( sceneRows && sceneIdCellReadyIn( cells, mat, twoSided ) )
+                    return { .Draw = CellDraw::Own, .SceneIds = true };
+                return { .Draw = cellDrawIn( cells, mat, twoSided, /*perObject*/ false ), .SceneIds = false };
+            }
+            const PrepassCellKey key{ .Material = mat, .Path = MeshVertexPath::Static, .TwoSided = twoSided };
+            const PrepassCellKey idKey{
+                 .Material = mat, .Path = MeshVertexPath::Static, .TwoSided = twoSided, .SceneInstances = true };
+            if ( mode.Pass == MeshPass::Forward || mode.Half == DeferredPrepassHalf::Equal )
+                if ( const auto decided = PrepassCellDraw( key ) )
+                    return { .Draw     = *decided,
+                             .SceneIds = sceneRows && PrepassCellDraw( idKey ) == CellDraw::Own };
+            const bool ids = sceneRows && sceneIdCellReadyIn( cells, mat, twoSided ) &&
+                             sceneIdCellReadyIn( *companion, mat, twoSided );
+            CellDraw draw = CellDraw::Own;
+            if ( !ids )
+                draw = worse( cellDrawIn( cells, mat, twoSided, false ),
+                              cellDrawIn( *companion, mat, twoSided, false ) );
+            if ( mode.Pass == MeshPass::Depth )
+            {
+                RecordPrepassCellDraw( key, draw );
+                RecordPrepassCellDraw( idKey, ids ? CellDraw::Own : CellDraw::Nothing );
+            }
+            return { .Draw = draw, .SceneIds = ids };
         };
         const auto groupTwoSided = []( DataDrivenMaterial*                             mat,
                                        const std::vector<const StaticMeshRenderData*>& members )
@@ -2680,17 +2729,17 @@ namespace Desert::Graphic::System
                 const PrepassCellKey ismKey{ mat, MeshVertexPath::Static, ism.Material->IsTwoSided(), false };
                 if ( !DeferredHalfTakes( mode.Half, mat, ismKey ) )
                     continue;
-                const CellDraw ismDraw = cellDrawOf( mat, ism.Material->IsTwoSided(), /*perObject*/ false );
-                if ( ismDraw == CellDraw::Nothing )
+                // By GpuScene id (SurfaceSceneInstancesVariant) once its cell is Ready and this view's graph has
+                // the scene's instance rows (ismCellOf): the pass uploads 4 bytes per drawn instance, the vertex
+                // stage reads its transform from the scene. Until then the plain cell packs its transforms, and
+                // the stand-in (the renderer's spare, until the plain cell is Ready) too.
+                const IsmCellChoice ismCell = ismCellOf( mat, ism.Material->IsTwoSided() );
+                if ( ismCell.Draw == CellDraw::Nothing )
                     continue;
-                const bool ismStandsIn = ismDraw == CellDraw::DefaultSurface;
+                const bool ismStandsIn = ismCell.Draw == CellDraw::DefaultSurface;
                 if ( ismStandsIn && mode.Half == DeferredPrepassHalf::Depth )
                     continue; // no stand-in in the early-Z pass: the Rest half draws it with its own depth
-                // By GpuScene id (SurfaceSceneInstancesVariant) whenever this view's graph has the scene's
-                // instance
-                // rows: the pass uploads 4 bytes per drawn instance, the vertex stage reads its transform from the
-                // scene. The stand-in (the renderer's spare, until the cell is Ready) packs its transforms.
-                const bool         ismSceneIds = !ismStandsIn && m_FrameSceneInstances.IsValid();
+                const bool         ismSceneIds = !ismStandsIn && ismCell.SceneIds;
                 InstancedBatchSet* ismSet =
                      ismStandsIn ? &setFor( instancedMaterial, instancedInstance, false )
                                  : setForGroup( mat, ismSceneIds );
