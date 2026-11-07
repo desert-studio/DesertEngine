@@ -663,8 +663,44 @@ namespace Desert::Graphic::System
             uint32_t                   GpuInstance = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
-            std::string               ShaderName;
-            Graphic::MaterialOverrides Overrides;
+
+            // THE DRAW'S NAMED VALUES ARE REFERENCED, NOT COPIED (UE: a mesh draw command points at its proxy's
+            // material relevance; CPU-TEXT-G8). The shader name, the overrides, the direct sampler name and the
+            // hit group live in the recorded command (DrawGenericMeshCommand) or in the producer-kept
+            // GenericMeshDrawParams it points at; both stay alive until the recording's Clear at Scene::OnUpdate's
+            // fence, past every pass that reads this queue (ClearQueues drops the queue before the next replay).
+            // So a replay per view copies no string and no vector. Never null: a draw without one of them (a
+            // per-slot draw, SubmitSlotMaterialMesh) points at the empty value below.
+            static inline const std::string                      NoName{};
+            static inline const Graphic::MaterialOverrides       NoOverrides{};
+            static inline const RayTracing::RayTracingProgramHit NoRayHit{};
+            const std::string*                                   ShaderNameRef           = &NoName;
+            const Graphic::MaterialOverrides*                    OverridesRef            = &NoOverrides;
+            const std::string*                                   DirectTextureSamplerRef = &NoName;
+            const RayTracing::RayTracingProgramHit*              RayHitRef               = &NoRayHit;
+            // Empty: a per-slot draw (the shader name comes from SlotMaterial at draw time).
+            [[nodiscard]] const std::string& ShaderName() const noexcept
+            {
+                return *ShaderNameRef;
+            }
+            [[nodiscard]] const Graphic::MaterialOverrides& Overrides() const noexcept
+            {
+                return *OverridesRef;
+            }
+            // The sampler DirectTexture binds to (empty with no DirectTexture).
+            [[nodiscard]] const std::string& DirectTextureSampler() const noexcept
+            {
+                return *DirectTextureSamplerRef;
+            }
+            // The record's own hit group when its program is no surface template (3D text: TextRayHit, built by
+            // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
+            // else the default surface. Read by the gather only when VisibleInRayTracing. Its address is the
+            // producer's (stable while the producer keeps the values), so the gather may keep it by address.
+            [[nodiscard]] const RayTracing::RayTracingProgramHit& RayHit() const noexcept
+            {
+                return *RayHitRef;
+            }
+
             bool                      Outlined = false; // selected -> JFA outline
 
             // Whether this record rasterizes into the shadow cascades. DEFAULT OFF, unlike the lit
@@ -683,14 +719,9 @@ namespace Desert::Graphic::System
 
             // A RUNTIME-owned texture bound straight to a sampler (bypasses the asset-handle
             // texture-override path). For procedural textures with no TextureAsset — e.g. the text
-            // system's SDF font atlas. Non-owning: the producer keeps it alive for the frame.
-            Graphic::Image2D* DirectTexture        = nullptr;
-            std::string       DirectTextureSampler;
-
-            // The record's own hit group when its program is no surface template (3D text: TextRayHit, built by
-            // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
-            // else the default surface. Read by the gather only when VisibleInRayTracing.
-            RayTracing::RayTracingProgramHit RayHit;
+            // system's SDF font atlas. Non-owning: the producer keeps it alive for the frame. Its sampler:
+            // DirectTextureSampler() above.
+            Graphic::Image2D* DirectTexture = nullptr;
 
             // Its row in the scene material table (SyncGpuScene, RegisterGenericRows): a per-slot draw's is its
             // asset's row, a Shader Override draw's its own (template defaults + Overrides.Params + texture slots,
@@ -3428,12 +3459,9 @@ namespace Desert::Graphic::System
         // was the whole defect while parameters lived in the material too; textures still live there, and a
         // key that ignored them would batch two entities into one descriptor set and give both the last
         // one's textures.
+        // A record holds no heap member (its names and values are referenced: GenericMeshRenderData), so a steady
+        // frame's push_back reuses the queue's capacity and allocates nothing.
         std::vector<GenericMeshRenderData>                              m_GenericQueue;
-        // Last frame's generic records (ClearQueues swaps the queue in): SubmitGenericMesh copy-assigns each new
-        // record into the spare at its position, so the record's strings and override vectors reuse the buffers
-        // they had (UE's FMeshBatch arrays reused frame to frame), and moves it into the queue. Never read as
-        // records: their raw pointers are last frame's and are only overwritten.
-        std::vector<GenericMeshRenderData>                                   m_GenericSpare;
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericMaterials;
 
         // AL1-12: which material pipelines this renderer asked for and what they are doing; how far it has

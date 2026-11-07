@@ -686,6 +686,10 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp",
           "DrawGenericMeshCommand", "DirectTexture", Guard::FrameScoped,
           kWhyFramePayload },
+        { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp",
+          "DrawGenericMeshCommand", "Params", Guard::FrameScoped,
+          "the pair is held by the producing TextComponent's RuntimeDraw shared_ptr, and a rebuild or a destroyed "
+          "component parks the old one in ECS::RetireRenderCache, which keeps it past the frames in flight, as Mesh" },
         { "Desert/Desert/Source/Engine/Graphic/Render/Commands/DrawMeshCommand.hpp",
           "DrawStaticMeshCommand", "Mesh", Guard::FrameScoped,
           "the mesh is held by the ECS component, the primitive factory's process-wide table or MeshService for the whole frame" },
@@ -923,6 +927,26 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "GenericMeshRenderData", "DirectTexture", Guard::FrameScoped,
           kWhyFramePayload },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "ShaderNameRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "OverridesRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "DirectTextureSamplerRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "GenericMeshRenderData", "RayHitRef", Guard::FrameScoped,
+          "the recorded DrawGenericMeshCommand's member or its producer-kept GenericMeshDrawParams (or the "
+          "static empty value), alive until the recording's Clear at Scene::OnUpdate's fence, after every "
+          "pass that reads this queue" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "ObjDraw", "Obj", Guard::OwnedByThisObject,
           "points into m_StaticQueue, which is fully populated before the pass that builds these and is not pushed to during it" },

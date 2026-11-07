@@ -67,14 +67,14 @@ namespace Desert::Graphic::System
                 return; // the material IS the asset; it is already its own key
 
             order.clear();
-            for ( const auto& texture : g.Overrides.Textures )
+            for ( const auto& texture : g.Overrides().Textures )
                 if ( texture.second != 0 )
                     order.push_back( &texture );
             std::sort( order.begin(), order.end(), []( const auto* a, const auto* b ) { return *a < *b; } );
             for ( const auto* const texture : order )
                 std::format_to( std::back_inserter( key ), "|{}={}", texture->first, texture->second );
-            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() )
-                std::format_to( std::back_inserter( key ), "|{}=@{}", g.DirectTextureSampler,
+            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler().empty() )
+                std::format_to( std::back_inserter( key ), "|{}=@{}", g.DirectTextureSampler(),
                                 static_cast<const void*>( g.DirectTexture ) );
         }
 
@@ -90,7 +90,7 @@ namespace Desert::Graphic::System
                                     const std::string_view shaderName, const bool logRefused )
         {
             material.ApplyDefaults();
-            for ( const auto& [name, value] : g.Overrides.Params )
+            for ( const auto& [name, value] : g.Overrides().Params )
                 material.SetParamRaw( name, value );
             ApplyGenericTextures( material, g, shaderName, logRefused );
         }
@@ -102,7 +102,7 @@ namespace Desert::Graphic::System
             // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
             // the material and not per draw, because the key above guarantees every draw sharing
             // this material asked for the same set.
-            for ( const auto& [name, handle] : g.Overrides.Textures )
+            for ( const auto& [name, handle] : g.Overrides().Textures )
             {
                 if ( handle == 0 )
                     continue;
@@ -119,9 +119,9 @@ namespace Desert::Graphic::System
 
             // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
             // SDF atlas takes this path.
-            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() &&
-                 !material.SetTexture( g.DirectTextureSampler, g.DirectTexture ) && logRefused )
-                LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
+            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler().empty() &&
+                 !material.SetTexture( g.DirectTextureSampler(), g.DirectTexture ) && logRefused )
+                LogRefusedTextureOverride( shaderName, g.DirectTextureSampler() );
         }
     } // namespace MeshRendererDetail
 
@@ -169,15 +169,15 @@ namespace Desert::Graphic::System
             {
                 auto [row, made] = resolved.Facts->RowMaterials.try_emplace( GenericTextureSetOf( gi ), nullptr );
                 if ( made )
-                    row->second = SharedGenericMaterial( g.ShaderName, gi, shader );
+                    row->second = SharedGenericMaterial( g.ShaderName(), gi, shader );
                 shared = row->second;
             }
             else
             {
-                shared = SharedGenericMaterial( g.ShaderName, gi, shader );
+                shared = SharedGenericMaterial( g.ShaderName(), gi, shader );
             }
             // The draw-time slices name a refused texture; this row build does not repeat it.
-            ApplyGenericOverrides( *shared, g, g.ShaderName, false );
+            ApplyGenericOverrides( *shared, g, g.ShaderName(), false );
             const GpuDriven::MaterialRowKey key{ .Material = shared,
                                                  .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
                                                           static_cast<uint64_t>( g.MotionPart ) };
@@ -191,11 +191,11 @@ namespace Desert::Graphic::System
                 // Two records of one entity part through one (template x texture set): one row, so their values
                 // must agree; the second one's would silently take the first one's colours.
                 static std::unordered_set<std::string> s_Shared;
-                if ( s_Shared.insert( g.ShaderName ).second )
+                if ( s_Shared.insert( g.ShaderName() ).second )
                     LOG_ERROR( "[MeshRenderer] entity {} part {} submits two '{}' Shader Override draws with one "
                                "texture set; they share one row of the scene material table (the first one's "
                                "values).",
-                               g.Entity, g.MotionPart, g.ShaderName );
+                               g.Entity, g.MotionPart, g.ShaderName() );
             }
             g.MaterialRow     = claimed->Index;
             g.MaterialSurface = { shared, nullptr };
@@ -269,7 +269,7 @@ namespace Desert::Graphic::System
             // (A later reassignment of `material` leaves shaderName on the slot's, which outlives the frame.)
             DataDrivenMaterial* material =
                  g.SlotMaterial != nullptr ? dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial ) : nullptr;
-            const std::string& shaderName = material != nullptr ? material->GetShaderName() : g.ShaderName;
+            const std::string& shaderName = material != nullptr ? material->GetShaderName() : g.ShaderName();
 
             // The record's template and its facts (GenericProgramOf: resolved once a frame, the cells once per
             // program): no GetByName or TemplateCellShader per draw per slice.
@@ -3818,10 +3818,10 @@ namespace Desert::Graphic::System
                         kept = ProgramOf( *material );
                     continue;
                 }
-                if ( known != g.ShaderName ) // SubmitGenericMesh admits no empty override name
+                if ( known != g.ShaderName() ) // SubmitGenericMesh admits no empty override name
                 {
-                    known.assign( g.ShaderName );
-                    kept.Program = shaders->GetByName( g.ShaderName );
+                    known.assign( g.ShaderName() );
+                    kept.Program = shaders->GetByName( g.ShaderName() );
                 }
                 // The facts by the program's serial (an integer hash; re-made only when its code moved).
                 kept.Facts = kept.Program != nullptr ? &FactsOf( *kept.Program ) : nullptr;

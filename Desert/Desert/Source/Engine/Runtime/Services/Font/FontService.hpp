@@ -5,6 +5,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 
+#include <atomic>
 #include <memory>
 #include <shared_mutex>
 #include <string>
@@ -55,6 +56,22 @@ namespace Desert::Runtime
         // Resolve a font handle to its baked atlas (handle -> path -> Get(path,size)). nullptr if unregistered.
         Font* Get( uint64_t handle, float pixelHeight = Text::kDefaultBakePixelHeight );
 
+        // THE SAME RESOLVES, CO-OWNED (UE: FSlateFontInfo resolved once to a cached FFontData). A caller
+        // that keeps a font past the frame - a text label caching its resolve until its string or style
+        // changes - holds it here and compares Generation() before reusing it, instead of resolving
+        // handle -> path -> key every frame.
+        std::shared_ptr<Font> Share( const std::string& ttfPath,
+                                     float              pixelHeight = Text::kDefaultBakePixelHeight );
+        std::shared_ptr<Font> Share( uint64_t handle, float pixelHeight = Text::kDefaultBakePixelHeight );
+
+        // Bumped whenever a font this service handed out stops being the one a resolve returns (a glyph
+        // request drops a font for a re-bake, Clear drops all). Equal to the value read before a Share: that
+        // font is current.
+        [[nodiscard]] uint64_t Generation() const noexcept
+        {
+            return m_Generation.load( std::memory_order_acquire );
+        }
+
         // The built-in Roboto-Regular, registered on demand — the fallback when a component has no font set.
         uint64_t DefaultFontHandle();
 
@@ -81,5 +98,6 @@ namespace Desert::Runtime
         std::vector<std::string>                               m_Available;   // registered paths (for the picker)
         bool                                                   m_Scanned = false;
         uint64_t m_NextRevision                                          = 0; // Font::Revision of the last bake
+        std::atomic<uint64_t> m_Generation{ 0 }; // see Generation(); written under the exclusive lock
     };
 } // namespace Desert::Runtime

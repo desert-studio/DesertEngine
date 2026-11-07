@@ -372,10 +372,7 @@ namespace Desert::Graphic::System
         m_StaticColumns.Truncate( m_StaticRetained );
         m_StaticSceneSubmitted = false;
         m_SkinnedQueue.clear();
-        // This frame's generic records become the spares the next frame's SubmitGenericMesh assigns into (their
-        // buffers kept); the queue takes the old spares' shells (moved from: no buffers) and drops them.
-        m_GenericQueue.swap( m_GenericSpare );
-        m_GenericQueue.clear();
+        m_GenericQueue.clear(); // capacity kept; its records reference the recording ending with this frame
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         m_InstancedQueue.clear();
         m_ViewIsmIdsReady = false; // its ranges name the old queue's ISMs (PrepareViewIsmIds)
@@ -422,20 +419,10 @@ namespace Desert::Graphic::System
     {
         // Two valid shapes: an override draw (ShaderName set) or a per-slot draw (SlotMaterial
         // set — the shader name comes from the material at draw time).
-        if ( data.Mesh && ( !data.ShaderName.empty() || data.SlotMaterial ) )
+        if ( data.Mesh && ( !data.ShaderName().empty() || data.SlotMaterial ) )
         {
-            // The record is copy-ASSIGNED into last frame's record at the same position (m_GenericSpare), whose
-            // strings and override lists keep their buffers, then moved into the queue: a steady scene copies
-            // its names, samplers and overrides into storage it already holds instead of allocating them anew.
-            const std::size_t at = m_GenericQueue.size();
-            if ( at < m_GenericSpare.size() )
-            {
-                GenericMeshRenderData& kept = m_GenericSpare[at];
-                kept                        = data;
-                m_GenericQueue.push_back( std::move( kept ) );
-            }
-            else
-                m_GenericQueue.push_back( data );
+            // A trivially copied record: its names and values are referenced (GenericMeshRenderData).
+            m_GenericQueue.push_back( data );
             m_GenericProgramsResolved = false;
         }
     }
@@ -2246,14 +2233,16 @@ namespace Desert::Graphic::System
             words.MeshOf( data.Mesh );
             words.Value( data.VisibleSubmeshMask );
             words.Pointer( data.SlotMaterial );
-            // The gather keeps the record's hit program by address (SectionSource::ProgramHit).
-            words.Pointer( &data.RayHit );
-            words.Value( ( data.RayHit.Template.empty() ? 0u : 1u ) | ( data.RayHit.Opacity.has_value() ? 2u : 0u ) );
+            // The gather keeps the record's hit program by address (SectionSource::ProgramHit): the producer's
+            // (GenericMeshRenderData::RayHit), which a producer replaces, never edits, when its values move.
+            const RayTracing::RayTracingProgramHit& rayHit = data.RayHit();
+            words.Pointer( &rayHit );
+            words.Value( ( rayHit.Template.empty() ? 0u : 1u ) | ( rayHit.Opacity.has_value() ? 2u : 0u ) );
             // The surface cache's card gather keeps a generic draw's capture while the static casters' revision
             // holds (SCENE-CACHE-5): a Shader Override's program, textures and values are its cards' surface.
-            words.Value( std::hash<std::string>{}( data.ShaderName ) );
+            words.Value( std::hash<std::string>{}( data.ShaderName() ) );
             words.Value( std::hash<std::string>{}( GenericTextureKey( data ) ) );
-            for ( const auto& [name, value] : data.Overrides.Params )
+            for ( const auto& [name, value] : data.Overrides().Params )
             {
                 words.Value( std::hash<std::string>{}( name ) );
                 for ( int lane = 0; lane < 4; ++lane )

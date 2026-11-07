@@ -65,11 +65,11 @@ namespace Desert::Graphic::RayTracing
         // no slot material), opaque unless the record carries its own hit group with an alpha test.
         SectionSource GenericSectionOf( const MeshRenderer::GenericMeshRenderData& data )
         {
-            const bool program = !data.RayHit.Template.empty();
+            const bool program = !data.RayHit().Template.empty();
             return { .Visible    = data.VisibleSubmeshMask,
                      .Surface    = data.SlotMaterial,
-                     .Masked     = program && data.RayHit.Opacity.has_value(),
-                     .ProgramHit = program ? &data.RayHit : nullptr };
+                     .Masked     = program && data.RayHit().Opacity.has_value(),
+                     .ProgramHit = program ? &data.RayHit() : nullptr };
         }
 
         // The BLAS masks of @p mesh drawn by @p sections: a submesh no section draws is hidden; one a Masked

@@ -513,7 +513,7 @@ namespace Desert::Graphic::System
             out.Kind                  = PrimitiveDrawReadout::Queue::Generic;
             // The program BuildGenericDraws resolves: the per-slot material's shader, else the Shader Override's.
             const auto* slotSurface = dynamic_cast<const DataDrivenMaterial*>( data.SlotMaterial );
-            out.Template            = slotSurface != nullptr ? slotSurface->GetShaderName() : data.ShaderName;
+            out.Template            = slotSurface != nullptr ? slotSurface->GetShaderName() : data.ShaderName();
             if ( const auto shader = shaders->GetByName( out.Template ) )
             {
                 const Core::Formats::ShaderProgramMeta& meta = shader->GetProgramMeta();
