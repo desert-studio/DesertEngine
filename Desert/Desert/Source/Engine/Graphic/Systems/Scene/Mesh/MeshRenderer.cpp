@@ -437,10 +437,10 @@ namespace Desert::Graphic::System
         }
     }
 
-    void MeshRenderer::SubmitInstancedMesh( const InstancedMeshRenderData& data )
+    void MeshRenderer::SubmitInstancedMesh( InstancedMeshRenderData&& data )
     {
         if ( data.Mesh && data.Material && data.Transforms && !data.Transforms->empty() )
-            m_InstancedQueue.push_back( data );
+            m_InstancedQueue.push_back( std::move( data ) );
     }
 
     void MeshRenderer::SubmitGpuInstanced( GpuInstancedRenderData&& data )
