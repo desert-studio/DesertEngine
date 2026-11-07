@@ -317,8 +317,23 @@ namespace Desert::Graphic::System
             {
                 m_CountedPass = pass;
             }
+            // THE DEPTH PASS'S DRAW ORDER (UE CalculateDepthPassMeshStaticSortKey: the depth pass sorts the masked
+            // draws after the opaque ones). Set: Record issues the GPU-culled bins and the VG clusters (the
+            // scene's opaque occluders) BEFORE the CPU commands (the alpha-tested GPU-instanced grass and
+            // foliage), so the masked fragments behind them fail the early depth test before their clip runs. The
+            // depth the list writes is the nearest fragment whatever the order, so only the cost moves. Set once
+            // by the owner (MeshRenderer::Initialize), kept across Clear; unset: the commands first (every other
+            // list).
+            void RecordBinnedFirst()
+            {
+                m_BinnedFirst = true;
+            }
 
         private:
+            [[nodiscard]] Common::BoolResultStr RecordCommands( const RDG::PassContext&       context,
+                                                                const RDG::OpenBindingBlocks& blocks ) const;
+            [[nodiscard]] Common::BoolResultStr RecordBinned( const RDG::PassContext&       context,
+                                                              const RDG::OpenBindingBlocks& blocks ) const;
             // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
             // shader keys its layout (every draw of the block records with a pipeline of that same shader).
             struct Block
@@ -350,6 +365,7 @@ namespace Desert::Graphic::System
             // declared on one thread at a time, as m_Layouts is used). Mutable: Declare is const.
             mutable std::vector<RDG::BufferRef> m_DeclaredReads;
             std::optional<GpuDriven::MeshPass>  m_CountedPass;
+            bool                                m_BinnedFirst = false; // RecordBinnedFirst
         };
     } // namespace MeshRendererDetail
 

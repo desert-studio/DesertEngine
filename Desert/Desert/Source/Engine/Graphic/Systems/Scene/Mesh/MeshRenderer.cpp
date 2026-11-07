@@ -177,6 +177,9 @@ namespace Desert::Graphic::System
             level.CountAs( GpuDriven::MeshPass::VirtualShadow );
         for ( auto& level : m_VsmMovableDraws )
             level.CountAs( GpuDriven::MeshPass::VirtualShadow );
+        // "Deferred: Masked Depth Prepass" draws its opaque occluders (the bins, the VG clusters) before its
+        // alpha-tested CPU commands (UE's depth pass sorts masked after opaque; GPU-MASKED-PREPASS).
+        m_MaskedDepthDraws.RecordBinnedFirst();
 
         const auto& targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
@@ -877,6 +880,22 @@ namespace Desert::Graphic::System
             if ( m_CountedPass )
                 counted.emplace( static_cast<uint32_t>( *m_CountedPass ) );
             const RDG::OpenBindingBlocks blocks( context, 0u, m_Blocks.size() );
+            // RecordBinnedFirst: the depth pass's opaque occluders (the bins, the VG clusters) before the masked
+            // CPU commands; every other list the commands first.
+            if ( m_BinnedFirst )
+            {
+                if ( auto binned = RecordBinned( context, blocks ); !binned )
+                    return binned;
+                return RecordCommands( context, blocks );
+            }
+            if ( auto commands = RecordCommands( context, blocks ); !commands )
+                return commands;
+            return RecordBinned( context, blocks );
+        }
+
+        Common::BoolResultStr MeshDrawList::RecordCommands( const RDG::PassContext&       context,
+                                                            const RDG::OpenBindingBlocks& blocks ) const
+        {
             // CPU-FRAME-ARENA 3: the draw's push block in this thread's kept scratch (rewritten whole per draw,
             // used by that draw's call alone), no vector per record.
             std::vector<std::byte>& push = t_RecordPush;
@@ -968,8 +987,15 @@ namespace Desert::Graphic::System
                     return drawn;
             }
             drawRun.reset();
-            // The GPU-culled bins, after the CPU commands (whatever the CPU lists still draw is what the bins do
-            // not hold: MeshRenderer::CpuWalkHidden).
+            return BOOLSUCCESS;
+        }
+
+        Common::BoolResultStr MeshDrawList::RecordBinned( const RDG::PassContext&       context,
+                                                          const RDG::OpenBindingBlocks& blocks ) const
+        {
+            // The GPU-culled bins, after the CPU commands unless RecordBinnedFirst (whatever the CPU lists still
+            // draw is what the bins do not hold: MeshRenderer::CpuWalkHidden).
+            const bool split = Common::Profiling::MeshDrawSplitOn();
             if ( m_Binned )
             {
                 // CPU-FRAME-ARENA 3: the groups' open blocks in this thread's kept scratch (read by the call below

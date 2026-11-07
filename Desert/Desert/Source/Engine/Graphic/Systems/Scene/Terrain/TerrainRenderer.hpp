@@ -153,8 +153,9 @@ namespace Desert::Graphic::System
         // every r.EarlyZPass mode that runs one): the frame's terrain into the view's DEPTH alone, through
         // TerrainDepth.shader - the surface's vertex stage, the hole discard, no shading. Forward: into the scene
         // depth before the base pass (SceneRenderer::AddFrameForwardDepthPrepass); "TerrainPass" then tests
-        // CloserOrEqual and writes none. Deferred: into the G-buffer depth after the meshes' masked prepass
-        // ("Deferred: Terrain Depth Prepass", SceneRenderer::AddFrameGBuffer) whenever the frame runs an early-Z
+        // CloserOrEqual and writes none. Deferred: into the G-buffer depth BEFORE the meshes' masked prepass,
+        // which their alpha-tested draws then test against ("Deferred: Terrain Depth Prepass", clearing the depth;
+        // SceneRenderer::AddFrameGBuffer, GPU-MASKED-PREPASS) whenever the frame runs an early-Z
         // pass (SetEarlyZPass); "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground the grass
         // and the meshes cover is rejected before it is shaded. SETUP: one binding block per Depth material of the
         // frame's groups (no scene/view input); the exec records through them. Both are no-ops on a frame whose

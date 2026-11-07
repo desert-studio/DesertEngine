@@ -524,31 +524,40 @@ namespace Desert::Graphic
         // the contract's clear value (Unlit, receives sun shadows).
         static_assert( Core::ShadingModels::kShadingWordClearValue == 0u,
                        "the G-buffer clear writes 0.0f bits into the uint shading word" );
-        // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
-        // alone, cleared here; the masked GPU-instanced sections write their clipped depth, and the G-buffer below
-        // LOADs it and draws those sections without depth writes (MeshRenderer::DeclareMaskedDepthDraws).
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
+        // THE GROUND IN THE SAME EARLY-Z PASS (UE: the depth pass draws the landscape, an opaque occluder, under
+        // every r.EarlyZPass mode that runs one; TERRAIN-GBUFFER-COST-1): the camera's tiles through
+        // TerrainDepth.shader whenever the frame runs an early-Z pass (TerrainRenderer::PrepassesGBuffer).
+        // "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground under the grass and the meshes
+        // is rejected before its layers are fetched - with its own depth write, its pixel shader's hole discard
+        // left early-Z to the driver and every covered texel was shaded. The meshes' G-buffer tests it too.
+        // FIRST, and it clears the depth (GPU-MASKED-PREPASS; UE's depth pass draws the opaque occluders before
+        // the masked draws): the alpha-tested grass and foliage of the mesh pass below then fail the early depth
+        // test where the ground or a hill hides them instead of running their clip on every layer. The depth the
+        // two passes leave is the nearest fragment whatever their order, so the picture does not move.
+        RDG::LoadOp meshDepthLoad = RDG::LoadOp::ClearDepth( Core::kDepthClear );
+        auto* const terrain       = m_Systems.Terrain.get();
+        if ( terrain != nullptr && terrain->PrepassesGBuffer() )
+        {
+            AddRaster(
+                 graph, "Deferred: Terrain Depth Prepass", depthOnly, {}, meshDepthLoad, {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+            meshDepthLoad = RDG::LoadOp::Load();
+        }
+        // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
+        // alone, cleared here unless the ground's pass above did; the meshes EarlyZPass admits write their
+        // (masked: clipped) depth, the GPU-culled bins first (MeshDrawList::RecordBinnedFirst), and the G-buffer
+        // below LOADs it and draws those meshes EQUAL without depth writes
+        // (MeshRenderer::DeclareMaskedDepthDraws).
         AddRaster(
-             graph, "Deferred: Masked Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             graph, "Deferred: Masked Depth Prepass", depthOnly, {}, meshDepthLoad, {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderMaskedDepthManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
-        // THE GROUND IN THE SAME EARLY-Z PASS (UE: the depth pass draws the landscape, an opaque occluder, under
-        // every r.EarlyZPass mode that runs one; TERRAIN-GBUFFER-COST-1): the camera's tiles through
-        // TerrainDepth.shader, LOADing what the meshes wrote, whenever the frame runs an early-Z pass
-        // (TerrainRenderer::PrepassesGBuffer). "TerrainGBuffer" then tests CloserOrEqual and writes none, so the
-        // ground under the grass and the meshes is rejected before its layers are fetched - with its own depth
-        // write, its pixel shader's hole discard left early-Z to the driver and every covered texel was shaded.
-        // The meshes' G-buffer below tests the ground's depth too.
-        auto* const terrain = m_Systems.Terrain.get();
-        if ( terrain != nullptr && terrain->PrepassesGBuffer() )
-            AddRaster(
-                 graph, "Deferred: Terrain Depth Prepass", depthOnly, {}, RDG::LoadOp::Load(), {},
-                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return terrain->RenderDepthManual( context ); },
-                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
         AddFrameDecals( graph, textures, targets->Depth );
         // The view's inputs below are taken AFTER "Deferred: Decals": the G-buffer reads the DBuffer it wrote.
         AddRaster(
