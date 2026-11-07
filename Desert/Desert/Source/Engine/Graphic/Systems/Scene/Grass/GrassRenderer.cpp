@@ -1651,8 +1651,11 @@ namespace Desert::Graphic::System
             }
             m_Address = address.GetValue();
             m_Room    = room;
-            if ( carried == 0u )
-                ++m_Epoch; // a first pool: its ranges hold nothing yet
+            // REGR-CPU13: a growth moves the pool's address; every cache keyed on the Epoch (rows, args, the
+            // cull's keys) is a new generation, so nothing keeps the retired buffer's address.
+            ++m_Epoch;
+            if ( carried != 0u )
+                LOG_WARN( "[Grass] the {} pool grew to {} bytes (epoch {})", m_Name, room, m_Epoch );
         }
         if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( m_Buffer, m_Import ); !imported )
         {
