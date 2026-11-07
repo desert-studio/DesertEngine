@@ -974,9 +974,13 @@ namespace Desert::Core
         // the fence: the previous frame's views that read those buffers are done, it runs before the captures
         // below (deferred commands run in order) and before this update's first view is enqueued (that view's
         // BeginScene joins first). Serial, or nothing in flight: it runs now.
+        // THE VIEWS ARE ITS WHOLE FENCE, and the captures' and the retire queues' below (RenderTask::AfterViews,
+        // CPU-GT-OVERLAP): what the three write - the meshes' device geometry and render revision, the cubes,
+        // the parked caches - is read by view jobs only, so BeginScene's JoinViews runs them while the previous
+        // frame's interface draw, submit and present and this frame's begin still record on the render task.
         {
             const SystemCommandArena* const prepared = &arena;
-            ::Desert::Engine::RenderTask::Get().AfterJoin(
+            ::Desert::Engine::RenderTask::Get().AfterViews(
                  [prepared]()
                  {
                      DESERT_PROFILE_SCOPE( "Scene: Prepare recorded draws (fence)" );
@@ -992,7 +996,7 @@ namespace Desert::Core
             // first view to reach the cache runs captures the cards in front of every viewport, not its own.
             DESERT_PROFILE_SCOPE( "Scene: Surface cache + retire" );
             // The parked caches and captures die at the fence, the same frame numbers as before (stamped here).
-            ::Desert::Engine::RenderTask::Get().AfterJoin(
+            ::Desert::Engine::RenderTask::Get().AfterViews(
                  [this, absoluteFrame, framesInFlight]()
                  {
                      ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: retire queues (Collect)" );
@@ -1029,7 +1033,7 @@ namespace Desert::Core
             // views.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
             const SystemCommandArena* const recorded = &arena;
-            ::Desert::Engine::RenderTask::Get().AfterJoin(
+            ::Desert::Engine::RenderTask::Get().AfterViews(
                  [this, recorded, info = sceneRendererInfo]()
                  {
                      DESERT_PROFILE_SCOPE( "Scene: Reflection Captures (fence)" );
@@ -1111,7 +1115,7 @@ namespace Desert::Core
                 // completion order - so the frame's submission order is the old sequential path's.
                 auto* const                     renderer = &*view.Renderer;
                 const SystemCommandArena* const replayed = &arena;
-                ::Desert::Engine::RenderTask::Get().Enqueue(
+                ::Desert::Engine::RenderTask::Get().EnqueueView(
                      "Scene view",
                      [renderer, replayed, info = sceneRendererInfo]() -> Common::BoolResultStr
                      {

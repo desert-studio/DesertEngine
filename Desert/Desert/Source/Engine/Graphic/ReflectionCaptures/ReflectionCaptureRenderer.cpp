@@ -398,7 +398,7 @@ namespace Desert::Graphic
                                                         const bool skyRecapturesForSun )
     {
         // RENDER-OWNED (CPU-ONE-SYNC): the views in flight read the captures' cubes and state below, so the
-        // driver runs at a fence (Scene::OnUpdate: RenderTask::AfterJoin), never under a recording view.
+        // driver runs at a fence (Scene::OnUpdate: RenderTask::AfterViews), never under a recording view.
         ::Desert::Engine::RenderTask::CheckRenderStateWrite( "ReflectionCaptureRenderer::RenderCaptureViews" );
         m_WriteCapture = false;
 

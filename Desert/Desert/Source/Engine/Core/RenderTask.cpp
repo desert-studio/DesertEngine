@@ -111,9 +111,12 @@ namespace Desert::Engine
             // The job's captures go here, on this thread and before the drain is signalled: a job holds no owner
             // of a world or a renderer (their destructors join, RenderTask::Join), so nothing of the game
             // thread's is destroyed on this one.
-            job = QueuedJob{};
+            const bool view = job.View;
+            job             = QueuedJob{};
             lock.lock();
             m_Running = false;
+            if ( view )
+                --m_ViewsInFlight;
             if ( m_Jobs.empty() )
                 m_InFlight.store( false, std::memory_order_release );
             // Every job: SyncPreviousFrame waits for one frame's jobs, not for the drain.
@@ -122,6 +125,16 @@ namespace Desert::Engine
     }
 
     void RenderTask::Enqueue( std::string name, Job job )
+    {
+        Push( std::move( name ), std::move( job ), /*view*/ false );
+    }
+
+    void RenderTask::EnqueueView( std::string name, Job job )
+    {
+        Push( std::move( name ), std::move( job ), /*view*/ true );
+    }
+
+    void RenderTask::Push( std::string name, Job job, const bool view )
     {
         if ( !Overlaps() || !OnGameThread() )
         {
@@ -137,7 +150,9 @@ namespace Desert::Engine
             const FrameManager& frames = FrameManager::GetInstance();
             m_LastEnqueuedFrame        = frames.GetGameFrameCount();
             m_Jobs.push_back( QueuedJob{ std::move( name ), std::move( job ), m_LastEnqueuedFrame,
-                                         frames.GetGameFrameIndex(), m_EnqueueOwner } );
+                                         frames.GetGameFrameIndex(), m_EnqueueOwner, view } );
+            if ( view )
+                ++m_ViewsInFlight;
         }
         m_Wake.notify_one();
     }
@@ -192,6 +207,10 @@ namespace Desert::Engine
         RenderTask& task = Get();
         if ( !task.OnGameThread() || !task.InFlight() )
             return;
+        // An AfterViews command run by JoinViews: no view job is queued or running, and the frame jobs still in
+        // flight read none of the view-owned state such a command writes (the AfterViews contract).
+        if ( task.m_InViewFence )
+            return;
         // Game thread only past this line, so the set needs no lock.
         static std::unordered_set<std::string> named;
         if ( named.emplace( site ).second )
@@ -218,6 +237,65 @@ namespace Desert::Engine
 
     void RenderTask::AfterJoin( Command command )
     {
+        Defer( std::move( command ), /*viewsOnly*/ false );
+    }
+
+    void RenderTask::AfterViews( Command command )
+    {
+        Defer( std::move( command ), /*viewsOnly*/ true );
+    }
+
+    bool RenderTask::OnlyViewCommandsDeferred() const noexcept
+    {
+        for ( const Deferred& command : m_AfterJoin )
+            if ( !command.ViewsOnly )
+                return false;
+        return true;
+    }
+
+    void RenderTask::JoinViews()
+    {
+        // Nested in a fence, off the game thread, nothing in flight, or a command that needs the whole queue
+        // drained (a texture's, a material's: the interface's draw may read what it writes): the full fence.
+        if ( m_Joining || !InFlight() || !OnGameThread() || !OnlyViewCommandsDeferred() )
+        {
+            Join();
+            return;
+        }
+        m_Joining = true;
+        bool full = false;
+        for ( ;; )
+        {
+            {
+                // THE GAME THREAD WAITING FOR THE VIEWS ALONE: the previous bracket's state (the renderer's
+                // per-frame members, the extension passes' gathered state, the material render copies) is free
+                // once no view job is queued or running; the frame jobs behind them keep recording.
+                DESERT_PROFILE_WAIT( "Render task: JoinViews" );
+                std::unique_lock<std::mutex> lock( m_Mutex );
+                m_Drained.wait( lock, [this]() { return m_ViewsInFlight == 0; } );
+            }
+            if ( m_AfterJoin.empty() )
+                break;
+            if ( !OnlyViewCommandsDeferred() )
+            {
+                // A command deferred a full-fence one (AfterJoin inside an AfterViews command).
+                full = true;
+                break;
+            }
+            std::vector<Deferred> commands;
+            commands.swap( m_AfterJoin );
+            m_InViewFence = true;
+            for ( Deferred& command : commands )
+                command.Body();
+            m_InViewFence = false;
+        }
+        m_Joining = false;
+        if ( full )
+            Join();
+    }
+
+    void RenderTask::Defer( Command command, const bool viewsOnly )
+    {
         if ( !InFlight() )
         {
             // THE ORDER OF THE DEFERRED COMMANDS IS THE ORDER THEY WERE ASKED FOR. The views can drain before
@@ -232,7 +310,7 @@ namespace Desert::Engine
                 return;
             }
         }
-        m_AfterJoin.push_back( Deferred{ std::move( command ), m_LastEnqueuedFrame } );
+        m_AfterJoin.push_back( Deferred{ std::move( command ), m_LastEnqueuedFrame, viewsOnly } );
     }
 
     const void* RenderTask::FrameOwner() noexcept
