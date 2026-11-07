@@ -156,10 +156,15 @@ namespace Desert::Graphic
         };
 
         RenderPassDeclaration() = default;
-        // The binding blocks (and their entries) in @p arena, which outlives the declaration (the frame graph's,
-        // RDG::Builder::GetFrameArena, reset only with the graph).
+        // Every list of the declaration (images, graph textures, buffers, prerequisites, the binding blocks and
+        // their entries) in @p arena, which outlives the declaration (the frame graph's,
+        // RDG::Builder::GetFrameArena, reset only with the graph): a node declared this way costs no heap list.
         explicit RenderPassDeclaration( Common::Memory::FrameArena& arena ) noexcept
-             : m_Arena( &arena ), m_Blocks( Common::Memory::ArenaAllocator<BlockUse>( arena ) )
+             : m_Arena( &arena ), m_Images( Common::Memory::ArenaAllocator<ImageUse>( arena ) ),
+               m_Textures( Common::Memory::ArenaAllocator<TextureUse>( arena ) ),
+               m_Buffers( Common::Memory::ArenaAllocator<BufferUse>( arena ) ),
+               m_Blocks( Common::Memory::ArenaAllocator<BlockUse>( arena ) ),
+               m_Prerequisites( Common::Memory::ArenaAllocator<const RDG::IRecordPrerequisite*>( arena ) )
         {
         }
 
@@ -294,7 +299,7 @@ namespace Desert::Graphic
         {
             m_Prerequisites.push_back( &prerequisite );
         }
-        [[nodiscard]] const std::vector<const RDG::IRecordPrerequisite*>& Prerequisites() const
+        [[nodiscard]] std::span<const RDG::IRecordPrerequisite* const> Prerequisites() const
         {
             return m_Prerequisites;
         }
@@ -304,15 +309,15 @@ namespace Desert::Graphic
             return m_Blocks;
         }
 
-        [[nodiscard]] const std::vector<ImageUse>& Images() const
+        [[nodiscard]] std::span<const ImageUse> Images() const
         {
             return m_Images;
         }
-        [[nodiscard]] const std::vector<TextureUse>& Textures() const
+        [[nodiscard]] std::span<const TextureUse> Textures() const
         {
             return m_Textures;
         }
-        [[nodiscard]] const std::vector<BufferUse>& Buffers() const
+        [[nodiscard]] std::span<const BufferUse> Buffers() const
         {
             return m_Buffers;
         }
@@ -341,13 +346,13 @@ namespace Desert::Graphic
             return {};
         }
 
-        glm::uvec2              m_TargetExtent{ 0u, 0u };
-        std::vector<ImageUse>   m_Images;
-        std::vector<TextureUse> m_Textures;
-        std::vector<BufferUse>  m_Buffers;
-        Common::Memory::FrameArena*                  m_Arena = nullptr; // where the blocks live; null: the heap
-        Common::Memory::ArenaVector<BlockUse>        m_Blocks;
-        std::vector<const RDG::IRecordPrerequisite*> m_Prerequisites;
+        glm::uvec2                                                   m_TargetExtent{ 0u, 0u };
+        Common::Memory::FrameArena*                                  m_Arena = nullptr; // null: the heap
+        Common::Memory::ArenaVector<ImageUse>                        m_Images;
+        Common::Memory::ArenaVector<TextureUse>                      m_Textures;
+        Common::Memory::ArenaVector<BufferUse>                       m_Buffers;
+        Common::Memory::ArenaVector<BlockUse>                        m_Blocks;
+        Common::Memory::ArenaVector<const RDG::IRecordPrerequisite*> m_Prerequisites;
     };
 
     // The body of a frame-graph node, whatever registered it: it records into the node's command buffer with
@@ -362,6 +367,14 @@ namespace Desert::Graphic
     // order, so the graph orders and synchronises each against the next.
     struct ComputeNodeDeclaration
     {
+        ComputeNodeDeclaration() = default;
+        // CPU-RDG-ALLOC: the node's declaration lists in the frame graph's arena (RDG::Builder::GetFrameArena) -
+        // for a system that declares its nodes while it holds the graph; the node is added before the graph
+        // resets.
+        explicit ComputeNodeDeclaration( Common::Memory::FrameArena& arena ) noexcept : Access( arena )
+        {
+        }
+
         std::string           Name;
         RenderPassDeclaration Access;
         NodeRecordFunc        Record;

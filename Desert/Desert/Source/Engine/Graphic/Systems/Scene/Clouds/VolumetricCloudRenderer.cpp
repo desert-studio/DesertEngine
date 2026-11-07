@@ -2293,7 +2293,7 @@ namespace Desert::Graphic::System
                                           .Format = ViewTargetFormats::kCloudTrace };
         const RDG::TextureRef  trace      = graph.CreateTexture( traceDesc, "Clouds.Trace" );
         const RDG::TextureRef  traceGuide = graph.CreateTexture( traceDesc, "Clouds.TraceGuide" );
-        ComputeNodeDeclaration march;
+        ComputeNodeDeclaration march( graph.GetFrameArena() );
         march.Name = "Clouds: March";
         // SETUP: everything but the graph's two transients is the renderer's own (or the sky's), bound by the
         // pipeline's setters here; the two transients are the block's entries, each the declaration of its write.
@@ -2425,7 +2425,7 @@ namespace Desert::Graphic::System
 
         // The temporal resolve: samples this frame's trace and, when valid, last frame's history; writes this
         // frame's history slot, which the upsample below reads.
-        ComputeNodeDeclaration temporal;
+        ComputeNodeDeclaration temporal( graph.GetFrameArena() );
         temporal.Name = "Clouds: TemporalResolve";
         // SETUP: the parameters are the renderer's own buffer, bound by the pipeline's setter here; this frame's
         // trace pair, last frame's history (or the fallback) and this frame's history slot are the block's
@@ -2495,7 +2495,7 @@ namespace Desert::Graphic::System
         const RDG::TextureDesc upsampledDesc{ .Size   = RDG::Extent3D{ .Width = fullWidth, .Height = fullHeight },
                                               .Format = ViewTargetFormats::kCloudTrace };
         const RDG::TextureRef  upsampled = graph.CreateTexture( upsampledDesc, "Clouds.Upsampled" );
-        ComputeNodeDeclaration upsample;
+        ComputeNodeDeclaration upsample( graph.GetFrameArena() );
         upsample.Name = "Clouds: Upsample";
         m_UpsamplePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
         DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout, 0 )

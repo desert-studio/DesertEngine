@@ -51,6 +51,31 @@ namespace Desert::Graphic::RDG
         }
     };
 
+    // The slot name of a parameter spelled into the caller's stack (CPU-RDG-ALLOC): Name itself for a whole
+    // parameter, "<Name>[<Element>]" formatted into the inline characters for an element - no heap for any
+    // identifier a shader declares. A name longer than the inline capacity spills into the owned string once,
+    // so the lookup stays exact. The returned view lives as long as this buffer.
+    class SlotNameBuffer
+    {
+    public:
+        template <ShaderResourceKind K>
+        [[nodiscard]] std::string_view Spell( const ShaderParameterOf<K>& parameter )
+        {
+            if ( parameter.Element == ShaderParameterOf<K>::kWhole )
+                return parameter.Name;
+            const auto written =
+                 std::format_to_n( m_Chars.data(), m_Chars.size(), "{}[{}]", parameter.Name, parameter.Element );
+            if ( written.size <= static_cast<std::ptrdiff_t>( m_Chars.size() ) )
+                return std::string_view( m_Chars.data(), static_cast<size_t>( written.size ) );
+            m_Spilled = parameter.SlotName();
+            return m_Spilled;
+        }
+
+    private:
+        std::array<char, 128> m_Chars{};
+        std::string           m_Spilled;
+    };
+
     // An arrayed binding (`texture2D Layers[4]`) declared once; an element is bound as parameter[i].
     template <ShaderResourceKind K>
     struct ShaderParameterArrayOf

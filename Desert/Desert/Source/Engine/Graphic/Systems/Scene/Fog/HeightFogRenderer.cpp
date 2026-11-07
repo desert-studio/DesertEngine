@@ -229,7 +229,7 @@ namespace Desert::Graphic::System
         const RDG::TextureDesc fogDesc{ .Size   = RDG::Extent3D{ .Width = fogWidth, .Height = fogHeight },
                                         .Format = ViewTargetFormats::kHeightFog };
         const RDG::TextureRef  fogImage = graph.CreateTexture( fogDesc, "HeightFog.Fog" );
-        ComputeNodeDeclaration fog;
+        ComputeNodeDeclaration fog( graph.GetFrameArena() );
         fog.Name = "AtmosphericFog";
         // SETUP: the parameter block and every image are entries of the node's one block (block 0), and each entry
         // is the declaration of its read or write.

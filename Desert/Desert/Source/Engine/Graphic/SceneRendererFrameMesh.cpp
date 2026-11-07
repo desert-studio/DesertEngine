@@ -373,7 +373,8 @@ namespace Desert::Graphic
             declared.SetTargetExtent( { target->GetFramebufferWidth(), target->GetFramebufferHeight() } );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
-        std::vector<RDG::TextureRef> images;
+        Common::Memory::ArenaVector<RDG::TextureRef> images(
+             Common::Memory::ArenaAllocator<RDG::TextureRef>( graph.GetFrameArena() ) );
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
 
@@ -406,7 +407,8 @@ namespace Desert::Graphic
         declared.SetTargetExtent( extent );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
-        std::vector<RDG::TextureRef> images;
+        Common::Memory::ArenaVector<RDG::TextureRef> images(
+             Common::Memory::ArenaAllocator<RDG::TextureRef>( graph.GetFrameArena() ) );
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
         graph.AddPass(

@@ -356,7 +356,7 @@ namespace Desert::Graphic
     // image or a buffer the graph does not know refuses the node: false, the error logged naming @p node, and the
     // caller adds nothing. A node is never added half-declared.
     inline bool ResolveDeclared( FrameTextures& textures, const RenderPassDeclaration& declared,
-                                 std::string_view node, std::vector<RDG::TextureRef>& images )
+                                 std::string_view node, Common::Memory::ArenaVector<RDG::TextureRef>& images )
     {
         images.clear();
         // CPU-RDG-ALLOC: a declared name is viewed; a name is formed (heap) only for an entry that gives none.
@@ -418,10 +418,10 @@ namespace Desert::Graphic
 
     // Every entry of @p declared on @p pass; @p images are ResolveDeclared's graph textures of its images (the
     // ImageUses first, then the binding blocks' engine images).
-    inline void DeclareOn( RDG::PassBuilder& pass, const std::vector<RDG::TextureRef>& images,
+    inline void DeclareOn( RDG::PassBuilder& pass, const std::span<const RDG::TextureRef> images,
                            const RenderPassDeclaration& declared )
     {
-        const std::vector<RenderPassDeclaration::ImageUse>& uses = declared.Images();
+        const std::span<const RenderPassDeclaration::ImageUse> uses = declared.Images();
         for ( size_t i = 0; i < uses.size(); ++i )
         {
             if ( uses[i].Writes )
@@ -429,7 +429,7 @@ namespace Desert::Graphic
             else
                 pass.Read( images[i], uses[i].Access );
         }
-        DeclareRefsOn( pass, declared, std::span<const RDG::TextureRef>( images ).subspan( uses.size() ) );
+        DeclareRefsOn( pass, declared, images.subspan( uses.size() ) );
     }
 
     // A system's compute work of this frame, one Compute node per entry in the order given, each declaring exactly
@@ -442,10 +442,18 @@ namespace Desert::Graphic
     inline bool AddComputeNodes( RDG::Builder& graph, FrameTextures& textures,
                                  std::vector<ComputeNodeDeclaration> nodes )
     {
-        std::vector<std::vector<RDG::TextureRef>> images( nodes.size() );
+        // CPU-RDG-ALLOC: each node's resolved images in the graph's arena (alive until the graph resets), no heap
+        // list per node.
+        Common::Memory::FrameArena&                                               arena = graph.GetFrameArena();
+        Common::Memory::ArenaVector<Common::Memory::ArenaVector<RDG::TextureRef>> images(
+             Common::Memory::ArenaAllocator<Common::Memory::ArenaVector<RDG::TextureRef>>( arena ) );
+        images.reserve( nodes.size() );
         for ( size_t i = 0; i < nodes.size(); ++i )
+        {
+            images.emplace_back( Common::Memory::ArenaAllocator<RDG::TextureRef>( arena ) );
             if ( !ResolveDeclared( textures, nodes[i].Access, nodes[i].Name, images[i] ) )
                 return false;
+        }
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
             ComputeNodeDeclaration& node = nodes[i];

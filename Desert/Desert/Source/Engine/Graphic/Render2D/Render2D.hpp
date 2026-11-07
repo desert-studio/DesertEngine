@@ -25,6 +25,7 @@ namespace Desert::Graphic
     class VertexBuffer;
     class IndexBuffer;
     class MaterialExecutor;
+    class Texture2DProperty;
     class RenderPassDeclaration;
 } // namespace Desert::Graphic
 
@@ -225,10 +226,21 @@ namespace Desert::Graphic::Render2D
         // an executor and its descriptor set per texture address ever bound, for the life of the process
         // (A8-1). Retirement is decided by Render2D::MayRetireExecutor, which is asserted rather than
         // described.
+        // Texture is the executor's property of the cache's texture parameter, resolved once by name when the
+        // executor is created (UE: a shader parameter bound to its slot once) - a draw never spells a slot name.
         struct CachedExecutor
         {
             std::unique_ptr<MaterialExecutor> Executor;
             uint64_t                          LastUsedFrame = 0;
+            Texture2DProperty*                Texture       = nullptr;
+        };
+
+        // What ExecutorFor hands a draw: the executor and its already-bound texture property (null when the
+        // shader declares no such slot, or the executor could not be created).
+        struct BoundExecutor
+        {
+            MaterialExecutor*  Executor = nullptr;
+            Texture2DProperty* Texture  = nullptr;
         };
 
         using ExecutorCache = std::unordered_map<const void*, CachedExecutor>;
@@ -240,8 +252,8 @@ namespace Desert::Graphic::Render2D
         // Lazily-created MaterialExecutor per bound texture, one @p cache per shader (UI2D vs UIText). Each
         // executor owns its own descriptor set, so switching textures across batches never overwrites a live
         // binding. @p sampler is the shader's sampler2D name the texture is bound to.
-        MaterialExecutor* ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
-                                       RDG::TextureParameter property, const void* texture, Image2D* image );
+        BoundExecutor ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
+                                   RDG::TextureParameter property, const void* texture, Image2D* image );
 
         std::shared_ptr<Shader>           m_Shader;      // UI2D  (solid / image)
         std::shared_ptr<Shader>           m_TextShader;  // UIText (SDF glyphs)
