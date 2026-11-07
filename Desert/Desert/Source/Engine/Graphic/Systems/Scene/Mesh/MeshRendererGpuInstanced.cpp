@@ -1101,9 +1101,8 @@ namespace Desert::Graphic::System
                 split = 0u;
             // GRASS-VIEW-LAW-1: a cascade without a list of its own draws the full list - through its ids when the
             // producer's full list holds them (FullIds).
-            std::shared_ptr<ShaderResources::StorageBuffer> listIds = gpu.FullIds;
-            if ( ownList )
-                listIds = gpu.CascadeIds;
+            const std::shared_ptr<ShaderResources::StorageBuffer>& listIds =
+                 ownList ? gpu.CascadeIds : gpu.FullIds;
             const bool          throughIds = listIds != nullptr;
             // The section's caster words, once: the bin row and the per-section draw below both read them.
             const SectionCaster setup = sectionCasterOf( gpu, parent, ownList, still && !sways, split );

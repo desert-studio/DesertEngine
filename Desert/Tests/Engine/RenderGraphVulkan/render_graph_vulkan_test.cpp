@@ -828,6 +828,14 @@ void main()
         {
             return m_Inner.GetPhysicalBuffer( resource );
         }
+        [[nodiscard]] RDG::IPhysicalTexture* FindPhysicalTexture( uint32_t resource ) const override
+        {
+            return m_Inner.FindPhysicalTexture( resource );
+        }
+        [[nodiscard]] RDG::IPhysicalBuffer* FindPhysicalBuffer( uint32_t resource ) const override
+        {
+            return m_Inner.FindPhysicalBuffer( resource );
+        }
 
         // Every BeginRenderPass the graph asked for: one vkCmdBeginRenderPass each in the Vulkan backend.
         int RenderPassesBegun = 0;

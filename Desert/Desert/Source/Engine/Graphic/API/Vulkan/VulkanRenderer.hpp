@@ -298,9 +298,9 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
         // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
         // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
-        // RDG-PARALLEL-1: by value and under m_GrowLock - a chunk on another worker may grow it meanwhile (the
-        // replaced buffer stays alive through the allocator's per-frame deletion queue).
-        std::shared_ptr<VertexBuffer>        DefaultVertexStreams( uint32_t capacity );
+        // RDG-PARALLEL-1: its handle, read under m_GrowLock - a chunk on another worker may grow it meanwhile (the
+        // replaced VkBuffer stays alive through the allocator's per-frame deletion queue); no count per draw.
+        VkBuffer                             DefaultVertexStreams( uint32_t capacity );
         std::mutex                           m_GrowLock; // DefaultVertexStreams and VisibleRowIdentity
         std::shared_ptr<VertexBuffer>        m_DefaultVertexStreams;
         std::atomic<uint32_t>                m_DefaultVertexStreamsCapacity{ 0 }; // read unlocked by BindMeshBuffers

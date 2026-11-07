@@ -515,7 +515,7 @@ namespace Desert::Graphic::API::Vulkan
         return false;
     }
 
-    std::shared_ptr<VertexBuffer> VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
+    VkBuffer VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
     {
         const std::lock_guard<std::mutex> grow( m_GrowLock );
         // White colour and UV1 (0,0) in every vertex — what UE's GNullColorVertexBuffer and a missing TexCoord1
@@ -536,7 +536,8 @@ namespace Desert::Graphic::API::Vulkan
             DESERT_VERIFY( uploaded.IsSuccess(), "the default vertex-streams buffer could not be uploaded" );
             m_DefaultVertexStreamsCapacity = capacity;
         }
-        return m_DefaultVertexStreams;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
+        return static_cast<const VulkanVertexBuffer*>( m_DefaultVertexStreams.get() )->GetVulkanBuffer();
     }
 
     VkBuffer VulkanRendererAPI::VisibleRowIdentity( const uint32_t rows )
@@ -1298,10 +1299,8 @@ namespace Desert::Graphic::API::Vulkan
             {
                 const uint64_t size  = geometry.Vertices->GetSize();
                 const uint64_t bytes = size - std::min( size, geometry.VertexOffset );
-                sbuffer = sp_cast<VulkanVertexBuffer>(
-                               DefaultVertexStreams(
-                                    DefaultVertexStreamsFor( *layout, bytes, m_DefaultVertexStreamsCapacity ).Capacity ) )
-                               ->GetVulkanBuffer();
+                sbuffer = DefaultVertexStreams(
+                     DefaultVertexStreamsFor( *layout, bytes, m_DefaultVertexStreamsCapacity ).Capacity );
             }
         }
         const VkBuffer ibuffer = geometry.Indices != nullptr

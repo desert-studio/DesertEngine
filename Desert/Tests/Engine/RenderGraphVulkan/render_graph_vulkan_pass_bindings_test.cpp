@@ -176,6 +176,14 @@ namespace
         {
             return nullptr;
         }
+        IPhysicalTexture* FindPhysicalTexture( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        IPhysicalBuffer* FindPhysicalBuffer( uint32_t ) const override
+        {
+            return nullptr;
+        }
 
     private:
         FixedEstimate           m_Memory;

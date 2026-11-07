@@ -274,11 +274,12 @@ namespace Desert::Graphic::System
             // The record's template and its facts (GenericProgramOf: resolved once a frame, the cells once per
             // program): no GetByName or TemplateCellShader per draw per slice.
             const ResolvedProgram& resolved = GenericProgramOf( gi );
-            std::shared_ptr<Shader> shader  = resolved.Program;
+            // The resolved (then slice) program in place: both rows outlive the frame, no count per draw.
+            const std::shared_ptr<Shader>* shader = &resolved.Program;
             // A shader whose first compile failed is still registered under its name, so GetByName hands
             // it back like any other. Skip its draws silently: the compilation error was already logged
             // once, with the file and line, and repeating it every frame for every mesh would bury it.
-            if ( !shader || !shader->IsCompiled() || g.Mesh == nullptr ||
+            if ( !*shader || !( *shader )->IsCompiled() || g.Mesh == nullptr ||
                  ( g.SlotMaterial != nullptr && material == nullptr ) )
                 continue;
 
@@ -319,7 +320,8 @@ namespace Desert::Graphic::System
             //
             // The entity may still cast a shadow: the shadow pass draws depth with its own shader and
             // never executes this material: every draw casts its own submeshes (Rules::SplitMeshSlotDraws).
-            if ( const auto domain = shader->GetProgramMeta().Domain; !Core::Formats::DrawnByMeshPath( domain ) )
+            if ( const auto domain = ( *shader )->GetProgramMeta().Domain;
+                 !Core::Formats::DrawnByMeshPath( domain ) )
             {
                 static std::unordered_set<std::string> s_RefusedShaders;
                 if ( s_RefusedShaders.insert( shaderName ).second )
@@ -426,8 +428,8 @@ namespace Desert::Graphic::System
             SliceProgram* const            sliceProgram   = SliceProgramOf( facts, templateShader, sliceIndex );
             if ( sliceProgram == nullptr )
                 continue; // its refusal was said when the slice program was asked
-            shader = sliceProgram->Program;
-            if ( sliceProgram->Own && !shader->IsCompiled() )
+            shader = &sliceProgram->Program;
+            if ( sliceProgram->Own && !( *shader )->IsCompiled() )
                 continue; // a registered program that failed its compile was named at registration
             // The pipeline tracker's and the shared material's name of this program: the permutation is part of
             // it (made once with the slice program, never formatted per draw).
@@ -454,7 +456,7 @@ namespace Desert::Graphic::System
                 // (program key + texture key) is assembled on the first draw of the pair alone.
                 auto [kept, made] = sliceProgram->Materials.try_emplace( GenericTextureSetOf( gi ), nullptr );
                 if ( made )
-                    kept->second = SharedGenericMaterial( programKey, gi, shader );
+                    kept->second = SharedGenericMaterial( programKey, gi, *shader );
                 material = kept->second;
             }
 

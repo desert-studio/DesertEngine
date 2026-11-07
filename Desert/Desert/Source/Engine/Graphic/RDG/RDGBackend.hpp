@@ -279,5 +279,8 @@ namespace Desert::Graphic::RDG
         // Physical resource of a used resource, valid between BeginGraph and EndGraph / AbandonGraph.
         [[nodiscard]] virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;
         [[nodiscard]] virtual std::shared_ptr<IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const  = 0;
+        // The same objects, non-owning (no reference count touched): PassContext::GetTexture/GetBuffer, per draw.
+        [[nodiscard]] virtual IPhysicalTexture* FindPhysicalTexture( uint32_t resource ) const = 0;
+        [[nodiscard]] virtual IPhysicalBuffer*  FindPhysicalBuffer( uint32_t resource ) const  = 0;
     };
 } // namespace Desert::Graphic::RDG
