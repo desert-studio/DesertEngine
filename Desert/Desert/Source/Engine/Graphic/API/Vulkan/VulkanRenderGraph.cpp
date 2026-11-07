@@ -2342,7 +2342,8 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdSetLineWidth( commandBuffer, 1.0f );
     }
 
-    Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
+    Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, const uint64_t at,
+                                                          std::span<const std::byte> bytes )
     {
         const VkCommandBuffer commandBuffer = RecordingBuffer();
         if ( commandBuffer == VK_NULL_HANDLE )
@@ -2358,7 +2359,7 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
         {
             const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
-            vkCmdUpdateBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + offset, size,
+            vkCmdUpdateBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + at + offset, size,
                                bytes.data() + offset );
         }
         return Common::MakeSuccess( true );

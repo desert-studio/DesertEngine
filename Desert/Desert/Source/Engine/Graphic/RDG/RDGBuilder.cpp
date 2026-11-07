@@ -419,16 +419,24 @@ namespace Desert::Graphic::RDG
         // Copied at the call: the exec runs after the caller's storage is gone.
         auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
         const std::span<const std::byte> copied( *payload );
-        AddUploadPass( buffer, copied, std::move( payload ) );
+        AddUploadPass( buffer, 0u, copied, std::move( payload ) );
+    }
+
+    void Builder::QueueBufferUpload( BufferRef buffer, const uint64_t offset, std::span<const std::byte> bytes )
+    {
+        CheckNotInSetupTask( m_Name, "QueueBufferUpload" );
+        auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
+        const std::span<const std::byte> copied( *payload );
+        AddUploadPass( buffer, offset, copied, std::move( payload ) );
     }
 
     void Builder::QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
     {
         CheckNotInSetupTask( m_Name, "QueueStaticBufferUpload" );
-        AddUploadPass( buffer, bytes, nullptr );
+        AddUploadPass( buffer, 0u, bytes, nullptr );
     }
 
-    void Builder::AddUploadPass( BufferRef buffer, std::span<const std::byte> bytes,
+    void Builder::AddUploadPass( BufferRef buffer, const uint64_t offset, std::span<const std::byte> bytes,
                                  std::shared_ptr<const std::vector<std::byte>> owned )
     {
         const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
@@ -442,12 +450,13 @@ namespace Desert::Graphic::RDG
             error = fmt::format( "graph '{}': upload into invalid buffer handle {}", m_Name, buffer.Index );
         else if ( bytes.empty() )
             error = fmt::format( "graph '{}': upload into buffer '{}' carries no bytes", m_Name, name );
-        else if ( bytes.size() > record->Buffer.Bytes )
-            error = fmt::format( "graph '{}': upload of {} bytes into buffer '{}' of {} bytes", m_Name,
-                                 bytes.size(), name, record->Buffer.Bytes );
-        else if ( bytes.size() % 4 != 0 )
-            error = fmt::format( "graph '{}': upload of {} bytes into buffer '{}' is not a multiple of 4 bytes",
-                                 m_Name, bytes.size(), name );
+        else if ( offset > record->Buffer.Bytes || bytes.size() > record->Buffer.Bytes - offset )
+            error = fmt::format( "graph '{}': upload of {} bytes at {} into buffer '{}' of {} bytes", m_Name,
+                                 bytes.size(), offset, name, record->Buffer.Bytes );
+        else if ( bytes.size() % 4 != 0 || offset % 4 != 0 )
+            error = fmt::format(
+                 "graph '{}': upload of {} bytes at {} into buffer '{}' is not a multiple of 4 bytes", m_Name,
+                 bytes.size(), offset, name );
 
         AddPass(
              std::format( "Upload: {}", name ), PassFlags::Copy,
@@ -458,12 +467,12 @@ namespace Desert::Graphic::RDG
                  if ( record != nullptr )
                      pass.Write( buffer, Access::CopyDst );
              },
-             [buffer, bytes, owned = std::move( owned )]( PassContext& context ) -> Common::BoolResultStr
+             [buffer, offset, bytes, owned = std::move( owned )]( PassContext& context ) -> Common::BoolResultStr
              {
                  const Common::ResultStr<BufferBinding> target = context.GetBuffer( buffer, Access::CopyDst );
                  if ( !target )
                      return Common::MakeFormattedError( "{}", target.GetError() );
-                 return context.GetBackend().UploadBuffer( target.GetValue().Resource, bytes );
+                 return context.GetBackend().UploadBuffer( target.GetValue().Resource, offset, bytes );
              } );
         m_Passes.back().QueuedUpload = true;
         if ( !error.empty() )

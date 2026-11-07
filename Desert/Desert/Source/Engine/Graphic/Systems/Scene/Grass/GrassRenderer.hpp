@@ -21,6 +21,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -300,6 +301,12 @@ namespace Desert::Graphic::System
             {
                 return m_Ref;
             }
+            // CPU-GRASS-POOL-5: the committed buffer, for a consumer that binds the whole pool (a descriptor, or
+            // a device address it adds absolute ids to); null before the first Commit made one.
+            [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& Buffer() const noexcept
+            {
+                return m_Buffer;
+            }
 
         private:
             const char*                                     m_Name;
@@ -331,8 +338,20 @@ namespace Desert::Graphic::System
             // (MeshRenderer::DrawBinSlots): what AddDrawGather sizes the tables by.
             uint32_t                                        BinSlots     = 0;
             uint32_t                                        BinCastSlots = 0;
-            std::shared_ptr<ShaderResources::StorageBuffer> Instances;
-            std::shared_ptr<ShaderResources::StorageBuffer> Args;
+            // CPU-GRASS-POOL-5 (UE GPU Scene: one pool per kind, a primitive addresses its range): Instances is a
+            // range of m_InstancesPool (rows of 64 bytes), FullIds / CameraIds / CascadeIds ranges of m_IdsPool,
+            // Args / CameraArgs / PostArgs / CascadeArgs ranges of m_ArgsPool. Every list's id is ABSOLUTE - its
+            // row + InstancesBase (GrassVarietyRowGpu) - and its records' firstInstance an absolute slot of the
+            // ids pool, so a consumer binds the pools whole and adds only ArgsOffset (GpuInstanceRefs).
+            PoolRange Instances;
+            PoolRange Args;
+            // The static half of the four args ranges (the records and bucket tables BuildVariety states), kept
+            // so a remade args pool (Epoch: its ranges start empty) gets them anew; ArgsEpoch: the args pool's
+            // Epoch they were last uploaded in (0: never - a (re)build uploads them on its first frame).
+            std::vector<uint32_t> ArgsWords, CameraArgsWords, PostArgsWords, CascadeArgsWords;
+            uint64_t              ArgsEpoch = 0;
+            // Counts the (re)builds: a build at the same ranges is still a new pool of rows (ApplyVariety's keys).
+            uint64_t                                        Builds = 0;
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
             GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
@@ -358,7 +377,7 @@ namespace Desert::Graphic::System
             std::optional<glm::uvec3>                       Drawn;
             // GPU-COST-21: the same copy's drawn count of each cascade view's list (0: the view had none).
             std::array<uint32_t, kGrassCascadeLists>        DrawnCascades{};
-            RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
+            RDG::ExternalBuffer                             ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
             // GRASS-VIS, the camera's list (List not None: CameraIds / CameraArgs sized like FullIds / Args;
@@ -367,11 +386,10 @@ namespace Desert::Graphic::System
             // not hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw
             // records.
             CameraList                                      List = CameraList::Planes;
-            std::shared_ptr<ShaderResources::StorageBuffer> CameraIds;
-            std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
+            PoolRange                                       CameraIds;  // of m_IdsPool
+            PoolRange                                       CameraArgs; // of m_ArgsPool
             PoolRange                                       Candidates; // of m_CandidatesPool (CPU-GRASS-POOL-1)
-            std::shared_ptr<ShaderResources::StorageBuffer> PostArgs;
-            RDG::ExternalBuffer                             CameraIdsImport, CameraArgsImport, PostArgsImport;
+            PoolRange                                       PostArgs;   // of m_ArgsPool
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs                                 PostRefs;   // phase 2's: CameraIds through PostArgs
             // GRASS-CULL-HIER-1, THE CAMERA CULL'S CHUNKS (Common/GrassVarietyRows.glslh GrassVarietyRow::Chunks): the
@@ -426,17 +444,15 @@ namespace Desert::Graphic::System
             // Reach, y = the wind distance, 0: no mover), the variety table's CascadeRings for GrassCull's
             // CascadeCull.
             std::array<glm::vec2, kGrassCascadeLists>       CascadeRings{};
-            std::shared_ptr<ShaderResources::StorageBuffer> CascadeIds;
-            std::shared_ptr<ShaderResources::StorageBuffer> CascadeArgs;
-            RDG::ExternalBuffer                             CascadeIdsImport, CascadeArgsImport;
+            PoolRange                                       CascadeIds;  // of m_IdsPool
+            PoolRange                                       CascadeArgs; // of m_ArgsPool
             GpuInstanceRefs                                 CascadeRefs;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;
             // GRASS-VIEW-LAW-1: the field's buffer this frame (the variety table's Field address) and the full list
             // (GrassCull.shader CullInstance: the records the views keep, in Args' buckets; Refs.Ids).
             std::shared_ptr<ShaderResources::StorageBuffer> FieldBuffer;
-            std::shared_ptr<ShaderResources::StorageBuffer> FullIds;
-            RDG::ExternalBuffer                             FullIdsImport;
+            PoolRange                                       FullIds;   // of m_IdsPool
             uint32_t                                        Index = 0; // stable section key base
             // GRASS-TILE-1, THE TILE CACHE (UE LandscapeGrass.cpp: a component's grass is built once by
             // FAsyncGrassBuilder into its HISM and kept while the component is within the cull distance, the
@@ -711,6 +727,16 @@ namespace Desert::Graphic::System
         // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates / LawScales), committed by WriteVarietyTable.
         BufferPool m_CandidatesPool{ "GrassCandidates", 7u };
         BufferPool m_LawScalesPool{ "GrassLawScales", 2u };
+        // CPU-GRASS-POOL-5: the rows, the id lists and the draw records of every variety (VarietyGpu::Instances,
+        // FullIds / CameraIds / CascadeIds, Args / CameraArgs / PostArgs / CascadeArgs), committed by AddFrame
+        // before any variety's refs are set (CommitListPools), so each is imported and registered once a frame.
+        BufferPool m_InstancesPool{ "GrassInstances", 2u };
+        BufferPool m_IdsPool{ "GrassIds", 5u };
+        BufferPool m_ArgsPool{ "GrassArgs", 3u };
+        // Commits the three pools above and queues each variety's args words whose upload the args pool's
+        // Epoch asks for (a (re)build, a remade pool), after the commit's grow copy so the upload is ordered
+        // after it.
+        [[nodiscard]] Common::BoolResultStr CommitListPools( RDG::Builder& graph, std::span<VarietyPlan> plans );
         // CPU-GRASS-POOL-3: every variety's tile pool words (VarietyGpu::TileWords), imported and registered once
         // on a frame with tile passes; m_TileWordsEpoch the pool's Epoch the held words were last carried in.
         BufferPool m_TileWordsPool{ "GrassTileWords", 15u };

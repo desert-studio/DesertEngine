@@ -54,6 +54,13 @@ struct GrassVarietyRow
     uvec2 LawScales;
     uint  LawGeneration;
     uint  LawCapacity;
+    // CPU-GRASS-POOL-5: Instances and the id lists are ranges of shared pools (GrassRenderer m_InstancesPool,
+    // m_IdsPool): the range's first row of Instances and first slot of FullIds / CameraIds / CascadeIds. Every id
+    // GrassCull writes is row + InstancesBase, every record's firstInstance its list's slot + the list's base.
+    uint  InstancesBase;
+    uint  FullIdsBase;
+    uint  CameraIdsBase;
+    uint  CascadeIdsBase;
     // The row ends here; std430 rounds it to its 16-byte alignment.
 };
 

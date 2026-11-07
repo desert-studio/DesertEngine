@@ -269,12 +269,14 @@ namespace Desert::Graphic::RDG
         // A pass failed: close whatever is open without recording further work.
         virtual void AbandonGraph() = 0;
 
-        // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). Records a copy of @p bytes into the start of buffer
-        // @p resource on the current pass's command buffer. Called only from the exec of the upload pass
-        // Builder::QueueBufferUpload adds, after the graph's barrier put the buffer in CopyDst; the builder has
-        // already refused an empty payload, one larger than the buffer, and a size that is not a multiple of 4.
-        // The bytes are consumed before the call returns (the backend keeps no pointer into them).
-        virtual Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) = 0;
+        // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). Records a copy of @p bytes into buffer @p resource
+        // at @p offset (CPU-GRASS-POOL-4: a range of a pooled buffer) on the current pass's command buffer. Called
+        // only from the exec of the upload pass Builder::QueueBufferUpload adds, after the graph's barrier put the
+        // buffer in CopyDst; the builder has already refused an empty payload, one past the buffer's end, and an
+        // offset or size that is not a multiple of 4. The bytes are consumed before the call returns (the backend
+        // keeps no pointer into them).
+        virtual Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t offset,
+                                                    std::span<const std::byte> bytes ) = 0;
         // CPU-GRASS-POOL-3 (UE: AddCopyBufferPass). Records a copy of @p bytes from buffer @p source at
         // @p sourceOffset into buffer @p target at @p targetOffset on the current pass's command buffer. Called
         // only from the exec of the pass Builder::AddCopyBufferPass adds, after the graph's barriers put the

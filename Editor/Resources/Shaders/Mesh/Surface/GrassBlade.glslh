@@ -22,6 +22,7 @@ struct GrassBladeShapeData
     // row (instance i is row x + i), y = the strip's level-0 segments, z = its bucket (= strip level) count.
     uvec4 Visibility;
     uvec4 BucketFirst[2]; // the first instance of bucket b < 8, [b / 4][b % 4] (GrassRenderer's bucket table)
+    uvec4 Lists;          // x = the camera list's first slot in the shared ids pool (CPU-GRASS-POOL-5)
 };
 
 // The strip level instance @p instance was drawn with (GrassGenerate's bucket = GrassRenderer::BladeStrip's

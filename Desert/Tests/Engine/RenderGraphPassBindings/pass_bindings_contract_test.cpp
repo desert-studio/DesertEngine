@@ -165,7 +165,7 @@ namespace
         void AbandonGraph() override
         {
         }
-        Common::BoolResultStr UploadBuffer( uint32_t, std::span<const std::byte> ) override
+        Common::BoolResultStr UploadBuffer( uint32_t, uint64_t, std::span<const std::byte> ) override
         {
             return Common::MakeSuccess( true );
         }

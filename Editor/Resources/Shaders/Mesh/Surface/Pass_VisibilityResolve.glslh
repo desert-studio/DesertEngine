@@ -104,9 +104,12 @@ void main()
         discard;
     const uint instance = row - Blade.Visibility.x;
 #ifdef DESERT_SURFACE_INSTANCE_IDS
-    if ( instance >= uint( instanceIds.length() ) )
+    // CPU-GRASS-POOL-6: the ids are the shared pool's (binding 18 is the whole pool), the camera list's slot
+    // `instance` lies at Lists.x + instance; the id is absolute in the instances pool (UE GPUScene's InstanceId).
+    const uint idSlot = Blade.Lists.x + instance;
+    if ( idSlot >= uint( instanceIds.length() ) )
         discard;
-    const mat4 model    = transforms[instanceIds[instance]];
+    const mat4 model    = transforms[instanceIds[idSlot]];
 #else
     if ( instance >= uint( transforms.length() ) )
         discard;
@@ -203,9 +206,11 @@ void main()
         discard; // another section's row
     const uint inside = local - slot * perInstance;
 #ifdef DESERT_SURFACE_INSTANCE_IDS
-    if ( slot >= uint( instanceIds.length() ) )
+    // CPU-GRASS-POOL-6: the section's slot in the shared ids pool is the camera list's first (Slots.y) + slot.
+    const uint idSlot = MeshRows.Slots.y + slot;
+    if ( idSlot >= uint( instanceIds.length() ) )
         discard;
-    const uint instance = instanceIds[slot];
+    const uint instance = instanceIds[idSlot];
 #else
     const uint instance = slot;
 #endif
