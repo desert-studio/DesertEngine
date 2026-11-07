@@ -3155,7 +3155,45 @@ namespace Desert::Graphic::System
             float                           Distance     = 0.0f; // from the eye to the light, cm
             const LocalLightShadowSettings* Settings     = nullptr;
         };
+        // THE ORDER IS KEPT ACROSS FRAMES (CPU-LOCAL-SHADOW, F9a): the requests are made into
+        // m_LocalShadowRequestsMade and hashed as made (LocalShadowRequestKey: every field the order and the
+        // allocation read); the same key as the sorted list in m_LocalShadowRequests was made from keeps that list
+        // (no sort), another swaps the made list in and sorts it. Settings is re-pointed every frame (the
+        // settings vectors are the caller's).
         std::vector<LocalShadowRequest> m_LocalShadowRequests;
+        std::vector<LocalShadowRequest> m_LocalShadowRequestsMade;
+        uint64_t                        m_LocalShadowRequestKey    = 0;
+        bool                            m_LocalShadowRequestSorted = false;
+        // THE LIGHTS' VIEWS ARE KEPT ACROSS FRAMES (CPU-LOCAL-SHADOW, F9a; UE FCachedShadowMapData per light): per
+        // position of the sorted request list, the rows, casters' bias and matrices and the LOD view a light's
+        // views were made from, valid while the light (Light), every input of its views (Inputs:
+        // LocalShadowLightInputs - position, reach, cone, source radius, its shadow settings), the atlas side and
+        // its tiles are the ones they were made with. A still frame computes no view matrix and no projection.
+        struct LocalShadowBlock
+        {
+            uint64_t                                              Light     = 0; // the request's Key; 0 = none
+            uint64_t                                              Inputs    = 0;
+            uint32_t                                              AtlasSide = 0;
+            uint32_t                                              Count     = 0; // 1 for a spot, else faces
+            std::array<AtlasTile, kPointShadowFaces>              Tiles{};
+            std::array<LocalShadowViewPayload, kPointShadowFaces> Rows{};
+            std::array<CascadeCasterBias, kPointShadowFaces>      Bias{};
+            std::array<glm::mat4, kPointShadowFaces>              CasterVP{};
+            float                                                 Reach = 0.0f;
+            Geometry::LODView                                     Lod;
+        };
+        std::vector<LocalShadowBlock> m_LocalShadowBlocks;
+        // The hash of every input of @p request's views (LocalShadowBlock::Inputs).
+        [[nodiscard]] static uint64_t
+        LocalShadowLightInputs( const LocalShadowRequest&                              request,
+                                const std::vector<ShaderProtocols::PointLightPayload>& points,
+                                const std::vector<ShaderProtocols::SpotLightPayload>&  spots );
+        // Makes @p block: the views of @p request's light on @p tiles of an atlas @p atlasSide texels wide.
+        static void MakeLocalShadowBlock( LocalShadowBlock& block, const LocalShadowRequest& request,
+                                          const std::array<AtlasTile, kPointShadowFaces>&        tiles,
+                                          const std::vector<ShaderProtocols::PointLightPayload>& points,
+                                          const std::vector<ShaderProtocols::SpotLightPayload>&  spots,
+                                          uint32_t atlasSide, uint64_t inputs );
         // LocalShadowPasses' output, kept: the first m_LocalShadowPassCount entries are this frame's passes, the
         // ones past it are cleared (no captured atlas). Names come from m_LocalShadowPassNames, one per slot, made
         // once ("MeshShadowLocal<slot>") and copied into the kept pass's string (its capacity reused).
@@ -4290,6 +4328,25 @@ namespace Desert::Graphic::System
         std::map<LocalStaticKey, LocalStaticPart> m_LocalStaticParts;
         uint64_t                                  m_LocalStaticSweep = 0; // the gather the last eviction ran for
         [[nodiscard]] uint64_t                    LocalStaticCasterHash( const glm::vec3& centre, float radius );
+        // THE LOCAL VIEWS' ISM PART (CPU-LOCAL-SHADOW, F9b): the hash LocalCasterSignature takes of the instanced
+        // casters in a sphere, kept per sphere while the ISM gather (IsmRevision: camera, wind, cull distance,
+        // fields, meshes, transforms snapshots by owner) and the fields' keys it does not hold (IsmSideKey: mesh,
+        // hidden submeshes) are the ones it was made from. Sways: a swaying instance is in reach (no key: the
+        // views redraw every frame). Swept as the static part, by kLocalStaticPartGathers.
+        struct LocalIsmPart
+        {
+            uint64_t Revision = 0;
+            uint64_t Side     = 0;
+            uint64_t Asked    = 0; // the gather that last asked for it
+            uint64_t Hash     = 0;
+            bool     Sways    = false;
+        };
+        std::map<LocalStaticKey, LocalIsmPart> m_LocalIsmParts;
+        uint64_t                               m_LocalIsmSweep      = 0; // the gather the last eviction ran for
+        uint64_t                               m_LocalIsmSideGather = 0; // the gather m_LocalIsmSide is of
+        uint64_t                               m_LocalIsmSide       = 0;
+        [[nodiscard]] std::optional<uint64_t>  LocalIsmCasterHash( const glm::vec3& centre, float radius );
+        [[nodiscard]] uint64_t                 IsmSideKey();
         // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each, the static /
         // generic rows finished for this gather): a queue changed after the last GatherShadowCasters breaks the
         // order SceneRenderer::OnUpdate keeps.

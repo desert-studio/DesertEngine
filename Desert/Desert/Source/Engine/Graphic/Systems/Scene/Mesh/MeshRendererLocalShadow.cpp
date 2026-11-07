@@ -132,36 +132,104 @@ namespace Desert::Graphic::System
         // The static / generic casters, kept per sphere while the static casters' revision holds
         // (LocalStaticCasterHash): in a still frame no static caster is walked here.
         hash.Add( LocalStaticCasterHash( centre, radius ) );
+        // The instanced casters, kept per sphere while the ISM gather holds (LocalIsmCasterHash): in a still frame
+        // no instance is walked here.
+        const std::optional<uint64_t> isms = LocalIsmCasterHash( centre, radius );
+        if ( !isms )
+            return std::nullopt;
+        hash.Add( *isms );
+        return hash.Value;
+    }
+
+    uint64_t MeshRenderer::IsmSideKey()
+    {
+        // The inputs of the ISM part the ISM gather's key does not hold (IsmGatherKey has the mesh's render
+        // revision, not the mesh; nothing of the hidden submeshes): asked once per gather, O(fields).
+        const uint64_t gather = m_ShadowCasterSetup.Gather;
+        if ( m_LocalIsmSideGather == gather && gather != 0u )
+            return m_LocalIsmSide;
+        SignatureHash side;
+        side.Add( m_InstancedQueue.size() );
         for ( const auto& ism : m_InstancedQueue )
         {
-            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
-                continue;
-            // The instances the main camera's cull distance keeps, by the box the wind can reach (the gather's):
-            // one the camera drops is in no view, and one entering or leaving the distance changes the key.
-            const ShadowIsmField& kept =
-                 ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-            bool any = false;
-            for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
-            {
-                if ( !CasterInSphere( m_ShadowCasterSetup.Instances[k].WorldBounds, centre, radius ) )
-                    continue;
-                // Swaying foliage within the shadow wind distance moves every frame, like a posed mesh; a farther
-                // instance casts its rest pose (the gather's Sways, BuildShadowCascadeDraws draws it still) and is
-                // keyed like a still one.
-                if ( m_ShadowCasterSetup.Instances[k].Sways )
-                    return std::nullopt;
-                hash.Add( ( *ism.Transforms )[m_ShadowCasterSetup.InstanceIndex[k]] );
-                // The level the views draw it at follows the main camera (the gather's): a new one redraws.
-                hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
-                any = true;
-            }
-            if ( any )
-            {
-                hash.Add( ism.Mesh->GetRenderRevision() );
-                hash.Add( ism.HiddenSubmeshes );
-            }
+            side.Add( static_cast<const void*>( ism.Mesh ) );
+            side.Add( ism.HiddenSubmeshes );
         }
-        return hash.Value;
+        m_LocalIsmSideGather = gather;
+        m_LocalIsmSide       = side.Value;
+        return m_LocalIsmSide;
+    }
+
+    std::optional<uint64_t> MeshRenderer::LocalIsmCasterHash( const glm::vec3& centre, const float radius )
+    {
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        // Every field hashed below is the ISM gather's (Instances, InstanceIndex, the kept range per field: kept
+        // while IsmRevision holds), of the transforms snapshot it holds by owner (the content of a snapshot never
+        // changes), or of the side key (mesh, hidden submeshes): a part made under both is the one the walk makes.
+        const auto walk = [this, &centre, radius]( bool& sways )
+        {
+            SignatureHash hash;
+            sways = false;
+            for ( const auto& ism : m_InstancedQueue )
+            {
+                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                    continue;
+                // The instances the main camera's cull distance keeps, by the box the wind can reach (the
+                // gather's): one the camera drops is in no view, and one entering or leaving the distance changes
+                // the key.
+                const ShadowIsmField& kept =
+                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+                bool any = false;
+                for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+                {
+                    if ( !CasterInSphere( m_ShadowCasterSetup.Instances[k].WorldBounds, centre, radius ) )
+                        continue;
+                    // Swaying foliage within the shadow wind distance moves every frame, like a posed mesh; a
+                    // farther instance casts its rest pose (the gather's Sways, BuildShadowCascadeDraws draws it
+                    // still) and is keyed like a still one.
+                    if ( m_ShadowCasterSetup.Instances[k].Sways )
+                    {
+                        sways = true;
+                        return hash.Value;
+                    }
+                    hash.Add( ( *ism.Transforms )[m_ShadowCasterSetup.InstanceIndex[k]] );
+                    // The level the views draw it at follows the main camera (the gather's): a new one redraws.
+                    hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
+                    any = true;
+                }
+                if ( any )
+                {
+                    hash.Add( ism.Mesh->GetRenderRevision() );
+                    hash.Add( ism.HiddenSubmeshes );
+                }
+            }
+            return hash.Value;
+        };
+        // Once per gather: the spheres no light asked for in kLocalStaticPartGathers gathers leave.
+        if ( m_LocalIsmSweep != setup.Gather )
+        {
+            m_LocalIsmSweep = setup.Gather;
+            std::erase_if( m_LocalIsmParts, [gather = setup.Gather]( const auto& entry )
+                           { return gather - entry.second.Asked > kLocalStaticPartGathers; } );
+        }
+        const uint64_t side = IsmSideKey();
+        LocalStaticKey key;
+        key.Bits                 = { std::bit_cast<uint32_t>( centre.x ), std::bit_cast<uint32_t>( centre.y ),
+                                     std::bit_cast<uint32_t>( centre.z ), std::bit_cast<uint32_t>( radius ) };
+        const auto [found, made] = m_LocalIsmParts.try_emplace( key );
+        LocalIsmPart& part       = found->second;
+        part.Asked               = setup.Gather;
+        if ( made || part.Revision != setup.IsmRevision || part.Side != side )
+        {
+            bool sways    = false;
+            part.Hash     = walk( sways );
+            part.Sways    = sways;
+            part.Revision = setup.IsmRevision;
+            part.Side     = side;
+        }
+        if ( part.Sways )
+            return std::nullopt;
+        return part.Hash;
     }
 
     uint64_t MeshRenderer::LocalStaticCasterHash( const glm::vec3& centre, const float radius )
@@ -239,6 +307,102 @@ namespace Desert::Graphic::System
         return part.Hash;
     }
 
+    uint64_t MeshRenderer::LocalShadowLightInputs( const LocalShadowRequest&                              request,
+                                                   const std::vector<ShaderProtocols::PointLightPayload>& points,
+                                                   const std::vector<ShaderProtocols::SpotLightPayload>&  spots )
+    {
+        // Every input of a light's views: its shadow settings (the rows' and the casters' bias), where it is, how
+        // far it reaches, its cone and its source radius (the near plane).
+        SignatureHash                   in;
+        const LocalLightShadowSettings& s = *request.Settings;
+        in.Add( request.Spot );
+        in.Add( s.CastShadows );
+        in.Add( s.DepthBias );
+        in.Add( s.SlopeBias );
+        in.Add( s.ResolutionScale );
+        in.Add( s.ShadowMethod );
+        in.Add( s.SourceId );
+        if ( request.Spot )
+        {
+            const ShaderProtocols::SpotLightPayload& spot = spots[request.Index];
+            in.Add( spot.Position );
+            in.Add( spot.Direction );
+            in.Add( spot.CosOuter );
+            in.Add( spot.Range );
+            in.Add( spot.SourceRadius );
+        }
+        else
+        {
+            const ShaderProtocols::PointLightPayload& point = points[request.Index];
+            in.Add( point.Position );
+            in.Add( point.Radius );
+            in.Add( point.SourceRadius );
+        }
+        return in.Value;
+    }
+
+    void MeshRenderer::MakeLocalShadowBlock( LocalShadowBlock& block, const LocalShadowRequest& request,
+                                             const std::array<AtlasTile, kPointShadowFaces>&        tiles,
+                                             const std::vector<ShaderProtocols::PointLightPayload>& points,
+                                             const std::vector<ShaderProtocols::SpotLightPayload>&  spots,
+                                             const uint32_t atlasSide, const uint64_t inputs )
+    {
+        const LocalLightShadowSettings& settings  = *request.Settings;
+        const uint32_t                  viewCount = request.Spot ? 1u : kPointShadowFaces;
+        const uint32_t                  tileSize  = tiles[0].Size;
+        block.Light                               = request.Key;
+        block.Inputs                              = inputs;
+        block.AtlasSide                           = atlasSide;
+        block.Count                               = viewCount;
+        block.Tiles                               = tiles;
+        glm::vec3 origin{ 0.0f };
+        float     reach    = 0.0f;
+        float     viewNear = 0.0f;
+        float     viewTan  = 0.0f;
+        if ( request.Spot )
+        {
+            const ShaderProtocols::SpotLightPayload& spot = spots[request.Index];
+            reach                                         = spot.Range;
+            viewNear                                      = LocalShadowNear( reach, spot.SourceRadius );
+            const float outer                             = std::acos( std::clamp( spot.CosOuter, -1.0f, 1.0f ) );
+            viewTan = GuardedTanHalf( std::tan( std::clamp( outer, glm::radians( 1.0f ), glm::radians( 89.0f ) ) ),
+                                      tileSize );
+            const glm::mat4 vp =
+                 SpotShadowViewProj( spot.Position, spot.Direction, outer, viewNear, reach, tileSize );
+            block.Rows[0] = LocalShadowRow( vp, tiles[0], atlasSide, viewNear, reach, viewTan, settings );
+            origin        = spot.Position;
+        }
+        else
+        {
+            const ShaderProtocols::PointLightPayload& point = points[request.Index];
+            reach                                           = point.Radius;
+            viewNear                                        = LocalShadowNear( reach, point.SourceRadius );
+            viewTan                                         = GuardedTanHalf( 1.0f, tileSize );
+            for ( uint32_t face = 0; face < kPointShadowFaces; ++face )
+            {
+                const glm::mat4 vp = PointShadowFaceViewProj( point.Position, face, viewNear, reach, tileSize );
+                block.Rows[face] =
+                     LocalShadowRow( vp, tiles[face], atlasSide, viewNear, reach, viewTan, settings );
+            }
+            origin = point.Position;
+        }
+        // The caster side of each view: its bias and matrix. The bias is the light's (Shadow Bias / Shadow Slope
+        // Bias, in texels at the caster) and every caster of the view takes it, the meshes through CameraUB and
+        // the terrain through its push (LocalCasterBias); the receiver adds only its normal offset
+        // (Mesh/LocalLightShadow.glslh).
+        for ( uint32_t v = 0; v < viewCount; ++v )
+        {
+            const LocalShadowViewPayload& row = block.Rows[v];
+            block.Bias[v]     = LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, settings );
+            block.CasterVP[v] = CasterViewProj( row.ViewProj, block.Bias[v].DepthBias );
+        }
+        // Its casters' level of detail is chosen from the light (LocalShadowCasterLight): from its position,
+        // through the projection its views draw with.
+        block.Reach = reach;
+        block.Lod   = Geometry::LODView{ origin, glm::perspective( 2.0f * std::atan( viewTan ), 1.0f, viewNear,
+                                                                   std::max( reach, viewNear * 2.0f ) ) };
+    }
+
     void MeshRenderer::UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                            const std::vector<LocalLightShadowSettings>&     pointShadows,
                                            std::vector<ShaderProtocols::SpotLightPayload>&  spots,
@@ -307,8 +471,19 @@ namespace Desert::Graphic::System
                                      : viewportHeight;
         };
 
-        std::vector<Request>& requests = m_LocalShadowRequests;
-        requests.clear();
+        // Made into the scratch list and hashed as made: every field the order and the allocation read.
+        std::vector<Request>& made = m_LocalShadowRequestsMade;
+        made.clear();
+        SignatureHash order;
+        const auto    addOrder = [&order]( const Request& request )
+        {
+            order.Add( request.Key );
+            order.Add( request.Spot );
+            order.Add( request.Index );
+            order.Add( request.Size );
+            order.Add( request.ScreenRadius );
+            order.Add( request.Distance );
+        };
         for ( std::size_t i = 0; i < points.size() && i < pointShadows.size(); ++i )
         {
             const LocalLightShadowSettings& s = pointShadows[i];
@@ -317,9 +492,10 @@ namespace Desert::Graphic::System
             // It casts in this view: a view refused below leaves it a caster the maps do not cover.
             points[i].ShadowCaster = 1;
             const float r = screenRadius( points[i].Position, points[i].Radius );
-            requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u, false, i,
-                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r,
-                                  glm::length( points[i].Position - eye ), &s } );
+            made.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u, false, i,
+                              LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r,
+                              glm::length( points[i].Position - eye ), &s } );
+            addOrder( made.back() );
         }
         for ( std::size_t i = 0; i < spots.size() && i < spotShadows.size(); ++i )
         {
@@ -328,9 +504,10 @@ namespace Desert::Graphic::System
                 continue;
             spots[i].ShadowCaster = 1;
             const float r = screenRadius( spots[i].Position, spots[i].Range );
-            requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u + 1u, true, i,
-                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r,
-                                  glm::length( spots[i].Position - eye ), &s } );
+            made.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u + 1u, true, i,
+                              LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r,
+                              glm::length( spots[i].Position - eye ), &s } );
+            addOrder( made.back() );
         }
         // The largest on screen first: they take the largest tiles while the pool has room (Allocate halves a
         // request until it fits), and only when the pool cannot hold even the smallest tile does a light - the
@@ -338,22 +515,46 @@ namespace Desert::Graphic::System
         // Every light the camera stands inside asks the whole view (SphereScreenRadiusPx): among equals the
         // nearer goes first, then the light's identity - never the order the lights were gathered in, which
         // follows the view's culling and so would hand the large tiles to other lamps as the camera turns.
-        std::sort( requests.begin(), requests.end(),
-                   []( const Request& a, const Request& b )
-                   {
-                       if ( a.ScreenRadius != b.ScreenRadius )
-                           return a.ScreenRadius > b.ScreenRadius;
-                       if ( a.Distance != b.Distance )
-                           return a.Distance < b.Distance;
-                       return a.Key < b.Key;
-                   } );
+        // The same requests as the kept sorted list was made from keep its order (CPU-LOCAL-SHADOW): only the
+        // settings they point at are this frame's.
+        std::vector<Request>& requests = m_LocalShadowRequests;
+        if ( !m_LocalShadowRequestSorted || order.Value != m_LocalShadowRequestKey ||
+             made.size() != requests.size() )
+        {
+            requests.swap( made );
+            std::sort( requests.begin(), requests.end(),
+                       []( const Request& a, const Request& b )
+                       {
+                           if ( a.ScreenRadius != b.ScreenRadius )
+                               return a.ScreenRadius > b.ScreenRadius;
+                           if ( a.Distance != b.Distance )
+                               return a.Distance < b.Distance;
+                           return a.Key < b.Key;
+                       } );
+            m_LocalShadowRequestKey    = order.Value;
+            m_LocalShadowRequestSorted = true;
+        }
+        else
+        {
+            for ( Request& request : requests )
+            {
+                if ( request.Spot )
+                    request.Settings = &spotShadows[request.Index];
+                else
+                    request.Settings = &pointShadows[request.Index];
+            }
+        }
 
         if ( requests.empty() )
             return;
 
+        if ( m_LocalShadowBlocks.size() < requests.size() )
+            m_LocalShadowBlocks.resize( requests.size() );
+
         uint32_t refused = 0;
-        for ( const Request& request : requests )
+        for ( std::size_t slot = 0; slot < requests.size(); ++slot )
         {
+            const Request& request   = requests[slot];
             const uint32_t viewCount = request.Spot ? 1u : kPointShadowFaces;
             // ITS TILES: the ones the scene holds for it, or new ones (halving the size until the pool has room).
             // A primary view resizes a light it sized itself (or a face sized), or one whose sizer asks a smaller
@@ -384,76 +585,47 @@ namespace Desert::Graphic::System
             }
             if ( light->Sizer == this )
                 light->SizerFrame = frame;
-            light->LastFrame        = frame;
-            const uint32_t tileSize = light->Tiles[0].Size;
+            light->LastFrame = frame;
 
-            const auto firstRow    = static_cast<uint32_t>( m_LocalShadowRows.size() );
-            float      spotTanHalf = 0.0f;
+            // ITS VIEWS: the kept block while the light, its inputs, the atlas side and its tiles are the ones it
+            // was made with (CPU-LOCAL-SHADOW: a still frame makes no matrix); else made again.
+            const uint64_t    inputs = LocalShadowLightInputs( request, points, spots );
+            LocalShadowBlock& block  = m_LocalShadowBlocks[slot];
+            bool kept = block.Light == request.Key && block.Inputs == inputs && block.AtlasSide == atlasSide &&
+                        block.Count == viewCount;
+            for ( uint32_t v = 0; kept && v < viewCount; ++v )
+                kept = block.Tiles[v] == light->Tiles[v];
+            if ( !kept )
+                MakeLocalShadowBlock( block, request, light->Tiles, points, spots, atlasSide, inputs );
+
+            const auto firstRow = static_cast<uint32_t>( m_LocalShadowRows.size() );
+            for ( uint32_t v = 0; v < viewCount; ++v )
+                m_LocalShadowRows.push_back( block.Rows[v] );
             if ( request.Spot )
-            {
-                auto&       spot      = spots[request.Index];
-                const float farPlane  = spot.Range;
-                const float nearPlane = LocalShadowNear( farPlane, spot.SourceRadius );
-                const float outer     = std::acos( std::clamp( spot.CosOuter, -1.0f, 1.0f ) );
-                const float tanHalf   = GuardedTanHalf(
-                     std::tan( std::clamp( outer, glm::radians( 1.0f ), glm::radians( 89.0f ) ) ), tileSize );
-                const glm::mat4 vp =
-                     SpotShadowViewProj( spot.Position, spot.Direction, outer, nearPlane, farPlane, tileSize );
-                m_LocalShadowRows.push_back( LocalShadowRow( vp, light->Tiles[0], atlasSide, nearPlane, farPlane,
-                                                             tanHalf, *request.Settings ) );
-                spot.ShadowView = static_cast<int32_t>( firstRow );
-                spotTanHalf     = tanHalf;
-            }
+                spots[request.Index].ShadowView = static_cast<int32_t>( firstRow );
             else
-            {
-                auto&       point     = points[request.Index];
-                const float farPlane  = point.Radius;
-                const float nearPlane = LocalShadowNear( farPlane, point.SourceRadius );
-                const float tanHalf   = GuardedTanHalf( 1.0f, tileSize );
-                for ( uint32_t face = 0; face < kPointShadowFaces; ++face )
-                {
-                    const glm::mat4 vp =
-                         PointShadowFaceViewProj( point.Position, face, nearPlane, farPlane, tileSize );
-                    m_LocalShadowRows.push_back( LocalShadowRow( vp, light->Tiles[face], atlasSide, nearPlane,
-                                                                 farPlane, tanHalf, *request.Settings ) );
-                }
-                point.ShadowView = static_cast<int32_t>( firstRow );
-            }
+                points[request.Index].ShadowView = static_cast<int32_t>( firstRow );
 
-            // The caster side of each view: its matrix, its bias and its caster materials. The bias is the
-            // light's (Shadow Bias / Shadow Slope Bias, in texels at the caster) and every caster of the view
-            // takes it, the meshes through CameraUB and the terrain through its push (LocalCasterBias); the
-            // receiver adds only its normal offset (Mesh/LocalLightShadow.glslh).
+            // The caster side of each view: its matrix, its bias and its caster materials (the block's).
             EnsureShadowViewCount( kLocalShadowViewBase + firstRow + viewCount );
             for ( uint32_t v = 0; v < viewCount; ++v )
             {
-                const uint32_t                view = kLocalShadowViewBase + firstRow + v;
-                const LocalShadowViewPayload& row  = m_LocalShadowRows[firstRow + v];
-                m_CascadeCasterBias[view] =
-                     LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, *request.Settings );
-                m_CascadeCasterVP[view] = CasterViewProj( row.ViewProj, m_CascadeCasterBias[view].DepthBias );
+                const uint32_t view        = kLocalShadowViewBase + firstRow + v;
+                m_CascadeCasterBias[view]  = block.Bias[v];
+                m_CascadeCasterVP[view]    = block.CasterVP[v];
                 m_VirtualShadowViews[view] = 0u; // an atlas row (a past frame may have given it to a VSM mip)
                 EnsureShadowViewMaterials( view );
             }
 
             // THE CACHE is decided when the views' nodes are added (PlanLocalShadowCache): where the light
-            // reaches. Its casters' level of detail is chosen from the light (LocalShadowCasterLight): from its
-            // position, through the projection its views draw with.
-            const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
-            const glm::vec3 origin = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
-            const float     viewTan  = request.Spot ? spotTanHalf : GuardedTanHalf( 1.0f, tileSize );
-            const float     viewNear = LocalShadowNear(
-                 reach, request.Spot ? spots[request.Index].SourceRadius : points[request.Index].SourceRadius );
-            m_LocalCachePlans.push_back(
-                 { .Light   = request.Key,
-                   .Caster  = { .FirstView = kLocalShadowViewBase + firstRow,
-                                .ViewCount = viewCount,
-                                .Reach     = reach,
-                                .Lod       = Geometry::LODView{
-                                     origin, glm::perspective( 2.0f * std::atan( viewTan ), 1.0f, viewNear,
-                                                                     std::max( reach, viewNear * 2.0f ) ) } },
-                   .Frame   = frame,
-                   .Primary = primary } );
+            // reaches, its casters' level of detail chosen from the light (the block's LOD view).
+            m_LocalCachePlans.push_back( { .Light   = request.Key,
+                                           .Caster  = { .FirstView = kLocalShadowViewBase + firstRow,
+                                                        .ViewCount = viewCount,
+                                                        .Reach     = block.Reach,
+                                                        .Lod       = block.Lod },
+                                           .Frame   = frame,
+                                           .Primary = primary } );
         }
 
         // Said once per change, not per frame: which lights the budget left without a shadow.
