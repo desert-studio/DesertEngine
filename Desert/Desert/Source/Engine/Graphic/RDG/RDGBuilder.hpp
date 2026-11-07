@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Memory/ArenaFunction.hpp>
 #include <Common/Core/Memory/FrameArena.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -202,7 +203,11 @@ namespace Desert::Graphic::RDG
     class Builder
     {
     public:
-        using ExecFunction = std::function<Common::BoolResultStr( PassContext& )>;
+        // A pass exec built away from its AddPass call (a helper that returns it). CPU-RDG-ALLOC (UE: the pass
+        // lambda in FRDGAllocator): move-only, constructed over GetFrameArena() so captures beyond the inline
+        // buffer land in the graph's arena; AddPass places it there too, and Reset destroys it before it rewinds
+        // the arena.
+        using ExecFunction = Common::Memory::ArenaFunction<Common::BoolResultStr( PassContext& )>;
 
         explicit Builder( std::string name ) : m_Name( std::move( name ) )
         {

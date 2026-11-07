@@ -112,6 +112,7 @@ namespace Desert::Graphic::System
                 }
             }
         };
-        return pass;
+        // Moved into the optional: a SystemRasterPass is move-only.
+        return std::optional<SystemRasterPass>( std::move( pass ) );
     }
 } // namespace Desert::Graphic::System

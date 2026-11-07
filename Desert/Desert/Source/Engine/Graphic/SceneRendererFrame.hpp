@@ -456,8 +456,8 @@ namespace Desert::Graphic
         // CPU-RDG-ALLOC: each node's resolved images in the graph's arena (alive until the graph resets), no heap
         // list per node.
         Common::Memory::FrameArena&                                               arena = graph.GetFrameArena();
-        Common::Memory::ArenaVector<Common::Memory::ArenaVector<RDG::TextureRef>> images(
-             Common::Memory::ArenaAllocator<Common::Memory::ArenaVector<RDG::TextureRef>>( arena ) );
+        Common::Memory::ArenaVector<Common::Memory::ArenaVector<RDG::TextureRef>> images{
+             Common::Memory::ArenaAllocator<Common::Memory::ArenaVector<RDG::TextureRef>>( arena ) };
         images.reserve( nodes.size() );
         for ( size_t i = 0; i < nodes.size(); ++i )
         {

@@ -1337,8 +1337,9 @@ namespace Desert::Graphic
         // overlays after the temporal resolve.
         // @p clearDepth false: that first node clears colour only and LOADS the depth (the forward base pass over
         // its depth prepass).
-        void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
-                               std::span<const SystemRasterPass> passes, bool clearFirst,
+        // The passes are CONSUMED: each body is moved into its node (a SystemRasterPass is move-only).
+        void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures, std::span<SystemRasterPass> passes,
+                               bool clearFirst,
                                const OverlayTargets& overlay = {}, bool clearDepth = true );
         // The systems' opaque raster, called in this order by OnUpdate: the mesh renderer's cascade depths (each
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
@@ -1521,21 +1522,21 @@ namespace Desert::Graphic
         // AddFrameVirtualShadows' view depth; invalid without a scene target.
         RDG::TextureRef AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
-        // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
-        // declared reads; @p color / @p depth are the loads of the node's targets.
-        void AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
-                          const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+        // One raster node for @p pass on its TargetFramebuffer (its whole attachment set, or @p overlay's) or its
+        // depth-array layer, with the pass's declared reads; @p color / @p depth are the loads of the node's
+        // targets. The pass's body is moved into the node.
+        void AddPassNode( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
                           const RDG::LoadOp& color, const RDG::LoadOp& depth, const OverlayTargets& overlay );
         // One system raster pass: one LOAD node on the pass's own target (or @p overlay's set), placed by the
         // position of this call. Nothing when the pass has no target (the system did not initialize).
-        void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
+        void AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
                               const OverlayTargets& overlay = {} );
         // One LOAD node for @p pass on the DISPLAY-REFERRED final image @p display (UE: the editor primitives
         // composited after the tonemapper and FXAA), with @p depth - the output-extent scene depth, never written
         // - when valid. @p extent is the render area the pass lays out at. The pass's own TargetFramebuffer is
         // not drawn into (its pipelines are built against ViewTargetLayouts::DisplayOverlayLayout or the display
         // framebuffer). Nothing when the pass has no executor.
-        void AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
+        void AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
                                       RDG::TextureRef display, RDG::TextureRef depth, glm::uvec2 extent );
 #if DESERT_DEV_INSTRUMENTS
         // DebugDrawRenderer's lines, points and strings over the final image @p display (after the tonemapper and

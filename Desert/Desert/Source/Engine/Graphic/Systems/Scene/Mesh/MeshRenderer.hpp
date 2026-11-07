@@ -1220,7 +1220,7 @@ namespace Desert::Graphic::System
         // the atlas. The cache decision is made here (PlanLocalShadowCache), not in UpdateLocalShadows: a
         // non-mesh caster's draws are resolved after that (TerrainRenderer::PrepareFrame), and its key is theirs.
         // The span views this renderer's kept list (m_LocalShadowPassList): valid until the next call.
-        [[nodiscard]] std::span<const SystemRasterPass> LocalShadowPasses();
+        [[nodiscard]] std::span<SystemRasterPass> LocalShadowPasses();
 
         // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp): a top-down depth of every caster in a box around
         // the camera, which the wetted surfaces read to stay dry under a roof. The budget comes from the

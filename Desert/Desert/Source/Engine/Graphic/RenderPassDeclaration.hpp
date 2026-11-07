@@ -386,12 +386,10 @@ namespace Desert::Graphic
     // The body of a frame-graph node, whatever registered it: it records into the node's command buffer with
     // @p context (RDG::PassBindings over it, Renderer::DispatchCompute / DrawFullscreen / DrawProcedural /
     // DrawIndexed) and binds the graph textures it declared from @p refs. A failure is returned, never swallowed:
-    // the graph logs it with the node's name.
-    using NodeRecordFunc =
-         std::function<Common::BoolResultStr( RDG::PassContext& context, const FrameGraphRefs& refs )>;
-    // The same body held by a compute node (ComputeNodeDeclaration::Record). CPU-RDG-ALLOC (UE: the pass lambda in
-    // FRDGAllocator): move-only, the captures inline or in the frame graph's arena, never a heap box per node per
-    // frame; the captures die with the pass closure at the graph's Reset.
+    // the graph logs it with the node's name. Held by a compute node (ComputeNodeDeclaration::Record) and a raster
+    // pass (SystemRasterPass::ExecuteFunc). CPU-RDG-ALLOC (UE: the pass lambda in FRDGAllocator): move-only, the
+    // captures inline or in the frame graph's arena, never a heap box per node per frame; the captures die with
+    // the pass closure at the graph's Reset.
     using NodeRecord =
          Common::Memory::ArenaFunction<Common::BoolResultStr( RDG::PassContext&, const FrameGraphRefs& )>;
 

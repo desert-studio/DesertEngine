@@ -496,7 +496,7 @@ namespace Desert::Graphic::System
         m_LocalCachePlans.clear();
     }
 
-    std::span<const SystemRasterPass> MeshRenderer::LocalShadowPasses()
+    std::span<SystemRasterPass> MeshRenderer::LocalShadowPasses()
     {
         // Last frame's passes go (and the atlas their bodies captured); the kept list keeps its storage and each
         // entry's name buffer, so a frame with no more passes than a past one allocates nothing for them.
@@ -586,7 +586,7 @@ namespace Desert::Graphic::System
             kept.Name              = std::move( name );
             kept.Name.assign( m_LocalShadowPassNames[slot] );
         }
-        return std::span<const SystemRasterPass>( m_LocalShadowPassList.data(), m_LocalShadowPassCount );
+        return std::span<SystemRasterPass>( m_LocalShadowPassList.data(), m_LocalShadowPassCount );
     }
 
     std::shared_ptr<Image2D> MeshRenderer::GetLocalShadowAtlasImage() const
