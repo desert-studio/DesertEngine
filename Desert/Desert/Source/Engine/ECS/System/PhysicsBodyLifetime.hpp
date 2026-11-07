@@ -23,6 +23,14 @@
 // a Jolt body by its entity). UE Chaos keeps that link on the body itself, set when the body is created and
 // gone with it; here an entry is added where the body is made (Track) and erased by the same release that
 // gives the body back, so the map is never rebuilt per frame and never names a body that is gone.
+//
+// And it says which entities may still need a body. UE creates the physics state when a component registers
+// (OnRegister -> CreatePhysicsState), never by polling every component each frame. Here the same signals that
+// release a body mark the entity on the way in: on_construct / on_update of RigidBody, Collider or
+// CharacterController (and on_construct of Transform, the third member of the view) put it in a pending set,
+// Attach seeds that set with every such entity already in the registry (scene load, Play start, a new
+// registry), and on_destroy takes it out. PhysicsECSSystem builds bodies for the pending entities only, so
+// the per-frame cost is O(changed entities), not O(physics entities).
 
 #include <PhysicsCore/PhysicsWorld.hpp>
 
@@ -61,13 +69,36 @@ namespace Desert::ECS
             return m_BodyEntities;
         }
 
+        // Entities that may need a rigid body (Transform + RigidBody + Collider) / a character (Transform +
+        // CharacterController). The creator erases an entity once its body exists or is refused; an entity it
+        // must wait on (a mesh still loading) stays and is looked at again next frame. A refused one comes back
+        // when one of its components is replaced or added again. Swap-and-pop: walk from the back to erase.
+        using PendingSet = entt::sparse_set<entt::entity>;
+        [[nodiscard]] PendingSet& GetPendingBodies() noexcept
+        {
+            return m_PendingBodies;
+        }
+        [[nodiscard]] PendingSet& GetPendingCharacters() noexcept
+        {
+            return m_PendingCharacters;
+        }
+
     private:
         void OnRigidBodyDestroyed( entt::registry& registry, entt::entity entity );
         void OnColliderDestroyed( entt::registry& registry, entt::entity entity );
         void OnCharacterDestroyed( entt::registry& registry, entt::entity entity );
 
+        void OnBodySourceChanged( entt::registry& registry, entt::entity entity );
+        void OnCharacterChanged( entt::registry& registry, entt::entity entity );
+        void OnTransformConstructed( entt::registry& registry, entt::entity entity );
+
+        static void Mark( PendingSet& set, entt::entity entity );
+        static void Unmark( PendingSet& set, entt::entity entity );
+
         Physics::PhysicsWorld* m_World    = nullptr;
         entt::registry*        m_Registry = nullptr;
         BodyEntityMap          m_BodyEntities;
+        PendingSet             m_PendingBodies;
+        PendingSet             m_PendingCharacters;
     };
 } // namespace Desert::ECS

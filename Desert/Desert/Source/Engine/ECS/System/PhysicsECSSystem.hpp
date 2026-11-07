@@ -87,11 +87,9 @@ namespace Desert::ECS
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_Ragdolls.reset();
-                    m_RefusedColliders.clear();
                     m_PosedLastFrame.clear(); // entities of the Play that ends
                     if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
                         queue->Events.clear();
-                    m_RefusedCharacters.clear();
                     m_Landscape.reset();
                     m_Foliage.reset();
                     m_Destructibles.reset();
@@ -104,8 +102,6 @@ namespace Desert::ECS
                 m_ProfilesRefused = false; // the next Play reads the register again
                 return;
             }
-
-            auto bodies = registry.view<TransformComponent, RigidBodyComponent, ColliderComponent>();
 
             if ( !m_World )
             {
@@ -163,15 +159,27 @@ namespace Desert::ECS
             // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
             m_Foliage->Sync( registry );
 
-            // Create a Jolt body for any physics entity that doesn't have one yet (uses its authored pose).
-            for ( auto entity : bodies )
+            // Create a Jolt body for the entities whose body components were added or replaced since the last
+            // frame (uses the authored pose) - PhysicsBodyLifetime's pending set, not a walk of every body.
+            // From the back: erasing the current entity swaps in the last one, which is already looked at.
+            PhysicsBodyLifetime::PendingSet& pendingBodies = m_Lifetime->GetPendingBodies();
+            for ( std::size_t i = pendingBodies.size(); i-- > 0; )
             {
-                auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody != Physics::kInvalidBody || m_RefusedColliders.contains( entity ) )
+                const entt::entity entity = pendingBodies.data()[i];
+                if ( !registry.valid( entity ) ||
+                     !registry.has<TransformComponent, RigidBodyComponent, ColliderComponent>( entity ) )
+                {
+                    pendingBodies.erase( entity ); // a missing component marks it again when it is added
                     continue;
+                }
+                auto& rb = registry.get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody != Physics::kInvalidBody )
+                {
+                    pendingBodies.erase( entity ); // replaced on a body that already exists
+                    continue;
+                }
 
-                const auto& transform = bodies.get<TransformComponent>( entity );
-                const auto& collider  = bodies.get<ColliderComponent>( entity );
+                const auto& collider = registry.get<ColliderComponent>( entity );
 
                 Physics::BodyDesc desc;
                 desc.Shape       = collider.Data.Shape;
@@ -208,7 +216,7 @@ namespace Desert::ECS
                         continue;
                     }
                     if ( !gathered.GetValue() )
-                        continue; // the mesh asset is still loading: try again next frame
+                        continue; // the mesh asset is still loading: stays pending, tried again next frame
                     colliderMesh     = *gathered.GetValue();
                     desc.MeshPoints  = colliderMesh->Points;
                     desc.MeshIndices = colliderMesh->Indices;
@@ -222,22 +230,28 @@ namespace Desert::ECS
                 }
                 rb.RuntimeBody = created.GetValue();
                 m_Lifetime->Track( rb.RuntimeBody, entity );
+                pendingBodies.erase( entity );
             }
 
-            // Create a Jolt CharacterVirtual for any character entity that doesn't have one (authored pose).
-            auto characters = registry.view<TransformComponent, CharacterControllerComponent>();
-            for ( auto entity : characters )
+            // Create a Jolt CharacterVirtual for the pending character entities (authored pose), same rule.
+            PhysicsBodyLifetime::PendingSet& pendingCharacters = m_Lifetime->GetPendingCharacters();
+            for ( std::size_t i = pendingCharacters.size(); i-- > 0; )
             {
-                auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter || m_RefusedCharacters.contains( entity ) )
+                const entt::entity entity = pendingCharacters.data()[i];
+                // Looked at once whatever the outcome: built, already built, gone, or refused (said once).
+                pendingCharacters.erase( entity );
+                if ( !registry.valid( entity ) ||
+                     !registry.has<TransformComponent, CharacterControllerComponent>( entity ) )
                     continue;
-                const auto& transform = characters.get<TransformComponent>( entity );
+                auto& cc = registry.get<CharacterControllerComponent>( entity );
+                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
+                    continue;
+                const auto& transform = registry.get<TransformComponent>( entity );
 
                 if ( const auto created = CharacterMovement::CreateCharacter(
                           cc, *m_World, transform.GetTranslation() ); // capsule centre
                      !created )
                 {
-                    m_RefusedCharacters.insert( entity );
                     LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),
                                created.GetError() );
                     continue;
@@ -594,10 +608,11 @@ namespace Desert::ECS
             }
         }
 
-        // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
+        // Said once: the entity leaves the pending set, so it is not retried (and logged) every frame. It is
+        // looked at again only when one of its body components is added or replaced.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
-            m_RefusedColliders.insert( entity );
+            m_Lifetime->GetPendingBodies().erase( entity );
             LOG_ERROR( "[Physics] entity {} has no body: {}", static_cast<uint32_t>( entity ), reason );
         }
 
@@ -620,13 +635,10 @@ namespace Desert::ECS
         std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
-        // Entities whose collider was refused during this Play; cleared with the world.
-        std::unordered_set<entt::entity> m_RefusedColliders;
         // WriteBackMovingBodies' storage, reused across frames (no per-frame allocation once warm).
         std::vector<Physics::BodyHandle>                      m_MovingBodies;
         std::vector<entt::entity>                             m_PoseTargets;
         std::vector<entt::entity>                             m_PosedLastFrame;
-        std::unordered_set<entt::entity> m_RefusedCharacters;
         bool                                                  m_ProfilesRefused = false;
     };
 } // namespace Desert::ECS
