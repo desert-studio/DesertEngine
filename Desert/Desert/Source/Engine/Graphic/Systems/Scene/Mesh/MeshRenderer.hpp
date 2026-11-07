@@ -2216,6 +2216,16 @@ namespace Desert::Graphic::System
         // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
         // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
         std::vector<MaskedPrepassedSection> m_MaskedPrepassedPost;
+        // THE FRONT-TO-BACK WALK of phase 1's masked depth prepass (BuildGpuInstancedDraws, GPU-MASKED-PREPASS-2):
+        // the queue indices of the GPU-instanced sections, nearest box first (squared distance from the camera to
+        // the section's WorldBounds; a section without a box first), so a near section's surviving texels are in
+        // the depth before a far one's clip runs. Only that serial call writes it; capacity kept across frames.
+        struct PrepassSectionOrder
+        {
+            float    DistanceSq = 0.0f;
+            uint32_t Queue      = 0;
+        };
+        std::vector<PrepassSectionOrder> m_PrepassSectionOrder;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.

@@ -271,6 +271,14 @@ SurfaceOutput DefaultSurfaceOutput()
 #if defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_CASTER_PASS )
 #define DESERT_SURFACE_VIEW_PASS 1
 #endif
+// The view's depth cell (Pass_Depth.glslh, the early-Z pass) of a template without a pixel depth offset: a
+// view pass whose fragment stage reads at most the opacity mask's UV, so its vertex stage builds no shading
+// frame and no velocity (UE's depth-only vertex shader; Vertex_Static.glslh). A `.Parallax` cell evaluates the
+// surface.
+#if defined( DESERT_SURFACE_VIEW_PASS ) && defined( DESERT_SURFACE_PASS_Depth ) && \
+     !defined( DESERT_SURFACE_PARALLAX )
+#define DESERT_SURFACE_VIEW_DEPTH_CELL 1
+#endif
 
 // THE view block (UE's View uniform buffer): one per view per frame, filled from the ViewFrame by its one writer
 // (ShaderProtocols::MakeCameraUB). Every vertex header reads it for its matrices; every stage that evaluates the

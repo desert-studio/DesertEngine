@@ -582,20 +582,62 @@ namespace Desert::Graphic::System
         std::vector<ListBin> listBins;
         uint32_t             listSlots = 0; // the slots this list's bins asked so far
 
-        // The view cull four sections at a time (Frustum::IntersectsEach4: Intersects bit for bit, a section
-        // without bounds kept), asked at every i % 4 == 0; section i reads bit i % 4. No frustum: every bit set.
-        const auto boundsOf = [this]( const std::size_t k ) -> const Common::Math::AABB*
+        // THE WALK ORDER. Phase 1's masked depth prepass walks the sections NEAREST FIRST (m_PrepassSectionOrder;
+        // UE sorts its depth pass so the occluders come first, and DrawRows bins draw their slots in walk order):
+        // the alpha-tested texels a near section keeps are in the depth before a far section behind them runs its
+        // clip, whose fragments the depth test then rejects before the shader. The depth is the nearest surviving
+        // fragment whatever the order (CloserOrEqual), so the G-buffer's EQUAL test sees the same texels. Every
+        // other list walks the queue in its own order. Only this serial call (DeclareMaskedDepthDraws) writes the
+        // scratch.
+        const bool frontToBack = maskedPrepass && !postOcclusion && camera != nullptr;
+        if ( frontToBack )
         {
-            const std::optional<Common::Math::AABB>& bounds = m_GpuInstancedQueue[k].WorldBounds;
+            const glm::vec3 eye = camera->GetPosition();
+            m_PrepassSectionOrder.clear();
+            m_PrepassSectionOrder.reserve( m_GpuInstancedQueue.size() );
+            for ( std::size_t k = 0; k < m_GpuInstancedQueue.size(); ++k )
+            {
+                float distanceSq = 0.0f;
+                if ( const std::optional<Common::Math::AABB>& box = m_GpuInstancedQueue[k].WorldBounds; box )
+                {
+                    const glm::vec3 nearest = glm::clamp( eye, box->Min, box->Max );
+                    const glm::vec3 offset  = nearest - eye;
+                    distanceSq              = glm::dot( offset, offset );
+                }
+                m_PrepassSectionOrder.push_back(
+                     { .DistanceSq = distanceSq, .Queue = static_cast<uint32_t>( k ) } );
+            }
+            // Equal distances (sections without a box, boxes holding the eye) keep the queue's order: the index is
+            // the tie-break, so the walk is deterministic without std::stable_sort's temporary buffer.
+            std::sort( m_PrepassSectionOrder.begin(), m_PrepassSectionOrder.end(),
+                       []( const PrepassSectionOrder& a, const PrepassSectionOrder& b )
+                       {
+                           if ( a.DistanceSq != b.DistanceSq )
+                               return a.DistanceSq < b.DistanceSq;
+                           return a.Queue < b.Queue;
+                       } );
+        }
+        const auto queueAt = [this, frontToBack]( const std::size_t walk ) -> std::size_t
+        {
+            if ( frontToBack )
+                return m_PrepassSectionOrder[walk].Queue;
+            return walk;
+        };
+        // The view cull four sections at a time (Frustum::IntersectsEach4: Intersects bit for bit, a section
+        // without bounds kept), asked at every walk % 4 == 0; the walk's step i reads bit i % 4. No frustum: every
+        // bit set.
+        const auto boundsOf = [this, &queueAt]( const std::size_t walk ) -> const Common::Math::AABB*
+        {
+            const std::optional<Common::Math::AABB>& bounds = m_GpuInstancedQueue[queueAt( walk )].WorldBounds;
             return bounds ? &*bounds : nullptr;
         };
         uint32_t inView4 = 0xFu;
-        for ( std::size_t queueIndex = 0; queueIndex < m_GpuInstancedQueue.size(); ++queueIndex )
+        for ( std::size_t walk = 0; walk < m_GpuInstancedQueue.size(); ++walk )
         {
-            const GpuInstancedRenderData& gpu = m_GpuInstancedQueue[queueIndex];
-            if ( frustum && ( queueIndex & 3u ) == 0u )
-                inView4 = frustum->IntersectsEach4( queueIndex, m_GpuInstancedQueue.size(), boundsOf );
-            if ( ( ( inView4 >> ( queueIndex & 3u ) ) & 1u ) == 0u )
+            const GpuInstancedRenderData& gpu = m_GpuInstancedQueue[queueAt( walk )];
+            if ( frustum && ( walk & 3u ) == 0u )
+                inView4 = frustum->IntersectsEach4( walk, m_GpuInstancedQueue.size(), boundsOf );
+            if ( ( ( inView4 >> ( walk & 3u ) ) & 1u ) == 0u )
                 continue;
             if ( onlyPath && gpu.Path != *onlyPath )
                 continue;
