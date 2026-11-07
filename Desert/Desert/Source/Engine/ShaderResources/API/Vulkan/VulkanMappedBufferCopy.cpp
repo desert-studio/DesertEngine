@@ -1,6 +1,7 @@
 #include "VulkanMappedBufferCopy.hpp"
 
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
 
@@ -14,6 +15,15 @@ namespace Desert::ShaderResources::API::Vulkan
                             EngineContext::GetInstance().GetRendererContext() )
                  ->GetVulkanAllocator()
                  .get();
+        }
+
+        // The address a copy keeps (MappedBufferCopy::DeviceAddress): asked once, where the buffer is made, and
+        // only for a buffer made to be read by address (the usage bit follows the device's row, StorageUsage).
+        uint64_t AddressAtCreation( const VkBuffer buffer, const VkBufferUsageFlags usage )
+        {
+            if ( ( usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT ) == 0 )
+                return 0;
+            return Desert::Graphic::API::Vulkan::CurrentBufferAddress( buffer );
         }
     } // namespace
 
@@ -66,6 +76,7 @@ namespace Desert::ShaderResources::API::Vulkan
         // The row carries the buffer's name ("<block>-StorageBuffer-<view>-Frame<i>"): a view that closes with
         // rows left names the block AND the ViewResources its copy was filed under (SceneRenderer::LedgerView).
         copy->m_Ledger.Name( std::string( debugName ) );
+        copy->m_Address = AddressAtCreation( buffer, usage );
         copy->m_Mapping = allocator->MapMemory( copy->m_Allocation );
 
         // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE: every write to it would
@@ -99,7 +110,8 @@ namespace Desert::ShaderResources::API::Vulkan
         auto copy = std::make_unique<MappedBufferCopy>( buffer, allocated.GetValue(), size,
                                                         Desert::Graphic::ResourceKind::StorageBuffer );
         copy->m_Ledger.Name( std::string( debugName ) );
-        out = std::move( copy );
+        copy->m_Address = AddressAtCreation( buffer, usage );
+        out             = std::move( copy );
         return BOOLSUCCESS;
     }
 } // namespace Desert::ShaderResources::API::Vulkan

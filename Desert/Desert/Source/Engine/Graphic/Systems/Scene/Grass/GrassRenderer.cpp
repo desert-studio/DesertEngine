@@ -1457,11 +1457,10 @@ namespace Desert::Graphic::System
 
     uint64_t GrassRenderer::TilePoolBytes( const VarietyGpu* const except ) const
     {
-        uint64_t bytes = 0u;
-        for ( const auto& entry : m_Varieties )
-            if ( &entry.second != except )
-                bytes += static_cast<uint64_t>( entry.second.TileSegments.size() ) * kGrassTileSegmentBytes;
-        return bytes;
+        uint64_t segments = m_TileSegmentCount;
+        if ( except != nullptr )
+            segments -= static_cast<uint64_t>( except->TileSegments.size() );
+        return segments * kGrassTileSegmentBytes;
     }
 
     uint64_t GrassRenderer::TilePoolCap()
@@ -1642,6 +1641,7 @@ namespace Desert::Graphic::System
             // storage buffers the GPU alone writes (StorageBuffer::CreateDeviceLocal): kept across graphs and
             // frames, read by address where a pass covers many varieties. The old ones are released once no frame
             // in flight holds them.
+            m_TileSegmentCount -= static_cast<uint64_t>( gpu.TileSegments.size() );
             gpu.TileSegments.clear();
             gpu.TilePool.reset();
             gpu.TileWords.reset();
@@ -1737,6 +1737,7 @@ namespace Desert::Graphic::System
                 return false;
             }
             gpu.TileSegments.push_back( std::move( segment ) );
+            ++m_TileSegmentCount;
         }
         gpu.TilePages = static_cast<uint32_t>( gpu.TileSegments.size() ) * kGrassTileSegmentPages;
         if ( gpu.PoolFresh )
@@ -2522,7 +2523,9 @@ namespace Desert::Graphic::System
         std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
                    std::begin( header.CascadePlanes ) );
         header.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
-        std::vector<uint8_t> image( sizeof( GrassVarietyTableGpu ) );
+        std::vector<uint8_t>& image = m_TableImage;
+        image.reserve( sizeof( GrassVarietyTableGpu ) + m_FrameCull.size() * sizeof( GrassVarietyRowGpu ) );
+        image.resize( sizeof( GrassVarietyTableGpu ) );
         std::memcpy( image.data(), &header, sizeof( header ) );
         for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull } )
         {
@@ -2574,8 +2577,9 @@ namespace Desert::Graphic::System
                 // caster boxes are the guard boxes (kCascadeGuardTurn): a still or turning camera culls no cascade.
                 if ( list == &m_FrameCull )
                 {
-                    std::vector<uint32_t> key;
-                    const auto            append = [&key]( const auto& value )
+                    std::vector<uint32_t>& key = m_CascadeKeyScratch;
+                    key.clear();
+                    const auto append = [&key]( const auto& value )
                     {
                         static_assert( sizeof( std::remove_cvref_t<decltype( value )> ) % sizeof( uint32_t ) == 0u );
                         const size_t at = key.size();
@@ -2602,7 +2606,7 @@ namespace Desert::Graphic::System
                     append( row.LawGeneration );
                     if ( key != gpu->CascadeKey )
                     {
-                        gpu->CascadeKey     = std::move( key );
+                        gpu->CascadeKey.swap( key ); // the old key's storage is the next row's scratch
                         gpu->CascadesCulled = false;
                     }
                     if ( gpu->CascadesCulled )

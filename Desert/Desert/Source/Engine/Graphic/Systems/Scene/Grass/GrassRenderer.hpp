@@ -534,6 +534,10 @@ namespace Desert::Graphic::System
         std::vector<VarietyGpu*>         m_FrameTileBuild;
         // GRASS-VRAM-BUDGET-1: this frame's TilePoolCap, read on its first use (empty: not read yet this frame).
         std::optional<uint64_t>          m_FrameTilePoolCap;
+        // CPU-GRASS-VARIETY-1: every variety's TileSegments summed, kept where the segments are made and dropped
+        // (UpdateTiles: its clear and its push_back are the only writers), so TilePoolBytes is O(1), not a walk
+        // of m_Varieties per variety (O(V^2) a frame). m_Varieties is never erased, so no variety leaves the sum.
+        uint64_t                         m_TileSegmentCount = 0u;
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
         RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral
@@ -574,6 +578,11 @@ namespace Desert::Graphic::System
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Table;
         RDG::ExternalBuffer                             m_TableImport;
+        // CPU-GRASS-VARIETY-1: WriteVarietyTable's scratch, kept across frames so a frame allocates nothing: the
+        // table's bytes (reserved to the header and every row at once) and a row's cascade key, which is swapped
+        // into the variety's CascadeKey when it differs (both vectors keep their capacity).
+        std::vector<uint8_t>                            m_TableImage;
+        std::vector<uint32_t>                           m_CascadeKeyScratch;
         RDG::BufferRef                                  m_TableRef{};
         RDG::BufferRef                                  m_FrameDispatch{};
         uint32_t                         m_NextIndex = 0;

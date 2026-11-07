@@ -64,6 +64,15 @@ namespace Desert::ShaderResources::API::Vulkan
             return out;
         }
 
+        // CPU-GRASS-VARIETY-1: the buffer's device address, read once when the copy is made (a VkBuffer's address
+        // is fixed for its life), so a per-frame reader (the grass variety table) makes no driver call and no
+        // device cast. 0: the copy was made without VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, or the device has
+        // no bufferDeviceAddress.
+        [[nodiscard]] uint64_t DeviceAddress() const noexcept
+        {
+            return m_Address;
+        }
+
     private:
         friend Common::BoolResultStr MakeMappedBufferCopy( std::string_view, VkBufferUsageFlags, uint32_t,
                                                            std::unique_ptr<MappedBufferCopy>&, MappedCopyMemory );
@@ -73,6 +82,7 @@ namespace Desert::ShaderResources::API::Vulkan
         VkBuffer                      m_Buffer;
         VmaAllocation                 m_Allocation;
         VkDeviceSize                  m_Size;
+        uint64_t                      m_Address = 0; // DeviceAddress: set by the Make* that made the copy
         Desert::Graphic::MappedMemory m_Mapping; // persistent for the copy's life; CPU_TO_GPU stays mappable
         // The copy's ledger row: opened under the ambient scope (a view's phase scope tags it with the view's
         // instance, so SceneRenderer::HeldBytes reads it back), closed when the copy is dropped.

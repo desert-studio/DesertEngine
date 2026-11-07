@@ -68,7 +68,15 @@ namespace Desert::Graphic::API::Vulkan
 
     uint64_t VulkanVertexBuffer::GetDeviceAddress() const
     {
-        return CurrentBufferAddress( m_VulkanBuffer );
+        // CPU-GRASS-VARIETY-1: asked of the driver once per buffer, not per question (a VkBuffer's address is
+        // fixed for its life); RT_Invalidate and Release forget it with the buffer. Racing readers store the
+        // same value. 0 (no address) is asked again, as before.
+        uint64_t address = m_DeviceAddress.load( std::memory_order_relaxed );
+        if ( address != 0 )
+            return address;
+        address = CurrentBufferAddress( m_VulkanBuffer );
+        m_DeviceAddress.store( address, std::memory_order_relaxed );
+        return address;
     }
 
     [[nodiscard]] Common::BoolResultStr VulkanVertexBuffer::RT_Invalidate()
@@ -88,6 +96,7 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyBuffer( m_VulkanBuffer, m_MemoryAllocation );
             m_VulkanBuffer     = nullptr;
             m_MemoryAllocation = nullptr;
+            m_DeviceAddress.store( 0, std::memory_order_relaxed );
         }
 
         if ( m_Usage == BufferUsage::GpuWritten )
@@ -215,6 +224,7 @@ namespace Desert::Graphic::API::Vulkan
              ->RT_DestroyBuffer( m_VulkanBuffer, m_MemoryAllocation );
         m_VulkanBuffer     = nullptr;
         m_MemoryAllocation = nullptr;
+        m_DeviceAddress.store( 0, std::memory_order_relaxed );
         return BOOLSUCCESS;
     }
 

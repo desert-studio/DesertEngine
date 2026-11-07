@@ -9,6 +9,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <atomic>
+
 namespace Desert::Graphic::API::Vulkan
 {
     // @p buffer's device address through the device's address table (VulkanRayTracingFunctions.hpp): 0 on a
@@ -69,6 +71,8 @@ namespace Desert::Graphic::API::Vulkan
         BufferUsage m_Usage;
 
         VkBuffer               m_VulkanBuffer = nullptr;
+        // GetDeviceAddress, read once per buffer (0: not read yet, or none).
+        mutable std::atomic<uint64_t> m_DeviceAddress{ 0 };
         VmaAllocation          m_MemoryAllocation;
         Common::Memory::Buffer m_StorageBuffer;
         // The static upload released m_StorageBuffer (RT_Invalidate): the buffer cannot be uploaded again.
