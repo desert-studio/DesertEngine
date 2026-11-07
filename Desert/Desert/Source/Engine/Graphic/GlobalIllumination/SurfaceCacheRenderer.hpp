@@ -144,6 +144,12 @@ namespace Desert::Graphic::SurfaceCache
             RDG::TextureRef                       GBufferDepth;
             RDG::TextureRef                       GBufferA;
             RDG::TextureRef                       GBufferEmissive;
+            // GPU-GI-CRITPATH (Scalability GlobalIllumination.SurfaceCacheAsyncRadiosity): true = the radiosity
+            // trace and the integration run as compute on the async compute queue, in the segment of the radiance
+            // cache's update they read and the screen probes' trace that reads their FinalLighting (UE: Lumen
+            // scene lighting on async compute), so the graphics queue neither waits on the cache before them nor
+            // the async queue on them; false = the raster passes on the graphics queue (the A/B's old path).
+            bool Async = true;
         };
 
         // Shaders, the copy pipeline and the capture framebuffer. A renderer may be made before it is initialised
@@ -287,11 +293,13 @@ namespace Desert::Graphic::SurfaceCache
         // point/spot lights read the view's virtual shadow map (SceneViewInputs::Vsm) in place of the atlas.
         [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
                                                                    bool virtualLocalShadows );
-        // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it.
-        [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer );
+        // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it:
+        // the raster one, or with @p async the compute one (SurfaceCacheRadiosityTraceAsync.shader).
+        [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                    bool                                async );
         // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
-        // TracerProgramVariants of SurfaceCacheDirectLighting and SurfaceCacheRadiosityTrace), cooked by the
-        // package (PackageCook CookShaderVariants).
+        // TracerProgramVariants of SurfaceCacheDirectLighting, SurfaceCacheRadiosityTrace and
+        // SurfaceCacheRadiosityTraceAsync), cooked by the package (PackageCook CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
@@ -361,6 +369,15 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_RadiosityLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_RadiosityPipeline;
         GlobalIllumination::Pipeline                                          m_RadiosityProgramFor{};
+        // The async compute path (IndirectLightingInputs::Async): the integration, built by Initialize, and the
+        // radiosity trace per tracer, by EnsureRadiosityProgram.
+        std::shared_ptr<Shader>                                               m_IndirectAsyncShader;
+        mutable ShaderBindingLayoutCache                                      m_IndirectAsyncLayout;
+        std::shared_ptr<ComputePipeline>                                      m_IndirectAsyncPipeline;
+        std::shared_ptr<Shader>                                               m_RadiosityAsyncShader;
+        mutable ShaderBindingLayoutCache                                      m_RadiosityAsyncLayout;
+        std::shared_ptr<ComputePipeline>                                      m_RadiosityAsyncPipeline;
+        GlobalIllumination::Pipeline                                          m_RadiosityAsyncProgramFor{};
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_AtlasViewPipelines;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_SceneViewPipelines;
     };

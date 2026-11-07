@@ -327,6 +327,9 @@ namespace Common::Scalability
                                           // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
         ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
                                           // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        SurfaceCacheAsyncRadiosity,       // 0/1: the surface cache's radiosity trace + integration as compute on
+                                          // the async compute queue (UE Lumen scene lighting on async); 0 = the
+                                          // raster passes on the graphics queue (GPU-GI-CRITPATH A/B)
         ReflectionsTranslucentFrontLayer, // 0/1: the nearest translucent surface of a pixel writes its own
                                           // G-buffer and is reflected by the opaque surfaces' tracer and
                                           // denoiser; glass reads that reflection in place of the sky (UE

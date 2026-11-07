@@ -615,7 +615,8 @@ namespace Desert::Graphic
                         .EnvSpecular     = inputs.EnvSpecular,
                         .GBufferDepth    = inputs.GBufferDepth,
                         .GBufferA        = inputs.GBufferA,
-                        .GBufferEmissive = inputs.GBufferEmissive } );
+                        .GBufferEmissive = inputs.GBufferEmissive,
+                        .Async           = m_SurfaceCacheAsyncRadiosity } );
                  !lit )
             {
                 if ( m_TracedGICardLightingRefusal.Claim( lit.GetError() ) )

@@ -172,6 +172,17 @@ namespace Desert::Graphic::SurfaceCache
         constexpr float    kRadiosityMaxFramesAccumulated = 4.0f;
         constexpr std::string_view kRadiosityTraceName    = "SurfaceCache.RadiosityTrace";
         constexpr std::string_view kRadiosityShaderName   = "SurfaceCacheRadiosityTrace";
+        // The async compute path (IndirectLightingInputs::Async, GPU-GI-CRITPATH): the same per-texel work as
+        // the raster programs (Common/SurfaceCacheRadiosityTraceTexel.glslh, SurfaceCacheIndirectLightingTexel),
+        // one LocalSize(8, 8, 1) group per page tile and one z per relit page; the images the raster passes draw
+        // as colour targets written as storage.
+        constexpr std::string_view kRadiosityAsyncShaderName = "SurfaceCacheRadiosityTraceAsync";
+        constexpr std::string_view kIndirectAsyncShaderName  = "SurfaceCacheIndirectLightingAsync";
+        constexpr uint32_t         kLightingAsyncGroup       = 8;
+        static_assert( kPhysicalPageSize % kLightingAsyncGroup == 0 );
+        constexpr RDG::StorageTextureParameter kRadiosityTraceAtlas{ "RadiosityTraceAtlas" };
+        constexpr RDG::StorageTextureParameter kIndirectLightingImage{ "AtlasIndirectLightingImage" };
+        constexpr RDG::StorageTextureParameter kFinalLightingImage{ "AtlasFinalLightingImage" };
 
         struct SceneViewPush
         {
@@ -214,18 +225,25 @@ namespace Desert::Graphic::SurfaceCache
         // The direct lighting is compiled per tracer (its shadow rays): EnsureLightingProgram, at its first pass.
         m_LightingShader = shaders->GetByName( "SurfaceCacheDirectLighting" );
         m_IndirectShader = shaders->GetByName( "SurfaceCacheIndirectLighting" );
+        m_IndirectAsyncShader = shaders->GetByName( std::string( kIndirectAsyncShaderName ) );
         for ( const auto& [shader, name] :
               { std::pair{ m_CopyShader.get(), "SurfaceCacheCardCopy" },
                 std::pair{ m_AtlasViewShader.get(), "SurfaceCacheAtlasView" },
                 std::pair{ m_SceneViewShader.get(), "SurfaceCacheSceneView" },
                 std::pair{ m_LightingShader.get(), "SurfaceCacheDirectLighting" },
-                std::pair{ m_IndirectShader.get(), "SurfaceCacheIndirectLighting" } } )
+                std::pair{ m_IndirectShader.get(), "SurfaceCacheIndirectLighting" },
+                std::pair{ m_IndirectAsyncShader.get(), "SurfaceCacheIndirectLightingAsync" } } )
             if ( shader == nullptr )
                 return Common::MakeFormattedError<bool>( "surface cache: shader {} not found", name );
         auto pipeline = ComputePipeline::Create( { .Shader = m_CopyShader, .DebugName = "SurfaceCacheCardCopy" } );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
         m_CopyPipeline = pipeline.GetValue();
+        auto indirectAsync = ComputePipeline::Create(
+             { .Shader = m_IndirectAsyncShader, .DebugName = std::string( kIndirectAsyncShaderName ) } );
+        if ( !indirectAsync )
+            return Common::MakeError<bool>( indirectAsync.GetError() );
+        m_IndirectAsyncPipeline = indirectAsync.GetValue();
 
         // The indirect lighting: one quad per relit page into IndirectLighting and FinalLighting.
         {
@@ -701,12 +719,38 @@ namespace Desert::Graphic::SurfaceCache
                                       DirectLightingVariant( tracer, virtualLocalShadows ) } );
         for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityShaderName ) )
             variants.push_back( std::move( variant ) );
+        for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityAsyncShaderName ) )
+            variants.push_back( std::move( variant ) );
         return variants;
     }
 
-    Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer )
+    Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                        const bool                          async )
     {
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        if ( async )
+        {
+            if ( m_RadiosityAsyncPipeline && tracer == m_RadiosityAsyncProgramFor )
+                return BOOLSUCCESS;
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                 std::string( kRadiosityAsyncShaderName ), GlobalIllumination::TracerVariant( tracer ) );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>(
+                     "surface cache: shader {} ({}) was refused: {}", kRadiosityAsyncShaderName,
+                     GlobalIllumination::TracerDefine( tracer.Tracer ), acquired.GetError() );
+            auto shader = acquired.ExtractValue();
+            ComputePipelineSpecification spec;
+            spec.Shader = shader;
+            spec.DebugName = std::format( "{} ({})", kRadiosityAsyncShaderName,
+                                          GlobalIllumination::TracerDefine( tracer.Tracer ) );
+            const auto pipeline = ComputePipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError<bool>( pipeline.GetError() );
+            m_RadiosityAsyncShader     = std::move( shader );
+            m_RadiosityAsyncPipeline   = pipeline.GetValue();
+            m_RadiosityAsyncProgramFor = tracer;
+            return BOOLSUCCESS;
+        }
         if ( m_RadiosityPipeline && tracer == m_RadiosityProgramFor )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
@@ -933,7 +977,7 @@ namespace Desert::Graphic::SurfaceCache
              !inputs.WorldGridParams.IsValid() || !inputs.WorldGridCells.IsValid() || !inputs.EnvSpecular.IsValid() ||
              !inputs.GBufferDepth.IsValid() || !inputs.GBufferA.IsValid() || !inputs.GBufferEmissive.IsValid() )
             return Common::MakeError<bool>( "surface cache radiosity: the GI ray contract's reads are incomplete" );
-        if ( const auto program = EnsureRadiosityProgram( inputs.Tracer.Pipeline ); !program )
+        if ( const auto program = EnsureRadiosityProgram( inputs.Tracer.Pipeline, inputs.Async ); !program )
             return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
@@ -952,6 +996,90 @@ namespace Desert::Graphic::SurfaceCache
         tracePush.Frame.y   = m_ResetRadiosity ? 1u : 0u;
         tracePush.Weights.x = 1.0f / kRadiosityMaxFramesAccumulated;
         m_ResetRadiosity    = false;
+        if ( inputs.Async )
+        {
+            // GPU-GI-CRITPATH: both passes as compute on the async compute queue (UE LumenRadiosity's
+            // DistanceFieldTracingCS / IntegrateCS with the rest of the Lumen scene lighting). Added right after
+            // the radiance cache's async update they read and ahead of the screen probes' async trace that reads
+            // their FinalLighting, they join that one segment: no graphics wait on the cache in front of them and
+            // no async wait on graphics behind them (the old raster path below forked and joined around each).
+            constexpr RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+            constexpr RDG::Access    kR         = RDG::Access::StorageRead;
+            constexpr RDG::Access    kS         = RDG::Access::SampledCompute;
+            ComputePipeline* const   tracePipe  = m_RadiosityAsyncPipeline.get();
+            graph.AddPass(
+                 std::format( "SurfaceCache: Radiosity Trace ({} pages)", count ), kAsyncPass,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P     = SurfaceCacheRadiosityTraceShaderParameters;
+                     auto  block = pass.Bindings( m_RadiosityAsyncLayout.Get( m_RadiosityAsyncShader ),
+                                                  Renderer::GetPipelineRouteFill( *tracePipe ) );
+                     block.Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                          .Storage( P::GIFrameUB, inputs.GIFrame, kR )
+                          .Storage( P::PointLightsUB, inputs.PointLights, kR )
+                          .Storage( P::SpotLightsUB, inputs.SpotLights, kR )
+                          .Storage( P::LightGridParamsUB, inputs.WorldGridParams, kR )
+                          .Storage( P::LightGridWorldCellsUB, inputs.WorldGridCells, kR )
+                          .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )
+                          .Storage( P::RadianceCacheIndirectionUB, inputs.Indirection, kR )
+                          .Storage( P::RadianceCacheProbesUB, inputs.Probes, kR )
+                          .Texture( P::RadianceCacheIrradianceTexture, inputs.Irradiance, kS, all )
+                          .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                          .Texture( P::RadianceCacheDepthTexture, inputs.Depth, kS, all )
+                          .Texture( P::EnvironmentSpecularTexture, inputs.EnvSpecular, kS, all )
+                          .Texture( P::GBufferDepthTexture, inputs.GBufferDepth, kS, all )
+                          .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( P::GBufferATexture, inputs.GBufferA, kS, all )
+                          .Texture( P::GBufferEmissiveTexture, inputs.GBufferEmissive, kS, all )
+                          .Texture( P::AtlasNormalTexture, layers[3], kS, all )
+                          .Storage( kRadiosityTraceAtlas, trace, RDG::Access::StorageWrite )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
+                     GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
+                     GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                     if ( SamplesEmissiveLights( inputs.Tracer.Pipeline ) )
+                         block.Texture( kRadiosityExcludedEmissive, layers[4], kS, all );
+                 },
+                 [tracePipe, tracePush, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &tracePush, static_cast<uint32_t>( sizeof( tracePush ) ) );
+                     constexpr uint32_t kGroups = kPhysicalPageSize / kLightingAsyncGroup;
+                     return Renderer::DispatchCompute( bindings, *tracePipe, kGroups, kGroups, count );
+                 } );
+
+            ComputePipeline* const integratePipe = m_IndirectAsyncPipeline.get();
+            graph.AddPass(
+                 std::format( "SurfaceCache: Indirect Lighting ({} pages)", count ), kAsyncPass,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P     = SurfaceCacheIndirectLightingShaderParameters;
+                     auto  block = pass.Bindings( m_IndirectAsyncLayout.Get( m_IndirectAsyncShader ),
+                                                  Renderer::GetPipelineRouteFill( *integratePipe ) );
+                     block.Storage( P::SurfaceCardBuffer, buffers.Cards, kR )
+                          .Storage( P::SurfaceCardPageBuffer, buffers.Pages, kR )
+                          .Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                          .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )
+                          .Storage( P::RadianceCacheIndirectionUB, inputs.Indirection, kR )
+                          .Storage( P::RadianceCacheProbesUB, inputs.Probes, kR )
+                          .Texture( P::RadianceCacheIrradianceTexture, inputs.Irradiance, kS, all )
+                          .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                          .Texture( P::RadianceCacheDepthTexture, inputs.Depth, kS, all )
+                          .Texture( P::AtlasDirectLightingTexture, direct, kS, all )
+                          .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( P::RadiosityTraceTexture, trace, kS, all )
+                          .Storage( kIndirectLightingImage, indirect, RDG::Access::StorageWrite )
+                          .Storage( kFinalLightingImage, finalLit, RDG::Access::StorageWrite );
+                     for ( std::size_t i = 0; i < layers.size(); ++i )
+                         block.Texture( kLayerTextures[i], layers[i], kS, all );
+                 },
+                 [integratePipe, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings  bindings( context, context.GetBindingBlock( 0 ) );
+                     constexpr uint32_t kGroups = kPhysicalPageSize / kLightingAsyncGroup;
+                     return Renderer::DispatchCompute( bindings, *integratePipe, kGroups, kGroups, count );
+                 } );
+            return BOOLSUCCESS;
+        }
         GraphicsPipeline* const traceRaw = m_RadiosityPipeline.get();
         graph.AddPass(
              std::format( "SurfaceCache: Radiosity Trace ({} pages)", count ), RDG::PassFlags::Raster,
