@@ -208,7 +208,7 @@ namespace Desert::ECS
 
     inline void RaiseLandscapeTileRevision( entt::registry& registry, entt::entity )
     {
-        if ( auto* table = registry.ctx().find<LandscapeTileTable>() )
+        if ( auto* table = registry.try_ctx<LandscapeTileTable>() )
             ++table->Revision;
     }
 
@@ -241,10 +241,10 @@ namespace Desert::ECS
     /// or removes no tile and moves no root).
     inline LandscapeTileTable& RefreshLandscapeTileTable( entt::registry& registry )
     {
-        auto* found = registry.ctx().find<LandscapeTileTable>();
+        auto* found = registry.try_ctx<LandscapeTileTable>();
         if ( found == nullptr )
         {
-            found = &registry.ctx().emplace<LandscapeTileTable>();
+            found = &registry.set<LandscapeTileTable>();
             registry.on_construct<LandscapeTileComponent>().connect<&RaiseLandscapeTileRevision>();
             registry.on_update<LandscapeTileComponent>().connect<&RaiseLandscapeTileRevision>();
             registry.on_destroy<LandscapeTileComponent>().connect<&RaiseLandscapeTileRevision>();

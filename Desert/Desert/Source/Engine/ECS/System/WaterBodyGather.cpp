@@ -10,17 +10,17 @@ namespace Desert::ECS
     {
         void RaiseWaterBodyRevision( entt::registry& registry, entt::entity )
         {
-            if ( auto* revision = registry.ctx().find<WaterBodyRevision>() )
+            if ( auto* revision = registry.try_ctx<WaterBodyRevision>() )
                 ++revision->Value;
         }
 
         // The registry's membership key; the first ask connects the signals that raise it.
         uint64_t WaterBodyRevisionOf( entt::registry& registry )
         {
-            auto* found = registry.ctx().find<WaterBodyRevision>();
+            auto* found = registry.try_ctx<WaterBodyRevision>();
             if ( found == nullptr )
             {
-                found = &registry.ctx().emplace<WaterBodyRevision>();
+                found = &registry.set<WaterBodyRevision>();
                 registry.on_construct<WaterBodyComponent>().connect<&RaiseWaterBodyRevision>();
                 registry.on_update<WaterBodyComponent>().connect<&RaiseWaterBodyRevision>();
                 registry.on_destroy<WaterBodyComponent>().connect<&RaiseWaterBodyRevision>();
