@@ -233,7 +233,9 @@ void main()
 #endif
 #endif
 #ifdef DESERT_SURFACE_PASS_Visibility
-    v_VisibilityRow = GrassMeshVisibilityRow( uint( gl_InstanceIndex ), uint( gl_VertexIndex ) );
+    // CPU-GRASS-POOL-5: the slot in the shared ids pool less the camera list's first (Slots.y): the section's.
+    v_VisibilityRow =
+         GrassMeshVisibilityRow( uint( gl_InstanceIndex ) - MeshRows.Slots.y, uint( gl_VertexIndex ) );
 #endif
     const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB );
 #if ( defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_PASS_Visibility ) ) &&                           \

@@ -405,7 +405,7 @@ Shader "GrassCull"
                 if ( index < room )
                 {
                     uint offset = mover ? index : room - 1u - index;
-                    ids.Words[cascade.Words[at + 1u] + offset] = slot;
+                    ids.Words[cascade.Words[at + 1u] + offset] = slot + VarietyRows[r].InstancesBase;
                 }
             }
         }
@@ -420,6 +420,7 @@ Shader "GrassCull"
             for ( uint v = 0u; v < 8u; ++v )
                 feedback.Words[buckets + 4u + v] = 0u;
             uint args  = 4u + records * 5u + buckets * 4u;
+            uint idsBase = VarietyRows[r].CascadeIdsBase; // CPU-GRASS-POOL-5: absolute slots of the ids pool
             uint words = VarietyRows[r].CascadeWords.x;
             uint mask  = VarietyRows[r].Info.w;
             for ( uint k = 0u; mask != 0u; ++k )
@@ -436,9 +437,9 @@ Shader "GrassCull"
                     uint room   = cascade.Words[at + 2u];
                     uint rest   = min( cascade.Words[rests + bucket], room );
                     cascade.Words[base + 4u + s * 5u + 1u]   = min( cascade.Words[at], room );
-                    cascade.Words[base + 4u + s * 5u + 4u]   = cascade.Words[at + 1u];
+                    cascade.Words[base + 4u + s * 5u + 4u]   = cascade.Words[at + 1u] + idsBase;
                     cascade.Words[base + args + s * 5u + 1u] = rest;
-                    cascade.Words[base + args + s * 5u + 4u] = cascade.Words[at + 1u] + room - rest;
+                    cascade.Words[base + args + s * 5u + 4u] = cascade.Words[at + 1u] + room - rest + idsBase;
                 }
                 uint drawn = 0u;
                 for ( uint b = 0u; b < buckets; ++b )
@@ -511,7 +512,7 @@ Shader "GrassCull"
                 {
                     row = first + full;
                     GrassInstanceRows( VarietyRows[r].Instances ).Rows[row] = instance;
-                    GrassWords( VarietyRows[r].FullIds ).Words[row] = row;
+                    GrassWords( VarietyRows[r].FullIds ).Words[row] = row + VarietyRows[r].InstancesBase;
                     CascadeCull( r, b, table, row, instance[3].xyz, holds );
                 }
             }
@@ -546,7 +547,7 @@ Shader "GrassCull"
                 candidates.Quads[2u * ( first + index ) + 1u] = uvec4( row, 0u, 0u, 0u );
             }
             else
-                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = row;
+                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = row + VarietyRows[r].InstancesBase;
         }
 
         // A box (@p lo..@p hi) against the views (bit k < kGrassCascadeLists: cascade list k's caster box, none while
@@ -944,7 +945,8 @@ Shader "GrassCull"
                 return;
             uint index = camera.Words[phase + 2u] + WaveAppend( camera, phase + 3u );
             if ( index < args.Words[table + 2u] )
-                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = candidates.Quads[2u * slot + 1u].x;
+                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] =
+                     candidates.Quads[2u * slot + 1u].x + VarietyRows[r].InstancesBase;
         }
 
         // Row @p r's cascade lists held (kGrassRowCascadesHeld): this frame in flight's Feedback copy gets each view's
@@ -990,7 +992,7 @@ Shader "GrassCull"
             {
                 uint at = table + GrassBucketOfRecord( s, records, buckets, blade ) * 4u;
                 args.Words[4u + s * 5u + 1u] = min( args.Words[at], args.Words[at + 2u] );
-                args.Words[4u + s * 5u + 4u] = args.Words[at + 1u];
+                args.Words[4u + s * 5u + 4u] = args.Words[at + 1u] + VarietyRows[r].FullIdsBase;
             }
             uint drawn = 0u;
             for ( uint b = 0u; b < buckets; ++b )
@@ -1018,7 +1020,7 @@ Shader "GrassCull"
             {
                 uint at = table + GrassBucketOfRecord( s, records, buckets, blade ) * 4u;
                 camera.Words[4u + s * 5u + 1u] = min( camera.Words[at], camera.Words[at + 2u] );
-                camera.Words[4u + s * 5u + 4u] = camera.Words[at + 1u];
+                camera.Words[4u + s * 5u + 4u] = camera.Words[at + 1u] + VarietyRows[r].CameraIdsBase;
             }
             if ( ( VarietyRows[r].Info.z & kGrassRowCascadesHeld ) == 0u )
                 FinalizeCascades( r, buckets, records, blade );
@@ -1069,7 +1071,8 @@ Shader "GrassCull"
             {
                 uint b = GrassBucketOfRecord( s, records, buckets, blade );
                 post.Words[4u + s * 5u + 1u] = PostCount( camera, table + b * 4u, phases + b * 4u );
-                post.Words[4u + s * 5u + 4u] = camera.Words[table + b * 4u + 1u] + camera.Words[phases + b * 4u + 2u];
+                post.Words[4u + s * 5u + 4u] = camera.Words[table + b * 4u + 1u] + camera.Words[phases + b * 4u + 2u] +
+                                               VarietyRows[r].CameraIdsBase;
             }
             uint drawn = 0u;
             for ( uint b = 0u; b < buckets; ++b )

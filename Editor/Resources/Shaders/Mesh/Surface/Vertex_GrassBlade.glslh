@@ -140,7 +140,7 @@ void main()
 #endif
 #endif
 #ifdef DESERT_SURFACE_PASS_Visibility
-    v_VisibilityRow = Blade.Visibility.x + uint( gl_InstanceIndex );
+    v_VisibilityRow = Blade.Visibility.x + ( uint( gl_InstanceIndex ) - Blade.Lists.x ); // the variety's slot
 #endif
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     mat4             model  = transforms[GRASS_BLADE_ROW( uint( gl_InstanceIndex ) )];
