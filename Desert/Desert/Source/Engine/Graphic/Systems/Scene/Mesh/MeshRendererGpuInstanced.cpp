@@ -575,9 +575,20 @@ namespace Desert::Graphic::System
         std::vector<ListBin> listBins;
         uint32_t             listSlots = 0; // the slots this list's bins asked so far
 
-        for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
+        // The view cull four sections at a time (Frustum::IntersectsEach4: Intersects bit for bit, a section
+        // without bounds kept), asked at every i % 4 == 0; section i reads bit i % 4. No frustum: every bit set.
+        const auto boundsOf = [this]( const std::size_t k ) -> const Common::Math::AABB*
         {
-            if ( gpu.WorldBounds && frustum && !frustum->Intersects( *gpu.WorldBounds ) )
+            const std::optional<Common::Math::AABB>& bounds = m_GpuInstancedQueue[k].WorldBounds;
+            return bounds ? &*bounds : nullptr;
+        };
+        uint32_t inView4 = 0xFu;
+        for ( std::size_t queueIndex = 0; queueIndex < m_GpuInstancedQueue.size(); ++queueIndex )
+        {
+            const GpuInstancedRenderData& gpu = m_GpuInstancedQueue[queueIndex];
+            if ( frustum && ( queueIndex & 3u ) == 0u )
+                inView4 = frustum->IntersectsEach4( queueIndex, m_GpuInstancedQueue.size(), boundsOf );
+            if ( ( ( inView4 >> ( queueIndex & 3u ) ) & 1u ) == 0u )
                 continue;
             if ( onlyPath && gpu.Path != *onlyPath )
                 continue;
@@ -1034,11 +1045,23 @@ namespace Desert::Graphic::System
             setup.RestWind.A = glm::vec4( 0.0f );
             return setup;
         };
-        for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
+        // The cascade cull four sections at a time (Frustum::IntersectsEach4: Intersects bit for bit, a section
+        // without bounds kept), asked at every i % 4 == 0; section i reads bit i % 4.
+        const auto casterBoundsOf = [this]( const std::size_t k ) -> const Common::Math::AABB*
         {
+            const std::optional<Common::Math::AABB>& bounds = m_GpuInstancedQueue[k].WorldBounds;
+            return bounds ? &*bounds : nullptr;
+        };
+        uint32_t inCascade4 = 0u;
+        for ( std::size_t queueIndex = 0; queueIndex < m_GpuInstancedQueue.size(); ++queueIndex )
+        {
+            const GpuInstancedRenderData& gpu = m_GpuInstancedQueue[queueIndex];
+            if ( ( queueIndex & 3u ) == 0u )
+                inCascade4 =
+                     cascadeFrustum.IntersectsEach4( queueIndex, m_GpuInstancedQueue.size(), casterBoundsOf );
             if ( !gpu.CastShadows )
                 continue;
-            if ( gpu.WorldBounds && !cascadeFrustum.Intersects( *gpu.WorldBounds ) )
+            if ( ( ( inCascade4 >> ( queueIndex & 3u ) ) & 1u ) == 0u )
                 continue;
             // WHO SWAYS IN THE SHADOWS, for a still section (GpuInstancedRenderData::Still, the grass), per instance
             // in its vertex stage (CasterWindLayer::*, Mesh/Surface/CasterWindLayer.glslh; the GPU cull's

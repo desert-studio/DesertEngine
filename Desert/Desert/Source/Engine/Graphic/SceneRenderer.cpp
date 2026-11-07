@@ -3183,15 +3183,37 @@ namespace Desert::Graphic
                           Common::Scalability::kStochasticVisibilityNames[static_cast<std::size_t>( effective )] );
             return effective;
         };
-        int32_t slot = 0;
+        // THE VIEW CULL FOUR LIGHTS AT A TIME (UE's light grid over SoA positions and radii): lights @p first ..
+        // first + 3 of @p lights gathered into one SphereQuad, bit i = view.IntersectsSphere for light first + i
+        // (Frustum::IntersectsSphere4 is that test bit for bit); bits past the list are clear. The walks below
+        // ask it at every i % 4 == 0: the test reads only a light's position and range, which the walk does not
+        // write, so the verdicts are the ones the per-light call made.
+        const auto inView4 = [&view]( const auto& lights, const std::size_t first, const auto& rangeOf )
+        {
+            Common::Math::SphereQuad quad;
+            uint32_t                 live = 0u;
+            for ( std::size_t lane = 0; lane < 4u && first + lane < lights.size(); ++lane )
+            {
+                const auto& light = lights[first + lane];
+                quad.Set( lane, light.Position.x, light.Position.y, light.Position.z, rangeOf( light ) );
+                live |= 1u << lane;
+            }
+            return view.IntersectsSphere4( quad ) & live;
+        };
+        const auto pointRange = []( const auto& light ) { return light.Radius; };
+        const auto spotRange  = []( const auto& light ) { return light.Range; };
+        int32_t    slot       = 0;
+        uint32_t   pointsIn   = 0u;
         for ( std::size_t i = 0; i < m_PointLight.PointLights.size(); ++i )
         {
+            if ( ( i & 3u ) == 0u )
+                pointsIn = inView4( m_PointLight.PointLights, i, pointRange );
             auto& point          = m_PointLight.PointLights[i];
             point.ShadowMaskSlot   = -1;
             point.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
             // Per-light view cull (UE: a light whose bounds miss the view frustum renders no shadow): no pixel of
             // the view is inside its attenuation sphere, so no slot, no trace, no pack.
-            if ( point.ShadowCaster == 0 || !view.IntersectsSphere( point.Position, point.Radius ) )
+            if ( point.ShadowCaster == 0 || ( ( pointsIn >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             bool slotted = screenMask;
             if ( stochastic )
@@ -3210,12 +3232,15 @@ namespace Desert::Graphic
                  .SourceRadius      = point.SourceRadius,
                  .SourceId          = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u } );
         }
+        uint32_t spotsIn = 0u;
         for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
         {
+            if ( ( i & 3u ) == 0u )
+                spotsIn = inView4( m_SpotLight.SpotLights, i, spotRange );
             auto& spot          = m_SpotLight.SpotLights[i];
             spot.ShadowMaskSlot   = -1;
             spot.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
-            if ( spot.ShadowCaster == 0 || !view.IntersectsSphere( spot.Position, spot.Range ) )
+            if ( spot.ShadowCaster == 0 || ( ( spotsIn >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             bool slotted = screenMask;
             if ( stochastic )

@@ -24,6 +24,7 @@
 #define DESERT_SIMD_SSE 0
 #endif
 
+#include <cmath>
 #include <cstdint>
 
 namespace Common::Math::Simd
@@ -112,6 +113,22 @@ namespace Common::Math::Simd
     [[nodiscard]] inline Mask4 MaskAnd( const Mask4 a, const Mask4 b ) noexcept
     {
         return _mm_and_ps( a, b );
+    }
+    [[nodiscard]] inline Float4 Sub( const Float4 a, const Float4 b ) noexcept
+    {
+        return _mm_sub_ps( a, b );
+    }
+
+    // Per lane a / b: divps is the correctly rounded IEEE quotient, as the float `/` is.
+    [[nodiscard]] inline Float4 Div( const Float4 a, const Float4 b ) noexcept
+    {
+        return _mm_div_ps( a, b );
+    }
+
+    // Per lane sqrt: sqrtps is the correctly rounded IEEE root, as std::sqrt( float ) is (not rsqrtps).
+    [[nodiscard]] inline Float4 Sqrt( const Float4 a ) noexcept
+    {
+        return _mm_sqrt_ps( a );
     }
 #else
     struct Float4
@@ -224,10 +241,131 @@ namespace Common::Math::Simd
     {
         return Mask4{ { a.V[0] && b.V[0], a.V[1] && b.V[1], a.V[2] && b.V[2], a.V[3] && b.V[3] } };
     }
+
+    [[nodiscard]] inline Float4 Sub( const Float4 a, const Float4 b ) noexcept
+    {
+        return Float4{ { a.V[0] - b.V[0], a.V[1] - b.V[1], a.V[2] - b.V[2], a.V[3] - b.V[3] } };
+    }
+
+    [[nodiscard]] inline Float4 Div( const Float4 a, const Float4 b ) noexcept
+    {
+        return Float4{ { a.V[0] / b.V[0], a.V[1] / b.V[1], a.V[2] / b.V[2], a.V[3] / b.V[3] } };
+    }
+
+    [[nodiscard]] inline Float4 Sqrt( const Float4 a ) noexcept
+    {
+        return Float4{ { std::sqrt( a.V[0] ), std::sqrt( a.V[1] ), std::sqrt( a.V[2] ), std::sqrt( a.V[3] ) } };
+    }
 #endif
 
     [[nodiscard]] inline Float4 Zero() noexcept
     {
         return Splat( 0.0f );
     }
+
+    // EIGHT LANES (UE VectorRegister8 / AVX). Under AVX (/arch:AVX2, DESERT_AVX2) one __m256; otherwise two
+    // Float4 halves, each through the four-lane operations above - so the SSE2 build and the scalar build get
+    // the same eight lanes with the same per-lane IEEE operation, and every path rounds alike (one add, subtract,
+    // multiply, divide or root per lane, no FMA, no estimate).
+#if DESERT_SIMD_SSE && defined( __AVX__ )
+    using Float8 = __m256;
+
+    [[nodiscard]] inline Float8 Load8( const float* p ) noexcept
+    {
+        return _mm256_loadu_ps( p );
+    }
+
+    [[nodiscard]] inline Float8 Splat8( const float v ) noexcept
+    {
+        return _mm256_set1_ps( v );
+    }
+
+    inline void Store8( float* p, const Float8 v ) noexcept
+    {
+        _mm256_storeu_ps( p, v );
+    }
+
+    [[nodiscard]] inline Float8 Add( const Float8 a, const Float8 b ) noexcept
+    {
+        return _mm256_add_ps( a, b );
+    }
+
+    [[nodiscard]] inline Float8 Sub( const Float8 a, const Float8 b ) noexcept
+    {
+        return _mm256_sub_ps( a, b );
+    }
+
+    [[nodiscard]] inline Float8 Mul( const Float8 a, const Float8 b ) noexcept
+    {
+        return _mm256_mul_ps( a, b );
+    }
+
+    [[nodiscard]] inline Float8 Div( const Float8 a, const Float8 b ) noexcept
+    {
+        return _mm256_div_ps( a, b );
+    }
+
+    [[nodiscard]] inline Float8 Sqrt( const Float8 a ) noexcept
+    {
+        return _mm256_sqrt_ps( a );
+    }
+
+    // Per lane a > b ? a : b (vmaxps, Max's operand contract: NaN or a signed-zero tie yields @p b).
+    [[nodiscard]] inline Float8 Max( const Float8 a, const Float8 b ) noexcept
+    {
+        return _mm256_max_ps( a, b );
+    }
+#else
+    struct Float8
+    {
+        Float4 Lo; // lanes 0..3
+        Float4 Hi; // lanes 4..7
+    };
+
+    [[nodiscard]] inline Float8 Load8( const float* p ) noexcept
+    {
+        return Float8{ Load4( p ), Load4( p + 4 ) };
+    }
+
+    [[nodiscard]] inline Float8 Splat8( const float v ) noexcept
+    {
+        return Float8{ Splat( v ), Splat( v ) };
+    }
+
+    inline void Store8( float* p, const Float8 v ) noexcept
+    {
+        Store4( p, v.Lo );
+        Store4( p + 4, v.Hi );
+    }
+
+    [[nodiscard]] inline Float8 Add( const Float8 a, const Float8 b ) noexcept
+    {
+        return Float8{ Add( a.Lo, b.Lo ), Add( a.Hi, b.Hi ) };
+    }
+
+    [[nodiscard]] inline Float8 Sub( const Float8 a, const Float8 b ) noexcept
+    {
+        return Float8{ Sub( a.Lo, b.Lo ), Sub( a.Hi, b.Hi ) };
+    }
+
+    [[nodiscard]] inline Float8 Mul( const Float8 a, const Float8 b ) noexcept
+    {
+        return Float8{ Mul( a.Lo, b.Lo ), Mul( a.Hi, b.Hi ) };
+    }
+
+    [[nodiscard]] inline Float8 Div( const Float8 a, const Float8 b ) noexcept
+    {
+        return Float8{ Div( a.Lo, b.Lo ), Div( a.Hi, b.Hi ) };
+    }
+
+    [[nodiscard]] inline Float8 Sqrt( const Float8 a ) noexcept
+    {
+        return Float8{ Sqrt( a.Lo ), Sqrt( a.Hi ) };
+    }
+
+    [[nodiscard]] inline Float8 Max( const Float8 a, const Float8 b ) noexcept
+    {
+        return Float8{ Max( a.Lo, b.Lo ), Max( a.Hi, b.Hi ) };
+    }
+#endif
 } // namespace Common::Math::Simd

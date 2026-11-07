@@ -63,4 +63,47 @@ namespace Common::Math
     private:
         std::size_t m_Size = 0;
     };
+
+    // FOUR BOXES AS SIX COLUMNS ON THE STACK: one batch of a walk whose boxes are computed on the fly (terrain
+    // sections and patches, the water quadtree's four children, a queue's optional bounds) rather than kept as
+    // AABBLanes between frames. Same layout as one four-lane window of AABBLanes, so Core::Frustum::Intersects4
+    // reads either; a lane never Set keeps the zero box and its verdict is the caller's to mask.
+    struct AABBQuad final
+    {
+        void Set( const std::size_t lane, const AABB& box ) noexcept
+        {
+            MinX[lane] = box.Min.x;
+            MinY[lane] = box.Min.y;
+            MinZ[lane] = box.Min.z;
+            MaxX[lane] = box.Max.x;
+            MaxY[lane] = box.Max.y;
+            MaxZ[lane] = box.Max.z;
+        }
+
+        float MinX[4] = {};
+        float MinY[4] = {};
+        float MinZ[4] = {};
+        float MaxX[4] = {};
+        float MaxY[4] = {};
+        float MaxZ[4] = {};
+    };
+
+    // FOUR SPHERES AS FOUR COLUMNS (UE's light grid reads SoA positions and radii): centre x, y, z and radius per
+    // lane, for Core::Frustum::IntersectsSphere4. A lane never Set is the zero sphere; the caller masks it.
+    struct SphereQuad final
+    {
+        void Set( const std::size_t lane, const float x, const float y, const float z,
+                  const float radius ) noexcept
+        {
+            X[lane] = x;
+            Y[lane] = y;
+            Z[lane] = z;
+            R[lane] = radius;
+        }
+
+        float X[4] = {};
+        float Y[4] = {};
+        float Z[4] = {};
+        float R[4] = {};
+    };
 } // namespace Common::Math

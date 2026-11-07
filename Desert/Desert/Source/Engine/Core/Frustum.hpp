@@ -77,6 +77,26 @@ namespace Desert::Core
         [[nodiscard]] uint32_t Intersects4( const Common::Math::AABBLanes& boxes,
                                             std::size_t                     index ) const noexcept;
 
+        // The same four-box test over one stack batch (boxes built on the fly); bit i = Intersects( lane i ).
+        [[nodiscard]] uint32_t Intersects4( const Common::Math::AABBQuad& boxes ) const noexcept;
+
+        // A WALK'S NEXT FOUR (UE FConvexVolume::IntersectBox over a gathered batch): boxes @p first ..
+        // @p first + 3 of a sequence of @p count, each asked of @p boxOf( i ) as `const AABB*`, gathered into one
+        // AABBQuad and tested by Intersects4. Bit i set when box first + i passes Intersects, or when boxOf
+        // returns null for it (no box: nothing to reject - the `bounds && !Intersects( *bounds )` skip of the
+        // per-box loops it replaces). Bits at or past @p count are clear. A caller walking i = 0 .. count - 1
+        // asks it at every i % 4 == 0 and reads bit i % 4: the same verdicts, in the same order, as calling
+        // Intersects per box.
+        template <typename BoxOf>
+        [[nodiscard]] uint32_t IntersectsEach4( std::size_t first, std::size_t count,
+                                                BoxOf&& boxOf ) const noexcept;
+
+        // FOUR SPHERES AT A TIME, sphere per lane: bit i set when sphere i of @p spheres passes IntersectsSphere.
+        // The plane is splatted and each lane does IntersectsSphere's arithmetic for it in its order -
+        // ((x*nx + y*ny) + z*nz) + d, then `>= -radius` (the negation is exact) - over planes 0..5 only (the
+        // padding lanes never voted there either), so a lane's verdict is IntersectsSphere's bit for bit.
+        [[nodiscard]] uint32_t IntersectsSphere4( const Common::Math::SphereQuad& spheres ) const noexcept;
+
         // A sphere (a local light's attenuation range): rejected only when it lies wholly behind one plane (the
         // planes are normalised, so the signed distance is in world units). Conservative in the same direction as
         // the box test: a sphere past a corner of two planes is kept.
@@ -99,6 +119,11 @@ namespace Desert::Core
         }
 
     private:
+        // Intersects4 over six column pointers, each with four readable floats.
+        [[nodiscard]] uint32_t Intersects4Columns( const float* minXs, const float* minYs, const float* minZs,
+                                                   const float* maxXs, const float* maxYs,
+                                                   const float* maxZs ) const noexcept;
+
         void SetPlane( const uint32_t lane, const Plane& plane ) noexcept
         {
             m_Lanes.Nx[lane] = plane.Normal.x;
@@ -156,14 +181,52 @@ namespace Desert::Core
     inline uint32_t Frustum::Intersects4( const Common::Math::AABBLanes& boxes,
                                           const std::size_t               index ) const noexcept
     {
+        return Intersects4Columns( boxes.MinX.data() + index, boxes.MinY.data() + index, boxes.MinZ.data() + index,
+                                   boxes.MaxX.data() + index, boxes.MaxY.data() + index,
+                                   boxes.MaxZ.data() + index );
+    }
+
+    inline uint32_t Frustum::Intersects4( const Common::Math::AABBQuad& boxes ) const noexcept
+    {
+        return Intersects4Columns( boxes.MinX, boxes.MinY, boxes.MinZ, boxes.MaxX, boxes.MaxY, boxes.MaxZ );
+    }
+
+    template <typename BoxOf>
+    inline uint32_t Frustum::IntersectsEach4( const std::size_t first, const std::size_t count,
+                                              BoxOf&& boxOf ) const noexcept
+    {
+        Common::Math::AABBQuad quad;
+        uint32_t               live = 0u; // lanes holding a box of the sequence
+        uint32_t               open = 0u; // lanes of the sequence without a box: kept
+        for ( std::size_t lane = 0; lane < 4u && first + lane < count; ++lane )
+        {
+            const Common::Math::AABB* const box = boxOf( first + lane );
+            if ( box == nullptr )
+            {
+                open |= 1u << lane;
+                continue;
+            }
+            quad.Set( lane, *box );
+            live |= 1u << lane;
+        }
+        if ( live == 0u )
+            return open;
+        return ( Intersects4( quad ) & live ) | open;
+    }
+
+    inline uint32_t Frustum::Intersects4Columns( const float* const minXs, const float* const minYs,
+                                                 const float* const minZs, const float* const maxXs,
+                                                 const float* const maxYs,
+                                                 const float* const maxZs ) const noexcept
+    {
         namespace S          = Common::Math::Simd;
         const S::Float4 zero = S::Zero();
-        const S::Float4 minX = S::Load4( boxes.MinX.data() + index );
-        const S::Float4 minY = S::Load4( boxes.MinY.data() + index );
-        const S::Float4 minZ = S::Load4( boxes.MinZ.data() + index );
-        const S::Float4 maxX = S::Load4( boxes.MaxX.data() + index );
-        const S::Float4 maxY = S::Load4( boxes.MaxY.data() + index );
-        const S::Float4 maxZ = S::Load4( boxes.MaxZ.data() + index );
+        const S::Float4 minX = S::Load4( minXs );
+        const S::Float4 minY = S::Load4( minYs );
+        const S::Float4 minZ = S::Load4( minZs );
+        const S::Float4 maxX = S::Load4( maxXs );
+        const S::Float4 maxY = S::Load4( maxYs );
+        const S::Float4 maxZ = S::Load4( maxZs );
         uint32_t        kept = 0xFu;
         // The six planes (lanes 0..5; 6 and 7 are padding, kGroupLanes). A box rejected by every lane already
         // stops the walk: the remaining planes could only clear bits that are clear.

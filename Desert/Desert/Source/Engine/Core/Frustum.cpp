@@ -55,6 +55,31 @@ namespace Desert::Core
         return true;
     }
 
+    uint32_t Frustum::IntersectsSphere4( const Common::Math::SphereQuad& spheres ) const noexcept
+    {
+        namespace S       = Common::Math::Simd;
+        const S::Float4 x = S::Load4( spheres.X );
+        const S::Float4 y = S::Load4( spheres.Y );
+        const S::Float4 z = S::Load4( spheres.Z );
+        // -radius per lane, the same negation as IntersectsSphere's Splat( -radius ) (not 0 - r: same value).
+        float negated[4];
+        for ( int lane = 0; lane < 4; ++lane )
+            negated[lane] = -spheres.R[lane];
+        const S::Float4 reach = S::Load4( negated );
+        uint32_t        kept  = 0xFu;
+        // Planes 0..5 (6 and 7 are padding, kGroupLanes); a batch every lane of which is out stops the walk.
+        for ( uint32_t plane = 0; plane < 6u && kept != 0u; ++plane )
+        {
+            // IntersectsSphere's Mul( x, nx ) order per lane (IEEE multiply commutes; the adds keep its order).
+            const S::Float4 dot = S::Add(
+                 S::Add( S::Mul( x, S::Splat( m_Lanes.Nx[plane] ) ), S::Mul( y, S::Splat( m_Lanes.Ny[plane] ) ) ),
+                 S::Mul( z, S::Splat( m_Lanes.Nz[plane] ) ) );
+            const S::Float4 distance = S::Add( dot, S::Splat( m_Lanes.D[plane] ) );
+            kept &= S::MaskBits( S::CompareGE( distance, reach ) );
+        }
+        return kept;
+    }
+
     void Frustum::Rebuild( const glm::mat4& projection, const glm::mat4& view )
     {
         glm::mat4 viewProjection = projection * view;

@@ -3,6 +3,8 @@
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
+#include <Common/Core/Math/Simd.hpp>
+
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -226,45 +228,123 @@ namespace Desert::Geometry
         return {};
     }
 
-    // THE POLICY, taking bounds that were already computed. An Instanced Static Mesh asks this question
-    // once per INSTANCE against one shared mesh; walking that mesh's submeshes 49 152 times to rebuild
-    // the same box is the difference between per-instance LOD being affordable and not being.
+    // THE POLICY FOR A RUN OF INSTANCES OF ONE MESH, eight per register (Common/Core/Math/Simd.hpp Float8; UE
+    // ComputeBoundsScreenSize over a batch): @p levels[i] = the level of the instance at @p transforms[i], for
+    // i < min( sizes ). An Instanced Static Mesh asks this once per INSTANCE against one shared box, so what
+    // depends only on the box and the view - the half-diagonal, the box centre, the lens terms - is computed
+    // once, and the per-instance part (the three axis lengths, the centre through the transform, the distance,
+    // the squared screen radius) runs with instances as lanes.
+    //
+    // BIT FOR BIT THE PER-INSTANCE glm FORMULA it replaced (IEEE single precision, no contraction under
+    // /fp:precise): each lane does the same operations on the same values in the same order -
+    //   scale    = glm::max( |c0|, glm::max( |c1|, |c2| ) ), |c| = sqrt( ( x*x + y*y ) + z*z ) (glm::length's
+    //              dot order; sqrtps is the correctly rounded root), glm::max( x, y ) == Simd::Max( y, x );
+    //   radius   = ( length( Max - Min ) * 0.5f ) * scale - the left-to-right product, its first factor shared;
+    //   centre   = glm's mat4 * vec4, ( c0 * x + c1 * y ) + ( c2 * z + c3 * 1 ), with c3 * 1 == c3 exactly;
+    //   distSq   = dot( centre - origin ) * |P[2][3]|;
+    //   radiusSq = ( m * radius ) * ( m * radius ) / std::max( 1, distSq ), std::max( 1, d ) == Simd::Max( d, 1 )
+    //              (a NaN distance takes 1 on both);
+    // and the level walk is the scalar compare on the stored lane. A lane past the run holds zeros, never read.
+    inline void SelectLODsFromBounds( const std::span<const glm::mat4> transforms,
+                                      const Common::Math::AABB& localBounds, const LODView& view,
+                                      const std::span<const float> screenSizes, const int forcedLOD,
+                                      const int lodBias, const std::span<uint32_t> levels ) noexcept
+    {
+        const std::size_t count = std::min( transforms.size(), levels.size() );
+        if ( forcedLOD >= 0 || screenSizes.size() <= 1 || IsEmpty( localBounds ) )
+        {
+            // Forced: that level; one level: nothing to choose; an empty mesh: LOD 0.
+            uint32_t fixed = 0u;
+            if ( forcedLOD >= 0 )
+                fixed = static_cast<uint32_t>( forcedLOD );
+            for ( std::size_t i = 0; i < count; ++i )
+                levels[i] = fixed;
+            return;
+        }
+
+        // World-space bounding sphere: the box's centre through the transform, radius = half-diagonal x the
+        // largest transform scale. Size-aware: a large object keeps full detail farther away than a small one.
+        namespace S                  = Common::Math::Simd;
+        const float     halfDiagonal = glm::length( localBounds.Max - localBounds.Min ) * 0.5f;
+        const glm::vec3 localCentre  = 0.5f * ( localBounds.Min + localBounds.Max );
+        // BoundsScreenRadiusSquared's lens terms.
+        const float distanceScale = std::abs( view.Projection[2][3] );
+        const float multiple =
+             std::max( 0.5f * std::abs( view.Projection[0][0] ), 0.5f * std::abs( view.Projection[1][1] ) );
+        const int coarsest = static_cast<int>( screenSizes.size() ) - 1;
+
+        constexpr std::size_t kLanes = 8;
+        for ( std::size_t first = 0; first < count; first += kLanes )
+        {
+            const std::size_t lanes = std::min( kLanes, count - first );
+            // The twelve terms of the transform the policy reads, lane per instance: columns 0..3, rows x, y, z.
+            float terms[12][kLanes] = {};
+            for ( std::size_t lane = 0; lane < lanes; ++lane )
+            {
+                const glm::mat4& t = transforms[first + lane];
+                for ( int column = 0; column < 4; ++column )
+                    for ( int row = 0; row < 3; ++row )
+                        terms[column * 3 + row][lane] = t[column][row];
+            }
+            S::Float8 c[12];
+            for ( int term = 0; term < 12; ++term )
+                c[term] = S::Load8( terms[term] );
+            const auto axisLength = [&c]( const int column )
+            {
+                const S::Float8 x = c[column * 3];
+                const S::Float8 y = c[column * 3 + 1];
+                const S::Float8 z = c[column * 3 + 2];
+                return S::Sqrt( S::Add( S::Add( S::Mul( x, x ), S::Mul( y, y ) ), S::Mul( z, z ) ) );
+            };
+            const S::Float8 scale  = S::Max( S::Max( axisLength( 2 ), axisLength( 1 ) ), axisLength( 0 ) );
+            const S::Float8 radius = S::Mul( S::Splat8( halfDiagonal ), scale );
+            // Row r of mat4 * vec4( localCentre, 1 ), minus the eye's coordinate r.
+            const auto offset = [&c, &localCentre, &view]( const int row )
+            {
+                const S::Float8 xy = S::Add( S::Mul( c[row], S::Splat8( localCentre.x ) ),
+                                             S::Mul( c[3 + row], S::Splat8( localCentre.y ) ) );
+                const S::Float8 zw = S::Add( S::Mul( c[6 + row], S::Splat8( localCentre.z ) ), c[9 + row] );
+                return S::Sub( S::Add( xy, zw ), S::Splat8( view.Origin[row] ) );
+            };
+            const S::Float8 dx     = offset( 0 );
+            const S::Float8 dy     = offset( 1 );
+            const S::Float8 dz     = offset( 2 );
+            const S::Float8 dot    = S::Add( S::Add( S::Mul( dx, dx ), S::Mul( dy, dy ) ), S::Mul( dz, dz ) );
+            const S::Float8 distSq = S::Mul( dot, S::Splat8( distanceScale ) );
+            const S::Float8 reach  = S::Mul( S::Splat8( multiple ), radius );
+            const S::Float8 screenRadiusSq =
+                 S::Div( S::Mul( reach, reach ), S::Max( distSq, S::Splat8( 1.0f ) ) );
+            float radiusSq[kLanes];
+            S::Store8( radiusSq, screenRadiusSq );
+            for ( std::size_t lane = 0; lane < lanes; ++lane )
+            {
+                // UE ComputeStaticMeshLOD: the coarsest level whose screen size the object is still below.
+                int base = 0;
+                for ( int level = coarsest; level > 0; --level )
+                {
+                    const float half = 0.5f * screenSizes[static_cast<std::size_t>( level )];
+                    if ( half * half > radiusSq[lane] )
+                    {
+                        base = level;
+                        break;
+                    }
+                }
+                // Per-mesh bias shifts the auto pick (+coarser / -finer).
+                levels[first + lane] = static_cast<uint32_t>( std::clamp( base + lodBias, 0, coarsest ) );
+            }
+        }
+    }
+
+    // THE POLICY, taking bounds that were already computed: one instance through the batch's arithmetic (one
+    // definition, so a single mesh and an ISM instance at the same transform cannot pick different levels).
     inline uint32_t SelectLODFromBounds( const glm::mat4& transform, const Common::Math::AABB& localBounds,
                                          const LODView& view, const std::span<const float> screenSizes,
                                          int forcedLOD, int lodBias )
     {
-        if ( forcedLOD >= 0 )
-            return static_cast<uint32_t>( forcedLOD );
-        if ( screenSizes.size() <= 1 )
-            return 0; // one level: nothing to choose
-
-        if ( IsEmpty( localBounds ) )
-            return 0; // empty mesh
-
-        // World-space bounding sphere: the box's centre through the transform, radius = half-diagonal × the
-        // largest transform scale. Size-aware: a large object keeps full detail farther away than a small one.
-        const float scale = glm::max(
-             glm::length( glm::vec3( transform[0] ) ),
-             glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
-        const float     radius = glm::length( localBounds.Max - localBounds.Min ) * 0.5f * scale;
-        const glm::vec3 center =
-             glm::vec3( transform * glm::vec4( 0.5f * ( localBounds.Min + localBounds.Max ), 1.0f ) );
-
-        // UE ComputeStaticMeshLOD: the coarsest level whose screen size the object is still below.
-        const int   coarsest       = static_cast<int>( screenSizes.size() ) - 1;
-        const float screenRadiusSq = BoundsScreenRadiusSquared( center, radius, view );
-        int         base           = 0;
-        for ( int level = coarsest; level > 0; --level )
-        {
-            const float half = 0.5f * screenSizes[static_cast<std::size_t>( level )];
-            if ( half * half > screenRadiusSq )
-            {
-                base = level;
-                break;
-            }
-        }
-        // Per-mesh bias shifts the auto pick (+coarser / -finer).
-        return static_cast<uint32_t>( std::clamp( base + lodBias, 0, coarsest ) );
+        uint32_t level = 0u;
+        SelectLODsFromBounds( std::span<const glm::mat4>( &transform, 1u ), localBounds, view, screenSizes,
+                              forcedLOD, lodBias, std::span<uint32_t>( &level, 1u ) );
+        return level;
     }
 
     // The submesh-taking spelling, for callers that hold a mesh rather than a box. One policy, one
