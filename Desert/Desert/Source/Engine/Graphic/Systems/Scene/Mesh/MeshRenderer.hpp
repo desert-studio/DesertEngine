@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/InstanceCullDistance.hpp>
+#include <Common/Core/Math/AABBLanes.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
@@ -3776,6 +3777,11 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
+        // The per-instance caster cull's bits (VisibleInViewBits, one bit per gathered instance of a field): the
+        // view's, the scrolled strips' union, and CascadeStaticSignature's own.
+        std::vector<uint64_t> m_ScratchCasterBits;
+        std::vector<uint64_t> m_ScratchStripBits;
+        std::vector<uint64_t> m_ScratchSignatureBits;
         // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
         // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
         // do not). The key is every input CollectIsmInstances reads that is the field's own: its immutable
@@ -4088,6 +4094,10 @@ namespace Desert::Graphic::System
             // wind can reach and the level, and the instance's index in its field's transforms.
             std::vector<ShadowCasterRow> Instances;
             std::vector<uint32_t>        InstanceIndex;
+            // Instances' boxes again as dense columns (CPU-SIMD 2; UE FScene::PrimitiveBounds), pushed with each
+            // row: the per-view per-instance culls (CascadeStaticSignature, BuildShadowCascadeDraws) test four
+            // boxes per register over them (VisibleInViewBits) instead of one fat row at a time.
+            Common::Math::AABBLanes InstanceBounds;
             // THE ISM GATHER IS KEPT ACROSS FRAMES (SCENE-CACHE-3) while every input of ShadowIsmInstances is the
             // one it was made from: IsmKey (IsmGatherKey) and the transforms snapshots, held by owner (a freed
             // snapshot whose address came back is another one). IsmRevision moves whenever the gather starts over.

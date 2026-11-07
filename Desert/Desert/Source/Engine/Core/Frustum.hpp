@@ -1,10 +1,12 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Common/Core/Math/AABBLanes.hpp>
 #include <Common/Core/Math/Simd.hpp>
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Desert::Core
@@ -65,6 +67,15 @@ namespace Desert::Core
         // ((x*nx + y*ny) + z*nz) + d, then `>= 0` -- so it accepts and rejects exactly the same boxes, NaN
         // included. Inline: a caller's loop over many boxes loads the planes once.
         [[nodiscard]] bool Intersects( const Common::Math::AABB& worldBox ) const noexcept;
+
+        // FOUR BOXES AT A TIME, box per lane (UE FConvexVolume::IntersectBox over a primitive batch): bit i set
+        // when box @p index + i of @p boxes passes Intersects. The other transposition of the same test - the
+        // plane is splatted and each lane is a box - with each lane's arithmetic exactly Intersects' for that
+        // plane (the corner picked by `n >= 0`, then ((x*nx + y*ny) + z*nz) + d, then `>= 0`), so a lane's verdict
+        // is Intersects' verdict bit for bit, NaN included. Reads lanes index..index + 3, which AABBLanes' padding
+        // keeps in the allocation for any index below Size(); the caller masks the bits at or past its count.
+        [[nodiscard]] uint32_t Intersects4( const Common::Math::AABBLanes& boxes,
+                                            std::size_t                     index ) const noexcept;
 
         // A sphere (a local light's attenuation range): rejected only when it lies wholly behind one plane (the
         // planes are normalised, so the signed distance is in world units). Conservative in the same direction as
@@ -140,5 +151,35 @@ namespace Desert::Core
                 return false;
         }
         return true;
+    }
+
+    inline uint32_t Frustum::Intersects4( const Common::Math::AABBLanes& boxes,
+                                          const std::size_t               index ) const noexcept
+    {
+        namespace S          = Common::Math::Simd;
+        const S::Float4 zero = S::Zero();
+        const S::Float4 minX = S::Load4( boxes.MinX.data() + index );
+        const S::Float4 minY = S::Load4( boxes.MinY.data() + index );
+        const S::Float4 minZ = S::Load4( boxes.MinZ.data() + index );
+        const S::Float4 maxX = S::Load4( boxes.MaxX.data() + index );
+        const S::Float4 maxY = S::Load4( boxes.MaxY.data() + index );
+        const S::Float4 maxZ = S::Load4( boxes.MaxZ.data() + index );
+        uint32_t        kept = 0xFu;
+        // The six planes (lanes 0..5; 6 and 7 are padding, kGroupLanes). A box rejected by every lane already
+        // stops the walk: the remaining planes could only clear bits that are clear.
+        for ( uint32_t plane = 0; plane < 6u && kept != 0u; ++plane )
+        {
+            const float     nx  = m_Lanes.Nx[plane];
+            const float     ny  = m_Lanes.Ny[plane];
+            const float     nz  = m_Lanes.Nz[plane];
+            // Intersects' per-lane choice `n >= 0` (a NaN normal takes Min), made once for the four boxes.
+            const S::Float4 px  = nx >= 0.0f ? maxX : minX;
+            const S::Float4 py  = ny >= 0.0f ? maxY : minY;
+            const S::Float4 pz  = nz >= 0.0f ? maxZ : minZ;
+            const S::Float4 dot = S::Add( S::Add( S::Mul( px, S::Splat( nx ) ), S::Mul( py, S::Splat( ny ) ) ),
+                                          S::Mul( pz, S::Splat( nz ) ) );
+            kept &= S::MaskBits( S::CompareGE( S::Add( dot, S::Splat( m_Lanes.D[plane] ) ), zero ) );
+        }
+        return kept;
     }
 } // namespace Desert::Core

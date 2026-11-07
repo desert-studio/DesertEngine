@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Common/Core/Math/AABBLanes.hpp>
+#include <Common/Core/Math/Simd.hpp>
 
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
@@ -9,6 +11,9 @@
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <span>
 
 namespace Desert::Graphic
 {
@@ -35,6 +40,51 @@ namespace Desert::Graphic
                                                const Common::Math::AABB& worldBounds )
     {
         return Geometry::IsEmpty( worldBounds ) || frustum.Intersects( worldBounds );
+    }
+
+    // The same rule for a RUN of world boxes, four at a time (UE: the primitive-bounds batch of
+    // FSceneRenderer's frustum cull): bit j of @p bits[j / 64] is IsVisibleInView( frustum, box @p first + j )
+    // for every j below @p count, each bit the one the box-at-a-time call answers - IsEmpty per lane by the same
+    // `Min > Max` compares, OR the lane's Core::Frustum::Intersects4 verdict. @p bits holds at least
+    // (count + 63) / 64 words; those words are written whole, every bit at or past @p count clear.
+    // first + count must not pass @p boxes.Size() (the lanes' padding covers the last group's overhang).
+    // AddVisibleInViewBits ORs the same bits into @p bits instead (a union of views: a scrolled cascade's strips).
+    inline void AddVisibleInViewBits( const Core::Frustum& frustum, const Common::Math::AABBLanes& boxes,
+                                      const std::size_t first, const std::size_t count,
+                                      const std::span<uint64_t> bits ) noexcept
+    {
+        namespace S = Common::Math::Simd;
+        for ( std::size_t j = 0; j < count; j += 4u )
+        {
+            const std::size_t at     = first + j;
+            const S::Mask4    emptyX = S::CompareGT( S::Load4( boxes.MinX.data() + at ),
+                                                     S::Load4( boxes.MaxX.data() + at ) );
+            const S::Mask4    emptyY = S::CompareGT( S::Load4( boxes.MinY.data() + at ),
+                                                     S::Load4( boxes.MaxY.data() + at ) );
+            const S::Mask4    emptyZ = S::CompareGT( S::Load4( boxes.MinZ.data() + at ),
+                                                     S::Load4( boxes.MaxZ.data() + at ) );
+            uint32_t          lanes  = S::MaskBits( S::MaskOr( S::MaskOr( emptyX, emptyY ), emptyZ ) );
+            if ( lanes != 0xFu )
+                lanes |= frustum.Intersects4( boxes, at );
+            if ( count - j < 4u )
+                lanes &= ( 1u << ( count - j ) ) - 1u;
+            bits[j / 64u] |= static_cast<uint64_t>( lanes ) << ( j % 64u );
+        }
+    }
+
+    inline void VisibleInViewBits( const Core::Frustum& frustum, const Common::Math::AABBLanes& boxes,
+                                   const std::size_t first, const std::size_t count,
+                                   const std::span<uint64_t> bits ) noexcept
+    {
+        const std::size_t words = ( count + 63u ) / 64u;
+        for ( std::size_t w = 0; w < words; ++w )
+            bits[w] = 0u;
+        AddVisibleInViewBits( frustum, boxes, first, count, bits );
+    }
+
+    [[nodiscard]] inline bool VisibleBit( const std::span<const uint64_t> bits, const std::size_t j ) noexcept
+    {
+        return ( ( bits[j / 64u] >> ( j % 64u ) ) & 1u ) != 0u;
     }
 
     // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree

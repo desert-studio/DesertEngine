@@ -2,8 +2,8 @@
 
 // THE ONE VECTOR LAYER (UE: VectorRegister4Float behind UnrealMathSSE.h / UnrealMathNeon.h / UnrealMathFPU.h).
 //
-// Four floats in one register and the handful of operations the hand-written hot loops need (frustum culling
-// today). The path is chosen at COMPILE time, never by a runtime dispatch:
+// Four floats in one register and the handful of operations the hand-written hot loops need (frustum culling,
+// box transforms, batch box culls). The path is chosen at COMPILE time, never by a runtime dispatch:
 //   DESERT_SIMD_SSE   x86-64: SSE2 is the x64 baseline, so this path exists in every x64 build; under
 //                     /arch:AVX2 (DESERT_AVX2, cmake/DesertWorkspace.cmake) the same intrinsics are emitted with
 //                     VEX encodings and Select uses blendv.
@@ -78,6 +78,41 @@ namespace Common::Math::Simd
     {
         return static_cast<uint32_t>( _mm_movemask_ps( mask ) );
     }
+
+    // Lanes 0..3 to p[0..3] (unaligned).
+    inline void Store4( float* p, const Float4 v ) noexcept
+    {
+        _mm_storeu_ps( p, v );
+    }
+
+    // Per lane: a < b ? a : b (minps). Operand ORDER is the contract: a NaN in either lane, or a tie between
+    // -0 and +0, yields @p b. glm::min( x, y ) is ( y < x ) ? y : x, so glm::min( acc, v ) == Min( v, acc ).
+    [[nodiscard]] inline Float4 Min( const Float4 a, const Float4 b ) noexcept
+    {
+        return _mm_min_ps( a, b );
+    }
+
+    // Per lane: a > b ? a : b (maxps); NaN or a signed-zero tie yields @p b. glm::max( x, y ) is
+    // ( x < y ) ? y : x, so glm::max( acc, v ) == Max( v, acc ).
+    [[nodiscard]] inline Float4 Max( const Float4 a, const Float4 b ) noexcept
+    {
+        return _mm_max_ps( a, b );
+    }
+
+    [[nodiscard]] inline Mask4 CompareGT( const Float4 a, const Float4 b ) noexcept
+    {
+        return _mm_cmpgt_ps( a, b );
+    }
+
+    [[nodiscard]] inline Mask4 MaskOr( const Mask4 a, const Mask4 b ) noexcept
+    {
+        return _mm_or_ps( a, b );
+    }
+
+    [[nodiscard]] inline Mask4 MaskAnd( const Mask4 a, const Mask4 b ) noexcept
+    {
+        return _mm_and_ps( a, b );
+    }
 #else
     struct Float4
     {
@@ -141,6 +176,53 @@ namespace Common::Math::Simd
                 bits |= 1u << lane;
         }
         return bits;
+    }
+
+    inline void Store4( float* p, const Float4 v ) noexcept
+    {
+        for ( int lane = 0; lane < 4; ++lane )
+            p[lane] = v.V[lane];
+    }
+
+    [[nodiscard]] inline Float4 Min( const Float4 a, const Float4 b ) noexcept
+    {
+        Float4 out{};
+        for ( int lane = 0; lane < 4; ++lane )
+        {
+            if ( a.V[lane] < b.V[lane] )
+                out.V[lane] = a.V[lane];
+            else
+                out.V[lane] = b.V[lane];
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline Float4 Max( const Float4 a, const Float4 b ) noexcept
+    {
+        Float4 out{};
+        for ( int lane = 0; lane < 4; ++lane )
+        {
+            if ( a.V[lane] > b.V[lane] )
+                out.V[lane] = a.V[lane];
+            else
+                out.V[lane] = b.V[lane];
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline Mask4 CompareGT( const Float4 a, const Float4 b ) noexcept
+    {
+        return Mask4{ { a.V[0] > b.V[0], a.V[1] > b.V[1], a.V[2] > b.V[2], a.V[3] > b.V[3] } };
+    }
+
+    [[nodiscard]] inline Mask4 MaskOr( const Mask4 a, const Mask4 b ) noexcept
+    {
+        return Mask4{ { a.V[0] || b.V[0], a.V[1] || b.V[1], a.V[2] || b.V[2], a.V[3] || b.V[3] } };
+    }
+
+    [[nodiscard]] inline Mask4 MaskAnd( const Mask4 a, const Mask4 b ) noexcept
+    {
+        return Mask4{ { a.V[0] && b.V[0], a.V[1] && b.V[1], a.V[2] && b.V[2], a.V[3] && b.V[3] } };
     }
 #endif
 
