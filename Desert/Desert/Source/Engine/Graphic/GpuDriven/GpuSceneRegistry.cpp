@@ -87,10 +87,11 @@ namespace Desert::Graphic::GpuDriven
         entry.Frame     = m_Frame;
     }
 
-    void GpuSceneRegistry::AskedThisFrame( MaterialEntry& entry ) const
+    void GpuSceneRegistry::AskedThisFrame( MaterialEntry& entry )
     {
         if ( entry.Frame != m_Frame ) // the first view of this frame to ask
         {
+            ++m_MaterialsAsked;
             entry.PrevFrame = entry.Frame;
             entry.Frame     = m_Frame;
         }
@@ -135,6 +136,7 @@ namespace Desert::Graphic::GpuDriven
     void GpuSceneRegistry::DiscardFrame()
     {
         m_Scene.DiscardFrame();
+        m_CountsExact = false; // the restored stamps are of an older frame: the next retire walks every map
         for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
         {
             Entry& entry = it->second;
@@ -199,7 +201,11 @@ namespace Desert::Graphic::GpuDriven
             return;
         if ( m_Started && !m_Committed )
             DiscardFrame();
-        if ( m_Started )
+        // A map whose every element the ended frame stamped retires nothing: no walk (see m_CountsExact).
+        const bool walkEntries   = !m_CountsExact || m_EntriesQueued != m_Entries.size();
+        const bool walkScratch   = !m_CountsExact || m_ScratchNamed != m_EntityScratch.size();
+        const bool walkMaterials = !m_CountsExact || m_MaterialsAsked != m_MaterialRows.size();
+        if ( m_Started && walkEntries )
             for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
             {
                 if ( it->second.Frame == m_Frame )
@@ -213,9 +219,10 @@ namespace Desert::Graphic::GpuDriven
         if ( m_Started ) // the static slots the frame that ended did not queue (they left the view or the scene)
             RetireStatic();
         m_StaticWritten.clear();
-        if ( m_Started ) // the scratch of entities the frame that ended did not name (they left the view or scene)
+        // the scratch of entities the frame that ended did not name (they left the view or the scene)
+        if ( m_Started && walkScratch )
             std::erase_if( m_EntityScratch, [this]( const auto& held ) { return held.second.Frame != m_Frame; } );
-        if ( m_Started )
+        if ( m_Started && walkMaterials )
             for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
             {
                 if ( it->second.Frame == m_Frame )
@@ -231,6 +238,10 @@ namespace Desert::Graphic::GpuDriven
         m_Frame               = frame;
         m_Started             = true;
         m_Committed           = false;
+        m_EntriesQueued       = 0;
+        m_MaterialsAsked      = 0;
+        m_ScratchNamed        = 0;
+        m_CountsExact         = true;
         m_Scene.BeginFrame();
         m_PreviousPalettes.swap( m_FramePalettes );
         m_FramePalettes.clear();
@@ -241,6 +252,8 @@ namespace Desert::Graphic::GpuDriven
         EntityScratch& scratch = m_EntityScratch[entity];
         if ( scratch.Sync != m_SyncSerial ) // the first record of this entity in this Sync: capacity kept
         {
+            if ( scratch.Frame != m_Frame ) // the first Sync of this frame to name the entity
+                ++m_ScratchNamed;
             scratch.Sync  = m_SyncSerial;
             scratch.Frame = m_Frame;
             scratch.Primitives.clear();
@@ -257,6 +270,7 @@ namespace Desert::Graphic::GpuDriven
         fresh                     = inserted || entry.Frame != m_Frame;
         if ( !fresh )
             return entry; // an earlier view of this frame synced it
+        ++m_EntriesQueued;
         Write( entry, inserted, record );
         return entry;
     }
@@ -532,6 +546,7 @@ namespace Desert::Graphic::GpuDriven
             Entry& entry              = it->second;
             if ( inserted || entry.Frame != m_Frame )
             {
+                ++m_EntriesQueued;
                 // The held snapshot is the instance rows' contents: the same object needs no per-instance compare.
                 const bool sameSnapshot =
                      !inserted && field.Snapshot != nullptr && entry.Instances == field.Snapshot;

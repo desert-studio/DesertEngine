@@ -248,7 +248,7 @@ namespace Desert::Graphic::GpuDriven
             uint64_t               PrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
             MaterialRowRevision    Revision;             // what Values were derived from ({} = unknown)
         };
-        void AskedThisFrame( MaterialEntry& entry ) const;
+        void AskedThisFrame( MaterialEntry& entry );
 
         struct Entry
         {
@@ -359,5 +359,14 @@ namespace Desert::Graphic::GpuDriven
         uint64_t                                            m_FrameBeforePrevious = kNoFrame;
         bool                                                m_Started       = false;
         bool                                                m_Committed     = false; // CommitFrame( m_Frame )
+        // THE RETIRE WALKS RUN ONLY WHEN SOMETHING LEFT (UE FScene: RemovedPrimitives is a list, not a sweep).
+        // How many m_Entries / m_MaterialRows / m_EntityScratch the frame being synced stamped with m_Frame
+        // (each counted on its first stamp of the frame). BeginFrame walks a map only when its count is below
+        // its size - an unchanged scene retires nothing and reads no entry. Exact from BeginFrame on; a
+        // DiscardFrame restores stamps of an older frame, so the next BeginFrame walks all (m_CountsExact).
+        size_t m_EntriesQueued = 0;
+        size_t m_MaterialsAsked = 0;
+        size_t m_ScratchNamed   = 0;
+        bool   m_CountsExact    = false;
     };
 } // namespace Desert::Graphic::GpuDriven

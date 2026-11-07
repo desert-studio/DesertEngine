@@ -20,20 +20,32 @@ namespace Desert::ECS
     // entities - by one UUID scan only when the selection revision or the UUID population changed, or a resolved
     // entity stopped matching - then flags each selected entity and its whole child subtree, so a selected prefab
     // root outlines all its mesh children. Cost: O(selected subtree) per frame, nothing with an empty selection.
+    //
+    // THE DELTA (UE: SetSelection_GameThread reaches only the proxies whose selection changed): Changed() lists
+    // the entities whose flag differs from the previous Refresh - the old flagged set minus the new one, plus
+    // the new minus the old - whatever moved it (a selection write, a subtree attached under a selected root, a
+    // selected UUID resolving in a later frame). The retained static scene rebuilds only those
+    // (MeshECSSystem::RecordStaticScene), never every slot on an editor click.
     class SelectionOutlineMask final
     {
     public:
         void Refresh( const entt::registry& registry )
         {
+            // The previous frame's flags move aside for the diff; the frame before it is cleared for reuse.
+            m_Bits.swap( m_PrevBits );
+            m_SetWords.swap( m_PrevSetWords );
+            m_Flagged.swap( m_PrevFlagged );
             for ( const uint32_t word : m_SetWords )
                 m_Bits[word] = 0;
             m_SetWords.clear();
+            m_Flagged.clear();
 
             const auto& selected = Runtime::SelectionContext::GetAll();
             if ( selected.empty() )
             {
                 m_Resolved.clear();
                 m_ResolvedRevision = ~0ull;
+                CollectChanged();
                 return;
             }
 
@@ -81,6 +93,13 @@ namespace Desert::ECS
                             m_Stack.push_back( child );
                 }
             }
+            CollectChanged();
+        }
+
+        // The entities whose flag this Refresh changed (each once; a destroyed entity may be among the old ones).
+        [[nodiscard]] const std::vector<entt::entity>& Changed() const noexcept
+        {
+            return m_Changed;
         }
 
         [[nodiscard]] bool Contains( entt::entity e ) const noexcept
@@ -93,6 +112,24 @@ namespace Desert::ECS
         }
 
     private:
+        [[nodiscard]] static bool Has( const std::vector<uint64_t>& bits, const entt::entity e ) noexcept
+        {
+            const auto   index = static_cast<uint32_t>( entt::to_integral( entt::registry::entity( e ) ) );
+            const size_t word  = index >> 6u;
+            return word < bits.size() && ( bits[word] >> ( index & 63u ) & 1ull ) != 0;
+        }
+
+        void CollectChanged()
+        {
+            m_Changed.clear();
+            for ( const entt::entity e : m_PrevFlagged )
+                if ( !Contains( e ) )
+                    m_Changed.push_back( e );
+            for ( const entt::entity e : m_Flagged )
+                if ( !Has( m_PrevBits, e ) )
+                    m_Changed.push_back( e );
+        }
+
         void Set( entt::entity e )
         {
             const auto   index = static_cast<uint32_t>( entt::to_integral( entt::registry::entity( e ) ) );
@@ -102,10 +139,16 @@ namespace Desert::ECS
             if ( m_Bits[word] == 0 )
                 m_SetWords.push_back( static_cast<uint32_t>( word ) );
             m_Bits[word] |= 1ull << ( index & 63u );
+            m_Flagged.push_back( e );
         }
 
         std::vector<uint64_t>     m_Bits;     // one bit per entity index; only m_SetWords' words are non-zero
         std::vector<uint32_t>     m_SetWords; // the words written this frame, cleared next Refresh
+        std::vector<entt::entity> m_Flagged;  // the entities flagged this frame (Set order)
+        std::vector<uint64_t>     m_PrevBits; // the previous Refresh's flags (only m_PrevSetWords non-zero)
+        std::vector<uint32_t>     m_PrevSetWords;
+        std::vector<entt::entity> m_PrevFlagged;
+        std::vector<entt::entity> m_Changed; // Changed()
         std::vector<entt::entity> m_Stack;    // subtree walk scratch, kept across frames
         std::vector<entt::entity> m_Resolved; // GetAll()[i] -> its entity (null: not in this registry)
         uint64_t                  m_ResolvedRevision  = ~0ull;

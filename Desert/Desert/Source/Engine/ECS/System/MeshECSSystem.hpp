@@ -514,10 +514,10 @@ namespace Desert::ECS
         // rebuilt only when the entity is in the scene's render-state delta (ECS::RenderStateDelta: its transform,
         // an ancestor's, its mesh / material / visibility component, an attach or detach), when it is unresolved
         // (a pending mesh, an unadopted slot, an upload not yet made: it polls), or when something no component
-        // signal reports changed for everyone (a material invalidation, a dropped mesh, the editor selection: a
-        // full rebuild; the fractured set: the entities concerned). The slots reach the views in immutable chunks
-        // (Render::StaticSceneChunk, kStaticSceneChunkSlots slots each): a change rebuilds only the chunks it
-        // touched, and an update with no change records the previous snapshot again.
+        // signal reports changed for everyone (a material invalidation, a dropped mesh: a full rebuild; the
+        // editor selection, the fractured set, an in-place mesh edit: the entities concerned). The slots reach
+        // the views in immutable chunks (Render::StaticSceneChunk, kStaticSceneChunkSlots slots each): a change
+        // rebuilds only the chunks it touched, and an update with no change records the previous snapshot again.
         struct StaticSlotDraw
         {
             Graphic::Material* Mat         = nullptr;
@@ -714,7 +714,8 @@ namespace Desert::ECS
             if ( !snapshot )
                 snapshot = std::make_shared<Graphic::Render::StaticSceneSnapshot>();
             snapshot->Chunks.assign( m_StaticChunks.begin(), m_StaticChunks.end() );
-            snapshot->Revision = ++m_StaticRevision;
+            snapshot->Revision           = ++m_StaticRevision;
+            snapshot->PreparedStaleEpoch = ~0ull; // a new version: its meshes are prepared afresh once
             if ( m_StaticScene )
                 m_StaticSpareSnapshots.push_back( std::move( m_StaticScene ) );
             m_StaticScene = std::move( snapshot );
@@ -741,20 +742,17 @@ namespace Desert::ECS
                 full = link->Delta->Drain( m_StaticDirty ) || full;
             else
                 full = true; // no feed: nothing tells this cache what changed, so it trusts none of it
-            // A dropped or rebuilt mesh, a material invalidation (the instances are rebuilt), a new selection (the
-            // outlines): no component signal carries them, and each may concern any entity.
+            // A dropped or rebuilt mesh, a material invalidation (the instances are rebuilt): no component signal
+            // carries them, and each may concern any entity.
             const uint64_t meshRevision = Runtime::ResourceRegistry::GetMeshService()->GetBuiltRevision();
             if ( meshRevision != m_StaticMeshRevision || materialsVersion != m_StaticMaterialsVersion )
                 full = true;
             m_StaticMeshRevision     = meshRevision;
             m_StaticMaterialsVersion = materialsVersion;
-            // The selection by its revision (SelectionContext bumps it per write), not a UUID list compare.
-            const uint64_t selection = Runtime::SelectionContext::GetRevision();
-            if ( selection != m_StaticSelectionRevision )
-            {
-                full                      = true;
-                m_StaticSelectionRevision = selection;
-            }
+            // The outlines: only the entities whose selection flag moved since the last update (the old and the
+            // new selection's subtrees, SelectionOutlineMask::Changed), never a full rebuild on an editor click.
+            for ( const entt::entity entity : m_Outline.Changed() )
+                m_StaticDirty.push_back( entity );
             // The fractured set: an entity entering or leaving it stops, or starts, drawing its own mesh.
             for ( const entt::entity entity : drawnAsPieces )
                 if ( !std::binary_search( m_StaticPieces.begin(), m_StaticPieces.end(), entity ) )
@@ -773,7 +771,8 @@ namespace Desert::ECS
                 m_StaticPolls.clear();
                 m_StaticImmediate.clear();
                 m_StaticChunkDirty.clear();
-                m_StaticChanged = true;
+                m_StaticChanged    = true;
+                m_StaticStaleEpoch = Desert::Mesh::GetStaleEpoch(); // read before the rebuild reads the meshes
                 registry.view<StaticMeshComponent, TransformComponent>().each(
                      [&]( const entt::entity entity, const StaticMeshComponent&, const TransformComponent& )
                      { RebuildStaticPrimitive( registry, entity, materialsVersion, drawnAsPieces ); } );
@@ -784,6 +783,23 @@ namespace Desert::ECS
                     m_StaticDirty.push_back( m_StaticPrimitives[slot].Entity );
                 for ( const entt::entity entity : m_StaticDirty )
                     RebuildStaticPrimitive( registry, entity, materialsVersion, drawnAsPieces );
+                // AN IN-PLACE MESH EDIT (DynamicMesh::Update, an editor tool) raises no component signal: when any
+                // mesh was marked stale since the last scan (Mesh::GetStaleEpoch), the slots whose mesh is pending
+                // or was re-uploaded under their cached bounds are rebuilt (a pending one polls until its upload).
+                // A still scene skips the scan in O(1); after the dirty rebuilds, so no freed slot is read.
+                const uint64_t staleEpoch = Desert::Mesh::GetStaleEpoch();
+                if ( staleEpoch != m_StaticStaleEpoch )
+                {
+                    m_StaticStaleEpoch = staleEpoch;
+                    for ( const StaticPrimitive& primitive : m_StaticPrimitives )
+                        if ( primitive.Mesh != nullptr && !primitive.Sections.empty() &&
+                             ( primitive.Mesh->IsGpuStale() ||
+                               primitive.Sections.front().BoundsRevision != primitive.Mesh->GetRenderRevision() ) )
+                            m_StaticEdited.push_back( primitive.Entity );
+                    for ( const entt::entity entity : m_StaticEdited )
+                        RebuildStaticPrimitive( registry, entity, materialsVersion, drawnAsPieces );
+                    m_StaticEdited.clear();
+                }
             }
 
             if ( m_StaticChanged )
@@ -980,8 +996,9 @@ namespace Desert::ECS
             const glm::mat4& worldTransform = transform.GetWorldTransform();
 
             // Outline: editor selection (this entity or any ancestor — selecting a prefab root outlines all its
-            // mesh children) OR the per-entity "Draw outline" toggle. A selection change rebuilds every slot; the
-            // subtree flag is m_Outline's, refreshed once per update before RecordStaticScene (O(1) here).
+            // mesh children) OR the per-entity "Draw outline" toggle. A selection change rebuilds the slots whose
+            // flag moved (m_Outline.Changed); the flag is m_Outline's, refreshed once per update before
+            // RecordStaticScene (O(1) here).
             const bool outlined = m_Outline.Contains( entity ) || mesh.GetOutlineDraw();
 
             primitive.Mesh            = targetMesh;
@@ -1072,7 +1089,8 @@ namespace Desert::ECS
         std::vector<std::shared_ptr<Graphic::Render::StaticSceneSnapshot>> m_StaticSpareSnapshots;
         std::vector<entt::entity>                                          m_StaticDirty;  // this update's delta
         std::vector<entt::entity>                                          m_StaticPieces; // last fractured set
-        uint64_t m_StaticSelectionRevision = ~0ull; // SelectionContext::GetRevision as of the last check
+        std::vector<entt::entity> m_StaticEdited;             // the in-place edit scan's slots (scratch)
+        uint64_t                  m_StaticStaleEpoch = ~0ull; // Mesh::GetStaleEpoch as of the last scan
         std::vector<Graphic::Render::StaticSceneSection>                   m_StaticPrevious; // scratch
     };
 } // namespace Desert::ECS

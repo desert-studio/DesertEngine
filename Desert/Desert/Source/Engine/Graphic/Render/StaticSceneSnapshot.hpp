@@ -76,5 +76,9 @@ namespace Desert::Graphic::Render
     {
         std::vector<std::shared_ptr<const StaticSceneChunk>> Chunks;
         uint64_t                                             Revision = 0; // bumped per published change
+        // The Mesh::GetStaleEpoch its sections' meshes were last prepared at (DrawStaticSceneCommand::Prepare):
+        // no mesh marked stale since then = nothing to upload, the section walk is skipped. Game thread only (the
+        // fence's Prepare; no replay reads it); reset by the publisher (MeshECSSystem) for every new version.
+        mutable uint64_t PreparedStaleEpoch = ~0ull;
     };
 } // namespace Desert::Graphic::Render
