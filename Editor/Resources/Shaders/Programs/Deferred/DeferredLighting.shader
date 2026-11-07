@@ -7,12 +7,33 @@ Shader "DeferredLighting"
     {
         #include <Common/FullscreenTriangle.glslh>
 
+        // DESERT_DEFERRED_TILES (GPU-TILE-CLASSIFY, DeferredLightingRenderer's tiled permutations): the pass is
+        // drawn as the tiles "Deferred: Tile Classify" listed (Common/DeferredTiles.glslh), six vertices per tile,
+        // instead of one triangle over the view. The fragment stage is the same text either way.
+        #ifdef DESERT_DEFERRED_TILES
+        #include <Common/DeferredTiles.glslh>
+        // 48: past every binding the fragment stage and its headers hold (set 0 ends at 33); the shared samplers
+        // are numbered after it (SharedSamplerBinding.hpp).
+        ReadBuffer(48) DeferredTilesUB
+        {
+        	uint deferredTiles[];
+        };
+        #endif
+
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
+        #ifdef DESERT_DEFERRED_TILES
+        	const uvec2 extent = uvec2(deferredTiles[kDeferredTileExtent], deferredTiles[kDeferredTileExtent + 1u]);
+        	const uint  vertex = uint(gl_VertexIndex);
+        	const uint  tile   = deferredTiles[kDeferredTileHeaderWords + vertex / kDeferredTileVertices];
+        	v_TexCoord         = DeferredTileCornerUV(tile, vertex % kDeferredTileVertices, extent);
+        	gl_Position        = vec4(ScreenUVToNdc(v_TexCoord), 0.0, 1.0);
+        #else
         	v_TexCoord  = FullscreenTriangleUV();
         	gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
+        #endif
         }
     }
 
@@ -186,6 +207,14 @@ Shader "DeferredLighting"
         // THE lighting of this pass: the texel's shading model through the dispatch the registry generates. The
         // same two calls as the forward pass (Mesh/Surface/Pass_Forward.glslh); this shader names no model.
         #include <Generated/ShadingModels.glslh>
+        // The texel's shading model. DESERT_DEFERRED_TILE_SIMPLE (the tiled permutation of the SIMPLE tiles,
+        // Common/DeferredTiles.glslh): "Deferred: Tile Classify" read every geometry texel of the tile as DefaultLit
+        // from the same word, so the model is that constant and the dispatch folds to DefaultLit's own functions.
+        #ifdef DESERT_DEFERRED_TILE_SIMPLE
+        #define DESERT_DEFERRED_SHADING_MODEL(word) SHADING_MODEL_INDEX_DEFAULT_LIT
+        #else
+        #define DESERT_DEFERRED_SHADING_MODEL(word) DesertShadingModelIndex(word)
+        #endif
 
         // The directional (sun) Cook-Torrance contribution used to be a local copy of the BRDF right here,
         // with a comment recording that the raw albedo*NdotL*intensity Lambert made the sun ~PI× too bright
@@ -419,7 +448,7 @@ Shader "DeferredLighting"
         		discard;
 
         	const uvec2         word         = texelFetch(GBufferShadingWordTexture, ivec2(gl_FragCoord.xy), 0).rg;
-        	const int           shadingModel = DesertShadingModelIndex(word);
+        	const int           shadingModel = DESERT_DEFERRED_SHADING_MODEL(word);
         	const DesertPayload payload      = DesertUnpackPayload(word);
 
         	// The G-buffer views the composite draws from the G-buffer alone (1..5, 9..11): nothing to light.
@@ -608,7 +637,7 @@ Shader "DeferredLighting"
 
         	const vec4          ge           = texture(GBufferEmissiveTexture, v_TexCoord);
         	const uvec2         word         = texelFetch(GBufferShadingWordTexture, ivec2(gl_FragCoord.xy), 0).rg;
-        	const int           shadingModel = DesertShadingModelIndex(word);
+        	const int           shadingModel = DESERT_DEFERRED_SHADING_MODEL(word);
         	const DesertPayload payload      = DesertUnpackPayload(word);
 
         	// Ambient occlusion as UE composes it for the ambient: the MATERIAL's (GBuffer AO, from the surface's

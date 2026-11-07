@@ -458,6 +458,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: the cascades end at min(Shadows."
                "Distance, this) when the sun reads the distance-field shadow past them)",
                8000, Vis::Advanced },
+             { P::RenderPipelineTileClassify, G::Effects, "RenderPipeline.TileClassify", 0, 1, CL::None,
+               "SceneRenderer::AddFrameComposite -> DeferredLightingRenderer (the 8x8 tile lists the "
+               "direct and composite passes draw indirectly; 0 = both draw the whole view)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

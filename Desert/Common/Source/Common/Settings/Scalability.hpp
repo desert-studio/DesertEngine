@@ -418,6 +418,13 @@ namespace Common::Scalability
         // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
         // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
         ShadowDistanceFieldCascadeDistance,
+        // 0/1 (GPU-TILE-CLASSIFY; UE Substrate ClassificationTiles / r.TiledDeferredShading): the deferred
+        // lighting's 8x8 tiles are classified from the G-buffer (sky, DefaultLit-only, mixed) and the direct and
+        // composite passes draw only the tiles that hold geometry, a DefaultLit-only tile through the permutation
+        // with the shading model folded. 0 = both passes draw the whole view (the A/B and the rollback); the
+        // picture is the same. Read by SceneRenderer::AddFrameComposite. Key
+        // "RenderPipeline.TileClassify": equal at every level, so only a machine override names it.
+        RenderPipelineTileClassify,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
