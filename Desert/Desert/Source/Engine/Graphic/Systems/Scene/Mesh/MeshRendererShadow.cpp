@@ -1938,24 +1938,31 @@ namespace Desert::Graphic::System
                                      const GpuDriven::PrimitiveIndex primitive,
                                      const uint64_t                  hidden ) -> std::optional<SubmeshMask>
         { return CpuWalkHidden( walkView, mesh, primitive, hidden ); };
-        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+        // The queue's hot columns (m_StaticColumns, dense by position: mesh, primitive, mask, caster flag and the
+        // section's surface with its masked answer), so a record is read only once it casts in this view. A
+        // record past the columns was queued after the sync: skipped.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        const std::size_t        statics = drawStatic ? columns.Count() : 0u;
+        for ( std::size_t i = 0; i < statics; ++i )
         {
-            const StaticMeshRenderData& rd = m_StaticQueue[i];
-            if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows )
+            const Desert::Mesh* const mesh  = columns.Meshes[i];
+            const uint8_t             flags = columns.Flags[i];
+            if ( mesh == nullptr || ( flags & StaticWalkColumns::kCastsShadow ) == 0u )
                 continue;
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
-                 walkHidden( rd.Mesh, rd.Mesh->GetSubmeshes().size(), rd.GpuPrimitive, rd.HiddenSubmeshes );
+                 walkHidden( mesh, mesh->GetSubmeshes().size(), columns.Primitives[i], columns.Hidden[i] );
             if ( !walk || !inView( gathered.Statics[i].WorldBounds ) )
                 continue;
-            const SubmeshMask hidden = *walk;
+            const StaticMeshRenderData& rd     = m_StaticQueue[i];
+            const SubmeshMask           hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
             // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so
-            // a masked section takes the masked route and an opaque one the opaque route.
-            const SurfaceSlot         slot = SectionSurface( rd.MaterialSlots.get(), rd.SectionSlot );
-            MaterialInstance*         inst = slot.Instance;
-            const DataDrivenMaterial* mat  = slot.Surface;
-            if ( !isMasked( mat ) )
+            // a masked section takes the masked route and an opaque one the opaque route. The columns hold that
+            // surface and its IsMaskedSurface answer (ShadingOf at the sync), so no template name is asked here.
+            MaterialInstance*         inst = columns.Instances[i];
+            const DataDrivenMaterial* mat  = columns.Surfaces[i];
+            if ( ( flags & StaticWalkColumns::kMasked ) == 0u )
             {
                 bucketFor( rd.Mesh, hidden ).push_back( &rd );
                 continue;

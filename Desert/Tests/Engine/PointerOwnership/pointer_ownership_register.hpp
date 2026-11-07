@@ -992,6 +992,20 @@ namespace Desert::Tests::PointerCensus
           "MeshRenderer", "m_GenericTextureOrder", Guard::OwnedByThisObject,
           "a reused sort scratch of WriteGenericTextureKey: the pairs it points at are the texture overrides of"
           " the m_GenericQueue record being keyed, and it is cleared and refilled inside that one call" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "StaticWalkColumns", "Meshes", Guard::FrameScoped,
+          "each m_StaticQueue record's Mesh, copied by SyncGpuScene after ApplyDisplacement and emptied by "
+          "ClearQueues: held for the frame by the ECS component, the primitive factory or the displacement cache "
+          "(a twin, kept past the frame's draws), exactly as the record's own Mesh is" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "StaticWalkColumns", "Instances", Guard::FrameScoped,
+          "ShadingOf's instance per m_StaticQueue record, written by SyncGpuScene and emptied by ClearQueues: "
+          "selected out of the record's MaterialSlots binding, which co-owns it (shared_ptr) for the frame "
+          "(A8-3)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "StaticWalkColumns", "Surfaces", Guard::FrameScoped,
+          "the parent material of the Instances column's entry at the same position (ShadingOf), which that "
+          "instance holds by shared_ptr: it lives as long as the instance, emptied with it by ClearQueues" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp",
           "SurfaceSlot", "Instance", Guard::CallScoped,
           "SectionSurface's return value (declared in MeshRendererInternal.hpp, defined in MeshRenderer.cpp), consumed by the caller in the same statement block: it is selected out of the MaterialSlots binding of the queue entry being walked, which co-owns it for the frame's passes (A8-3)" },

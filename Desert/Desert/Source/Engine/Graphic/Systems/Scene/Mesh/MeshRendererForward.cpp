@@ -1036,13 +1036,15 @@ namespace Desert::Graphic::System
         const Core::Frustum frustum = camera->GetFrustum();
         const auto          samples = [&]( const std::shared_ptr<Shader>& shader )
         { return shader && shader->IsCompiled() && shader->SamplesTexture( textureName ); };
-        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
+        // The queue's columns (m_StaticColumns): a surface is set only for a record with a mesh-cell section, and
+        // its translucent flag is IsTranslucent's answer, so an opaque record costs one byte.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        for ( std::size_t si = 0; si < columns.Count(); ++si )
         {
-            const StaticMeshRenderData& data = m_StaticQueue[si];
-            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            if ( columns.Meshes[si] == nullptr || ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
                 continue;
-            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-            if ( surfaceInst == nullptr || mat == nullptr || !IsTranslucent( mat ) )
+            DataDrivenMaterial* const mat = columns.Surfaces[si];
+            if ( columns.Instances[si] == nullptr || mat == nullptr )
                 continue;
             if ( !StaticEntryInView( frustum, si ) )
                 continue;
@@ -1067,15 +1069,14 @@ namespace Desert::Graphic::System
         if ( camera == nullptr )
             return false;
         const Core::Frustum frustum = camera->GetFrustum();
-        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
+        // The queue's columns (m_StaticColumns): the translucent flag first (one byte), the frustum after it.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        for ( std::size_t si = 0; si < columns.Count(); ++si )
         {
-            const StaticMeshRenderData& data = m_StaticQueue[si];
-            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            if ( columns.Meshes[si] == nullptr || columns.Instances[si] == nullptr ||
+                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
                 continue;
-            if ( !StaticEntryInView( frustum, si ) )
-                continue;
-            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-            if ( surfaceInst != nullptr && IsTranslucent( mat ) )
+            if ( StaticEntryInView( frustum, si ) )
                 return true;
         }
         return false;
@@ -1309,22 +1310,23 @@ namespace Desert::Graphic::System
         auto&                  draws        = walk.Draws;
         auto&                  sortKeys     = walk.SortKeys;
         TranslucentDraw* const standInState = TranslucentStandIn();
-        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
+        // The queue's columns (m_StaticColumns): the translucent flag (IsTranslucent's answer, one byte) before
+        // the frustum, so an opaque record costs this walk no box test and no record read.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        for ( std::size_t si = 0; si < columns.Count(); ++si )
         {
-            const StaticMeshRenderData& data = m_StaticQueue[si];
-            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            MaterialInstance* const   surfaceInst = columns.Instances[si];
+            DataDrivenMaterial* const mat         = columns.Surfaces[si];
+            if ( columns.Meshes[si] == nullptr || surfaceInst == nullptr ||
+                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
             {
-                continue;
+                continue; // opaque -> drawn by the opaque pass, not here
             }
             if ( !StaticEntryInView( frustum, si ) )
             {
                 continue;
             }
-            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-            if ( surfaceInst == nullptr || !IsTranslucent( mat ) )
-            {
-                continue; // opaque -> drawn by the opaque pass, not here
-            }
+            const StaticMeshRenderData& data = m_StaticQueue[si];
             TranslucentDraw* state = TranslucentDrawOf( mat ); // its template's facts: no name asked per frame
             if ( state == nullptr )
             {
@@ -1445,17 +1447,21 @@ namespace Desert::Graphic::System
         TranslucentWalkScratch& walk = m_ScratchFrontLayerWalk;
         walk.Clear();
         auto& draws = walk.Draws;
-        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
+        // The queue's columns (m_StaticColumns): a front layer is only of a translucent-pass surface (its flag,
+        // one byte), so an opaque record costs this walk no box test; Translucent itself is asked of the template.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        for ( std::size_t si = 0; si < columns.Count(); ++si )
         {
-            const StaticMeshRenderData& data = m_StaticQueue[si];
-            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            MaterialInstance* const   surfaceInst = columns.Instances[si];
+            DataDrivenMaterial* const mat         = columns.Surfaces[si];
+            if ( columns.Meshes[si] == nullptr || surfaceInst == nullptr || mat == nullptr ||
+                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
+                continue;
+            if ( mat->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Translucent )
                 continue;
             if ( !StaticEntryInView( frustum, si ) )
                 continue;
-            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-            if ( surfaceInst == nullptr || mat == nullptr ||
-                 mat->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Translucent )
-                continue;
+            const StaticMeshRenderData& data  = m_StaticQueue[si];
             TranslucentDraw* const state = FrontLayerDrawOf( mat ); // its template's facts
             if ( state == nullptr )
                 continue; // refused once, by name, inside FrontLayerDrawFor
@@ -1605,24 +1611,30 @@ namespace Desert::Graphic::System
             made.second.clear();
             return made.second;
         };
-        for ( std::size_t i = first; i < last; ++i )
+        // The queue's hot columns (m_StaticColumns, dense by position): the record itself is touched only when it
+        // joins a group or a mask (its address). A record past the columns was queued after the sync: skipped.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        const std::size_t        end     = std::min( last, columns.Count() );
+        for ( std::size_t i = first; i < end; ++i )
         {
-            const StaticMeshRenderData& data = m_StaticQueue[i];
-            if ( data.Mesh == nullptr || !data.MaterialSlots )
+            const Desert::Mesh* const mesh = columns.Meshes[i];
+            if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kHasSlots ) == 0u )
                 continue;
+            const uint64_t hidden = columns.Hidden[i];
 
             // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
             // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
             // work.
             const std::optional<UninternedWalk> walk =
-                 CpuWalkUninterned( view, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes, chunk.WalkWords );
+                 CpuWalkUninterned( view, mesh, columns.Primitives[i], hidden, chunk.WalkWords );
             if ( !walk )
                 continue;
             // The dense snapshot's box (m_StaticSnapshot, built once per static revision), not this entry's mesh.
             if ( !StaticEntryInView( frustum, i ) )
                 continue;
+            const StaticMeshRenderData& data = m_StaticQueue[i];
             // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).
-            if ( walk->HighWords != 0u || walk->Low != data.HiddenSubmeshes )
+            if ( walk->HighWords != 0u || walk->Low != hidden )
             {
                 chunk.Masks.push_back( { .Data      = &data,
                                          .Low       = walk->Low,
@@ -1634,9 +1646,10 @@ namespace Desert::Graphic::System
             }
 
             // The entry's section slot drives its batch (one entry per section material, made at submit by
-            // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
-            if ( const auto slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
-                groupOf( slot.Surface ).push_back( &data );
+            // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out). Its
+            // surface column is SectionSurface's answer, asked once at the sync.
+            if ( columns.Instances[i] != nullptr )
+                groupOf( columns.Surfaces[i] ).push_back( &data );
         }
     }
 

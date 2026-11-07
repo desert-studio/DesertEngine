@@ -3274,6 +3274,11 @@ namespace Desert::Graphic::System
         // key that ignored them would batch two entities into one descriptor set and give both the last
         // one's textures.
         std::vector<GenericMeshRenderData>                              m_GenericQueue;
+        // Last frame's generic records (ClearQueues swaps the queue in): SubmitGenericMesh copy-assigns each new
+        // record into the spare at its position, so the record's strings and override vectors reuse the buffers
+        // they had (UE's FMeshBatch arrays reused frame to frame), and moves it into the queue. Never read as
+        // records: their raw pointers are last frame's and are only overwritten.
+        std::vector<GenericMeshRenderData>                                   m_GenericSpare;
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericMaterials;
 
         // AL1-12: which material pipelines this renderer asked for and what they are doing; how far it has
@@ -4116,6 +4121,48 @@ namespace Desert::Graphic::System
             uint64_t                        Gather = 0;
         };
         StaticInstanceSnapshot m_StaticSnapshot;
+        // THE STATIC QUEUE'S HOT COLUMNS (CPU-FRAME-ARENA 14; UE FScene's dense primitive arrays -
+        // PrimitiveBounds, PrimitiveVisibilityIds, PrimitiveSceneProxies by packed index): what every per-view
+        // walk of m_StaticQueue reads per record, one dense array per field indexed by queue position, so a walk
+        // streams a few bytes per record instead of the fat StaticMeshRenderData (its transform, its slot
+        // binding's shared_ptr, its flags) and asks no section surface (a dynamic_cast and the template's path)
+        // per record per view. Built by SyncGpuScene, once per view sync, AFTER ApplyDisplacement has swapped any
+        // record's mesh and slots and in the same pass that names each record's GpuScene primitive; emptied by
+        // ClearQueues. A pass runs only after the sync (SceneRenderer draws nothing without it), so a record past
+        // Count() was queued after it: it has no GpuScene row and no material row either, and the walks skip it
+        // (StaticColumnsHave).
+        struct StaticWalkColumns
+        {
+            static constexpr uint8_t kHasSlots    = 1u << 0u;  // the record holds a slot binding (MaterialSlots)
+            static constexpr uint8_t kCastsShadow = 1u << 1u;  // StaticMeshRenderData::CastShadows
+            static constexpr uint8_t kMasked      = 1u << 2u;  // SectionShading::Masked
+            static constexpr uint8_t kTranslucent = 1u << 3u;  // SectionShading::Translucent
+            std::vector<const Desert::Mesh*>       Meshes;     // StaticMeshRenderData::Mesh (displaced included)
+            std::vector<GpuDriven::PrimitiveIndex> Primitives; // StaticMeshRenderData::GpuPrimitive
+            std::vector<uint64_t>                  Hidden;     // StaticMeshRenderData::HiddenSubmeshes
+            std::vector<MaterialInstance*>         Instances;  // the section's surface (ShadingOf): its instance,
+            std::vector<DataDrivenMaterial*>       Surfaces;   // and its template (null: no mesh-cell surface)
+            std::vector<uint8_t>                   Flags;
+            [[nodiscard]] std::size_t              Count() const noexcept
+            {
+                return Primitives.size();
+            }
+            void Clear() noexcept
+            {
+                Meshes.clear();
+                Primitives.clear();
+                Hidden.clear();
+                Instances.clear();
+                Surfaces.clear();
+                Flags.clear();
+            }
+        };
+        StaticWalkColumns m_StaticColumns;
+        // Whether m_StaticQueue entry @p index has its columns (m_StaticColumns): synced this view.
+        [[nodiscard]] bool StaticColumnsHave( const std::size_t index ) const noexcept
+        {
+            return index < m_StaticColumns.Count();
+        }
         // Whether m_StaticQueue entry @p index (whose Mesh is set) is in @p frustum: the snapshot's box when it
         // is of this gather, else the box IsVisibleInView builds from the entry (the same box, the same answer).
         [[nodiscard]] bool StaticEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
