@@ -72,6 +72,10 @@ namespace Desert::Runtime
             replaced                     = std::exchange( entry.Built, built );
             entry.Failed                 = false;
         }
+        // A render worker of a frame in flight may still hold Get's raw pointer to the one replaced: it is parked
+        // as an eviction is (CPU-IMAGE-RACE-2), never freed here.
+        if ( replaced )
+            m_Retiring.Park( std::move( replaced ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         ClaimTextureImage( built, handle );
     }
 
