@@ -925,12 +925,15 @@ namespace Desert::Physics
 
         void KeepPoses()
         {
-            JPH::BodyIDVector active;
-            System.GetActiveBodies( JPH::EBodyType::RigidBody, active );
+            // Between Jolt updates on the stepping thread, so the active list is stable: read it in place
+            // rather than copied into a new vector every fixed step.
+            const JPH::BodyID* active = System.GetActiveBodiesUnsafe( JPH::EBodyType::RigidBody );
+            const uint32_t     count  = System.GetNumActiveBodies( JPH::EBodyType::RigidBody );
             PreviousPoses.clear();
-            for ( const JPH::BodyID id : active )
+            for ( uint32_t i = 0; i < count; ++i )
             {
-                JPH::RVec3 position;
+                const JPH::BodyID id = active[i];
+                JPH::RVec3        position;
                 JPH::Quat  rotation{};
                 Bodies->GetPositionAndRotation( id, position, rotation );
                 PreviousPoses[id.GetIndexAndSequenceNumber()] = { ToGlm( position ), ToGlm( rotation ) };
@@ -1756,8 +1759,8 @@ namespace Desert::Physics
         if ( !m_Impl )
             return current;
         const auto previous = m_Impl->PreviousPoses.find( handle );
-        if ( previous == m_Impl->PreviousPoses.end() )
-            return current;
+        if ( previous == m_Impl->PreviousPoses.end() || previous->second.Position == current )
+            return current; // unmoved: exact, so an unchanged pose is no transform write
         return glm::mix( previous->second.Position, current, GetInterpolationAlpha() );
     }
 
@@ -1767,8 +1770,8 @@ namespace Desert::Physics
         if ( !m_Impl )
             return current;
         const auto previous = m_Impl->PreviousPoses.find( handle );
-        if ( previous == m_Impl->PreviousPoses.end() )
-            return current;
+        if ( previous == m_Impl->PreviousPoses.end() || previous->second.Rotation == current )
+            return current; // unmoved: exact, as GetInterpolatedPosition
         return glm::slerp( previous->second.Rotation, current, GetInterpolationAlpha() );
     }
 
@@ -1859,6 +1862,21 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return false;
         return m_Impl->Bodies->IsActive( JPH::BodyID( handle ) );
+    }
+
+    void PhysicsWorld::CollectMovingBodies( std::vector<BodyHandle>& out ) const
+    {
+        out.clear();
+        if ( !m_Impl )
+            return;
+        // Outside Step (the game thread between frames' steps), so the active list is not being changed.
+        const JPH::BodyID* active = m_Impl->System.GetActiveBodiesUnsafe( JPH::EBodyType::RigidBody );
+        const uint32_t     count  = m_Impl->System.GetNumActiveBodies( JPH::EBodyType::RigidBody );
+        out.reserve( static_cast<size_t>( count ) + m_Impl->PreviousPoses.size() );
+        for ( uint32_t i = 0; i < count; ++i )
+            out.push_back( active[i].GetIndexAndSequenceNumber() );
+        for ( const auto& [handle, pose] : m_Impl->PreviousPoses )
+            out.push_back( handle );
     }
 
     uint32_t PhysicsWorld::GetBodyCount() const
@@ -1972,7 +1990,12 @@ namespace Desert::Physics
         const glm::vec3 current = GetCharacterPosition( handle );
         if ( !m_Impl || handle >= m_Impl->PreviousCharacterPositions.size() || m_Impl->StepCount == 0 )
             return current;
-        return glm::mix( m_Impl->PreviousCharacterPositions[handle], current, GetInterpolationAlpha() );
+        // A character that stood still in the last step answers its position EXACTLY (mix(p, p, a) is not p
+        // to the last bit): an unchanged pose is then no transform write (SetLocalTransform's early-out).
+        const glm::vec3& previous = m_Impl->PreviousCharacterPositions[handle];
+        if ( previous == current )
+            return current;
+        return glm::mix( previous, current, GetInterpolationAlpha() );
     }
 
     bool PhysicsWorld::IsCharacterOnGround( CharacterHandle handle ) const
