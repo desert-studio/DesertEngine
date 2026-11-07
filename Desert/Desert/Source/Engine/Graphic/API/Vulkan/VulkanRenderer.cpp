@@ -1063,7 +1063,10 @@ namespace Desert::Graphic::API::Vulkan
              const_cast<VulkanPipelineCompute&>( static_cast<const VulkanPipelineCompute&>( pipeline ) );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto* shader = static_cast<VulkanShader*>( compute.GetShader().get() );
-        if ( shader == nullptr || compute.GetVkPipeline() == VK_NULL_HANDLE )
+        // THE BUILD READ ONCE: the pipeline, its layout and the set layouts bound below are of one build even
+        // if the game thread rebuilds this pipeline meanwhile (the replaced record outlives this frame).
+        const VulkanPipelineCompute::BuiltCompute& built = compute.GetBuilt();
+        if ( shader == nullptr || built.Pipeline == VK_NULL_HANDLE )
             return Common::MakeFormattedError( "{}: compute pipeline '{}' is not built", pass,
                                                compute.GetSpecification().DebugName );
 
@@ -1079,7 +1082,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !resolved )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), compute.GetLayouts(), resolved.GetValue(), pass,
+             WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, resolved.GetValue(), pass,
                                !other.Filled.empty(), nullptr );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
@@ -1088,19 +1091,19 @@ namespace Desert::Graphic::API::Vulkan
             if ( sets.GetValue().empty() )
                 return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not",
                                                    pass );
-            if ( const Common::BoolResultStr written = compute.WriteBoundResources( sets.GetValue()[0] );
+            if ( const Common::BoolResultStr written = compute.WriteBoundResources( built, sets.GetValue()[0] );
                  !written.IsSuccess() )
                 return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
         }
 
-        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, compute.GetVkPipeline() );
+        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
         if ( !sets.GetValue().empty() )
-            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, compute.GetVkPipelineLayout(),
+            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout,
                                      0, static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
                                      nullptr );
         const std::span<const std::byte> push = ChoosePushConstants( bindings, compute.GetBoundPushConstants() );
         if ( !push.empty() )
-            vkCmdPushConstants( cmd.GetValue(), compute.GetVkPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0,
+            vkCmdPushConstants( cmd.GetValue(), built.Layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                 static_cast<uint32_t>( push.size() ), push.data() );
         out = cmd.GetValue();
         return Common::MakeSuccess( true );

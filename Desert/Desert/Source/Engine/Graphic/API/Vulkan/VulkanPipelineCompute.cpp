@@ -24,13 +24,49 @@ namespace Desert::Graphic::API::Vulkan
     VulkanPipelineCompute::VulkanPipelineCompute( const ComputePipelineSpecification& spec ) 
         : m_Specification( spec )
     {
-        m_VulkanMaterialBackend = std::make_unique<VulkanMaterialBackend>( spec.Shader );
+        // The unbuilt record: no handles yet, the backend the first Invalidate checks against the shader.
+        auto unbuilt     = std::make_shared<BuiltCompute>();
+        unbuilt->Backend = std::make_shared<VulkanMaterialBackend>( spec.Shader );
+        Publish( std::move( unbuilt ), false );
     }
 
     VulkanPipelineCompute::~VulkanPipelineCompute()
     {
-        // At once: the last owner of a pipeline has no frame recording with it.
-        ReleaseHandles( false );
+        // At once: the last owner of a pipeline has no frame recording with it (m_Owned dies with this object).
+        m_Current.store( nullptr, std::memory_order_release );
+    }
+
+    VulkanPipelineCompute::BuiltCompute::~BuiltCompute()
+    {
+        if ( Pipeline == VK_NULL_HANDLE && Layout == VK_NULL_HANDLE && m_BatchPool == VK_NULL_HANDLE )
+            return;
+        VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        if ( Pipeline != VK_NULL_HANDLE )
+            vkDestroyPipeline( device, Pipeline, nullptr );
+        if ( Layout != VK_NULL_HANDLE )
+            vkDestroyPipelineLayout( device, Layout, nullptr );
+        if ( m_BatchPool != VK_NULL_HANDLE )
+            vkDestroyDescriptorPool( device, m_BatchPool, nullptr ); // frees every ring set allocated from it
+        // Layouts and Backend are released after (member destruction follows this body): everything above
+        // was built from the layouts.
+    }
+
+    void VulkanPipelineCompute::Publish( std::shared_ptr<const BuiltCompute> next, const bool deferred ) noexcept
+    {
+        std::shared_ptr<const BuiltCompute> replaced = std::move( m_Owned );
+        m_Owned                                      = std::move( next );
+        m_Current.store( m_Owned.get(), std::memory_order_release );
+        if ( !replaced || !deferred )
+            return; // nothing to retire, or no frame records with it: `replaced` dies here
+
+        // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT: a render worker of frame N-1 may be
+        // binding its pipeline, layout or a ring set while this rebuild runs on the game thread of frame N
+        // (UE: deferred deletion of the replaced PSO). At once only with no renderer.
+        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
+        auto*      allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+        if ( allocator != nullptr )
+            allocator->RT_DestroyLater( [held = std::move( replaced )]() mutable { held.reset(); } );
     }
 
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
@@ -73,8 +109,13 @@ namespace Desert::Graphic::API::Vulkan
         return *this;
     }
 
-    Common::BoolResultStr VulkanPipelineCompute::WriteBoundResources( VkDescriptorSet descriptorSet )
+    Common::BoolResultStr VulkanPipelineCompute::WriteBoundResources( const BuiltCompute& built,
+                                                                      VkDescriptorSet     descriptorSet )
     {
+        VulkanMaterialBackend* backend = built.Backend.get();
+        if ( backend == nullptr )
+            return Common::MakeFormattedError( "ComputePipeline '{}': no material backend; dispatch skipped",
+                                               m_Specification.DebugName );
         // The image infos must outlive UpdateDescriptorSet (each write stores a pointer into here),
         // so reserve up front to avoid a reallocation invalidating those pointers.
         std::vector<VkDescriptorImageInfo> infos;
@@ -89,8 +130,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( !img )
                 continue;
             infos.push_back( { VK_NULL_HANDLE, img->GetMipView( out.Mip ), VK_IMAGE_LAYOUT_GENERAL } );
-            writes.push_back( DescriptorSetBuilder::GetStorageWDS( m_VulkanMaterialBackend.get(), 0, 0,
-                                                                  binding, 1, &infos.back() ) );
+            writes.push_back( DescriptorSetBuilder::GetStorageWDS( backend, 0, 0, binding, 1, &infos.back() ) );
         }
 
         // Inputs: separate textures (SAMPLED_IMAGE), the view alone. Every input names the view it declared (one
@@ -190,8 +230,8 @@ namespace Desert::Graphic::API::Vulkan
                      m_Specification.DebugName, binding, bound.GetError() );
             }
             bufferInfos.push_back( copy.Info );
-            writes.push_back( DescriptorSetBuilder::GetStorageWDS( m_VulkanMaterialBackend.get(), 0, 0, binding, 1,
-                                                                   &bufferInfos.back() ) );
+            writes.push_back(
+                 DescriptorSetBuilder::GetStorageWDS( backend, 0, 0, binding, 1, &bufferInfos.back() ) );
         }
 
         // Retarget every write at the supplied set, then update it in one shot.
@@ -199,30 +239,37 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    void VulkanPipelineCompute::RecordDescriptorsAndDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
-                                                              uint32_t groupsX, uint32_t groupsY,
-                                                              uint32_t groupsZ )
+    void VulkanPipelineCompute::RecordDescriptorsAndDispatch( const BuiltCompute& built, VkCommandBuffer cmd,
+                                                              VkDescriptorSet descriptorSet, uint32_t groupsX,
+                                                              uint32_t groupsY, uint32_t groupsZ )
     {
-        if ( const Common::BoolResultStr written = WriteBoundResources( descriptorSet ); !written.IsSuccess() )
+        if ( built.Pipeline == VK_NULL_HANDLE )
+        {
+            LOG_ERROR( "ComputePipeline '{}' is not built -- the dispatch is not recorded.",
+                       m_Specification.DebugName );
+            return;
+        }
+        if ( const Common::BoolResultStr written = WriteBoundResources( built, descriptorSet );
+             !written.IsSuccess() )
         {
             LOG_ERROR( "{}", written.GetError() );
             return;
         }
 
-        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
-        vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1,
-                                 &descriptorSet, 0, nullptr );
+        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
+        vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout, 0, 1, &descriptorSet, 0,
+                                 nullptr );
         // The bindless table's set is the table's one live set, never one of this pipeline's (see
-        // EnsureBatchRing).
-        if ( const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts ) )
+        // BuiltCompute::NextBatchSet).
+        if ( const VulkanBindlessTextureTable* bindless = BindlessTableIn( built.Layouts ) )
         {
             const VkDescriptorSet table = bindless->GetDescriptorSet();
-            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout,
-                                     kBindlessSetIndex, 1, &table, 0, nullptr );
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout, kBindlessSetIndex, 1,
+                                     &table, 0, nullptr );
         }
 
         if ( !m_BoundPushConstants.empty() )
-            vkCmdPushConstants( cmd, m_ComputePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+            vkCmdPushConstants( cmd, built.Layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                 static_cast<uint32_t>( m_BoundPushConstants.size() ),
                                 m_BoundPushConstants.data() );
 
@@ -231,7 +278,9 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipelineCompute::Dispatch( uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ )
     {
-        auto* backend = GetVulkanMaterialBackend();
+        // ONE read: the pipeline, its layout and the backend's persistent set of one build.
+        const BuiltCompute&    built   = GetBuilt();
+        VulkanMaterialBackend* backend = built.Backend.get();
         if ( !backend )
             return;
 
@@ -242,15 +291,16 @@ namespace Desert::Graphic::API::Vulkan
 
         // Immediate path: transition outputs to GENERAL, dispatch, transition back to SHADER_READ so the
         // result can be sampled, then submit + wait. Reuses the persistent set 0 (safe — we wait below).
-        RecordTransitionedDispatch( cmd, backend->GetDescriptorSet( 0, 0 ), groupsX, groupsY, groupsZ );
+        RecordTransitionedDispatch( built, cmd, backend->GetDescriptorSet( 0, 0 ), groupsX, groupsY, groupsZ );
 
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferCompute( cmd );
     }
 
     void VulkanPipelineCompute::Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ )
     {
-        VkCommandBuffer cmd = RecordingBuffer( batch );
-        if ( !m_VulkanMaterialBackend || cmd == VK_NULL_HANDLE )
+        const BuiltCompute& built = GetBuilt();
+        VkCommandBuffer     cmd   = RecordingBuffer( batch );
+        if ( !built.Backend || cmd == VK_NULL_HANDLE )
         {
             LOG_ERROR( "ComputePipeline '{}': {} -- the dispatch is not recorded.", m_Specification.DebugName,
                        cmd == VK_NULL_HANDLE ? "the GPU batch was already submitted" : "no material backend" );
@@ -259,17 +309,22 @@ namespace Desert::Graphic::API::Vulkan
 
         // A RING set, not the persistent one: every dispatch of a batch is still pending when the next is
         // recorded, and rewriting a set a recorded command references is undefined. The ring belongs to
-        // this pipeline, so its only users are this pipeline's own dispatches — the prefilter's mips are
-        // the most one batch records, well under kBatchRingSize.
-        EnsureBatchRing();
-        VkDescriptorSet set = m_BatchRing[m_BatchCursor];
-        m_BatchCursor       = ( m_BatchCursor + 1 ) % kBatchRingSize;
+        // this pipeline's record, so its only users are this build's own dispatches — the prefilter's mips
+        // are the most one batch records, well under the ring's size.
+        const VkDescriptorSet set = built.NextBatchSet();
+        if ( set == VK_NULL_HANDLE )
+        {
+            LOG_ERROR( "ComputePipeline '{}': the build has no set 0 layout -- the dispatch is not recorded.",
+                       m_Specification.DebugName );
+            return;
+        }
 
-        RecordTransitionedDispatch( cmd, set, groupsX, groupsY, groupsZ );
+        RecordTransitionedDispatch( built, cmd, set, groupsX, groupsY, groupsZ );
     }
 
-    void VulkanPipelineCompute::RecordTransitionedDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
-                                                            uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ )
+    void VulkanPipelineCompute::RecordTransitionedDispatch( const BuiltCompute& built, VkCommandBuffer cmd,
+                                                            VkDescriptorSet descriptorSet, uint32_t groupsX,
+                                                            uint32_t groupsY, uint32_t groupsZ )
     {
         // Explicit stages and access, because a batch puts the NEXT consumer (a blit, another dispatch,
         // a readback) in the same command buffer: the layout alone orders nothing there.
@@ -286,7 +341,7 @@ namespace Desert::Graphic::API::Vulkan
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT );
 
-        RecordDescriptorsAndDispatch( cmd, descriptorSet, groupsX, groupsY, groupsZ );
+        RecordDescriptorsAndDispatch( built, cmd, descriptorSet, groupsX, groupsY, groupsZ );
 
         for ( const auto& [binding, out] : m_BoundOutputs )
             if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
@@ -295,57 +350,63 @@ namespace Desert::Graphic::API::Vulkan
                                        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT );
     }
 
-    void VulkanPipelineCompute::EnsureBatchRing()
+    VkDescriptorSet VulkanPipelineCompute::BuiltCompute::NextBatchSet() const noexcept
     {
-        if ( m_BatchPool != VK_NULL_HANDLE )
-            return;
-
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();
-
-        // Pool sized from the CAPTURED layout's own bindings — the same contract the sets below are
-        // allocated from — rather than from the shader's current reflection, which a recompile may have
-        // moved on from since this pipeline was built.
-        // The bindless table's layout is left out: its set is the table's own (RecordDescriptorsAndDispatch),
-        // and its update-after-bind array would size this pool at the table's whole capacity.
-        const VulkanBindlessTextureTable* bindless = BindlessTableIn( m_Layouts );
-        std::unordered_map<int, uint32_t> countsByType;
-        for ( const auto& layout : m_Layouts )
+        const std::scoped_lock lock( m_BatchLock );
+        if ( m_BatchPool == VK_NULL_HANDLE )
         {
-            if ( !layout || ( bindless != nullptr && layout == bindless->GetLayout() ) )
-                continue;
-            for ( const auto& binding : layout->Bindings() )
-                countsByType[static_cast<int>( binding.descriptorType )] += binding.descriptorCount;
+            // The ring is allocated from the layout THIS RECORD was built from, never from the shader's
+            // current one. Re-reading the shader here is what produced the mismatch this arrangement exists
+            // to prevent: a shader recompiled after the pipeline was built publishes a layout with a different
+            // descriptor count, and a set allocated from it cannot be bound to a pipeline layout made from the
+            // old one ("has 8 total descriptors, but ... has 9").
+            VkDescriptorSetLayout layout0 = VK_NULL_HANDLE;
+            if ( !Layouts.empty() && Layouts[0] )
+                layout0 = Layouts[0]->Handle();
+            if ( layout0 == VK_NULL_HANDLE )
+                return VK_NULL_HANDLE;
+
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
+
+            // Pool sized from the record's own layouts — the same contract the sets below are allocated
+            // from. The bindless table's layout is left out: its set is the table's own
+            // (RecordDescriptorsAndDispatch), and its update-after-bind array would size this pool at the
+            // table's whole capacity.
+            const VulkanBindlessTextureTable* bindless = BindlessTableIn( Layouts );
+            std::unordered_map<int, uint32_t> countsByType;
+            for ( const auto& layout : Layouts )
+            {
+                if ( !layout || ( bindless != nullptr && layout == bindless->GetLayout() ) )
+                    continue;
+                for ( const auto& binding : layout->Bindings() )
+                    countsByType[static_cast<int>( binding.descriptorType )] += binding.descriptorCount;
+            }
+
+            std::vector<VkDescriptorPoolSize> poolSizes;
+            poolSizes.reserve( countsByType.size() );
+            for ( const auto& [type, count] : countsByType )
+                poolSizes.push_back( { static_cast<VkDescriptorType>( type ), count * kBatchRingSize } );
+            if ( poolSizes.empty() )
+                poolSizes.push_back( { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kBatchRingSize } );
+
+            const VkDescriptorPoolCreateInfo poolInfo{ .sType   = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                                       .maxSets = kBatchRingSize,
+                                                       .poolSizeCount = static_cast<uint32_t>( poolSizes.size() ),
+                                                       .pPoolSizes    = poolSizes.data() };
+            VK_CHECK_RESULT( vkCreateDescriptorPool( device, &poolInfo, nullptr, &m_BatchPool ) );
+
+            std::vector<VkDescriptorSetLayout> layouts( kBatchRingSize, layout0 );
+            m_BatchRing.resize( kBatchRingSize );
+            const VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                                         .descriptorPool     = m_BatchPool,
+                                                         .descriptorSetCount = kBatchRingSize,
+                                                         .pSetLayouts        = layouts.data() };
+            VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_BatchRing.data() ) );
         }
-
-        std::vector<VkDescriptorPoolSize> poolSizes;
-        poolSizes.reserve( countsByType.size() );
-        for ( const auto& [type, count] : countsByType )
-            poolSizes.push_back( { static_cast<VkDescriptorType>( type ), count * kBatchRingSize } );
-        if ( poolSizes.empty() )
-            poolSizes.push_back( { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kBatchRingSize } );
-
-        const VkDescriptorPoolCreateInfo poolInfo{ .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-                                                   .maxSets       = kBatchRingSize,
-                                                   .poolSizeCount = static_cast<uint32_t>( poolSizes.size() ),
-                                                   .pPoolSizes    = poolSizes.data() };
-        VK_CHECK_RESULT( vkCreateDescriptorPool( device, &poolInfo, nullptr, &m_BatchPool ) );
-
-        // The ring is allocated from the layout THIS PIPELINE captured at Invalidate, never from the
-        // shader's current one. Re-reading the shader here is what produced the mismatch this whole
-        // arrangement exists to prevent: a shader recompiled after the pipeline was built publishes a
-        // layout with a different descriptor count, and a set allocated from it cannot be bound to a
-        // pipeline layout made from the old one ("has 8 total descriptors, but ... has 9").
-        VkDescriptorSetLayout layout0 =
-             m_Layouts.empty() || !m_Layouts[0] ? VK_NULL_HANDLE : m_Layouts[0]->Handle();
-
-        std::vector<VkDescriptorSetLayout> layouts( kBatchRingSize, layout0 );
-        m_BatchRing.resize( kBatchRingSize );
-        const VkDescriptorSetAllocateInfo allocInfo{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                                                     .descriptorPool     = m_BatchPool,
-                                                     .descriptorSetCount = kBatchRingSize,
-                                                     .pSetLayouts        = layouts.data() };
-        VK_CHECK_RESULT( vkAllocateDescriptorSets( device, &allocInfo, m_BatchRing.data() ) );
+        const VkDescriptorSet set = m_BatchRing[m_BatchCursor];
+        m_BatchCursor             = ( m_BatchCursor + 1 ) % kBatchRingSize;
+        return set;
     }
 
     std::shared_ptr<const RDG::OtherRouteFill> VulkanPipelineCompute::GetRouteFill() const
@@ -391,7 +452,6 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipelineCompute::Invalidate()
     {
-        ReleaseHandles( true );
         RecordShaderCodeGeneration();
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
@@ -400,6 +460,12 @@ namespace Desert::Graphic::API::Vulkan
         // THE PROGRAM READ ONCE, held for the build: the stage, the layouts and the push range below come
         // from one compile even if a reload publishes the next one meanwhile.
         const std::shared_ptr<const VulkanShader::CompiledProgram> program = vulkanShader->ShareProgram();
+
+        // THE RECORD THIS BUILD WRITES. Nothing a reader sees changes until Publish below: a render worker of
+        // the previous frame keeps binding the published record while this runs on the game thread.
+        auto next = std::make_shared<BuiltCompute>();
+        // The backend of the published record carries over until the generation check below says otherwise.
+        next->Backend = GetBuilt().Backend;
 
         // THE STAGE IS FOUND BY WHAT IT IS, NOT BY WHERE IT SITS. This used to be
         // `GetPipelineShaderStageCreateInfos()[0]` at the pipeline-info below, which reads a vector a
@@ -418,39 +484,42 @@ namespace Desert::Graphic::API::Vulkan
                        "— nothing is built and the dispatches using it are skipped.",
                        m_Specification.DebugName, vulkanShader->GetName(),
                        program->StageInfos.size() );
+            Publish( std::move( next ), true ); // the unbuilt record: no handles, the backend kept
             return;
         }
 
-        // Captured ONCE, here, and used for everything this pipeline binds: the pipeline layout below,
+        // Captured ONCE, here, and used for everything this record binds: the pipeline layout below,
         // the batch ring, and the pool that ring is allocated from. Holding the references is what
         // keeps the layouts alive if the shader recompiles under us, and using only these is what keeps
         // the set and the pipeline layout describing the same contract.
-        m_Layouts          = program->SetLayouts;
-        m_ShaderGeneration = vulkanShader->GetCodeGeneration();
+        next->Layouts          = program->SetLayouts;
+        next->ShaderGeneration = vulkanShader->GetCodeGeneration();
 
-        // The material backend allocated its descriptor sets in this pipeline's constructor. If the
-        // shader was recompiled between then and now, those sets belong to a different contract than
+        // The material backend allocated its descriptor sets against the shader of its own construction. If
+        // the shader was recompiled between then and now, those sets belong to a different contract than
         // the pipeline layout about to be built, and every dispatch through the immediate path would
         // bind them — the exact "N total descriptors, but M total descriptors" the layer reports. Say
-        // it with both numbers and rebuild the backend, rather than leaving it to be found on a GPU.
-        if ( m_VulkanMaterialBackend && m_VulkanMaterialBackend->GetShaderGeneration() != m_ShaderGeneration )
+        // it with both numbers and give the record a new backend, rather than leaving it to be found on a
+        // GPU. The old backend stays with the old record (its sets may be bound by a frame in flight).
+        if ( next->Backend && next->Backend->GetShaderGeneration() != next->ShaderGeneration )
         {
-            const auto&    backendLayouts = m_VulkanMaterialBackend->GetLayouts();
+            const auto&    backendLayouts = next->Backend->GetLayouts();
             const uint32_t was =
                  backendLayouts.empty() || !backendLayouts[0] ? 0 : backendLayouts[0]->DescriptorCount();
-            const uint32_t now = m_Layouts.empty() || !m_Layouts[0] ? 0 : m_Layouts[0]->DescriptorCount();
+            const uint32_t now =
+                 next->Layouts.empty() || !next->Layouts[0] ? 0 : next->Layouts[0]->DescriptorCount();
 
             LOG_ERROR( "ComputePipeline '{}': shader '{}' was recompiled between this pipeline's "
-                       "construction and its Invalidate (generation {} -> {}); its material's descriptor "
+                       "material and its Invalidate (generation {} -> {}); its material's descriptor "
                        "sets describe {} descriptor(s) and the pipeline layout would describe {}. "
                        "Rebuilding the material against the new layout.",
-                       m_Specification.DebugName, vulkanShader->GetName(),
-                       m_VulkanMaterialBackend->GetShaderGeneration(), m_ShaderGeneration, was, now );
+                       m_Specification.DebugName, vulkanShader->GetName(), next->Backend->GetShaderGeneration(),
+                       next->ShaderGeneration, was, now );
 
-            m_VulkanMaterialBackend = std::make_unique<VulkanMaterialBackend>( m_Specification.Shader );
+            next->Backend = std::make_shared<VulkanMaterialBackend>( m_Specification.Shader );
         }
 
-        const std::vector<VkDescriptorSetLayout> descriptorSetLayouts = RawHandles( m_Layouts );
+        const std::vector<VkDescriptorSetLayout> descriptorSetLayouts = RawHandles( next->Layouts );
 
         VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
         pipelineLayoutCreateInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -472,7 +541,7 @@ namespace Desert::Graphic::API::Vulkan
             pipelineLayoutCreateInfo.pPushConstantRanges    = &vulkanPushConstantRange;
         }
 
-        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &pipelineLayoutCreateInfo, nullptr, &m_ComputePipelineLayout ) );
+        VK_CHECK_RESULT( vkCreatePipelineLayout( device, &pipelineLayoutCreateInfo, nullptr, &next->Layout ) );
 
         // Shared device-wide, disk-persisted pipeline cache — the old per-pipeline cache created here was
         // empty every time and cached nothing across (or within) runs.
@@ -493,18 +562,21 @@ namespace Desert::Graphic::API::Vulkan
             stage.pNext                       = &requiredSize;
         }
 
-        const VkComputePipelineCreateInfo pipelineInfo{ .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                        .stage  = stage,
-                                                        .layout = m_ComputePipelineLayout };
+        const VkComputePipelineCreateInfo pipelineInfo{
+             .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .stage = stage, .layout = next->Layout };
 
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
-            VK_CHECK_RESULT( vkCreateComputePipelines( device, pipelineCache, 1, &pipelineInfo, nullptr,
-                                                       &m_ComputePipeline ) );
+            VK_CHECK_RESULT(
+                 vkCreateComputePipelines( device, pipelineCache, 1, &pipelineInfo, nullptr, &next->Pipeline ) );
         }
 
         VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.Shader->GetName(),
-                                          m_ComputePipeline );
+                                          next->Pipeline );
+
+        // ONE STORE makes the whole build visible; the replaced record is retired after the frames in flight.
+        m_ActiveComputeCommandBuffer = VK_NULL_HANDLE;
+        Publish( std::move( next ), true );
     }
 
     void VulkanPipelineCompute::Release()
@@ -514,50 +586,29 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipelineCompute::ReleaseHandles( const bool deferred )
     {
-        // THE HANDLES OUTLIVE EVERY FRAME THAT MAY STILL USE THEM. A rebuild after a shader reload runs on the
-        // game thread of frame N while a render worker of frame N-1 may have read m_ComputePipeline, its layout
-        // or a ring set from m_BatchPool into a command buffer: they go through the allocator's deletion queue
-        // (UE: deferred deletion of the replaced PSO), with the set layouts they were built from - released
-        // LAST, in the lambda, since everything else was built from them. At once only from the destructor
-        // or with no renderer.
-        VkPipeline                          pipeline = std::exchange( m_ComputePipeline, VK_NULL_HANDLE );
-        VkPipelineLayout                    layout   = std::exchange( m_ComputePipelineLayout, VK_NULL_HANDLE );
-        VkDescriptorPool                    pool     = std::exchange( m_BatchPool, VK_NULL_HANDLE );
-        std::vector<DescriptorSetLayoutRef> layouts  = std::exchange( m_Layouts, {} );
-        m_BatchRing.clear(); // freed with the pool
-        m_BatchCursor                = 0;
+        // THE HANDLES OUTLIVE EVERY FRAME THAT MAY STILL USE THEM. A release on the game thread of frame N
+        // while a render worker of frame N-1 may have read the pipeline, its layout or a ring set into a
+        // command buffer: the published record goes through the allocator's deletion queue (UE: deferred
+        // deletion of the replaced PSO) and its destructor frees them, with the set layouts they were built
+        // from released last. At once only from the destructor or with no renderer. The material backend is
+        // kept: GetVulkanMaterialBackend answers it until the next Invalidate, as before.
+        auto unbuilt                 = std::make_shared<BuiltCompute>();
+        unbuilt->Backend             = GetBuilt().Backend;
         m_ActiveComputeCommandBuffer = VK_NULL_HANDLE;
-        if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE && pool == VK_NULL_HANDLE )
-            return;
-
-        auto destroy = [pipeline, layout, pool, held = std::move( layouts )]() mutable
-        {
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                  ->GetVulkanLogicalDevice();
-            if ( pipeline != VK_NULL_HANDLE )
-                vkDestroyPipeline( device, pipeline, nullptr );
-            if ( layout != VK_NULL_HANDLE )
-                vkDestroyPipelineLayout( device, layout, nullptr );
-            if ( pool != VK_NULL_HANDLE )
-                vkDestroyDescriptorPool( device, pool, nullptr ); // frees every ring set allocated from it
-            held.clear();
-        };
-        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
-        auto*      allocator =
-             deferred && ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
-        if ( allocator == nullptr )
-        {
-            destroy();
-            return;
-        }
-        allocator->RT_DestroyLater( std::move( destroy ) );
+        Publish( std::move( unbuilt ), deferred );
     }
 
     void VulkanPipelineCompute::BindDescriptorSets( VkDescriptorSet /*descriptorSet*/, uint32_t frameIndex )
     {
-        // This will be used by the executor
-        m_VulkanMaterialBackend->BindDescriptorSets( m_ActiveComputeCommandBuffer, m_ComputePipelineLayout,
-                                                     VK_PIPELINE_BIND_POINT_COMPUTE, frameIndex );
+        // This will be used by the executor. One read: the backend's sets and the layout of one build.
+        const BuiltCompute& built = GetBuilt();
+        if ( !built.Backend )
+            return;
+        if ( !built.Backend->BindDescriptorSets( m_ActiveComputeCommandBuffer, built.Layout,
+                                                 VK_PIPELINE_BIND_POINT_COMPUTE, frameIndex ) )
+        {
+            LOG_ERROR( "ComputePipeline '{}': its material's sets were not bound", m_Specification.DebugName );
+        }
     }
 
     void VulkanPipelineCompute::UpdateDescriptorSet( uint32_t /*frameIndex*/,
@@ -570,8 +621,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             write.dstSet = descriptorSet;
         }
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();        vkUpdateDescriptorSets( device, static_cast<uint32_t>( modifiedWrites.size() ), modifiedWrites.data(), 0,
+        VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        vkUpdateDescriptorSets( device, static_cast<uint32_t>( modifiedWrites.size() ), modifiedWrites.data(), 0,
                                 nullptr );
     }
 
