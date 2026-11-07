@@ -13,6 +13,7 @@
 #include <entt/entt.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -147,36 +148,52 @@ namespace Desert::ECS
             uint32_t Index = 0;
         };
 
+        // tile UUID -> index into Drawable.Tiles; sorted by Id, tiles without a UUID left out.
+        struct TileOf
+        {
+            uint64_t Id    = 0;
+            uint32_t Index = 0;
+        };
+
         uint64_t               Revision      = 1; // raised by every tile construct / patch / destroy
         uint64_t               BuiltRevision = 0; // Revision the table was built at; 0 = never built
         std::vector<BuiltRoot> Roots;             // the roots the table was built against, in view order
-        std::vector<TileAt>    ByCoord;           // rebuild scratch, kept so a rebuild reuses its storage
-        DrawableLandscape      Drawable;
+        // Sorted by (root, x, z) at every rebuild and kept until the next one: the neighbour links are found in
+        // it, and so are a world point's tile (FindLandscapeTileAt; UE ULandscapeInfo::XYtoComponentMap).
+        std::vector<TileAt> ByCoord;
+        std::vector<TileOf> ByEntity; // sorted by Id at every rebuild (FindLandscapeTileOf)
+        DrawableLandscape   Drawable;
     };
+
+    inline bool LandscapeTileAtBefore( const LandscapeTileTable::TileAt& a, const LandscapeTileTable::TileAt& b )
+    {
+        if ( a.Root != b.Root )
+            return a.Root < b.Root;
+        if ( a.X != b.X )
+            return a.X < b.X;
+        return a.Z < b.Z;
+    }
+
+    /// The index of tile (@p x, @p z) of root @p root in @p byCoord (sorted by LandscapeTileAtBefore), or
+    /// NoLandscapeNeighbour.
+    inline uint32_t FindLandscapeTileCoord( const std::vector<LandscapeTileTable::TileAt>& byCoord,
+                                            const uint64_t root, const int32_t x, const int32_t z )
+    {
+        const LandscapeTileTable::TileAt key{ root, x, z, 0 };
+        const auto it = std::lower_bound( byCoord.begin(), byCoord.end(), key, &LandscapeTileAtBefore );
+        if ( it == byCoord.end() || it->Root != root || it->X != x || it->Z != z )
+            return NoLandscapeNeighbour;
+        return it->Index;
+    }
 
     /// Fills every tile's West/East/South/North from @p byCoord (sorted by root, x, z; equal keys keep the
     /// tile order, so a duplicated coordinate answers with its first tile).
     inline void LinkLandscapeNeighbours( std::vector<LandscapeTileRef>&           tiles,
                                          std::vector<LandscapeTileTable::TileAt>& byCoord )
     {
-        using TileAt     = LandscapeTileTable::TileAt;
-        const auto order = []( const TileAt& a, const TileAt& b )
-        {
-            if ( a.Root != b.Root )
-                return a.Root < b.Root;
-            if ( a.X != b.X )
-                return a.X < b.X;
-            return a.Z < b.Z;
-        };
-        std::stable_sort( byCoord.begin(), byCoord.end(), order );
-        const auto find = [&]( const uint64_t root, const int32_t x, const int32_t z ) -> uint32_t
-        {
-            const TileAt key{ root, x, z, 0 };
-            const auto   it = std::lower_bound( byCoord.begin(), byCoord.end(), key, order );
-            if ( it == byCoord.end() || it->Root != root || it->X != x || it->Z != z )
-                return NoLandscapeNeighbour;
-            return it->Index;
-        };
+        std::stable_sort( byCoord.begin(), byCoord.end(), &LandscapeTileAtBefore );
+        const auto find = [&]( const uint64_t root, const int32_t x, const int32_t z )
+        { return FindLandscapeTileCoord( byCoord, root, x, z ); };
         for ( LandscapeTileRef& tile : tiles )
         {
             const auto    root = static_cast<uint64_t>( Common::UUID( tile.Component->Landscape ) );
@@ -247,6 +264,7 @@ namespace Desert::ECS
         out.RayEntities.clear();
         out.RayTiles.clear();
         table.ByCoord.clear();
+        table.ByEntity.clear();
         for ( const auto entity : registry.view<LandscapeTileComponent>() )
         {
             auto& component = registry.get<LandscapeTileComponent>( entity );
@@ -286,12 +304,62 @@ namespace Desert::ECS
             Common::UUID rayId = Common::UUID::Null();
             if ( const auto* id = registry.try_get<UUIDComponent>( entity ) )
                 rayId = id->UUID;
+            if ( rayId != Common::UUID::Null() )
+                table.ByEntity.push_back(
+                     { static_cast<uint64_t>( rayId ), static_cast<uint32_t>( out.Tiles.size() - 1u ) } );
             out.RayEntities.push_back( rayId );
             out.RayTiles.push_back( { &*component.Heights, frame } );
         }
         LinkLandscapeNeighbours( out.Tiles, table.ByCoord );
+        std::stable_sort( table.ByEntity.begin(), table.ByEntity.end(),
+                          []( const LandscapeTileTable::TileOf& a, const LandscapeTileTable::TileOf& b )
+                          { return a.Id < b.Id; } );
         table.BuiltRevision = table.Revision;
         return table;
+    }
+
+    /// The drawn tile entity @p id is (index into `table.Drawable.Tiles`), or NoLandscapeNeighbour.
+    inline uint32_t FindLandscapeTileOf( const LandscapeTileTable& table, const Common::UUID& id )
+    {
+        const auto key = static_cast<uint64_t>( id );
+        const auto it =
+             std::lower_bound( table.ByEntity.begin(), table.ByEntity.end(), key,
+                               []( const LandscapeTileTable::TileOf& a, const uint64_t b ) { return a.Id < b; } );
+        if ( it == table.ByEntity.end() || it->Id != key )
+            return NoLandscapeNeighbour;
+        return it->Index;
+    }
+
+    /// The drawn tile whose rectangle holds world (@p x, @p z), both edges inclusive (index into
+    /// `table.Drawable.Tiles`), or NoLandscapeNeighbour. A point on a shared edge is also looked for in the
+    /// tile below it, so the last tile's far edge is found too; roots are asked in table order.
+    inline uint32_t FindLandscapeTileAt( const LandscapeTileTable& table, const float x, const float z )
+    {
+        const auto holds = [&]( const uint32_t index )
+        {
+            const World::Landscape::LandscapeRayTile& tile = table.Drawable.RayTiles[index];
+            const float spanX = tile.Frame.SpacingCm * static_cast<float>( tile.Heights->SamplesX() - 1u );
+            const float spanZ = tile.Frame.SpacingCm * static_cast<float>( tile.Heights->SamplesZ() - 1u );
+            return x >= tile.Frame.OriginX && x <= tile.Frame.OriginX + spanX && z >= tile.Frame.OriginZ &&
+                   z <= tile.Frame.OriginZ + spanZ;
+        };
+        for ( const LandscapeTileTable::BuiltRoot& root : table.Roots )
+        {
+            const float extentCm = static_cast<float>( root.Root.QuadsPerTile ) * root.Root.SpacingCm;
+            if ( !( extentCm > 0.0f ) )
+                continue;
+            const auto tx = static_cast<int32_t>( std::floor( ( x - root.Root.Origin.x ) / extentCm ) );
+            const auto tz = static_cast<int32_t>( std::floor( ( z - root.Root.Origin.z ) / extentCm ) );
+            const auto id = static_cast<uint64_t>( root.Id );
+            for ( const int32_t dz : { 0, -1 } )
+                for ( const int32_t dx : { 0, -1 } )
+                {
+                    const uint32_t index = FindLandscapeTileCoord( table.ByCoord, id, tx + dx, tz + dz );
+                    if ( index != NoLandscapeNeighbour && holds( index ) )
+                        return index;
+                }
+        }
+        return NoLandscapeNeighbour;
     }
 
     /// Every tile the renderer draws, and every loaded tile it refuses with the reason. ONE test for every

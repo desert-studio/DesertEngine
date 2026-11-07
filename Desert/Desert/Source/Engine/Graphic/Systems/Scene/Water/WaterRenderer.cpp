@@ -262,17 +262,17 @@ namespace Desert::Graphic::System
             if ( ground == nullptr )
                 ground = zone.Ground;
         for ( const WaterZoneDraw& zone : m_Queue )
-            for ( size_t b = 0; b < zone.BodyMaterials.size(); ++b )
+            for ( size_t b = 0; b < zone.Bodies->Materials.size(); ++b )
             {
-                const Assets::AssetHandle& body = zone.BodyMaterials[b];
+                const Assets::AssetHandle& body = zone.Bodies->Materials[b];
                 if ( static_cast<uint64_t>( body ) == 0 )
                     continue;
                 if ( static_cast<uint64_t>( material ) == 0 )
                 {
                     material   = body;
-                    wavesAsset = zone.BodyWaves[b];
-                    waveOrigin = zone.BodyWaveOrigins[b];
-                    waveMaskDepth = zone.BodyWaveMaskDepths[b];
+                    wavesAsset = zone.Bodies->Waves[b];
+                    waveOrigin = zone.Bodies->WaveOrigins[b];
+                    waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
                 }
                 else if ( body != material )
                     WarnOnce( body, "differs from another body's in the same frame - drawn with the first one" );
@@ -336,7 +336,7 @@ namespace Desert::Graphic::System
         std::vector<WaterTileRow> rows;
         for ( const WaterZoneDraw& zone : m_Queue )
         {
-            const Water::WaterQuadTree                  tree( zone.Zone, zone.Bodies );
+            const Water::WaterQuadTree                  tree( zone.Zone, zone.Bodies->Footprints );
             const std::vector<Water::WaterTileInstance> tiles =
                  tree.Traverse( observer, lensScale, &frustum, verticalExtent );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );

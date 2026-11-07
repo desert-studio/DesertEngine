@@ -50,32 +50,67 @@ namespace Desert::ECS
             if ( zones.begin() == zones.end() )
                 return;
 
-            // A hidden body is no water, as a hidden mesh is no geometry.
-            std::vector<Water::WaterQuadTreeBody> bodies;
-            std::vector<Assets::AssetHandle>      materials; // each body's WaterMaterial, in bodies' order
-            std::vector<Assets::AssetHandle>      waves;     // each body's WaterWaves, in bodies' order
-            std::vector<glm::vec2>                origins;   // each body's WaveOrigin (its X, Z)
-            std::vector<float>                    maskDepths; // each body's TargetWaveMaskDepth (cm)
-            const auto                            view = registry.view<WaterBodyComponent, TransformComponent>();
-            for ( const entt::entity entity : view )
+            // A hidden body is no water, as a hidden mesh is no geometry. The visible bodies are compared with the
+            // rows the zones drew last frame; only a change builds new rows (immutable and shared by every zone's
+            // draw, so the renderer may still hold the old ones). A steady frame allocates nothing here.
+            const auto view      = registry.view<WaterBodyComponent, TransformComponent>();
+            const auto footprint = [&view]( const entt::entity entity )
             {
-                if ( ECS::IsHidden( registry, entity ) )
-                    continue;
                 const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
                 const glm::vec2  half     = 0.5f * view.get<WaterBodyComponent>( entity ).Data.OceanExtents;
                 const glm::vec2  centre( location.x, location.z );
-                bodies.push_back(
-                     { .FootprintMin = centre - half, .FootprintMax = centre + half, .SurfaceY = location.y } );
-                materials.push_back( view.get<WaterBodyComponent>( entity ).Data.WaterMaterial );
-                waves.push_back( view.get<WaterBodyComponent>( entity ).Data.WaterWaves );
-                origins.push_back( centre );
-                maskDepths.push_back( view.get<WaterBodyComponent>( entity ).Data.TargetWaveMaskDepth );
+                return Water::WaterQuadTreeBody{
+                     .FootprintMin = centre - half, .FootprintMax = centre + half, .SurfaceY = location.y };
+            };
+            bool   same    = m_Bodies != nullptr;
+            size_t visible = 0;
+            for ( const entt::entity entity : view )
+            {
+                if ( !same )
+                    break;
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
+                const size_t                            i    = visible++;
+                const Graphic::System::WaterZoneBodies& rows = *m_Bodies;
+                if ( i >= rows.Footprints.size() )
+                {
+                    same = false;
+                    break;
+                }
+                const WaterBodyData&           data = view.get<WaterBodyComponent>( entity ).Data;
+                const Water::WaterQuadTreeBody body = footprint( entity );
+                const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
+                same = body.FootprintMin == rows.Footprints[i].FootprintMin &&
+                       body.FootprintMax == rows.Footprints[i].FootprintMax &&
+                       body.SurfaceY == rows.Footprints[i].SurfaceY && data.WaterMaterial == rows.Materials[i] &&
+                       data.WaterWaves == rows.Waves[i] &&
+                       glm::vec2( location.x, location.z ) == rows.WaveOrigins[i] &&
+                       data.TargetWaveMaskDepth == rows.WaveMaskDepths[i];
             }
-            if ( bodies.empty() )
+            if ( !same || visible != m_Bodies->Footprints.size() )
+            {
+                auto rows = std::make_shared<Graphic::System::WaterZoneBodies>();
+                for ( const entt::entity entity : view )
+                {
+                    if ( ECS::IsHidden( registry, entity ) )
+                        continue;
+                    const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
+                    const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
+                    rows->Footprints.push_back( footprint( entity ) );
+                    rows->Materials.push_back( data.WaterMaterial );
+                    rows->Waves.push_back( data.WaterWaves );
+                    rows->WaveOrigins.emplace_back( location.x, location.z );
+                    rows->WaveMaskDepths.push_back( data.TargetWaveMaskDepth );
+                }
+                m_Bodies = std::move( rows );
+            }
+            if ( m_Bodies->Footprints.empty() )
                 return;
 
-            // The ground every zone's WaterInfo is baked from; a height edit on any tile re-bakes.
-            std::vector<World::Landscape::LandscapeRayTile> ground;
+            // The ground every zone's WaterInfo is baked from; a height edit on any tile re-bakes. The rows are
+            // the system's own storage, refilled each frame.
+            std::vector<World::Landscape::LandscapeRayTile>& ground = m_GroundRows;
+            ground.clear();
             uint64_t                                        groundKey = 1469598103934665603ull;
             float                                           spacingCm = 0.0f;
             bool                                            edited    = false;
@@ -114,11 +149,7 @@ namespace Desert::ECS
                 draw.Zone.TileSize           = data.TileSize;
                 draw.Zone.TessellationFactor = data.TessellationFactor;
                 draw.Zone.LODScale           = data.LODScale;
-                draw.Bodies                  = bodies;
-                draw.BodyMaterials           = materials;
-                draw.BodyWaves               = waves;
-                draw.BodyWaveOrigins         = origins;
-                draw.BodyWaveMaskDepths      = maskDepths;
+                draw.Bodies                  = m_Bodies;
                 draw.Ground                  = GroundFor( entity, ground, groundKey, spacingCm, draw.Zone );
                 renderCommandBuffer.Emplace<Graphic::Render::WaterZoneCommand>( std::move( draw ) );
             }
@@ -159,5 +190,8 @@ namespace Desert::ECS
             std::shared_ptr<const Water::WaterInfoGround> Ground;
         };
         std::unordered_map<entt::entity, CachedGround> m_Ground;
+        // The visible bodies the zones drew last frame (rebuilt only on a change) and the ground rows' storage.
+        std::shared_ptr<const Graphic::System::WaterZoneBodies> m_Bodies;
+        std::vector<World::Landscape::LandscapeRayTile>         m_GroundRows;
     };
 } // namespace Desert::ECS
