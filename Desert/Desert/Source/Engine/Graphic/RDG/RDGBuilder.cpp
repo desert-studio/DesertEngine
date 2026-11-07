@@ -1187,7 +1187,7 @@ namespace Desert::Graphic::RDG
         binding.Desc     = &resource->Texture;
         binding.External = resource->ExternalTex != nullptr ? resource->ExternalTex : resource->ExtractTex;
         binding.Memory   = m_Result.FindAllocation( bound );
-        binding.Physical = m_Backend.GetPhysicalTexture( bound ).get();
+        binding.Physical = m_Backend.FindPhysicalTexture( bound );
         return Common::MakeSuccess( binding );
     }
 
@@ -1214,7 +1214,7 @@ namespace Desert::Graphic::RDG
         binding.Desc     = &resource->Buffer;
         binding.External = resource->ExternalBuf != nullptr ? resource->ExternalBuf : resource->ExtractBuf;
         binding.Memory   = m_Result.FindAllocation( buffer.Index );
-        binding.Physical = m_Backend.GetPhysicalBuffer( buffer.Index ).get();
+        binding.Physical = m_Backend.FindPhysicalBuffer( buffer.Index );
         return Common::MakeSuccess( binding );
     }
 

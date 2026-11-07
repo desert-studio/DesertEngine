@@ -165,7 +165,7 @@ namespace Desert::Graphic
         // own sampler, whether there are push constants; the names change only in InitializeProperties), so a
         // pass's setup copies, formats and sorts no name. Safe from several declaring threads.
         [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill> GetRouteFill() const;
-        std::shared_ptr<Shader> GetShader() const
+        [[nodiscard]] const std::shared_ptr<Shader>& GetShader() const
         {
             return m_Shader;
         }

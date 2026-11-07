@@ -1362,12 +1362,11 @@ namespace Desert::Graphic::System
             const GpuDriven::IndirectGroup& indirect = table.Groups[group];
             if ( indirect.BinCount == 0u )
                 continue;
-            const std::shared_ptr<Shader> shader =
-                 indirect.Pipeline != nullptr ? indirect.Pipeline->GetSpecification().Shader : nullptr;
-            if ( !shader )
+            if ( indirect.Pipeline == nullptr || !indirect.Pipeline->GetSpecification().Shader )
                 return refuse( std::format( "binned group {} of pass {} has no pipeline shader", group,
                                             static_cast<uint32_t>( pass ) ) );
-            std::string error;
+            const std::shared_ptr<Shader>& shader = indirect.Pipeline->GetSpecification().Shader;
+            std::string                    error;
             issue.GroupCarriers[group] = PrepareBinnedCarrier( shader, viewKey, frameState, error );
             if ( issue.GroupCarriers[group] == nullptr )
                 return refuse( std::move( error ) );

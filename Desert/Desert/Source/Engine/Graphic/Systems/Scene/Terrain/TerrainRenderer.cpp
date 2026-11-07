@@ -709,7 +709,7 @@ namespace Desert::Graphic::System
             const MaterialExecutor* executor = material.GetMaterialExecutor();
             if ( executor == nullptr )
                 return 0u;
-            const std::shared_ptr<Shader> shader = executor->GetShader();
+            const std::shared_ptr<Shader>& shader = executor->GetShader();
             return shader != nullptr ? shader->GetCodeGeneration() : 0u;
         }
 

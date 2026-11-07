@@ -2671,6 +2671,16 @@ namespace Desert::Graphic::API::Vulkan
         return resource < m_Buffers.size() ? m_Buffers[resource] : nullptr;
     }
 
+    RDG::IPhysicalTexture* VulkanRdgBackend::FindPhysicalTexture( uint32_t resource ) const
+    {
+        return resource < m_Textures.size() ? m_Textures[resource].get() : nullptr;
+    }
+
+    RDG::IPhysicalBuffer* VulkanRdgBackend::FindPhysicalBuffer( uint32_t resource ) const
+    {
+        return resource < m_Buffers.size() ? m_Buffers[resource].get() : nullptr;
+    }
+
     void VulkanRdgBackend::Release()
     {
         // CPU-FRAME-ARENA (MEM-7): kept with their capacity; no Source points into the ended graph.

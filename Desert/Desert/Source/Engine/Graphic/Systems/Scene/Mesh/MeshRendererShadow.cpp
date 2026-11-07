@@ -1517,10 +1517,10 @@ namespace Desert::Graphic::System
         // of a forward cell) carries its base program's name but is not registered under it, and its bindings
         // are its own; a pipeline found by the name alone would bind the base program to the twin's sets.
         const MaterialExecutor* const executor = cell.GetMaterialExecutor();
-        const std::shared_ptr<Shader> program  = executor != nullptr ? executor->GetShader() : nullptr;
-        if ( program == nullptr || program->GetVariant().IsDefault() )
+        if ( executor == nullptr || executor->GetShader() == nullptr ||
+             executor->GetShader()->GetVariant().IsDefault() )
             return CellPipeline( passState, cell.GetShaderName() );
-        return CellPipeline( passState, cell.GetShaderName(), program );
+        return CellPipeline( passState, cell.GetShaderName(), executor->GetShader() );
     }
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader )
@@ -1612,7 +1612,6 @@ namespace Desert::Graphic::System
         // a hot reload is a new row and never a stale one.
         MaterialPipelineTracker::CellKey key;
         const Shader*                    program = nullptr;
-        std::shared_ptr<Shader>          cellProgram; // refused only: the executor hands its shader out by value
         if ( own != nullptr )
         {
             key.Pipeline = own;
@@ -1624,8 +1623,7 @@ namespace Desert::Graphic::System
             const MaterialExecutor* const executor =
                  refused.Cell != nullptr ? refused.Cell->GetMaterialExecutor() : nullptr;
             if ( executor != nullptr )
-                cellProgram = executor->GetShader();
-            program = cellProgram.get();
+                program = executor->GetShader().get();
         }
         if ( program != nullptr )
         {
@@ -1719,7 +1717,7 @@ namespace Desert::Graphic::System
         // define) has a layout of its own that the registered default program of the same name lacks, so the
         // name alone is not the key: name # variant hash, as ShaderService keys a variant.
         const auto& name    = caster.GetShaderName();
-        const auto  program = caster.GetMaterialExecutor()->GetShader();
+        const auto& program = caster.GetMaterialExecutor()->GetShader();
         if ( !program )
         {
             LOG_ERROR( "[Shadows] masked caster '{}' will not draw: its material holds no program", name );

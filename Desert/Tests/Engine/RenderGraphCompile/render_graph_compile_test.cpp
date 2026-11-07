@@ -273,6 +273,14 @@ namespace
         {
             return nullptr;
         }
+        [[nodiscard]] IPhysicalTexture* FindPhysicalTexture( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        [[nodiscard]] IPhysicalBuffer* FindPhysicalBuffer( uint32_t ) const override
+        {
+            return nullptr;
+        }
 
         ITransientAllocator& GetTransientAllocator() override
         {

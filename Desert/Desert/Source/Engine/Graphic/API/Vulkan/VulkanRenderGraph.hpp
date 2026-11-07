@@ -720,6 +720,8 @@ namespace Desert::Graphic::API::Vulkan
 
         std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override;
         std::shared_ptr<RDG::IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const override;
+        RDG::IPhysicalTexture*                 FindPhysicalTexture( uint32_t resource ) const override;
+        RDG::IPhysicalBuffer*                  FindPhysicalBuffer( uint32_t resource ) const override;
 
         // ── RDG-CONTRACTS additions ──────────────────────────────────────────────────────────────────────
         // A(1) / B(3): what the backend records into for the frame in @p slot, set by the frame loop after the
