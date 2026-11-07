@@ -1685,7 +1685,8 @@ namespace Desert::Graphic::System
                 key.Weightmap        = job.Weightmap.get();
                 key.LayerHeights     = job.LayerHeights.get();
                 key.HeightGeneration = job.Heightmap ? job.Heightmap->GetResourceGeneration() : 0u;
-                key.WeightGeneration = job.Weightmap ? job.Weightmap->GetResourceGeneration() : 0u;
+                const auto* const weight2d = dynamic_cast<const Image2D*>( job.Weightmap.get() );
+                key.WeightGeneration = weight2d != nullptr ? weight2d->GetResourceGeneration() : 0u;
                 key.LayerGeneration  = job.LayerHeights ? job.LayerHeights->GetResourceGeneration() : 0u;
                 key.HeightRevision   = job.HeightRevision;
                 key.WeightRevision   = job.WeightRevision;

@@ -2158,8 +2158,8 @@ namespace Desert::Graphic::System
                 bucketFor( rd.Mesh, hidden ).push_back( &rd );
                 continue;
             }
-            auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
-            if ( caster == nullptr )
+            auto* masked = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
+            if ( masked == nullptr )
             {
                 continue; // refused by name, once
             }
@@ -2170,7 +2170,7 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            auto&            set = maskedSetFor( caster );
+            auto&            set = maskedSetFor( masked );
             MaskedCasterDraw draw;
             draw.Set       = &set;
             draw.Path      = MeshVertexPath::Static;

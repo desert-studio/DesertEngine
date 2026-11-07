@@ -2011,7 +2011,7 @@ namespace Desert::Graphic::System
              pipeline, pipeline != nullptr ? BinFallback::None : BinFallback::PipelineUnavailable };
     }
 
-    void MeshRenderer::TrackStaticCasters( const GpuDriven::GpuScene& scene )
+    void MeshRenderer::TrackStaticCasters( const GpuDriven::GpuScene& scene, const bool keptPrefix )
     {
         DESERT_PROFILE_SCOPE( "MeshRenderer::TrackStaticCasters" );
         StaticCasterTrack& track = m_StaticCasters;
