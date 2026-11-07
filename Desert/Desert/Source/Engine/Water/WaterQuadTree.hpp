@@ -45,6 +45,8 @@ namespace Desert::Water
         float     TileSize           = 2400.0f;
         int32_t   TessellationFactor = 6;
         float     LODScale           = 1.0f;
+
+        bool operator==( const WaterQuadTreeDesc& ) const = default;
     };
 
     /// One drawn tile (UE FStagingInstanceData): a square grid of QuadsPerSide(DensityIndex) quads per side.
@@ -61,6 +63,14 @@ namespace Desert::Water
         bool      CanMorphTwice = false;
         /// The lowest LOD's global morph toward the next one, from the camera's height (0 on every other LOD).
         float HeightMorph = 0.0f;
+    };
+
+    /// What one traversal writes into, kept by the caller across frames (UE: the per-view water mesh buffers the
+    /// FWaterQuadTree traversal fills): once their capacity covers a frame's tiles a traversal allocates nothing.
+    struct WaterTraversalBuffers
+    {
+        std::vector<WaterTileInstance> Tiles;  // the result, density 0 first
+        std::vector<WaterTileInstance> Staged; // the walk's order, before the bucket pass
     };
 
     struct WaterLODParams
@@ -116,11 +126,15 @@ namespace Desert::Water
         /// density 0 first). @p verticalExtent pads the culling box above and below the still level (the waves).
         /// @p viewDistanceScale: the view's lens scale (Graphic::DrawDistanceScale; 1 = the authored 90-degree
         /// lens) - every LOD ring and the camera-height LOD stretch by it.
-        [[nodiscard]] std::vector<WaterTileInstance> Traverse( const glm::vec3& observer, float viewDistanceScale,
-                                                               const Core::Frustum* frustum,
-                                                               float                verticalExtent ) const;
+        /// The tiles land in @p buffers.Tiles (the returned span views it until the next traversal into them).
+        [[nodiscard]] std::span<const WaterTileInstance>
+        Traverse( const glm::vec3& observer, float viewDistanceScale, const Core::Frustum* frustum,
+                  float verticalExtent, WaterTraversalBuffers& buffers ) const;
 
     private:
+        // The densest tessellation (2^12 quads per side at density 0), so at most this many density buckets.
+        static constexpr int32_t kMaxDensityCount = 12;
+
         // A body's footprint clipped to the zone, in leaf tiles from the root's corner: [Min, Max).
         struct TileRange
         {

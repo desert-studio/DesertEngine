@@ -7,6 +7,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -16,7 +17,7 @@ namespace Desert::Water
     WaterQuadTree::WaterQuadTree( const WaterQuadTreeDesc& desc, std::span<const WaterQuadTreeBody> bodies )
     {
         m_LeafSize     = std::max( desc.TileSize, 1.0f );
-        m_NumQuadsLOD0 = 1 << std::clamp( desc.TessellationFactor, 1, 12 );
+        m_NumQuadsLOD0 = 1 << std::clamp( desc.TessellationFactor, 1, kMaxDensityCount );
         m_LODScale     = m_LeafSize * std::max( desc.LODScale, 0.5f );
 
         const glm::vec2  extent = glm::max( desc.ZoneExtent, glm::vec2( m_LeafSize ) );
@@ -25,7 +26,7 @@ namespace Desert::Water
         const auto       rootTiles =
              std::bit_ceil( static_cast<uint32_t>( std::max( extentInTiles.x, extentInTiles.y ) ) );
         m_TreeDepth    = std::countr_zero( rootTiles ) + 1;
-        m_DensityCount = std::min( m_TreeDepth, std::clamp( desc.TessellationFactor, 1, 12 ) );
+        m_DensityCount = std::min( m_TreeDepth, std::clamp( desc.TessellationFactor, 1, kMaxDensityCount ) );
         m_RootMin      = desc.ZoneCenter - 0.5f * extent;
 
         // Each body rasterised into the zone's leaf tiles (UE FWaterQuadTree::AddWaterTilesInsideBounds): a tile
@@ -95,14 +96,17 @@ namespace Desert::Water
         return params;
     }
 
-    std::vector<WaterTileInstance> WaterQuadTree::Traverse( const glm::vec3&     observer,
-                                                            const float          viewDistanceScale,
-                                                            const Core::Frustum* frustum,
-                                                            const float          verticalExtent ) const
+    std::span<const WaterTileInstance> WaterQuadTree::Traverse( const glm::vec3&       observer,
+                                                                const float            viewDistanceScale,
+                                                                const Core::Frustum*   frustum,
+                                                                const float            verticalExtent,
+                                                                WaterTraversalBuffers& buffers ) const
     {
-        std::vector<WaterTileInstance> output;
+        std::vector<WaterTileInstance>& output = buffers.Staged;
+        output.clear();
+        buffers.Tiles.clear();
         if ( m_Bodies.empty() )
-            return output;
+            return buffers.Tiles;
 
         Traversal t;
         t.Observer       = glm::vec2( observer.x, observer.z );
@@ -117,11 +121,18 @@ namespace Desert::Water
         if ( Visible( root, t ) )
             SelectLOD( root, m_TreeDepth - 1, t );
 
-        // One draw per density (UE's buckets): the renderer draws each run with that density's grid.
-        std::stable_sort( output.begin(), output.end(),
-                          []( const WaterTileInstance& a, const WaterTileInstance& b )
-                          { return a.DensityIndex < b.DensityIndex; } );
-        return output;
+        // One draw per density (UE's buckets): the renderer draws each run with that density's grid. A stable
+        // counting pass over the m_DensityCount (<= 12) buckets into the caller's buffer - std::stable_sort would
+        // take a heap temporary every traversal.
+        std::array<uint32_t, kMaxDensityCount + 1> first{};
+        for ( const WaterTileInstance& tile : output )
+            ++first[static_cast<size_t>( tile.DensityIndex ) + 1u];
+        for ( size_t d = 1; d < first.size(); ++d )
+            first[d] += first[d - 1];
+        buffers.Tiles.resize( output.size() );
+        for ( const WaterTileInstance& tile : output )
+            buffers.Tiles[first[static_cast<size_t>( tile.DensityIndex )]++] = tile;
+        return buffers.Tiles;
     }
 
     WaterQuadTree::Coverage WaterQuadTree::Classify( const Node& node, float& surfaceY ) const

@@ -12,6 +12,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -19,6 +20,7 @@
 #include <unordered_set>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -158,5 +160,22 @@ namespace Desert::Graphic::System
 
         std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
         std::vector<FrameDraw>                                   m_FrameDraws;
+
+        // THE RETAINED QUADTREES (UE: FWaterQuadTree is built once per water body set and only traversed per
+        // view): one per submitted zone, in queue order, rebuilt only when that zone's desc or its WaterZoneBodies
+        // changed (the collector shares one WaterZoneBodies until a body changes, so the pointer is the body set's
+        // identity).
+        struct ZoneTree
+        {
+            Water::WaterQuadTreeDesc               Zone;
+            std::shared_ptr<const WaterZoneBodies> Bodies;
+            std::optional<Water::WaterQuadTree>    Tree;
+        };
+        std::vector<ZoneTree> m_ZoneTrees;
+        // Per-view scratch the frame reuses, so a steady frame allocates nothing: the traversal's tiles, the
+        // upload (the waves block, then the tile rows), and RenderManual's push block.
+        Water::WaterTraversalBuffers m_Traversal;
+        std::vector<std::byte>       m_Upload;
+        std::vector<std::byte>       m_Push;
     };
 } // namespace Desert::Graphic::System

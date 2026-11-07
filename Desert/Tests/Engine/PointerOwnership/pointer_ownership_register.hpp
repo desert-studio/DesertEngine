@@ -2303,7 +2303,7 @@ namespace Desert::Tests::PointerCensus
           "WATER-W6: the argument pack of one WaterQuadTree::Traverse call, a local of it; Frustum is that call's own parameter (null = no culling), owned by the caller for the call" },
         { "Desert/Desert/Source/Engine/Water/WaterQuadTree.hpp",
           "Traversal", "Output", Guard::CallScoped,
-          "WATER-W6: the address of Traverse's local result vector, filled by the recursive SelectLOD inside that call and returned by value after it" },
+          "WATER-W6: the address of the caller's WaterTraversalBuffers::Staged (a Traverse parameter), filled by the recursive SelectLOD inside that call and bucketed into WaterTraversalBuffers::Tiles before it returns" },
         { "Desert/UI/Source/UI/UIListSelection.cpp",
           "Frame", "Coll", Guard::CallScoped,
           "a stack frame of FlattenTree's iterative walk, a local of that call; the collection belongs to the UIDataStore the caller passes by reference, which no part of the walk mutates" },

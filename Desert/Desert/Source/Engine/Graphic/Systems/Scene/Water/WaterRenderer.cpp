@@ -247,6 +247,8 @@ namespace Desert::Graphic::System
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
         m_Frame            = nullptr;
+        if ( m_Queue.empty() )
+            m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
             return;
 
@@ -332,13 +334,24 @@ namespace Desert::Graphic::System
         const float lensScale = DrawDistanceScale( Geometry::LODView{ .Origin = observer, .Projection = proj } );
 
         // Every zone's tiles in its density order: one instanced draw per run of one grid density (a row carries
-        // its own zone, so a run may span two zones).
-        std::vector<WaterTileRow> rows;
-        for ( const WaterZoneDraw& zone : m_Queue )
+        // its own zone, so a run may span two zones). The rows go straight into the upload, after its waves block
+        // (written last: its WaterInfo lane needs the ground).
+        m_Upload.resize( sizeof( WaterWavesBlock ) );
+        uint32_t rowCount = 0;
+        m_ZoneTrees.resize( m_Queue.size() );
+        for ( size_t z = 0; z < m_Queue.size(); ++z )
         {
-            const Water::WaterQuadTree                  tree( zone.Zone, zone.Bodies->Footprints );
-            const std::vector<Water::WaterTileInstance> tiles =
-                 tree.Traverse( observer, lensScale, &frustum, verticalExtent );
+            const WaterZoneDraw& zone   = m_Queue[z].get();
+            ZoneTree&            cached = m_ZoneTrees[z];
+            if ( !cached.Tree.has_value() || cached.Bodies != zone.Bodies || cached.Zone != zone.Zone )
+            {
+                cached.Tree.emplace( zone.Zone, zone.Bodies->Footprints );
+                cached.Zone   = zone.Zone;
+                cached.Bodies = zone.Bodies;
+            }
+            const Water::WaterQuadTree&                     tree = *cached.Tree;
+            const std::span<const Water::WaterTileInstance> tiles =
+                 tree.Traverse( observer, lensScale, &frustum, verticalExtent, m_Traversal );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
             for ( const Water::WaterTileInstance& tile : tiles )
@@ -346,9 +359,7 @@ namespace Desert::Graphic::System
                 const uint32_t quads = tree.QuadsPerSide( tile.DensityIndex );
                 if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != quads )
                 {
-                    m_FrameDraws.push_back( { .FirstRow     = static_cast<uint32_t>( rows.size() ),
-                                              .RowCount     = 0,
-                                              .QuadsPerSide = quads } );
+                    m_FrameDraws.push_back( { .FirstRow = rowCount, .RowCount = 0, .QuadsPerSide = quads } );
                 }
                 ++m_FrameDraws.back().RowCount;
 
@@ -357,10 +368,13 @@ namespace Desert::Graphic::System
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
                 row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
-                rows.push_back( row );
+                const size_t at = m_Upload.size();
+                m_Upload.resize( at + sizeof( WaterTileRow ) );
+                std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
+                ++rowCount;
             }
         }
-        if ( rows.empty() )
+        if ( rowCount == 0u )
             return;
 
         ApplyMaterial( material, *program );
@@ -378,11 +392,8 @@ namespace Desert::Graphic::System
             waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
         {
-            std::vector<std::byte> bytes( sizeof( WaterWavesBlock ) + rows.size() * sizeof( WaterTileRow ) );
-            std::memcpy( bytes.data(), &waves, sizeof( WaterWavesBlock ) );
-            std::memcpy( bytes.data() + sizeof( WaterWavesBlock ), rows.data(),
-                         rows.size() * sizeof( WaterTileRow ) );
-            tiles->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
+            std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
+            tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
         }
         m_Frame = program;
     }
@@ -428,7 +439,7 @@ namespace Desert::Graphic::System
         const RDG::PassBindings       block( context, context.GetBindingBlock( 0 ) );
         const MaterialExecutor*       executor = material.GetMaterialExecutor();
         const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
-        std::vector<std::byte>        push;
+        std::vector<std::byte>&       push     = m_Push;
         for ( const FrameDraw& draw : m_FrameDraws )
         {
             push.assign( pushed.Size, std::byte{ 0 } );
