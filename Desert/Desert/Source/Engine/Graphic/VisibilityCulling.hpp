@@ -49,23 +49,34 @@ namespace Desert::Graphic
     // (count + 63) / 64 words; those words are written whole, every bit at or past @p count clear.
     // first + count must not pass @p boxes.Size() (the lanes' padding covers the last group's overhang).
     // AddVisibleInViewBits ORs the same bits into @p bits instead (a union of views: a scrolled cascade's strips).
+    //
+    // VisibleInView4 is one group of that run: bit i is IsVisibleInView( frustum, box @p at + i ) for the four
+    // lanes at..at + 3, unmasked (a lane at or past boxes.Size() is padding: the caller never reads its bit).
+    // @p at must be below boxes.Size().
+    [[nodiscard]] inline uint32_t VisibleInView4( const Core::Frustum&           frustum,
+                                                  const Common::Math::AABBLanes& boxes,
+                                                  const std::size_t              at ) noexcept
+    {
+        namespace S = Common::Math::Simd;
+        const S::Mask4 emptyX =
+             S::CompareGT( S::Load4( boxes.MinX.data() + at ), S::Load4( boxes.MaxX.data() + at ) );
+        const S::Mask4 emptyY =
+             S::CompareGT( S::Load4( boxes.MinY.data() + at ), S::Load4( boxes.MaxY.data() + at ) );
+        const S::Mask4 emptyZ =
+             S::CompareGT( S::Load4( boxes.MinZ.data() + at ), S::Load4( boxes.MaxZ.data() + at ) );
+        uint32_t lanes = S::MaskBits( S::MaskOr( S::MaskOr( emptyX, emptyY ), emptyZ ) );
+        if ( lanes != 0xFu )
+            lanes |= frustum.Intersects4( boxes, at );
+        return lanes;
+    }
+
     inline void AddVisibleInViewBits( const Core::Frustum& frustum, const Common::Math::AABBLanes& boxes,
                                       const std::size_t first, const std::size_t count,
                                       const std::span<uint64_t> bits ) noexcept
     {
-        namespace S = Common::Math::Simd;
         for ( std::size_t j = 0; j < count; j += 4u )
         {
-            const std::size_t at     = first + j;
-            const S::Mask4    emptyX = S::CompareGT( S::Load4( boxes.MinX.data() + at ),
-                                                     S::Load4( boxes.MaxX.data() + at ) );
-            const S::Mask4    emptyY = S::CompareGT( S::Load4( boxes.MinY.data() + at ),
-                                                     S::Load4( boxes.MaxY.data() + at ) );
-            const S::Mask4    emptyZ = S::CompareGT( S::Load4( boxes.MinZ.data() + at ),
-                                                     S::Load4( boxes.MaxZ.data() + at ) );
-            uint32_t          lanes  = S::MaskBits( S::MaskOr( S::MaskOr( emptyX, emptyY ), emptyZ ) );
-            if ( lanes != 0xFu )
-                lanes |= frustum.Intersects4( boxes, at );
+            uint32_t lanes = VisibleInView4( frustum, boxes, first + j );
             if ( count - j < 4u )
                 lanes &= ( 1u << ( count - j ) ) - 1u;
             bits[j / 64u] |= static_cast<uint64_t>( lanes ) << ( j % 64u );
@@ -86,6 +97,35 @@ namespace Desert::Graphic
     {
         return ( ( bits[j / 64u] >> ( j % 64u ) ) & 1u ) != 0u;
     }
+
+    // A WALK THAT ASKS ONLY SOME BOXES OF A RUN (UE: the primitive-bounds batch, asked after the per-primitive
+    // relevance a view already decided - a record the GPU bins hold never reaches the frustum test): the four-box
+    // group holding box @p index is tested once, by @p groupOf( base ) (base = index rounded down to four, a
+    // VisibleInView4-shaped verdict, bit i for box base + i), the first time a box of it is asked; the next boxes
+    // of the same group read its bits. Each answer is the bit the box-at-a-time test gives, so a walk asking its
+    // boxes in increasing order keeps the same set it kept one box at a time. A walk restarting below the group
+    // it last asked (another chunk) uses its own cursor.
+    class VisibleInViewQuads final
+    {
+    public:
+        template <typename GroupOf>
+        [[nodiscard]] bool Visible( const std::size_t index, GroupOf&& groupOf ) noexcept
+        {
+            const std::size_t base = index & ~std::size_t{ 3u };
+            if ( !m_Valid || base != m_Base )
+            {
+                m_Bits  = groupOf( base );
+                m_Base  = base;
+                m_Valid = true;
+            }
+            return ( ( m_Bits >> ( index - base ) ) & 1u ) != 0u;
+        }
+
+    private:
+        std::size_t m_Base  = 0;
+        uint32_t    m_Bits  = 0;
+        bool        m_Valid = false;
+    };
 
     // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree
     // HORIZONTAL lens; through a lens of horizontal focal scale k an object at distance d is as wide on screen as
