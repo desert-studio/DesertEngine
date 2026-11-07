@@ -23,6 +23,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <intrin.h>
 #endif
 
 #ifndef _WIN32
@@ -99,8 +100,38 @@ static void OpenConsoleIfAsked( const int argc, char** argv )
 }
 #endif
 
+#if defined( _WIN32 ) && defined( __AVX2__ )
+// The engine is compiled with /arch:AVX2 (DESERT_AVX2). On a CPU without AVX2 (or an OS that does not save the
+// YMM state) the first AVX2 instruction is an illegal-instruction crash with no message, so main says it first.
+static bool DesertCpuHasAvx2() noexcept
+{
+    int info[4] = {};
+    __cpuid( info, 0 );
+    if ( info[0] < 7 )
+        return false;
+    __cpuid( info, 1 );
+    const bool osxsave = ( info[2] & ( 1 << 27 ) ) != 0;
+    const bool avx = ( info[2] & ( 1 << 28 ) ) != 0;
+    const bool fma = ( info[2] & ( 1 << 12 ) ) != 0;
+    if ( !osxsave || !avx || !fma )
+        return false;
+    if ( ( _xgetbv( 0 ) & 0x6 ) != 0x6 )
+        return false;
+    __cpuidex( info, 7, 0 );
+    return ( info[1] & ( 1 << 5 ) ) != 0;
+}
+#endif
+
 int main( int argc, char** argv )
 {
+#if defined( _WIN32 ) && defined( __AVX2__ )
+    if ( !DesertCpuHasAvx2() )
+    {
+        (void)MessageBoxA( nullptr, "This build needs a CPU with AVX2 (Intel Haswell / AMD Zen or newer).",
+                           "DesertEngine", MB_OK | MB_ICONERROR );
+        return 1;
+    }
+#endif
 #ifdef _WIN32
     // PER-MONITOR DPI AWARENESS, FIRST THING. It can only be declared before the process creates its first
     // window, and the native splash now does that before GLFW starts -- GLFW's own attempt then failed
