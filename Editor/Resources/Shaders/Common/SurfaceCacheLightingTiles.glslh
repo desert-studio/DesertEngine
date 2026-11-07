@@ -9,8 +9,9 @@
 //
 // A tile word: bits 0..3 = the tile's x in its page, 4..7 = its y (a physical page is at most 16 tiles a side,
 // SurfaceCacheRenderer kPhysicalPageSize), 8..31 = the page's slot in SurfaceLightingPages.
-// The includer defines SURFACE_CACHE_TILES_BINDING (the args there, the list at + 1) and, for the builder only,
-// SURFACE_CACHE_TILES_WRITE.
+// The includer defines, for the builder only, SURFACE_CACHE_TILES_WRITE. The two buffers carry no binding: the
+// program build numbers them in each includer (DSL `Buffer` without (n), ShaderMapBuild.cpp AssignProgramBindings)
+// and SurfaceCacheRenderer binds them by name.
 #ifndef SURFACE_CACHE_LIGHTING_TILES_GLSLH
 #define SURFACE_CACHE_LIGHTING_TILES_GLSLH
 #define SURFACE_CACHE_TILE_SIZE 8
@@ -23,13 +24,11 @@
 #endif
 // x, y, z = the consumers' dispatch (DispatchComputeIndirect), w = the listed tile count; uploaded as (0, 0, 1, 0)
 // each frame (SurfaceCacheRenderer::AddLightingTilesPass).
-layout(std430, binding = SURFACE_CACHE_TILES_BINDING) SURFACE_CACHE_TILES_ACCESS
-buffer SurfaceCacheLightingTileArgs
+SURFACE_CACHE_TILES_ACCESS Buffer SurfaceCacheLightingTileArgs
 {
     uint lightingTileArgs[4];
 };
-layout(std430, binding = SURFACE_CACHE_TILES_BINDING + 1) SURFACE_CACHE_TILES_ACCESS
-buffer SurfaceCacheLightingTiles
+SURFACE_CACHE_TILES_ACCESS Buffer SurfaceCacheLightingTiles
 {
     uint lightingTiles[];
 };

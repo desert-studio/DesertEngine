@@ -25,7 +25,6 @@ Shader "SurfaceCacheLightingTiles"
         #define AtlasOpacityTexture sampler2D(AtlasOpacityTexture, PointClampSampler)
         #define RADIOSITY_OPACITY AtlasOpacityTexture
         #include <Common/SurfaceCacheRadiosity.glslh> // RadiosityPageTexels: the page's texels
-        #define SURFACE_CACHE_TILES_BINDING 60
         #define SURFACE_CACHE_TILES_WRITE
         #include <Common/SurfaceCacheLightingTiles.glslh>
 

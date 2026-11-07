@@ -25,7 +25,6 @@ Shader "SurfaceCacheDirectLightingAsync"
         #include <Common/SurfaceCacheDirectLightingTexel.glslh>
         #define RADIOSITY_OPACITY AtlasOpacityTexture
         #include <Common/SurfaceCacheRadiosity.glslh> // RadiosityPageTexels: the page's texels
-        #define SURFACE_CACHE_TILES_BINDING 60
         #include <Common/SurfaceCacheLightingTiles.glslh>
 
         // The raster path's two colour targets (SurfaceCache::Layer::DirectLighting, FinalLighting).

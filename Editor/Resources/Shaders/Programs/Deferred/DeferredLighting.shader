@@ -14,7 +14,7 @@ Shader "DeferredLighting"
         #include <Common/DeferredTiles.glslh>
         // 48: past every binding the fragment stage and its headers hold (set 0 ends at 33); the shared samplers
         // are numbered after it (SharedSamplerBinding.hpp).
-        ReadBuffer(48) DeferredTilesUB
+        ReadBuffer DeferredTilesUB
         {
         	uint deferredTiles[];
         };
