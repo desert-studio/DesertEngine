@@ -14,7 +14,9 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <array>
 #include <cstdint>
+#include <limits>
 #include <unordered_set>
 
 namespace Desert::Graphic::API::Vulkan
@@ -32,6 +34,10 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void FlushUpdates() override;
         [[nodiscard]] Common::BoolResultStr PrepareViewResources( const MaterialExecutor& executor ) override;
+        [[nodiscard]] uint64_t              NewestCopyEpoch( const MaterialExecutor& executor ) const override;
+        [[nodiscard]] bool                  IsPreparedAt( const PreparedRevision& revision ) const override;
+        void                                NotePreparedAt( const PreparedRevision& revision ) override;
+        void                                NotePreparedSets() override;
 
         // The ACTIVE view's set, made (fallbacks, then image seeds) the first time that view asks for it;
         // VK_NULL_HANDLE when it could not be made (named once in the log).
@@ -105,6 +111,26 @@ namespace Desert::Graphic::API::Vulkan
         // renderer slot's previous owner's. The swallow bookkeeping lives in each view's copy.
         ViewDescriptorSets m_ViewSets;
         bool               m_ResolveFailureReported = false;
+        // CPU-RDG-PREPARE: every apply that left a write owed (no copy to bind, a swallowed rebind, a texture with
+        // no sampler state), counted; and the count when the running prepare began (PrepareViewResources). A
+        // prepare during which it moved records no revision (NotePreparedAt), so the next one runs whole.
+        uint64_t m_ApplyRefusals     = 0;
+        uint64_t m_RefusalsAtPrepare = 0;
+        // CPU-BIND-PREPARE (UE: a cached draw command holds its bindings; the frame only submits): the copies the
+        // prepares of the absolute frame m_PreparedSetsFrame resolved, by (view, frame in flight). GetWrittenSlots
+        // reads the copy from here instead of the view's locked map; its written bindings are read live off the
+        // copy, so a write after the prepare is seen as before. Valid for that frame only: a copy is dropped only
+        // under the forget fence (ViewResourceRegistry::SetForgetFence), never while the frame records.
+        struct PreparedSets
+        {
+            const ViewResources*    View = nullptr;
+            uint32_t                Slot = 0;
+            IViewDescriptorSetCopy* Sets = nullptr;
+        };
+        [[nodiscard]] IViewDescriptorSetCopy* PreparedSetsOf( uint32_t frameIndex ) const noexcept;
+        std::array<PreparedSets, 4> m_PreparedSets{};
+        size_t                      m_PreparedSetsCount = 0;
+        uint64_t                    m_PreparedSetsFrame = std::numeric_limits<uint64_t>::max();
 
         // Bindings whose "no copy to bind" refusal was already logged (once per material lifetime).
         std::unordered_set<uint32_t> m_BindRefusalReported;

@@ -1436,8 +1436,11 @@ namespace Desert::Graphic::RDG
             return frameFault( std::move( reason ), {} );
         };
 
-        // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared (empty = prepared or none).
-        ScratchVector<std::string> prepareFailures( m_Passes.size() );
+        // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared. CPU-RDG-PREPARE: by pass, an
+        // index into the sparse prepareReasons (kPrepared = prepared, or none declared): no string per pass.
+        constexpr uint32_t       kPrepared = ~uint32_t{ 0 };
+        ScratchVector<uint32_t>  prepareFailures( m_Passes.size(), kPrepared );
+        std::vector<std::string> prepareReasons;
 
         // The incoming read-after-write edges of each pass, in result.Edges order (CSR: rawIn[rawBegin[p] ..
         // rawBegin[p + 1]) are pass p's). A late fault walks only the pass's own edges instead of every edge of
@@ -1576,8 +1579,9 @@ namespace Desert::Graphic::RDG
                 // that declared any records sealed - its exec looks up what the prepare made and creates nothing.
                 const Common::BoolResultStr outcome = [&]() -> Common::BoolResultStr
                 {
-                    if ( !prepareFailures[p].empty() )
-                        return Common::MakeFormattedError( "{}", prepareFailures[p] );
+                    if ( prepareFailures[p] != kPrepared )
+                        return Common::MakeFormattedError( "a prerequisite was not prepared: {}",
+                                                           prepareReasons[prepareFailures[p]] );
                     PassContext                  context( *this, result, backend, p, state.Late );
                     std::optional<RecordingSeal> seal;
                     if ( !m_Passes[p].Prerequisites.empty() )
@@ -1607,9 +1611,9 @@ namespace Desert::Graphic::RDG
             DESERT_PROFILE_PHASES( prepareRows );
             DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: prerequisites" );
             // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
-            constexpr int8_t         kNotPrepared = -1;
-            ScratchVector<int8_t>      prepared( m_Prerequisites.size(), kNotPrepared );
-            ScratchVector<std::string> failures( m_Prerequisites.size() );
+            // CPU-RDG-PREPARE: kPrepared, or the index of its failure in prepareReasons.
+            constexpr uint32_t      kNotPrepared = kPrepared - 1;
+            ScratchVector<uint32_t> prepared( m_Prerequisites.size(), kNotPrepared );
             for ( const CompiledPass& planned : result.Passes )
             {
                 for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
@@ -1617,13 +1621,15 @@ namespace Desert::Graphic::RDG
                     if ( prepared[index] == kNotPrepared )
                     {
                         const Common::BoolResultStr ready = m_Prerequisites[index]->PrepareForRecording();
+                        prepared[index]                   = kPrepared;
                         if ( !ready )
-                            failures[index] = ready.GetError();
-                        prepared[index] = failures[index].empty() ? 1 : 0;
+                        {
+                            prepared[index] = static_cast<uint32_t>( prepareReasons.size() );
+                            prepareReasons.push_back( ready.GetError() );
+                        }
                     }
-                    if ( prepared[index] == 0 && prepareFailures[planned.Pass].empty() )
-                        prepareFailures[planned.Pass] =
-                             std::format( "a prerequisite was not prepared: {}", failures[index] );
+                    if ( prepared[index] != kPrepared && prepareFailures[planned.Pass] == kPrepared )
+                        prepareFailures[planned.Pass] = prepared[index];
                 }
             }
             // UE FRDGBuilder::SetupParallelExecute: what the backend would otherwise create lazily while a pass
@@ -1658,9 +1664,8 @@ namespace Desert::Graphic::RDG
         ScratchVector<int32_t>     chunkAt;     // by position: the chunk starting there, -1 when none
         ScratchVector<float>       chunkMicros; // by chunk: its passes' record cost last frame (0 when unmeasured)
         bool                     chunksByCost = false;
-        const bool               anyPrepareFailure =
-             std::any_of( prepareFailures.begin(), prepareFailures.end(),
-                          []( const std::string& failure ) { return !failure.empty(); } );
+        // Every failed prerequisite was declared by a surviving pass, which carries it.
+        const bool               anyPrepareFailure = !prepareReasons.empty();
         if ( m_ParallelExecute && backend.SupportsParallelRecording() && !anyPrepareFailure )
         {
             // UE: r.RDG.ParallelExecute.PassMin 1 / PassMax. Every segment is cut, however short: the calling

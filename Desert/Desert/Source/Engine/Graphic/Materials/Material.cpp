@@ -170,6 +170,8 @@ namespace Desert::Graphic
     void Material::RegisterProperty( IProperty* prop )
     {
         m_RegisteredProperties.push_back( prop );
+        if ( prop == nullptr || !prop->AttachWriteSink( &m_RegisteredWrites ) )
+            m_RegisteredWritesCounted = false;
     }
 
     bool Material::BindSchemaDefaultTexture( const std::string& sampler )

@@ -119,6 +119,16 @@ namespace Desert::Graphic
         }
 
         /// Which route this buffer has claimed. Unclaimed until its first write.
+        // CPU-RDG-PREPARE: the newest field write (PropertyVersion), kNeverWritten when none was. A field write
+        // stamps the field, not this property (WriteField), so a prepare's revision reads it here.
+        [[nodiscard]] uint64_t NewestFieldVersion() const noexcept
+        {
+            uint64_t newest = PropertyVersion::kNeverWritten;
+            for ( const auto& field : m_FieldProperties )
+                newest = field.GetVersion() > newest ? field.GetVersion() : newest;
+            return newest;
+        }
+
         ShaderResources::FillKind GetFillKind() const
         {
             return m_Fill;
@@ -147,7 +157,10 @@ namespace Desert::Graphic
             if ( !ClaimFill( ShaderResources::FillKind::Fields, "a field write" ) )
                 return false;
 
-            return field->SetRawBytes( data, size );
+            if ( !field->SetRawBytes( data, size ) )
+                return false;
+            NoteFieldWritten(); // CPU-BIND-PREPARE: the executor's write counter (MaterialProperty)
+            return true;
         }
 
         void SetRawData( const std::byte* data, size_t size )

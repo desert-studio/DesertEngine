@@ -12,6 +12,9 @@
 
 #include "MaterialInstance.hpp"
 
+#include <atomic>
+#include <cstdint>
+#include <optional>
 #include <unordered_set>
 
 namespace Desert::Graphic
@@ -283,6 +286,14 @@ namespace Desert::Graphic
         void UploadRegisteredProperties();
         // True while a registered property was written and not uploaded yet.
         [[nodiscard]] bool HasPendingRegisteredProperties() const;
+        // CPU-BIND-PREPARE: how many writes the registered properties counted (TProperty::AttachWriteSink), or
+        // nullopt when one of them counts none - then only HasPendingRegisteredProperties answers.
+        [[nodiscard]] std::optional<uint64_t> RegisteredWrites() const noexcept
+        {
+            if ( !m_RegisteredWritesCounted )
+                return std::nullopt;
+            return m_RegisteredWrites.load( std::memory_order_relaxed );
+        }
 
         // Push every FIELD-FILLED uniform buffer that still owes a copy into that copy. The one
         // implementation of a loop that existed in four copies (here, tonemap, JFA composite, deferred
@@ -313,6 +324,10 @@ namespace Desert::Graphic
         mutable std::unordered_set<std::string> m_ReportedMissing;
         std::unique_ptr<MaterialExecutor> m_MaterialExecutor;
         std::vector<IProperty*>           m_RegisteredProperties;
+        // Bumped by every write of a registered property (RegisterProperty attaches it; the properties are the
+        // subclass's members, so this outlives them).
+        std::atomic<uint64_t> m_RegisteredWrites{ 0 };
+        bool                  m_RegisteredWritesCounted = true;
 
     private:
         // Find's lookup by the slot name, a view the caller keeps alive for the call.
