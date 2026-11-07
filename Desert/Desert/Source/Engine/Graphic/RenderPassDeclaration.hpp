@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Memory/FrameArena.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
@@ -100,25 +101,68 @@ namespace Desert::Graphic
         // frame's one import of it (FrameTextures::Import, ImportName naming the import) exactly as an ImageUse,
         // so the graph orders, barriers and fault-isolates it like any other entry and the pass binds the image
         // the graph resolved, in the layout the graph's barrier left it in. Nothing binds it outside the block.
+        //
+        // CPU-RDG-ALLOC (UE: FRDGBuilder parameter structs - a binding names its parameter, the name lives in the
+        // reflection, nothing formats it per frame): an entry keeps its parameter's own name view and element, no
+        // formatted "<Name>[<Element>]" string; the graph forms the slot name once, in its arena
+        // (PassBuilder::Bindings). A parameter's Name views a struct member or a named engine constant
+        // (RDGShaderParameters.hpp), which outlives every declaration.
         struct BlockEntry
         {
-            std::string                     ShaderName;
-            RDG::ShaderResourceKind         Kind = RDG::ShaderResourceKind::Texture;
+            std::string_view                ParameterName;
+            uint32_t                        Element = RDG::TextureParameter::kWhole;
+            RDG::ShaderResourceKind         Kind    = RDG::ShaderResourceKind::Texture;
             RDG::TextureRef                 Texture;
             std::shared_ptr<Image>          Image;
-            std::string                     ImportName;
+            // The import's graph name: a static name (a literal) is viewed, a formed one is kept here.
+            const char*                     StaticImportName = nullptr;
+            std::string                     FormedImportName;
             RDG::BufferRef                  Buffer;
             RDG::Access                     Access = RDG::Access::None;
             RDG::SubresourceRange           Range  = RDG::SubresourceRange::All();
             std::optional<RDG::SamplerDesc> Sampler;
+
+            // The graph name of the import (empty: ResolveDeclared names it after the node and the slot).
+            [[nodiscard]] std::string_view ImportName() const noexcept
+            {
+                if ( StaticImportName != nullptr )
+                    return StaticImportName;
+                return FormedImportName;
+            }
         };
+        // How an engine image's import is named: a literal (or another static name) is viewed with no copy; a name
+        // formed for this frame (std::format) is moved into the entry.
+        struct ImportNameArg
+        {
+            ImportNameArg( const char* staticName ) noexcept : Static( staticName ) // NOLINT: implicit by design
+            {
+            }
+            ImportNameArg( std::string formedName ) noexcept : Formed( std::move( formedName ) ) // NOLINT
+            {
+            }
+
+            const char* Static = nullptr;
+            std::string Formed;
+        };
+        // The entries of one block. With an arena (RenderPassDeclaration( FrameArena& )), they live in it - the
+        // frame graph's arena for a node SceneRenderer declares, no heap per frame; without, the heap.
+        using BlockEntries = Common::Memory::ArenaVector<BlockEntry>;
         struct BlockUse
         {
             std::shared_ptr<const RDG::ShaderBindingLayout> Layout;
             std::shared_ptr<const RDG::OtherRouteFill>      Other = RDG::NoOtherRouteFill();
-            std::vector<BlockEntry>                         Entries;
+            BlockEntries                                    Entries;
             uint32_t                                        PushConstantBytes = 0;
         };
+
+        RenderPassDeclaration() = default;
+        // The binding blocks (and their entries) in @p arena, which outlives the declaration (the frame graph's,
+        // RDG::Builder::GetFrameArena, reset only with the graph).
+        explicit RenderPassDeclaration( Common::Memory::FrameArena& arena ) noexcept
+             : m_Arena( &arena ), m_Blocks( Common::Memory::ArenaAllocator<BlockUse>( arena ) )
+        {
+        }
+
         // Fills the block Bindings opened; mirrors RDG::BindingBlockBuilder. Holds the declaration and the index,
         // not the block, so a later Bindings call (which may grow the list) does not invalidate it.
         class BlockDeclaration
@@ -133,15 +177,7 @@ namespace Desert::Graphic
             BlockDeclaration& Texture( RDG::TextureParameter parameter, RDG::TextureRef texture,
                                        RDG::Access access, RDG::SubresourceRange range )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::Texture,
-                                             texture,
-                                             {},
-                                             {},
-                                             {},
-                                             access,
-                                             range,
-                                             std::nullopt } );
+                Add( parameter, access, range ).Texture = texture;
                 return *this;
             }
             // A separate sampler slot (RDG::ShaderResourceKind::Sampler): a state, no resource, shared by every
@@ -150,106 +186,52 @@ namespace Desert::Graphic
             BlockDeclaration& Sampler( RDG::SamplerParameter parameter, RDG::SamplerDesc sampler )
             {
                 for ( const BlockEntry& e : Block().Entries )
-                    if ( e.Kind == RDG::ShaderResourceKind::Sampler && e.ShaderName == parameter.SlotName() &&
-                         e.Sampler == sampler )
+                    if ( e.Kind == RDG::ShaderResourceKind::Sampler && e.ParameterName == parameter.Name &&
+                         e.Element == parameter.Element && e.Sampler == sampler )
                         return *this;
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::Sampler,
-                                             {},
-                                             {},
-                                             {},
-                                             {},
-                                             RDG::Access::None,
-                                             RDG::SubresourceRange::All(),
-                                             sampler } );
+                Add( parameter, RDG::Access::None, RDG::SubresourceRange::All() ).Sampler = sampler;
                 return *this;
             }
             // An engine image its system owns as a separate texture, read whole (resolved to its import, see
             // BlockEntry) through a Sampler slot of the block.
             BlockDeclaration& Texture( RDG::TextureParameter parameter, std::shared_ptr<Image> image,
-                                       RDG::Access access, std::string importName )
+                                       RDG::Access access, ImportNameArg importName )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::Texture,
-                                             {},
-                                             std::move( image ),
-                                             std::move( importName ),
-                                             {},
-                                             access,
-                                             RDG::SubresourceRange::All(),
-                                             std::nullopt } );
+                AddImage( Add( parameter, access, RDG::SubresourceRange::All() ), std::move( image ),
+                          std::move( importName ) );
                 return *this;
             }
             BlockDeclaration& Storage( RDG::StorageTextureParameter parameter, RDG::TextureRef texture,
                                        RDG::Access access, uint32_t mip = 0 )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::StorageTexture,
-                                             texture,
-                                             {},
-                                             {},
-                                             {},
-                                             access,
-                                             RDG::SubresourceRange::Mip( mip ),
-                                             std::nullopt } );
+                Add( parameter, access, RDG::SubresourceRange::Mip( mip ) ).Texture = texture;
                 return *this;
             }
             // An engine image its system owns, as a storage image on @p mip: StorageWrite for a dispatch that
             // writes it, StorageRead for one that only reads it (resolved to its import, see BlockEntry).
             BlockDeclaration& Storage( RDG::StorageTextureParameter parameter, std::shared_ptr<Image> image,
-                                       RDG::Access access, std::string importName, uint32_t mip = 0 )
+                                       RDG::Access access, ImportNameArg importName, uint32_t mip = 0 )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::StorageTexture,
-                                             {},
-                                             std::move( image ),
-                                             std::move( importName ),
-                                             {},
-                                             access,
-                                             RDG::SubresourceRange::Mip( mip ),
-                                             std::nullopt } );
+                AddImage( Add( parameter, access, RDG::SubresourceRange::Mip( mip ) ), std::move( image ),
+                          std::move( importName ) );
                 return *this;
             }
             BlockDeclaration& Uniform( RDG::UniformBufferParameter parameter, RDG::BufferRef buffer )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::UniformBuffer,
-                                             {},
-                                             {},
-                                             {},
-                                             buffer,
-                                             RDG::Access::UniformRead,
-                                             RDG::SubresourceRange::All(),
-                                             std::nullopt } );
+                Add( parameter, RDG::Access::UniformRead, RDG::SubresourceRange::All() ).Buffer = buffer;
                 return *this;
             }
             BlockDeclaration& Storage( RDG::StorageBufferParameter parameter, RDG::BufferRef buffer,
                                        RDG::Access access )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::StorageBuffer,
-                                             {},
-                                             {},
-                                             {},
-                                             buffer,
-                                             access,
-                                             RDG::SubresourceRange::All(),
-                                             std::nullopt } );
+                Add( parameter, access, RDG::SubresourceRange::All() ).Buffer = buffer;
                 return *this;
             }
             // The view's TLAS (RayTracingSceneFrame::Tlas), ray-queried by the pass's shader.
             BlockDeclaration& AccelerationStructure( RDG::AccelerationStructureParameter parameter,
                                                      RDG::BufferRef                      tlas )
             {
-                Block().Entries.push_back( { parameter.SlotName(),
-                                             RDG::ShaderResourceKind::AccelerationStructure,
-                                             {},
-                                             {},
-                                             {},
-                                             tlas,
-                                             RDG::Access::AccelStructRead,
-                                             RDG::SubresourceRange::All(),
-                                             std::nullopt } );
+                Add( parameter, RDG::Access::AccelStructRead, RDG::SubresourceRange::All() ).Buffer = tlas;
                 return *this;
             }
             BlockDeclaration& PushConstantBytes( uint32_t bytes )
@@ -268,6 +250,24 @@ namespace Desert::Graphic
             {
                 return m_Declaration.m_Blocks[m_Index];
             }
+            // One entry of the parameter's kind; the caller sets the resource (or the sampler state).
+            template <RDG::ShaderResourceKind K>
+            BlockEntry& Add( RDG::ShaderParameterOf<K> parameter, RDG::Access access, RDG::SubresourceRange range )
+            {
+                BlockEntry& entry   = Block().Entries.emplace_back();
+                entry.ParameterName = parameter.Name;
+                entry.Element       = parameter.Element;
+                entry.Kind          = K;
+                entry.Access        = access;
+                entry.Range         = range;
+                return entry;
+            }
+            static void AddImage( BlockEntry& entry, std::shared_ptr<Image> image, ImportNameArg importName )
+            {
+                entry.Image            = std::move( image );
+                entry.StaticImportName = importName.Static;
+                entry.FormedImportName = std::move( importName.Formed );
+            }
 
             RenderPassDeclaration& m_Declaration;
             uint32_t               m_Index;
@@ -276,16 +276,14 @@ namespace Desert::Graphic
         BlockDeclaration Bindings( const std::shared_ptr<const RDG::ShaderBindingLayout>& layout,
                                    std::shared_ptr<const RDG::OtherRouteFill>             other )
         {
-            m_Blocks.push_back( { layout, std::move( other ), {}, 0 } );
+            m_Blocks.push_back( { layout, std::move( other ), BlockEntries( EntryAllocator() ), 0 } );
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
         // A layout made for this declaration only: the declaration takes it over.
         BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, std::shared_ptr<const RDG::OtherRouteFill> other )
         {
             m_Blocks.push_back( { std::make_shared<const RDG::ShaderBindingLayout>( std::move( layout ) ),
-                                  std::move( other ),
-                                  {},
-                                  0 } );
+                                  std::move( other ), BlockEntries( EntryAllocator() ), 0 } );
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
 
@@ -301,7 +299,7 @@ namespace Desert::Graphic
             return m_Prerequisites;
         }
 
-        [[nodiscard]] const std::vector<BlockUse>& Blocks() const
+        [[nodiscard]] std::span<const BlockUse> Blocks() const
         {
             return m_Blocks;
         }
@@ -336,11 +334,19 @@ namespace Desert::Graphic
         }
 
     private:
+        [[nodiscard]] Common::Memory::ArenaAllocator<BlockEntry> EntryAllocator() const noexcept
+        {
+            if ( m_Arena != nullptr )
+                return Common::Memory::ArenaAllocator<BlockEntry>( *m_Arena );
+            return {};
+        }
+
         glm::uvec2              m_TargetExtent{ 0u, 0u };
         std::vector<ImageUse>   m_Images;
         std::vector<TextureUse> m_Textures;
         std::vector<BufferUse>  m_Buffers;
-        std::vector<BlockUse>   m_Blocks;
+        Common::Memory::FrameArena*                  m_Arena = nullptr; // where the blocks live; null: the heap
+        Common::Memory::ArenaVector<BlockUse>        m_Blocks;
         std::vector<const RDG::IRecordPrerequisite*> m_Prerequisites;
     };
 
@@ -436,8 +442,8 @@ namespace Desert::Graphic
         // (PassContext::GetBindingBlock).
         for ( const RenderPassDeclaration::BlockUse& block : declared.Blocks() )
         {
-            // Each entry replays the slot name its declaration took from a parameter (BlockEntry::ShaderName is
-            // that parameter's SlotName), so the replay re-forms the parameter of the entry's kind.
+            // Each entry replays the parameter its declaration named (BlockEntry::ParameterName / Element), so the
+            // replay re-forms the parameter of the entry's kind; the graph forms its slot name once, in its arena.
             RDG::BindingBlockBuilder bindings = pass.Bindings( block.Layout, block.Other );
             for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
             {
@@ -446,31 +452,33 @@ namespace Desert::Graphic
                 RDG::TextureRef texture = entry.Texture;
                 if ( entry.Image )
                     texture = nextImage < blockImages.size() ? blockImages[nextImage++] : RDG::TextureRef{};
+                const std::string_view name    = entry.ParameterName;
+                const uint32_t         element = entry.Element;
                 switch ( entry.Kind )
                 {
                     case RDG::ShaderResourceKind::Texture:
-                        bindings.Texture( RDG::TextureParameter( entry.ShaderName ), texture, entry.Access,
+                        bindings.Texture( RDG::TextureParameter( name, element ), texture, entry.Access,
                                           entry.Range );
                         break;
                     case RDG::ShaderResourceKind::Sampler:
                         // BlockDeclaration::Sampler always carries the state. An entry without one is not
                         // replayed, and ValidatePassBindings names its slot as filled by neither route.
                         if ( entry.Sampler )
-                            bindings.Sampler( RDG::SamplerParameter( entry.ShaderName ), *entry.Sampler );
+                            bindings.Sampler( RDG::SamplerParameter( name, element ), *entry.Sampler );
                         break;
                     case RDG::ShaderResourceKind::StorageTexture:
-                        bindings.Storage( RDG::StorageTextureParameter( entry.ShaderName ), texture, entry.Access,
+                        bindings.Storage( RDG::StorageTextureParameter( name, element ), texture, entry.Access,
                                           entry.Range.BaseMip );
                         break;
                     case RDG::ShaderResourceKind::UniformBuffer:
-                        bindings.Uniform( RDG::UniformBufferParameter( entry.ShaderName ), entry.Buffer );
+                        bindings.Uniform( RDG::UniformBufferParameter( name, element ), entry.Buffer );
                         break;
                     case RDG::ShaderResourceKind::StorageBuffer:
-                        bindings.Storage( RDG::StorageBufferParameter( entry.ShaderName ), entry.Buffer,
+                        bindings.Storage( RDG::StorageBufferParameter( name, element ), entry.Buffer,
                                           entry.Access );
                         break;
                     case RDG::ShaderResourceKind::AccelerationStructure:
-                        bindings.AccelerationStructure( RDG::AccelerationStructureParameter( entry.ShaderName ),
+                        bindings.AccelerationStructure( RDG::AccelerationStructureParameter( name, element ),
                                                         entry.Buffer );
                         break;
                 }

@@ -364,7 +364,7 @@ namespace Desert::Graphic
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }
-        RenderPassDeclaration declared;
+        RenderPassDeclaration declared( graph.GetFrameArena() );
         // The render area the node draws at: the overlay set's OUTPUT extent when it replaced the scene target,
         // the target framebuffer's otherwise (a layered depth pass lays out nothing in pixels: (0, 0)).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
@@ -402,7 +402,7 @@ namespace Desert::Graphic
     {
         if ( !pass.ExecuteFunc || !display.IsValid() )
             return;
-        RenderPassDeclaration declared;
+        RenderPassDeclaration declared( graph.GetFrameArena() );
         declared.SetTargetExtent( extent );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );

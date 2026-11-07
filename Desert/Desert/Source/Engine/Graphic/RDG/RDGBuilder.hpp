@@ -307,6 +307,12 @@ namespace Desert::Graphic::RDG
         {
             return m_Arena.GetStats();
         }
+        // CPU-RDG-ALLOC: the graph's arena for what a caller builds while it declares this graph's passes (a
+        // RenderPassDeclaration's blocks): it lives until Reset. Only the thread that declares the graph uses it.
+        [[nodiscard]] Common::Memory::FrameArena& GetFrameArena() noexcept
+        {
+            return m_Arena;
+        }
 
         // Pure: reads the declarations, touches nothing, may be called any number of times. @p memory
         // answers the size / alignment / memory types of each transient for the aliasing plan.

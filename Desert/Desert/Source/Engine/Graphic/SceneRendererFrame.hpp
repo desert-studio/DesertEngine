@@ -359,10 +359,17 @@ namespace Desert::Graphic
                                  std::string_view node, std::vector<RDG::TextureRef>& images )
     {
         images.clear();
+        // CPU-RDG-ALLOC: a declared name is viewed; a name is formed (heap) only for an entry that gives none.
+        std::string      formed;
+        std::string_view name;
         for ( const RenderPassDeclaration::ImageUse& use : declared.Images() )
         {
-            const std::string name =
-                 use.Name.empty() ? std::format( "{}.Image{}", node, images.size() ) : use.Name;
+            name = use.Name;
+            if ( name.empty() )
+            {
+                formed = std::format( "{}.Image{}", node, images.size() );
+                name   = formed;
+            }
             const RDG::TextureRef ref = textures.Import( use.Image, name );
             if ( !ref.IsValid() )
             {
@@ -374,20 +381,32 @@ namespace Desert::Graphic
             images.push_back( ref );
         }
         // The engine images the binding blocks name, after the ImageUses, through the same one import per image.
-        for ( const RenderPassDeclaration::BlockEntry* entry : BlockImageEntries( declared ) )
+        // In block and entry order (BlockImageEntries' order, without its list).
+        for ( const RenderPassDeclaration::BlockUse& block : declared.Blocks() )
         {
-            const std::string name =
-                 entry->ImportName.empty() ? std::format( "{}.{}", node, entry->ShaderName ) : entry->ImportName;
-            const RDG::TextureRef ref = textures.Import( entry->Image, name );
-            if ( !ref.IsValid() )
+            for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
             {
-                LOG_ERROR(
-                     "[SceneRenderer] '{}' is not recorded: the frame graph cannot import the image '{}' its "
-                     "binding '{}' names",
-                     node, name, entry->ShaderName );
-                return false;
+                if ( !entry.Image )
+                    continue;
+                name = entry.ImportName();
+                if ( name.empty() )
+                {
+                    formed = entry.Element == RDG::TextureParameter::kWhole
+                                  ? std::format( "{}.{}", node, entry.ParameterName )
+                                  : std::format( "{}.{}[{}]", node, entry.ParameterName, entry.Element );
+                    name   = formed;
+                }
+                const RDG::TextureRef ref = textures.Import( entry.Image, name );
+                if ( !ref.IsValid() )
+                {
+                    LOG_ERROR(
+                         "[SceneRenderer] '{}' is not recorded: the frame graph cannot import the image '{}' "
+                         "its binding '{}' (element {}) names",
+                         node, name, entry.ParameterName, entry.Element );
+                    return false;
+                }
+                images.push_back( ref );
             }
-            images.push_back( ref );
         }
         if ( const char* invalid = InvalidDeclaredRef( declared ) )
         {
