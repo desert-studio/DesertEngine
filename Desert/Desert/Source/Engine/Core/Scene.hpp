@@ -876,7 +876,10 @@ namespace Desert::Core
         // The last directional-light state this scene complained about (degenerate lights | lights that are
         // not the sun | whether there is a sun), kept so the per-frame collector reports each distinct state
         // ONCE instead of sixty times a second, and reports the return to a clean state too.
-        std::string m_DirLightsReported;
+        bool                      m_DirLightsLatched     = false;
+        bool                      m_DirLightsSunReported = false;
+        std::vector<entt::entity> m_DirLightsUnusedReported;
+        std::vector<entt::entity> m_DirLightsUnusedScratch; // this frame's, capacity reused (no per-frame heap)
 
         SceneEntityIndex m_Entities;
 

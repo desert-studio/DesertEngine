@@ -3066,6 +3066,17 @@ namespace Desert::ECS
         // overrode it, the way a UE instance holds only its delta from the class default.
         std::vector<Scripting::ScriptProperty> Properties;
 
+        // Transient: the edit revision of Properties (UE's PostEditChangeProperty). Every writer of Properties
+        // OUTSIDE the running script calls PropertiesEdited() — Details, a script swap; ScriptSystem pushes the
+        // overrides into the running script only when this differs from the revision it pushed last
+        // (ScriptEngine::SyncProperties), never property by property every frame. The SaveGame read-back does
+        // NOT bump it: what it copies came out of the script, which already holds it.
+        std::uint64_t PropertiesRevision = 0;
+        void          PropertiesEdited() noexcept
+        {
+            ++PropertiesRevision;
+        }
+
         bool Started = false; // transient: OnStart already called for this instance
         // Transient: the script's SaveGame property names (Scripting::ReadScriptSaveGameProperties), read
         // from the file each time the slot loads; ScriptSystem reads those properties back after the script ran.
