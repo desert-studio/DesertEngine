@@ -949,7 +949,7 @@ namespace Desert::Graphic::System
             // is released by the next (re)build's Allocate, and Args stays empty so this block runs again.
             ++gpu.Builds;
             gpu.ArgsEpoch     = 0u;
-            const auto refuse = [this, &gpu]() noexcept
+            const auto refuse = [this, &gpu]() noexcept -> VarietyGpu*
             {
                 m_ArgsPool.Release( gpu.Args );
                 return nullptr;
