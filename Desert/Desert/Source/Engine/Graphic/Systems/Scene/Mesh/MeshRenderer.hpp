@@ -2312,6 +2312,9 @@ namespace Desert::Graphic::System
         // pass state is not built yet waits in m_PendingCellPrecache for the frame that has it.
         void PrecacheRequestedCells();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
+        // The same report through a kept tracker row (SliceRowOf): no name hashed.
+        static void TrackMaterialPipeline( MaterialPipelineTracker::Row& row, const GraphicsPipeline& pipeline );
+
     public:
         // THE ONE PERMUTATION FUNCTION of a generic forward program on the deferred path, asked by every place
         // that builds or cooks it: "Deferred: Generic" (BuildGenericDraws), the prepass's readiness check
@@ -2422,17 +2425,20 @@ namespace Desert::Graphic::System
     private:
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
         // compiling one counts among the pending pipelines); @p rayTracedSun and @p localShadowMasks pick the
-        // permutation through ForwardShadowMaskVariant, as that pass does.
-        [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                        const std::string& shaderName, bool rayTracedSun,
-                                                        bool localShadowMasks, bool virtualLocal );
+        // permutation through ForwardShadowMaskVariant, as that pass does - its slice program of @p facts (the
+        // template @p shader's), so the key, the variant and the spec are the ones made once per template.
+        struct ProgramFacts; // defined with the slice programs below
+        [[nodiscard]] bool GenericForwardPipelineReady( ProgramFacts& facts, const std::shared_ptr<Shader>& shader,
+                                                        bool rayTracedSun, bool localShadowMasks,
+                                                        bool virtualLocal );
         // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
         // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
         // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
         // missing prepass depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the
-        // view's frame.
-        bool OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const;
-        std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
+        // view's frame. Indexed by m_GenericQueue position (1 = admitted; cleared with its capacity kept, grown
+        // with zeros on the first admission of a frame): no node allocated per admitted draw per frame.
+        bool OpaqueGenericAdmitted( std::size_t index ) const;
+        std::vector<uint8_t>                             m_GenericPrepassed;
         std::optional<uint64_t>                          m_GenericPrepassFrame;
         bool                                             m_GenericPrepassRayTracedSun = false;
         bool                                             m_GenericPrepassLocalShadowMasks = false; // the prepass's DESERT_LOCAL_SHADOW_SCREEN_MASK choice
@@ -2615,6 +2621,49 @@ namespace Desert::Graphic::System
         // the "who samples this texture" asks read them: no name, TemplateCellShader, FrontLayerShaderFor or
         // GetByName per draw per frame. The TranslucentDraw answers point into m_Translucent / m_FrontLayer,
         // which only ever insert.
+        //
+        // A TEMPLATE'S SLICE PROGRAMS, the cached half of a generic draw command (CPU-FRAME-ARENA 11; UE
+        // FMeshDrawCommand: the program, its name and its pipeline state are built when the primitive's material
+        // is added, never per draw). BuildGenericDraws draws a template through one of these: the
+        // ForwardShadowMaskVariant of (sun mask | local masks << 1 | virtual local << 2) - indices 0..7 - or one
+        // of its cells. Each is asked once per template at its code generation (the AcquireVariant, the key and
+        // the spec), so a draw formats no name, builds no permutation and allocates no target layout.
+        static constexpr uint32_t kSliceGBufferCell        = 8;  // (Static x GBuffer): the surface override's
+        static constexpr uint32_t kSliceDepthCell          = 9;  // (Static x Depth) in the forward prepass
+        static constexpr uint32_t kSliceDepthNormalGBuffer = 10; // DepthNormal into the G-buffer
+        static constexpr uint32_t kSliceDepthNormalPrepass = 11; // DepthNormal in the forward prepass (depth only)
+        static constexpr uint32_t kSlicePrograms           = 12;
+        [[nodiscard]] static constexpr uint32_t ForwardSliceIndex( const bool rayTracedSun, const bool localMasks,
+                                                                   const bool virtualLocal ) noexcept
+        {
+            return ( rayTracedSun ? 1u : 0u ) | ( localMasks ? 2u : 0u ) | ( virtualLocal ? 4u : 0u );
+        }
+        struct SliceProgram
+        {
+            bool                    Asked = false;
+            bool                    Own   = false; // a cell or a permutation, not the template's own program
+            std::shared_ptr<Shader> Program;       // null: refused (said once, when asked)
+            Core::ShaderVariant     Permutation;   // the forward ones' (default for a cell)
+            // The pipeline tracker's and the shared material's name: the program's name + "|define" per define.
+            std::string Key;
+            // GenericPipelineSpec with DebugName "GenericMesh_<Key>" and the slice's target and depth state (none
+            // for the G-buffer cell, which draws through CellPipeline). The layouts are constants
+            // (ViewTargetLayouts).
+            GraphicsPipelineSpecification Spec;
+            // THE DRAW COMMAND'S HANDLES (CPU-FRAME-ARENA 13; UE FMeshDrawCommand keeps its PSO and material
+            // binding, the frame walks them). Made on first use, dropped with the facts (code generation,
+            // RecompileGeneration), so a draw hashes no string and re-checks no spec:
+            // - the pipeline tracker's row of Key (MaterialPipelineTracker::RowOf: rows are never erased);
+            MaterialPipelineTracker::Row* PipelineRow = nullptr;
+            // - GetOrCreateMaterial( Spec )'s answer, while the pipeline cache's Generation is BuiltGeneration
+            //   (a Clear / InvalidateByShader moves it; an insert does not);
+            std::optional<Common::ResultStr<std::shared_ptr<GraphicsPipeline>>> Built;
+            uint64_t                                                            BuiltGeneration = 0;
+            // - the shared Shader Override material of (Key x texture set), by GenericTextureSetOf's id: a
+            //   value of m_GenericMaterials, which only ever inserts. An integer hash per draw, the string key is
+            //   assembled on the first draw of a (slice program x texture set) alone.
+            std::unordered_map<uint32_t, DataDrivenMaterial*> Materials;
+        };
         struct ProgramFacts
         {
             uint64_t                CodeGeneration = 0;
@@ -2630,6 +2679,10 @@ namespace Desert::Graphic::System
             std::array<bool, 2>             TranslucentAsked{};
             TranslucentDraw*                FrontLayer      = nullptr; // FrontLayerDrawFor( *FrontLayerCell )'s
             bool                            FrontLayerAsked = false;
+            std::array<SliceProgram, kSlicePrograms> Slices{}; // SliceProgramOf's, asked on first use
+            // RegisterGenericRows' shared material of (template name x texture set), by GenericTextureSetOf's
+            // id: a value of m_GenericMaterials (insert only), so a record's row asks no string key a frame.
+            std::unordered_map<uint32_t, DataDrivenMaterial*> RowMaterials;
         };
         // A template program and its facts: what a material or a Shader Override record draws with.
         struct ResolvedProgram
@@ -2643,6 +2696,11 @@ namespace Desert::Graphic::System
         {
             std::string             Name;
             std::shared_ptr<Shader> Program;
+            // MaterialService::GetVariant's sibling per slice program (SlotVariantOf), valid while the asset's
+            // BuildRevision stands: an Invalidate retires the siblings and bumps it.
+            uint32_t                                        VariantRevision = 0;
+            std::array<DataDrivenMaterial*, kSlicePrograms> Variants{};
+            std::array<bool, kSlicePrograms>                VariantAsked{};
         };
         mutable std::unordered_map<uint64_t, ProgramFacts>                        m_ProgramFacts;
         mutable std::unordered_map<const DataDrivenMaterial*, MaterialProgramRow> m_MaterialPrograms;
@@ -2651,6 +2709,9 @@ namespace Desert::Graphic::System
         // Every m_GenericQueue record's template program, resolved once a frame (the first ask after the queue
         // changed): a slot draw's through m_MaterialPrograms (no name asked), a Shader Override's by its name.
         mutable std::vector<ResolvedProgram> m_GenericPrograms;
+        // The Shader Override name each m_GenericPrograms slot was resolved from (empty: a slot-material record
+        // or never resolved): compared, never hashed, so a stable queue order asks the service no name a frame.
+        mutable std::vector<std::string> m_GenericProgramNames;
         mutable bool                         m_GenericProgramsResolved = false;
         // Forgets every row when the shader service's RecompileGeneration moved.
         void SyncProgramFacts() const;
@@ -2660,6 +2721,33 @@ namespace Desert::Graphic::System
         ResolvedProgram ProgramOf( const DataDrivenMaterial& material ) const;
         // m_GenericQueue entry @p index's (a non-DataDriven slot material resolves to none).
         const ResolvedProgram& GenericProgramOf( std::size_t index ) const;
+        // m_GenericQueue entry @p index's texture-set key (GenericTextureKey), made with its program once a frame.
+        const std::string&               GenericTextureKeyOf( std::size_t index ) const;
+        mutable std::vector<std::string> m_GenericTextureKeys; // per queue entry, capacity kept across frames
+        mutable std::vector<const std::pair<std::string, uint64_t>*> m_GenericTextureOrder; // its sort scratch
+        // m_GenericQueue entry @p index's texture set as an integer (1..): equal keys, equal ids. Interned when
+        // the key at a queue slot differs from the one the slot held last frame (a compare, never a hash, for
+        // a stable producer order), never per draw.
+        uint32_t                                          GenericTextureSetOf( std::size_t index ) const;
+        mutable std::vector<uint32_t>                     m_GenericTextureSets;       // per queue entry, 0 = none
+        mutable std::string                               m_GenericTextureKeyScratch; // the key being compared
+        mutable std::unordered_map<std::string, uint32_t> m_GenericTextureSetIds;     // interned, insert only
+        // The shared Shader Override material of @p key (m_GenericMaterials, made with @p shader on a miss):
+        // asked on the first use of a (program x texture set) alone; the callers keep the answer by id.
+        DataDrivenMaterial* SharedGenericMaterial( const std::string& key, std::size_t index,
+                                                   const std::shared_ptr<Shader>& shader );
+        std::string         m_GenericMaterialKey; // m_GenericMaterials' lookup key, assembled in place on a miss
+        // @p facts' slice program @p index of the template @p program (null: refused or absent, said once).
+        SliceProgram* SliceProgramOf( ProgramFacts& facts, const std::shared_ptr<Shader>& program,
+                                      uint32_t index );
+        // @p slice's pipeline tracker row (RowOf its Key, asked once per slice program).
+        MaterialPipelineTracker::Row& SliceRowOf( SliceProgram& slice );
+        // @p slice's GetOrCreateMaterial( Spec ) answer, asked again only when the cache's Generation moved.
+        const Common::ResultStr<std::shared_ptr<GraphicsPipeline>>& SlicePipelineOf( SliceProgram& slice );
+        // @p material's sibling for slice program @p index (MaterialService::GetVariant, asked once per build
+        // revision of its asset; see MaterialProgramRow).
+        DataDrivenMaterial* SlotVariantOf( DataDrivenMaterial& material, uint32_t index, MeshPass pass,
+                                           const Core::ShaderVariant& permutation );
         // The translucency pass's / the front layer's draw state of @p mat's (non-null) template, by its facts.
         TranslucentDraw* TranslucentDrawOf( const DataDrivenMaterial* mat );
         TranslucentDraw* FrontLayerDrawOf( const DataDrivenMaterial* mat );
@@ -3186,6 +3274,11 @@ namespace Desert::Graphic::System
         // key that ignored them would batch two entities into one descriptor set and give both the last
         // one's textures.
         std::vector<GenericMeshRenderData>                              m_GenericQueue;
+        // Last frame's generic records (ClearQueues swaps the queue in): SubmitGenericMesh copy-assigns each new
+        // record into the spare at its position, so the record's strings and override vectors reuse the buffers
+        // they had (UE's FMeshBatch arrays reused frame to frame), and moves it into the queue. Never read as
+        // records: their raw pointers are last frame's and are only overwritten.
+        std::vector<GenericMeshRenderData>                                   m_GenericSpare;
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericMaterials;
 
         // AL1-12: which material pipelines this renderer asked for and what they are doing; how far it has
@@ -3805,8 +3898,28 @@ namespace Desert::Graphic::System
                 std::vector<const StaticMeshRenderData*> Instances; // the batches' objects, batch after batch
                 std::vector<ObjDraw>                     Singles;   // the per-object draws, in bucket order
             };
+            // The walk's masks unlike an entry's own HiddenSubmeshes, DENSE BY m_StaticQueue POSITION (UE's
+            // per-primitive visibility arrays): At[i] = 0 for the entry's own mask, else 1 + its row in Masks.
+            // Reset per planning call (zeroed with its capacity kept), copied whole by the Rest half's Resolve.
+            struct WalkedMasks
+            {
+                std::vector<uint32_t>    At;
+                std::vector<SubmeshMask> Masks;
+                void                     Reset( const std::size_t records ) noexcept
+                {
+                    At.assign( records, 0u );
+                    Masks.clear();
+                }
+                void Set( const std::size_t record, const SubmeshMask& mask ) noexcept
+                {
+                    if ( record >= At.size() )
+                        return; // not a record of this queue: its own mask stands
+                    Masks.push_back( mask );
+                    At[record] = static_cast<uint32_t>( Masks.size() );
+                }
+            };
             std::vector<StaticGroup>                                     WalkGroups;
-            std::unordered_map<const StaticMeshRenderData*, SubmeshMask> Walked; // masks unlike the entry's
+            WalkedMasks                                                  Walked;
             std::vector<StaticGroup>                                     Groups;
             std::vector<StaticGroupPlan>                                 GroupPlans;
             bool                                                         Planned = false; // Resolve completed
@@ -4008,6 +4121,48 @@ namespace Desert::Graphic::System
             uint64_t                        Gather = 0;
         };
         StaticInstanceSnapshot m_StaticSnapshot;
+        // THE STATIC QUEUE'S HOT COLUMNS (CPU-FRAME-ARENA 14; UE FScene's dense primitive arrays -
+        // PrimitiveBounds, PrimitiveVisibilityIds, PrimitiveSceneProxies by packed index): what every per-view
+        // walk of m_StaticQueue reads per record, one dense array per field indexed by queue position, so a walk
+        // streams a few bytes per record instead of the fat StaticMeshRenderData (its transform, its slot
+        // binding's shared_ptr, its flags) and asks no section surface (a dynamic_cast and the template's path)
+        // per record per view. Built by SyncGpuScene, once per view sync, AFTER ApplyDisplacement has swapped any
+        // record's mesh and slots and in the same pass that names each record's GpuScene primitive; emptied by
+        // ClearQueues. A pass runs only after the sync (SceneRenderer draws nothing without it), so a record past
+        // Count() was queued after it: it has no GpuScene row and no material row either, and the walks skip it
+        // (StaticColumnsHave).
+        struct StaticWalkColumns
+        {
+            static constexpr uint8_t kHasSlots    = 1u << 0u;  // the record holds a slot binding (MaterialSlots)
+            static constexpr uint8_t kCastsShadow = 1u << 1u;  // StaticMeshRenderData::CastShadows
+            static constexpr uint8_t kMasked      = 1u << 2u;  // SectionShading::Masked
+            static constexpr uint8_t kTranslucent = 1u << 3u;  // SectionShading::Translucent
+            std::vector<const Desert::Mesh*>       Meshes;     // StaticMeshRenderData::Mesh (displaced included)
+            std::vector<GpuDriven::PrimitiveIndex> Primitives; // StaticMeshRenderData::GpuPrimitive
+            std::vector<uint64_t>                  Hidden;     // StaticMeshRenderData::HiddenSubmeshes
+            std::vector<MaterialInstance*>         Instances;  // the section's surface (ShadingOf): its instance,
+            std::vector<DataDrivenMaterial*>       Surfaces;   // and its template (null: no mesh-cell surface)
+            std::vector<uint8_t>                   Flags;
+            [[nodiscard]] std::size_t              Count() const noexcept
+            {
+                return Primitives.size();
+            }
+            void Clear() noexcept
+            {
+                Meshes.clear();
+                Primitives.clear();
+                Hidden.clear();
+                Instances.clear();
+                Surfaces.clear();
+                Flags.clear();
+            }
+        };
+        StaticWalkColumns m_StaticColumns;
+        // Whether m_StaticQueue entry @p index has its columns (m_StaticColumns): synced this view.
+        [[nodiscard]] bool StaticColumnsHave( const std::size_t index ) const noexcept
+        {
+            return index < m_StaticColumns.Count();
+        }
         // Whether m_StaticQueue entry @p index (whose Mesh is set) is in @p frustum: the snapshot's box when it
         // is of this gather, else the box IsVisibleInView builds from the entry (the same box, the same answer).
         [[nodiscard]] bool StaticEntryInView( const Core::Frustum& frustum, std::size_t index ) const;

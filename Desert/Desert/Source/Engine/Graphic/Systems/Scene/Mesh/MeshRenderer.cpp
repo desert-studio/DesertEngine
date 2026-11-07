@@ -230,7 +230,11 @@ namespace Desert::Graphic::System
     void MeshRenderer::ClearQueues()
     {
         m_StaticQueue.clear();
+        m_StaticColumns.Clear(); // the next view sync rebuilds them (SyncGpuScene)
         m_SkinnedQueue.clear();
+        // This frame's generic records become the spares the next frame's SubmitGenericMesh assigns into (their
+        // buffers kept); the queue takes the old spares' shells (moved from: no buffers) and drops them.
+        m_GenericQueue.swap( m_GenericSpare );
         m_GenericQueue.clear();
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         m_InstancedQueue.clear();
@@ -279,7 +283,18 @@ namespace Desert::Graphic::System
         // set — the shader name comes from the material at draw time).
         if ( data.Mesh && ( !data.ShaderName.empty() || data.SlotMaterial ) )
         {
-            m_GenericQueue.push_back( data );
+            // The record is copy-ASSIGNED into last frame's record at the same position (m_GenericSpare), whose
+            // strings and override lists keep their buffers, then moved into the queue: a steady scene copies
+            // its names, samplers and overrides into storage it already holds instead of allocating them anew.
+            const std::size_t at = m_GenericQueue.size();
+            if ( at < m_GenericSpare.size() )
+            {
+                GenericMeshRenderData& kept = m_GenericSpare[at];
+                kept                        = data;
+                m_GenericQueue.push_back( std::move( kept ) );
+            }
+            else
+                m_GenericQueue.push_back( data );
             m_GenericProgramsResolved = false;
         }
     }
@@ -1961,11 +1976,12 @@ namespace Desert::Graphic::System
                 Value( mesh->GetRenderRevision() );
             }
         };
-        const auto staticContent = []( const StaticMeshRenderData& data )
+        // @p shading: the record's ShadingOf, asked once by the gather below (it fills the walk columns too).
+        const auto staticContent = []( const StaticMeshRenderData& data, const SectionShading& shading )
         {
             ContentWords words;
             words.MeshOf( data.Mesh );
-            words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
+            words.Section( data.HiddenSubmeshes, shading );
             // The slot whose submeshes the entry shades with: a reader of the entry's section (the cascades'
             // static part, CascadeStaticSignature) keys it, so it is part of the record's content.
             words.Value( static_cast<uint64_t>( data.SectionSlot ) );
@@ -2016,15 +2032,42 @@ namespace Desert::Graphic::System
         auto& rigid = m_ScratchRigidRecords;
         rigid.clear();
         rigid.reserve( m_StaticQueue.size() + m_GenericQueue.size() + otherRigid.size() );
+        // The static queue's walk columns (m_StaticColumns), rebuilt with the records' shading: the vectors keep
+        // their capacity, the primitives are written below once the registry named them.
+        StaticWalkColumns& columns = m_StaticColumns;
+        columns.Clear();
+        columns.Meshes.reserve( m_StaticQueue.size() );
+        columns.Primitives.reserve( m_StaticQueue.size() );
+        columns.Hidden.reserve( m_StaticQueue.size() );
+        columns.Instances.reserve( m_StaticQueue.size() );
+        columns.Surfaces.reserve( m_StaticQueue.size() );
+        columns.Flags.reserve( m_StaticQueue.size() );
         for ( const auto& data : m_StaticQueue )
-            rigid.push_back( { .Entity = data.Entity,
-                               .Part   = data.MotionPart,
-                               .World  = data.Transform,
+        {
+            const SectionShading shading = ShadingOf( data );
+            uint8_t              flags   = 0u;
+            if ( data.MaterialSlots )
+                flags |= StaticWalkColumns::kHasSlots;
+            if ( data.CastShadows )
+                flags |= StaticWalkColumns::kCastsShadow;
+            if ( shading.Masked )
+                flags |= StaticWalkColumns::kMasked;
+            if ( shading.Translucent )
+                flags |= StaticWalkColumns::kTranslucent;
+            columns.Meshes.push_back( data.Mesh );
+            columns.Hidden.push_back( data.HiddenSubmeshes );
+            columns.Instances.push_back( shading.Instance );
+            columns.Surfaces.push_back( shading.Surface );
+            columns.Flags.push_back( flags );
+            rigid.push_back( { .Entity    = data.Entity,
+                               .Part      = data.MotionPart,
+                               .World     = data.Transform,
                                .Mesh      = data.Mesh,
                                .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
                                .ForcedLod = data.ForcedLOD,
                                .LodBias   = data.LODBias,
-                               .Content   = staticContent( data ) } );
+                               .Content   = staticContent( data, shading ) } );
+        }
         for ( const auto& data : m_GenericQueue )
             rigid.push_back( { .Entity = data.Entity,
                                .Part   = data.MotionPart,
@@ -2083,6 +2126,7 @@ namespace Desert::Graphic::System
         {
             data.GpuPrimitive = rows.RigidPrimitives[record];
             data.GpuInstance  = rows.RigidInstances[record++];
+            columns.Primitives.push_back( data.GpuPrimitive );
         }
         for ( auto& data : m_GenericQueue )
         {
@@ -2112,17 +2156,19 @@ namespace Desert::Graphic::System
         // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
         // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
         BeginMaterialRowSync();
-        for ( auto& data : m_StaticQueue )
+        // The section's surface from its column (the gather's ShadingOf: SectionSurface, the same answer).
+        for ( std::size_t si = 0; si < m_StaticQueue.size(); ++si )
         {
-            if ( !data.MaterialSlots )
+            StaticMeshRenderData&     data    = m_StaticQueue[si];
+            MaterialInstance* const   inst    = columns.Instances[si];
+            DataDrivenMaterial* const surface = columns.Surfaces[si];
+            if ( inst == nullptr || surface == nullptr )
                 continue;
-            if ( const auto slot = MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
-            {
-                const uint32_t receiving = RegisterMaterialRow( registry, slot.Surface, slot.Instance, true );
-                data.MaterialRow         = data.ReceiveShadows
-                                                ? receiving
-                                                : RegisterMaterialRow( registry, slot.Surface, slot.Instance, false );
-            }
+            const uint32_t receiving = RegisterMaterialRow( registry, surface, inst, true );
+            if ( data.ReceiveShadows )
+                data.MaterialRow = receiving;
+            else
+                data.MaterialRow = RegisterMaterialRow( registry, surface, inst, false );
         }
         for ( const auto& data : m_InstancedQueue )
             if ( data.Material )

@@ -964,6 +964,48 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "MeshRenderer", "m_ScratchGenericRows", Guard::OwnedByThisObject,
           "a reused scratch vector; the DataDrivenMaterial* in it are owned by MaterialService for longer than the frame" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "ProgramFacts", "FrontLayer", Guard::OwnedByThisObject,
+          "FrontLayerDrawFor's answer: a unique_ptr value of m_FrontLayer, a member of this MeshRenderer that "
+          "only ever inserts (no erase), so the pointee does not move on rehash; the facts row holding it is "
+          "forgotten with every m_ProgramFacts row (SyncProgramFacts) before m_FrontLayer could be" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "ResolvedProgram", "Facts", Guard::OwnedByThisObject,
+          "points at a value of m_ProgramFacts (an unordered_map: node-based, an insert does not move it); "
+          "every holder (m_GenericPrograms, the ProgramOf locals) is re-resolved in GenericProgramOf after "
+          "SyncProgramFacts clears the map, and a local never outlives the pass that asked" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "SliceProgram", "PipelineRow", Guard::OwnedByThisObject,
+          "points at a row of m_MaterialPipelines (MaterialPipelineTracker::RowOf), a member of this MeshRenderer "
+          "whose node-based maps are never erased from, so the row outlives the slice program holding it; the "
+          "slice program is forgotten with its m_ProgramFacts row (FactsOf, SyncProgramFacts)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "SliceProgram", "Materials", Guard::OwnedByThisObject,
+          "values of m_GenericMaterials (unique_ptr values of a member of this MeshRenderer that only ever "
+          "inserts, so the pointees never move or die before the renderer); the map is forgotten with its "
+          "slice program's m_ProgramFacts row" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "ProgramFacts", "RowMaterials", Guard::OwnedByThisObject,
+          "values of m_GenericMaterials (unique_ptr values of a member of this MeshRenderer that only ever "
+          "inserts); the map is forgotten with its m_ProgramFacts row (FactsOf, SyncProgramFacts)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "MeshRenderer", "m_GenericTextureOrder", Guard::OwnedByThisObject,
+          "a reused sort scratch of WriteGenericTextureKey: the pairs it points at are the texture overrides of"
+          " the m_GenericQueue record being keyed, and it is cleared and refilled inside that one call" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "StaticWalkColumns", "Meshes", Guard::FrameScoped,
+          "each m_StaticQueue record's Mesh, copied by SyncGpuScene after ApplyDisplacement and emptied by "
+          "ClearQueues: held for the frame by the ECS component, the primitive factory or the displacement cache "
+          "(a twin, kept past the frame's draws), exactly as the record's own Mesh is" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "StaticWalkColumns", "Instances", Guard::FrameScoped,
+          "ShadingOf's instance per m_StaticQueue record, written by SyncGpuScene and emptied by ClearQueues: "
+          "selected out of the record's MaterialSlots binding, which co-owns it (shared_ptr) for the frame "
+          "(A8-3)" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "StaticWalkColumns", "Surfaces", Guard::FrameScoped,
+          "the parent material of the Instances column's entry at the same position (ShadingOf), which that "
+          "instance holds by shared_ptr: it lives as long as the instance, emptied with it by ClearQueues" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp",
           "SurfaceSlot", "Instance", Guard::CallScoped,
           "SectionSurface's return value (declared in MeshRendererInternal.hpp, defined in MeshRenderer.cpp), consumed by the caller in the same statement block: it is selected out of the MaterialSlots binding of the queue entry being walked, which co-owns it for the frame's passes (A8-3)" },
