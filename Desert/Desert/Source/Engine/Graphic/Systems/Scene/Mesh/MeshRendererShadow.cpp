@@ -2019,7 +2019,8 @@ namespace Desert::Graphic::System
         // draws' matrices); a pipeline still compiling or refused leaves the ISMs on the packed matrices.
         const bool ismIds = instancingOn && casters.InstancedSceneIds != nullptr &&
                             m_ShadowInstancedIdMaterial[c] && m_FrameSceneInstances.IsValid() &&
-                            casters.InstancedSceneIds->GetReadiness() == PipelineReadiness::Ready;
+                            casters.InstancedSceneIds->GetReadiness() == PipelineReadiness::Ready &&
+                            m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer() != nullptr;
 
         // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
         // safety of culling a shadow pass at all. An object behind the camera casts into
@@ -2653,6 +2654,14 @@ namespace Desert::Graphic::System
             if ( auto* sb = idMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( shadowIsmIds.data(),
                                 static_cast<uint32_t>( shadowIsmIds.size() * sizeof( uint32_t ) ) );
+            // The instance's primitive row (Vertex_Instanced.glslh DESERT_SURFACE_SCENE_INSTANCES: LocalToWorld,
+            // wind) is read from the scene's GpuScenePrimitives: a light view carries no scene frame
+            // (CaptureFrameState binds view passes only), so the id caster's own material is lent the table here,
+            // for every view this list feeds (cascades, local lights, rain occlusion), as a skinned caster's is.
+            // The table is there by ismIds; the block is the id cell's by construction (it reads the rows).
+            auto* rows = idMat->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
+            DESERT_VERIFY( rows != nullptr, "the shadow id caster reads no GpuScenePrimitives block" );
+            rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
             list.SetSceneInstances( m_FrameSceneInstances );
             for ( const auto& b : idBatches )
             {
@@ -2688,12 +2697,13 @@ namespace Desert::Graphic::System
             // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
             const auto path = MeshCellPath( set.Caster->GetShaderName() );
             // A skinned caster also reads its primitive's skin-cache fields from the scene's GpuScene
-            // (Vertex_Skinned.glslh).
-            if ( path == MeshVertexPath::Skinned )
+            // (Vertex_Skinned.glslh), and a masked ISM caster by id its instances' primitive rows
+            // (Vertex_Instanced.glslh DESERT_SURFACE_SCENE_INSTANCES): a light view carries no scene frame.
+            if ( path == MeshVertexPath::Skinned || set.SceneIds )
             {
                 auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
                 const bool bound = rows != nullptr && m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer();
-                DESERT_VERIFY( bound, "a skinned masked caster reads GpuScenePrimitives but the view carries none" );
+                DESERT_VERIFY( bound, "a masked caster reads GpuScenePrimitives but the view carries none" );
                 rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
             }
             const std::optional<RDG::StorageBufferParameter> own =
