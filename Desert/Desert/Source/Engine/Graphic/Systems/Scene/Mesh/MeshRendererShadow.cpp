@@ -2006,6 +2006,13 @@ namespace Desert::Graphic::System
         // group of >= 2 identical meshes collapses into ONE instanced draw per cascade. This is
         // the dominant cost in the 256-mesh stress test (256x4 per-object draws -> 4 draws).
         const bool instancingOn = casters.Instanced != nullptr && m_ShadowInstancedMaterial[c];
+        // CPU-ISM-PACK 6 (UE: a shadow view draws its instances from GPU Scene by its own id list): this view's
+        // ISM casters name their GpuScene rows (FirstGpuInstance + index, 4 B each) instead of packing matrices,
+        // once the id caster's pipeline is built. A virtual shadow map level has none (its GPU cull reads the
+        // draws' matrices); a pipeline still compiling or refused leaves the ISMs on the packed matrices.
+        const bool ismIds = instancingOn && casters.InstancedSceneIds != nullptr &&
+                            m_ShadowInstancedIdMaterial[c] && m_FrameSceneInstances.IsValid() &&
+                            casters.InstancedSceneIds->GetReadiness() == PipelineReadiness::Ready;
 
         // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
         // safety of culling a shadow pass at all. An object behind the camera casts into
@@ -2115,6 +2122,8 @@ namespace Desert::Graphic::System
             auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
             set.Caster = caster;
             set.Transforms.clear();
+            set.Ids.clear();
+            set.SceneIds = false;
             return set;
         };
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
@@ -2219,9 +2228,13 @@ namespace Desert::Graphic::System
         auto& instTransforms = m_ScratchInstTransforms;
         auto& batches        = m_ScratchShadowBatches;
         auto& singles        = m_ScratchShadowSingles;
+        auto& idBatches      = m_ScratchShadowIdBatches;
+        auto& shadowIsmIds   = m_ScratchShadowIsmIds;
         instTransforms.clear();
         batches.clear();
         singles.clear();
+        idBatches.clear();
+        shadowIsmIds.clear();
         for ( auto& [meshKey, bucket] : byMesh )
         {
             Desert::Mesh* const mesh = meshKey.first;
@@ -2327,14 +2340,20 @@ namespace Desert::Graphic::System
                     const InstanceWind wind = swaying ? ism.Wind : InstanceWind{};
                     auto& visible = m_ScratchIsmVisible;
                     auto& levels  = m_ScratchLodLevels;
+                    auto&              visibleIds = m_ScratchIsmVisibleIds;
                     visible.clear();
                     levels.clear();
+                    visibleIds.clear();
                     for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
                     {
                         if ( instanceSways( k ) != swaying || !VisibleBit( m_ScratchCasterBits, k - field.First ) )
                             continue;
                         visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
                         levels.push_back( gathered.Instances[k].LodLevel );
+                        // Its GpuScene row (MeshRenderer.hpp InstancedDraw::FirstGpuInstance: field instance i is
+                        // row FirstGpuInstance + i), the id this view's id casters read it by.
+                        if ( ismIds )
+                            visibleIds.push_back( ism.FirstGpuInstance + gathered.InstanceIndex[k] );
                     }
                     if ( visible.empty() )
                         continue;
@@ -2347,7 +2366,27 @@ namespace Desert::Graphic::System
                                             : nullptr;
                     if ( isMasked( ismMat ) )
                     {
-                        auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
+                        // By id: the template's (Instanced x ShadowDepth) cell in SurfaceSceneInstancesVariant, on
+                        // this view's own copy, once its pipeline is built; else the packed-matrix caster.
+                        DataDrivenMaterial* caster = nullptr;
+                        bool                byId   = false;
+                        // The permutation lookup interns the sibling (a write): never from a setup task
+                        // (the forward pass's MissInSetupTask rule); there the packed-matrix caster draws.
+                        if ( ismIds && !::Common::TaskGroup::InTask() )
+                        {
+                            DataDrivenMaterial* const idCaster =
+                                 Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
+                                      ismMat, MeshVertexPath::Instanced, casters.Pass, c,
+                                      SurfaceSceneInstancesVariant(), nullptr );
+                            GraphicsPipeline* idPipeline = nullptr;
+                            if ( idCaster != nullptr )
+                                idPipeline = MaskedCasterPipeline( *idCaster, MeshVertexPath::Instanced, casters );
+                            byId = idPipeline != nullptr && idPipeline->GetReadiness() == PipelineReadiness::Ready;
+                            if ( byId )
+                                caster = idCaster;
+                        }
+                        if ( !byId )
+                            caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
                         if ( caster == nullptr )
                         {
                             continue; // refused by name, once
@@ -2357,17 +2396,22 @@ namespace Desert::Graphic::System
                         {
                             continue;
                         }
-                        auto& set = maskedSetFor( caster );
+                        auto& set    = maskedSetFor( caster );
+                        set.SceneIds = byId;
                         for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                         {
-                            const auto first = static_cast<uint32_t>( set.Transforms.size() );
+                            const std::size_t setSize = byId ? set.Ids.size() : set.Transforms.size();
+                            const auto        first   = static_cast<uint32_t>( setSize );
                             for ( std::size_t i = 0; i < visible.size(); ++i )
                             {
-                                if ( levels[i] == level )
-                                {
+                                if ( levels[i] != level )
+                                    continue;
+                                if ( byId )
+                                    set.Ids.push_back( visibleIds[i] );
+                                else
                                     set.Transforms.push_back( visible[i] );
-                                }
                             }
+                            const std::size_t setEnd = byId ? set.Ids.size() : set.Transforms.size();
                             MaskedCasterDraw draw;
                             draw.Set      = &set;
                             draw.Path     = MeshVertexPath::Instanced;
@@ -2375,7 +2419,7 @@ namespace Desert::Graphic::System
                             draw.HiddenSubmeshMask = ismHidden;
                             draw.Instance = ismInst;
                             draw.Row      = *row;
-                            draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
+                            draw.Count             = static_cast<uint32_t>( setEnd ) - first;
                             draw.First    = first;
                             draw.LodLevel = level;
                             draw.Wind     = PackInstanceWind( wind );
@@ -2387,6 +2431,19 @@ namespace Desert::Graphic::System
 
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
+                        if ( ismIds )
+                        {
+                            // By id: the batch's slice of this view's id list (the id material's
+                            // InstanceTransforms), its rows the scene's GpuScene instances.
+                            const auto first = static_cast<uint32_t>( shadowIsmIds.size() );
+                            for ( std::size_t i = 0; i < visibleIds.size(); ++i )
+                                if ( levels[i] == level )
+                                    shadowIsmIds.push_back( visibleIds[i] );
+                            idBatches.push_back( ShadowBatch{
+                                 ism.Mesh, static_cast<uint32_t>( shadowIsmIds.size() ) - first, first, level,
+                                 ismHidden, PackInstanceWind( wind ), WindBoundsPad( wind ) } );
+                            continue;
+                        }
                         const auto first = static_cast<uint32_t>( instTransforms.size() );
                         for ( std::size_t i = 0; i < visible.size(); ++i )
                             if ( levels[i] == level )
@@ -2578,6 +2635,32 @@ namespace Desert::Graphic::System
                             .BoundsPad = b.BoundsPad } );
             }
         }
+        // The ISMs by id (CPU-ISM-PACK 6): this view's own id list, uploaded once, its rows the scene's GpuScene
+        // instances (the list binds them to the id material's block). No .Instances: only a virtual shadow map
+        // level's GPU cull reads them, and a level draws no id caster (ismIds).
+        if ( ismIds && !idBatches.empty() )
+        {
+            auto* idMat = m_ShadowInstancedIdMaterial[c].get();
+            idMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                   m_CascadeCasterBias[c], m_ParallaxQuality, viewWind );
+            if ( auto* sb = idMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
+                sb->SetRawData( shadowIsmIds.data(),
+                                static_cast<uint32_t>( shadowIsmIds.size() * sizeof( uint32_t ) ) );
+            list.SetSceneInstances( m_FrameSceneInstances );
+            for ( const auto& b : idBatches )
+            {
+                list.Add( { .Pipeline          = casters.InstancedSceneIds,
+                            .Mesh              = b.Mesh,
+                            .Transform         = glm::mat4( 1.0f ),
+                            .Material          = idMat->GetMaterialExecutor(),
+                            .InstanceCount     = b.Count,
+                            .FirstInstance     = b.First,
+                            .HiddenSubmeshMask = b.HiddenSubmeshMask,
+                            .LodLevel          = b.LodLevel,
+                            .Push              = DrawPushFields{}.Wind( b.Wind ),
+                            .BoundsPad         = b.BoundsPad } );
+            }
+        }
 
         // Masked casters: each copy's rows and transforms uploaded once, here in setup, its camera set to THIS
         // cascade (the copy is this cascade's alone); then its draws, in collection order.
@@ -2591,7 +2674,7 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            if ( set.Transforms.empty() )
+            if ( set.SceneIds ? set.Ids.empty() : set.Transforms.empty() )
             {
                 continue;
             }
@@ -2614,8 +2697,18 @@ namespace Desert::Graphic::System
             }
             if ( auto* sb = set.Caster->Get<StorageBufferProperty>( *own ) )
             {
-                sb->SetRawData( set.Transforms.data(),
-                                static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                // A caster by id (SurfaceSceneInstancesVariant): its block holds GpuScene instance ids, the rows
+                // the list binds (SetSceneInstances).
+                if ( set.SceneIds )
+                {
+                    sb->SetRawData( set.Ids.data(), static_cast<uint32_t>( set.Ids.size() * sizeof( uint32_t ) ) );
+                    list.SetSceneInstances( m_FrameSceneInstances );
+                }
+                else
+                {
+                    sb->SetRawData( set.Transforms.data(),
+                                    static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                }
             }
         }
         bool maskedPending = false;
@@ -2658,7 +2751,7 @@ namespace Desert::Graphic::System
                        return push;
                    }(),
                    .Instances =
-                        instanced
+                        instanced && !draw.Set->SceneIds
                              ? std::span<const glm::mat4>( draw.Set->Transforms ).subspan( draw.First, draw.Count )
                              : std::span<const glm::mat4>{},
                    .BoundsPad   = draw.BoundsPad,
