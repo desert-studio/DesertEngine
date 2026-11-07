@@ -8,7 +8,8 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Core/Logger.hpp>
 
-#include <unordered_set>
+#include <algorithm>
+#include <vector>
 #include <vector>
 
 namespace Desert::ECS
@@ -62,7 +63,8 @@ namespace Desert::ECS
         auto* types  = Runtime::ResourceRegistry::GetFoliageTypeService();
         auto* meshes = Runtime::ResourceRegistry::GetMeshService();
 
-        std::unordered_set<entt::entity> live;
+        std::vector<entt::entity>&       live   = m_Live;
+        live.clear();
         auto                             fields = registry.view<FoliageComponent, InstancedStaticMeshComponent>();
         for ( const entt::entity entity : fields )
         {
@@ -74,14 +76,14 @@ namespace Desert::ECS
             {
                 // Still being read (or failed, said by the service): keep what stands until the type is known.
                 if ( m_Bodies.contains( entity ) )
-                    live.insert( entity );
+                    live.push_back( entity );
                 continue;
             }
             if ( type->IsPrefab() || !type->Collision.Enabled || ism.GetInstanceTransforms().empty() ||
                  ism.GetMeshHandle().IsNull() )
                 continue; // no body: swept below
 
-            live.insert( entity );
+            live.push_back( entity );
             if ( const auto found = m_Bodies.find( entity );
                  found != m_Bodies.end() && found->second.Revision == ism.GetInstanceRevision() &&
                  found->second.Mesh == ism.GetMeshHandle() && found->second.Collision == type->Collision )
@@ -132,10 +134,11 @@ namespace Desert::ECS
             m_Bodies.emplace( entity, field );
         }
 
+        std::sort( live.begin(), live.end() );
         // A field that left the view (its type stopped colliding, its instances went) loses its body.
         for ( auto it = m_Bodies.begin(); it != m_Bodies.end(); )
         {
-            if ( live.contains( it->first ) )
+            if ( std::binary_search( live.begin(), live.end(), it->first ) )
             {
                 ++it;
                 continue;

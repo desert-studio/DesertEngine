@@ -1620,7 +1620,9 @@ namespace Desert::Graphic::System
         void SubmitStaticScene( const Render::StaticSceneSnapshot&            scene,
                                 std::span<const Render::StaticSceneAdmission> admitted, uint64_t revision );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
-        void SubmitInstancedMesh( const InstancedMeshRenderData& data );
+        // By move like SubmitGpuInstanced (CPU-TAILS F10): the row's two material instances and its snapshot
+        // are not copied a second time into the queue.
+        void SubmitInstancedMesh( InstancedMeshRenderData&& data );
         // RENDER-CPU-COST-2: the row is handed over by move (the queue owns it from here), so its buffer handles
         // are not copied; one entry point, so the rule of what the queue accepts is written once.
         void SubmitGpuInstanced( GpuInstancedRenderData&& data );

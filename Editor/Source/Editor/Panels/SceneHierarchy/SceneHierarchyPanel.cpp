@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/EditorResources.hpp>
@@ -242,7 +243,6 @@ namespace Desert::Editor
 
         Utils::ImGuiUtilities::PushID();
 
-        std::string uuidStr     = UUID.ToString();
         // A foliage field's children are the prefab instances it realizes (derived state): the field row
         // is listed, they are not (UE's bHideFromSceneOutliner on the actors foliage spawns).
         const bool hasChildren = entity.HasComponent<ECS::RelationshipComponent>() &&
@@ -252,6 +252,40 @@ namespace Desert::Editor
         m_VisibleOrder.push_back( UUID ); // visible draw order (Shift+click range source)
 
         const bool isSelected = Core::SelectionManager::IsSelected( UUID );
+
+        // A row outside the outliner's clip rect (CPU-TAILS G9; UE: STreeView generates only the rows in view)
+        // still takes its height, its place in the Shift+click order and its open state - so its children
+        // keep their rows and their ids - but submits no widget and asks none of the drawn row's component
+        // questions. The row being renamed and the row being scrolled to always draw: both need their widget
+        // alive this frame. The height is the drawn row's: a FramePadding tree node plus the cell padding.
+        const void* nodeId    = (void*)(uint64_t)entity.GetHandle();
+        const float rowHeight = ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().CellPadding.y;
+        const bool  pinned    = ( m_RenamingEntity.has_value() && *m_RenamingEntity == UUID ) ||
+                            ( isSelected && m_ScrollToSelection );
+        ImGui::TableNextRow( ImGuiTableRowFlags_None, rowHeight );
+        ImGui::TableSetColumnIndex( 0 );
+        if ( !pinned && !ImGui::IsRectVisible( ImVec2( 1.0f, ImGui::GetFrameHeight() ) ) )
+        {
+            // The same storage slot TreeNodeEx reads (window state storage, keyed by the node's id), and the
+            // same reveal-on-select write SetNextItemOpen would make on the drawn path.
+            const ImGuiID nodeKey = ImGui::GetID( nodeId );
+            ImGuiStorage* storage = ImGui::GetStateStorage();
+            if ( m_ExpandToSelection.erase( static_cast<uint64_t>( UUID ) ) > 0 )
+                storage->SetInt( nodeKey, 1 );
+            if ( hasChildren && storage->GetInt( nodeKey, 0 ) != 0 )
+            {
+                ImGui::TreePush( nodeId );
+                auto& registry = *entity.GetRegistry();
+                for ( auto childHandle : entity.GetComponent<ECS::RelationshipComponent>().Children )
+                {
+                    ECS::Entity child( childHandle, registry );
+                    DrawEntityNode( child );
+                }
+                ImGui::TreePop();
+            }
+            Utils::ImGuiUtilities::PopID();
+            return;
+        }
 
         ImGuiTreeNodeFlags nodeFlags = isSelected ? ImGuiTreeNodeFlags_Selected : 0;
         nodeFlags |= ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_FramePadding |
@@ -297,9 +331,7 @@ namespace Desert::Editor
         const EntityTypeInfo& typeInfo  = EntityTypeOf( typeKind );
         const ImVec4          typeColor = ImVec4( typeInfo.R, typeInfo.G, typeInfo.B, 1.0f );
 
-        // Column 0: icon tree node + name
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex( 0 );
+        // Column 0: icon tree node + name (the row itself was begun above, before the off-screen test).
 
         // The icon takes the TYPE's colour, which is the whole point of having one: a list of thirty rows
         // is sorted into meshes / lights / environment / gameplay before a single name is read. A prefab
@@ -313,7 +345,7 @@ namespace Desert::Editor
             ImGui::SetNextItemOpen( true );
 
         ImGui::PushStyleColor( ImGuiCol_Text, iconColor );
-        bool nodeOpen = ImGui::TreeNodeEx( (void*)(uint64_t)entity.GetHandle(), nodeFlags, "%s", icon );
+        bool nodeOpen = ImGui::TreeNodeEx( nodeId, nodeFlags, "%s", icon );
         ImGui::PopStyleColor();
 
         if ( isSelected && m_ScrollToSelection )
@@ -411,7 +443,11 @@ namespace Desert::Editor
         }
 
         bool deleteEntity = false;
-        if ( ImGui::BeginPopupContextItem( uuidStr.c_str() ) )
+        // The row's popup id is its UUID in a stack buffer: a drawn row formats no heap string.
+        char popupId[24];
+        std::snprintf( popupId, sizeof( popupId ), "%llu",
+                       static_cast<unsigned long long>( static_cast<uint64_t>( UUID ) ) );
+        if ( ImGui::BeginPopupContextItem( popupId ) )
         {
             if ( ImGui::Selectable( "Rename" ) )
             {
