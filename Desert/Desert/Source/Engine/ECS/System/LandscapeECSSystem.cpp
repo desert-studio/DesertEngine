@@ -126,7 +126,7 @@ namespace Desert::ECS
         std::map<Coord, size_t> byCoord;
 
         // Unloaded tiles are in neither list (the loader said why; the sweep below frees them).
-        const DrawableLandscape landscape = DrawableLandscapeTiles( registry );
+        const DrawableLandscape& landscape = DrawableLandscapeTiles( registry );
         for ( const RefusedLandscapeTile& refused : landscape.Refused )
         {
             if ( !m_Warned.insert( refused.Entity ).second )

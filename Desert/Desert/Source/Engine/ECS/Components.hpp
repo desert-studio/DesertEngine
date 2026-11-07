@@ -1186,6 +1186,11 @@ namespace Desert::ECS
     // HELD BY VALUE, because the component is its one owner (PointerOwnership's Q1): a pointer here would
     // answer a sharing question nobody has asked yet. A consumer that must keep the tile across frames
     // (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
+    //
+    // ONE WRITER after construction: ECS::SetLandscapeTileHeights / ECS::EditLandscapeTile
+    // (LandscapeRootOf.hpp), both a registry.patch, so the shared tile table (DrawableLandscapeTiles) is
+    // rebuilt on exactly the changes that can move or refuse a tile. Sample values edited in place report
+    // through the tile's dirty rectangles instead.
     struct LandscapeTileComponent
     {
         Common::UUID Landscape = Common::UUID::Null(); // the root entity; null = no frame

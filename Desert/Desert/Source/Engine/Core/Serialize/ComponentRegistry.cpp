@@ -21,6 +21,7 @@
 #include <optional>
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRefSerialization.hpp>
@@ -443,33 +444,39 @@ namespace Desert::Core::Serialize
             {
                 if ( !block.ExpectKind( Common::Json::Kind::Object, issues ) )
                     return;
-                auto& comp = e.HasComponent<ECS::LandscapeTileComponent>()
-                                  ? e.GetComponent<ECS::LandscapeTileComponent>()
-                                  : e.AddComponent<ECS::LandscapeTileComponent>();
+                if ( !e.HasComponent<ECS::LandscapeTileComponent>() )
+                    e.AddComponent<ECS::LandscapeTileComponent>();
 
-                const std::string before = comp.HeightFile;
-                ReadComponent( block, comp, issues );
-                if ( comp.Heights && comp.HeightFile == before )
-                    return;
+                // Through the tile's one writer (a patch), so the shared tile table sees a re-read block.
+                ECS::EditLandscapeTile(
+                     *e.GetRegistry(), e.GetHandle(),
+                     [&block, &issues]( ECS::LandscapeTileComponent& comp )
+                     {
+                         const std::string before = comp.HeightFile;
+                         ReadComponent( block, comp, issues );
+                         if ( comp.Heights && comp.HeightFile == before )
+                             return;
 
-                comp.Heights.reset();
-                if ( comp.HeightFile.empty() )
-                {
-                    LOG_WARN( "[Landscape] tile ({0}, {1}) names no height file; it has no terrain until one is "
-                              "saved for it.",
-                              comp.TileX, comp.TileZ );
-                    return;
-                }
-                // HeightFile is a content key ("assets:..."): resolved through the mounted assets root, so the
-                // same record reads in the editor and in a package (SceneSerializer's WriteLandscapeTiles).
-                auto loaded = World::Landscape::ReadLandscapeTileByKey( comp.HeightFile );
-                if ( !loaded )
-                {
-                    LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,
-                               loaded.GetError() );
-                    return;
-                }
-                comp.Heights = loaded.ExtractValue();
+                         comp.Heights.reset();
+                         if ( comp.HeightFile.empty() )
+                         {
+                             LOG_WARN( "[Landscape] tile ({0}, {1}) names no height file; it has no terrain until "
+                                       "one is saved for it.",
+                                       comp.TileX, comp.TileZ );
+                             return;
+                         }
+                         // HeightFile is a content key ("assets:..."): resolved through the mounted assets root,
+                         // so the same record reads in the editor and in a package (SceneSerializer's
+                         // WriteLandscapeTiles).
+                         auto loaded = World::Landscape::ReadLandscapeTileByKey( comp.HeightFile );
+                         if ( !loaded )
+                         {
+                             LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,
+                                        loaded.GetError() );
+                             return;
+                         }
+                         comp.Heights = loaded.ExtractValue();
+                     } );
             };
             return s;
         }

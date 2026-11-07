@@ -1324,8 +1324,13 @@ namespace Desert::Core
             if ( const size_t count = groupEnd - i; count == 1 )
                 runOne( i );
             else
+            {
+                // The shared landscape tile table is brought up to date HERE, serially, so the group's
+                // readers (WaterZoneECSSystem) only read it (LandscapeRootOf.hpp, RefreshLandscapeTileTable).
+                ECS::RefreshLandscapeTileTable( m_Registry );
                 Common::JobSystem::Get().ParallelFor( count,
                                                       [&]( size_t local ) { runOne( i + local ); } );
+            }
             i = groupEnd;
         }
     }

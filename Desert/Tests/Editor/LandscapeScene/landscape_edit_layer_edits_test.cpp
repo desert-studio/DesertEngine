@@ -46,10 +46,11 @@ namespace
             EXPECT_TRUE( made.IsSuccess() );
             LandscapeTileData data = made.ExtractValue();
             EXPECT_TRUE( data.SetEditLayer( { base, data.Samples(), {} } ).IsSuccess() );
-            tile                = registry.create();
-            auto& component     = registry.emplace<ECS::LandscapeTileComponent>( tile );
+            tile = registry.create();
+            ECS::LandscapeTileComponent component;
             component.Landscape = landscape;
             component.Heights   = std::move( data );
+            registry.emplace<ECS::LandscapeTileComponent>( tile, std::move( component ) );
         }
 
         LandscapeEditLayerStack& Stack()
