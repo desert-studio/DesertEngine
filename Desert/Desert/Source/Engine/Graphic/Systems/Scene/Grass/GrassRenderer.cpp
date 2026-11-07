@@ -2943,8 +2943,12 @@ namespace Desert::Graphic::System
             cull.Hzb.w             = kCullModeCameraCull;
             GrassCullPush finalize = layOut;
             finalize.Hzb.w         = kCullModeCameraFinalize;
+            // GPU-HZB-SPD (UE InstanceCulling on the async pipe): the dispatch, the cull, the finalize and the
+            // gathers below request async compute; the graph forks after the tile builds' last write and joins
+            // before the first pass that reads the lists (CullPassFlags).
+            const RDG::PassFlags cullFlags = CullPassFlags();
             graph.AddPass(
-                 "Grass: Cull Dispatch", RDG::PassFlags::Compute,
+                 "Grass: Cull Dispatch", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageWrite );
@@ -2959,7 +2963,7 @@ namespace Desert::Graphic::System
                  { return DispatchOneGroup( context, *m_Cull, &layOut, sizeof( layOut ) ); } );
 
             graph.AddPass(
-                 "Grass: Camera Cull", RDG::PassFlags::Compute,
+                 "Grass: Camera Cull", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageRead );
@@ -2993,7 +2997,7 @@ namespace Desert::Graphic::System
                  } );
 
             graph.AddPass(
-                 "Grass: Camera Cull Finalize", RDG::PassFlags::Compute,
+                 "Grass: Camera Cull Finalize", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageWrite );
@@ -3333,6 +3337,11 @@ namespace Desert::Graphic::System
                     pass.Read( gpu->PostRefs.Args, RDG::Access::StorageRead );
             }
         };
+        // The camera's and cascades' gathers close the camera cull's async segment (CullPassFlags); the
+        // post-occlusion one follows its graphics-queue cull.
+        RDG::PassFlags flags = RDG::PassFlags::Compute;
+        if ( phase != kGpuDrawBinPostPhase )
+            flags = CullPassFlags();
         std::string clearName  = "Grass: Draw Gather Clear";
         std::string gatherName = "Grass: Draw Gather";
         if ( phase == kGpuDrawBinPostPhase )
@@ -3345,7 +3354,7 @@ namespace Desert::Graphic::System
             clearName += " Cascades";
             gatherName += " Cascades";
         }
-        graph.AddPass( clearName, RDG::PassFlags::Compute, declare,
+        graph.AddPass( clearName, flags, declare,
                        [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
                        {
                            GpuDrawBinFrame& bins    = m_DrawBins[phase];
@@ -3367,7 +3376,7 @@ namespace Desert::Graphic::System
                            const uint32_t groups = ( bins.Bins + 63u ) / 64u;
                            return Renderer::DispatchCompute( bindings, *m_DrawCompact, groups, 1, 1 );
                        } );
-        graph.AddPass( gatherName, RDG::PassFlags::Compute, declare,
+        graph.AddPass( gatherName, flags, declare,
                        [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
                        {
                            const GpuDrawBinFrame& bins = m_DrawBins[phase];

@@ -174,6 +174,12 @@ namespace Desert::Graphic::System
         {
             m_Quality = quality;
         }
+        // RenderPipeline.GrassCullAsync (GPU-HZB-SPD): the camera cull's passes (CullPassFlags) request the
+        // async compute pipe, or record on the graphics queue (the A/B). Set before AddFrame.
+        void SetCullAsync( bool enabled )
+        {
+            m_CullAsync = enabled;
+        }
 
         void ClearQueue()
         {
@@ -647,6 +653,7 @@ namespace Desert::Graphic::System
 
         std::vector<std::reference_wrapper<const GrassFieldDraw>>         m_Queue;
         GrassQuality                                                      m_Quality;
+        bool                                                              m_CullAsync = true;
         std::unordered_map<uint64_t, FieldGpu>                            m_Fields;
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
@@ -756,6 +763,16 @@ namespace Desert::Graphic::System
         // Opens phase @p phase's table (its buffers grown to this frame's varieties, in the graph) and adds its
         // clear and gather passes, which run after every draw setup of the frame filled the table.
         Common::BoolResultStr AddDrawGather( RDG::Builder& graph, uint32_t phase );
+        // The camera cull's flags (GPU-HZB-SPD, RenderPipeline.GrassCullAsync): Compute, plus AsyncCompute when
+        // m_CullAsync - the dispatch, the cull, the finalize and the camera's and cascades' gathers form one async
+        // segment the graph joins before the first grass draw. The post-occlusion passes stay on graphics: the
+        // current HZB they test is built just before them, so their join would follow at once.
+        [[nodiscard]] RDG::PassFlags CullPassFlags() const
+        {
+            if ( m_CullAsync )
+                return RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+            return RDG::PassFlags::Compute;
+        }
         mutable ShaderBindingLayoutCache m_CullLayout;
         // GRASS-CULL-2: the variety table (per frame in flight, WriteVarietyTable) and the last AddFrame graph's
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
