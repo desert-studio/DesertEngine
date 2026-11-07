@@ -94,10 +94,16 @@ namespace Desert::Graphic::Render
         }
 
         // The fence's intake for every section's mesh (an edited DynamicMesh's upload), as DrawStaticMeshCommand.
+        // Only when some mesh was marked stale since this snapshot was last prepared (Mesh::GetStaleEpoch; read
+        // before the walk, so an edit during it walks again next time): a still scene reads no section.
         void Prepare() override
         {
             if ( !Scene )
                 return;
+            const uint64_t epoch = Desert::Mesh::GetStaleEpoch();
+            if ( Scene->PreparedStaleEpoch == epoch )
+                return;
+            Scene->PreparedStaleEpoch = epoch;
             for ( const auto& chunk : Scene->Chunks )
                 for ( const StaticSceneSection& section : chunk->Sections )
                     if ( section.Mesh != nullptr )

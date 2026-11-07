@@ -1572,12 +1572,13 @@ namespace Desert::Graphic::System
         void SubmitMesh( const MeshRenderData& data );
         // THE RETAINED STATIC SCENE's sections this view admitted (SceneRenderer::SubmitStaticScene), queued as
         // the RETAINED PREFIX of m_StaticQueue (CPU-SCENE-DELTA 2; UE: FScene's primitives and their cached mesh
-        // draw commands live across frames, rebuilt on change). An admitted list equal to the last one over the
-        // same chunks keeps every entry as it is (no copy, no refcount, nothing rebuilt by SyncGpuScene); the
+        // draw commands live across frames, rebuilt on change). An admitted list of the last one's @p revision
+        // (SceneRenderer: a new one per change of the list, process-unique, 0 = none) over the same chunks keeps
+        // every entry as it is (no copy, no refcount, nothing rebuilt by SyncGpuScene); the
         // same list over a snapshot that replaced some chunks rewrites the entries of those chunks only; any
         // other list refills the prefix. Per-frame static submissions (SubmitMesh) stay a suffix behind it.
         void SubmitStaticScene( const Render::StaticSceneSnapshot&            scene,
-                                std::span<const Render::StaticSceneAdmission> admitted );
+                                std::span<const Render::StaticSceneAdmission> admitted, uint64_t revision );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         // RENDER-CPU-COST-2: the row is handed over by move (the queue owns it from here), so its buffer handles
@@ -3244,6 +3245,7 @@ namespace Desert::Graphic::System
         // them and drops the per-frame suffix; a view that replays no static scene drops them (SyncGpuScene).
         std::size_t                                                  m_StaticRetained = 0;
         std::vector<Render::StaticSceneAdmission>                    m_RetainedAdmissions;
+        uint64_t m_RetainedAdmissionsRevision = 0; // the revision m_RetainedAdmissions were taken at
         std::vector<std::shared_ptr<const Render::StaticSceneChunk>> m_RetainedChunks; // held: never reused
         std::vector<StaticMeshRenderData>                            m_StaticSuffixScratch;
         // Retained entries ApplyDisplacement swapped to a baked / twin mesh this view: put back by ClearQueues.

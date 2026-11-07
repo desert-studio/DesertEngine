@@ -241,6 +241,13 @@ namespace Desert
         {
             return m_GpuStale;
         }
+        // HOW MANY TIMES ANY MESH WAS MARKED STALE (process-wide, monotonic; UE: a render-state dirty list, not
+        // a sweep). A reader that walked its meshes at epoch E finds no new pending edit while the epoch is still
+        // E (DrawStaticSceneCommand::Prepare, MeshECSSystem's in-place edit scan): the walk is skipped, O(1).
+        [[nodiscard]] static uint64_t GetStaleEpoch() noexcept
+        {
+            return s_StaleEpoch.load( std::memory_order_acquire );
+        }
         // What a renderer cache keys this mesh's content by (MeshRenderRevision): never the address.
         [[nodiscard]] uint64_t GetRenderRevision() const
         {
@@ -256,7 +263,9 @@ namespace Desert
         void MarkGpuStale() noexcept
         {
             m_GpuStale = true;
+            s_StaleEpoch.fetch_add( 1, std::memory_order_acq_rel );
         }
+        static inline std::atomic<uint64_t> s_StaleEpoch{ 0 }; // GetStaleEpoch
         bool               m_GpuStale = false; // written and read on the game thread only
         MeshRenderRevision m_RenderRevision;
 

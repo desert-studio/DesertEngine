@@ -43,6 +43,7 @@
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
+#include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
@@ -2503,6 +2504,12 @@ namespace Desert::Graphic
         // Puts @p system in the registration order: in the place of @p replaced when that one is registered
         // (a re-registered pass keeps its position), at the back otherwise.
         void TrackRenderSystem( const IRenderSystem* replaced, IRenderSystem* system ) noexcept;
+
+        // THE VIEW'S ADMITTED STATIC LIST as SubmitStaticScene last built it, compared entry by entry while it
+        // is rebuilt (no second pass), and its revision: process-unique, a new one whenever the list differs
+        // from the one before. MeshRenderer::SubmitStaticScene keeps its prefix while the revision holds.
+        std::vector<Render::StaticSceneAdmission> m_StaticAdmitted;
+        uint64_t                                  m_StaticAdmittedRevision = 0;
 
     private:
         template <typename System, typename... Args>
