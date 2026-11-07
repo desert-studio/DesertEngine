@@ -353,7 +353,7 @@ namespace Desert::Graphic::System
                 case GenericSlice::Forward:
                     // An opaque draw is shaded only when this frame's depth prepass admitted it ("Forward: Depth
                     // Prepass", ForwardDepth): the base pass tests against that depth and writes none.
-                    if ( opaque && !OpaqueGenericAdmitted( g ) )
+                    if ( opaque && !OpaqueGenericAdmitted( gi ) )
                         continue;
                     // The forward render path: no screen masks (no G-buffer to trace against); the virtual shadow
                     // map in place of the atlas under VirtualMaps (MeshGeometryPass's Declare set the flag).
@@ -407,7 +407,7 @@ namespace Desert::Graphic::System
                         continue;
                     // An opaque draw is shaded only when this frame's prepass admitted it (both of its pipelines
                     // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
-                    if ( opaque && !OpaqueGenericAdmitted( g ) )
+                    if ( opaque && !OpaqueGenericAdmitted( gi ) )
                         continue;
                     sliceIndex = ForwardSliceIndex( slice == GenericSlice::DeferredForwardRayTracedSun,
                                                     m_GenericLocalShadowMasks, m_ForwardVirtualLocal );
@@ -491,11 +491,14 @@ namespace Desert::Graphic::System
                 if ( slice == GenericSlice::DeferredDepthNormal || slice == GenericSlice::ForwardDepth )
                 {
                     if ( !choice.UseOwnPipeline ||
-                         !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun,
+                         !GenericForwardPipelineReady( facts, templateShader, m_GenericPrepassRayTracedSun,
                                                        m_GenericPrepassLocalShadowMasks,
                                                        m_GenericPrepassVirtualLocal ) )
                         continue;
-                    m_GenericPrepassed.insert( &g );
+                    // Dense by queue index: one byte per record, the vector's capacity kept across frames.
+                    if ( m_GenericPrepassed.size() < m_GenericQueue.size() )
+                        m_GenericPrepassed.resize( m_GenericQueue.size(), 0 );
+                    m_GenericPrepassed[gi] = 1;
                     // Admitted, so "Deferred: Generic" shades it; its depth and normal come from the DepthPrepass
                     // bins (the "depthPrepass" cull view against this frame's HZB, AttachBinned) when they hold
                     // every visible submesh - the view's CPU walk rule (CpuWalkHidden; the view takes no cluster
@@ -1040,48 +1043,31 @@ namespace Desert::Graphic::System
         return false;
     }
 
-    bool MeshRenderer::GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                    const std::string& shaderName, const bool rayTracedSun,
-                                                    const bool localShadowMasks, const bool virtualLocal )
+    bool MeshRenderer::GenericForwardPipelineReady( ProgramFacts& facts, const std::shared_ptr<Shader>& shader,
+                                                    const bool rayTracedSun, const bool localShadowMasks,
+                                                    const bool virtualLocal )
     {
-        std::shared_ptr<Shader>   program     = shader;
-        std::string               programKey  = shaderName;
-        const Core::ShaderVariant permutation =
-             ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks, virtualLocal );
-        if ( !permutation.IsDefault() )
-        {
-            Runtime::ShaderService* shaders  = Runtime::ResourceRegistry::GetShaderService();
-            auto                    acquired = shaders->AcquireVariant( shaderName, permutation );
-            if ( !acquired )
-            {
-                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
-                    LOG_ERROR( "[MeshRenderer] generic forward pipeline of '{}' not ready: {}", shaderName,
-                               acquired.GetError() );
-                return false;
-            }
-            program = acquired.ExtractValue();
-            for ( const auto& define : permutation.Defines )
-                std::format_to( std::back_inserter( programKey ), "|{}", define );
-        }
-        // The spec "Deferred: Generic" builds for this program (BuildGenericDraws): the same cache entry.
-        GraphicsPipelineSpecification spec = GenericPipelineSpec( program );
-        spec.DebugName                     = std::format( kGenericMeshNameFormat, programKey );
-        spec.DepthCompareOp                = DepthCompare::CloserOrEqual;
-        const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+        // The forward slice program "Deferred: Generic" shades this draw with (SliceProgramOf: its permutation,
+        // key and spec made once per template): the same cache entry, no name built or variant asked per draw.
+        const SliceProgram* const slice =
+             SliceProgramOf( facts, shader, ForwardSliceIndex( rayTracedSun, localShadowMasks, virtualLocal ) );
+        if ( slice == nullptr )
+            return false; // its refusal was said when the slice program was asked
+        const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( slice->Spec );
         if ( !built )
         {
-            m_MaterialPipelines.OnFailed( programKey ); // "Deferred: Generic" names the refusal
+            m_MaterialPipelines.OnFailed( slice->Key ); // "Deferred: Generic" names the refusal
             return false;
         }
-        TrackMaterialPipeline( programKey, *built.GetValue() );
+        TrackMaterialPipeline( slice->Key, *built.GetValue() );
         return built.GetValue()->GetReadiness() == PipelineReadiness::Ready;
     }
 
-    bool MeshRenderer::OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const
+    bool MeshRenderer::OpaqueGenericAdmitted( const std::size_t index ) const
     {
         const ViewFrame* const frame = m_SceneRenderer->GetViewFrame();
         return frame != nullptr && m_GenericPrepassFrame == frame->FrameIndex &&
-               m_GenericPrepassed.contains( &draw );
+               index < m_GenericPrepassed.size() && m_GenericPrepassed[index] != 0;
     }
 
     // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first
@@ -1606,7 +1592,7 @@ namespace Desert::Graphic::System
             scratch.Planned      = false;
             scratch.InstSetCount = 0;
             scratch.RecycleGroups( scratch.Groups ); // their lists keep their capacity (SpareLists)
-            scratch.Walked.clear();
+            scratch.Walked.Reset( m_StaticQueue.size() );
             if ( mode.Walk == nullptr )
                 scratch.RecycleGroups( scratch.WalkGroups );
         }
@@ -1679,11 +1665,16 @@ namespace Desert::Graphic::System
                   : BinnedWalkView( mode.Pass == MeshPass::Forward ? GpuDriven::MeshPass::Forward
                                                                         : GpuDriven::MeshPass::GBuffer,
                                     kBinnedMainView );
-        auto&      walked   = scratch.Walked;
-        const auto hiddenOf = [&walked]( const StaticMeshRenderData* obj ) -> SubmeshMask
+        // Dense by m_StaticQueue position (DrawBuildScratch::WalkedMasks): an index, never a hash per object.
+        DrawBuildScratch::WalkedMasks& walked = scratch.Walked;
+        const StaticMeshRenderData* const queueBase = m_StaticQueue.data();
+        const auto hiddenOf = [&walked, queueBase]( const StaticMeshRenderData* obj ) -> SubmeshMask
         {
-            const auto found = walked.find( obj );
-            return found != walked.end() ? found->second : SubmeshMask{ obj->HiddenSubmeshes };
+            const auto     at   = static_cast<std::size_t>( obj - queueBase );
+            const uint32_t slot = at < walked.At.size() ? walked.At[at] : 0u;
+            if ( slot == 0u )
+                return SubmeshMask{ obj->HiddenSubmeshes };
+            return walked.Masks[slot - 1u];
         };
         // The CPU walk of the queue, timed as one row (GPU-COST-37: Add passes' split). ONE walk for both G-buffer
         // halves: the Rest half's Resolve call takes the Equal half's (DrawBuildMode::Walk), and a Record call
@@ -1741,7 +1732,7 @@ namespace Desert::Graphic::System
                     if ( !mask )
                         unwalked.push_back( masked.Data );
                     else if ( !( *mask == SubmeshMask{ masked.Data->HiddenSubmeshes } ) )
-                        walked.emplace( masked.Data, *mask );
+                        walked.Set( static_cast<std::size_t>( masked.Data - queueBase ), *mask );
                 }
                 for ( std::size_t g = 0; g < chunk.GroupCount; ++g )
                 {
@@ -3322,6 +3313,8 @@ namespace Desert::Graphic::System
         m_ProgramFactsRegistry  = registry;
         m_ProgramFactsValid     = true;
         m_GenericProgramsResolved = false;
+        for ( std::string& known : m_GenericProgramNames )
+            known.clear(); // every Shader Override slot asks its name again (GenericProgramOf)
     }
 
     MeshRenderer::ProgramFacts& MeshRenderer::FactsOf( const Shader& shader ) const
@@ -3382,24 +3375,34 @@ namespace Desert::Graphic::System
         if ( !m_GenericProgramsResolved )
         {
             // Once per frame for the whole queue (SubmitGenericMesh / ClearQueues reset it). A Shader Override
-            // record carries its template by name only: that one GetByName per record per frame remains until
-            // the producers hand a program (GenericMeshRenderData::ShaderName, CPU-FRAME-ARENA 10 Not done).
+            // record carries its template by name: it is resolved once per queue slot and kept with the name it
+            // was resolved from (m_GenericProgramNames). The next frame's record at that slot - the producers
+            // submit in a stable order - compares its name (no hash, no lookup) and keeps the program; only a
+            // different name asks the service. SyncProgramFacts forgets every slot when RecompileGeneration
+            // moves (a Register / Recompile / Clear may add, drop or replace the program under a name).
             auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
             m_GenericPrograms.resize( m_GenericQueue.size() );
+            m_GenericProgramNames.resize( m_GenericQueue.size() );
             for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
             {
-                const GenericMeshRenderData& g    = m_GenericQueue[gi];
-                ResolvedProgram&             kept = m_GenericPrograms[gi];
-                kept                              = {};
+                const GenericMeshRenderData& g     = m_GenericQueue[gi];
+                ResolvedProgram&             kept  = m_GenericPrograms[gi];
+                std::string&                 known = m_GenericProgramNames[gi];
                 if ( g.SlotMaterial != nullptr )
                 {
+                    known.clear(); // no Shader Override name is kept for this slot (capacity stays)
+                    kept = {};
                     if ( const auto* const material = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial ) )
                         kept = ProgramOf( *material );
                     continue;
                 }
-                kept.Program = shaders->GetByName( g.ShaderName );
-                if ( kept.Program != nullptr )
-                    kept.Facts = &FactsOf( *kept.Program );
+                if ( known != g.ShaderName ) // SubmitGenericMesh admits no empty override name
+                {
+                    known.assign( g.ShaderName );
+                    kept.Program = shaders->GetByName( g.ShaderName );
+                }
+                // The facts by the program's serial (an integer hash; re-made only when its code moved).
+                kept.Facts = kept.Program != nullptr ? &FactsOf( *kept.Program ) : nullptr;
             }
             // The texture-set keys with the programs: each record's once a frame, into strings that keep their
             // capacity (BuildGenericDraws' slices and RegisterGenericRows read them, never rebuild them).

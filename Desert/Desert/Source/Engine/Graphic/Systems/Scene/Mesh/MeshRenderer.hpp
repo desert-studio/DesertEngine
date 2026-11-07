@@ -2422,17 +2422,20 @@ namespace Desert::Graphic::System
     private:
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
         // compiling one counts among the pending pipelines); @p rayTracedSun and @p localShadowMasks pick the
-        // permutation through ForwardShadowMaskVariant, as that pass does.
-        [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                        const std::string& shaderName, bool rayTracedSun,
-                                                        bool localShadowMasks, bool virtualLocal );
+        // permutation through ForwardShadowMaskVariant, as that pass does - its slice program of @p facts (the
+        // template @p shader's), so the key, the variant and the spec are the ones made once per template.
+        struct ProgramFacts; // defined with the slice programs below
+        [[nodiscard]] bool GenericForwardPipelineReady( ProgramFacts& facts, const std::shared_ptr<Shader>& shader,
+                                                        bool rayTracedSun, bool localShadowMasks,
+                                                        bool virtualLocal );
         // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
         // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
         // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
         // missing prepass depth (it would fail CloserOrEqual) and none is in the depth unshaded. Stamped with the
-        // view's frame.
-        bool OpaqueGenericAdmitted( const GenericMeshRenderData& draw ) const;
-        std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
+        // view's frame. Indexed by m_GenericQueue position (1 = admitted; cleared with its capacity kept, grown
+        // with zeros on the first admission of a frame): no node allocated per admitted draw per frame.
+        bool OpaqueGenericAdmitted( std::size_t index ) const;
+        std::vector<uint8_t>                             m_GenericPrepassed;
         std::optional<uint64_t>                          m_GenericPrepassFrame;
         bool                                             m_GenericPrepassRayTracedSun = false;
         bool                                             m_GenericPrepassLocalShadowMasks = false; // the prepass's DESERT_LOCAL_SHADOW_SCREEN_MASK choice
@@ -2687,6 +2690,9 @@ namespace Desert::Graphic::System
         // Every m_GenericQueue record's template program, resolved once a frame (the first ask after the queue
         // changed): a slot draw's through m_MaterialPrograms (no name asked), a Shader Override's by its name.
         mutable std::vector<ResolvedProgram> m_GenericPrograms;
+        // The Shader Override name each m_GenericPrograms slot was resolved from (empty: a slot-material record
+        // or never resolved): compared, never hashed, so a stable queue order asks the service no name a frame.
+        mutable std::vector<std::string> m_GenericProgramNames;
         mutable bool                         m_GenericProgramsResolved = false;
         // Forgets every row when the shader service's RecompileGeneration moved.
         void SyncProgramFacts() const;
@@ -3853,8 +3859,28 @@ namespace Desert::Graphic::System
                 std::vector<const StaticMeshRenderData*> Instances; // the batches' objects, batch after batch
                 std::vector<ObjDraw>                     Singles;   // the per-object draws, in bucket order
             };
+            // The walk's masks unlike an entry's own HiddenSubmeshes, DENSE BY m_StaticQueue POSITION (UE's
+            // per-primitive visibility arrays): At[i] = 0 for the entry's own mask, else 1 + its row in Masks.
+            // Reset per planning call (zeroed with its capacity kept), copied whole by the Rest half's Resolve.
+            struct WalkedMasks
+            {
+                std::vector<uint32_t>    At;
+                std::vector<SubmeshMask> Masks;
+                void                     Reset( const std::size_t records ) noexcept
+                {
+                    At.assign( records, 0u );
+                    Masks.clear();
+                }
+                void Set( const std::size_t record, const SubmeshMask& mask ) noexcept
+                {
+                    if ( record >= At.size() )
+                        return; // not a record of this queue: its own mask stands
+                    Masks.push_back( mask );
+                    At[record] = static_cast<uint32_t>( Masks.size() );
+                }
+            };
             std::vector<StaticGroup>                                     WalkGroups;
-            std::unordered_map<const StaticMeshRenderData*, SubmeshMask> Walked; // masks unlike the entry's
+            WalkedMasks                                                  Walked;
             std::vector<StaticGroup>                                     Groups;
             std::vector<StaticGroupPlan>                                 GroupPlans;
             bool                                                         Planned = false; // Resolve completed

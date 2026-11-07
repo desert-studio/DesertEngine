@@ -964,6 +964,20 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "MeshRenderer", "m_ScratchGenericRows", Guard::OwnedByThisObject,
           "a reused scratch vector; the DataDrivenMaterial* in it are owned by MaterialService for longer than the frame" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "ProgramFacts", "FrontLayer", Guard::OwnedByThisObject,
+          "FrontLayerDrawFor's answer: a unique_ptr value of m_FrontLayer, a member of this MeshRenderer that "
+          "only ever inserts (no erase), so the pointee does not move on rehash; the facts row holding it is "
+          "forgotten with every m_ProgramFacts row (SyncProgramFacts) before m_FrontLayer could be" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "ResolvedProgram", "Facts", Guard::OwnedByThisObject,
+          "points at a value of m_ProgramFacts (an unordered_map: node-based, an insert does not move it); "
+          "every holder (m_GenericPrograms, the ProgramOf locals) is re-resolved in GenericProgramOf after "
+          "SyncProgramFacts clears the map, and a local never outlives the pass that asked" },
+        { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
+          "MeshRenderer", "m_GenericTextureOrder", Guard::OwnedByThisObject,
+          "a reused sort scratch of WriteGenericTextureKey: the pairs it points at are the texture overrides of"
+          " the m_GenericQueue record being keyed, and it is cleared and refilled inside that one call" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp",
           "SurfaceSlot", "Instance", Guard::CallScoped,
           "SectionSurface's return value (declared in MeshRendererInternal.hpp, defined in MeshRenderer.cpp), consumed by the caller in the same statement block: it is selected out of the MaterialSlots binding of the queue entry being walked, which co-owns it for the frame's passes (A8-3)" },
