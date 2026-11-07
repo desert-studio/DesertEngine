@@ -896,7 +896,8 @@ namespace Desert::Tests::PointerCensus
           "UpdateMorphTargets of that frame to put a failed blend's draws back on it" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "StaticMeshRenderData", "Mesh", Guard::FrameScoped,
-          "held by the ECS component, the primitive factory or MeshService for the whole frame" },
+          "held by the ECS component, the primitive factory or MeshService for the whole frame; a retained "
+          "static entry (MeshRenderer::SubmitStaticScene) is refilled from the view's snapshot before any read" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "SkinnedMeshRenderData", "Mesh", Guard::FrameScoped,
           "held by the ECS component for the whole frame" },

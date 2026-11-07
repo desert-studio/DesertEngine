@@ -30,6 +30,7 @@ namespace Desert::Graphic::System
                  cooked != nullptr && cooked->IsBakedDisplaced() )
                 if ( const std::shared_ptr<StaticMesh> baked = cooked->GetBakedDisplaced() )
                 {
+                    NoteStaticRewritten( static_cast<std::size_t>( &data - m_StaticQueue.data() ) );
                     data.Mesh = baked.get(); // held by the base mesh while its surface is the same
                     if ( data.MaterialSlots && data.MaterialSlots->Displaced )
                         data.MaterialSlots = data.MaterialSlots->Displaced;
@@ -215,6 +216,7 @@ namespace Desert::Graphic::System
         for ( StaticMeshRenderData& data : m_StaticQueue )
             if ( const std::shared_ptr<StaticMesh> twin = cache.Find( data.Entity, data.MotionPart ) )
             {
+                NoteStaticRewritten( static_cast<std::size_t>( &data - m_StaticQueue.data() ) );
                 data.Mesh = twin.get(); // the cache holds the twin past this frame's draws (EndFrame of the next)
                 // No double relief: the displaced slots draw base cells (MaterialSlotBinding::Displaced).
                 if ( data.MaterialSlots && data.MaterialSlots->Displaced )

@@ -39,6 +39,10 @@ namespace Desert::Graphic::Render
         bool               CastShadows              = true;
         bool               ReceiveShadows           = true;
         bool               CastContactShadow        = true;
+        // The entity's PERSISTENT PRIMITIVE SLOT (MeshECSSystem; UE FPrimitiveSceneInfo::PackedIndex): the key
+        // GpuSceneRegistry keeps the section's primitive under across frames (GpuSceneRegistry::SyncStatic).
+        // Every section of one slot is one entity and shares its world. Set by the chunk rebuild.
+        uint32_t Primitive = 0;
     };
 
     // A fixed run of persistent primitive slots (MeshECSSystem: slot / kStaticSceneChunkSlots). IMMUTABLE ONCE
@@ -51,6 +55,19 @@ namespace Desert::Graphic::Render
     };
 
     inline constexpr uint32_t kStaticSceneChunkSlots = 64;
+
+    // One section a view ADMITTED from the snapshot (SceneRenderer::SubmitStaticScene: ready, within its draw
+    // distance), with the view-dependent inputs its queue entry is filled from: the LOD the view forces (the
+    // Modeling panel's preview) and the mesh's render revision (an in-place edit, a re-upload). An equal list
+    // over the same chunks queues equal entries, so MeshRenderer::SubmitStaticScene keeps them as they are.
+    struct StaticSceneAdmission
+    {
+        uint32_t Chunk                                           = 0; // into StaticSceneSnapshot::Chunks
+        uint32_t Section                                         = 0; // into StaticSceneChunk::Sections
+        int      ForcedLOD                                       = -1;
+        uint64_t MeshRevision                                    = 0;
+        bool     operator==( const StaticSceneAdmission& ) const = default;
+    };
 
     // THE RETAINED STATIC SCENE, one immutable version of it: what DrawStaticSceneCommand hands every view. A
     // frame in which nothing static changed hands the SAME snapshot again (one shared_ptr copy for the whole

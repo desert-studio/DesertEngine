@@ -4226,13 +4226,18 @@ namespace Desert::Graphic
         std::optional<Geometry::LODView> lodView;
         if ( camera != nullptr )
             lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
-        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's.
-        thread_local std::vector<const Material*> parents;
-        for ( const auto& chunk : scene.Chunks )
+        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's, and the sections this
+        // view admits, chunk-major (MeshRenderer::SubmitStaticScene keeps its queue while the list holds).
+        thread_local std::vector<const Material*>              parents;
+        thread_local std::vector<Render::StaticSceneAdmission> admitted;
+        admitted.clear();
+        for ( uint32_t c = 0; c < static_cast<uint32_t>( scene.Chunks.size() ); ++c )
         {
-            for ( const Render::StaticSceneSection& section : chunk->Sections )
+            const Render::StaticSceneChunk& chunk = *scene.Chunks[c];
+            for ( uint32_t s = 0; s < static_cast<uint32_t>( chunk.Sections.size() ); ++s )
             {
-                const MaterialSlotBindingPtr& slots = chunk->Owners[section.Owner];
+                const Render::StaticSceneSection& section = chunk.Sections[s];
+                const MaterialSlotBindingPtr&     slots   = chunk.Owners[section.Owner];
                 if ( section.Mesh == nullptr || !slots || slots->Slots.empty() )
                     continue;
                 Mesh* mesh = section.Mesh;
@@ -4250,23 +4255,13 @@ namespace Desert::Graphic
                 for ( const MaterialInstance* slot : slots->Slots )
                     parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
                 NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), parents );
-                m_Systems.Mesh->SubmitMesh(
-                     { .Entity                   = section.Entity,
-                       .MotionPart               = 0,
-                       .Mesh                     = mesh,
-                       .Transform                = section.Transform,
-                       .MaterialSlots            = slots,
-                       .SectionSlot              = section.SectionSlot,
-                       .Outlined                 = section.Outlined,
-                       .HiddenSubmeshes          = section.HiddenSubmeshes,
-                       .ForcedLOD                = LODPreviewFor( section.Entity, section.ForcedLOD ),
-                       .LODBias                  = section.LODBias,
-                       .CastShadows              = section.CastShadows,
-                       .ReceiveShadows           = section.ReceiveShadows,
-                       .CastContactShadow        = section.CastContactShadow,
-                       .TranslucencySortPriority = section.TranslucencySortPriority } );
+                admitted.push_back( { .Chunk        = c,
+                                      .Section      = s,
+                                      .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
+                                      .MeshRevision = mesh->GetRenderRevision() } );
             }
         }
+        m_Systems.Mesh->SubmitStaticScene( scene, admitted );
     }
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,

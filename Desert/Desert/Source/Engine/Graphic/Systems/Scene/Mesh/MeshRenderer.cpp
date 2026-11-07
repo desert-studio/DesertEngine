@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <atomic>
 #include <format>
 #include <memory>
 #include <optional>
@@ -229,10 +230,139 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
+    namespace
+    {
+        // A process-unique name of a retained static list's contents (GpuSceneRegistry::SyncStatic's token):
+        // two MeshRenderers syncing into one registry never present the same token for different lists.
+        uint64_t NextStaticToken() noexcept
+        {
+            static std::atomic<uint64_t> next{ 0 };
+            return next.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        }
+    } // namespace
+
+    void MeshRenderer::FillRetainedStatic( StaticMeshRenderData&               data,
+                                           const Render::StaticSceneAdmission& admitted ) const
+    {
+        const Render::StaticSceneChunk&   chunk   = *m_RetainedChunks[admitted.Chunk];
+        const Render::StaticSceneSection& section = chunk.Sections[admitted.Section];
+        data                          = StaticMeshRenderData{};
+        data.Entity                   = section.Entity;
+        data.Mesh                     = section.Mesh;
+        data.Transform                = section.Transform;
+        data.MaterialSlots            = chunk.Owners[section.Owner];
+        data.SectionSlot              = section.SectionSlot;
+        data.Outlined                 = section.Outlined;
+        data.HiddenSubmeshes          = section.HiddenSubmeshes;
+        data.ForcedLOD                = admitted.ForcedLOD;
+        data.LODBias                  = section.LODBias;
+        data.CastShadows              = section.CastShadows;
+        data.ReceiveShadows           = section.ReceiveShadows;
+        data.CastContactShadow        = section.CastContactShadow;
+        data.TranslucencySortPriority = section.TranslucencySortPriority;
+    }
+
+    void MeshRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot&                  scene,
+                                          const std::span<const Render::StaticSceneAdmission> admitted )
+    {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::SubmitStaticScene" );
+        m_StaticSceneSubmitted = true;
+        RestoreRewrittenStatic();
+        // A per-frame static entry queued ahead of the scene this view waits behind the prefix.
+        const bool hasSuffix = m_StaticQueue.size() > m_StaticRetained;
+        if ( hasSuffix )
+        {
+            m_StaticSuffixScratch.clear();
+            for ( std::size_t i = m_StaticRetained; i < m_StaticQueue.size(); ++i )
+                m_StaticSuffixScratch.push_back( std::move( m_StaticQueue[i] ) );
+            m_StaticQueue.resize( m_StaticRetained );
+        }
+        const bool sameList = admitted.size() == m_StaticRetained &&
+                              m_RetainedChunks.size() == scene.Chunks.size() &&
+                              std::equal( admitted.begin(), admitted.end(), m_RetainedAdmissions.begin() );
+        bool refilled = false;
+        if ( sameList )
+        {
+            // The same sections of the same chunk positions: only the entries of a chunk the snapshot replaced
+            // are read again (the admitted list is chunk-major, SceneRenderer::SubmitStaticScene).
+            std::size_t i        = 0;
+            bool        replaced = false;
+            for ( std::size_t c = 0; c < scene.Chunks.size(); ++c )
+            {
+                const bool changed = m_RetainedChunks[c] != scene.Chunks[c];
+                if ( changed )
+                {
+                    m_RetainedChunks[c] = scene.Chunks[c];
+                    replaced            = true;
+                }
+                for ( ; i < admitted.size() && admitted[i].Chunk == c; ++i )
+                    if ( changed )
+                        FillRetainedStatic( m_StaticQueue[i], admitted[i] );
+            }
+            refilled = i != admitted.size(); // not chunk-major: refilled whole below
+            if ( replaced && !refilled )
+                m_StaticToken = NextStaticToken();
+        }
+        if ( !sameList || refilled )
+        {
+            m_RetainedChunks.assign( scene.Chunks.begin(), scene.Chunks.end() );
+            m_RetainedAdmissions.assign( admitted.begin(), admitted.end() );
+            m_StaticQueue.resize( admitted.size() );
+            for ( std::size_t i = 0; i < admitted.size(); ++i )
+                FillRetainedStatic( m_StaticQueue[i], admitted[i] );
+            m_StaticRetained = admitted.size();
+            m_StaticToken    = NextStaticToken();
+        }
+        if ( hasSuffix )
+        {
+            for ( StaticMeshRenderData& data : m_StaticSuffixScratch )
+                m_StaticQueue.push_back( std::move( data ) );
+            m_StaticSuffixScratch.clear();
+        }
+    }
+
+    void MeshRenderer::DropRetainedStatic()
+    {
+        m_StaticRewritten.clear();
+        m_StaticQueue.erase( m_StaticQueue.begin(),
+                             m_StaticQueue.begin() + static_cast<std::ptrdiff_t>( m_StaticRetained ) );
+        m_StaticRetained = 0;
+        m_RetainedAdmissions.clear();
+        m_RetainedChunks.clear();
+        m_StaticToken        = 0;
+        m_StaticColumnsToken = 0;
+        m_StaticColumns.Clear();
+    }
+
+    void MeshRenderer::NoteStaticRewritten( const std::size_t index )
+    {
+        if ( index >= m_StaticRetained )
+            return; // a per-frame entry: dropped by ClearQueues anyway
+        if ( m_StaticRewritten.empty() )
+            m_StaticToken = NextStaticToken(); // the prefix this view syncs is not the one queued
+        m_StaticRewritten.push_back( static_cast<uint32_t>( index ) );
+    }
+
+    void MeshRenderer::RestoreRewrittenStatic()
+    {
+        if ( m_StaticRewritten.empty() )
+            return;
+        for ( const uint32_t index : m_StaticRewritten )
+            if ( index < m_StaticRetained )
+                FillRetainedStatic( m_StaticQueue[index], m_RetainedAdmissions[index] );
+        m_StaticRewritten.clear();
+        m_StaticToken = NextStaticToken(); // back to the queued meshes: not the list last synced
+    }
+
     void MeshRenderer::ClearQueues()
     {
-        m_StaticQueue.clear();
-        m_StaticColumns.Clear(); // the next view sync rebuilds them (SyncGpuScene)
+        // The retained static prefix stays (SubmitStaticScene keeps or patches it); the swaps ApplyDisplacement
+        // made in it are put back, the per-frame suffix is dropped. Its walk columns stay with it (SyncGpuScene
+        // keeps them while the prefix's token holds; no pass reads them before that sync).
+        RestoreRewrittenStatic();
+        m_StaticQueue.resize( m_StaticRetained );
+        m_StaticColumns.Truncate( m_StaticRetained );
+        m_StaticSceneSubmitted = false;
         m_SkinnedQueue.clear();
         // This frame's generic records become the spares the next frame's SubmitGenericMesh assigns into (their
         // buffers kept); the queue takes the old spares' shells (moved from: no buffers) and drops them.
@@ -2091,22 +2221,35 @@ namespace Desert::Graphic::System
         // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
         // submesh records of one object share it, slots stable per submission); this function only gathers them,
         // writes each one's rows back and uploads the scene's deltas.
-        auto& rigid = m_ScratchRigidRecords;
+        // A view that replayed no static scene queues none of the retained prefix.
+        if ( !m_StaticSceneSubmitted && m_StaticRetained != 0 )
+            DropRetainedStatic();
+        const std::size_t retained = m_StaticRetained;
+        auto&             rigid    = m_ScratchRigidRecords;
         rigid.clear();
-        rigid.reserve( m_StaticQueue.size() + m_GenericQueue.size() + otherRigid.size() );
+        rigid.reserve( ( m_StaticQueue.size() - retained ) + m_GenericQueue.size() + otherRigid.size() );
+        auto& statics = m_ScratchStaticRecords;
+        statics.clear();
         // The static queue's walk columns (m_StaticColumns), rebuilt with the records' shading: the vectors keep
-        // their capacity, the primitives are written below once the registry named them.
-        StaticWalkColumns& columns = m_StaticColumns;
-        columns.Clear();
+        // their capacity, the primitives are written below once the registry named them. THE RETAINED PREFIX's
+        // columns, rows and registry records stand as they are while its token is the one they were built for
+        // and the registry still holds that list (KeepStatic: nothing removed, discarded or rolled back since):
+        // a frame in which nothing static changed gathers, hashes and syncs none of it.
+        StaticWalkColumns& columns    = m_StaticColumns;
+        const bool         keptStatic = m_StaticToken != 0 && m_StaticColumnsToken == m_StaticToken &&
+                                columns.Count() == retained && registry.KeepStatic( m_StaticToken );
+        const std::size_t firstGathered = keptStatic ? retained : 0u;
+        columns.Truncate( firstGathered );
         columns.Meshes.reserve( m_StaticQueue.size() );
         columns.Primitives.reserve( m_StaticQueue.size() );
         columns.Hidden.reserve( m_StaticQueue.size() );
         columns.Instances.reserve( m_StaticQueue.size() );
         columns.Surfaces.reserve( m_StaticQueue.size() );
         columns.Flags.reserve( m_StaticQueue.size() );
-        for ( const auto& data : m_StaticQueue )
+        for ( std::size_t si = firstGathered; si < m_StaticQueue.size(); ++si )
         {
-            const SectionShading shading = ShadingOf( data );
+            const StaticMeshRenderData& data    = m_StaticQueue[si];
+            const SectionShading        shading = ShadingOf( data );
             uint8_t              flags   = 0u;
             if ( data.MaterialSlots )
                 flags |= StaticWalkColumns::kHasSlots;
@@ -2121,14 +2264,23 @@ namespace Desert::Graphic::System
             columns.Instances.push_back( shading.Instance );
             columns.Surfaces.push_back( shading.Surface );
             columns.Flags.push_back( flags );
-            rigid.push_back( { .Entity    = data.Entity,
-                               .Part      = data.MotionPart,
-                               .World     = data.Transform,
-                               .Mesh      = data.Mesh,
-                               .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
-                               .ForcedLod = data.ForcedLOD,
-                               .LodBias   = data.LODBias,
-                               .Content   = staticContent( data, shading ) } );
+            const MotionRecord record{ .Entity    = data.Entity,
+                                       .Part      = data.MotionPart,
+                                       .World     = data.Transform,
+                                       .Mesh      = data.Mesh,
+                                       .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
+                                       .ForcedLod = data.ForcedLOD,
+                                       .LodBias   = data.LODBias,
+                                       .Content   = staticContent( data, shading ) };
+            if ( si < retained ) // keyed by its entity's persistent slot (GpuSceneRegistry::SyncStatic)
+            {
+                const Render::StaticSceneAdmission& admitted = m_RetainedAdmissions[si];
+                statics.push_back(
+                     { .Primitive = m_RetainedChunks[admitted.Chunk]->Sections[admitted.Section].Primitive,
+                       .Record    = record } );
+            }
+            else
+                rigid.push_back( record );
         }
         for ( const auto& data : m_GenericQueue )
             rigid.push_back( { .Entity = data.Entity,
@@ -2181,16 +2333,30 @@ namespace Desert::Graphic::System
                                 .Snapshot  = data.Transforms } );
 
         auto& rows = m_ScratchGpuSceneRows;
+        if ( !keptStatic )
+        {
+            registry.SyncStatic( statics, m_StaticToken, rows );
+            m_StaticColumnsToken = m_StaticToken;
+        }
         registry.Sync( rigid, skinned, fields, rows );
         // The worlds the registry just wrote are stamped before any record is keyed by its primitive's stamp.
         StampPlacements( scene );
 
         size_t record = 0;
         columns.Placements.reserve( m_StaticQueue.size() );
-        for ( auto& data : m_StaticQueue )
+        for ( std::size_t si = firstGathered; si < m_StaticQueue.size(); ++si )
         {
-            data.GpuPrimitive = rows.RigidPrimitives[record];
-            data.GpuInstance  = rows.RigidInstances[record++];
+            StaticMeshRenderData& data = m_StaticQueue[si];
+            if ( si < retained )
+            {
+                data.GpuPrimitive = rows.StaticPrimitives[si];
+                data.GpuInstance  = rows.StaticInstances[si];
+            }
+            else
+            {
+                data.GpuPrimitive = rows.RigidPrimitives[record];
+                data.GpuInstance  = rows.RigidInstances[record++];
+            }
             columns.Primitives.push_back( data.GpuPrimitive );
             columns.Placements.push_back( PlacementOf( data.GpuPrimitive ) );
         }

@@ -154,6 +154,18 @@ namespace Desert::Graphic::GpuDriven
             }
             ++it;
         }
+        // The static slots as the map's entries. GpuScene rolled the frame's transforms back, so no list a
+        // caller holds is current any more: KeepStatic refuses until the next SyncStatic.
+        for ( StaticSlot& slot : m_StaticSlots )
+        {
+            if ( !slot.Live )
+                continue;
+            if ( slot.Held.Frame == m_Frame )
+                slot.Held.Frame = slot.Held.PrevFrame;
+            if ( slot.Held.Frame == kNoFrame ) // added by the discarded frame
+                RemoveStatic( slot );
+        }
+        m_StaticToken = 0;
         for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
         {
             MaterialEntry& entry = it->second;
@@ -190,6 +202,10 @@ namespace Desert::Graphic::GpuDriven
                 m_Scene.RemovePrimitive( it->second.Primitive );
                 it = m_Entries.erase( it );
             }
+        if ( m_Started ) // the static slots the frame that ended did not queue (they left the view or the scene)
+            for ( StaticSlot& slot : m_StaticSlots )
+                if ( slot.Live && slot.Held.Frame != m_Frame )
+                    RemoveStatic( slot );
         if ( m_Started ) // the scratch of entities the frame that ended did not name (they left the view or scene)
             std::erase_if( m_EntityScratch, [this]( const auto& held ) { return held.second.Frame != m_Frame; } );
         if ( m_Started )
@@ -234,6 +250,12 @@ namespace Desert::Graphic::GpuDriven
         fresh                     = inserted || entry.Frame != m_Frame;
         if ( !fresh )
             return entry; // an earlier view of this frame synced it
+        Write( entry, inserted, record );
+        return entry;
+    }
+
+    void GpuSceneRegistry::Write( Entry& entry, const bool inserted, const MotionRecord& record )
+    {
         if ( inserted || entry.Mesh != record.Mesh || entry.Geometry != GeometryOf( record.Mesh ) ||
              entry.Flags != record.Flags ||
              entry.ForcedLod != record.ForcedLod || entry.LodBias != record.LodBias )
@@ -260,7 +282,62 @@ namespace Desert::Graphic::GpuDriven
             m_Scene.SetTransform( entry.Primitive, record.World );
         BeginContent( entry, inserted, record.Content );
         Queued( entry );
-        return entry;
+    }
+
+    void GpuSceneRegistry::RemoveStatic( StaticSlot& slot )
+    {
+        m_Scene.RemovePrimitive( slot.Held.Primitive );
+        slot.Held     = Entry{};
+        slot.Live     = false;
+        m_StaticToken = 0; // the token's list no longer names the rows its caller holds
+    }
+
+    bool GpuSceneRegistry::KeepStatic( const uint64_t token )
+    {
+        if ( token == 0 || token != m_StaticToken )
+            return false;
+        for ( const uint32_t slot : m_StaticTokenSlots )
+            if ( Entry& held = m_StaticSlots[slot].Held; held.Frame != m_Frame )
+                Queued( held );
+        return true;
+    }
+
+    void GpuSceneRegistry::SyncStatic( const std::span<const StaticPrimitiveRecord> records, const uint64_t token,
+                                       GpuSceneRecordRows& out )
+    {
+        DESERT_PROFILE_SCOPE( "GpuSceneRegistry::SyncStatic" );
+        ++m_SyncSerial;
+        out.StaticPrimitives.clear();
+        out.StaticInstances.clear();
+        out.StaticPrimitives.reserve( records.size() );
+        out.StaticInstances.reserve( records.size() );
+        m_StaticTokenSlots.clear();
+        for ( const StaticPrimitiveRecord& record : records )
+        {
+            if ( record.Primitive >= m_StaticSlots.size() )
+                m_StaticSlots.resize( size_t( record.Primitive ) + 1u );
+            StaticSlot& slot = m_StaticSlots[record.Primitive];
+            if ( slot.Live && slot.Entity != record.Record.Entity ) // the slot was given to another entity
+                RemoveStatic( slot );
+            Entry& entry = slot.Held;
+            // The slot's first record in this Sync (a fresh entry's ContentSync is 0, the serial never is).
+            if ( !slot.Live || entry.ContentSync != m_SyncSerial )
+                m_StaticTokenSlots.push_back( record.Primitive );
+            if ( !slot.Live )
+            {
+                Write( entry, true, record.Record );
+                slot.Live   = true;
+                slot.Entity = record.Record.Entity;
+            }
+            else if ( entry.Frame != m_Frame ) // the slot's first record this frame
+                Write( entry, false, record.Record );
+            else // another section of the slot (AddContent ignores a slot an earlier view of the frame synced)
+                AddContent( entry, record.Record.Content );
+            out.StaticPrimitives.push_back( entry.Primitive );
+            out.StaticInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
+        }
+        PublishContent();
+        m_StaticToken = token;
     }
 
     void GpuSceneRegistry::Sync( const std::span<const MotionRecord>      rigid,

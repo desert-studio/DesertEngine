@@ -74,6 +74,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/TranslucentSortOrder.hpp>
+#include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 namespace Desert::Runtime
@@ -1568,6 +1569,14 @@ namespace Desert::Graphic::System
         }
 
         void SubmitMesh( const MeshRenderData& data );
+        // THE RETAINED STATIC SCENE's sections this view admitted (SceneRenderer::SubmitStaticScene), queued as
+        // the RETAINED PREFIX of m_StaticQueue (CPU-SCENE-DELTA 2; UE: FScene's primitives and their cached mesh
+        // draw commands live across frames, rebuilt on change). An admitted list equal to the last one over the
+        // same chunks keeps every entry as it is (no copy, no refcount, nothing rebuilt by SyncGpuScene); the
+        // same list over a snapshot that replaced some chunks rewrites the entries of those chunks only; any
+        // other list refills the prefix. Per-frame static submissions (SubmitMesh) stay a suffix behind it.
+        void SubmitStaticScene( const Render::StaticSceneSnapshot&            scene,
+                                std::span<const Render::StaticSceneAdmission> admitted );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         // RENDER-CPU-COST-2: the row is handed over by move (the queue owns it from here), so its buffer handles
@@ -3229,6 +3238,25 @@ namespace Desert::Graphic::System
 #endif // DESERT_DEV_INSTRUMENTS
 
         std::vector<StaticMeshRenderData>  m_StaticQueue;
+        // The retained prefix of m_StaticQueue (SubmitStaticScene): entries [0, m_StaticRetained) are the
+        // admitted sections of m_RetainedChunks, entry i filled from m_RetainedAdmissions[i]. ClearQueues keeps
+        // them and drops the per-frame suffix; a view that replays no static scene drops them (SyncGpuScene).
+        std::size_t                                                  m_StaticRetained = 0;
+        std::vector<Render::StaticSceneAdmission>                    m_RetainedAdmissions;
+        std::vector<std::shared_ptr<const Render::StaticSceneChunk>> m_RetainedChunks; // held: never reused
+        std::vector<StaticMeshRenderData>                            m_StaticSuffixScratch;
+        // Retained entries ApplyDisplacement swapped to a baked / twin mesh this view: put back by ClearQueues.
+        std::vector<uint32_t> m_StaticRewritten;
+        // Names the retained prefix's contents as last queued (GpuSceneRegistry::SyncStatic's token): a new one
+        // per change of the prefix, a rewrite included. m_StaticColumnsToken: the token the prefix's walk
+        // columns and rows were built for.
+        uint64_t m_StaticToken          = 0;
+        uint64_t m_StaticColumnsToken   = 0;
+        bool     m_StaticSceneSubmitted = false; // SubmitStaticScene ran since ClearQueues
+        void FillRetainedStatic( StaticMeshRenderData& data, const Render::StaticSceneAdmission& admitted ) const;
+        void DropRetainedStatic();
+        void NoteStaticRewritten( std::size_t index );
+        void RestoreRewrittenStatic();
         std::vector<SkinnedMeshRenderData> m_SkinnedQueue;
 
         // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
@@ -4148,6 +4176,19 @@ namespace Desert::Graphic::System
             {
                 return Primitives.size();
             }
+            // The first @p count records' columns kept (the retained prefix), the rest dropped.
+            void Truncate( const std::size_t count ) noexcept
+            {
+                if ( count >= Count() )
+                    return;
+                Meshes.resize( count );
+                Primitives.resize( count );
+                Hidden.resize( count );
+                Instances.resize( count );
+                Surfaces.resize( count );
+                Flags.resize( count );
+                Placements.resize( count );
+            }
             void Clear() noexcept
             {
                 Meshes.clear();
@@ -4369,6 +4410,7 @@ namespace Desert::Graphic::System
         ParallaxQuality                                           m_ParallaxQuality;
         // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
         std::vector<MotionRecord>          m_ScratchRigidRecords;
+        std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;
         std::vector<MotionRecord>          m_ScratchSkinnedRecords;
         std::vector<MotionFieldRecord>     m_ScratchFieldRecords;
         GpuDriven::GpuSceneRecordRows      m_ScratchGpuSceneRows;

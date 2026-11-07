@@ -699,7 +699,8 @@ namespace Desert::ECS
                 for ( const Graphic::Render::StaticSceneSection& section : primitive.Sections )
                 {
                     chunk->Sections.push_back( section );
-                    chunk->Sections.back().Owner = owner;
+                    chunk->Sections.back().Owner     = owner;
+                    chunk->Sections.back().Primitive = static_cast<uint32_t>( slot );
                 }
             }
             if ( m_StaticChunks[index] )
