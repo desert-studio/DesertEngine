@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -280,6 +281,31 @@ namespace Desert::Graphic
             prop->Apply( backend );
 
         backend->FlushUpdates();
+    }
+
+    std::shared_ptr<const std::vector<Common::AssetHandle>> MaterialExecutor::GetStreamedTextureAssets() const
+    {
+        uint64_t newest = 0;
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+            newest = std::max( newest, prop->GetVersion() );
+        std::lock_guard<std::mutex> lock( m_StreamedTexturesLock );
+        if ( newest == m_StreamedTexturesVersion )
+            return m_StreamedTextures;
+        auto assets = std::make_shared<std::vector<Common::AssetHandle>>();
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+        {
+            const Image2D* image = prop->GetImage();
+            if ( image == nullptr )
+                continue;
+            const Common::AssetHandle asset = image->GetOwningAsset();
+            if ( static_cast<uint64_t>( asset ) != 0 )
+                assets->push_back( asset );
+        }
+        m_StreamedTexturesVersion = newest;
+        m_StreamedTextures.reset();
+        if ( !assets->empty() )
+            m_StreamedTextures = std::move( assets );
+        return m_StreamedTextures;
     }
 
     uint64_t MaterialExecutor::NewestPropertyWrite() const

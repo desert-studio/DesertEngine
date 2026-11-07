@@ -765,7 +765,7 @@ namespace Desert::Runtime
     {
         ++m_StreamingFrame;
         const TextureStreamingSettings& settings = m_StreamingSettings;
-        const auto                      demand   = Graphic::TextureStreamingDemand::Get().TakeFrame();
+        const auto&                     demand   = Graphic::TextureStreamingDemand::Get().TakeFrame();
         // THE POOL (r.Streaming.PoolSize), read before the table lock: the scalability state is not the table's.
         const uint64_t budget = static_cast<uint64_t>( Common::Scalability::QualityState::Resolved().As<uint32_t>(
                                      Common::Scalability::Parameter::TextureStreamingPoolMiB ) ) *
