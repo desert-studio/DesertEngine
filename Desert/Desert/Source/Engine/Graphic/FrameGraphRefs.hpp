@@ -540,16 +540,19 @@ namespace Desert::Graphic
         // clamped (a LUT edge must not wrap into the opposite one); the local shadow atlas point-clamped (it is
         // read with texelFetch and filtered by hand inside each tile, Mesh/LocalLightShadow.glslh). A shared slot
         // named by several inputs is one entry (BindingBlockBuilder::Sampler). @p samples takes a SceneViewSlot
-        // (a bit test of the layout's SceneViewSlots, never a name compare).
+        // (a bit test of the layout's SceneViewSlots, never a name compare). @p access is the stage that samples:
+        // the fragment stage of a raster receiver, or a compute pass's (the surface cache's card lighting on the
+        // async compute queue).
         template <typename Block, typename Samples>
-        void BindWhere( Block& block, const SceneViewInputs& inputs, const Samples& samples )
+        void BindWhere( Block& block, const SceneViewInputs& inputs, const Samples& samples,
+                        const RDG::Access access = RDG::Access::SampledGraphics )
         {
             const auto bind = [&]( SceneViewSlot slot, RDG::TextureParameter name, RDG::TextureRef texture,
                                    RDG::SamplerParameter samplerSlot, RDG::SamplerDesc sampler )
             {
                 if ( !samples( slot ) )
                     return;
-                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                block.Texture( name, texture, access, RDG::SubresourceRange::All() )
                      .Sampler( samplerSlot, sampler );
             };
             constexpr RDG::SamplerParameter kRepeat{ "LinearRepeatSampler" };

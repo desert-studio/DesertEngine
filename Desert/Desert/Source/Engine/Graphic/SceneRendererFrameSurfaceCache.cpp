@@ -213,7 +213,8 @@ namespace Desert::Graphic
             const GlobalIllumination::Pipeline cardTracer = frameViews->Tracer;
             // The cards are lit through the local shadows this view built: its frame's one page decision
             // (LocalLightsReadVirtualPages) picks the lighting program, so the program and the view's pages agree.
-            if ( const auto program = cache->EnsureLightingProgram( cardTracer, LocalLightsReadVirtualPages() );
+            if ( const auto program = cache->EnsureLightingProgram( cardTracer, LocalLightsReadVirtualPages(),
+                                                                    m_SurfaceCacheAsyncRadiosity );
                  !program )
             {
                 // The cache resolves its next tracer without it; the view lowers its own GI off it.
@@ -333,7 +334,15 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", uploaded.GetError() );
             return;
         }
-        const SurfaceCache::SurfaceCacheRenderer::FrameBuffers records = uploaded.ExtractValue();
+        SurfaceCache::SurfaceCacheRenderer::FrameBuffers records = uploaded.ExtractValue();
+        // GPU-GI-CRITPATH: on the async path the direct lighting, the radiosity trace and the integration run over
+        // one list of the relit pages' lighting tiles (UE LumenSceneDirectLighting's card tiles), listed here.
+        if ( updated && m_SurfaceCacheAsyncRadiosity )
+            if ( const auto tiles = cache->AddLightingTilesPass( graph, import, scene, records ); !tiles )
+            {
+                LOG_ERROR( "[SceneRenderer] Surface Cache: {}", tiles.GetError() );
+                return;
+            }
         if ( updated )
         {
             const FrameGraphRefs                                     refs = textures.GraphRefs();
@@ -375,6 +384,7 @@ namespace Desert::Graphic
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).
             lighting.IndirectLighting = RadianceCacheRuns();
             lighting.VirtualLocalShadows = LocalLightsReadVirtualPages();
+            lighting.Async               = m_SurfaceCacheAsyncRadiosity;
             if ( const auto lit = cache->AddDirectLightingPass( graph, import, scene, records, lighting );
                  !lit )
             {

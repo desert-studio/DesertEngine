@@ -128,6 +128,11 @@ int chooseCascade(int light, vec3 worldPos)
 // (Common/ShadowFilterDisk.glslh, shared with the point and spot lights' PCF). Each tap is a bilinear 2x2
 // comparison from one gather.
 #include <Common/ShadowFilterDisk.glslh>
+// The pixel the disc's rotation is keyed on: the fragment's gl_FragCoord.xy unless the includer names another (a
+// compute receiver has no fragment: the surface cache's card lighting names its atlas texel's centre).
+#ifndef CASCADED_SHADOW_NOISE_PIXEL
+#define CASCADED_SHADOW_NOISE_PIXEL gl_FragCoord.xy
+#endif
 
 // UE's r.Shadow.MaxSoftKernelSize: the widest the soft kernel may get, in texels of its cascade.
 const float kMaxSoftKernelTexels = 40.0;
@@ -170,7 +175,7 @@ float sampleCascade(int light, int c, vec3 worldPos, vec3 N, float NdotL)
 	vec2  texel      = 1.0 / size;
 	float depthRange = max(CascadeDepthRange[light][c], 1e-3); // world cm per unit of map depth
 	float tanHalf    = DirectionalShadow[light].x;            // tan(light source angle / 2)
-	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy, ContactShadowView.z);
+	float phi        = 6.28318531 * shadowInterleavedGradientNoise(CASCADED_SHADOW_NOISE_PIXEL, ContactShadowView.z);
 	// The kernel's cost (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps, the view's ShadowUB).
 	int   blockerSearchTaps = int(ShadowFilter.x + 0.5);
 	int   filterTaps        = int(ShadowFilter.y + 0.5);
