@@ -15,6 +15,7 @@
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,7 +35,9 @@ namespace Desert::Graphic
     {
     public:
         // Registers the engine's system textures in @p graph before any pass is added (System).
-        explicit FrameTextures( RDG::Builder& graph ) : m_Graph( graph )
+        explicit FrameTextures( RDG::Builder& graph )
+             : m_Graph( graph ),
+               m_StartedColors( Common::Memory::ArenaAllocator<uint32_t>( graph.GetFrameArena() ) )
         {
             ImportSystemTextures();
         }
@@ -302,7 +305,7 @@ namespace Desert::Graphic
         std::map<const Image*, RDG::ExternalTexture*>      m_Externals; // Import's registrations, for Extract
         std::vector<std::pair<uint32_t, std::function<void()>>> m_Histories; // MarkHistory: external index, reset
         std::map<const Framebuffer*, std::vector<GraphColor>>   m_GraphColors; // AddGraphColor
-        std::set<uint32_t> m_StartedColors;                                    // ColorLoads: slots already written
+        StartedColorSet m_StartedColors; // ColorLoads: slots already written, in the graph's arena
     };
 
     // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
@@ -362,16 +365,18 @@ namespace Desert::Graphic
                                  std::string_view node, Common::Memory::ArenaVector<RDG::TextureRef>& images )
     {
         images.clear();
-        // CPU-RDG-ALLOC: a declared name is viewed; a name is formed (heap) only for an entry that gives none.
-        std::string      formed;
-        std::string_view name;
+        // CPU-RDG-ALLOC: a declared name is viewed; a name is formed only for an entry that gives none, in
+        // @p images' arena (the frame graph's for AddComputeNodes), never a heap string. Import copies it.
+        Common::Memory::ArenaString formed( Common::Memory::ArenaAllocator<char>( images.get_allocator() ) );
+        std::string_view            name;
         for ( const RenderPassDeclaration::ImageUse& use : declared.Images() )
         {
             name = use.Name;
             if ( name.empty() )
             {
-                formed = std::format( "{}.Image{}", node, images.size() );
-                name   = formed;
+                formed.clear();
+                std::format_to( std::back_inserter( formed ), "{}.Image{}", node, images.size() );
+                name = formed;
             }
             const RDG::TextureRef ref = textures.Import( use.Image, name );
             if ( !ref.IsValid() )
@@ -394,10 +399,13 @@ namespace Desert::Graphic
                 name = entry.ImportName();
                 if ( name.empty() )
                 {
-                    formed = entry.Element == RDG::TextureParameter::kWhole
-                                  ? std::format( "{}.{}", node, entry.ParameterName )
-                                  : std::format( "{}.{}[{}]", node, entry.ParameterName, entry.Element );
-                    name   = formed;
+                    formed.clear();
+                    if ( entry.Element == RDG::TextureParameter::kWhole )
+                        std::format_to( std::back_inserter( formed ), "{}.{}", node, entry.ParameterName );
+                    else
+                        std::format_to( std::back_inserter( formed ), "{}.{}[{}]", node, entry.ParameterName,
+                                        entry.Element );
+                    name = formed;
                 }
                 const RDG::TextureRef ref = textures.Import( entry.Image, name );
                 if ( !ref.IsValid() )

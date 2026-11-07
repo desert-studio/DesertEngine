@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Memory/ArenaFunction.hpp>
 #include <Common/Core/Memory/FrameArena.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
@@ -388,6 +389,11 @@ namespace Desert::Graphic
     // the graph logs it with the node's name.
     using NodeRecordFunc =
          std::function<Common::BoolResultStr( RDG::PassContext& context, const FrameGraphRefs& refs )>;
+    // The same body held by a compute node (ComputeNodeDeclaration::Record). CPU-RDG-ALLOC (UE: the pass lambda in
+    // FRDGAllocator): move-only, the captures inline or in the frame graph's arena, never a heap box per node per
+    // frame; the captures die with the pass closure at the graph's Reset.
+    using NodeRecord =
+         Common::Memory::ArenaFunction<Common::BoolResultStr( RDG::PassContext&, const FrameGraphRefs& )>;
 
     // One compute node of a system's frame work: its name in the graph, what it declares, and the body that
     // records its dispatch. A system that dispatches several times in a frame hands one node per dispatch, in
@@ -398,7 +404,8 @@ namespace Desert::Graphic
         // CPU-RDG-ALLOC: the node's declaration lists in the frame graph's arena (RDG::Builder::GetFrameArena) -
         // for a system that declares its nodes while it holds the graph; the node is added before the graph
         // resets.
-        explicit ComputeNodeDeclaration( Common::Memory::FrameArena& arena ) noexcept : Access( arena )
+        explicit ComputeNodeDeclaration( Common::Memory::FrameArena& arena ) noexcept
+             : Access( arena ), Record( arena )
         {
         }
 
@@ -407,7 +414,8 @@ namespace Desert::Graphic
         // copied into the frame graph's arena first. Never a view into a temporary std::string.
         std::string_view      Name;
         RenderPassDeclaration Access;
-        NodeRecordFunc        Record;
+        // Bound to the declaration's arena: a body too large for NodeRecord's inline buffer spills into it.
+        NodeRecord            Record;
         // The frame asks for the async compute queue (RDG::PassFlags::AsyncCompute): set by the frame code that
         // adds the nodes, which knows how far the first reader is, never by the system that declares them.
         bool AsyncCompute = false;
