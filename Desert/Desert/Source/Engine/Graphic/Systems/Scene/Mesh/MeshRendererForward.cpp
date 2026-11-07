@@ -55,24 +55,34 @@ namespace Desert::Graphic::System
         // key: the sorted asset handles of the overrides plus the address of any runtime-owned texture
         // (the text system's font atlas, which has no handle). Sorted, because two entities that named
         // the same textures in a different order are the same texture set and must batch as one.
+        // Written into @p key (cleared first; its capacity is the caller's) with @p order as the sort scratch, so
+        // the per-frame caller (GenericTextureKeyOf) allocates nothing once its strings have grown. The overrides
+        // are sorted by (sampler, handle) and the runtime texture, whose part alone carries "=@", goes last: equal
+        // sets spell one key in any order, and no two sets spell the same one.
+        void WriteGenericTextureKey( const MeshRenderer::GenericMeshRenderData& g, std::string& key,
+                                     std::vector<const std::pair<std::string, uint64_t>*>& order )
+        {
+            key.clear();
+            if ( g.SlotMaterial != nullptr )
+                return; // the material IS the asset; it is already its own key
+
+            order.clear();
+            for ( const auto& texture : g.Overrides.Textures )
+                if ( texture.second != 0 )
+                    order.push_back( &texture );
+            std::sort( order.begin(), order.end(), []( const auto* a, const auto* b ) { return *a < *b; } );
+            for ( const auto* const texture : order )
+                std::format_to( std::back_inserter( key ), "|{}={}", texture->first, texture->second );
+            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() )
+                std::format_to( std::back_inserter( key ), "|{}=@{}", g.DirectTextureSampler,
+                                static_cast<const void*>( g.DirectTexture ) );
+        }
+
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g )
         {
-            if ( g.SlotMaterial != nullptr )
-                return {}; // the material IS the asset; it is already its own key
-
-            std::vector<std::string> parts;
-            parts.reserve( g.Overrides.Textures.size() + 1 );
-            for ( const auto& [name, handle] : g.Overrides.Textures )
-                if ( handle != 0 )
-                    parts.push_back( std::format( "{}={}", name, handle ) );
-            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() )
-                parts.push_back( std::format( "{}=@{}", g.DirectTextureSampler,
-                                              static_cast<const void*>( g.DirectTexture ) ) );
-            std::sort( parts.begin(), parts.end() );
-
-            std::string key;
-            for ( const auto& part : parts )
-                std::format_to( std::back_inserter( key ), "|{}", part );
+            std::string                                          key;
+            std::vector<const std::pair<std::string, uint64_t>*> order;
+            WriteGenericTextureKey( g, key, order );
             return key;
         }
 
@@ -151,7 +161,10 @@ namespace Desert::Graphic::System
             if ( !shader || !shader->IsCompiled() ||
                  !Core::Formats::DrawnByMeshPath( shader->GetProgramMeta().Domain ) )
                 continue; // ShaderService named the compile error; BuildGenericDraws names the refused domain
-            auto& shared = m_GenericMaterials[g.ShaderName + GenericTextureKey( g )];
+            // The key is assembled in place (no concatenation per record per frame); a miss alone copies it.
+            m_GenericMaterialKey.assign( g.ShaderName );
+            m_GenericMaterialKey.append( GenericTextureKeyOf( gi ) );
+            auto& shared = m_GenericMaterials[m_GenericMaterialKey];
             if ( !shared )
                 shared = std::make_unique<DataDrivenMaterial>( shader );
             // The draw-time slices name a refused texture; this row build does not repeat it.
@@ -251,7 +264,6 @@ namespace Desert::Graphic::System
 
             // The record's template and its facts (GenericProgramOf: resolved once a frame, the cells once per
             // program): no GetByName or TemplateCellShader per draw per slice.
-            auto* const            shaders  = Runtime::ResourceRegistry::GetShaderService();
             const ResolvedProgram& resolved = GenericProgramOf( gi );
             std::shared_ptr<Shader> shader  = resolved.Program;
             // A shader whose first compile failed is still registered under its name, so GetByName hands
@@ -328,14 +340,14 @@ namespace Desert::Graphic::System
             // shaded twice. Every other draw is a template without a Surface block: its opaque ones put depth +
             // normal into the G-buffer first (the parser refuses an opaque one with no DepthNormal pass), then
             // shade forward over the composite at CloserOrEqual against that depth.
-            const ProgramFacts& facts           = *resolved.Facts;
-            const bool          surfaceOverride = g.SlotMaterial == nullptr && facts.GBufferCell != nullptr;
-            const bool          opaque          = facts.Opaque;
+            ProgramFacts& facts           = *resolved.Facts;
+            const bool    surfaceOverride = g.SlotMaterial == nullptr && facts.GBufferCell != nullptr;
+            const bool    opaque          = facts.Opaque;
 
-            // The slice's cell of the template (its facts' program), or none: the template's own program.
-            const std::shared_ptr<Shader>* cell = nullptr;
-            Core::ShaderVariant            permutation;
-            MeshPass            cellPass = MeshPass::Forward;
+            // The slice's program of the template (SliceProgramOf: a cell, a forward permutation or the template
+            // itself), cached in its facts with its key and pipeline spec.
+            uint32_t sliceIndex = 0;
+            MeshPass cellPass   = MeshPass::Forward;
             switch ( slice )
             {
                 case GenericSlice::Forward:
@@ -345,13 +357,13 @@ namespace Desert::Graphic::System
                         continue;
                     // The forward render path: no screen masks (no G-buffer to trace against); the virtual shadow
                     // map in place of the atlas under VirtualMaps (MeshGeometryPass's Declare set the flag).
-                    permutation = ForwardShadowMaskVariant( *shader, false, false, m_ForwardVirtualLocal );
+                    sliceIndex = ForwardSliceIndex( false, false, m_ForwardVirtualLocal );
                     break;
                 case GenericSlice::DeferredSurfaceGBuffer:
                     if ( !surfaceOverride )
                         continue;
-                    cell     = &facts.GBufferCell;
-                    cellPass = MeshPass::GBuffer;
+                    sliceIndex = kSliceGBufferCell;
+                    cellPass   = MeshPass::GBuffer;
                     break;
                 case GenericSlice::DeferredDepthNormal:
                 case GenericSlice::ForwardDepth:
@@ -361,7 +373,6 @@ namespace Desert::Graphic::System
                     // The forward prepass draws a surface override through its template's (Static x Depth) cell
                     // (its Forward-slice draw is shaded by the template itself); every other template through its
                     // DepthNormal program.
-                    const MeshPass depthPass = surfaceOverride ? MeshPass::Depth : MeshPass::DepthNormal;
                     const std::shared_ptr<Shader>& depthNormal =
                          surfaceOverride ? facts.DepthCell : facts.DepthNormalCell;
                     if ( depthNormal == nullptr )
@@ -377,8 +388,17 @@ namespace Desert::Graphic::System
                                        shaderName, shaderName, Core::Preprocess::kGenericDepthNormalPass );
                         continue;
                     }
-                    cell     = &depthNormal;
-                    cellPass = depthPass;
+                    if ( surfaceOverride )
+                    {
+                        sliceIndex = kSliceDepthCell;
+                        cellPass   = MeshPass::Depth;
+                    }
+                    else
+                    {
+                        sliceIndex = slice == GenericSlice::DeferredDepthNormal ? kSliceDepthNormalGBuffer
+                                                                                : kSliceDepthNormalPrepass;
+                        cellPass   = MeshPass::DepthNormal;
+                    }
                     break;
                 }
                 case GenericSlice::DeferredForward:
@@ -389,46 +409,27 @@ namespace Desert::Graphic::System
                     // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
                     if ( opaque && !OpaqueGenericAdmitted( g ) )
                         continue;
-                    permutation = ForwardShadowMaskVariant( *shader,
-                                                            slice == GenericSlice::DeferredForwardRayTracedSun,
-                                                            m_GenericLocalShadowMasks, m_ForwardVirtualLocal );
+                    sliceIndex = ForwardSliceIndex( slice == GenericSlice::DeferredForwardRayTracedSun,
+                                                    m_GenericLocalShadowMasks, m_ForwardVirtualLocal );
                     break;
             }
-            const std::shared_ptr<Shader> templateShader = shader;
-            const bool                    ownProgram     = cell != nullptr || !permutation.IsDefault();
-            // The program's name: the cell's or the template's (read in place, never formatted per draw).
-            const std::string& programName = cell != nullptr ? ( *cell )->GetName() : shaderName;
-            if ( ownProgram )
-            {
-                if ( permutation.IsDefault() )
-                    shader = *cell; // a cell slice: no permutation is asked of a cell here
-                else
-                {
-                    auto acquired = shaders->AcquireVariant( programName, permutation );
-                    if ( !acquired )
-                    {
-                        if ( shaders->ClaimRefusalReport( programName, permutation ) )
-                            LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", programName,
-                                       acquired.GetError() );
-                        continue;
-                    }
-                    shader = acquired.ExtractValue();
-                }
-                if ( !shader || !shader->IsCompiled() )
-                    continue; // a registered program that failed its compile was named at registration
-            }
+            const std::shared_ptr<Shader>& templateShader = resolved.Program;
+            const SliceProgram* const      sliceProgram   = SliceProgramOf( facts, templateShader, sliceIndex );
+            if ( sliceProgram == nullptr )
+                continue; // its refusal was said when the slice program was asked
+            shader = sliceProgram->Program;
+            if ( sliceProgram->Own && !shader->IsCompiled() )
+                continue; // a registered program that failed its compile was named at registration
             // The pipeline tracker's and the shared material's name of this program: the permutation is part of
-            // it.
-            std::string programKey = programName;
-            for ( const auto& define : permutation.Defines )
-                std::format_to( std::back_inserter( programKey ), "|{}", define );
+            // it (made once with the slice program, never formatted per draw).
+            const std::string& programKey = sliceProgram->Key;
 
-            if ( material != nullptr && ownProgram )
+            if ( material != nullptr && sliceProgram->Own )
             {
                 // A slot material is a `.demat`: its sibling in this program comes from the service, built from
-                // the same asset (same row, same textures), descriptor sets from THIS program's reflection.
-                material = Runtime::ResourceRegistry::GetMaterialService()->GetVariant(
-                     material, MeshVertexPath::Static, cellPass, permutation );
+                // the same asset (same row, same textures), descriptor sets from THIS program's reflection. Asked
+                // once per slice program and build revision of the asset (SlotVariantOf).
+                material = SlotVariantOf( *material, sliceIndex, cellPass, sliceProgram->Permutation );
                 if ( material == nullptr )
                     continue; // the service named the material and the program it refused
             }
@@ -440,7 +441,11 @@ namespace Desert::Graphic::System
                 // different textures still cannot share one. Keying them apart is what stops the row fix
                 // from leaving half the defect standing: two labels in one font share a material and
                 // batch; two labels in different fonts get one material each and both are right.
-                auto& shared = m_GenericMaterials[programKey + GenericTextureKey( g )];
+                // The key is assembled in place from the cached program key and the record's texture key (made
+                // once a frame): a lookup, no string built per draw.
+                m_GenericMaterialKey.assign( programKey );
+                m_GenericMaterialKey.append( GenericTextureKeyOf( gi ) );
+                auto& shared = m_GenericMaterials[m_GenericMaterialKey];
                 if ( !shared )
                     shared = std::make_unique<DataDrivenMaterial>( shader );
                 material = shared.get();
@@ -458,27 +463,9 @@ namespace Desert::Graphic::System
             }
             else
             {
-                GraphicsPipelineSpecification spec = GenericPipelineSpec( shader );
-                spec.DebugName                     = std::format( kGenericMeshNameFormat, programKey );
-                if ( slice == GenericSlice::DeferredDepthNormal )
-                {
-                    // Into the G-buffer: its target layout; the program writes depth and the normal slot only.
-                    spec.TargetLayout      = GBufferLayout();
-                    spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
-                    spec.DepthWriteEnabled = true;
-                }
-                else if ( slice == GenericSlice::ForwardDepth )
-                {
-                    // Into the scene depth alone, the prepass's state (its normal output has no attachment).
-                    spec.TargetLayout      = SceneDepthLayout();
-                    spec.DepthCompareOp    = DepthCompare::Closer;
-                    spec.DepthWriteEnabled = true;
-                }
-                else if ( slice != GenericSlice::Forward && opaque )
-                {
-                    // The prepass wrote this very fragment's depth: Closer would reject it.
-                    spec.DepthCompareOp = DepthCompare::CloserOrEqual;
-                }
+                // The slice's spec, built with the slice program (SliceProgramOf: the prepass and G-buffer target
+                // and depth state included).
+                const GraphicsPipelineSpecification& spec = sliceProgram->Spec;
                 const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
                 if ( built )
                 {
@@ -3379,8 +3366,10 @@ namespace Desert::Graphic::System
         // A compare, never a lookup: a different name at this address is another material built there.
         if ( fresh || kept.Name != name )
         {
-            kept.Name    = name;
-            kept.Program = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+            kept.Name         = name;
+            kept.Program      = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+            kept.Variants     = {}; // another material at this address: its siblings are asked again
+            kept.VariantAsked = {};
         }
         if ( kept.Program == nullptr )
             return {};
@@ -3412,9 +3401,120 @@ namespace Desert::Graphic::System
                 if ( kept.Program != nullptr )
                     kept.Facts = &FactsOf( *kept.Program );
             }
+            // The texture-set keys with the programs: each record's once a frame, into strings that keep their
+            // capacity (BuildGenericDraws' slices and RegisterGenericRows read them, never rebuild them).
+            m_GenericTextureKeys.resize( m_GenericQueue.size() );
+            for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
+                MeshRendererDetail::WriteGenericTextureKey( m_GenericQueue[gi], m_GenericTextureKeys[gi],
+                                                            m_GenericTextureOrder );
             m_GenericProgramsResolved = true;
         }
         return m_GenericPrograms[index];
+    }
+
+    const std::string& MeshRenderer::GenericTextureKeyOf( const std::size_t index ) const
+    {
+        static_cast<void>( GenericProgramOf( index ) ); // resolves the queue's programs and keys once a frame
+        return m_GenericTextureKeys[index];
+    }
+
+    const MeshRenderer::SliceProgram* MeshRenderer::SliceProgramOf( ProgramFacts&                  facts,
+                                                                    const std::shared_ptr<Shader>& program,
+                                                                    const uint32_t                 index )
+    {
+        SliceProgram& kept = facts.Slices[index];
+        if ( kept.Asked )
+            return kept.Program != nullptr ? &kept : nullptr;
+        kept.Asked = true;
+        // Asked once per template and code generation (FactsOf re-makes the facts, SyncProgramFacts forgets them
+        // when RecompileGeneration moves, which every refusal-forgetting Register / Recompile / Clear does).
+        const std::shared_ptr<Shader>* cell = nullptr;
+        if ( index == kSliceGBufferCell )
+            cell = &facts.GBufferCell;
+        else if ( index == kSliceDepthCell )
+            cell = &facts.DepthCell;
+        else if ( index == kSliceDepthNormalGBuffer || index == kSliceDepthNormalPrepass )
+            cell = &facts.DepthNormalCell;
+        if ( cell != nullptr )
+        {
+            kept.Own     = true; // no permutation is asked of a cell here
+            kept.Program = *cell;
+        }
+        else
+        {
+            kept.Permutation = ForwardShadowMaskVariant( *program, ( index & 1u ) != 0, ( index & 2u ) != 0,
+                                                         ( index & 4u ) != 0 );
+            kept.Own         = !kept.Permutation.IsDefault();
+            if ( !kept.Own )
+                kept.Program = program;
+            else
+            {
+                auto* const shaders  = Runtime::ResourceRegistry::GetShaderService();
+                auto        acquired = shaders->AcquireVariant( program->GetName(), kept.Permutation );
+                if ( !acquired )
+                {
+                    if ( shaders->ClaimRefusalReport( program->GetName(), kept.Permutation ) )
+                        LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", program->GetName(),
+                                   acquired.GetError() );
+                    return nullptr;
+                }
+                kept.Program = acquired.ExtractValue();
+            }
+        }
+        if ( kept.Program == nullptr )
+            return nullptr;
+
+        // The program's name - the cell's or the template's - and its permutation's defines.
+        const std::shared_ptr<Shader>& named = cell != nullptr ? *cell : program;
+        kept.Key                             = named->GetName();
+        for ( const auto& define : kept.Permutation.Defines )
+            std::format_to( std::back_inserter( kept.Key ), "|{}", define );
+        if ( index == kSliceGBufferCell )
+            return &kept; // drawn through CellPipeline: no spec of its own
+
+        kept.Spec           = GenericPipelineSpec( kept.Program );
+        kept.Spec.DebugName = std::format( kGenericMeshNameFormat, kept.Key );
+        if ( index == kSliceDepthNormalGBuffer )
+        {
+            // Into the G-buffer: its target layout; the program writes depth and the normal slot only.
+            kept.Spec.TargetLayout      = GBufferLayout();
+            kept.Spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+            kept.Spec.DepthWriteEnabled = true;
+        }
+        else if ( index == kSliceDepthCell || index == kSliceDepthNormalPrepass )
+        {
+            // Into the scene depth alone, the prepass's state (its normal output has no attachment).
+            kept.Spec.TargetLayout      = SceneDepthLayout();
+            kept.Spec.DepthCompareOp    = DepthCompare::Closer;
+            kept.Spec.DepthWriteEnabled = true;
+        }
+        // A forward slice keeps GenericPipelineSpec's state: an opaque program is already CloserOrEqual against
+        // the depth its prepass wrote, which is what the deferred forward slices asked of it.
+        return &kept;
+    }
+
+    DataDrivenMaterial* MeshRenderer::SlotVariantOf( DataDrivenMaterial& material, const uint32_t index,
+                                                     const MeshPass pass, const Core::ShaderVariant& permutation )
+    {
+        auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+        const auto  found     = m_MaterialPrograms.find( &material );
+        if ( found == m_MaterialPrograms.end() ) // never resolved through ProgramOf: the service is asked
+            return materials->GetVariant( &material, MeshVertexPath::Static, pass, permutation );
+        MaterialProgramRow& kept     = found->second;
+        const uint32_t      revision = materials->BuildRevision( &material );
+        if ( kept.VariantRevision != revision )
+        {
+            // The asset was rebuilt (Invalidate retired every sibling): every slice asks again.
+            kept.VariantRevision = revision;
+            kept.Variants        = {};
+            kept.VariantAsked    = {};
+        }
+        if ( !kept.VariantAsked[index] )
+        {
+            kept.VariantAsked[index] = true;
+            kept.Variants[index] = materials->GetVariant( &material, MeshVertexPath::Static, pass, permutation );
+        }
+        return kept.Variants[index];
     }
 
     MeshRenderer::TranslucentDraw* MeshRenderer::TranslucentDrawOf( const DataDrivenMaterial* const mat )

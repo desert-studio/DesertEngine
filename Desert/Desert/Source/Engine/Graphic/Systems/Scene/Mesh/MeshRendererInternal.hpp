@@ -80,6 +80,9 @@ namespace Desert::Graphic::System
         // textures alone (ApplyGenericTextures): its descriptor set holds the TextureBinding textures, and its
         // parameters are never read — the draw reads its row from the table.
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g );
+        // The same key into @p key (cleared first) with @p order as the sort scratch: the per-frame form.
+        void WriteGenericTextureKey( const MeshRenderer::GenericMeshRenderData& g, std::string& key,
+                                     std::vector<const std::pair<std::string, uint64_t>*>& order );
         void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
                                     std::string_view shaderName, bool logRefused );
         void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,

@@ -2615,6 +2615,36 @@ namespace Desert::Graphic::System
         // the "who samples this texture" asks read them: no name, TemplateCellShader, FrontLayerShaderFor or
         // GetByName per draw per frame. The TranslucentDraw answers point into m_Translucent / m_FrontLayer,
         // which only ever insert.
+        //
+        // A TEMPLATE'S SLICE PROGRAMS, the cached half of a generic draw command (CPU-FRAME-ARENA 11; UE
+        // FMeshDrawCommand: the program, its name and its pipeline state are built when the primitive's material
+        // is added, never per draw). BuildGenericDraws draws a template through one of these: the
+        // ForwardShadowMaskVariant of (sun mask | local masks << 1 | virtual local << 2) - indices 0..7 - or one
+        // of its cells. Each is asked once per template at its code generation (the AcquireVariant, the key and
+        // the spec), so a draw formats no name, builds no permutation and allocates no target layout.
+        static constexpr uint32_t kSliceGBufferCell        = 8;  // (Static x GBuffer): the surface override's
+        static constexpr uint32_t kSliceDepthCell          = 9;  // (Static x Depth) in the forward prepass
+        static constexpr uint32_t kSliceDepthNormalGBuffer = 10; // DepthNormal into the G-buffer
+        static constexpr uint32_t kSliceDepthNormalPrepass = 11; // DepthNormal in the forward prepass (depth only)
+        static constexpr uint32_t kSlicePrograms           = 12;
+        [[nodiscard]] static constexpr uint32_t ForwardSliceIndex( const bool rayTracedSun, const bool localMasks,
+                                                                   const bool virtualLocal ) noexcept
+        {
+            return ( rayTracedSun ? 1u : 0u ) | ( localMasks ? 2u : 0u ) | ( virtualLocal ? 4u : 0u );
+        }
+        struct SliceProgram
+        {
+            bool                    Asked = false;
+            bool                    Own   = false; // a cell or a permutation, not the template's own program
+            std::shared_ptr<Shader> Program;       // null: refused (said once, when asked)
+            Core::ShaderVariant     Permutation;   // the forward ones' (default for a cell)
+            // The pipeline tracker's and the shared material's name: the program's name + "|define" per define.
+            std::string Key;
+            // GenericPipelineSpec with DebugName "GenericMesh_<Key>" and the slice's target and depth state (none
+            // for the G-buffer cell, which draws through CellPipeline). The layouts are constants
+            // (ViewTargetLayouts).
+            GraphicsPipelineSpecification Spec;
+        };
         struct ProgramFacts
         {
             uint64_t                CodeGeneration = 0;
@@ -2630,6 +2660,7 @@ namespace Desert::Graphic::System
             std::array<bool, 2>             TranslucentAsked{};
             TranslucentDraw*                FrontLayer      = nullptr; // FrontLayerDrawFor( *FrontLayerCell )'s
             bool                            FrontLayerAsked = false;
+            std::array<SliceProgram, kSlicePrograms> Slices{}; // SliceProgramOf's, asked on first use
         };
         // A template program and its facts: what a material or a Shader Override record draws with.
         struct ResolvedProgram
@@ -2643,6 +2674,11 @@ namespace Desert::Graphic::System
         {
             std::string             Name;
             std::shared_ptr<Shader> Program;
+            // MaterialService::GetVariant's sibling per slice program (SlotVariantOf), valid while the asset's
+            // BuildRevision stands: an Invalidate retires the siblings and bumps it.
+            uint32_t                                        VariantRevision = 0;
+            std::array<DataDrivenMaterial*, kSlicePrograms> Variants{};
+            std::array<bool, kSlicePrograms>                VariantAsked{};
         };
         mutable std::unordered_map<uint64_t, ProgramFacts>                        m_ProgramFacts;
         mutable std::unordered_map<const DataDrivenMaterial*, MaterialProgramRow> m_MaterialPrograms;
@@ -2660,6 +2696,18 @@ namespace Desert::Graphic::System
         ResolvedProgram ProgramOf( const DataDrivenMaterial& material ) const;
         // m_GenericQueue entry @p index's (a non-DataDriven slot material resolves to none).
         const ResolvedProgram& GenericProgramOf( std::size_t index ) const;
+        // m_GenericQueue entry @p index's texture-set key (GenericTextureKey), made with its program once a frame.
+        const std::string&               GenericTextureKeyOf( std::size_t index ) const;
+        mutable std::vector<std::string> m_GenericTextureKeys; // per queue entry, capacity kept across frames
+        mutable std::vector<const std::pair<std::string, uint64_t>*> m_GenericTextureOrder; // its sort scratch
+        std::string m_GenericMaterialKey; // m_GenericMaterials' lookup key, assembled in place per draw
+        // @p facts' slice program @p index of the template @p program (null: refused or absent, said once).
+        const SliceProgram* SliceProgramOf( ProgramFacts& facts, const std::shared_ptr<Shader>& program,
+                                            uint32_t index );
+        // @p material's sibling for slice program @p index (MaterialService::GetVariant, asked once per build
+        // revision of its asset; see MaterialProgramRow).
+        DataDrivenMaterial* SlotVariantOf( DataDrivenMaterial& material, uint32_t index, MeshPass pass,
+                                           const Core::ShaderVariant& permutation );
         // The translucency pass's / the front layer's draw state of @p mat's (non-null) template, by its facts.
         TranslucentDraw* TranslucentDrawOf( const DataDrivenMaterial* mat );
         TranslucentDraw* FrontLayerDrawOf( const DataDrivenMaterial* mat );
