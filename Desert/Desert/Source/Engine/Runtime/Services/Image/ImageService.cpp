@@ -1,9 +1,27 @@
 #include "ImageService.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 
 namespace Desert::Runtime
 {
+    namespace
+    {
+        // RESOLVE'S RAW POINTER OUTLIVES EVERY FRAME THAT MAY HAVE READ IT. A render worker of frame N-1
+        // resolves a handle while the game thread of frame N unregisters or replaces its image: the outgoing
+        // image is retired through the renderer's frame-retire queue (UE: deferred deletion), and dies at
+        // once only with no renderer. Called after m_Lock is released.
+        void RetireImage( std::shared_ptr<Graphic::Image>&& outgoing ) noexcept
+        {
+            if ( !outgoing )
+                return;
+            const auto ctx = EngineContext::GetInstance().GetRendererContext();
+            if ( !ctx )
+                return; // `outgoing` dies here
+            ctx->RetireAfterFramesInFlight( [held = std::move( outgoing )]() mutable { held.reset(); } );
+        }
+    } // namespace
     ImageHandle ImageService::Register( std::shared_ptr<Graphic::Image>&& image, ImageHandle::Type type ) noexcept
     {
         // Exclusive: Allocate may grow the pool's vector and the two resizes below may move ours -- the
@@ -68,6 +86,8 @@ namespace Desert::Runtime
             }
         }
 
+        RetireImage( std::move( released ) );
+
         if ( stale )
         {
             LOG_ERROR( "[ImageService] Unregister was given a handle for slot {} generation {}, but that "
@@ -91,6 +111,7 @@ namespace Desert::Runtime
             outgoing                     = std::move( m_Images[handle.Value.Index] );
             m_Images[handle.Value.Index] = std::move( image );
         }
+        RetireImage( std::move( outgoing ) );
         return true;
     }
 
