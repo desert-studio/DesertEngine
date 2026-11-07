@@ -171,18 +171,23 @@ namespace Desert::ECS
                         m_Engine.CallStart( id, slot );
                         if ( !registry.valid( entity ) )
                             break; // OnStart destroyed its own entity; see the check after CallUpdate
-                        ReadBackSaveGame( registry, entity, slot );
+                        ReadBackSaveGame( registry, entity, slot, Scripting::ScriptEngine::ReadBackScope::All );
                     }
-                    // Re-apply every frame so editing a property in Details updates the running script LIVE.
-                    m_Engine.SyncProperties( id, slot, script.Properties );
+                    // Editing a property in Details updates the running script LIVE: pushed when its revision
+                    // moved (ScriptSlot::PropertiesRevision), a lookup otherwise.
+                    m_Engine.SyncProperties( id, slot, script.Properties, script.PropertiesRevision );
                     m_Engine.CallUpdate( id, slot, ts.GetSeconds() );
                     // Re-fetched: the script may have reshaped the component pool `script` points into.
                     if ( registry.valid( entity ) && registry.has<ScriptComponent>( entity ) &&
                          slot < registry.get<ScriptComponent>( entity ).Scripts.size() )
                     {
+                        // Copied only when it changed: a script failing every frame repeats the same message.
                         const std::string* error = m_Engine.SlotError( id, slot );
-                        registry.get<ScriptComponent>( entity ).Scripts[slot].RuntimeError =
-                             error != nullptr ? *error : std::string();
+                        std::string& shown = registry.get<ScriptComponent>( entity ).Scripts[slot].RuntimeError;
+                        if ( error == nullptr )
+                            shown.clear();
+                        else if ( shown != *error )
+                            shown = *error;
                     }
 
                     // A script may destroy its OWN entity (`self:destroy()`), and then `sc` refers to storage
@@ -191,7 +196,7 @@ namespace Desert::ECS
                     // entity, which asserts in Debug — the first run of PHYS_DestroyWitness (WP6) died here.
                     if ( !registry.valid( entity ) )
                         break;
-                    ReadBackSaveGame( registry, entity, slot );
+                    ReadBackSaveGame( registry, entity, slot, Scripting::ScriptEngine::ReadBackScope::Written );
                 }
                 if ( !registry.valid( entity ) )
                     continue;
@@ -417,14 +422,15 @@ namespace Desert::ECS
 
         // The slot's SaveGame properties as the script left them -> the slot (what a save captures). Looked up
         // again: a script that spawned a scripted entity may have moved the ScriptComponent storage.
-        void ReadBackSaveGame( entt::registry& registry, entt::entity entity, uint32_t slot )
+        void ReadBackSaveGame( entt::registry& registry, entt::entity entity, uint32_t slot,
+                               Scripting::ScriptEngine::ReadBackScope scope )
         {
             if ( !registry.has<ScriptComponent>( entity ) )
                 return;
             auto& scripts = registry.get<ScriptComponent>( entity ).Scripts;
             if ( slot < scripts.size() )
                 m_Engine.ReadBackProperties( static_cast<uint32_t>( entity ), slot,
-                                             scripts[slot].SaveGameProperties, scripts[slot].Properties );
+                                             scripts[slot].SaveGameProperties, scripts[slot].Properties, scope );
         }
 
         void OnScriptComponentDestroyed( entt::registry&, entt::entity entity )

@@ -62,9 +62,15 @@ namespace Desert::Scripting
         // Per slot: the held property values already reported as not applicable (ApplyProperties runs every
         // frame; the report is once).
         std::unordered_map<uint64_t, std::unordered_set<std::string>> StaleProperties;
-        // Per slot: the names that held an override at the last SyncProperties — one missing now went back to
-        // its default in Details, and the running script is given that default once.
-        std::unordered_map<uint64_t, std::unordered_set<std::string>> SyncedOverrides;
+        // Per slot: the overrides' revision (ECS::ScriptSlot::PropertiesRevision) the last SyncProperties pushed,
+        // and the names that held an override then — one missing now went back to its default in Details, and
+        // the running script is given that default once. A sync at the same revision does nothing.
+        struct SyncedOverrideSet
+        {
+            uint64_t                        Revision = 0;
+            std::unordered_set<std::string> Names;
+        };
+        std::unordered_map<uint64_t, SyncedOverrideSet> SyncedOverrides;
 
         // A Luau function handed to the engine (Timer.after's callback) becomes a Callable OWNED by the (entity,
         // slot) running when it was made: CurrentOwner is set right before the engine enters script code (top

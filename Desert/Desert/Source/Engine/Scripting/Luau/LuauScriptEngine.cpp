@@ -325,8 +325,13 @@ namespace Desert::Scripting
     }
 
     void ScriptEngine::SyncProperties( uint32_t entity, uint32_t slot,
-                                       const std::vector<ScriptProperty>& overrides )
+                                       const std::vector<ScriptProperty>& overrides, uint64_t revision )
     {
+        // The per-frame path: one lookup. Only an edit (a new revision) pushes the overrides again.
+        const uint64_t key  = Impl::SlotKey( entity, slot );
+        const auto     seen = m_Impl->SyncedOverrides.find( key );
+        if ( seen != m_Impl->SyncedOverrides.end() && seen->second.Revision == revision )
+            return;
         ApplyProperties( entity, slot, overrides );
         const LuauSlot target = m_Impl->SlotOf( entity, slot );
         if ( target == 0 )
@@ -338,7 +343,9 @@ namespace Desert::Scripting
         std::unordered_set<std::string> held;
         for ( const ScriptProperty& p : overrides )
             held.insert( p.Name );
-        std::unordered_set<std::string>& synced = m_Impl->SyncedOverrides[Impl::SlotKey( entity, slot )];
+        Impl::SyncedOverrideSet&         entry  = m_Impl->SyncedOverrides[key];
+        std::unordered_set<std::string>& synced = entry.Names;
+        entry.Revision                          = revision;
         bool                             gone   = false;
         for ( const std::string& name : synced )
             gone = gone || !held.contains( name );
@@ -362,29 +369,47 @@ namespace Desert::Scripting
     }
 
     void ScriptEngine::ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
-                                           std::vector<ScriptProperty>& props )
+                                           std::vector<ScriptProperty>& props, ReadBackScope scope )
     {
+        // Per frame only what the script ASSIGNED since the last read-back (the write barrier, LuauProperties): a
+        // slot whose script wrote nothing costs one table probe, not a read of every SaveGame property. After
+        // OnStart every one of them, so the slot holds each SaveGame value from the start, written or not.
         const LuauSlot source = m_Impl->SlotOf( entity, slot );
-        if ( source == 0 || names.empty() )
+        if ( source == 0 )
+            return;
+        const bool all = scope == ReadBackScope::All;
+        if ( !all && !m_Impl->Runtime->AnyPropertyWritten( source ) )
             return;
         const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( source );
-        if ( declared == nullptr )
-            return;
-        for ( const ScriptPropertyDecl& decl : *declared )
+        if ( declared != nullptr && !names.empty() )
         {
-            if ( std::find( names.begin(), names.end(), decl.Name ) == names.end() )
-                continue;
-            ScriptProperty read;
-            if ( !m_Impl->Runtime->ReadProperty( source, decl.Name, decl.Default.Type, read ) )
-                continue;
-            read.Name       = decl.Name;
-            const auto held = std::find_if( props.begin(), props.end(),
-                                            [&]( const ScriptProperty& p ) { return p.Name == decl.Name; } );
-            if ( held == props.end() )
-                props.push_back( std::move( read ) );
-            else
-                *held = std::move( read );
+            for ( const ScriptPropertyDecl& decl : *declared )
+            {
+                if ( ( !all && !m_Impl->Runtime->PropertyWritten( source, decl.Name ) ) ||
+                     std::find( names.begin(), names.end(), decl.Name ) == names.end() )
+                    continue;
+                ScriptValue read;
+                if ( !m_Impl->Runtime->ReadProperty( source, decl.Name, decl.Default.Type, read ) )
+                    continue;
+                const auto held = std::find_if( props.begin(), props.end(),
+                                                [&]( const ScriptProperty& p ) { return p.Name == decl.Name; } );
+                if ( held == props.end() )
+                {
+                    ScriptProperty added;
+                    static_cast<ScriptValue&>( added ) = std::move( read );
+                    added.Name                         = decl.Name;
+                    props.push_back( std::move( added ) );
+                }
+                else
+                {
+                    // A held value of another shape (an Array's items) is replaced whole, as before.
+                    held->ElementType = PropertyType::Number;
+                    held->Items.clear();
+                    static_cast<ScriptValue&>( *held ) = std::move( read );
+                }
+            }
         }
+        m_Impl->Runtime->ClearPropertyWrites( source );
     }
 
     std::vector<ScriptEngine::LiveProperty> ScriptEngine::ReadLiveProperties( uint32_t entity, uint32_t slot ) const

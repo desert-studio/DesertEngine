@@ -896,22 +896,26 @@ namespace Desert::Core
                             ? m_Registry.get<ECS::TagComponent>( entity ).Tag
                             : std::string( "<untagged>" );
             };
-            std::string unused;
+            // Latched on the STATE (which lights are unused, whether there is a sun), not on a flag: this runs
+            // every frame, so an unlatched LOG_ERROR here would bury the log at 60 lines a second, and a plain
+            // once-only flag would go quiet about the SECOND state. The state is compared as entity handles in a
+            // reused buffer; the names are formatted only when it changes - including back to empty, which is
+            // the line that tells a user their fix worked.
+            m_DirLightsUnusedScratch.clear();
             for ( size_t i = 0; i < pick.Candidates.size(); ++i )
-            {
                 if ( pick.Selection.Chosen != i && pick.Entities[i] != second )
-                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
-                                    nameOf( pick.Entities[i] ) );
-            }
-
-            // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR here
-            // would bury the log at 60 lines a second, and a plain once-only flag would go quiet about the
-            // SECOND state. Comparing the text reports each distinct state once and re-reports when the set
-            // changes — including back to empty, which is the line that tells a user their fix worked.
-            const std::string report = std::format( "{}|{}", unused, pick.Sun() ? "sun" : "" );
-            if ( report != m_DirLightsReported )
+                    m_DirLightsUnusedScratch.push_back( pick.Entities[i] );
+            const bool hasSun = static_cast<bool>( pick.Sun() );
+            if ( !m_DirLightsLatched || hasSun != m_DirLightsSunReported ||
+                 m_DirLightsUnusedScratch != m_DirLightsUnusedReported )
             {
-                m_DirLightsReported = report;
+                m_DirLightsLatched     = true;
+                m_DirLightsSunReported = hasSun;
+                m_DirLightsUnusedReported = m_DirLightsUnusedScratch; // reuses its capacity
+                std::string unused;
+                for ( const entt::entity entity : m_DirLightsUnusedScratch )
+                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
+                                    nameOf( entity ) );
                 if ( !unused.empty() && pick.Sun() )
                     LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders the two "
                                "atmosphere lights only (the sun '{}' at index 0, a moon at index 1). Remove them, "

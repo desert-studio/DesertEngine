@@ -1,5 +1,7 @@
 #include <Engine/Scripting/Luau/LuauDebugger.hpp>
 
+#include <Engine/Scripting/Luau/LuauProperties.hpp>
+
 #include <algorithm>
 #include <cstring>
 #include <format>
@@ -249,12 +251,16 @@ namespace Desert::Scripting
 
         const auto table = [&]( int index )
         {
+            // A `Properties` proxy shows its values (LuauProperties' write barrier keeps the proxy empty).
+            LuauProperties::PushValues( L, index );
+            const int values = lua_gettop( L );
             lua_pushnil( L );
-            while ( lua_next( L, index ) != 0 )
+            while ( lua_next( L, values ) != 0 )
             {
                 PushVariable( out, KeyName( L, -2 ) ); // the key stays a key: KeyName never converts it
                 lua_pop( L, 1 );
             }
+            lua_pop( L, 1 );
         };
 
         switch ( container.Of )
@@ -567,12 +573,14 @@ namespace Desert::Scripting
             case LUA_TTABLE:
             {
                 int entries = 0; // the array part AND the keyed part: lua_objlen counts only the first
+                LuauProperties::PushValues( L, -1 ); // a `Properties` proxy counts its values
                 lua_pushnil( L );
                 while ( lua_next( L, -2 ) != 0 )
                 {
                     ++entries;
                     lua_pop( L, 1 );
                 }
+                lua_pop( L, 1 );
                 variable.Value = std::format( "table ({} entries)", entries );
                 variable.Reference =
                      AddContainer( { .Of = Container::Kind::Value, .Level = 0, .Ref = lua_ref( L, -1 ) } );

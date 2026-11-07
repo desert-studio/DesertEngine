@@ -35,6 +35,26 @@ namespace Desert::Scripting::LuauProperties
     [[nodiscard]] Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State*       thread,
                                                                              std::string_view script );
 
+    /// THE WRITE BARRIER Settle installs: after it, the global `Properties` is a proxy that reads through to the
+    /// values and marks every name the SCRIPT assigns. The engine's own writes go to PushPropertyValues' table
+    /// raw, so they are no marks. What a SaveGame read-back reads instead of every property every frame.
+
+    /// Pushes what the table at `index` iterates as: the values of a `Properties` proxy, the table itself else
+    /// (the debugger's view of a table).
+    void PushValues( lua_State* L, int index );
+
+    /// Pushes the values behind the slot's `Properties` (nil when the global is nil).
+    void PushPropertyValues( lua_State* thread );
+
+    /// Whether the script assigned any `Properties.<name>` since the last ClearPropertyWrites.
+    [[nodiscard]] bool AnyPropertyWritten( lua_State* thread );
+
+    /// Whether the script assigned `Properties.<name>` since the last ClearPropertyWrites.
+    [[nodiscard]] bool PropertyWritten( lua_State* thread, const std::string& name );
+
+    /// Forgets every mark (after a read-back took what it needs).
+    void ClearPropertyWrites( lua_State* thread );
+
     /// What a value needs from the world it is pushed into: the entity a UUID names.
     using World = LuauPropertyWorld;
 

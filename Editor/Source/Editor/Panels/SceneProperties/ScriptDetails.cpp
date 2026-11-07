@@ -150,6 +150,7 @@ namespace Desert::Editor
             std::erase_if( slot.Properties, [&]( const ScriptProperty& p ) { return p.Name == decl.Name; } );
             if ( !( value == decl.Default ) )
                 slot.Properties.push_back( std::move( value ) );
+            slot.PropertiesEdited(); // a played slot gets it on its next update (ScriptEngine::SyncProperties)
         }
 
         // ---- Undo ----------------------------------------------------------------------------------------
@@ -860,6 +861,7 @@ namespace Desert::Editor
                        [&] {
                            std::erase_if( view.Slot.Properties,
                                           [&]( const ScriptProperty& p ) { return p.Name == *drop; } );
+                           view.Slot.PropertiesEdited();
                        } );
         }
 
@@ -1150,6 +1152,7 @@ namespace Desert::Editor
                            view.Slot.ScriptKey = *chosen;
                            view.Slot.Started   = false;
                            view.Slot.Properties.clear(); // another script: its own declarations, no values yet
+                           view.Slot.PropertiesEdited();
                            view.Slot.RuntimeError.clear();
                        } );
         }

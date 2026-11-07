@@ -183,6 +183,12 @@ namespace Desert::Scripting
         /// `Properties[property.Name] = <its value as the script reads it>` (an entity resolved in `world`).
         void SetProperty( LuauSlot slot, const ScriptProperty& property, const LuauPropertyWorld& world );
 
+        /// The write barrier's marks (LuauProperties::AnyPropertyWritten): whether the SCRIPT assigned any /
+        /// this `Properties.<name>` since the last ClearPropertyWrites. False when there is no such slot.
+        [[nodiscard]] bool AnyPropertyWritten( LuauSlot slot ) const;
+        [[nodiscard]] bool PropertyWritten( LuauSlot slot, const std::string& name ) const;
+        void               ClearPropertyWrites( LuauSlot slot );
+
         /// `Properties[name]` as a scalar of kind `type` (LuauProperties::ReadScalar): false when the slot,
         /// the table or a value of that kind is not there.
         [[nodiscard]] bool ReadProperty( LuauSlot slot, const std::string& name, PropertyType type,
