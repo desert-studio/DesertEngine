@@ -1717,7 +1717,8 @@ namespace Desert::Graphic::System
 
     void VolumetricCloudRenderer::ResolveMediumValues( const MaterialOverrides& overrides )
     {
-        const std::vector<Core::Formats::ShaderParam>* schema = nullptr;
+        // Co-owned: a hot reload of the medium may replace the service's entry while this worker reads it.
+        std::shared_ptr<const std::vector<Core::Formats::ShaderParam>> schema;
         if ( !m_Material.Medium.IsNull() )
         {
             if ( const auto shaderService = Runtime::ResourceRegistry::GetShaderService() )

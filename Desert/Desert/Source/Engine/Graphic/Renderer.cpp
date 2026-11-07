@@ -510,11 +510,12 @@ namespace Desert::Graphic
         // sampler is never destroyed here. Idle first anyway: the image descriptors are rewritten next frame.
         WaitDeviceIdle();
         auto* imageService = Runtime::ResourceRegistry::GetImageService();
-        for ( const auto& image : imageService->All() )
-        {
-            if ( auto* vulkanImage = dynamic_cast<API::Vulkan::IVulkanImage*>( image.get() ) )
-                vulkanImage->RecreateSampler();
-        }
+        imageService->ForEachImage(
+             []( Image& image )
+             {
+                 if ( auto* vulkanImage = dynamic_cast<API::Vulkan::IVulkanImage*>( &image ) )
+                     vulkanImage->RecreateSampler();
+             } );
         // Next frame, MaterialExecutor::Apply rebinds the new samplers into descriptor sets.
     }
 

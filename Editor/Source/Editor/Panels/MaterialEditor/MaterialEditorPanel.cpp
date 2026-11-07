@@ -2498,9 +2498,9 @@ namespace Desert::Editor
             return &own;
 
         const uint64_t mediumHandle = drawn->Data().GetCloudAsset( Graphic::kCloudMediumSlotName );
-        const auto*    mediumSchema = mediumHandle != 0 && shaderService
-                                           ? shaderService->MediumSchemaOf( Assets::AssetHandle( mediumHandle ) )
-                                           : nullptr;
+        std::shared_ptr<const std::vector<::Desert::Core::Formats::ShaderParam>> mediumSchema;
+        if ( mediumHandle != 0 && shaderService )
+            mediumSchema = shaderService->MediumSchemaOf( Assets::AssetHandle( mediumHandle ) );
         if ( !mediumSchema || mediumSchema->empty() )
             return &own;
 
