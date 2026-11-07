@@ -49,6 +49,7 @@ namespace Desert::Graphic::System
         {
             m_ShadowMaterial.resize( viewCount );
             m_ShadowInstancedMaterial.resize( viewCount );
+            m_ShadowInstancedIdMaterial.resize( viewCount );
             m_ShadowSkinnedMaterial.resize( viewCount );
             m_CascadeCasterVP.resize( viewCount, glm::mat4( 1.0f ) );
             m_CascadeCasterBias.resize( viewCount );
@@ -79,6 +80,7 @@ namespace Desert::Graphic::System
         {
             m_ShadowMaterial[view].reset();
             m_ShadowInstancedMaterial[view].reset();
+            m_ShadowInstancedIdMaterial[view].reset();
             m_ShadowSkinnedMaterial[view].reset();
             m_ShadowMaterialsVirtual[view] = kind;
         }
@@ -86,6 +88,9 @@ namespace Desert::Graphic::System
             m_ShadowMaterial[view] = std::make_unique<MaterialShadow>( casters.Pass );
         if ( casters.Instanced != nullptr && !m_ShadowInstancedMaterial[view] )
             m_ShadowInstancedMaterial[view] = std::make_unique<MaterialShadowInstanced>( casters.Pass );
+        if ( casters.InstancedSceneIds != nullptr && !m_ShadowInstancedIdMaterial[view] )
+            m_ShadowInstancedIdMaterial[view] =
+                 std::make_unique<MaterialShadowInstanced>( m_ShadowInstancedIdShader );
         if ( casters.Skinned != nullptr && !m_ShadowSkinnedMaterial[view] )
             m_ShadowSkinnedMaterial[view] = std::make_unique<MaterialShadowSkinned>( casters.Pass );
         return true;

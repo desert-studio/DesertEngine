@@ -2510,6 +2510,10 @@ namespace Desert::Graphic::System
             GraphicsPipeline* Instanced = nullptr;
             GraphicsPipeline* Skinned   = nullptr;
             MeshPass          Pass      = MeshPass::ShadowDepth;
+            // CPU-ISM-PACK 5: the Instanced state over the shared caster's GpuScene-id permutation (an ISM's
+            // casters by id); null for a virtual shadow map level (its draws keep their matrices: its GPU cull
+            // reads MeshDrawCommand::Instances) or when that permutation was refused.
+            GraphicsPipeline* InstancedSceneIds = nullptr;
         };
         [[nodiscard]] CasterPipelines CasterPipelinesOf( uint32_t view );
         // The pipeline of one masked caster cell: the shared caster's state of @p casters (the view's) for @p path
@@ -2945,6 +2949,15 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>        m_ShadowInstancedPipeline;
         std::shared_ptr<Shader>                  m_ShadowInstancedShader;
         std::vector<std::unique_ptr<MaterialShadowInstanced>> m_ShadowInstancedMaterial =
+             std::vector<std::unique_ptr<MaterialShadowInstanced>>( kFixedShadowViews );
+        // CPU-ISM-PACK 5 (UE: a shadow view draws its instances by id from GPU Scene): the shared Instanced caster
+        // in SurfaceSceneInstancesVariant, its clipped and pancaked pipelines, and one material per shadow view
+        // (its light camera + its own uint id list in InstanceTransforms). Null when the permutation was refused:
+        // the ISMs then cast through the packed matrices above.
+        std::shared_ptr<Shader>                               m_ShadowInstancedIdShader;
+        std::shared_ptr<GraphicsPipeline>                     m_ShadowInstancedIdPipeline;
+        std::shared_ptr<GraphicsPipeline>                     m_CascadeShadowInstancedIdPipeline;
+        std::vector<std::unique_ptr<MaterialShadowInstanced>> m_ShadowInstancedIdMaterial =
              std::vector<std::unique_ptr<MaterialShadowInstanced>>( kFixedShadowViews );
 
         // Skinned shadow caster: the (Skinned x ShadowDepth) cell, which did not exist — the cascade pass
@@ -3867,6 +3880,11 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
+        // CPU-ISM-PACK 5: a shadow view's ISM casters by GpuScene id - the visible instances' ids
+        // (FirstGpuInstance + index), the opaque id batches and their ids end to end (the view's id material's
+        // InstanceTransforms, uploaded once per view). Kept for capacity, like the scratch above.
+        std::vector<uint32_t> m_ScratchIsmVisibleIds;
+        std::vector<uint32_t> m_ScratchShadowIsmIds;
         // The per-instance caster cull's bits (VisibleInViewBits, one bit per gathered instance of a field): the
         // view's and the scrolled strips' union (CascadeStaticSignature's are its runs', IsmSignatureRun::Bits).
         std::vector<uint64_t> m_ScratchCasterBits;
@@ -4516,6 +4534,10 @@ namespace Desert::Graphic::System
         {
             DataDrivenMaterial*    Caster = nullptr;
             std::vector<glm::mat4> Transforms; // Instanced path: InstanceTransforms; Skinned path: Bones
+            // CPU-ISM-PACK 5: a caster in SurfaceSceneInstancesVariant: InstanceTransforms holds these GpuScene
+            // instance ids instead (Transforms stays empty).
+            std::vector<uint32_t> Ids;
+            bool                  SceneIds = false;
         };
         struct MaskedCasterDraw
         {

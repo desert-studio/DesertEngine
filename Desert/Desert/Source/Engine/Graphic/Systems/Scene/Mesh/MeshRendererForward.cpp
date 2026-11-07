@@ -1030,6 +1030,30 @@ namespace Desert::Graphic::System
                 continue;
             AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants, /*virtualOnly*/ true );
         }
+        // CPU-ISM-PACK 5: the shadow views' ISM casters by GpuScene id (BuildShadowCascadeDraws): the default
+        // surface's shared (Instanced x ShadowDepth) caster (SetupShadowPass) and every Masked template's own
+        // (MaskedCasterMaterial), each in SurfaceSceneInstancesVariant.
+        if ( const auto shared =
+                  materials.DefaultSurfaceShader( MeshVertexPath::Instanced, MeshPass::ShadowDepth ) )
+        {
+            Core::ShaderVariant permutation = SurfaceSceneInstancesVariant();
+            if ( shaders.GetByName( shared.GetValue() ) != nullptr &&
+                 listed.emplace( shared.GetValue(), permutation.Hash() ).second )
+                variants.push_back( { shared.GetValue(), std::move( permutation ) } );
+        }
+        for ( const ::Common::AssetHandle& handle : handles )
+        {
+            const auto cell =
+                 materials.CellShaderNameOf( handle, MeshVertexPath::Instanced, MeshPass::ShadowDepth );
+            if ( !cell )
+                continue;
+            const auto program = shaders.GetByName( cell.GetValue() );
+            if ( program == nullptr || program->GetProgramMeta().Blend != Core::Formats::SurfaceBlendMode::Masked )
+                continue; // an opaque template casts through the shared caster above
+            Core::ShaderVariant permutation = SurfaceSceneInstancesVariant();
+            if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+        }
         return variants;
     }
 
