@@ -273,8 +273,13 @@ namespace Desert::Graphic::GpuDriven
         // is kept only when it also meets one of them - the rest of the layer is its cache, copied in shifted.
         glm::vec4  StripPlanes[12]{};          // 368
         glm::uvec4 Strips{ 0u };               // 560 x = the strips (0: the whole frustum, at most 2)
+        // 576 a content-hash view (CullViewFlags::kContentHash): x, y = the cascade's
+        // CascadePlacement::TexelOrigin, z = a cell's side in texels (CascadeContentHash::kCellsPerMap cells per
+        // map side), w = its region
+        glm::ivec4 ContentCells{ 0 };
     };
-    static_assert( sizeof( GpuCullView ) == 576, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 592, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, ContentCells ) == 576, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, StripPlanes ) == 368, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, Strips ) == 560, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, CasterRing ) == 352, "Common/GpuScene.glslh" );
@@ -294,7 +299,29 @@ namespace Desert::Graphic::GpuDriven
         // Neither: every caster.
         inline constexpr uint32_t kCasterStaticLayer  = 1u << 5;
         inline constexpr uint32_t kCasterMovableLayer = 1u << 6;
+        // A cascade static layer's CONTENT HASH view (CPU-ISM-SHADOW; UE VSM: instance invalidation decided on the
+        // GPU): culled as the static layer (with kCasterStaticLayer), it fills no bin; every instance the layer
+        // would draw adds (instance row, rest pose, LOD) into the CascadeContentHash cells it covers.
+        inline constexpr uint32_t kContentHash = 1u << 7;
     } // namespace CullViewFlags
+
+    // THE CASCADE CONTENT HASH (CPU-ISM-SHADOW): per sun cascade a region of cells anchored to the map's texel
+    // grid (absolute texel = framebuffer texel + (TexelOrigin.x, -TexelOrigin.y), the frame CascadePlacement::
+    // ShiftTo keeps), so a box that scrolled by whole texels is answered from the cells it still covers. A cell
+    // sits at (cell x mod kGrid, cell y mod kGrid); the view culls the cascade box grown by kMarginCells cells on
+    // each side, so every cell it answers for is whole. An instance covering more than kMaxSpan cells on an axis
+    // (or with no extent) adds into the region's overflow cell (row kGrid * kGrid), which every answer reads.
+    // Per cell kWords sums of two mixes: [0], [1] of (row, rest pose), [2], [3] of (row, rest pose, LOD).
+    namespace CascadeContentHash
+    {
+        inline constexpr uint32_t kGrid        = 16u;
+        inline constexpr uint32_t kCellsPerMap = 8u;
+        inline constexpr uint32_t kMarginCells = 1u;
+        inline constexpr uint32_t kMaxSpan     = 4u;
+        inline constexpr uint32_t kCells       = kGrid * kGrid + 1u;
+        inline constexpr uint32_t kWords       = 4u;
+        static_assert( kCellsPerMap + 2u * kMarginCells + 1u <= kGrid, "a grown box's cells stay distinct" );
+    } // namespace CascadeContentHash
 
     // WHO SWAYS IN THE SHADOWS: a caster view's swaying instance (Wind.z = Strength > 0) casts its rest pose by the
     // ONE rule of Editor/Resources/Shaders/Common/ShadowWind.glslh (its bounds centre in the world against

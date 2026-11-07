@@ -813,6 +813,22 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
         [[nodiscard]] GpuDriven::MeshPass                              MainViewPass() const;
         [[nodiscard]] bool                                             CascadeBinsDrawn( uint32_t view ) const;
+        // THE CASCADE CONTENT HASH (CPU-ISM-SHADOW; UE VSM: instance invalidation decided on the GPU). Sun cascade
+        // @p view's content-hash cull view this frame (GpuDriven::CullViewFlags::kContentHash): its caster matrix
+        // grown by CascadeContentHash::kMarginCells cells per side, its placement's texel origin and a cell's
+        // side; nullopt when the cascade is not fitted or the map side is no multiple of kCellsPerMap.
+        struct CascadeContentView
+        {
+            glm::mat4  GrownViewProjection{ 1.0f };
+            glm::ivec2 TexelOrigin{ 0 };
+            int32_t    CellTexels = 0;
+        };
+        [[nodiscard]] std::optional<CascadeContentView> CascadeContentViewOf( uint32_t view ) const;
+        // Hands the frame's cells (MainPhaseResult::ContentHash, @p regions regions; region r = cascade
+        // @p regionViews[r]) to a frame-in-flight readback slot, and reads the slot it replaces (the newest answer
+        // per cascade: CascadeContentAnswer).
+        void ExtractCascadeContent( RDG::Builder& graph, uint64_t frameIndex, const RDG::BufferRef& cells,
+                                    uint32_t regions, std::span<const uint32_t> regionViews );
         // A SCROLLED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its shift
         // uncovered), which its static layer's GPU cull keeps the casters of; empty - not scrolled.
         [[nodiscard]] std::span<const glm::mat4> CascadeScrolledStrips( uint32_t view ) const;
@@ -4334,8 +4350,36 @@ namespace Desert::Graphic::System
             glm::vec4 Ring{ -1.0f };   // the cascade's ShadowWindRingOf the part was made with
             bool      WithLod   = true;  // the camera's levels are in Hash (CascadeStaticSignature's withLod)
             bool      WindSplit = false; // an instance in the box is split by the wind ring
+            uint64_t  Held      = 0;     // the fields keyed by the GPU content hash (CascadeContentAnswer)
         };
         std::vector<CascadeIsmPart> m_CascadeIsmParts;
+        // THE CASCADE CONTENT HASH's readback (ExtractCascadeContent): per frame-in-flight slot the cells and,
+        // per region, the cascade and the placement its view was culled at; per cascade the newest answer read.
+        struct CascadeContentSlot
+        {
+            RDG::ExternalBuffer           Cells;
+            std::vector<uint32_t>         Views;
+            std::vector<CascadePlacement> Placements;
+            std::vector<int32_t>          CellTexels;
+            bool                          Handed = false;
+        };
+        struct CascadeContentRead
+        {
+            bool                  Valid = false;
+            CascadePlacement      Placement;
+            int32_t               CellTexels = 0;
+            std::vector<uint32_t> Cells; // CascadeContentHash::kCells x kWords
+        };
+        std::vector<CascadeContentSlot> m_CascadeContentSlots;
+        CascadeContentRead              m_CascadeContent[kCascadeViews];
+        // Plans since the last ExtractCascadeContent: past 1 the GPU no longer hashes (no bins this frame), so no
+        // answer is trusted and every field is keyed by the CPU walk again.
+        uint32_t m_CascadeContentAge     = ~0u;
+        uint64_t m_CascadeContentPending = 0; // keys a layer whose answer is not read yet: redrawn every frame
+        // The content hash of the bin-held fields in the box at @p placement (the cells it covers, newest read),
+        // @p withLod with their levels; nullopt while no read covers the box (CascadeStaticSignature redraws).
+        [[nodiscard]] std::optional<uint64_t>
+        CascadeContentAnswer( uint32_t cascade, const CascadePlacement& placement, bool withLod ) const;
         // THE STATIC CASTERS' REVISION (SCENE-CACHE-4; UE FCachedShadowMapData: the static layer is redrawn when a
         // static primitive it holds is added, moved, removed or changes how it draws, never by comparing the
         // primitives every frame). Moved by TrackStaticCasters, run by SyncGpuScene once the registry synced this

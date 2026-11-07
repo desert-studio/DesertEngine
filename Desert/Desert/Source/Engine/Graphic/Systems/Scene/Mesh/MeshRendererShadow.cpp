@@ -3,6 +3,13 @@
 
 #include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Core/JobSystem.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <cstring>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Shader.hpp>
@@ -1126,15 +1133,39 @@ namespace Desert::Graphic::System
         const glm::vec3 ringOrigin( CasterWindOrigin( cascade ) );
         hash.Add( cascadeRing );
         // THE ISM FIELDS' PART (SCENE-CACHE-3), kept per cascade while the gather it walks (IsmRevision: the
-        // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in a
-        // still frame no instance of any field is walked again here. A part that met an instance at the wind edge
-        // keys this frame's gather, so it is made again on the next frame.
+        // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in
+        // a still frame no instance of any field is walked again here. A part that met an instance at the wind
+        // edge keys this frame's gather, so it is made again on the next frame. THE BIN-HELD FIELDS
+        // (CPU-ISM-SHADOW; UE VSM: the GPU decides which instances invalidate a cached page): a field whose every
+        // shown submesh the cascade's bins (or their cluster cut) draw is culled per instance on the GPU - fade,
+        // LOD, wind ring - and keyed by what that cull drew, the cascade's content hash read back
+        // (CascadeContentAnswer), not by a CPU walk of its instances. Only while the GPU hashes every frame
+        // (m_CascadeContentAge); otherwise every field is walked here as before.
+        const bool gpuContent = m_CascadeContentAge <= 1u && m_DrawCommandCache;
+        const auto heldByBins = [&]( const InstancedMeshRenderData& ism, const uint32_t field )
+        {
+            return gpuContent && field < m_FieldPrimitives.size() &&
+                   m_DrawCommandCache->SubmeshesBinned( GpuDriven::MeshPass::ShadowCascade,
+                                                        m_FieldPrimitives[field], ism.HiddenSubmeshes );
+        };
+        SignatureHash heldKey;
+        bool          anyHeld = false;
+        for ( const auto& ism : m_InstancedQueue )
+        {
+            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                continue;
+            const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
+            if ( !heldByBins( ism, field ) )
+                continue;
+            heldKey.Add( field );
+            anyHeld = true;
+        }
         if ( m_CascadeIsmParts.size() <= cascade )
             m_CascadeIsmParts.resize( static_cast<std::size_t>( cascade ) + 1u );
         CascadeIsmPart& part = m_CascadeIsmParts[cascade];
-        if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision ||
-             part.CasterVP != casterVP || part.WithLod != withLod || part.Wind != cascadeWind ||
-             part.Ring != cascadeRing )
+        if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision || part.CasterVP != casterVP ||
+             part.WithLod != withLod || part.Wind != cascadeWind || part.Ring != cascadeRing ||
+             part.Held != heldKey.Value )
         {
             SignatureHash ismHash;
             bool          ismMovable = false;
@@ -1147,8 +1178,10 @@ namespace Desert::Graphic::System
             {
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                     continue;
-                const auto            field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
-                const ShadowIsmField& kept  = ShadowIsmInstances( field );
+                const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
+                if ( heldByBins( ism, field ) )
+                    continue; // keyed by the GPU's content hash below, not walked
+                const ShadowIsmField& kept = ShadowIsmInstances( field );
                 for ( uint32_t first = 0; first < kept.Count; first += kIsmGatherRun )
                 {
                     if ( runs == m_IsmSignatureRuns.size() )
@@ -1192,6 +1225,10 @@ namespace Desert::Graphic::System
                 ismHash.Add( ism.Transforms.get() );
                 ismHash.Add( ism.Transforms->size() );
                 ismHash.Add( ism.Material.get() );
+                // A bin-held swaying field in a cascade the wind reaches: the GPU splits its instances between the
+                // layers per frame (GpuCull_CastsRestPose), so the movable layer is drawn for it.
+                if ( ism.Wind.Sways() && cascadeWind > 0.0f && heldByBins( ism, field ) )
+                    ismMovable = true;
                 for ( ; r < runs && m_IsmSignatureRuns[r].Field == field; ++r )
                 {
                     const IsmSignatureRun& run = m_IsmSignatureRuns[r];
@@ -1210,8 +1247,31 @@ namespace Desert::Graphic::System
             part.Ring     = cascadeRing;
             part.Hash     = ismHash.Value;
             part.Movable  = ismMovable;
+            part.Held      = heldKey.Value;
         }
         hash.Add( part.Hash );
+        // The bin-held fields' content: the GPU cull's answer for this box (the cascade's placement this frame, or
+        // the cached one's when the cached box is asked). None read for it yet: the layer is redrawn every frame
+        // until one is (a fresh key each frame; windSplit keeps it off the content key, so it neither scrolls).
+        if ( anyHeld )
+        {
+            const CascadeCacheState&        state = m_CascadeCache[cascade];
+            std::optional<CascadePlacement> boxPlacement;
+            if ( casterVP == m_CascadeCasterVP[cascade] )
+                boxPlacement = m_CascadePlacement[cascade];
+            else if ( state.Placement && state.CasterVP == casterVP )
+                boxPlacement = state.Placement;
+            std::optional<uint64_t> answer;
+            if ( boxPlacement )
+                answer = CascadeContentAnswer( cascade, *boxPlacement, withLod );
+            if ( answer )
+                hash.Add( *answer );
+            else
+            {
+                hash.Add( ++m_CascadeContentPending );
+                windSplit = true;
+            }
+        }
         if ( part.Movable )
             movers.Unkeyed = "swaying instances (wind time)";
         if ( part.WindSplit )
@@ -1363,8 +1423,134 @@ namespace Desert::Graphic::System
         run.Hash = hash.Value;
     }
 
+    namespace
+    {
+        // Floor / ceil of a / b for b > 0 and any a (the absolute texel grid runs negative).
+        int32_t FloorDiv( const int32_t a, const int32_t b ) noexcept
+        {
+            const int32_t q = a / b;
+            return ( a % b != 0 && a < 0 ) ? q - 1 : q;
+        }
+        int32_t CeilDiv( const int32_t a, const int32_t b ) noexcept
+        {
+            return -FloorDiv( -a, b );
+        }
+    } // namespace
+
+    std::optional<MeshRenderer::CascadeContentView> MeshRenderer::CascadeContentViewOf( const uint32_t view ) const
+    {
+        namespace Cells = GpuDriven::CascadeContentHash;
+        const auto side = static_cast<int32_t>( m_Shadow.ShadowMapSize );
+        if ( view >= kCascadeViews || side <= 0 || side % static_cast<int32_t>( Cells::kCellsPerMap ) != 0 )
+            return std::nullopt;
+        const int32_t cell = side / static_cast<int32_t>( Cells::kCellsPerMap );
+        // The box grown by kMarginCells cells on each side: clip x, y scaled by side / (side + 2 margin cells).
+        const float grow = static_cast<float>( side ) /
+                           static_cast<float>( side + 2 * static_cast<int32_t>( Cells::kMarginCells ) * cell );
+        CascadeContentView content;
+        content.GrownViewProjection =
+             glm::scale( glm::mat4( 1.0f ), glm::vec3( grow, grow, 1.0f ) ) * m_CascadeCasterVP[view];
+        content.TexelOrigin = m_CascadePlacement[view].TexelOrigin;
+        content.CellTexels  = cell;
+        return content;
+    }
+
+    void MeshRenderer::ExtractCascadeContent( RDG::Builder& graph, const uint64_t frameIndex,
+                                              const RDG::BufferRef& cells, const uint32_t regions,
+                                              const std::span<const uint32_t> regionViews )
+    {
+        namespace Cells             = GpuDriven::CascadeContentHash;
+        constexpr std::size_t kRow  = std::size_t{ Cells::kCells } * Cells::kWords;
+        const uint32_t        slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_CascadeContentSlots.size() != slots )
+        {
+            m_CascadeContentSlots.clear();
+            m_CascadeContentSlots.resize( slots );
+        }
+        CascadeContentSlot& slot = m_CascadeContentSlots[static_cast<std::size_t>( frameIndex % slots )];
+        // The slot's frame is slots-in-flight old: its fence has passed. Its regions become the newest answers.
+        if ( slot.Handed && slot.Cells.Physical )
+        {
+            const std::span<const std::byte> bytes = slot.Cells.Physical->ReadForHost();
+            for ( std::size_t r = 0; r < slot.Views.size(); ++r )
+            {
+                if ( bytes.size() < ( r + 1u ) * kRow * sizeof( uint32_t ) || slot.Views[r] >= kCascadeViews )
+                    break;
+                CascadeContentRead& read = m_CascadeContent[slot.Views[r]];
+                read.Cells.resize( kRow );
+                std::memcpy( read.Cells.data(), bytes.data() + r * kRow * sizeof( uint32_t ),
+                             kRow * sizeof( uint32_t ) );
+                read.Placement  = slot.Placements[r];
+                read.CellTexels = slot.CellTexels[r];
+                read.Valid      = true;
+            }
+        }
+        slot.Handed = false;
+        slot.Views.clear();
+        slot.Placements.clear();
+        slot.CellTexels.clear();
+        m_CascadeContentAge = 0u;
+        if ( !cells.IsValid() || regions == 0u || regions != regionViews.size() )
+            return;
+        for ( const uint32_t view : regionViews )
+        {
+            const std::optional<CascadeContentView> content = CascadeContentViewOf( view );
+            slot.Views.push_back( view );
+            slot.Placements.push_back( m_CascadePlacement[std::min( view, kCascadeViews - 1u )] );
+            slot.CellTexels.push_back( content ? content->CellTexels : 0 );
+        }
+        graph.Extract( cells, slot.Cells, RDG::Access::HostRead );
+        slot.Handed = true;
+    }
+
+    std::optional<uint64_t> MeshRenderer::CascadeContentAnswer( const uint32_t          cascade,
+                                                                const CascadePlacement& placement,
+                                                                const bool              withLod ) const
+    {
+        namespace Cells = GpuDriven::CascadeContentHash;
+        if ( cascade >= kCascadeViews || m_CascadeContentAge > 1u )
+            return std::nullopt;
+        const CascadeContentRead& read = m_CascadeContent[cascade];
+        const auto                side = static_cast<int32_t>( m_Shadow.ShadowMapSize );
+        const int32_t             cell = read.CellTexels;
+        if ( !read.Valid || cell <= 0 || cell * static_cast<int32_t>( Cells::kCellsPerMap ) != side ||
+             !read.Placement.SameMapAs( placement ) ||
+             read.Cells.size() != std::size_t{ Cells::kCells } * Cells::kWords )
+            return std::nullopt;
+        // The box's absolute texels (x from TexelOrigin.x, y from -TexelOrigin.y: CascadePlacement::ShiftTo) and
+        // the cells they touch; the read's whole cells are those inside its grown box.
+        const int32_t margin    = static_cast<int32_t>( Cells::kMarginCells ) * cell;
+        const int32_t lowX      = FloorDiv( placement.TexelOrigin.x, cell );
+        const int32_t highX     = FloorDiv( placement.TexelOrigin.x + side - 1, cell );
+        const int32_t lowY      = FloorDiv( -placement.TexelOrigin.y, cell );
+        const int32_t highY     = FloorDiv( -placement.TexelOrigin.y + side - 1, cell );
+        const int32_t readLowX  = CeilDiv( read.Placement.TexelOrigin.x - margin, cell );
+        const int32_t readHighX = FloorDiv( read.Placement.TexelOrigin.x + side + margin, cell ) - 1;
+        const int32_t readLowY  = CeilDiv( -read.Placement.TexelOrigin.y - margin, cell );
+        const int32_t readHighY = FloorDiv( -read.Placement.TexelOrigin.y + side + margin, cell ) - 1;
+        if ( lowX < readLowX || highX > readHighX || lowY < readLowY || highY > readHighY )
+            return std::nullopt;
+        const std::size_t word = withLod ? 2u : 0u;
+        const auto        add  = [&]( SignatureHash& into, const std::size_t row )
+        {
+            into.Add( read.Cells[row * Cells::kWords + word] );
+            into.Add( read.Cells[row * Cells::kWords + word + 1u] );
+        };
+        constexpr int32_t kWrap = static_cast<int32_t>( Cells::kGrid ) - 1;
+        SignatureHash     hash;
+        for ( int32_t y = lowY; y <= highY; ++y )
+            for ( int32_t x = lowX; x <= highX; ++x )
+                add( hash, static_cast<std::size_t>( ( y & kWrap ) * static_cast<int32_t>( Cells::kGrid ) +
+                                                     ( x & kWrap ) ) );
+        add( hash, std::size_t{ Cells::kGrid } * Cells::kGrid ); // the overflow cell
+        return hash.Value;
+    }
+
     void MeshRenderer::PlanCascadeCache()
     {
+        // A plan with no ExtractCascadeContent since the last: the GPU no longer hashes (CascadeContentAnswer).
+        if ( m_CascadeContentAge != ~0u )
+            ++m_CascadeContentAge;
         // UE's cached shadow maps for a directional light's cascades: the static casters' depth is kept per
         // cascade and drawn again only when the cascade's map moved other than by whole texels (the sun turned, a
         // depth quantum was crossed, ComputeShadowCascades) or one of the static casters it reaches changed; a map

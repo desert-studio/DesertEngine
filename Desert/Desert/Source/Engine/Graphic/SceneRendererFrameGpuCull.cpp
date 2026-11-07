@@ -371,6 +371,27 @@ namespace Desert::Graphic
                     // (ClusterCut.shader), instead of drawing their whole LOD mesh from the bins.
                     bins.CutViewOf.push_back( cutViews++ );
                 }
+                // THE CASCADE CONTENT HASH (CPU-ISM-SHADOW; UE VSM: the GPU decides which instances invalidate a
+                // cached page): every frame, drawn or cached, the static layer's cull over the box grown by whole
+                // cells sums what it would draw into the cells (GpuDriven::CascadeContentHash), read back slots
+                // in flight late by MeshRenderer::CascadeContentAnswer, the key of the bin-held fields.
+                if ( const std::optional<System::MeshRenderer::CascadeContentView> content =
+                          meshes->CascadeContentViewOf( view ) )
+                {
+                    views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
+                                                   CascadeCasterFrustum( content->GrownViewProjection ), lod,
+                                                   lensScale, meshes->ShadowWindDistanceOf( view ),
+                                                   casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer |
+                                                        GpuDriven::CullViewFlags::kContentHash ) );
+                    views.back().View.CasterRing = meshes->ShadowWindRingOf( view );
+                    views.back().View.ContentCells =
+                         glm::ivec4( content->TexelOrigin, content->CellTexels,
+                                     static_cast<int32_t>( bins.ContentViews.size() ) );
+                    bins.ContentViews.push_back( view );
+                    viewKeys.push_back( GpuDriven::kInvalidIndex ); // issues no bins (SetFrameBinned skips it)
+                    bins.ViewNames.push_back( std::format( "shadowCascade{}Content", c ) );
+                    bins.CutViewOf.push_back( GpuDriven::kInvalidIndex );
+                }
             }
         }
 
@@ -400,8 +421,12 @@ namespace Desert::Graphic
         // A cut view's VG instances are candidates, in none of its bins, only when the frame appended some.
         const bool appendsVg  = vgTables.Input.PrimitiveDags.IsValid();
         bool       mainIssued = false;
+        meshes->ExtractCascadeContent( graph, frame.FrameIndex, culled.GetValue().ContentHash,
+                                       culled.GetValue().ContentRegions, bins.ContentViews );
         for ( size_t v = 0; v < views.size(); ++v )
         {
+            if ( ( views[v].View.Flags & GpuDriven::CullViewFlags::kContentHash ) != 0u )
+                continue; // its cells are its output (ExtractCascadeContent above)
             const bool issued = meshes->SetFrameBinned(
                  static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v], culled.GetValue().Draws[v],
                  upload.GetValue(), scene.GetValue(), appendsVg && bins.CutViewOf[v] != GpuDriven::kInvalidIndex );

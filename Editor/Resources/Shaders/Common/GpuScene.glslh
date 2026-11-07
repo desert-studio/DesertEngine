@@ -35,6 +35,13 @@
 #define DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK 16u
 #define DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER  32u
 #define DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER 64u
+#define DESERT_GPU_CULL_VIEW_CONTENT_HASH 128u // GpuDriven::CullViewFlags::kContentHash
+// GpuDriven::CascadeContentHash (GpuSceneLayout.hpp)
+#define DESERT_CONTENT_HASH_GRID 16u
+#define DESERT_CONTENT_HASH_CELLS_PER_MAP 8u
+#define DESERT_CONTENT_HASH_MAX_SPAN 4u
+#define DESERT_CONTENT_HASH_CELLS 257u
+#define DESERT_CONTENT_HASH_WORDS 4u
 
 // GpuDriven::CullVisibility (one word per view x instance of the cull's Visibility[])
 #define DESERT_GPU_CULL_VISIBILITY_LOD_MASK     0xFFu
@@ -204,6 +211,7 @@ struct GpuCullView
     vec4  CasterRing;         // offset 352 — x = cascade c-2's split (cm), y = the light's fall; 0 = no ring
     vec4  StripPlanes[12];    // offset 368 — a scrolled cascade's static layer: strip s's planes at 6s
     uvec4 Strips;             // offset 560 — x = the strips (0: the whole frustum, at most 2)
+    ivec4 ContentCells;       // offset 576 — a content-hash view: xy = TexelOrigin, z = cell texels, w = region
 };
 
 // WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)
