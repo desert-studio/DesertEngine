@@ -1918,6 +1918,62 @@ namespace Desert::Graphic::System
         FinishStaticCasterRows();
     }
 
+    void MeshRenderer::StampPlacements( const GpuDriven::GpuScene& scene ) noexcept
+    {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::StampPlacements" );
+        PrimitivePlacements& placements = m_Placements;
+        const uint32_t       count      = scene.PrimitiveCount();
+        if ( placements.Stamps.size() < count ) // grows with the scene's high-water mark only
+        {
+            placements.Stamps.resize( count, 0u );
+            placements.Worlds.resize( count );
+        }
+        // A primitive's stamp moves only when its row's world is not the one the stamp was given for.
+        const auto restamp = [&placements, &scene]( const GpuDriven::PrimitiveIndex primitive )
+        {
+            if ( primitive >= placements.Stamps.size() || !scene.IsValid( primitive ) )
+                return;
+            const GpuDriven::GpuAffine3x4& world = scene.Primitive( primitive ).LocalToWorld;
+            if ( placements.Stamps[primitive] != 0u && placements.Worlds[primitive] == world )
+                return;
+            placements.Stamps[primitive] = ++placements.Next;
+            placements.Worlds[primitive] = world;
+        };
+        bool everyRow = false;
+        if ( placements.Next == 0u || placements.Stream != scene.GetStreamId() )
+        {
+            // Another scene: its primitive indices are other primitives, so no stamp of the old one is kept.
+            std::fill( placements.Stamps.begin(), placements.Stamps.end(), uint64_t{ 0 } );
+            everyRow = true;
+        }
+        else
+        {
+            const auto changes = scene.ChangesSince( placements.Cursor );
+            if ( !changes )
+                everyRow = true;
+            else
+                for ( const GpuDriven::PrimitiveChange& change : *changes )
+                {
+                    // Discarded put back worlds the stream does not name; a row set (Added / Updated) carries its
+                    // world too. Removed leaves the stamp: an index re-added is compared then. Content: no world.
+                    if ( change.Kind == GpuDriven::PrimitiveChangeKind::Discarded )
+                    {
+                        everyRow = true;
+                        break;
+                    }
+                    if ( change.Kind == GpuDriven::PrimitiveChangeKind::Moved ||
+                         change.Kind == GpuDriven::PrimitiveChangeKind::Added ||
+                         change.Kind == GpuDriven::PrimitiveChangeKind::Updated )
+                        restamp( change.Primitive );
+                }
+        }
+        if ( everyRow )
+            for ( GpuDriven::PrimitiveIndex primitive = 0; primitive < count; ++primitive )
+                restamp( primitive );
+        placements.Stream = scene.GetStreamId();
+        placements.Cursor = scene.GetChangeSerial();
+    }
+
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
@@ -2120,13 +2176,17 @@ namespace Desert::Graphic::System
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );
+        // The worlds the registry just wrote are stamped before any record is keyed by its primitive's stamp.
+        StampPlacements( scene );
 
         size_t record = 0;
+        columns.Placements.reserve( m_StaticQueue.size() );
         for ( auto& data : m_StaticQueue )
         {
             data.GpuPrimitive = rows.RigidPrimitives[record];
             data.GpuInstance  = rows.RigidInstances[record++];
             columns.Primitives.push_back( data.GpuPrimitive );
+            columns.Placements.push_back( PlacementOf( data.GpuPrimitive ) );
         }
         for ( auto& data : m_GenericQueue )
         {

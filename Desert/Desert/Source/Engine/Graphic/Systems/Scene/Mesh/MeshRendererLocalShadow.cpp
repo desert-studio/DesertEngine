@@ -175,16 +175,25 @@ namespace Desert::Graphic::System
         const auto walk    = [this, &setup, &centre, radius]
         {
             SignatureHash still;
-            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            // The statics from the walk columns (this view's sync): a record outside the sphere costs its mesh,
+            // flag and box; one inside is read only for its section slot (and the transform when its primitive
+            // has no stamp). The world enters as its primitive's stamp (PlacementOf), not 64 bytes of transform.
+            const StaticWalkColumns& columns = m_StaticColumns;
+            const std::size_t        synced  = std::min( m_StaticQueue.size(), columns.Count() );
+            for ( std::size_t i = 0; i < synced; ++i )
             {
-                const StaticMeshRenderData& rd = m_StaticQueue[i];
-                if ( rd.Mesh == nullptr || !rd.CastShadows ||
+                const Desert::Mesh* const mesh = columns.Meshes[i];
+                if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kCastsShadow ) == 0u ||
                      !CasterInSphere( setup.Statics[i].WorldBounds, centre, radius ) )
                     continue;
-                still.Add( rd.Mesh->GetRenderRevision() );
-                still.Add( rd.Transform );
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                still.Add( mesh->GetRenderRevision() );
+                if ( columns.Placements[i] != 0u )
+                    still.Add( columns.Placements[i] );
+                else
+                    still.Add( rd.Transform );
                 // One entry per section material: which submeshes it casts, and through which slot's route.
-                still.Add( rd.HiddenSubmeshes );
+                still.Add( columns.Hidden[i] );
                 still.Add( rd.SectionSlot );
                 // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 still.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
@@ -196,7 +205,11 @@ namespace Desert::Graphic::System
                      !CasterInSphere( setup.Generics[i].WorldBounds, centre, radius ) )
                     continue;
                 still.Add( g.Mesh->GetRenderRevision() );
-                still.Add( g.Transform );
+                const uint64_t placement = PlacementOf( g.GpuPrimitive ); // the world's stamp, as the statics
+                if ( placement != 0u )
+                    still.Add( placement );
+                else
+                    still.Add( g.Transform );
                 still.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
             }
             return still.Value;

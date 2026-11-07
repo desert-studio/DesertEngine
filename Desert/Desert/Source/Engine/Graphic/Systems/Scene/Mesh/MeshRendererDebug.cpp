@@ -244,19 +244,21 @@ namespace Desert::Graphic::System
         const Core::Frustum     overdrawFrustum = camera->GetFrustum();
         const MaterialExecutor* executor        = m_OverdrawMaterial->GetMaterialExecutor();
         const GraphicsPipeline* pipeline        = m_OverdrawPipeline.get();
-        for ( const auto& rd : m_StaticQueue )
+        // Culled by the entry's gathered world box (StaticEntryInView: the box IsVisibleInView would build from
+        // its transform and local bounds, made once per gather) - not the submeshes' bounds again per view.
+        for ( std::size_t at = 0; at < m_StaticQueue.size(); ++at )
         {
-            if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
-                                                        Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+            const StaticMeshRenderData& rd = m_StaticQueue[at];
+            if ( rd.Mesh != nullptr && StaticEntryInView( overdrawFrustum, at ) )
             {
                 m_OverdrawDraws.Add(
                      { .Pipeline = pipeline, .Mesh = rd.Mesh, .Transform = rd.Transform, .Material = executor } );
             }
         }
-        for ( const auto& g : m_GenericQueue )
+        for ( std::size_t at = 0; at < m_GenericQueue.size(); ++at )
         {
-            if ( g.Mesh != nullptr &&
-                 IsVisibleInView( overdrawFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            const GenericMeshRenderData& g = m_GenericQueue[at];
+            if ( g.Mesh != nullptr && GenericEntryInView( overdrawFrustum, at ) )
             {
                 m_OverdrawDraws.Add(
                      { .Pipeline = pipeline, .Mesh = g.Mesh, .Transform = g.Transform, .Material = executor } );

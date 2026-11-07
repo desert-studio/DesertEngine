@@ -960,25 +960,34 @@ namespace Desert::Graphic::System
              still.WithLod != withLod )
         {
             SignatureHash stillHash;
-            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            // The statics from the walk columns (this view's sync), the world as its primitive's stamp
+            // (PlacementOf); the record is read only for ForcedLOD, LODBias and SectionSlot of a caster that
+            // reaches the cascade (and its transform when its primitive has no stamp).
+            const StaticWalkColumns& columns = m_StaticColumns;
+            const std::size_t        synced  = std::min( m_StaticQueue.size(), columns.Count() );
+            for ( std::size_t i = 0; i < synced; ++i )
             {
-                const StaticMeshRenderData& rd = m_StaticQueue[i];
-                if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasterSetup.Statics[i] ) )
+                const Desert::Mesh* const mesh = columns.Meshes[i];
+                if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kCastsShadow ) == 0u ||
+                     !reaches( m_ShadowCasterSetup.Statics[i] ) )
                     continue;
-                stillHash.Add( rd.Mesh->GetRenderRevision() );
-                stillHash.Add( rd.Transform );
-                stillHash.Add( rd.HiddenSubmeshes );
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                stillHash.Add( mesh->GetRenderRevision() );
+                if ( columns.Placements[i] != 0u )
+                    stillHash.Add( columns.Placements[i] );
+                else
+                    stillHash.Add( rd.Transform );
+                stillHash.Add( columns.Hidden[i] );
                 stillHash.Add( rd.ForcedLOD );
                 stillHash.Add( rd.LODBias );
                 // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 if ( withLod )
                     stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
                 // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
-                // (ShadingOf: the same answer the casters draw with).
-                const SectionShading shading = ShadingOf( rd );
+                // (ShadingOf's answer, the column the casters draw with).
                 stillHash.Add( rd.SectionSlot );
-                stillHash.Add( shading.Surface );
-                stillHash.Add( shading.Instance );
+                stillHash.Add( columns.Surfaces[i] );
+                stillHash.Add( columns.Instances[i] );
             }
             for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
             {
@@ -986,7 +995,11 @@ namespace Desert::Graphic::System
                 if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasterSetup.Generics[i] ) )
                     continue;
                 stillHash.Add( g.Mesh->GetRenderRevision() );
-                stillHash.Add( g.Transform );
+                const uint64_t placement = PlacementOf( g.GpuPrimitive ); // the world's stamp, as the statics
+                if ( placement != 0u )
+                    stillHash.Add( placement );
+                else
+                    stillHash.Add( g.Transform );
                 if ( withLod )
                     stillHash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
             }
