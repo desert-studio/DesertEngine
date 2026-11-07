@@ -159,38 +159,72 @@ namespace Desert::Graphic::System
             const int32_t quads        = static_cast<int32_t>( l.QuadsPerTile );
             const float   lowY         = std::min( l.MinY, l.MaxY ) - reach;
             const float   highY        = std::max( l.MinY, l.MaxY ) + reach;
-            // Whether a strip reaches the grid's cells [cx0, cx1) x [cz0, cz1).
-            const auto reaches = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
+            // The box of the grid's cells [cx0, cx1) x [cz0, cz1).
+            const auto cellsBox = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
             {
                 const float ax = tileX + static_cast<float>( std::min( cx0 * stride, quads ) ) * l.SpacingCm;
                 const float bx = tileX + static_cast<float>( std::min( cx1 * stride, quads ) ) * l.SpacingCm;
                 const float az = tileZ + static_cast<float>( std::min( cz0 * stride, quads ) ) * l.SpacingCm;
                 const float bz = tileZ + static_cast<float>( std::min( cz1 * stride, quads ) ) * l.SpacingCm;
-                const Common::Math::AABB box{
+                return Common::Math::AABB{
                      glm::vec3( std::min( ax, bx ) - acrossCm, lowY, std::min( az, bz ) - acrossCm ),
                      glm::vec3( std::max( ax, bx ) + acrossCm, highY, std::max( az, bz ) + acrossCm ) };
+            };
+            // Whether a strip reaches the grid's cells [cx0, cx1) x [cz0, cz1).
+            const auto reaches = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
+            {
+                const Common::Math::AABB box = cellsBox( cx0, cx1, cz0, cz1 );
                 for ( const Core::Frustum& strip : strips )
                     if ( strip.Intersects( box ) )
                         return true;
                 return false;
+            };
+            // The patches per side of the grid. `reaches` for the four patches px0 .. px0 + 3 of the row
+            // [cz0, cz1) (bit i: patch px0 + i; bits at or past `side` clear): the same boxes, each strip
+            // testing the four at once (Intersects4, Intersects bit for bit), a lane kept when any strip keeps it
+            // - the per-patch loop's "any strip" answer.
+            const int32_t side     = ( cells + kStripPatchCells - 1 ) / kStripPatchCells;
+            const auto    reaches4 = [&]( const int32_t px0, const int32_t cz0, const int32_t cz1 )
+            {
+                Common::Math::AABBQuad quad;
+                uint32_t               live = 0u;
+                for ( int32_t lane = 0; lane < 4 && px0 + lane < side; ++lane )
+                {
+                    const int32_t px = px0 + lane;
+                    quad.Set( static_cast<std::size_t>( lane ),
+                              cellsBox( px * kStripPatchCells, std::min( ( px + 1 ) * kStripPatchCells, cells ),
+                                        cz0, cz1 ) );
+                    live |= 1u << lane;
+                }
+                uint32_t kept = 0u;
+                for ( const Core::Frustum& strip : strips )
+                {
+                    kept |= strip.Intersects4( quad ) & live;
+                    if ( kept == live )
+                        break;
+                }
+                return kept;
             };
             if ( !reaches( 0, cells, 0, cells ) )
                 return patches;
             // The rings exist on the LOD-0 grid only: the hole is in the draw's cells.
             if ( split.RingVertices > 0u && split.Hole.z > split.Hole.x && split.Hole.w > split.Hole.y )
                 patches.Rings = reaches( split.Hole.x, split.Hole.z, split.Hole.y, split.Hole.w );
-            const int32_t side = ( cells + kStripPatchCells - 1 ) / kStripPatchCells;
             for ( int32_t pz = 0; pz < side; ++pz )
             {
                 const int32_t cz0      = pz * kStripPatchCells;
                 const int32_t cz1      = std::min( cz0 + kStripPatchCells, cells );
                 int32_t       runStart = -1;
+                uint32_t      kept4    = 0u;
                 for ( int32_t px = 0; px <= side; ++px )
                 {
                     bool kept = false;
                     if ( px < side )
-                        kept = reaches( px * kStripPatchCells, std::min( ( px + 1 ) * kStripPatchCells, cells ),
-                                        cz0, cz1 );
+                    {
+                        if ( ( px & 3 ) == 0 )
+                            kept4 = reaches4( px, cz0, cz1 );
+                        kept = ( ( kept4 >> ( px & 3 ) ) & 1u ) != 0u;
+                    }
                     if ( kept && runStart < 0 )
                         runStart = px;
                     if ( kept || runStart < 0 )
@@ -590,6 +624,21 @@ namespace Desert::Graphic::System
             const float    tileX    = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
             const float    tileZ    = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
             uint32_t       mask     = 0u;
+            // FOUR SECTIONS PER TEST (Core::Frustum::Intersects4): the boxes are built exactly as before, in
+            // row order, into one AABBQuad; every fourth box (and the last) tests the batch and lands each lane's
+            // verdict on its own section's bit. Intersects4's lane is Intersects bit for bit, so the mask is the
+            // one the per-section test wrote.
+            Common::Math::AABBQuad quad;
+            uint32_t               quadBits[4] = {};
+            uint32_t               queued      = 0u;
+            const auto             flush       = [&]()
+            {
+                const uint32_t kept = frustum.Intersects4( quad );
+                for ( uint32_t lane = 0; lane < queued; ++lane )
+                    if ( ( kept >> lane ) & 1u )
+                        mask |= quadBits[lane];
+                queued = 0u;
+            };
             for ( uint32_t sz = 0; sz < sections; ++sz )
             {
                 for ( uint32_t sx = 0; sx < sections; ++sx )
@@ -605,10 +654,14 @@ namespace Desert::Graphic::System
                               glm::vec3( reach );
                     box.Max = glm::vec3( std::max( x0, x1 ), std::max( at.MinY, at.MaxY ), std::max( z0, z1 ) ) +
                               glm::vec3( reach );
-                    if ( frustum.Intersects( box ) )
-                        mask |= 1u << ( sz * kLandscapeMaxSections + sx );
+                    quad.Set( queued, box );
+                    quadBits[queued] = 1u << ( sz * kLandscapeMaxSections + sx );
+                    if ( ++queued == 4u )
+                        flush();
                 }
             }
+            if ( queued > 0u )
+                flush();
             return mask;
         }
 
@@ -2353,10 +2406,20 @@ namespace Desert::Graphic::System
         const Core::Frustum box = IsDirectionalCasterView( casterViewProj ) ? CascadeCasterFrustum( casterViewProj )
                                                                             : Core::Frustum( casterViewProj, glm::mat4( 1.0f ) );
         ShadowSignatureHash hash;
+        // Four tiles' caster boxes per test (Intersects4, Intersects bit for bit): at every i % 4 == 0 the next
+        // four boxes go into one AABBQuad; tile i reads bit i % 4 (bits past the queue never read).
+        uint32_t reached4 = 0u;
         for ( std::size_t i = 0; i < m_Queue.size(); ++i )
         {
+            if ( ( i & 3u ) == 0u )
+            {
+                Common::Math::AABBQuad quad;
+                for ( std::size_t lane = 0; lane < 4u && i + lane < m_Queue.size(); ++lane )
+                    quad.Set( lane, TileCasterBox( m_Queue[i + lane].Landscape ) );
+                reached4 = box.Intersects4( quad );
+            }
             const TerrainDrawData& t = m_Queue[i];
-            if ( !box.Intersects( TileCasterBox( t.Landscape ) ) )
+            if ( ( ( reached4 >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             const FrameDraw& draw = m_FrameDraws[i];
             if ( draw.Group >= m_FrameGroups.size() || m_FrameGroups[draw.Group].Key == nullptr )

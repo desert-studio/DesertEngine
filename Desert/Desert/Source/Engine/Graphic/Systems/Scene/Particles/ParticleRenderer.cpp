@@ -310,12 +310,21 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         const std::optional<Core::Frustum> frustum =
              camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
-        for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
+        // Four emitters' boxes per test (Frustum::IntersectsEach4, Intersects bit for bit), asked at every
+        // i % 4 == 0; emitter i reads bit i % 4. No frustum: nothing is in view, as before.
+        const std::vector<ParticleFrameEmitter>& emitters = world.FrameEmitters();
+        const auto boundsOf = [&emitters]( const std::size_t k ) -> const Common::Math::AABB*
+        { return &emitters[k].WorldBounds; };
+        uint32_t inView4 = 0u;
+        for ( std::size_t emitterIndex = 0; emitterIndex < emitters.size(); ++emitterIndex )
         {
+            const ParticleFrameEmitter& fe = emitters[emitterIndex];
+            if ( frustum && ( emitterIndex & 3u ) == 0u )
+                inView4 = frustum->IntersectsEach4( emitterIndex, emitters.size(), boundsOf );
             EmitterMaterials& materials = m_Materials[fe.EntityId];
             ViewEmitter       ve;
             ve.Frame  = &fe;
-            ve.InView = frustum && frustum->Intersects( fe.WorldBounds );
+            ve.InView = ( ( inView4 >> ( emitterIndex & 3u ) ) & 1u ) != 0u;
             m_ViewCulls.push_back( { fe.EntityId, fe.Emitter, !ve.InView } );
             // One draw per enabled renderer row, in `.dfx` order (UE: every renderer of the emitter draws), each
             // with its own material instance keyed by (emitter, row).

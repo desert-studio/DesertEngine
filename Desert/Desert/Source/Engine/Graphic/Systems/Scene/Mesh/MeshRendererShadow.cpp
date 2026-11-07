@@ -610,6 +610,7 @@ namespace Desert::Graphic::System
         }
         setup.Instances.clear();
         setup.InstanceIndex.clear();
+        setup.InstanceBounds.Clear();
         for ( ShadowIsmField& field : setup.Fields )
             field = ShadowIsmField{};
         setup.IsmKey = ismKey;
@@ -914,6 +915,7 @@ namespace Desert::Graphic::System
                    .WindPoint    = point,
                    .CasterReach  = casterReach } );
             setup.InstanceIndex.push_back( k );
+            setup.InstanceBounds.PushBack( *reach );
         }
         caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
         return caster;
@@ -1056,10 +1058,15 @@ namespace Desert::Graphic::System
                 ismHash.Add( ism.Material.get() );
                 const ShadowIsmField& kept =
                      ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+                // `reaches` for every row of the field at once, four boxes per register (VisibleInViewBits: the
+                // same verdict per row as IsVisibleInView on its WorldBounds).
+                m_ScratchSignatureBits.resize( ( std::size_t{ kept.Count } + 63u ) / 64u );
+                VisibleInViewBits( frustum, m_ShadowCasterSetup.InstanceBounds, kept.First, kept.Count,
+                                   m_ScratchSignatureBits );
                 for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
                 {
                     const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
-                    if ( !reaches( row ) )
+                    if ( !VisibleBit( m_ScratchSignatureBits, k - kept.First ) )
                         continue;
                     // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
                     // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
@@ -2093,6 +2100,22 @@ namespace Desert::Graphic::System
                 // wind can reach and the level, are the gather's (ShadowIsmInstances: asked once per field).
                 const ShadowIsmField& field =
                      ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+                // inView for every instance of the field at once, four boxes per register (VisibleInViewBits:
+                // per instance the verdict inView gives its gathered box): the view's bits, AND the union of the
+                // scrolled strips' when there are strips.
+                const std::size_t fieldWords = ( std::size_t{ field.Count } + 63u ) / 64u;
+                m_ScratchCasterBits.resize( fieldWords );
+                VisibleInViewBits( cascadeFrustum, gathered.InstanceBounds, field.First, field.Count,
+                                   m_ScratchCasterBits );
+                if ( stripCount != 0 )
+                {
+                    m_ScratchStripBits.assign( fieldWords, 0u );
+                    for ( std::size_t stripIndex = 0; stripIndex < stripCount; ++stripIndex )
+                        AddVisibleInViewBits( strips[stripIndex], gathered.InstanceBounds, field.First,
+                                              field.Count, m_ScratchStripBits );
+                    for ( std::size_t w = 0; w < fieldWords; ++w )
+                        m_ScratchCasterBits[w] &= m_ScratchStripBits[w];
+                }
                 // The field's movers and its still-standing instances are two draws: the wind is pushed per draw.
                 for ( const bool swaying : { false, true } )
                 {
@@ -2105,7 +2128,7 @@ namespace Desert::Graphic::System
                     levels.clear();
                     for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
                     {
-                        if ( instanceSways( k ) != swaying || !inView( gathered.Instances[k].WorldBounds ) )
+                        if ( instanceSways( k ) != swaying || !VisibleBit( m_ScratchCasterBits, k - field.First ) )
                             continue;
                         visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
                         levels.push_back( gathered.Instances[k].LodLevel );
