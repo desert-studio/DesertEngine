@@ -2367,7 +2367,9 @@ namespace Desert::Graphic::System
                         // this view's own copy, once its pipeline is built; else the packed-matrix caster.
                         DataDrivenMaterial* caster = nullptr;
                         bool                byId   = false;
-                        if ( ismIds )
+                        // The permutation lookup interns the sibling (a write): never from a setup task
+                        // (the forward pass's MissInSetupTask rule); there the packed-matrix caster draws.
+                        if ( ismIds && !::Common::TaskGroup::InTask() )
                         {
                             DataDrivenMaterial* const idCaster =
                                  Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
