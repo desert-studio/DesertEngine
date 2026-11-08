@@ -1130,6 +1130,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( !descriptors )
             return Common::MakeError( descriptors.GetError() );
 
+        // ONE RECORD PER DISPATCH: `traced` is built whole by RayTracingPipeline::Create and never rebuilt in
+        // place, so its pipeline, layout, set layouts, push stages and SBT handles below are one snapshot. The
+        // caller holds its own reference for this exec (the pass captured it); a republish retires the old one
+        // past the frames in flight (RayTracingPipeline::Retire). Only the per-slot SBT buffers are written,
+        // under the pipeline's m_SlotsMutex.
         auto& traced =
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
              // only the Vulkan API makes pipelines; a launch writes the pipeline's own shader binding table
