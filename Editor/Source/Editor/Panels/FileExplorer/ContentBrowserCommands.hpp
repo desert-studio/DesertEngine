@@ -29,6 +29,7 @@ namespace Desert::Editor
         CreatePhysicsAsset,
         DeleteToTrash,
         ClearSelection,
+        SizeMap,
     };
 
     inline constexpr std::string_view kContentBrowserContext = "Content Browser";
@@ -45,7 +46,7 @@ namespace Desert::Editor
     }
 
     // Indexed by ContentBrowserCommand; kContentBrowserCommandOrder is the same order, checked below.
-    inline constexpr std::array<UICommandInfo, 10> kContentBrowserCommandInfos{ {
+    inline constexpr std::array<UICommandInfo, 11> kContentBrowserCommandInfos{ {
          { kContentBrowserContext, "Open", "" },
          { kContentBrowserContext, "Show in Explorer", "" },
          { kContentBrowserContext, "Open Containing Folder", "" },
@@ -56,9 +57,10 @@ namespace Desert::Editor
          { kContentBrowserContext, "Create Physics Asset", "" },
          { kContentBrowserContext, "Delete (to the Trash)", "" },
          { kContentBrowserContext, "Clear Selection", "" },
+         { kContentBrowserContext, "Size Map...", "" },
     } };
 
-    inline constexpr std::array<ContentBrowserCommand, 10> kContentBrowserCommandOrder{
+    inline constexpr std::array<ContentBrowserCommand, 11> kContentBrowserCommandOrder{
          ContentBrowserCommand::Open,
          ContentBrowserCommand::ShowInExplorer,
          ContentBrowserCommand::OpenContainingFolder,
@@ -69,6 +71,7 @@ namespace Desert::Editor
          ContentBrowserCommand::CreatePhysicsAsset,
          ContentBrowserCommand::DeleteToTrash,
          ContentBrowserCommand::ClearSelection,
+         ContentBrowserCommand::SizeMap,
     };
 
     [[nodiscard]] constexpr const UICommandInfo& CommandInfo( ContentBrowserCommand command )

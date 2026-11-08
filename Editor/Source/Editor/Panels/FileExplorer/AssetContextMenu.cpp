@@ -2,6 +2,8 @@
 
 #include "AssetContextMenu.hpp"
 
+#include <Editor/Panels/SizeMap/SizeMapPanel.hpp>
+
 #include <Editor/Core/AssetFileOps.hpp>
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
@@ -125,6 +127,9 @@ namespace Desert::Editor
                 EditorPreferences::ToggleFavouriteFolder( entry.AssetPath );
         }
 
+        ImGui::Separator();
+        // UE: Size Map... on an asset or a folder (what it drags in, by size).
+        CommandMenuItem( ContentBrowserCommand::SizeMap, folder );
         ImGui::Separator();
         if ( ImGui::MenuItem( "Copy Path" ) )
             ImGui::SetClipboardText(
@@ -400,6 +405,14 @@ namespace Desert::Editor
         const std::vector<DirectoryInformation*> entries = m_Selection.EntriesIn( folder );
         if ( entries.empty() )
             return Common::MakeFormattedError<bool>( "'{}': nothing is selected in the Content Browser", label );
+        if ( command == ContentBrowserCommand::SizeMap )
+        {
+            // Every selected asset and folder together, as UE maps a multi-selection in one Size Map.
+            std::vector<std::filesystem::path> files;
+            for ( const DirectoryInformation* entry : entries )
+                files.emplace_back( entry->AssetPath );
+            return OpenSizeMap( files );
+        }
         const auto one = [&]() -> Common::ResultStr<DirectoryInformation*>
         {
             if ( entries.size() != 1 )

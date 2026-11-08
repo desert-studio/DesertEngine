@@ -27,6 +27,7 @@
 #include "Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp"
 #include "Editor/Panels/ProjectSettings/ProjectSettingsPanel.hpp"
 #include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
+#include "Editor/Panels/SizeMap/SizeMapPanel.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/SceneProperties/ScenePropertiesPanel.hpp"
 #include "Editor/Panels/Validation/SceneValidationPanel.hpp"
@@ -101,6 +102,8 @@ namespace Desert::Editor
         // are generic over m_Panels; they are reached from the component that holds them, in Details.
         panels.Add<Editor::PhotogrammetryPanel>( workspace.ActiveScene(), assetManager.get() );
         panels.Add<Editor::AssetReferencesPanel>( workspace.ActiveScene(), assetManager );
+        // Hidden until the Content Browser's Size Map... opens it on a selection (UE: the Size Map tab).
+        panels.Add<Editor::SizeMapPanel>();
         panels.Add<Editor::LuaConsolePanel>( workspace.ActiveScene().get(), assetManager.get() );
         panels.Add<Editor::ControlRigPanel>( workspace.ActiveScene() );
         panels.Add<Editor::BuildSettingsPanel>();
