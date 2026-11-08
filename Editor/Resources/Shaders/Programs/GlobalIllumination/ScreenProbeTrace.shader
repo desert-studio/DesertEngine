@@ -128,15 +128,37 @@ Shader "ScreenProbeTrace"
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
         Uniform sampler LinearClampSampler;
-        Uniform sampler PointClampSampler;
         Uniform(16) textureCube EnvironmentSpecularTexture;
         #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        // GPU-FARFIELD-7 (UE shared samplers: a permutation declares the samplers its code samples through): the
+        // legs that LIGHT a hit read the cards (Common/SurfaceCacheSampling.glslh), the G-buffer (GIHitMaterial)
+        // and the software field's object grid (GIHitObjectGridRows), all through PointClampSampler. One switch
+        // per leg, SP_TRACE_LIGHTS_HITS, guards the sampler, the G-buffer textures and (GI_HIT_LIGHTING_NONE)
+        // those readers in the headers; the pass binds them under the same rule (ScreenProbeGather.cpp
+        // TraceLegLightsHits). The software far field defers its hits, the cache read reads the cache alone.
+        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
+        #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
+        #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
+        #endif
+        #endif
+        #if defined( SP_TRACE_NEAR_FIELD ) || defined( SP_TRACE_CACHE_MISS )
+        #define SP_TRACE_LIGHTS_HITS 1
+        #elif defined( SP_TRACE_HIT_LIGHTING ) && defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_LIGHTS_HITS 1
+        #elif defined( SP_TRACE_FAR_FIELD ) && !defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_LIGHTS_HITS 1
+        #endif
+        #if defined( SP_TRACE_LIGHTS_HITS )
+        Uniform sampler PointClampSampler;
         Uniform(17) texture2D GBufferDepthTexture;
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
         Uniform(18) texture2D GBufferATexture;
         #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
         Uniform(19) texture2D GBufferEmissiveTexture;
         #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+        #else
+        #define GI_HIT_LIGHTING_NONE 1
+        #endif
         Uniform(20) texture2D RadianceCacheIrradianceTexture;
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(21) texture2D RadianceCacheDepthTexture;
@@ -161,11 +183,6 @@ Shader "ScreenProbeTrace"
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
-        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
-        #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
-        #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
-        #endif
-        #endif
 
         // UE IsTraceMoving on a world hit: only a hit whose tracer knows its object's motion (GIHit.motionKnown:
         // the mesh SDF near field) can be moving; a global-field hit is not (UE TraceVoxels writes bMoving false).

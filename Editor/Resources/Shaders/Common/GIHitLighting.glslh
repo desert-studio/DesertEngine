@@ -35,7 +35,7 @@
 #include <Common/SkyLook.glslh>
 #include <Common/ReconstructPosition.glslh>
 #include <Common/GIFrame.glslh>
-#if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+#if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE ) && !defined( GI_HIT_LIGHTING_NONE )
 #include <Common/SurfaceCacheSampling.glslh>
 #endif
 // Both lighting paths answer a hit with the direct-light BRDF (GIHitLightResponse), the in-place one included.
@@ -50,6 +50,7 @@
 // photographic middle grey, 0.18 linear.
 #define GI_HIT_ALBEDO_OFF_SCREEN 0.18
 
+#if !defined( GI_HIT_LIGHTING_NONE ) // GPU-FARFIELD-7: the hit readers (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
 void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emissive )
 {
     albedo   = vec3( GI_HIT_ALBEDO_OFF_SCREEN );
@@ -75,6 +76,7 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
 #endif
 }
 
+#endif // GI_HIT_LIGHTING_NONE
 vec3 GIMissRadiance( vec3 rayDirection )
 {
     return ApplySkyGain( textureLod( EnvironmentSpecularTexture, SkyLookDirection( rayDirection, giFrame.skyYawCosSin.xy ), 0.0 ).rgb,
@@ -83,6 +85,7 @@ vec3 GIMissRadiance( vec3 rayDirection )
 
 // The material a hit is lit with. Specular = false: a diffuse-only surface (GIHitMaterial's guess, which knows no
 // roughness); true: the hit's own material from a closest-hit shader, lit diffuse + specular.
+#if !defined( GI_HIT_LIGHTING_NONE ) // GPU-FARFIELD-7: the hit readers (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
 struct GIHitSurface
 {
     vec3  BaseColor;
@@ -260,4 +263,5 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
     return direct + diffuseAlbedo * max( bounce.rgb, vec3( 0.0 ) ) + surface.Emissive;
 }
 
+#endif // GI_HIT_LIGHTING_NONE
 #endif // GI_HIT_LIGHTING_GLSLH
