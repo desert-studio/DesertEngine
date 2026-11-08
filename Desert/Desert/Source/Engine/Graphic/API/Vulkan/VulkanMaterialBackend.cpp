@@ -41,7 +41,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanMaterialBackend::VulkanMaterialBackend( const std::shared_ptr<Shader>& shader )
          : MaterialBackend( shader ), m_VulkanShader( SP_CAST( VulkanShader, shader ) ),
-           m_Layouts( m_VulkanShader->GetAllDescriptorSetLayouts() ),
+           m_Program( m_VulkanShader->ShareProgram() ), m_Layouts( m_Program->SetLayouts ),
            m_ShaderGeneration( m_VulkanShader->GetCodeGeneration() )
     {
         // A SHADER WITH NO LAYOUTS HAS NOTHING TO ALLOCATE FOR, AND ASKING ANYWAY IS TWENTY VALIDATION
@@ -668,7 +668,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanMaterialBackend::WriteFallbacks( const uint32_t frame )
     {
-        auto& descriptorSets = m_VulkanShader->GetShaderDescriptorSets();
+        // The reflection of the compile the sets were allocated against, not the shader's current one.
+        const auto& descriptorSets = m_Program->Reflection.ShaderDescriptorSets;
 
         for ( const auto& [setIndex, descriptorSet] : descriptorSets )
         {

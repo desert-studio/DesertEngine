@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -87,6 +88,18 @@ namespace Desert::Graphic::API::Vulkan
             return m_ShaderPath;
         }
 
+        // THE WHOLE PUBLISHED RECORD IN ONE READ. A caller that combines several parts of the program (stage
+        // infos with set layouts, reflection with the RDG slots) reads them through this, so a reload landing
+        // between two accessor calls cannot pair one compile's stages with the next one's layouts. The reference
+        // stays valid for the frames in flight after a reload replaces the record (Publish).
+        [[nodiscard]] const CompiledProgram& GetProgram() const noexcept
+        {
+            return Current();
+        }
+        // The record CO-OWNED, for an object built from it that outlives the frames in flight: a pipeline keeps
+        // the stage infos its pass variants are created from later. Read under the lock Publish swaps under.
+        [[nodiscard]] std::shared_ptr<const CompiledProgram> ShareProgram() const noexcept;
+
         virtual const Core::Formats::ShaderProgramMeta& GetProgramMeta() const override
         {
             return Current().Meta;
@@ -156,12 +169,15 @@ namespace Desert::Graphic::API::Vulkan
         {
             return !Current().StageInfos.empty();
         }
-        [[nodiscard]] std::string_view GetDeviceRefusal() const override
+        // Immutable copies taken under m_ErrorLock: a Reload on another thread rewrites the strings.
+        [[nodiscard]] std::string GetDeviceRefusal() const override
         {
+            std::lock_guard lock( m_ErrorLock );
             return m_DeviceRefusal;
         }
-        [[nodiscard]] std::string_view GetCompileError() const override
+        [[nodiscard]] std::string GetCompileError() const override
         {
+            std::lock_guard lock( m_ErrorLock );
             return m_CompileError;
         }
         /**
@@ -274,6 +290,10 @@ namespace Desert::Graphic::API::Vulkan
         std::filesystem::path                        m_ShaderPath;
         std::string                                  m_ShaderName;
         std::string                                  m_PassName; // empty = default program
+        // Written only through SetDeviceRefusal / SetCompileError, read only as copies (the getters).
+        void SetDeviceRefusal( std::string refusal ) noexcept;
+        void SetCompileError( std::string error ) noexcept;
+        mutable std::mutex m_ErrorLock;
         // Set by BuildFromSpirv when a stage needs a capability this device lacks (GetDeviceRefusal).
         std::string m_DeviceRefusal;
         // The last Reload's failure, or empty after one that succeeded (GetCompileError).
@@ -288,8 +308,10 @@ namespace Desert::Graphic::API::Vulkan
         // The published record. m_Owned is touched only by the reloading thread (construction, Reload);
         // readers on any thread go through m_Current, which is never null (an empty record before the first
         // successful compile - IsCompiled false, no stage, no layout).
+        // ShareProgram reads m_Owned from any thread, so the swap and that read hold m_OwnedLock.
         std::shared_ptr<const CompiledProgram> m_Owned;
         std::atomic<const CompiledProgram*>    m_Current{ nullptr };
+        mutable std::mutex                     m_OwnedLock;
 
         DescriptorSetInfo m_DescriptorSetInfo;
     };

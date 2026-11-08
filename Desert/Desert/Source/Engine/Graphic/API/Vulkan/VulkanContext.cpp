@@ -328,6 +328,18 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    void VulkanContext::RetireAfterFramesInFlight( std::function<void()> retire )
+    {
+        if ( !retire )
+            return;
+        if ( !m_VulkanAllocator )
+        {
+            retire(); // no frame can be recording without an allocator
+            return;
+        }
+        m_VulkanAllocator->RT_DestroyLater( std::move( retire ) );
+    }
+
     void VulkanContext::Shutdown()
     {
         // WHAT INIT CREATED, IN REVERSE, AND IT IS REACHED NOW. `RendererContext::Shutdown` is pure

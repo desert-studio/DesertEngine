@@ -3,6 +3,8 @@
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/Window.hpp>
 
+#include <functional>
+
 namespace Desert
 {
     class Window;
@@ -32,6 +34,13 @@ namespace Desert::Graphic
 
         virtual void OnResize( uint32_t width, uint32_t height ) = 0;
         virtual void Shutdown()                                  = 0;
+
+        /// FRAME-RETIRED RELEASE (UE: deferred deletion). Runs @p retire once every frame that may still be
+        /// recorded with what it releases has retired, so a render worker of frame N-1 that read a raw pointer
+        /// from a service (ImageService::Resolve, MeshService::Get, ...) keeps a live object while the game
+        /// thread of frame N unregisters it. The API-agnostic face of the device's host-object deletion queue;
+        /// services above the API layer retire through this, never through an API allocator.
+        virtual void RetireAfterFramesInFlight( std::function<void()> retire ) = 0;
 
         static std::shared_ptr<RendererContext> Create( const std::shared_ptr<Window>& window );
     };

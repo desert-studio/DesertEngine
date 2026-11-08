@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 #include <Engine/Graphic/RendererTypes.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
@@ -107,7 +108,7 @@ namespace Desert::Graphic
         // lacks (inline ray tracing on a device without ray query, MoltenVK) is not built there at all: no module
         // and no set layout is created, IsCompiled() is false, and this names the feature and the device. It is a
         // refusal for the device, not a compile error: the same source builds on a device that has the feature.
-        [[nodiscard]] virtual std::string_view GetDeviceRefusal() const
+        [[nodiscard]] virtual std::string GetDeviceRefusal() const
         {
             return {};
         }
@@ -115,7 +116,7 @@ namespace Desert::Graphic
         // (a preprocess, compile, binding, reflection or set-layout refusal, naming the program). Kept on the
         // object because the constructor cannot return it, and a shader whose first build failed is still
         // registered and handed out by name: whoever registers it says WHY it will not draw (ShaderService).
-        [[nodiscard]] virtual std::string_view GetCompileError() const
+        [[nodiscard]] virtual std::string GetCompileError() const
         {
             return {};
         }

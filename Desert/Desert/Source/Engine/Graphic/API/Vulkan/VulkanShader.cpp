@@ -113,11 +113,21 @@ namespace Desert::Graphic::API::Vulkan
     // (every recorder holds the Shader strongly), so only a REPLACED record needs the deferred path below.
     VulkanShader::~VulkanShader() = default;
 
+    std::shared_ptr<const VulkanShader::CompiledProgram> VulkanShader::ShareProgram() const noexcept
+    {
+        const std::lock_guard lock( m_OwnedLock );
+        return m_Owned;
+    }
+
     void VulkanShader::Publish( std::shared_ptr<const CompiledProgram> next ) noexcept
     {
-        std::shared_ptr<const CompiledProgram> replaced = std::move( m_Owned );
-        m_Owned                                         = std::move( next );
-        m_Current.store( m_Owned.get(), std::memory_order_release );
+        std::shared_ptr<const CompiledProgram> replaced;
+        {
+            const std::lock_guard lock( m_OwnedLock );
+            replaced = std::move( m_Owned );
+            m_Owned  = std::move( next );
+            m_Current.store( m_Owned.get(), std::memory_order_release );
+        }
 
         // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT. A render worker of frame N-1 may hold a
         // reference into it (stage infos being turned into a pipeline, the reflection being bound against) while
@@ -132,6 +142,18 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyLater( [held = std::move( replaced )]() mutable { held.reset(); } );
     }
 
+    void VulkanShader::SetDeviceRefusal( std::string refusal ) noexcept
+    {
+        std::lock_guard lock( m_ErrorLock );
+        m_DeviceRefusal = std::move( refusal );
+    }
+
+    void VulkanShader::SetCompileError( std::string error ) noexcept
+    {
+        std::lock_guard lock( m_ErrorLock );
+        m_CompileError = std::move( error );
+    }
+
     Common::BoolResultStr VulkanShader::Reload()
     {
         auto asset = m_ShaderAsset.lock();
@@ -143,7 +165,7 @@ namespace Desert::Graphic::API::Vulkan
              { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
         if ( !built.IsSuccess() )
         {
-            m_CompileError = built.GetError();
+            SetCompileError( built.GetError() );
             return Common::MakeError( built.GetError() );
         }
         return AdoptShaderMap( built.GetValue() );
@@ -155,17 +177,18 @@ namespace Desert::Graphic::API::Vulkan
         // ever draw or dispatch through it. Refused by name here, so the reason is not an empty stage list.
         if ( built.Stages.empty() )
         {
-            m_CompileError = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
-            return Common::MakeError( m_CompileError );
+            std::string error = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
+            SetCompileError( error );
+            return Common::MakeError( std::move( error ) );
         }
         auto rebuilt = BuildFromSpirv( built.Stages, built.Meta );
         if ( rebuilt )
         {
-            m_CompileError.clear();
+            SetCompileError( std::string() );
             BumpCodeGeneration(); // the pipelines built from the previous modules are now behind
         }
         else
-            m_CompileError = rebuilt.GetError();
+            SetCompileError( rebuilt.GetError() );
         return rebuilt;
     }
 
@@ -187,11 +210,12 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( !SpirvDeclaresCapability( spirv, kSpirvCapabilityRayQuery ) )
                     continue;
-                m_DeviceRefusal =
+                std::string refusal =
                      std::format( "its {} stage uses inline ray tracing (SPIR-V RayQueryKHR) and device "
                                   "'{}' has no ray query; no module or set layout is created on it",
                                   GetStringShaderStage( stage ), caps.DeviceName );
-                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
+                SetDeviceRefusal( refusal );
+                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
             }
         }
         // The same for the ray tracing PIPELINE's stages (RayGen, Miss, ClosestHit, AnyHit): a named pass of them
@@ -204,14 +228,15 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( !Core::Formats::IsRayTracingStage( stage ) )
                     continue;
-                m_DeviceRefusal =
+                std::string refusal =
                      std::format( "its {} stage is a ray tracing pipeline stage and device '{}' has no "
                                   "ray tracing pipeline; no module or set layout is created on it",
                                   GetStringShaderStage( stage ), caps.DeviceName );
-                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
+                SetDeviceRefusal( refusal );
+                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
             }
         }
-        m_DeviceRefusal.clear();
+        SetDeviceRefusal( std::string() );
 
         // TRANSACTIONAL. Everything is built into locals first, and the shader's own state is only
         // replaced once every stage has compiled and reflected. Tearing the old state down up front

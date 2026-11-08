@@ -1,6 +1,8 @@
 #include "MeshService.hpp"
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -14,6 +16,23 @@
 
 namespace Desert::Runtime
 {
+    namespace
+    {
+        // GET'S RAW POINTER OUTLIVES EVERY FRAME THAT MAY HAVE READ IT. A rebuild over a built mesh replaces
+        // the pointer a render worker of frame N-1 may still be recording with; the outgoing mesh retires
+        // through the renderer's frame-retire queue (UE: deferred deletion) and dies at once only with no
+        // renderer. Eviction keeps its own FrameRetireQueue (m_Retiring), which `RetireEvicted` collects.
+        void RetireMesh( std::shared_ptr<Desert::Mesh>&& outgoing ) noexcept
+        {
+            if ( !outgoing )
+                return;
+            const auto ctx = EngineContext::GetInstance().GetRendererContext();
+            if ( !ctx )
+                return; // `outgoing` dies here
+            ctx->RetireAfterFramesInFlight( [held = std::move( outgoing )]() mutable { held.reset(); } );
+        }
+    } // namespace
+
     MeshService::MeshService( std::unique_ptr<IMeshUploader> uploader ) : m_Uploader( std::move( uploader ) )
     {
     }
@@ -115,9 +134,14 @@ namespace Desert::Runtime
         mesh->SetAuthoredLODScreenSizes( lodScreenSizes.GetValue() );
 
         std::shared_ptr<Mesh>& slot = m_Meshes[handle];
+        std::shared_ptr<Mesh>  outgoing;
         if ( slot ) // a rebuild over a built mesh: the pointer callers were answered is replaced
+        {
             m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
+            outgoing = std::move( slot );
+        }
         slot = std::move( mesh );
+        RetireMesh( std::move( outgoing ) );
         return BOOLSUCCESS;
     }
 
