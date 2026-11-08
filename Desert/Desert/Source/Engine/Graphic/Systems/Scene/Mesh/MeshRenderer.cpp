@@ -527,6 +527,20 @@ namespace Desert::Graphic::System
             // a record nested on the thread between two draws never sees another record's bytes.
             thread_local std::vector<std::byte>                t_RecordPush;
             thread_local std::vector<const RDG::PassBindings*> t_RecordGroupBindings;
+            // The depth pass's one sweep of its bins (RecordBinned under RecordBinnedFirst): per group the
+            // pipeline this sweep draws it with, null = the other sweep's. Same kept-scratch rule as the two
+            // above.
+            thread_local std::vector<const GraphicsPipeline*> t_RecordSweepPipelines;
+
+            // Whether a depth pass's group pipeline runs an alpha-tested cell (the template's Blend Masked: its
+            // Depth cell clips, Pass_Depth.glslh) - the sort key's masked bit (UE
+            // CalculateDepthPassMeshStaticSortKey).
+            [[nodiscard]] bool ClipsInDepthPass( const GraphicsPipeline& pipeline )
+            {
+                const std::shared_ptr<Shader>& shader = pipeline.GetSpecification().Shader;
+                return shader != nullptr &&
+                       shader->GetProgramMeta().Blend == Core::Formats::SurfaceBlendMode::Masked;
+            }
         } // namespace
 
         void MeshDrawList::Clear()
@@ -1029,15 +1043,56 @@ namespace Desert::Graphic::System
                     if ( m_GroupBlock[group] < blocks.Count() )
                         groupBindings[group] = &blocks.At( m_GroupBlock[group] );
                 RendererAPI& api = *Renderer::GetInstance().GetRendererAPI();
-                if ( m_Binned->BinsIssued )
-                    if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings,
-                                                                          m_Binned->GroupCarriers, m_Binned->Mode,
-                                                                          *m_Binned->Table, m_Binned->Culled,
-                                                                          m_Binned->GroupPipelines );
-                         !recorded )
-                        return recorded;
+                // THE DEPTH PASS'S SORT INSIDE THE BINS (UE CalculateDepthPassMeshStaticSortKey: the masked bit
+                // sorts every alpha-tested draw after the opaque ones). Under RecordBinnedFirst two sweeps: the
+                // opaque groups' bins and clusters (the barn, the trunks, the rocks), then the masked groups' (the
+                // tree canopies), so a leaf behind an opaque occluder fails the early depth test before its clip
+                // runs. The Table's group order mixes the two (one group per pipeline, in first-use order). Every
+                // other list: one sweep, every group, as before. The depth written is the nearest fragment
+                // whatever the order (CloserOrEqual + write), so only the cost moves.
+                const uint32_t sweeps = m_BinnedFirst ? 2u : 1u;
+                for ( uint32_t sweep = 0; sweep < sweeps; ++sweep )
+                {
+                    const bool sweepMasked = sweep == 1u;
+                    // The bins: this sweep's groups through a filtered copy of the issue's pipelines.
+                    std::span<const GraphicsPipeline* const> pipelines = m_Binned->GroupPipelines;
+                    if ( m_BinnedFirst && m_Binned->BinsIssued )
+                    {
+                        std::vector<const GraphicsPipeline*>& sweepPipelines = t_RecordSweepPipelines;
+                        sweepPipelines.assign( m_Binned->Table->Groups.size(), nullptr );
+                        for ( size_t group = 0; group < sweepPipelines.size(); ++group )
+                        {
+                            const GraphicsPipeline* const pipeline = m_Binned->GroupPipeline( group );
+                            if ( pipeline != nullptr && ClipsInDepthPass( *pipeline ) == sweepMasked )
+                                sweepPipelines[group] = pipeline;
+                        }
+                        pipelines = sweepPipelines;
+                    }
+                    if ( m_Binned->BinsIssued )
+                        if ( auto recorded = GpuDriven::RecordIndirectGroups(
+                                  api, groupBindings, m_Binned->GroupCarriers, m_Binned->Mode, *m_Binned->Table,
+                                  m_Binned->Culled, pipelines );
+                             !recorded )
+                            return recorded;
+                    if ( auto clusters = RecordBinnedClusters( context, blocks, api, split, sweep, sweeps );
+                         !clusters )
+                        return clusters;
+                }
+            }
+            return BOOLSUCCESS;
+        }
+
+        Common::BoolResultStr MeshDrawList::RecordBinnedClusters( const RDG::PassContext&       context,
+                                                                  const RDG::OpenBindingBlocks& blocks,
+                                                                  RendererAPI& api, const bool split,
+                                                                  const uint32_t sweep,
+                                                                  const uint32_t sweeps ) const
+        {
+            if ( m_Binned )
+            {
                 // The VG raster after the bins: per group its clusters' one indirect draw (an empty group draws
-                // zero instances; the arguments are the GPU's).
+                // zero instances; the arguments are the GPU's). Of two sweeps (RecordBinned), only the sweep's
+                // groups: the opaque ones in sweep 0, the masked ones in sweep 1.
                 if ( m_Binned->VirtualGeometry )
                 {
                     const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
@@ -1046,6 +1101,8 @@ namespace Desert::Graphic::System
                         if ( m_VgGroupBlock[group] >= blocks.Count() )
                             continue;
                         const GraphicsPipeline&        pipeline = *vg.GroupPipeline( *m_Binned->Table, group );
+                        if ( sweeps > 1u && ClipsInDepthPass( pipeline ) != ( sweep == 1u ) )
+                            continue;
                         // The cluster raster's group: one indirect draw whose triangles only the GPU knows.
                         std::optional<Common::Profiling::GpuDrawSplitScope> vgGroup;
                         if ( split )

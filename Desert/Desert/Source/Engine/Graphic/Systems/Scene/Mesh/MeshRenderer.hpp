@@ -88,6 +88,7 @@ namespace Desert::Runtime
 namespace Desert::Graphic
 {
     class StorageBufferProperty;
+    class RendererAPI;
 } // namespace Desert::Graphic
 
 namespace Desert::Graphic::System
@@ -322,7 +323,9 @@ namespace Desert::Graphic::System
             // draws after the opaque ones). Set: Record issues the GPU-culled bins and the VG clusters (the
             // scene's opaque occluders) BEFORE the CPU commands (the alpha-tested GPU-instanced grass and
             // foliage), so the masked fragments behind them fail the early depth test before their clip runs. The
-            // depth the list writes is the nearest fragment whatever the order, so only the cost moves. Set once
+            // depth the list writes is the nearest fragment whatever the order, so only the cost moves. Inside the
+            // bins and the clusters the same key: the opaque groups first, then the masked ones (RecordBinned's
+            // two sweeps; the Table's group order mixes them). Set once
             // by the owner (MeshRenderer::Initialize), kept across Clear; unset: the commands first (every other
             // list).
             void RecordBinnedFirst()
@@ -335,6 +338,12 @@ namespace Desert::Graphic::System
                                                                 const RDG::OpenBindingBlocks& blocks ) const;
             [[nodiscard]] Common::BoolResultStr RecordBinned( const RDG::PassContext&       context,
                                                               const RDG::OpenBindingBlocks& blocks ) const;
+            // RecordBinned's VG cluster raster for one of its @p sweeps (two under RecordBinnedFirst: sweep 0 the
+            // opaque groups, 1 the masked ones; one: every group).
+            [[nodiscard]] Common::BoolResultStr RecordBinnedClusters( const RDG::PassContext&       context,
+                                                                      const RDG::OpenBindingBlocks& blocks,
+                                                                      RendererAPI& api, bool split, uint32_t sweep,
+                                                                      uint32_t sweeps ) const;
             // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
             // shader keys its layout (every draw of the block records with a pipeline of that same shader).
             struct Block
