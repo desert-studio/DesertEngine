@@ -204,8 +204,10 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 	hit.velocity     = vec3(0.0);
 	hit.motionKnown  = false;
 	hit.globalField  = false;
+	// The hit's own shading model (its word from the closest hit): a clear-coated car, a satin sheet, a brushed
+	// panel reflect as the raster lights them.
 	radiance = GIHitRadianceLit(hit, L, GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness,
-	                                                 payload.Emissive, true));
+	                                                 payload.Emissive, true, payload.ShadingWord));
 	hitPoint = hit.position;
 	return true;
 #else
