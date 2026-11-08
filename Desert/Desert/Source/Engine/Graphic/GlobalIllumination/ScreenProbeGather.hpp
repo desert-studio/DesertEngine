@@ -399,6 +399,14 @@ namespace Desert::Graphic::GlobalIllumination
             ProgramCount
         };
 
+        // ScreenProbeTrace's world legs, each a permutation of one program (EnsureTraceProgram, ProgramVariants).
+        static constexpr std::array<Program, 5> kTracePrograms{ TraceNearField, TraceFarField, TraceCacheMiss,
+                                                                TraceHitLighting, TraceCacheRead };
+
+        // A trace leg's permutation define (SP_TRACE_*): the one key TraceLegExists / TraceLegLightsHits decide
+        // on.
+        [[nodiscard]] static std::string_view TraceLegDefine( Program program );
+
         [[nodiscard]] Common::BoolResultStr EnsureImages( glm::uvec2 extent, const ScreenProbeLayout& layout );
 
         // EnsureLayoutPrograms' standing refusal (ClaimLayoutRefusalReport); none after a success.
