@@ -70,6 +70,13 @@ Shader "RadianceCacheTrace"
 
         // How far a probe ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance).
         #define RC_PROBE_TRACE_DISTANCE 20000.0
+        // DOWNSAMPLED FAR PROBES (UE r.Lumen.RadianceCache.DownsampleDistanceFromCamera, GenerateProbeTraceTiles
+        // in LumenRadianceCache.usf): a probe whose cell centre is further than this from the camera, cm, traces
+        // at half its resolution - one ray per 2x2 texels, jittered over all four, written to each of them with its
+        // own history - so it costs a quarter of a near probe's rays. Its converged radiance is the 2x2 box of the
+        // full-resolution one; the irradiance and moments (Filter) integrate the same. A probe crossing the
+        // distance keeps its atlas texels: only the next traces' rays change.
+        #define RC_TRACE_DOWNSAMPLE_DISTANCE 4000.0
 
         shared vec3 s_Position;
 
@@ -93,6 +100,15 @@ Shader "RadianceCacheTrace"
             const uint               clipmap = uint( state.cell.w );
             const float              cell    = RadianceCacheCellSize( radianceCache, clipmap );
             const vec3               centre  = RadianceCacheWorldCellCentre( radianceCache, state.cell.xyz, clipmap );
+            const uint               res     = radianceCache.shape.z;
+            // The traced resolution: res, or half of it (rounded up) for a far probe; texels per ray side.
+            const bool downsampled = distance( giFrame.camera.xyz, centre ) > RC_TRACE_DOWNSAMPLE_DISTANCE;
+            const uint traceRes    = downsampled ? ( res + 1u ) / 2u : res;
+            const uint blockSide   = downsampled ? 2u : 1u;
+            // The dispatch's tiles cover a full-resolution probe; a downsampled one needs the first quarter. The
+            // condition is the group's own (one probe a group), so the rest of the group ends before the barrier.
+            if ( gl_WorkGroupID.y * 64u >= traceRes * traceRes )
+                return;
 
             if ( gl_LocalInvocationIndex == 0u )
             {
@@ -105,21 +121,22 @@ Shader "RadianceCacheTrace"
             }
             barrier();
 
-            const uint  res     = radianceCache.shape.z;
             const ivec2 origin  = RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) + 1;
             // Never traced, or last traced under the directional lights before the last full update (GRASS-SETTLE):
             // its radiance holds the old sun and is not blended into the new one.
             const bool  fresh   = state.frames.y == 0u || state.frames.y < LightingFrame;
             const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? DirtyHistory : HistoryWeight );
-            // The cone of one texel: its solid angle 4 pi / res^2 as a cone's half angle.
-            const float cone    = sqrt( 4.0 / float( res * res ) );
-            // This thread's texel: the tile's 64 in row order (the last tile of a res whose square is no multiple
-            // of 64 is partly empty). No barrier follows, so the threads past the probe's texels simply end.
+            // The cone of one traced texel: its solid angle 4 pi / traceRes^2 as a cone's half angle.
+            const float cone    = sqrt( 4.0 / float( traceRes * traceRes ) );
+            // This thread's traced texel: the tile's 64 in row order (the last tile of a traceRes whose square is
+            // no multiple of 64 is partly empty). No barrier follows, so the threads past the probe's texels end.
             const uint  texel   = gl_WorkGroupID.y * 64u + gl_LocalInvocationIndex;
-            if ( texel < res * res )
+            if ( texel < traceRes * traceRes )
             {
-                const ivec2 t = ivec2( texel % res, texel / res );
-                const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( res ) * 2.0 - 1.0;
+                const ivec2 t = ivec2( texel % traceRes, texel / traceRes );
+                // A full-resolution texel keeps its own jitter sequence; a downsampled ray's spans its 2x2 block.
+                const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( traceRes ) * 2.0 -
+                               1.0;
                 GITraceInput ray;
                 ray.origin    = s_Position;
                 ray.tMin      = RadianceCacheProbeTMin( radianceCache, clipmap );
@@ -130,10 +147,25 @@ Shader "RadianceCacheTrace"
                 ray.farTMin   = 0.0; // a probe in free space leaves no surface
                 float      hitDistance;
                 const vec3 radiance = GIRayRadiance( ray, hitDistance );
-                vec4       value    = vec4( radiance, hitDistance );
-                if ( !fresh )
-                    value = mix( value, imageLoad( RadianceCacheRadianceTexture, origin + t ), history );
-                imageStore( RadianceCacheRadianceTexture, origin + t, value );
+                const vec4 traced   = vec4( radiance, hitDistance );
+                // The atlas texels the ray stands for: itself, or its 2x2 block (an odd res's last row and column
+                // block is cut at the probe's edge).
+                for ( uint j = 0u; j < blockSide; ++j )
+                {
+                    for ( uint i = 0u; i < blockSide; ++i )
+                    {
+                        const ivec2 fine = t * int( blockSide ) + ivec2( i, j );
+                        if ( fine.x >= int( res ) || fine.y >= int( res ) )
+                            continue;
+                        vec4 value = traced;
+                        if ( !fresh )
+                        {
+                            const vec4 last = imageLoad( RadianceCacheRadianceTexture, origin + fine );
+                            value           = mix( value, last, history );
+                        }
+                        imageStore( RadianceCacheRadianceTexture, origin + fine, value );
+                    }
+                }
             }
         }
     }
