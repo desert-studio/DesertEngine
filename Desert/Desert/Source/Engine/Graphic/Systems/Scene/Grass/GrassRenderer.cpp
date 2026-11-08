@@ -1752,10 +1752,25 @@ namespace Desert::Graphic::System
         // After the commits: their grow copies run first, each upload writes its own range after them.
         const uint64_t chunksEpoch = m_ChunksPool.Epoch();
         const uint64_t tableEpoch  = m_SegmentTablesPool.Epoch();
+        // GRASS-CULL-COST-4 (UE GPU Scene: the primitives' uploads gathered into one scatter a frame, not a copy
+        // each): every variety's params land in the pool's host image, and the span the frame's records cover goes
+        // up in ONE upload - one Copy pass, not a pass (and a write-after-write barrier) per variety. The span's
+        // other words are the image's: the last params uploaded to them, so a record outside the frame is written
+        // what it already holds.
+        uint64_t paramsLo = UINT64_MAX;
+        uint64_t paramsHi = 0u;
+        for ( const VarietyGpu* gpu : m_Frame )
+        {
+            paramsLo = std::min( paramsLo, gpu->Params.Offset );
+            paramsHi = std::max( paramsHi, gpu->Params.Offset + sizeof( GrassParamsGpu ) );
+        }
+        if ( m_ParamsImage.size() * sizeof( uint32_t ) < paramsHi )
+            m_ParamsImage.resize( paramsHi / sizeof( uint32_t ), 0u );
         for ( VarietyGpu* gpu : m_Frame )
         {
-            const std::span<const uint32_t> params( gpu->ParamsWords.data(), gpu->ParamsWords.size() );
-            graph.QueueBufferUpload( m_ParamsPool.Ref(), gpu->Params.Offset, std::as_bytes( params ) );
+            std::copy( gpu->ParamsWords.begin(), gpu->ParamsWords.end(),
+                       m_ParamsImage.begin() +
+                            static_cast<std::ptrdiff_t>( gpu->Params.Offset / sizeof( uint32_t ) ) );
             if ( gpu->ChunksEpoch != 0u && gpu->ChunksEpoch != chunksEpoch && gpu->Chunks.Bytes != 0u )
             {
                 // A remade chunks pool held none of the build's chunks: empty ones this frame, the tile pool
@@ -1788,6 +1803,10 @@ namespace Desert::Graphic::System
             }
             gpu->TilePoolEpoch = tableEpoch;
         }
+        const std::span<const uint32_t> params(
+             m_ParamsImage.data() + static_cast<std::ptrdiff_t>( paramsLo / sizeof( uint32_t ) ),
+             static_cast<size_t>( ( paramsHi - paramsLo ) / sizeof( uint32_t ) ) );
+        graph.QueueBufferUpload( m_ParamsPool.Ref(), paramsLo, std::as_bytes( params ) );
         return BOOLSUCCESS;
     }
 

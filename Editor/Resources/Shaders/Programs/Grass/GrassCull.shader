@@ -108,7 +108,8 @@ Shader "GrassCull"
         // of the ones a view met are packed over ALL its kCullGroupThreads lanes. A chunk holds at most 64 records
         // (two code words), so a group walks at most kChunksPerGroup * 64 / kCullGroupThreads = 16 rounds - the
         // near field's tail. At 64 chunks a group one 32-wide subgroup walked up to 2048 records, 64 dependent
-        // rounds, and the pass waited on its nearest groups.
+        // rounds, and the pass waited on its nearest groups. A power of two: CameraCull's record-to-chunk
+        // binary search.
         const uint kChunksPerGroup = 16u;
         // The views a chunk met (BoxMeetsViews): bits 0..7 the cascade lists (GrassRenderer kGrassCascadeLists), then
         // the camera's side planes, then - those met - the previous frame's HZB hid its whole box.
@@ -902,12 +903,13 @@ Shader "GrassCull"
                 if ( t >= total )
                     continue;
                 // The chunk that holds packed record t: the last whose start is at most t (one that took nothing
-                // shares its successor's start and is passed over; the last one's start is then the total).
+                // shares its successor's start and is passed over; the last one's start is then the total). The
+                // starts never fall, so a binary search finds it: log2(kChunksPerGroup) shared reads, not 15.
                 uint from = 0u;
-                for ( uint j = 1u; j < kChunksPerGroup; ++j )
+                for ( uint step = kChunksPerGroup / 2u; step > 0u; step /= 2u )
                 {
-                    if ( s_Start[j] <= t )
-                        from = j;
+                    if ( s_Start[from + step] <= t )
+                        from += step;
                 }
                 uint  k          = t - s_Start[from];
                 uvec2 mask       = s_Kept[from];
