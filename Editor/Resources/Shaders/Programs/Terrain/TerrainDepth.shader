@@ -50,6 +50,14 @@ Shader "TerrainDepth"
         #include <Common/LandscapeWeights.glslh>
         #include <Programs/Terrain/TerrainCasterHole.glslh>
 
+        // DESERT_TERRAIN_NO_HOLES: no drawn tile has a visibility layer (TerrainRenderer::DepthNoHolesVariant), so
+        // nothing below discards. The depth test and write then run before this stage (UE: a landscape without
+        // holes is opaque in the depth pass), not after it as a discarding shader forces. The declarations and
+        // the test stay: the variant keeps the base program's descriptor layout (TerrainRenderer m_DepthLayout).
+#ifdef DESERT_TERRAIN_NO_HOLES
+        layout( early_fragment_tests ) in;
+#endif
+
         void main()
         {
             if ( TerrainCasterIsHole( v_TileSample ) )

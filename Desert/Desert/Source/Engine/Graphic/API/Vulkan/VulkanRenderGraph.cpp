@@ -2625,8 +2625,17 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
         // The graphics queue's boundary row ends at the head of its next command buffer (OpenQueueBoundaryScope).
+        // A join's semaphore holds only its wait stages (the consumer's indirect/vertex/compute stages), not
+        // the BOTTOM_OF_PIPE end stamp at the head of the buffer: unheld, the row closes at once and the wait
+        // lands in the joined pass's own row. While the row is timed, a barrier chained to the wait stages
+        // (the WSI acquire pattern) holds the end stamp and every stamp after it, so the wait is its own row
+        // and the joined pass reports its own work, as UE's async compute fences do.
         if ( segment.OnPipe == RDG::Pipe::Graphics )
+        {
+            if ( m_QueueBoundaryScope >= 0 && m_Result != nullptr && begun.GetValue() != VK_NULL_HANDLE )
+                RecordJoinWaitBarrier( segment, begun.GetValue() );
             CloseQueueBoundaryScope();
+        }
         // Every scope from here to EndPipeSegment is on this segment's queue: the profiler keeps one timeline
         // per queue, and an async pass tiled against the graphics bracket would hide the graphics remainder.
         if ( m_Device.Profiler != nullptr )
@@ -2699,6 +2708,24 @@ namespace Desert::Graphic::API::Vulkan
             m_QueueBoundaryScopeName =
                  std::format( "RDG Resubmit: graphics queue after '{}'", passName( ending.LastPosition ) );
         m_QueueBoundaryScope = m_Device.Profiler->BeginScope( m_QueueBoundaryScopeName.c_str() );
+    }
+
+    void VulkanRdgBackend::RecordJoinWaitBarrier( const RDG::PipeSegment& segment,
+                                                  VkCommandBuffer         commandBuffer ) noexcept
+    {
+        VkPipelineStageFlags waited = 0;
+        for ( const uint32_t sync : segment.WaitSyncs )
+        {
+            if ( sync >= m_Result->Syncs.size() )
+                continue;
+            const VkPipelineStageFlags stages = RdgVulkanStages( m_Result->Syncs[sync].WaitStages );
+            waited |= stages != 0 ? stages : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT; // the submit's own fallback
+        }
+        if ( waited == 0 )
+            return; // a resubmit, no join: nothing holds the next pass
+        // Execution only (no memory barrier): the joined pass's own acquire barriers carry the visibility.
+        vkCmdPipelineBarrier( commandBuffer, waited, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr,
+                              0, nullptr );
     }
 
     void VulkanRdgBackend::CloseQueueBoundaryScope()

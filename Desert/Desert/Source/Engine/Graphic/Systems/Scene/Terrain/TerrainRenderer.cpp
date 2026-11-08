@@ -868,6 +868,10 @@ namespace Desert::Graphic::System
         // The VSM permutation's pipeline follows the target layout: built again on the next frame that asks.
         m_PipelineVsm.reset();
         m_PipelineVsmRefused = false;
+        // The no-holes depth twins follow the depth layouts too (EnsureDepthNoHolesPipelines).
+        m_DepthNoHolesPipeline.reset();
+        m_GBufferDepthNoHolesPipeline.reset();
+        m_DepthNoHolesRefused = false;
 #if DESERT_DEV_INSTRUMENTS
         // The twins follow their solid pipelines' layout: built again on the next wireframe frame.
         m_WireframePipeline.reset();
@@ -1073,6 +1077,13 @@ namespace Desert::Graphic::System
         m_FrameInstances.clear();
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
+        // The view depth prepass discards only in a hole: a frame whose tiles have no visibility layer takes the
+        // early-tested TerrainDepth (ViewDepthPipeline). Conservative: any queued tile with one keeps the discard.
+        m_FrameHasHoles = false;
+        for ( const TerrainDrawData& t : m_Queue )
+            m_FrameHasHoles = m_FrameHasHoles || t.Weights.VisibilityLayer >= 0;
+        if ( !m_FrameHasHoles && !m_Queue.empty() )
+            EnsureDepthNoHolesPipelines();
         m_DicePoolVertices = 0;
         m_DicePoolCorners  = 0;
         m_DiceCullJobs.clear();
@@ -2376,10 +2387,15 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || m_ViewDraws.empty() )
             return nullptr;
         // Deferred: under the frame's early-Z pass, into the G-buffer depth ("TerrainGBuffer" then tests it).
+        // A frame whose tiles have no visibility layer discards nothing: the early-tested twin (UE: a landscape
+        // without holes is opaque in the depth pass). Same layout and declarations, so m_DepthLayout holds.
+        const bool noHoles = !m_FrameHasHoles && m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline;
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
         {
             if ( !m_SceneRenderer->GetGBuffer() || !PrepassesGBuffer() )
                 return nullptr;
+            if ( noHoles )
+                return m_GBufferDepthNoHolesPipeline.get();
             return m_GBufferDepthPipeline.get();
         }
         // Forward: the frames that draw the terrain at all ("TerrainPass" draws the same m_ViewDraws,
@@ -2387,6 +2403,8 @@ namespace Desert::Graphic::System
         // (BasePassPipeline): not prepassed, as the meshes'.
         if ( m_ForwardRefused || WireframeView() )
             return nullptr;
+        if ( noHoles )
+            return m_DepthNoHolesPipeline.get();
         return m_DepthPipeline.get();
     }
 
@@ -2720,6 +2738,43 @@ namespace Desert::Graphic::System
     Core::ShaderVariant TerrainRenderer::ForwardVsmVariant()
     {
         return Core::ShaderVariant{ .Defines = { std::string( kLocalShadowVsmDefine ) }, .ShippedByCook = true };
+    }
+
+    Core::ShaderVariant TerrainRenderer::DepthNoHolesVariant()
+    {
+        return Core::ShaderVariant{ .Defines       = { std::string( "DESERT_TERRAIN_NO_HOLES" ) },
+                                    .ShippedByCook = true };
+    }
+
+    void TerrainRenderer::EnsureDepthNoHolesPipelines()
+    {
+        if ( m_DepthNoHolesRefused || ( m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline ) )
+            return;
+        const Core::ShaderVariant variant = DepthNoHolesVariant();
+        auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "TerrainDepth", variant );
+        std::string error;
+        if ( acquired )
+        {
+            const std::shared_ptr<Shader> shader = acquired.ExtractValue();
+            m_DepthNoHolesPipeline =
+                 CreateTerrainPipeline( m_SceneRenderer, shader, "TerrainDepthPipeline|DESERT_TERRAIN_NO_HOLES",
+                                        SceneDepthLayout(), error, TerrainDepthState::Shader );
+            if ( m_DepthNoHolesPipeline )
+                m_GBufferDepthNoHolesPipeline = CreateTerrainPipeline(
+                     m_SceneRenderer, shader, "TerrainGBufferDepthPipeline|DESERT_TERRAIN_NO_HOLES",
+                     GBufferDepthLayout(), error, TerrainDepthState::Shader );
+        }
+        else
+            error = std::format( "the permutation was refused: {}", acquired.GetError() );
+        if ( m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline )
+            return;
+        m_DepthNoHolesPipeline.reset();
+        m_GBufferDepthNoHolesPipeline.reset();
+        m_DepthNoHolesRefused = true;
+        LOG_ERROR(
+             "[TerrainRenderer] TerrainDepth|DESERT_TERRAIN_NO_HOLES is not built ({}): the depth prepass of a "
+             "landscape without holes keeps the discarding program (exact, late depth test)",
+             error );
     }
 
     bool TerrainRenderer::EnsureForwardVsmPipeline()

@@ -948,6 +948,8 @@ namespace Desert::Graphic::API::Vulkan
         std::string m_QueueBoundaryScopeName;
         void        OpenQueueBoundaryScope( const RDG::PipeSegment& ending );
         void        CloseQueueBoundaryScope();
+        // Holds the boundary row's end stamp on a join's wait stages (BeginPipeSegment).
+        void RecordJoinWaitBarrier( const RDG::PipeSegment& segment, VkCommandBuffer commandBuffer ) noexcept;
         // Per graph name, the STRUCTURE of the async segments last logged (BeginGraph): each segment's first and
         // last position and the positions its signal is waited at. A new "[RDG] ... async compute segments" line
         // only when that structure changes - never because a pass name carries this frame's counts.
