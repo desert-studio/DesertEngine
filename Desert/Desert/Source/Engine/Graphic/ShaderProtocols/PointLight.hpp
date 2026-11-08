@@ -61,18 +61,21 @@
     /* UE ULightComponent::VolumetricScatteringIntensity: the light's share in the froxel fog's in-scattering */  \
     /* (VolumetricFogLightScattering); 1 = as bright as on surfaces, 0 = the fog does not see the light. */       \
     FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 76 */               \
-    /* A RECT source (ECS::RectLightComponent) when RectHalfWidth > 0, else a point: the rect's width and */      \
-    /* height axes (unit, world; their cross is the emitting face's normal) and half-extents (cm), and its */     \
-    /* barn doors' free edge from the rect's border - RectBarnReach outward in its plane, RectBarnDepth */        \
-    /* along its normal (cm). Intensity is then the emitted luminance (LightSources.glslh DesertRectLightAt). */  \
-    FIELD( glm::vec3, RectAxisX, rectAxisX, {} )             /* 80 */                                             \
+    /* THE LIGHT'S FRAME (unit, world): AxisX and AxisY, their cross the light's forward - a rect's emitting */   \
+    /* face normal, a point light's IES forward (the entity's -Z, AxisX its X; IesProfile.glslh). */              \
+    /* A RECT source (ECS::RectLightComponent) when RectHalfWidth > 0, else a point: the rect's half-extents */   \
+    /* along AxisX / AxisY (cm), and its barn doors' free edge from the rect's border - RectBarnReach outward */  \
+    /* in its plane, RectBarnDepth along its normal (cm). Intensity is then the emitted luminance. */             \
+    FIELD( glm::vec3, AxisX, axisX, {} )                     /* 80 */                                             \
     FIELD( float, RectHalfWidth, rectHalfWidth, { 0.0f } )   /* 92 */                                             \
-    FIELD( glm::vec3, RectAxisY, rectAxisY, {} )             /* 96 */                                             \
+    FIELD( glm::vec3, AxisY, axisY, {} )                     /* 96 */                                             \
     FIELD( float, RectHalfHeight, rectHalfHeight, { 0.0f } ) /* 108 */                                            \
     FIELD( float, RectBarnReach, rectBarnReach, { 0.0f } )   /* 112 */                                            \
     FIELD( float, RectBarnDepth, rectBarnDepth, { 0.0f } )   /* 116 */                                            \
-    FIELD( float, RectPad0, rectPad0, { 0.0f } )             /* 120 */                                            \
-    FIELD( float, RectPad1, rectPad1, { 0.0f } )             /* 124 -> 128 */
+    /* UE ULocalLightComponent::IESTexture as Runtime::IesProfileService packs it: the atlas image's bindless */  \
+    /* slot (stamped by SceneRenderer::AddPointLight) and the profile's first atlas row, or -1 for none. */       \
+    FIELD( int32_t, IesAtlasTexture, iesAtlasTexture, { 0 } ) /* 120 */                                           \
+    FIELD( int32_t, IesProfileRow, iesProfileRow, { -1 } )    /* 124 -> 128 */
 
 namespace Desert::Graphic::ShaderProtocols
 {

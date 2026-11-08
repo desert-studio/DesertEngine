@@ -101,6 +101,14 @@ namespace Desert::Tests::CornellSymmetryRef
         {
             return std::bit_cast<float>( value );
         }
+        // No textures here: the IES profile atlas (Mesh/IesProfile.glslh) is bindless, and the walls' lights
+        // name no profile, which the shader answers with 1.
+#define DESERT_LIGHT_SOURCES_CPU
+        float DesertIesProfileFactor( int /*atlasTexture*/, int /*profileRow*/, vec3 /*fromLight*/,
+                                      vec3 /*forward*/, vec3 /*tangent*/ )
+        {
+            return 1.0f;
+        }
 #include <Mesh/LightSources.glslh>
         DESERT_GLSL_AS_CPP_END
 

@@ -6,6 +6,7 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 
 #include <Engine/Graphic/Render/Commands/PointLightCommand.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::ECS
 {
@@ -72,6 +73,13 @@ namespace Desert::ECS
                      light.ContactShadowCastingIntensity = pointlight.Data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = pointlight.Data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = pointlight.Data.VolumetricScatteringIntensity;
+                     // The light's frame (forward = the entity's -Z, as a spot's) orients its IES profile; the
+                     // atlas slot is stamped by SceneRenderer::AddPointLight on the main thread.
+                     const glm::vec3 forward = glm::normalize( -glm::vec3( worldTransform[2] ) );
+                     light.AxisX             = glm::normalize( glm::vec3( worldTransform[0] ) );
+                     light.AxisY             = glm::cross( forward, light.AxisX );
+                     light.IesProfileRow =
+                          Runtime::ResourceRegistry::GetIesProfileService()->AcquireRow( pointlight.Data.IesProfile );
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).

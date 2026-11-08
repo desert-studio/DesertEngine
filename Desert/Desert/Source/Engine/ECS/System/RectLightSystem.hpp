@@ -6,6 +6,7 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 
 #include <Engine/Graphic/Render/Commands/PointLightCommand.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/gtc/constants.hpp>
 
@@ -85,9 +86,9 @@ namespace Desert::ECS
                      light.Falloff   = static_cast<int32_t>( LightFalloff::InverseSquare );
                      // Traced shadows (MegaLights, the GI hit lighting) aim at the rect's equal-area disc.
                      light.SourceRadius   = glm::sqrt( width * height / glm::pi<float>() );
-                     light.RectAxisX      = axisX;
+                     light.AxisX          = axisX;
                      light.RectHalfWidth  = 0.5f * width;
-                     light.RectAxisY      = axisY;
+                     light.AxisY          = axisY;
                      light.RectHalfHeight = 0.5f * height;
                      light.RectBarnReach  = barnLength * glm::sin( barnAngle );
                      light.RectBarnDepth  = barnLength * glm::cos( barnAngle );
@@ -97,6 +98,8 @@ namespace Desert::ECS
                      light.ContactShadowCastingIntensity    = data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = data.VolumetricScatteringIntensity;
+                     light.IesProfileRow =
+                          Runtime::ResourceRegistry::GetIesProfileService()->AcquireRow( data.IesProfile );
 
                      const Graphic::LocalLightShadowSettings shadow{
                           .CastShadows     = data.CastShadows,

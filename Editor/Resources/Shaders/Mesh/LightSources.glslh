@@ -10,10 +10,16 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// `struct PointLight` / `struct SpotLight` (std430, 128 / 112 bytes) are GENERATED from
+// `struct PointLight` / `struct SpotLight` (std430, 128 / 128 bytes) are GENERATED from
 // ShaderProtocols::PointLight / SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp)
 // by the shader includer.
 #include <Mesh/LightSourceLayouts.glslh>
+
+// The IES profile atlas is a bindless texture. The C++ twin of this file (the CornellSymmetry suite) defines
+// DESERT_LIGHT_SOURCES_CPU and its own DesertIesProfileFactor: its lights name no profile.
+#ifndef DESERT_LIGHT_SOURCES_CPU
+#include <Mesh/IesProfile.glslh>
+#endif
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
 // casting intensity, non-casting intensity).
@@ -94,11 +100,11 @@ float RectLightBarnDoorLimit( float halfExtent, float lateral, float depth, floa
 // `radius` the attenuation radius. One-sided: nothing behind the emitting face.
 DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
 {
-    const vec3  normal    = cross( source.rectAxisX, source.rectAxisY );
+    const vec3  normal    = cross( source.axisX, source.axisY );
     const vec3  fromLight = worldPosition - source.position;
     const float depth     = dot( fromLight, normal );
-    const float lateralX  = dot( fromLight, source.rectAxisX );
-    const float lateralY  = dot( fromLight, source.rectAxisY );
+    const float lateralX  = dot( fromLight, source.axisX );
+    const float lateralY  = dot( fromLight, source.axisY );
     const float x1 = RectLightBarnDoorLimit( source.rectHalfWidth, lateralX, depth, source.rectBarnReach,
                                              source.rectBarnDepth );
     const float x0 = -RectLightBarnDoorLimit( source.rectHalfWidth, -lateralX, depth, source.rectBarnReach,
@@ -121,10 +127,10 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
         return light;
 
     const float halfScale = 0.5;
-    const vec3  extentX = source.rectAxisX * ( ( x1 - x0 ) * halfScale );
-    const vec3  extentY = source.rectAxisY * ( ( y1 - y0 ) * halfScale );
-    const vec3  center  = source.position + source.rectAxisX * ( ( x0 + x1 ) * halfScale ) +
-                          source.rectAxisY * ( ( y0 + y1 ) * halfScale ) - worldPosition;
+    const vec3  extentX = source.axisX * ( ( x1 - x0 ) * halfScale );
+    const vec3  extentY = source.axisY * ( ( y1 - y0 ) * halfScale );
+    const vec3  center  = source.position + source.axisX * ( ( x0 + x1 ) * halfScale ) +
+                          source.axisY * ( ( y0 + y1 ) * halfScale ) - worldPosition;
     const vec3  c0      = normalize( center - extentX - extentY );
     const vec3  c1      = normalize( center + extentX - extentY );
     const vec3  c2      = normalize( center + extentX + extentY );
@@ -141,7 +147,10 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     // The attenuation radius windows the rect as it windows the inverse-square point light (BRDF.glslh).
     const float window = 1.0 - distance / source.radius;
     light.L            = irradiance / solidAngle;
-    light.Radiance     = source.color * ( source.intensity * solidAngle * window );
+    // UE samples a rect's profile by the direction from the rect's centre, in the rect's own frame.
+    const float ies    = DesertIesProfileFactor( source.iesAtlasTexture, source.iesProfileRow, fromLight / distance,
+                                                 normal, source.axisX );
+    light.Radiance     = source.color * ( source.intensity * solidAngle * window * ies );
     light.RectCenter   = center;
     light.RectExtentX  = extentX;
     light.RectExtentY  = extentY;
@@ -157,7 +166,9 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     DesertLight light;
     light.L        = normalize( toLight );
     light.Radiance = source.color * source.intensity *
-                     LightFalloffFactor( distance, source.minRadius, source.radius, source.falloff );
+                     LightFalloffFactor( distance, source.minRadius, source.radius, source.falloff ) *
+                     DesertIesProfileFactor( source.iesAtlasTexture, source.iesProfileRow, -light.L,
+                                             cross( source.axisX, source.axisY ), source.axisX );
     light.Shadow             = 1.0;
     light.TransmissionShadow = 1.0;
     light.RectCenter         = vec3( 0.0 );
@@ -173,7 +184,9 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     DesertLight light;
     light.L        = normalize( toLight );
     light.Radiance = source.color * source.intensity * LightFalloffFactor( distance, source.minRadius, source.range, source.falloff ) *
-                     SpotConeFactor( source, light.L );
+                     SpotConeFactor( source, light.L ) *
+                     DesertIesProfileFactor( source.iesAtlasTexture, source.iesProfileRow, -light.L,
+                                             source.direction, source.tangent );
     light.Shadow             = 1.0;
     light.TransmissionShadow = 1.0;
     light.RectCenter         = vec3( 0.0 );
