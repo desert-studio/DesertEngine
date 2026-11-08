@@ -3,7 +3,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -111,13 +110,6 @@ namespace Desert::Graphic::API::Vulkan
     } // namespace
 
     Common::BoolResultStr
-    VulkanMipMapCubeGeneratorCS::RecordMips( GpuBatch& /*batch*/,
-                                             const std::shared_ptr<ImageCube>& /*imageCube*/ ) const
-    {
-        return Common::MakeError( "Not impl" );
-    }
-
-    Common::BoolResultStr
     VulkanMipMapCubeGeneratorTO::GenerateMips( const std::shared_ptr<ImageCube>& imageCube ) const
     {
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
@@ -133,16 +125,6 @@ namespace Desert::Graphic::API::Vulkan
         if ( !submitted.IsSuccess() )
             return Common::MakeError( submitted.GetError() );
 
-        return Common::MakeSuccess( true );
-    }
-
-    Common::BoolResultStr
-    VulkanMipMapCubeGeneratorTO::RecordMips( GpuBatch& batch, const std::shared_ptr<ImageCube>& imageCube ) const
-    {
-        VkCommandBuffer commandBuffer = RecordingBuffer( batch );
-        if ( commandBuffer == VK_NULL_HANDLE )
-            return Common::MakeError( "the GPU batch was already submitted; the mip chain cannot join it." );
-        RecordCubeChain( commandBuffer, *SP_CAST( VulkanImageCube, imageCube ) );
         return Common::MakeSuccess( true );
     }
 
