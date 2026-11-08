@@ -222,6 +222,10 @@ namespace Desert::Graphic::System
         void AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes );
         // Whether this frame's view has a Mesh row (PrepareFrame): its instances cast into the cascades.
         NO_DISCARD bool HasMeshRows() const;
+        // Whether this frame's view (PrepareFrame) draws a LIT particle: a forward sprite draw whose cell reads
+        // the translucency lighting volume (SceneViewSlot::TranslucencyLightingVolume) - the frame that fills it
+        // (SceneRenderer::AddFrameTranslucencyLightingVolume).
+        NO_DISCARD bool DrawsLitSprites() const;
 
     private:
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor

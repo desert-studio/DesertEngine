@@ -1,7 +1,10 @@
 // Surface cell pass: particle SPRITES — the Forward cell of the ParticleSprite vertex path (DShaderParser
 // kSurfaceParticleSpritePassInclude). Drawn by ParticleRenderer::DrawPass in the translucency, depth-TESTED against
-// the scene depth and never writing it. The material's own surface function shades the sprite UNLIT (UE's default
-// for particle materials): the colour is BaseColor + Emissive, the coverage is Opacity — a graph that wants soft
+// the scene depth and never writing it. A material of ShadingModel Unlit (UE's default for particle materials) is
+// shaded UNLIT: the colour is BaseColor + Emissive. Any other model is LIT through the view's translucency lighting
+// volume (Common/TranslucencyLightingVolume.glslh, UE TLM_VolumetricNonDirectional - UE's lit particle default):
+// the sprite is an isotropic scatterer of albedo BaseColor, so it returns BaseColor x the mean incident radiance
+// at its position (sun, local lights and sky, each through its shadows), plus Emissive. The coverage is Opacity — a graph that wants soft
 // particles multiplies its opacity through Depth Fade (SurfaceTypes.glslh DesertDepthFade, which reads the scene
 // depth this cell declares at binding 27). Every sprite fogs ITSELF at its own depth (Mesh/Surface/SceneFog.glslh;
 // UE's translucency fogging): it is drawn after the opaque fog composite, which fogged only what is behind it. Translucent templates blend it over the scene (sorted back to front per
@@ -14,6 +17,10 @@ layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 // The fog's three images are read through this sampler (Mesh/Surface/SceneFog.glslh).
 Uniform sampler LinearClampSampler;
 #include <Mesh/Surface/SceneFog.glslh>
+#if DESERT_SHADING_MODEL_INDEX != 0
+// A lit model (index 0 is Unlit, ShadingModelContract.glslh): the view's translucency lighting volume.
+#include <Common/TranslucencyLightingVolume.glslh>
+#endif
 
 layout( location = 0 ) out vec4 oColor;
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
@@ -36,7 +43,13 @@ void main()
     // The sprite fogs itself at its own depth (Mesh/Surface/SceneFog.glslh); the fog's inscattering is pre-exposed
     // by the fog block (FogGates.z), the sprite's own light by the camera's pre-exposure.
     const vec4 fog = DesertSceneFog( v_Surface.WorldPosition );
+#if DESERT_SHADING_MODEL_INDEX != 0
+    // An isotropic scatterer of albedo BaseColor: BaseColor x the mean incident radiance the volume holds.
+    const vec3 incident = TranslucencyLightingVolumeAt( v_Surface.WorldPosition, cameraUB.CameraPos );
+    const vec3 lit      = ( s.BaseColor * incident + s.Emissive ) * cameraUB.PreExposure;
+#else
     const vec3 lit = ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure;
+#endif
 #ifdef DESERT_SURFACE_TRANSLUCENT
     if ( s.Opacity <= 0.0 )
         discard;

@@ -106,6 +106,7 @@
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 #include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
+#include "Systems/Scene/Translucency/TranslucencyLightingVolume.hpp"
 
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -183,6 +184,7 @@ namespace Desert::Graphic
         class VelocityViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
+        class TranslucencyLightingVolumeRenderer;
         class WaterRenderer;
     } // namespace System
 
@@ -213,6 +215,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
         std::shared_ptr<System::HeightFogRenderer>         HeightFog;
         std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
+        std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>   VolumetricCloud;
         std::shared_ptr<System::ParticleRenderer>          Particle;
         std::shared_ptr<System::DeferredLightingRenderer>  DeferredLighting;
@@ -1965,6 +1968,16 @@ namespace Desert::Graphic
         // while the traced GI gathers on the async pipe (UE ComputeVolumetricFog before the lights), otherwise
         // inside AddFrameOpaqueFog.
         void AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The sun and its cascades as the surfaces receive them, for a volume lit by them (the volumetric fog,
+        // the translucency lighting volume): Radiance = DirLights[0]'s irradiance after the atmosphere x
+        // @p scale.
+        [[nodiscard]] System::VolumetricFogSunInput GatherVolumeSunInput( float scale ) const;
+        // The translucency lighting volume's fill (TranslucencyLightingVolumeRenderer) into FrameTransients::
+        // TranslucencyLightingVolume, on a frame this view draws a lit particle (ParticleRenderer::
+        // DrawsLitSprites); after the light grid, the shadow depths and the cloud shadow, before the
+        // translucency (AddFrameOpaqueFog).
+        void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                 const ViewFrame& frame );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
         // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref

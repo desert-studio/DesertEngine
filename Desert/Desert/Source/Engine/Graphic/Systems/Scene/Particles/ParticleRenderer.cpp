@@ -1595,6 +1595,21 @@ namespace Desert::Graphic::System
                             []( const ViewEmitter& ve ) { return !ve.Meshes.empty(); } );
     }
 
+    bool ParticleRenderer::DrawsLitSprites() const
+    {
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+            for ( const ViewDraw& draw : ve.Draws )
+            {
+                const SpriteDraw* sprite = draw.Sprite;
+                if ( draw.GBuffer || sprite == nullptr || !sprite->Pipeline )
+                    continue;
+                const auto& slotted = sprite->Layout.GetSlotted( sprite->Pipeline->GetSpecification().Shader );
+                if ( slotted.Slots.Has( SceneViewSlot::TranslucencyLightingVolume ) )
+                    return true;
+            }
+        return false;
+    }
+
     void ParticleRenderer::AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes )
     {
         if ( !m_Pool.Declared || !m_MeshPipeline )

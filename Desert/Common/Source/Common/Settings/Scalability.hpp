@@ -154,6 +154,10 @@ namespace Common::Scalability
         VolumetricFog,              // 0 off, 1 on
         VolumetricFogGridPixelSize, // froxel edge in render pixels. 4..32
         VolumetricFogGridSizeZ,     // depth slices of the froxel grid. 32..256
+        // The translucency lighting volume (Graphic::TranslucencyLightingVolumeQuality,
+        // TranslucencyLightingVolumeRenderer) - UE r.TranslucencyLightingVolumeDim: cells per edge of each of its
+        // two cascades (even). Cost and blur of the lit particles' light, never its level. 16..64
+        TranslucencyLightingVolumeDim,
         // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
         // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
         ShadowRayTracedSamplesPerPixel,

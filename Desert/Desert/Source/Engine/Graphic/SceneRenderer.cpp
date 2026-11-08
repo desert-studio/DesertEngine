@@ -520,6 +520,12 @@ namespace Desert::Graphic
                                                                m_TargetFramebuffer );
                 if ( const auto volumeInit = m_Systems.VolumetricFog->Initialize(); !volumeInit )
                     LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
+                // The translucency lighting volume the lit particles read; non-fatal like the fog.
+                RegisterSystem<System::TranslucencyLightingVolumeRenderer>( m_Systems.TranslucencyLightingVolume,
+                                                                            this, m_TargetFramebuffer );
+                if ( const auto tlvInit = m_Systems.TranslucencyLightingVolume->Initialize(); !tlvInit )
+                    LOG_WARN( "[SceneRenderer] Translucency lighting volume unavailable: {}",
+                              tlvInit.GetError() );
                 return "HeightFog";
             }
             case 17:
@@ -1343,6 +1349,10 @@ namespace Desert::Graphic
                  VolumetricFogQuality{ .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
                                        .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
                                        .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
+        // The translucency lighting volume's cells per cascade edge (Effects.TranslucencyLightingVolumeDim).
+        if ( const auto& it = m_Systems.TranslucencyLightingVolume )
+            it->SetQuality( TranslucencyLightingVolumeQuality{
+                 .Dim = quality.As<uint32_t>( Parameter::TranslucencyLightingVolumeDim ) } );
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
