@@ -325,19 +325,37 @@ namespace Desert::Graphic::System
             // foliage), so the masked fragments behind them fail the early depth test before their clip runs. The
             // depth the list writes is the nearest fragment whatever the order, so only the cost moves. Inside the
             // bins and the clusters the same key: the opaque groups first, then the masked ones (RecordBinned's
-            // two sweeps; the Table's group order mixes them). Set once
-            // by the owner (MeshRenderer::Initialize), kept across Clear; unset: the commands first (every other
-            // list).
+            // two sweeps; the Table's group order mixes them). The CPU commands take the same key: Add files each
+            // into an opaque or a masked bucket (ClipsInDepthPass of its pipeline), kept with the list, so Record
+            // issues opaque bins + clusters, opaque commands, masked bins + clusters, masked commands - every
+            // masked draw after every opaque one, as UE's sorted depth pass. A list one of whose commands sets a
+            // viewport keeps its build order (the bins, then the commands): the viewport is recorded state the
+            // draws after it inherit. Set once by the owner (MeshRenderer::Initialize), before the first Add,
+            // kept across Clear; unset: the commands first (every other list).
             void RecordBinnedFirst()
             {
                 m_BinnedFirst = true;
             }
 
         private:
+            // Which of the commands RecordCommands issues: all of them in build order, or one depth-sort bucket
+            // (RecordBinnedFirst) in build order within it.
+            enum class CommandSweep : uint8_t
+            {
+                All,
+                Opaque,
+                Masked
+            };
+            // RecordBinnedFirst's bucket of the command just pushed at @p index (Add, Append).
+            void                                BucketForDepthSort( uint32_t index );
             [[nodiscard]] Common::BoolResultStr RecordCommands( const RDG::PassContext&       context,
-                                                                const RDG::OpenBindingBlocks& blocks ) const;
+                                                                const RDG::OpenBindingBlocks& blocks,
+                                                                CommandSweep                  which ) const;
+            // The bins and the VG clusters of sweep @p sweep (of two under RecordBinnedFirst: 0 the opaque
+            // groups, 1 the masked ones; of one otherwise: every group).
             [[nodiscard]] Common::BoolResultStr RecordBinned( const RDG::PassContext&       context,
-                                                              const RDG::OpenBindingBlocks& blocks ) const;
+                                                              const RDG::OpenBindingBlocks& blocks,
+                                                              uint32_t                      sweep ) const;
             // RecordBinned's VG cluster raster for one of its @p sweeps (two under RecordBinnedFirst: sweep 0 the
             // opaque groups, 1 the masked ones; one: every group).
             [[nodiscard]] Common::BoolResultStr RecordBinnedClusters( const RDG::PassContext&       context,
@@ -376,6 +394,12 @@ namespace Desert::Graphic::System
             mutable std::vector<RDG::BufferRef> m_DeclaredReads;
             std::optional<GpuDriven::MeshPass>  m_CountedPass;
             bool                                m_BinnedFirst = false; // RecordBinnedFirst
+            // RecordBinnedFirst's depth-sort buckets: the indices of m_Commands whose pipeline does not / does
+            // clip in the depth pass, each in build order. Refilled by Add and Append, emptied by Clear, their
+            // capacity kept across frames (no per-frame allocation once warm). Empty for every other list.
+            std::vector<uint32_t> m_OpaqueCommands;
+            std::vector<uint32_t> m_MaskedCommands;
+            bool                  m_CommandViewports = false; // a command sets a viewport: build order kept
         };
     } // namespace MeshRendererDetail
 
