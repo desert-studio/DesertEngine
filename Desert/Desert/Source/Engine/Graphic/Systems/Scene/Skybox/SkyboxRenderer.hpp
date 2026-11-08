@@ -17,6 +17,7 @@
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SceneAtmosphere.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -84,6 +85,12 @@ namespace Desert::Graphic::System
         void SetSceneSkyLight( std::weak_ptr<SceneSkyLight> skyLight )
         {
             m_SceneSkyLight = std::move( skyLight );
+        }
+        // The atmosphere of that scene (Core::Scene::GetAtmosphere): the LUT programs and the view-independent
+        // LUTs, recorded by the frame's first view, read by this one. Held weakly for the sky light's reason.
+        void SetSceneAtmosphere( std::weak_ptr<SceneAtmosphere> atmosphere )
+        {
+            m_SceneAtmosphere = std::move( atmosphere );
         }
 
         // Begins a capture of the scene's sky light when the rule says so (see ShouldRebakeSkyEnvironment for
@@ -190,6 +197,16 @@ namespace Desert::Graphic::System
 
             if ( const auto& material = m_MaterialSkybox.lock() )
             {
+                // A SPECIFIED CUBEMAP THE CACHE DID NOT HOLD has no cubes until this frame's graph converts it
+                // (AddSkyCapturePasses): until then the scene keeps lighting with the skybox it had, or with none.
+                if ( !material->GetEnvironment() )
+                {
+                    if ( !m_PreviousMaterialSkybox )
+                        return std::nullopt;
+                    Environment previous = m_PreviousMaterialSkybox->GetEnvironment();
+                    previous.Look        = m_PreviousSkyboxLook;
+                    return previous;
+                }
                 // THE ONE PLACE THE LOOK JOINS THE CUBES. The material's cubes are the file as authored
                 // (identity); the scene's rotation and gain ride along here, so every consumer that
                 // resolves this environment — the forward materials, the deferred composite — reads the
@@ -203,13 +220,17 @@ namespace Desert::Graphic::System
 
         /// Whether this view has a sky light (SkyLightState), by the branches GetEnvironment() takes. A
         /// procedural sky is Ready from its view's first frame, because its first capture is recorded whole in
-        /// that frame's graph before anything reads it (a recapture keeps the previous environment, still Ready);
-        /// an HDR skybox is handed to the renderer only once its cubes exist (SkyboxService holds it pending
-        /// until then). A Ready sky whose cubes do not resolve is therefore a fault, which the deferred composite
-        /// reports as one; a scene with neither sky has NoSky.
+        /// that frame's graph before anything reads it (a recapture keeps the previous environment, still Ready).
+        /// An HDR skybox is Ready once it has cubes -- converted ahead of every reader in the frame graph of the
+        /// frame it arrives on a cache miss -- or while the skybox it replaced still lights the scene; asked
+        /// before that graph with neither, it is NoSky for that one question. A Ready sky whose cubes do not
+        /// resolve is therefore a fault, which the deferred composite reports as one.
         [[nodiscard]] SkyLightState GetSkyLightState() const
         {
-            if ( m_UseProceduralSky || m_MaterialSkybox.lock() )
+            if ( m_UseProceduralSky )
+                return SkyLightState::Ready;
+            if ( const std::shared_ptr<MaterialSkybox> material = m_MaterialSkybox.lock();
+                 material && ( material->GetEnvironment() || m_PreviousMaterialSkybox ) )
                 return SkyLightState::Ready;
             return SkyLightState::NoSky;
         }
@@ -233,9 +254,12 @@ namespace Desert::Graphic::System
                 return true;
             if ( !m_Sky.AutoRebakeEnvironment )
                 return false;
-            if ( m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere &&
-                 ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || m_LutResourcesFailed ) )
-                return false;
+            if ( m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere )
+            {
+                const std::shared_ptr<SceneAtmosphere> atmosphere = m_SceneAtmosphere.lock();
+                if ( !atmosphere || !atmosphere->CanBakeLuts() )
+                    return false;
+            }
             return ShouldRebakeSkyEnvironment( skyLight->GetCaptured().SunDir, sunDir,
                                                m_Sky.RebakeSunAngleThreshold, true, true, false, 0, 0, 0, 0 );
         }
@@ -272,72 +296,20 @@ namespace Desert::Graphic::System
         void DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs, SkyDepth depth );
         [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context ) const;
 
-        // Everything the two LUT passes read. When any of it moves, both LUTs are re-dispatched; while
-        // it holds still they are not touched at all — the fingerprint arrangement the sky
-        // weather map uses, for the same reason. Deliberately NOT the whole SkySettings: the palette,
-        // the sun and the bake knobs change constantly and none of them is a LUT input. MieAnisotropy
-        // is also absent — it rides in the payload for the Phase 2 integrator, but no LUT texel depends
-        // on it, so a g-drag must not re-march 1024 texels for nothing. The three aerial-perspective
-        // knobs are absent for a stronger reason still: the volume they steer is refilled EVERY frame
-        // (it follows the camera), so caching them would be caching nothing.
-        struct AtmosphereLutFingerprint
-        {
-            glm::vec3 RayleighScattering{ 0.0f };
-            float     RayleighExpDistributionKm = 0.0f;
-            glm::vec3 MieScattering{ 0.0f };
-            glm::vec3 MieAbsorption{ 0.0f };
-            float     MieExpDistributionKm = 0.0f;
-            glm::vec3 OzoneAbsorption{ 0.0f };
-            float     OzoneTipAltitudeKm = 0.0f;
-            float     OzoneTipValue      = 0.0f;
-            float     OzoneTentWidthKm   = 0.0f;
-            glm::vec3 GroundAlbedo{ 0.0f };
-            float     AtmosphereHeightKm    = 0.0f;
-            float     MultiScatteringFactor = 0.0f;
-            float     PlanetRadius          = 0.0f; // world units, as the payload carries it
-
-            bool operator==( const AtmosphereLutFingerprint& ) const = default;
-        };
-
-        static AtmosphereLutFingerprint LutFingerprintOf( const SkySettings& sky );
-
-        // THE INPUTS OF A FILL THAT FOLLOWS THE SKY BLOCK (CLOUDS-MARCH-LATENCY): the Sky-View LUT (per light) and
-        // the distant sky light read nothing but the block UploadFrameSkyParams sent, the cached pair, and — the
-        // Sky-View fill only — its push (the camera position and the light index). A node is declared when this
-        // moved or its image was never filled; otherwise the image keeps what an earlier accepted frame wrote
-        // (Hillaire 2020's Sky-View LUT is a function of the camera's position and the sun, not of where the
-        // camera looks, so a camera turning on the spot re-marches nothing).
-        //
-        // THE BLOCK IS HASHED WHOLE, every byte bar the view's luminance ceiling (vec4 15's w, which neither
-        // shader reads): a typed list is the second place to remember that AtmosphereLutFingerprint's note
-        // warns about, and over-covering costs at most a fill nobody needed. @p pairGeneration counts the cached
-        // pair's accepted bakes, so a re-baked pair re-fills its dependants whatever the block says.
-        static uint64_t SkyLutFillInputsOf( uint64_t blockInputs, uint64_t pairGeneration,
-                                            const glm::vec4& push );
-
-        // Lazily creates the two cached LUT images (latched on failure, one MiB log line on success).
-        bool EnsureAtmosphereLutResources();
-        // Same arrangement for the per-view Sky-View LUT image.
+        // Lazily creates the per-view Sky-View LUT image (latched on failure, one MiB log line on success).
         bool EnsureSkyViewLutResources();
         // Same arrangement for the per-view aerial-perspective volume.
         bool EnsureAerialPerspectiveResources();
-        // Same arrangement for the one-texel distant sky light.
-        bool EnsureDistantLightResources();
-        // The cached pair, in dependency order (the multi-scattering march samples the transmittance).
-        // Recorded by the SkyAtmosphereLuts graph nodes only: the graph places every barrier and records the
-        // layout each LUT is left in. Nothing dispatches them outside the frame graph. Each records into
-        // @p context through Renderer::DispatchCompute; every LUT is this renderer's own (imported, cached
-        // across frames), named as block entries of each node's block 0 (DeclareAtmosphereLutNodes: the graph
-        // imports, orders and barriers them); the exec opens the block and adds only the push constants.
-        [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
-        [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
+        // The per-view fills, recorded by their graph nodes only, with the scene atmosphere's @p pipeline (it owns
+        // every LUT program; the images are this view's, they follow its camera). The graph places every barrier.
         // @p cameraAndLight: xyz the camera position the fill marches from (world units), w the atmosphere light
         // it integrates in that light's own frame (0 = sun, 1 = light 1). Formed when the node is declared, so the
         // dispatch reads exactly the value its input fingerprint was taken over.
         [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context,
+                                                                ComputePipeline&        pipeline,
                                                                 const glm::vec4&        cameraAndLight );
-        [[nodiscard]] Common::BoolResultStr DispatchAerialPerspectiveLut( const RDG::PassContext& context );
-        [[nodiscard]] Common::BoolResultStr DispatchDistantLight( const RDG::PassContext& context );
+        [[nodiscard]] Common::BoolResultStr DispatchAerialPerspectiveLut( const RDG::PassContext& context,
+                                                                          ComputePipeline&        pipeline );
 
         // Each LUT node's binding block 0: @p pipeline's shader layout (kept in @p layout), the sky payload
         // buffer through the pipeline route, and @p pushBytes of push constants.
@@ -348,6 +320,11 @@ namespace Desert::Graphic::System
 
     private:
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;
+        // THE SKYBOX BEING REPLACED, held (its cubes alive) while the new one waits for its conversion in the frame
+        // graph (UE keeps the previous convolved sky until the new one is ready): GetEnvironment lights with it,
+        // in the look it was drawn with, until the new material has cubes. Empty otherwise.
+        std::shared_ptr<MaterialSkybox> m_PreviousMaterialSkybox;
+        SkyLook                         m_PreviousSkyboxLook{};
 
         Core::Camera*                     m_ActiveCamera    = nullptr;
         // The look this scene asks its HDR sky for — the single source of it for this renderer's frame.
@@ -377,41 +354,22 @@ namespace Desert::Graphic::System
         // x renderer slot).
         std::shared_ptr<ShaderResources::StorageBuffer> m_SkyCloudShadow;
 
-        // Physical-atmosphere LUTs (SkyModel::PhysicalAtmosphere only; see ExecuteAtmosphereLuts).
-        // Per renderer, not per frame in flight: the cached pair is rewritten only on a parameter
-        // edit, and the Sky-View LUT is written and read on the same renderer's timeline (write in the
-        // in-frame compute slot, read by the next frame's Sky pass — never two frames in flight
-        // writing it at once). 256x64 + 32x32 + 192x104 RGBA16F is ~292 KiB — not worth cross-renderer
-        // sharing complexity.
-        //
-        // The aerial-perspective volume sits with them for the same reasons: 32x32x16 RGBA16F is 64 KiB,
-        // it is written and read on THIS renderer's timeline inside one frame, and its froxels are the
-        // camera's own frustum, so sharing it across renderers would be sharing a camera.
-        std::shared_ptr<ComputePipeline> m_TransmittanceLutPipeline;
-        std::shared_ptr<ComputePipeline> m_MultiScatterLutPipeline;
-        std::shared_ptr<ComputePipeline> m_SkyViewLutPipeline;
-        std::shared_ptr<ComputePipeline> m_AerialPerspectivePipeline;
-        // The distant sky light — ONE RGBA32F texel, refilled every frame because it follows the sun.
-        // It sits with the per-view resources rather than with the cached pair even though its value
-        // depends on nothing about this view: an image is written by a dispatch on this renderer's
-        // timeline, and sharing one texel across renderers would buy nothing and cost a synchronisation
-        // rule.
-        std::shared_ptr<ComputePipeline> m_DistantLightPipeline;
-        // Each LUT node's block layout, keyed on its pipeline's shader (kept, not re-derived per frame).
-        ShaderBindingLayoutCache         m_TransmittanceLutLayout;
-        ShaderBindingLayoutCache         m_MultiScatterLutLayout;
-        ShaderBindingLayoutCache         m_SkyViewLutLayout;
-        ShaderBindingLayoutCache         m_AerialPerspectiveLayout;
-        ShaderBindingLayoutCache         m_DistantLightLayout;
-        std::shared_ptr<Image2D>         m_TransmittanceLut;
-        std::shared_ptr<Image2D>         m_MultiScatterLut;
+        // THE SCENE'S ATMOSPHERE LUTS AS THIS VIEW READS THEM THIS FRAME (SceneAtmosphere owns them and every LUT
+        // program): refreshed by SettleAtmosphereCachedLutNodes, after the frame's first view recorded them.
+        std::shared_ptr<Image2D> m_TransmittanceLut;
+        std::shared_ptr<Image2D> m_MultiScatterLut;
+        bool                     m_LutsValid         = false;
+        uint64_t                 m_LutBakeGeneration = 0;
+        // The per-view fills' block layouts, keyed on the scene's programs' shaders (kept, not re-derived).
+        ShaderBindingLayoutCache m_SkyViewLutLayout;
+        ShaderBindingLayoutCache m_AerialPerspectiveLayout;
+        // The per-view LUTs, written and read on THIS renderer's timeline inside one frame: the Sky-View LUT is a
+        // function of the camera's position and the sun, and the aerial-perspective volume's froxels are the
+        // camera's own frustum, so sharing either across views would be sharing a camera.
         std::shared_ptr<Image2D>         m_SkyViewLut;
         // Atmosphere light 1's (the moon's) Sky-View LUT: the same fill around that light's direction.
         std::shared_ptr<Image2D>         m_SkyViewLut1;
         std::shared_ptr<Image3D>         m_AerialPerspectiveLut;
-        std::shared_ptr<Image2D>         m_DistantLight;
-        AtmosphereLutFingerprint         m_LutBaked;
-        bool                             m_LutsValid                        = false;
         // The sky-view LUT has been written by an earlier frame's SkyAtmosphereLuts node (refilled after that
         // whenever its inputs move, m_SkyViewLutInputs). The SkyboxPass samples the LUTs only once this
         // holds, see DeclareSkyDraw.
@@ -427,14 +385,9 @@ namespace Desert::Graphic::System
         std::optional<uint64_t> m_SkyViewLutInputsPending;
         std::optional<uint64_t> m_SkyViewLut1Inputs;
         std::optional<uint64_t> m_SkyViewLut1InputsPending;
-        std::optional<uint64_t> m_DistantLightInputs;
-        std::optional<uint64_t> m_DistantLightInputsPending;
-        bool                    m_DistantLightPending = false; // its node was declared, until the Settle
         // The block UploadFrameSkyParams sent this frame, hashed (SkyLutFillInputsOf); empty when it was refused,
         // which re-fills every dependant rather than trusting a block the GPU may not hold.
         std::optional<uint64_t> m_UploadedSkyBlockInputs;
-        // Accepted bakes of the cached pair: a dependant filled against an older pair is stale.
-        uint64_t m_LutBakeGeneration = 0;
         // What the SkyboxPass's setup (DeclareSkyDraw) chose this frame: the pipeline and material its block 0 was
         // declared against, or a refusal the exec returns (a skybox material without its pipeline). Empty when
         // nothing draws.
@@ -445,12 +398,8 @@ namespace Desert::Graphic::System
             const char*             Fault    = nullptr;
         };
         SkyDraw m_SkyDraw;
-        // The fingerprint DeclareAtmosphereLutNodes' transmittance/multi-scatter nodes bake, until settled.
-        std::optional<AtmosphereLutFingerprint> m_LutBakePending;
-        bool                             m_LutResourcesFailed               = false;
         bool                             m_SkyViewResourcesFailed           = false;
         bool                             m_AerialPerspectiveResourcesFailed = false;
-        bool                             m_DistantLightResourcesFailed      = false;
 
         bool          m_UseProceduralSky = false;
         glm::vec3     m_SunDir           = glm::vec3( 0.0f, 1.0f, 0.0f ); // TOWARD the sun, normalized
@@ -496,6 +445,8 @@ namespace Desert::Graphic::System
         // The scene's sky light: its capture, its environment and the stamps it was captured from. The Bake
         // button's request waits here until this view's next EnsureProceduralEnvironment hands it on.
         std::weak_ptr<SceneSkyLight> m_SceneSkyLight;
+        // The scene's atmosphere: its LUT programs and view-independent LUTs (SetSceneAtmosphere).
+        std::weak_ptr<SceneAtmosphere> m_SceneAtmosphere;
         // BorrowEnvironment: this view lights with the environment it is handed and never captures one.
         bool                       m_BorrowsEnvironment = false;
         std::optional<Environment> m_BorrowedEnvironment;

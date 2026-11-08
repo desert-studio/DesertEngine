@@ -98,7 +98,8 @@ namespace Desert::Graphic::System
     /// is abandoned, and a slice never reads a volume the cloud renderer has since released.
     struct SkyCaptureSource
     {
-        // The sky's parameter block -- the one the screen sky pass reads (SkyboxRenderer::m_SkyParams).
+        // The sky's parameter block: the scene atmosphere's own (SceneAtmosphere::GetSkyBlock) -- the scene's sky
+        // and sun with no view exposure, the capture's own view.
         ShaderResources::StorageBuffer* SkyParams = nullptr;
         // The cloud layer marched into the faces (bound through the pipeline route: assets and the cloud
         // renderer's volumes, all written by earlier frames).
@@ -107,15 +108,15 @@ namespace Desert::Graphic::System
         bool Physical = false;
     };
 
-    /// The images the faces step SAMPLES that this frame's graph may write before it (the atmosphere's
-    /// cached LUT pair and the distant sky light, SkyboxRenderer::DeclareAtmosphereCachedLutNodes). Declared as
+    /// The images the faces step SAMPLES that this frame's graph may write before it (the scene atmosphere's
+    /// cached LUT pair and the distant sky light, SceneAtmosphere::DeclareCachedLutNodes). Declared as
     /// reads of the step, so the graph orders the step after their writers and places the barriers. A null one
     /// is bound to the engine's fallback image, as the bake always did.
     struct SkyCaptureFrameReads
     {
-        // The recording view's sky block, written by that view this frame (a per-frame-in-flight buffer): a face
-        // slice binds it rather than the block of the view that began the capture, which may not record this
-        // frame, or exist.
+        // The scene atmosphere's sky block, in the recording view's copy (written by that view this frame, a
+        // per frame in flight x renderer slot buffer): a face slice binds it rather than the copy of the view that
+        // began the capture, which may not record this frame, or exist.
         ShaderResources::StorageBuffer* SkyParams = nullptr;
         std::shared_ptr<Image2D>        TransmittanceLut;
         std::shared_ptr<Image2D>        MultiScatterLut;

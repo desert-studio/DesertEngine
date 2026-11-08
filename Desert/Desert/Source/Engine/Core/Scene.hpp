@@ -70,6 +70,7 @@ namespace Desert::Graphic
     class SceneRenderer;
     class ReflectionCaptureRenderer;
     class SceneSkyLight;
+    class SceneAtmosphere;
     class LocalShadowCache;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
@@ -709,6 +710,13 @@ namespace Desert::Core
         {
             return m_SkyLight;
         }
+        // THE SCENE'S ATMOSPHERE (UE: FSkyAtmosphereRenderSceneInfo): its LUT programs and the view-independent
+        // LUTs, recorded once per frame by the scene's first view; the sky light's capture and every view read
+        // them. Held weakly by a view (SkyboxRenderer), like the sky light.
+        [[nodiscard]] std::weak_ptr<Graphic::SceneAtmosphere> GetAtmosphere() const
+        {
+            return m_Atmosphere;
+        }
 
         // THE SCENE'S CACHED POINT/SPOT-LIGHT SHADOW DEPTH (UE: FScene's FCachedShadowMapData per light): one
         // atlas for every view of this scene, the reflection captures' face views included
@@ -915,6 +923,8 @@ namespace Desert::Core
         std::unique_ptr<Graphic::GpuDriven::GpuSceneRegistry> m_GpuScene;
         // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
+        // See GetAtmosphere. Never null: made by both constructors.
+        std::shared_ptr<Graphic::SceneAtmosphere> m_Atmosphere;
         // See GetLocalShadows. Never null: made by both constructors.
         std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
         // See GetDistanceFields. Never null: made by both constructors.

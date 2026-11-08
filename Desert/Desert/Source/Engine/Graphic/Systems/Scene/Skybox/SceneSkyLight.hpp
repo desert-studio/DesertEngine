@@ -48,10 +48,11 @@ namespace Desert::Graphic
      * their layouts across graphs, as the reflection captures' shared array does. A view that asks later in the
      * same frame neither decides nor records.
      *
-     * The faces step reads the claiming view's own per-view inputs -- its sky block, cloud blocks and
-     * atmosphere LUTs (all on that renderer's slot, written in that frame) -- which are the same sky for every
-     * view of one scene: the fingerprints that decide a recapture leave out the view's exposure
-     * (Graphic::SkyBakeFingerprint), so two views never disagree about whether the sky changed.
+     * THE CAPTURE HAS ITS OWN VIEW (UE: the real-time capture's own view uniform over the scene's atmosphere
+     * LUTs). The faces step reads the scene atmosphere's sky block (no exposure, no camera) and its LUTs
+     * (SceneAtmosphere, recorded once per frame by the scene's first view), and the claiming view's cloud blocks
+     * -- the same sky for every view of one scene: the fingerprints that decide a recapture leave out the view's
+     * exposure (Graphic::SkyBakeFingerprint), so two views never disagree about whether the sky changed.
      */
     class SceneSkyLight
     {
