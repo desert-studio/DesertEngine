@@ -232,6 +232,18 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceFrontLayerPath        = "Static";
     inline constexpr std::string_view kSurfaceFrontLayerPass        = "FrontLayer";
     inline constexpr std::string_view kSurfaceFrontLayerPassInclude = "Mesh/Surface/Pass_FrontLayer.glslh";
+    // THE WATER'S FRONT LAYER CELL (UE: single layer water's own G-buffer, which SSR and the Lumen reflections
+    // trace from): a `Usage WaterMesh` template also gets `WaterMesh.FrontLayer` - the water mesh vertex path and
+    // Pass_FrontLayer.glslh (under DESERT_SURFACE_PATH_WaterMesh: the water's mirror normal) - which
+    // Graphic::System::WaterRenderer draws into the front layer's G-buffer, so the water reflects through the
+    // front layer's trace (Reflections.TranslucentFrontLayer) as the glass does.
+    inline constexpr std::string_view kSurfaceWaterMeshFrontLayerCell = "WaterMesh.FrontLayer";
+    static_assert( kSurfaceWaterMeshFrontLayerCell.substr( 0, kSurfaceWaterMeshPath.size() ) ==
+                             kSurfaceWaterMeshPath &&
+                        kSurfaceWaterMeshFrontLayerCell[kSurfaceWaterMeshPath.size()] == '.' &&
+                        kSurfaceWaterMeshFrontLayerCell.substr( kSurfaceWaterMeshPath.size() + 1 ) ==
+                             kSurfaceFrontLayerPass,
+                   "the water's front layer cell is named <WaterMesh path>.<FrontLayer pass>" );
     // Defined in both stages of every cell of a `BlendMode Translucent` template (the sprite pass blends on it).
     inline constexpr std::string_view kSurfaceTranslucentDefine = "DESERT_SURFACE_TRANSLUCENT";
     // Defined beside it in every cell of a `BlendMode Additive` template: an added surface is attenuated by the

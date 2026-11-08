@@ -1882,7 +1882,9 @@ namespace Desert::Core::Preprocess
                  ( virtualGeometry ? std::format( "#define {} 1\n", kSurfaceVirtualGeometryDefine )
                                    : std::string() ) +
                  // The visibility cells' fragment stage rebuilds its path's triangle (Pass_VisibilityResolve.glslh).
-                 ( pass == "Visibility" || pass == "VisibilityResolve"
+                 // So does the water's front layer cell: its normal is the water's mirror normal.
+                 ( pass == "Visibility" || pass == "VisibilityResolve" ||
+                             ( pass == kSurfaceFrontLayerPass && path == kSurfaceWaterMeshPath )
                         ? std::format( "#define DESERT_SURFACE_PATH_{} 1\n", path )
                         : std::string() );
             // A binned cell's fragment `Material` reads the row its vertex stage resolved
@@ -3163,7 +3165,8 @@ namespace Desert::Core::Preprocess
 
             // A SingleLayerWater template (`Usage WaterMesh`) is drawn by its own pass alone, as UE renders
             // MSM_SingleLayerWater in the single layer water pass and never through the base pass, the deferred
-            // lighting, the shadow depths or a ray tracing hit group: no mesh, front layer, hit or parallax cell.
+            // lighting, the shadow depths or a ray tracing hit group: no mesh, hit or parallax cell, and no mesh
+            // path's front layer cell - its own front layer cell is the water mesh path's (below).
             const bool meshCells = !result.Surface.UsedWithWaterMesh;
 
             for ( const std::string_view path : kSurfaceVertexPaths )
@@ -3397,6 +3400,21 @@ namespace Desert::Core::Preprocess
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
+
+                // Its front layer cell (kSurfaceWaterMeshFrontLayerCell), after it: the surface's mirror normal
+                // and roughness into the front layer's G-buffer, which the reflection trace starts from.
+                DShaderPass front;
+                front.Name  = SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceFrontLayerPass );
+                front.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    front.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                      stage, kSurfaceWaterMeshPath, kSurfaceFrontLayerPass,
+                                                      *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                      shadingModelDefine, result.Surface.ResponsiveAA,
+                                                      opacityMaskFunction, false, heightFunctions, false ) );
+                result.Meta.PassNames.push_back( front.Name );
+                result.Surface.Cells.push_back( front.Name );
+                result.Passes.push_back( std::move( front ) );
             }
 
             // `Height <Texture2D> ... Scale(<Float>)`: every mesh cell again as its `.Parallax` permutation, after every other cell
