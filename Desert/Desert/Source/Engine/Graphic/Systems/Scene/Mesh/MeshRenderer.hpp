@@ -3506,7 +3506,8 @@ namespace Desert::Graphic::System
             SkinnedMesh*                  Base = nullptr;
             std::shared_ptr<SkinnedMesh>  Twin;
             std::shared_ptr<VertexBuffer> Vertices;
-            // Last frame's positions (MeshGeometry::PreviousVertices of the twin, MeshRendererMorph.cpp header).
+            // Last frame's positions, float3 a vertex (MeshGeometry::PreviousVertices of the twin,
+            // MeshRendererMorph.cpp header); null while the skin cache keeps the history (Effects.SkinCache).
             std::shared_ptr<VertexBuffer> Previous;
             // The base content the twin blends from: its render revision and its geometry (held, so its span
             // and buffers outlive the twin's reads; the binding is part of the identity, a re-upload into a new

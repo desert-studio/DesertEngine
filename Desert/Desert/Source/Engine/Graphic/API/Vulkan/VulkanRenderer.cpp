@@ -1329,9 +1329,10 @@ namespace Desert::Graphic::API::Vulkan
         const VkBuffer ibuffer = geometry.Indices != nullptr
                                       ? static_cast<const VulkanIndexBuffer*>( geometry.Indices )->GetVulkanBuffer()
                                       : VK_NULL_HANDLE;
-        // Binding 3, last frame's positions (ShaderProtocols::kMeshPreviousPositionBinding): only a pipeline whose
-        // vertex stage reads a_PrevPosition (a skinned view-pass cell) has it. Geometry whose vertices did not move
-        // under it hands back none and binds its own vertices there - same format, same stride, same index.
+        // Binding 3, last frame's positions (ShaderProtocols::kMeshPreviousPositionBinding, float3 a vertex): only
+        // a pipeline whose vertex stage reads a_PrevPosition (a skinned view-pass cell) has it. Geometry without
+        // them binds its own vertices there - every fetch in bounds (12 bytes a vertex never pass its own stride),
+        // the values unread: its row lacks GpuDriven::PrimitiveFlags::kPreviousPositions.
         VkBuffer     pbuffer = VK_NULL_HANDLE;
         VkDeviceSize poffset = 0;
         if ( graphics->ReadsPreviousPositions() )

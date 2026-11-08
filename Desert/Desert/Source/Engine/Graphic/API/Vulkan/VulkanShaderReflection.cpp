@@ -793,7 +793,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
 
         // Binding 3, the previous positions (VertexBufferLayout::GetPreviousPositionLocation; the skinned format):
-        // only when the stage reads a_PrevPosition (a view-pass skinned cell), at the layout's own stride.
+        // only when the stage reads a_PrevPosition (a view-pass skinned cell), one float3 per vertex.
         static_assert( ShaderProtocols::kMeshPreviousPositionBinding != GpuDriven::kVisibleRowVertexBinding &&
                             ShaderProtocols::kMeshPreviousPositionLocation != GpuDriven::kVisibleRowVertexLocation,
                        "the previous positions share the instance id stream's binding or location" );
@@ -801,7 +801,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
              location.has_value() && addAttribute( layout.GetPreviousPositionElement(), *location,
                                                    ShaderProtocols::kMeshPreviousPositionBinding ) )
             state.Bindings.push_back( { .binding   = ShaderProtocols::kMeshPreviousPositionBinding,
-                                        .stride    = layout.GetStride(),
+                                        .stride    = ShaderProtocols::kMeshPreviousPositionStride,
                                         .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
 
         for ( const uint32_t location : consumedLocations )

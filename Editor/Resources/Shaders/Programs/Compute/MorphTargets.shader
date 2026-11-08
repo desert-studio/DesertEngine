@@ -26,10 +26,11 @@ Shader "MorphTargets"
             vec4 Deltas[];
         };
 
-        // x = VertexCount, y = the number of active targets, z = the mesh's target count, w = 1 when the output
-        // holds the shape the component was drawn with last frame (MeshRendererMorph: the previous positions keep
-        // it), 0 when it does not (a new twin, one not drawn last frame); then per active target (target index,
-        // weight bits).
+        // x = VertexCount, y = the number of active targets, z = the mesh's target count, w = what MorphPrevious
+        // receives (MeshRendererMorph HistoryMode): 1 = the output holds the shape the component was drawn with
+        // last frame, moved there before the overwrite; 0 = it does not (a new twin, one not drawn last frame),
+        // the new shape goes into both; 2 = nothing (the skin cache keeps the history, MorphPrevious is scratch);
+        // then per active target (target index, weight bits).
         Buffer(2) MorphWeights
         {
             uvec4 MorphHeader;
@@ -41,11 +42,11 @@ Shader "MorphTargets"
             uint MorphedVertices[];
         };
 
-        // THE PREVIOUS POSITIONS (UE FMorphVertexBufferPool's double buffer, read as PreviousMorph): a buffer of
-        // the same 22-word vertices of which only the position (words 0-2) is written and read - binding 3 of the
-        // skinned vertex format reads it at the vertex stride (ShaderProtocols/VertexInputs.hpp). Each invocation
-        // moves its vertex's output position here before overwriting it, as the skin cache rotates its streams;
-        // without a history both get the new shape, so a fresh twin carries camera and bone motion only.
+        // THE PREVIOUS POSITIONS (UE FMorphVertexBufferPool's double buffer, read as PreviousMorph): float3 per
+        // vertex, 3 words - binding 3 of the skinned vertex format reads it at 12 bytes a vertex
+        // (ShaderProtocols/VertexInputs.hpp kMeshPreviousPositionStride). Each invocation moves its vertex's
+        // output position here before overwriting it, as the skin cache rotates its streams; without a history
+        // both get the new shape, so a fresh twin carries camera and bone motion only.
         Buffer(4) MorphPrevious
         {
             uint PreviousVertices[];
@@ -58,13 +59,14 @@ Shader "MorphTargets"
             if (vertex >= vertexCount)
                 return;
 
-            const uint first   = vertex * 22u;
-            const bool history = MorphHeader.w != 0u;
-            if (history)
+            const uint first    = vertex * 22u;
+            const uint previous = vertex * 3u;
+            const uint mode     = MorphHeader.w;
+            if (mode == 1u)
             {
-                PreviousVertices[first + 0u] = MorphedVertices[first + 0u];
-                PreviousVertices[first + 1u] = MorphedVertices[first + 1u];
-                PreviousVertices[first + 2u] = MorphedVertices[first + 2u];
+                PreviousVertices[previous + 0u] = MorphedVertices[first + 0u];
+                PreviousVertices[previous + 1u] = MorphedVertices[first + 1u];
+                PreviousVertices[previous + 2u] = MorphedVertices[first + 2u];
             }
             for (uint w = 0u; w < 22u; ++w)
                 MorphedVertices[first + w] = BaseVertices[first + w];
@@ -91,11 +93,11 @@ Shader "MorphTargets"
             MorphedVertices[first + 3u] = floatBitsToUint(normal.x);
             MorphedVertices[first + 4u] = floatBitsToUint(normal.y);
             MorphedVertices[first + 5u] = floatBitsToUint(normal.z);
-            if (!history)
+            if (mode == 0u)
             {
-                PreviousVertices[first + 0u] = floatBitsToUint(position.x);
-                PreviousVertices[first + 1u] = floatBitsToUint(position.y);
-                PreviousVertices[first + 2u] = floatBitsToUint(position.z);
+                PreviousVertices[previous + 0u] = floatBitsToUint(position.x);
+                PreviousVertices[previous + 1u] = floatBitsToUint(position.y);
+                PreviousVertices[previous + 2u] = floatBitsToUint(position.z);
             }
         }
     }

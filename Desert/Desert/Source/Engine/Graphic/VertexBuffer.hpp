@@ -110,12 +110,13 @@ namespace Desert::Graphic
                 }
                 if ( field.Binding == ShaderProtocols::kMeshPreviousPositionBinding )
                 {
-                    // The previous positions: a buffer of this very format, its first attribute (the position)
-                    // read at the format's stride (offset 0, CalculateOffsetsAndStride).
+                    // The previous positions: their own buffer of one float3 per vertex, offset 0, read at
+                    // ShaderProtocols::kMeshPreviousPositionStride (UE's previous position stream).
                     DESERT_VERIFY( !layout.m_PreviousPositionLocation.has_value() &&
                                         field.Type == ShaderDataType::Float3,
                                    "a vertex format's previous positions are not one Float3" );
                     layout.m_PreviousPositionLocation = field.Location;
+                    element.Offset                    = 0;
                     layout.m_PreviousPosition         = element;
                     continue;
                 }
@@ -216,9 +217,10 @@ namespace Desert::Graphic
         }
 
         // THE PREVIOUS-POSITION BINDING (ShaderProtocols::kMeshPreviousPositionBinding, the skinned format only):
-        // a buffer of THIS layout's vertices whose first attribute is the position the vertex had last frame, read
-        // as one Float3 at GetPreviousPositionLocation(), offset 0, at GetStride(). A mesh whose vertices did not
-        // move under it binds its own vertices there (MeshGeometry::PreviousVertices null).
+        // one Float3 per vertex, the position the vertex had last frame, read at GetPreviousPositionLocation(),
+        // offset 0, at kMeshPreviousPositionStride - its own buffer, never this layout's vertices. A mesh without
+        // one (MeshGeometry::PreviousVertices null) binds its own vertices there and its row says the stage must
+        // not read them (GpuDriven::PrimitiveFlags::kPreviousPositions clear).
         [[nodiscard]] std::optional<uint32_t> GetPreviousPositionLocation() const
         {
             return m_PreviousPositionLocation;

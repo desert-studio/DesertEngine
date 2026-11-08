@@ -33,9 +33,11 @@ namespace Desert
         // data - except the vertices, which are @p morphedVertices: a GpuWritten buffer of base.GetVertexCount()
         // SkinnedVertex that the morph update (MeshRendererMorph.cpp) writes before any pass skins from it. Every
         // pass that draws a skinned mesh then reads the morphed vertices without knowing morphs exist.
+        // @p previousVertices: last frame's positions, float3 a vertex (MeshGeometry::PreviousVertices), or null
+        // when the skin cache keeps the history.
         static std::shared_ptr<SkinnedMesh>
         MakeMorphedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> morphedVertices,
-                     std::shared_ptr<Graphic::VertexBuffer> previousVertices );
+                         std::shared_ptr<Graphic::VertexBuffer> previousVertices );
 
         // THE DISPLACED TWIN OF A SKINNED MESH (CONTRACT-DISPLACE §9.8, System::DisplacementCache): the rest pose of
         // the tessellated surface - @p vertices are @p vertexCount SkinnedVertex (rest displaced positions, the

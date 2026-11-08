@@ -211,17 +211,20 @@ namespace Desert::Graphic::ShaderProtocols
     FIELD( Float2, a_TexCoord1 )
 
     // THE PREVIOUS POSITIONS (skinned path only; UE FGPUBaseSkinVertexFactory's PreviousMorph / the skin cache's
-    // PreviousPosition): binding kMeshPreviousPositionBinding holds a buffer OF THIS FORMAT (same stride) whose
-    // first attribute is the position the vertex had last frame - a morphed twin's previous blend
-    // (MeshRendererMorph), every other mesh its own vertices (MeshGeometry::PreviousVertices). Read only by the
-    // view-pass cells of Mesh/Surface/Vertex_Skinned.glslh that skin in the vertex stage (no skin-cache entry),
-    // for velocity; a stage that does not read it gets no binding (VulkanShaderReflection BuildVertexInput).
+    // PreviousPosition): binding kMeshPreviousPositionBinding holds one float3 per vertex
+    // (kMeshPreviousPositionStride = 12 bytes), the position the vertex had last frame - a morphed twin's
+    // previous blend, allocated only when no skin cache keeps the history (MeshRendererMorph). Every other mesh
+    // binds its own vertices there (in bounds: 12 bytes a vertex never pass its own stride) and its GpuScene row
+    // lacks PrimitiveFlags::kPreviousPositions, so the stage reads a_Position instead. Read only by the view-pass
+    // cells of Mesh/Surface/Vertex_Skinned.glslh that skin in the vertex stage (no skin-cache entry), for
+    // velocity; a stage that does not read it gets no binding (VulkanShaderReflection BuildVertexInput).
     // Binding 2 / location 9 are the binned draw's instance id stream (GpuDriven/GpuSceneLayout.hpp).
 #define DESERT_MESH_PREVIOUS_POSITION_FIELDS( FIELD, FIELD_NORMALIZED ) FIELD( Float3, a_PrevPosition )
 
     inline constexpr uint32_t kMeshVertexStreamFirstLocation = 7;
     inline constexpr uint32_t kMeshPreviousPositionBinding   = 3;
     inline constexpr uint32_t kMeshPreviousPositionLocation  = 10;
+    inline constexpr uint32_t kMeshPreviousPositionStride    = 12; // float3
 
     inline constexpr auto kMeshVertexInputs = MakeVertexInputs(
          DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_VERTEX_FIELDS ),

@@ -124,8 +124,8 @@ namespace Desert::Graphic
         uint64_t            StreamOffset = 0;
         const IndexBuffer*  Indices      = nullptr; // null = non-indexed
         uint64_t            IndexOffset  = 0;
-        // Last frame's positions (ShaderProtocols::kMeshPreviousPositionBinding), bound only for a pipeline that
-        // reads them; null = Vertices at VertexOffset (the vertices did not move under the mesh).
+        // Last frame's positions (ShaderProtocols::kMeshPreviousPositionBinding, float3 a vertex), bound only for
+        // a pipeline that reads them; null = Vertices at VertexOffset, bound there but not read (the row's flag).
         const VertexBuffer* PreviousVertices     = nullptr;
         uint64_t            PreviousVertexOffset = 0;
 
@@ -140,10 +140,10 @@ namespace Desert::Graphic
         std::shared_ptr<VertexBuffer> Vertices;
         std::shared_ptr<VertexBuffer> Streams; // null = the mesh has no stream buffer: default streams
         std::shared_ptr<IndexBuffer>  Indices; // null = non-indexed
-        // THE VERTICES' POSITIONS LAST FRAME (the skinned format's binding 3, VertexInputs.hpp): a buffer of the
-        // same vertex format whose positions are the previous frame's - a morphed twin's previous blend
-        // (MeshRendererMorph); null for every mesh whose vertices are not rewritten per frame (its own vertices
-        // are the previous ones). Never pooled: only a GPU-written twin has one.
+        // THE VERTICES' POSITIONS LAST FRAME (the skinned format's binding 3, VertexInputs.hpp): one float3 per
+        // vertex (kMeshPreviousPositionStride) - a morphed twin's previous blend when no skin cache keeps the
+        // history (MeshRendererMorph); null for every other mesh (its row lacks PrimitiveFlags::
+        // kPreviousPositions, its stage reads its own positions). Never pooled: only a GPU-written twin has one.
         std::shared_ptr<VertexBuffer> PreviousVertices;
         uint64_t                      VertexByteOffset = 0;
         uint64_t                      StreamByteOffset = 0;
