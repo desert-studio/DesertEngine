@@ -317,6 +317,32 @@ Shader "InstanceCull"
             VisibleInstanceIds[entry] = instanceRow;
         }
 
+        // Whether an instance of @p primitiveRow in a transition @p older -> @p lod draws it dithered: some submesh's
+        // slots at both levels clip (DESERT_GPU_DRAW_SLOT_DITHERED_LOD) - EmitToBins' second-entry rule. An opaque
+        // slot switches at once (one entry, the newer level), so its instance stays a still, cacheable caster.
+        bool DrawsLodDithered( uint primitiveRow, uint lod, uint older )
+        {
+            if ( older == lod || primitiveRow >= Params2.z )
+                return false;
+            const GpuPrimitivePassDraws pd = PrimitiveDraws[primitiveRow];
+            if ( pd.SubmeshCount == 0u || pd.LodCount == 0u )
+                return false;
+            const uint level      = min( lod, pd.LodCount - 1u );
+            const uint olderLevel = min( older, pd.LodCount - 1u );
+            if ( level == olderLevel )
+                return false;
+            for ( uint s = 0u; s < pd.SubmeshCount; ++s )
+            {
+                const uint slot      = pd.FirstDrawSlot + level * pd.SubmeshCount + s;
+                const uint olderSlot = pd.FirstDrawSlot + olderLevel * pd.SubmeshCount + s;
+                if ( DrawSlots[slot].Bin != DESERT_GPU_INVALID_INDEX &&
+                     DrawSlots[olderSlot].Bin != DESERT_GPU_INVALID_INDEX &&
+                     ( DrawSlots[slot].Flags & DrawSlots[olderSlot].Flags & DESERT_GPU_DRAW_SLOT_DITHERED_LOD ) != 0u )
+                    return true;
+            }
+            return false;
+        }
+
         // @p older: the older level of a dithered LOD transition (SelectLodMask; == @p lod when there is none). A
         // submesh whose slots at both levels clip (DESERT_GPU_DRAW_SLOT_DITHERED_LOD) draws both, tagged for
         // Mesh/Surface/LODTransition.glslh; every other draws @p lod alone. A bin's Capacity counts every
@@ -515,11 +541,12 @@ Shader "InstanceCull"
             // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer), per instance: the static layer
             // keeps what stands still (a swaying instance past the shadow wind distance among it, in its rest
             // pose), the movable layer what moves by itself - and, in a kLodDither caster view, an instance whose
-            // LOD is fading (its two levels' dither changes every frame, UE's cached shadow treats a dithered
-            // transition as a dynamic caster): the cached layer is redrawn where it leaves and where it returns
-            // (the content hash, below, sees it gone), never kept half-dithered.
+            // LOD fades dithered (DrawsLodDithered: its two levels' dither changes every frame, UE's cached shadow
+            // treats a dithered transition as a dynamic caster): the cached layer is redrawn where it leaves and
+            // where it returns (the content hash, below, sees it gone), never kept half-dithered. An opaque caster
+            // switches level at once and stays cached (its new level changes the hash once).
             const bool moves   = ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u && !restPose;
-            const bool movable = moves || older != lod;
+            const bool movable = moves || DrawsLodDithered( instance.Primitive, lod, older );
             if ( ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u && movable ) ||
                  ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u && !movable ) )
             {

@@ -752,8 +752,8 @@ namespace Desert::Graphic
         RDG::BufferRef vsmDirtyMask{};
         if ( m_FrameVsmPages )
             vsmDirtyMask = m_FrameVsmPages->DirtyMask;
-        m_GpuCullValidation.AddFrame( graph, frame.FrameIndex, *gpuScene, views, viewNames, mainPhase.GetValue().Carry,
-                                      vsmDirtyMask );
+        m_GpuCullValidation.AddFrame( graph, frame.FrameIndex, *gpuScene, views, viewNames, tables,
+                                      mainPhase.GetValue().Carry, vsmDirtyMask );
         m_GpuCullLastError.clear();
     }
 } // namespace Desert::Graphic
