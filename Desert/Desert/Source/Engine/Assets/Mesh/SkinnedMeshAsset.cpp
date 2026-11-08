@@ -7,6 +7,7 @@
 #include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/PathText.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -206,15 +207,15 @@ namespace Desert::Assets
         job->Key               = m_RenderDataKey;
         m_DisplacementTopology = job->Slot;
         const bool queued      = Common::JobSystem::Get().Submit(
-             [job]
+             [job]() noexcept
              {
                  auto topology = LoadDisplacementTopology(
                       job->Path, job->Key, [&job]() -> Common::ResultStr<DisplacementTopologyBuildInput>
                       { return Common::MakeSuccess( job->Input ); } );
                  if ( !topology.IsSuccess() )
                  {
-                     LOG_ERROR( "SkinnedMeshAsset '{}': {}; the mesh is drawn undisplaced", job->Path.string(),
-                                topology.GetError() );
+                     LOG_ERROR( "SkinnedMeshAsset '{}': {}; the mesh is drawn undisplaced",
+                                Common::PathUtf8( job->Path ), topology.GetError() );
                      return;
                  }
                  job->Slot->Publish( topology.ExtractValue() );
@@ -223,7 +224,7 @@ namespace Desert::Assets
         {
             LOG_ERROR( "SkinnedMeshAsset '{}': the job system is shutting down; the displacement topology is not "
                        "derived and the mesh is drawn undisplaced",
-                       m_Metadata.Filepath.string() );
+                       Common::PathUtf8( m_Metadata.Filepath ) );
         }
     }
 

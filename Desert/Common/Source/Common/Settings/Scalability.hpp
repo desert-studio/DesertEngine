@@ -123,7 +123,10 @@ namespace Common::Scalability
         // level may run, by name. A view's request above it is lowered by Graphic::ResolveRenderMethods, which
         // also applies the device (no device narrowing here: the device's limit and this one are reported
         // together, as one downgrade line, in that one place). A ceiling may name a method not implemented yet: it
-        // is a limit, not a request, and the resolution never lands on an unimplemented method.
+        // is a limit, not a request, and the resolution never lands on an unimplemented method. The ceiling names
+        // the RENDERED ladder, so its traced rung is the machine's tracer ceiling (UE r.Lumen.HardwareRayTracing
+        // per Scalability level): SoftwareTraced keeps a view's Traced request on software rays, HardwareTraced
+        // admits hardware rays where the device has them (TRACED-METHOD-AXIS; a view's request names no tracer).
         GlobalIlluminationMethod, // Values: GIMethod
         ReflectionsMethod,        // Values: ReflectionMethod
         ShadowsMethod,            // Values: ShadowMethod
@@ -217,9 +220,6 @@ namespace Common::Scalability
         ShadowRainOcclusionMapSize,
         ShadowRainOcclusionExtent,
         ShadowRainOcclusionRefreshPercent,
-        // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
-        // ScreenSpaceGi.x). 4..64
-        ScreenSpaceGISamples,
         // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
         // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
         ReflectionDenoiserRadius,
@@ -327,6 +327,9 @@ namespace Common::Scalability
                                           // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
         ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
                                           // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        SurfaceCacheAsyncRadiosity,       // 0/1: the surface cache's radiosity trace + integration as compute on
+                                          // the async compute queue (UE Lumen scene lighting on async); 0 = the
+                                          // raster passes on the graphics queue (GPU-GI-CRITPATH A/B)
         ReflectionsTranslucentFrontLayer, // 0/1: the nearest translucent surface of a pixel writes its own
                                           // G-buffer and is reflected by the opaque surfaces' tracer and
                                           // denoiser; glass reads that reflection in place of the sky (UE
@@ -399,11 +402,60 @@ namespace Common::Scalability
         // SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute. Key "RenderPipeline.ParallelExecute": equal
         // at every level (a CPU recording choice, not a quality step), so only a machine override names it.
         ParallelExecute,
+        // 0/1: a view's pure setup runs as tasks on the workers (RENDER-PARALLEL-SETUP; UE RDG setup tasks,
+        // FRDGBuilder::AddSetupTask): the grass varieties' plans and the deferred G-buffer and masked draw lists
+        // are computed by index on Common::TaskGroup tasks, then applied on the render thread in fixed order. 0 =
+        // every task runs inline in launch order: the same plans, for a byte-compare and as the rollback. Read by
+        // SceneRenderer::OnUpdate; the Editor's `--parallel-setup <0|1>` overrides it for the session
+        // (RenderConfig::ParallelSetupOverride). Key "RenderPipeline.ParallelSetup": equal at every level (a CPU
+        // scheduling choice, not a quality step), so only a machine override names it.
+        ParallelSetup,
+        // 0/1: the view's hierarchical Z-buffers are built up to four mips per dispatch through group-shared
+        // memory (GPU-TERRAIN-HZB; UE BuildHZB, AMD SPD: HZBSinglePass.shader). 0 = one dispatch per mip
+        // (HZB.shader): the same texels bit for bit, for the A/B and as the rollback. Read by
+        // SceneRenderer::OnUpdate -> HZBRenderer::SetSinglePass. Key "RenderPipeline.HZBSinglePass": equal at
+        // every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
+        HZBSinglePass,
+        // 0/1: the landscape's dice pool is kept across frames and re-evaluated only when a diced row, its maps
+        // or their revisions change (GPU-TERRAIN-HZB; UE Landscape's persistent displaced geometry). 0 = the pool
+        // is a transient evaluated every frame: the same vertices, for the A/B and as the rollback. Read by
+        // SceneRenderer::OnUpdate -> TerrainRenderer::SetDicePoolCache. Key
+        // "RenderPipeline.LandscapeDicePoolCache": equal at every level, so only a machine override names it.
+        LandscapeDicePoolCache,
         // The landscape grass blades' shadow LOD bias (GPU-COST-20; UE r.Shadow LOD bias / grass shadow LOD): each
         // step draws a blade into every cascade as if the cascade's texel were twice as wide - a strip level
         // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->
         // MeshRenderer::SetFoliageShadowLodBias (MeshRenderer::BladeShadowSet). Steps, 0..3.
         ShadowFoliageLodBias,
+        // Where the sun's cascades END when its shadow past them is the distance-field one (DF-SHADOWS; UE
+        // DistanceFieldShadowing, r.Shadow.DistanceFieldShadowDistance): ViewMemory ShadowQualityOf takes
+        // min(ShadowDistance, this) as ShadowQuality::MaxDistance for a view whose sun reads the DF mask, so the
+        // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
+        // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
+        ShadowDistanceFieldCascadeDistance,
+        // 0/1 (GPU-TILE-CLASSIFY; UE Substrate ClassificationTiles / r.TiledDeferredShading): the deferred
+        // lighting's 8x8 tiles are classified from the G-buffer (sky, DefaultLit-only, mixed) and the direct and
+        // composite passes draw only the tiles that hold geometry, a DefaultLit-only tile through the permutation
+        // with the shading model folded. 0 = both passes draw the whole view (the A/B and the rollback); the
+        // picture is the same. Read by SceneRenderer::AddFrameComposite. Key
+        // "RenderPipeline.TileClassify": equal at every level, so only a machine override names it.
+        RenderPipelineTileClassify,
+        // 0/1: the cloud march's integration step grows with the ray's pixel footprint (GPU-CLOUD-STEPS; the
+        // Frostbite / Hillaire footprint step on top of UE's StepT = L / SampleCount): past the distance where
+        // one trace texel covers more than the fine step, a lit sample integrates over the texel's footprint,
+        // never past the search stride (CloudFootprintStepKm, Common/CloudGeometry.glslh). 0 = the fixed fine
+        // step of the 256-step schedule, for the A/B and as the rollback. Read by SceneRenderer::BeginScene ->
+        // VolumetricCloudRenderer::SetCloudSettings. Key "Effects.CloudFootprintSteps": equal at every level (it
+        // keeps the integral, it is not a quality step), so only a machine override names it.
+        CloudFootprintSteps,
+        // 0/1: the grass camera cull - its dispatch, the cull, the finalize and the camera's and cascades' draw
+        // gathers - runs as one async compute segment (GPU-HZB-SPD; UE InstanceCulling / Nanite culling on the
+        // async pipe): the graph forks it after the tile builds and joins it before the first pass that reads its
+        // lists (the first grass draw). 0 = the same passes on the graphics queue, for the A/B and as the
+        // rollback; RenderPipeline.AsyncCompute 0 or a device without a compute family demotes them anyway.
+        // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
+        // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
+        RenderPipelineGrassCullAsync,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -541,6 +593,17 @@ namespace Common::Scalability
         ParameterValue Value = 0;
 
         bool operator==( const ParameterOverride& ) const = default;
+    };
+
+    // THE RECOMMENDED TEMPORAL UPSCALER (RecommendUpscaler, RecommendedQuality.hpp): the overrides
+    // QualityState::ApplyRecommended adds to the benchmark's levels, and why. Empty Overrides = the table's
+    // AntiAliasing level stands. Reason is the host's log line: the architecture, the target and the rule.
+    struct UpscalerRecommendation
+    {
+        std::vector<ParameterOverride> Overrides;
+        std::string                    Reason;
+
+        bool operator==( const UpscalerRecommendation& ) const = default;
     };
 
     // One level per group, PERSISTED BY GROUP NAME (machine.json: {"Textures": "High", ...}), the way UE keys
@@ -750,6 +813,9 @@ namespace Common::Scalability
         static ApplyReport ClearOverride( Parameter parameter );
         static ApplyReport ApplyPreset( const AntiAliasingPreset& preset ); // Decompose + overrides
         static ApplyReport ApplyRecommended( const std::array<Level, kGroupCount>& levels ); // benchmark result
+        // The host's upscaler recommendation for this device and display (QualityBoot, RecommendUpscaler):
+        // ApplyRecommended adds its overrides to the levels. Never set = the levels alone.
+        static void SetUpscalerRecommendation( UpscalerRecommendation recommendation );
 
         [[nodiscard]] static const QualitySelection&  Selection();
         [[nodiscard]] static const ResolvedQuality&   Resolved();

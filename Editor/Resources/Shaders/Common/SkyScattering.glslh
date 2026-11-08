@@ -54,26 +54,71 @@ vec3 SkyViewZenith(vec3 cameraKm, float bottomRadiusKm)
     return fromCentre / max(length(fromCentre), 1.0f);
 }
 
-// Cosine of the AZIMUTH angle between the view and the sun as seen around the zenith — the third
-// coordinate of the Sky-View LUT (the first two are r and the view zenith cosine). The atmosphere is
-// symmetric around the sun's azimuth, which is what lets a 2D LUT hold the whole sky. Degenerate
-// projections (looking straight up, sun at the zenith) return 1: every azimuth is the sun's there.
-float SkyViewLightViewCos(vec3 zenith, vec3 viewDir, vec3 sunDir)
+// ---- The Sky-View LUT's referential (UE: View.SkyViewLutReferential) -------------------------------
+// The LUT covers the FULL 360 degrees of azimuth around the camera's zenith, in a frame that is not tied to
+// any light. That is what lets the fill carry what is NOT symmetric about the sun — the cloud layer's
+// shadow on the air (UE's "Shadow On Atmosphere") — which a sun-aligned, mirror-folded LUT cannot hold: one
+// of its texels stands for two rays on opposite sides of the sun's plane.
+//
+// The frame is WORLD-FIXED, not UE's camera forward: Forward is world +X laid on the horizon plane at the
+// camera (+Z when the zenith is +-X, which a ground-level camera never reaches). It is a function of the
+// camera POSITION alone, the one input every reader already has to share with the fill (the view height),
+// so a capture face, a second view and the fill cannot disagree on it, and a camera TURN moves nothing the
+// LUT is marched from. Up = the zenith; Right = Forward x Up (identity at the world origin).
+struct SkyViewReferential
 {
-    vec3  viewAzimuthal = viewDir - zenith * dot(viewDir, zenith);
-    vec3  sunAzimuthal  = sunDir - zenith * dot(sunDir, zenith);
-    float lengths       = length(viewAzimuthal) * length(sunAzimuthal);
-    if (lengths < 1e-6f)
-        return 1.0f;
-    return clamp(dot(viewAzimuthal, sunAzimuthal) / lengths, -1.0f, 1.0f);
+    vec3 Forward; // azimuth 0
+    vec3 Up;      // the zenith at the camera
+    vec3 Right;   // azimuth +pi/2
+};
+
+SkyViewReferential SkyViewReferentialAt(vec3 zenith)
+{
+    vec3  forward = vec3(1.0f, 0.0f, 0.0f) - zenith * zenith.x;
+    float len     = length(forward);
+    if (len < 1e-3f)
+    {
+        forward = vec3(0.0f, 0.0f, 1.0f) - zenith * zenith.z;
+        len     = length(forward);
+    }
+    forward = forward / max(len, 1e-6f);
+
+    SkyViewReferential referential;
+    referential.Forward = forward;
+    referential.Up      = zenith;
+    // cross(forward, zenith), written out: the C++ includers of this text have no `cross`.
+    referential.Right = vec3(forward.y * zenith.z - forward.z * zenith.y,
+                             forward.z * zenith.x - forward.x * zenith.z,
+                             forward.x * zenith.y - forward.y * zenith.x);
+    return referential;
+}
+
+// The signed AZIMUTH of a direction around the referential's Up, from Forward (0) toward Right (+pi/2), in
+// [-pi, pi] — the third coordinate of the Sky-View LUT (the first two are r and the view zenith cosine).
+// Straight up or down every azimuth is the same ray, and 0 is returned. acos + the sign of the Right
+// component rather than atan2: the C++ includers have no two-argument atan, and at 192 columns acos's
+// worst-case resolution near 0 (~3.5e-4 rad) is ~1% of a column.
+float SkyViewAzimuth(SkyViewReferential referential, vec3 viewDir)
+{
+    float x   = dot(viewDir, referential.Forward);
+    float z   = dot(viewDir, referential.Right);
+    float len = sqrt(x * x + z * z);
+    if (len < 1e-6f)
+        return 0.0f;
+    float azimuth = acos(clamp(x / len, -1.0f, 1.0f));
+    if (z < 0.0f)
+        azimuth = -azimuth;
+    return azimuth;
 }
 
 // ---- The Sky-View LUT parameterisation (Hillaire section 5.3) --------------------------------------
 // unit.y splits at the EXACT horizon angle for the given view height and spends its precision there
 // through a sqrt warp on both sides — the horizon is where the sky changes fastest, and a linear
-// lat-long mapping visibly bands it at 104 rows. unit.x is the light-view azimuth cosine, sqrt-warped
-// toward the sun where the Mie forward lobe lives. The two functions are EXACT inverses over the
-// whole domain for a fixed view height — the property the tests round-trip.
+// lat-long mapping visibly bands it at 104 rows. unit.x is the referential's azimuth, LINEAR over the
+// full turn (UE's SkyViewLutParamsToUv): unit.x = 0.5 is Forward, both ends are azimuth +-pi — the SAME
+// direction, so the first and the last column hold one ray and a clamped bilinear read is continuous
+// across the seam. The two functions are EXACT inverses over the whole domain for a fixed view height
+// — the property the tests round-trip.
 
 // Cosine of the view zenith angle at which the ray grazes the planet: mu_h = -rho/r. Everything at
 // or below it hits the ground.
@@ -92,11 +137,11 @@ bool SkyViewHitsGround(float bottomRadiusKm, float viewHeightKm, float viewZenit
 struct SkyViewLutCoord
 {
     float ViewZenithCos; // cosine of the view angle against the zenith at the camera
-    float LightViewCos;  // cosine of the azimuth angle between view and sun around the zenith
+    float Azimuth;       // signed azimuth around the zenith in the SkyViewReferential, [-pi, pi]
 };
 
 vec2 SkyViewUnitFromParams(float bottomRadiusKm, float viewHeightKm, float viewZenithCos,
-                           float lightViewCos)
+                           float azimuth)
 {
     float horizonCos   = SkyViewHorizonCos(bottomRadiusKm, viewHeightKm);
     float horizonAngle = acos(clamp(horizonCos, -1.0f, 1.0f)); // zenith->horizon, in (pi/2, pi]
@@ -117,7 +162,7 @@ vec2 SkyViewUnitFromParams(float bottomRadiusKm, float viewHeightKm, float viewZ
         float coord = (viewZenith - horizonAngle) / beta;
         unit.y      = sqrt(max(coord, 0.0f)) * 0.5f + 0.5f;
     }
-    unit.x = sqrt(clamp((1.0f - lightViewCos) * 0.5f, 0.0f, 1.0f));
+    unit.x = clamp(azimuth / (2.0f * SKY_PI) + 0.5f, 0.0f, 1.0f);
     return unit;
 }
 
@@ -141,23 +186,27 @@ SkyViewLutCoord SkyViewParamsFromUnit(float bottomRadiusKm, float viewHeightKm, 
 
     SkyViewLutCoord coord;
     coord.ViewZenithCos = cos(viewZenith);
-    coord.LightViewCos  = clamp(1.0f - 2.0f * unit.x * unit.x, -1.0f, 1.0f);
+    coord.Azimuth       = (clamp(unit.x, 0.0f, 1.0f) - 0.5f) * (2.0f * SKY_PI);
     return coord;
 }
 
-// The ray for a LUT texel, in the LUT's local frame: +Y is the zenith at the camera and the sun lies
-// in the XY plane toward +X. sin(azimuth) takes the positive branch — legitimate because the
-// atmosphere is mirror-symmetric across the sun's azimuthal plane.
-vec3 SkyViewRayDirection(float viewZenithCos, float lightViewCos)
+// The ray for a LUT texel, in the REFERENTIAL's components: x along Forward, y along Up (the zenith), z
+// along Right. SkyViewAzimuth of the world ray Forward * x + Up * y + Right * z gives the azimuth back.
+vec3 SkyViewRayDirection(float viewZenithCos, float azimuth)
 {
-    float sinZenith  = sqrt(max(1.0f - viewZenithCos * viewZenithCos, 0.0f));
-    float sinAzimuth = sqrt(max(1.0f - lightViewCos * lightViewCos, 0.0f));
+    float sinZenith = sqrt(max(1.0f - viewZenithCos * viewZenithCos, 0.0f));
 
     vec3 dir;
-    dir.x = sinZenith * lightViewCos;
+    dir.x = sinZenith * cos(azimuth);
     dir.y = viewZenithCos;
-    dir.z = sinZenith * sinAzimuth;
+    dir.z = sinZenith * sin(azimuth);
     return dir;
+}
+
+// A referential-component vector (SkyViewRayDirection's frame) back in the world frame.
+vec3 SkyViewReferentialToWorld(SkyViewReferential referential, vec3 local)
+{
+    return referential.Forward * local.x + referential.Up * local.y + referential.Right * local.z;
 }
 
 // ---- The sun disc ----------------------------------------------------------------------------------
@@ -335,6 +384,16 @@ const int SKY_DISTANT_LIGHT_SPHERE_TEXEL = 0; // the full sphere — the height 
 
 #ifdef SKY_SCATTERING_SUN_TRANSMITTANCE
 
+// THE SUN VISIBILITY HOOK. An includer that knows more about what stands between a sample and the sun than
+// the planet does (the Sky-View and aerial-perspective fills read the cloud shadow map) defines
+//   #define SKY_SCATTERING_SUN_VISIBILITY(position)  ...float in [0, 1]...
+// over the PLANET-CENTRED sample position before including this file. Everyone else — the test reference,
+// the multi-scattering LUT, the distant light, the panorama bake — gets exactly 1, and x * 1.0f is x: their
+// results are bit-identical to the march without the hook.
+#ifndef SKY_SCATTERING_SUN_VISIBILITY
+#define SKY_SCATTERING_SUN_VISIBILITY(position) 1.0f
+#endif
+
 struct SkyScatterResult
 {
     vec3 Luminance;     // in-scattered light along the ray, camera to the shell exit (or the ground)
@@ -377,7 +436,11 @@ SkyScatterResult SkyIntegrateStep(SkyAtmParams p, vec3 position, vec3 sunDir, ve
     vec3 safeExtinction    = max(extinction, vec3(1e-6f, 1e-6f, 1e-6f));
 
     float sunZenithCos = dot(zenith, sunDir);
-    float planetShadow = SkyPlanetShadow(radius, sunZenithCos, p.BottomRadiusKm);
+    // The planet's shadow times the includer's own sun visibility at the sample (SKY_SCATTERING_SUN_VISIBILITY,
+    // the cloud layer's shadow on the air), on the SINGLE-scatter term only: Psi_ms is light diffused through
+    // the whole sky and stays unshadowed, as UE's ShadowP0 does.
+    float planetShadow = SkyPlanetShadow(radius, sunZenithCos, p.BottomRadiusKm) *
+                         SKY_SCATTERING_SUN_VISIBILITY(position);
 
     vec3 sunTransmittance = SKY_SCATTERING_SUN_TRANSMITTANCE(p, radius, sunZenithCos);
     vec3 psiMs            = SKY_SCATTERING_MULTI_SCATTER(p, radius, sunZenithCos);

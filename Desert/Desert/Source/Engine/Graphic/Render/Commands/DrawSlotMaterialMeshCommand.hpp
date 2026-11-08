@@ -51,6 +51,12 @@ namespace Desert::Graphic::Render
         {
         }
 
+        void Prepare() override
+        {
+            if ( Mesh != nullptr )
+                SceneRenderer::PrepareMesh( *Mesh );
+        }
+
         void Execute( SceneRenderer& renderer ) override
         {
             if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )

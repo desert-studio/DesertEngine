@@ -75,8 +75,9 @@ namespace Desert::Graphic::SceneResources
         // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres, z = its Contact Shadow Casting
         // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
         glm::vec4 SunContactShadow;
-        // The PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps, zw unused.
-        // Packed by PackShadowFilter.
+        // The PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps; z = 1 when the
+        // directional lights' cascades hand over to this frame's distance-field shadow
+        // (ShadowFilterSettings::DistanceField), w unused. Packed by PackShadowFilter.
         glm::vec4 ShadowFilter;
     };
 
@@ -109,12 +110,22 @@ namespace Desert::Graphic::SceneResources
     {
         int BlockerSearchTaps = 16;
         int FilterTaps        = 32;
+        // "Shadows: Distance Field Sun" / "... Light 1" run this frame (SceneRenderer::DistanceFieldShadowRuns:
+        // a directional slot casts; each casting slot's own trace, Common/DistanceFieldShadow.glslh): every lit
+        // surface that samples the sun's cascades cross-fades them into the distance-field mask at the last
+        // cascade's border and takes the mask past it (Common/DistanceFieldShadow.glslh
+        // DistanceFieldShadowCompose) - one value per view, so the forward meshes and the glass agree with the
+        // deferred composite.
+        bool DistanceField = false;
     };
 
     inline void PackShadowFilter( ShadowUBData& data, const ShadowFilterSettings& filter )
     {
+        float distanceField = 0.0f;
+        if ( filter.DistanceField )
+            distanceField = 1.0f;
         data.ShadowFilter = glm::vec4( static_cast<float>( filter.BlockerSearchTaps ),
-                                       static_cast<float>( filter.FilterTaps ), 0.0f, 0.0f );
+                                       static_cast<float>( filter.FilterTaps ), distanceField, 0.0f );
     }
 
     // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the

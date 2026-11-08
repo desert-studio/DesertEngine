@@ -97,7 +97,9 @@ namespace Desert::Graphic::System
         // Per material input k: its slice in the albedo, normal, ARM and height arrays (x, y, z, w; -1 = the
         // input has no map of that kind - flat colour, flat normal, AO/roughness 1, height 0.5).
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> InputSlices{};
-        // x = the input the GROUND draws with (the root's first layer, by name; -1 = none), yzw unused.
+        // x = the input the GROUND draws with (the root's first layer, by name; -1 = none), y = the tile's empty
+        // weightmap channels (LandscapeWeightDraw::EmptyLayers, a bit mask as a float; 0 = every channel walked),
+        // zw unused.
         glm::vec4 GroundInput{ -1.0f, 0.0f, 0.0f, 0.0f };
         // GRASS-FIELD: per tile layer, the grass field's far cover (LandscapeGrassCover, see LandscapeWeightDraw):
         // the blades the generator thins out with distance are carried on by the ground's own shading.
@@ -209,6 +211,11 @@ namespace Desert::Graphic::System
         // caster discards by the visibility layer keys on it (TerrainRenderer::LocalShadowSignature).
         uint64_t                                                           Revision   = 0;
         uint32_t                                                           LayerCount = 0;
+        // THE LAYER ALLOCATION (UE: a component samples only the weightmap layers allocated to it; a layer
+        // painted nowhere on it is not in its material): bit i when channel i is zero at every sample of the
+        // tile - LandscapeECSSystem censuses it with the pixels (TileGpu::EmptyLayers). The surface walks only
+        // the other channels and skips a weightmap page holding none (TerrainInstance::GroundInput.y).
+        uint32_t                                                           EmptyLayers = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
         std::array<glm::vec4, 2>                                           AlphaBlend{};
         // Per tile layer, its LayerName (empty for a layer the root does not name and for the visibility

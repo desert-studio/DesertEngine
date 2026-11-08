@@ -187,10 +187,8 @@ namespace Desert::Graphic
 
     std::optional<glm::uvec2> SceneRenderer::FrameHzbSize( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        const auto* meshes = m_Systems.Mesh.get();
+        const auto* hzbRenderer = m_Systems.HZB.get();
         if ( meshes == nullptr || meshes->MainViewPass() != GpuDriven::MeshPass::GBuffer || !m_GBuffer ||
              hzbRenderer == nullptr || !hzbRenderer->CanBuild() )
             return std::nullopt;
@@ -230,10 +228,31 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), message );
             m_DrawBinsLastError = std::move( message );
         };
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto*                      meshes   = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto*                      meshes   = m_Systems.Mesh.get();
         const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
         const Core::Camera*        camera   = GetMainCamera();
+        // CPU-ISM-PACK: the scene's tables in this graph whatever draws the view - an ISM's CPU-instanced cell
+        // reads
+        // its instances from them by GpuScene id (MeshRenderer::SetFrameSceneInstances), the bins below reuse
+        // the import (one per graph). Before any mesh pass is added.
+        std::optional<std::string> tablesError; // the import's refusal, said where the bins need the tables
+        if ( meshes != nullptr )
+        {
+            meshes->SetFrameSceneInstances( {} );
+            if ( gpuScene != nullptr )
+            {
+                const Common::ResultStr<GpuDriven::GpuSceneBuffers> tables = gpuScene->ImportTables( graph );
+                if ( tables )
+                {
+                    m_FrameGpuSceneTables = tables.GetValue();
+                    meshes->SetFrameSceneInstances( tables.GetValue().Instances );
+                    // The view's ISM ids, once, before any pass reads them (PrepareViewIsmIds).
+                    meshes->PrepareViewIsmIds();
+                }
+                else
+                    tablesError = tables.GetError();
+            }
+        }
         if ( meshes == nullptr || gpuScene == nullptr || camera == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
         {
@@ -246,13 +265,12 @@ namespace Desert::Graphic
             refuse( upload.GetError() );
             return;
         }
-        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = gpuScene->ImportTables( graph );
-        if ( !scene )
+        if ( !m_FrameGpuSceneTables )
         {
-            refuse( scene.GetError() );
+            refuse( tablesError.value_or( "GpuScene: no tables" ) );
             return;
         }
-        m_FrameGpuSceneTables = scene.GetValue();
+        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = Common::MakeSuccess( *m_FrameGpuSceneTables );
 
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
                                      .Projection = camera->GetProjectionMatrix() };
@@ -271,7 +289,12 @@ namespace Desert::Graphic
         const uint32_t                  hzbHeight = hzbSize ? hzbSize->y : 0u;
         const RDG::TextureRef           prevHzb   = hzbSize ? FramePrevHzb( graph, frame, hzbWidth, hzbHeight )
                                                             : RDG::TextureRef{};
-        bins.MainTestsHzb                         = prevHzb.IsValid();
+        // DECALS-DBUFFER item 7: a frame with decals holds nothing back. "Deferred: Decals" reads the prepass
+        // depth, which runs before phase 2 (AddFrameGBuffer before AddFrameDrawBinsPostOcclusion): a mesh phase
+        // 2 drew would receive no decal. UE's DBuffer prepass has no two-phase split, so phase 1 is frustum
+        // only and draws every bin; AddFrameDrawBinsPostOcclusion still builds this frame's HZB (the prepass
+        // view's cull, next frame's history) and runs no phase 2 (MainTestsHzb false).
+        bins.MainTestsHzb = prevHzb.IsValid() && !m_Decals.HasDecals();
         {
             GpuDriven::CullViewInput mainInput = MakeCullView(
                  mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale,
@@ -350,6 +373,27 @@ namespace Desert::Graphic
                     // (ClusterCut.shader), instead of drawing their whole LOD mesh from the bins.
                     bins.CutViewOf.push_back( cutViews++ );
                 }
+                // THE CASCADE CONTENT HASH (CPU-ISM-SHADOW; UE VSM: the GPU decides which instances invalidate a
+                // cached page): every frame, drawn or cached, the static layer's cull over the box grown by whole
+                // cells sums what it would draw into the cells (GpuDriven::CascadeContentHash), read back slots
+                // in flight late by MeshRenderer::CascadeContentAnswer, the key of the bin-held fields.
+                if ( const std::optional<System::MeshRenderer::CascadeContentView> content =
+                          meshes->CascadeContentViewOf( view ) )
+                {
+                    views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
+                                                   CascadeCasterFrustum( content->GrownViewProjection ), lod,
+                                                   lensScale, meshes->ShadowWindDistanceOf( view ),
+                                                   casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer |
+                                                        GpuDriven::CullViewFlags::kContentHash ) );
+                    views.back().View.CasterRing = meshes->ShadowWindRingOf( view );
+                    views.back().View.ContentCells =
+                         glm::ivec4( content->TexelOrigin, content->CellTexels,
+                                     static_cast<int32_t>( bins.ContentViews.size() ) );
+                    bins.ContentViews.push_back( view );
+                    viewKeys.push_back( GpuDriven::kInvalidIndex ); // issues no bins (SetFrameBinned skips it)
+                    bins.ViewNames.push_back( std::format( "shadowCascade{}Content", c ) );
+                    bins.CutViewOf.push_back( GpuDriven::kInvalidIndex );
+                }
             }
         }
 
@@ -379,8 +423,12 @@ namespace Desert::Graphic
         // A cut view's VG instances are candidates, in none of its bins, only when the frame appended some.
         const bool appendsVg  = vgTables.Input.PrimitiveDags.IsValid();
         bool       mainIssued = false;
+        meshes->ExtractCascadeContent( graph, frame.FrameIndex, culled.GetValue().ContentHash,
+                                       culled.GetValue().ContentRegions, bins.ContentViews );
         for ( size_t v = 0; v < views.size(); ++v )
         {
+            if ( ( views[v].View.Flags & GpuDriven::CullViewFlags::kContentHash ) != 0u )
+                continue; // its cells are its output (ExtractCascadeContent above)
             const bool issued = meshes->SetFrameBinned(
                  static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v], culled.GetValue().Draws[v],
                  upload.GetValue(), scene.GetValue(), appendsVg && bins.CutViewOf[v] != GpuDriven::kInvalidIndex );
@@ -447,8 +495,7 @@ namespace Desert::Graphic
 
         // This frame's furthest HZB of the phase-1 depth: phase 2's occlusion input, the depth prepass view's,
         // and next frame's phase 1.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto*      hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        auto*      hzbRenderer = m_Systems.HZB.get();
         const bool gbufferView =
              bins.Views.front().View.Pass == static_cast<uint32_t>( GpuDriven::MeshPass::GBuffer );
         const RDG::TextureRef depth     = textures.Depth( m_GBuffer, "GBuffer" );
@@ -542,10 +589,8 @@ namespace Desert::Graphic
             m_GpuCullLastError = std::move( message );
         };
 
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* hzbRenderer                   = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        auto* meshes = m_Systems.Mesh.get();
+        auto* hzbRenderer                   = m_Systems.HZB.get();
         const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
         const Core::Camera*        camera   = GetMainCamera();
         if ( meshes == nullptr || hzbRenderer == nullptr || gpuScene == nullptr || camera == nullptr )
@@ -753,15 +798,17 @@ namespace Desert::Graphic
                                                       .PrimitiveDraws  = in.Upload.Passes[pass].PrimitiveDraws,
                                                       .GroupCount      = bins.GroupCount } );
             // The groups the pass draws (SetFrameVirtualGeometry made a carrier for each of them, or refused).
-            std::vector<uint8_t> drawn;
+            // Kept storage (CPU-FRAME-ARENA 8): Add copies the flags into its slot's kept entry.
+            thread_local std::vector<uint8_t> drawn;
+            drawn.clear();
             if ( attached )
             {
-                drawn.reserve( passTable.Groups.size() );
                 for ( const GpuDriven::IndirectGroup& group : passTable.Groups )
                     drawn.push_back( static_cast<uint8_t>( group.BinCount != 0u && group.Pipeline != nullptr &&
                                                            group.VirtualGeometryPipeline != nullptr ) );
             }
-            counts.Add( graph, kind, culled.GetValue(), attached ? &bins : nullptr, std::move( drawn ) );
+            const VirtualGeometry::RasterBins* const drawnBins = attached ? &bins : nullptr;
+            counts.Add( graph, kind, culled.GetValue(), drawnBins, drawn );
             return culled;
         }
     } // namespace
@@ -770,8 +817,7 @@ namespace Desert::Graphic
     {
         m_FrameVirtualGeometry.reset();
         m_VirtualGeometryInstances = 0;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshes = m_Systems.Mesh.get();
         if ( !m_FrameDrawBins || !m_FrameDrawBins->VgCandidates.Rows.IsValid() || meshes == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
         {
@@ -906,8 +952,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshes = m_Systems.Mesh.get();
         if ( !m_FrameVirtualGeometry || !m_FrameVirtualGeometry->OccludedCandidates.IsValid() ||
              !m_FrameDrawBins || !m_VirtualGeometry || !m_ClusterCutCounts || meshes == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
@@ -949,8 +994,7 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameVirtualGeometryShadowPages( RDG::Builder&                        graph,
                                                             const System::VirtualShadowMapFrame& pages )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto*               meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto*               meshes = m_Systems.Mesh.get();
         const Core::Camera* camera = GetMainCamera();
         // The VG candidates exist only when the draw bins appended some this frame (a VG mesh in the queue) and
         // AddFrameVirtualGeometry began this frame's counts.
@@ -1087,34 +1131,34 @@ namespace Desert::Graphic
             return;
         }
         const VirtualGeometry::RasterBins& raster = rasterBins.GetValue();
-        auto                               drawn  = meshes->SetVirtualShadowGeometry(
+        const auto                         set    = meshes->SetVirtualShadowGeometry(
              System::MeshRendererDetail::VirtualGeometryIssue{ .GroupArgs = raster.GroupArgs,
-                                                                                              .Rows = raster.Rows,
-                                                                                              .VisibleClusters = raster.VisibleClusters,
-                                                                                              .Clusters = vgMeshes.Clusters,
-                                                                                              .Dags = vgMeshes.Dags,
-                                                                                              .PrimitiveDraws =
+                                                                                          .Rows = raster.Rows,
+                                                                                          .VisibleClusters = raster.VisibleClusters,
+                                                                                          .Clusters = vgMeshes.Clusters,
+                                                                                          .Dags = vgMeshes.Dags,
+                                                                                          .PrimitiveDraws =
                                                                     bins.Upload.Passes[tableIndex].PrimitiveDraws,
-                                                                                              .GroupCount = raster.GroupCount },
-             bins.Upload, bins.Scene );
-        if ( !drawn )
+                                                                                          .GroupCount = raster.GroupCount },
+             bins.Upload, bins.Scene, m_VsmDrawnGroups );
+        if ( !set.IsSuccess() )
         {
             m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(),
                                      nullptr, {} );
-            logOnce( std::format( "VSM levels: {}", drawn.GetError() ) );
+            logOnce( std::format( "VSM levels: {}", set.GetError() ) );
             return;
         }
         m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), &raster,
-                                 std::move( drawn.GetValue() ) );
+                                 m_VsmDrawnGroups );
     }
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
     {
-        const auto                  meshSystem = m_RenderSystems.find( "MeshSystem" );
+        const auto& meshSystem = m_Systems.Mesh;
         const System::MeshRenderer* meshes =
-             meshSystem == m_RenderSystems.end()
+             !meshSystem
                   ? nullptr
-                  : static_cast<const System::MeshRenderer*>( meshSystem->second.get() );
+                  : meshSystem.get();
         const uint32_t refused  = meshes != nullptr ? meshes->VsmRefusedGroups() : 0u;
         const uint32_t fallback = meshes != nullptr ? meshes->VsmFallbackSubmeshes() : 0u;
         if ( !m_ClusterCutCounts )

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Memory/FrameArena.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -552,7 +553,13 @@ namespace Desert::Graphic::API::Vulkan
     // combination was written into; a later draw of the same combination binds them. A set is written before its
     // first bind and never after it, so every draw that binds it reads the same descriptors it would have had in a
     // set of its own. Never kept across passes: a pass's blocks name only its own resources, and the pool the sets
-    // came from is reset with the frame slot.
+    // came from is reset with the frame slot. (The key names the block by its pass index, which restarts with
+    // every graph: a memo kept past EndPass could hand graph B's pass 3 the sets of graph A's pass 3. Reuse ACROSS
+    // passes of equal content is the descriptor cache's (WriteRdgPassSets), keyed by what the sets hold.)
+    // CPU-DRAW-BIND (UE FMeshDrawCommandStateCache: O(1) per draw, nothing allocated): an open-addressing table
+    // over flat entry / binding / set arrays. Clear() empties the arrays (capacity kept) and bumps the table's
+    // generation, so a pass boundary frees nothing and touches no slot; a lookup hashes the key once. One memo per
+    // recording context (the backend's own, each chunk's), never shared between threads.
     class VulkanRdgPassSetMemo
     {
     public:
@@ -573,30 +580,49 @@ namespace Desert::Graphic::API::Vulkan
             size_t                    BlockPushBytes = 0;
         };
 
-        // The sets written for @p key in this pass exec, or null.
-        [[nodiscard]] const std::vector<VkDescriptorSet>* Find( const Key& key ) const;
-        // The sets just written for @p key (its MaterialBindings are copied).
-        void Keep( const Key& key, std::vector<VkDescriptorSet> sets );
-        // A pass exec begins or ends: nothing written for another pass is bound by this one.
-        void Clear();
+        // The sets written for @p key in this pass exec (possibly none: a layout with no sets), or nullopt when
+        // the combination was not written yet. The span is valid until the next Keep or Clear.
+        [[nodiscard]] std::optional<std::span<const VkDescriptorSet>> Find( const Key& key ) const noexcept;
+        // The sets just written for @p key (they and its MaterialBindings are copied); returns the kept copy,
+        // valid until the next Keep or Clear.
+        std::span<const VkDescriptorSet> Keep( const Key& key, std::span<const VkDescriptorSet> sets ) noexcept;
+        // A pass exec begins or ends: nothing written for another pass is bound by this one. O(1), frees nothing.
+        void Clear() noexcept;
 
     private:
         struct Entry
         {
-            RDG::BindingBlockRef         Block;
-            std::uintptr_t               Shader         = 0;
-            VkPipelineLayout             Layout         = VK_NULL_HANDLE;
-            std::uintptr_t               Material       = 0;
-            VkDescriptorSet              MaterialSet    = VK_NULL_HANDLE;
-            std::vector<uint32_t>        MaterialBindings;
-            bool                         MaterialPush   = false;
-            size_t                       BlockPushBytes = 0;
-            std::vector<VkDescriptorSet> Sets;
+            RDG::BindingBlockRef Block;
+            std::uintptr_t       Shader         = 0;
+            VkPipelineLayout     Layout         = VK_NULL_HANDLE;
+            std::uintptr_t       Material       = 0;
+            VkDescriptorSet      MaterialSet    = VK_NULL_HANDLE;
+            bool                 MaterialPush   = false;
+            size_t               BlockPushBytes = 0;
+            uint64_t             Hash           = 0;
+            uint32_t             BindingsFirst  = 0; // into m_Bindings
+            uint32_t             BindingsCount  = 0;
+            uint32_t             SetsFirst      = 0; // into m_Sets
+            uint32_t             SetsCount      = 0;
         };
-        [[nodiscard]] static bool Matches( const Entry& entry, const Key& key );
+        // A table slot: Entry is live only while Generation equals the memo's m_Generation.
+        struct Slot
+        {
+            uint32_t Generation = 0;
+            uint32_t Entry      = 0;
+        };
+        [[nodiscard]] static uint64_t HashOf( const Key& key ) noexcept;
+        [[nodiscard]] bool            Matches( const Entry& entry, uint64_t hash, const Key& key ) const noexcept;
+        [[nodiscard]] std::span<const VkDescriptorSet> SetsOf( const Entry& entry ) const noexcept;
+        void                                           Insert( uint32_t entry ) noexcept; // into m_Slots
+        void                                           Grow() noexcept; // doubles m_Slots, re-inserts the live
 
-        std::vector<Entry> m_Entries;
-        mutable size_t     m_LastHit = 0; // consecutive draws of one block hit the same entry
+        std::vector<Entry>           m_Entries;
+        std::vector<uint32_t>        m_Bindings; // every entry's MaterialBindings, back to back
+        std::vector<VkDescriptorSet> m_Sets;     // every entry's sets, back to back
+        std::vector<Slot>            m_Slots;    // power of two (or empty); at most half live
+        uint32_t                     m_Generation = 1;
+        mutable uint32_t             m_LastHit    = ~0u; // consecutive draws of one block hit the same entry
     };
 
     // Memory requirements from the device, for Compile's aliasing plan: the same create info the pool uses,
@@ -705,7 +731,10 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
         // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
-        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override;
+        Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t at,
+                                            std::span<const std::byte> bytes ) override;
+        Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
+                                          uint64_t targetOffset, uint64_t bytes ) override;
 
         // The compatibility key of the render pass this backend has open on its command buffer, empty between
         // passes. Pipelines bound by an exec lambda are resolved against it
@@ -719,6 +748,8 @@ namespace Desert::Graphic::API::Vulkan
 
         std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override;
         std::shared_ptr<RDG::IPhysicalBuffer>  GetPhysicalBuffer( uint32_t resource ) const override;
+        RDG::IPhysicalTexture*                 FindPhysicalTexture( uint32_t resource ) const override;
+        RDG::IPhysicalBuffer*                  FindPhysicalBuffer( uint32_t resource ) const override;
 
         // ── RDG-CONTRACTS additions ──────────────────────────────────────────────────────────────────────
         // A(1) / B(3): what the backend records into for the frame in @p slot, set by the frame loop after the
@@ -740,6 +771,8 @@ namespace Desert::Graphic::API::Vulkan
         RDG::PipeCapabilities         GetPipeCapabilities() const override;
         RDG::AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() override;
         RDG::PassFaultReporter&       GetPassFaultReporter() override;
+        // RDG-RECORD-COMPILE-CACHE: nullptr while RenderConfig::RdgCompileCache is off.
+        RDG::CompileCache*            GetCompileCache() override;
         Common::BoolResultStr         BeginPipeSegment( const RDG::PipeSegment& segment ) override;
         Common::BoolResultStr         EndPipeSegment( const RDG::PipeSegment& segment ) override;
         // Vulkan 1.0 queue family ownership transfer: a VkImage/BufferMemoryBarrier with srcQueueFamilyIndex =
@@ -791,6 +824,9 @@ namespace Desert::Graphic::API::Vulkan
             Chunk*               PreviousChunk   = nullptr;
             VulkanRecordContext* PreviousContext = nullptr;
             uint32_t             PreviousArena   = 0;
+            // CPU-FRAME-ARENA (MEM-7): the barrier and render-pass scratch of its passes (ScratchArena). Reset by
+            // BeginChunks; every user takes it under a ScopedMark, so it is empty between two calls.
+            Common::Memory::FrameArena Scratch;
         };
         // The chunk bound to the calling thread by BeginChunk, when it is this backend's; else null.
         [[nodiscard]] Chunk* BoundChunk() const noexcept
@@ -812,6 +848,14 @@ namespace Desert::Graphic::API::Vulkan
             Chunk* const chunk = BoundChunk();
             return chunk != nullptr ? chunk->PassSets : m_PassSets;
         }
+        // CPU-FRAME-ARENA (MEM-7; UE: FMemStack per thread): the scratch of the calling thread's recording - its
+        // chunk's arena on a worker, the backend's own on the thread that records without a chunk (the same split
+        // as RecordingBuffer). Taken under a FrameArena::ScopedMark: it is empty again when the taker returns.
+        [[nodiscard]] Common::Memory::FrameArena& ScratchArena() noexcept
+        {
+            Chunk* const chunk = BoundChunk();
+            return chunk != nullptr ? chunk->Scratch : m_Scratch;
+        }
         [[nodiscard]] std::vector<int32_t>& ProfilerScopesState() noexcept
         {
             Chunk* const chunk = BoundChunk();
@@ -819,6 +863,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         std::vector<std::unique_ptr<Chunk>> m_Chunks; // reused across graphs; the first m_ChunkCount are this graph's
         uint32_t                            m_ChunkCount = 0;
+        Common::Memory::FrameArena          m_Scratch; // ScratchArena of the thread recording without a chunk
         static inline thread_local Chunk*   t_Chunk      = nullptr;
 
         struct FramebufferEntry
@@ -864,6 +909,8 @@ namespace Desert::Graphic::API::Vulkan
         RDG::AsyncComputeFallbackLog m_FallbackLog; // B(4): the engine logger at Warning
         // RDG-FAULT1: the one place a pass fault is logged; per backend, so it outlives the per-frame graphs.
         RDG::PassFaultReporter m_FaultReporter;
+        // RDG-RECORD-COMPILE-CACHE: the compiled plans of this backend's graphs; counts its frames in BeginFrame.
+        RDG::CompileCache m_CompileCache;
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
         uint32_t                     m_FrameSlot   = 0;
         const VulkanRdgQueueSet*     m_Queues      = nullptr;
@@ -901,6 +948,8 @@ namespace Desert::Graphic::API::Vulkan
         std::string m_QueueBoundaryScopeName;
         void        OpenQueueBoundaryScope( const RDG::PipeSegment& ending );
         void        CloseQueueBoundaryScope();
+        // Holds the boundary row's end stamp on a join's wait stages (BeginPipeSegment).
+        void RecordJoinWaitBarrier( const RDG::PipeSegment& segment, VkCommandBuffer commandBuffer ) noexcept;
         // Per graph name, the STRUCTURE of the async segments last logged (BeginGraph): each segment's first and
         // last position and the positions its signal is waited at. A new "[RDG] ... async compute segments" line
         // only when that structure changes - never because a pass name carries this frame's counts.

@@ -2,6 +2,9 @@
 #include "MeshRendererInternal.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Common/Core/JobSystem.hpp>
+
+#include <cassert>
 
 namespace Desert::Graphic::System
 {
@@ -19,28 +22,81 @@ namespace Desert::Graphic::System
         // where a block's shader has the slot; everything else in a block is the material's.
         // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
         // redraw follows on the deferred path.
-        m_GeometryPass = MeshPass::GBuffer;
         DESERT_PROFILE_SCOPE( "Mesh: GBuffer setup" );
         // THE DEFERRED EARLY-Z PAIRING (UE r.EarlyZPass; DeferredPrepassHalf): when "Deferred: Masked Depth
-        // Prepass" drew this frame's groups, the G-buffer draws them EQUAL through their DepthEqual cells (the Equal
-        // half) and every other one as before (the Rest half), each half one call of the same builders.
+        // Prepass" drew this frame's groups, the G-buffer draws them EQUAL through their DepthEqual cells (the
+        // Equal half) and every other one as before (the Rest half), each half one call of the same builders.
+        // RENDER-PARALLEL-SETUP (UE FParallelMeshDrawCommandPass: what a task needs is resolved before the tasks,
+        // which only read). A serial pre-pass first - one walk of the queue, each half's split, every renderer
+        // cache miss, the ISM culls and copies, every shared-material write (DrawBuildPhase::Resolve), the Equal
+        // half first, as the serial builds always filled the caches - then the two halves' per-object recording
+        // on two setup tasks, each into its own list from its own scratch (DrawBuildPhase::Record), then the
+        // instance uploads. The skinned halves stay serial: their walk resolves a material per section. The
+        // lists are appended in the serial order - Equal, Rest statics, the Rest half's GPU-instanced sections
+        // (built here, serially, after the join), Rest skinned - and the ISM counts summed. The same calls run
+        // with RenderPipeline.ParallelSetup off (the tasks inline, in launch order), so the frame is the same.
         if ( m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && PrepassCurrent() )
         {
-            m_IsmInstancesDrawn = 0;
-            m_DeferredHalf      = DeferredPrepassHalf::Equal;
-            BuildStaticDraws( m_GBufferDraws );
-            BuildSkinnedDraws( m_GBufferDraws );
-            m_DeferredHalf = DeferredPrepassHalf::Rest;
-            BuildStaticDraws( m_GBufferDraws );
-            BuildSkinnedDraws( m_GBufferDraws );
-            m_DeferredHalf = DeferredPrepassHalf::None;
+            MeshDrawList& equalDraws  = m_GBufferHalfDraws[0];
+            MeshDrawList& restStatic  = m_GBufferHalfDraws[1];
+            MeshDrawList& restSkinned = m_GBufferHalfDraws[2];
+            equalDraws.Clear();
+            restStatic.Clear();
+            restSkinned.Clear();
+            DrawBuildScratch&   equalScratch = m_DrawBuildScratch[0];
+            DrawBuildScratch&   restScratch  = m_DrawBuildScratch[1];
+            const DrawBuildMode equal{ .Pass = MeshPass::GBuffer, .Half = DeferredPrepassHalf::Equal };
+            const DrawBuildMode rest{ .Pass = MeshPass::GBuffer, .Half = DeferredPrepassHalf::Rest };
+            uint32_t            ismInstances = 0;
+            {
+                DESERT_PROFILE_SCOPE( "Mesh: GBuffer halves resolve" );
+                const DrawBuildMode equalResolve{ .Pass  = MeshPass::GBuffer,
+                                                  .Half  = DeferredPrepassHalf::Equal,
+                                                  .Phase = DrawBuildPhase::Resolve };
+                const DrawBuildMode restResolve{ .Pass  = MeshPass::GBuffer,
+                                                 .Half  = DeferredPrepassHalf::Rest,
+                                                 .Phase = DrawBuildPhase::Resolve,
+                                                 .Walk  = &equalScratch };
+                ismInstances += BuildStaticDraws( equalDraws, equalResolve, equalScratch );
+                ismInstances += BuildStaticDraws( restStatic, restResolve, restScratch );
+            }
+            {
+                DESERT_PROFILE_SCOPE( "Mesh: GBuffer halves (tasks + join)" );
+                const DrawBuildMode equalRecord{ .Pass  = MeshPass::GBuffer,
+                                                 .Half  = DeferredPrepassHalf::Equal,
+                                                 .Phase = DrawBuildPhase::Record };
+                const DrawBuildMode restRecord{ .Pass  = MeshPass::GBuffer,
+                                                .Half  = DeferredPrepassHalf::Rest,
+                                                .Phase = DrawBuildPhase::Record };
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                tasks.Launch( "Mesh: GBuffer Equal half",
+                              [&]() noexcept
+                              {
+                                  static_cast<void>( BuildStaticDraws( equalDraws, equalRecord, equalScratch ) );
+                              } );
+                tasks.Launch( "Mesh: GBuffer Rest half",
+                              [&]() noexcept
+                              {
+                                  static_cast<void>( BuildStaticDraws( restStatic, restRecord, restScratch ) );
+                              } );
+                tasks.Join();
+            }
+            FlushStaticUploads( equalScratch );
+            FlushStaticUploads( restScratch );
+            BuildSkinnedDraws( equalDraws, equal, equalScratch );
+            BuildSkinnedDraws( restSkinned, rest, restScratch );
+            m_IsmInstancesDrawn = ismInstances;
+            m_GBufferDraws.Append( equalDraws );
+            m_GBufferDraws.Append( restStatic );
+            BuildRestGpuInstancedDraws( m_GBufferDraws );
+            m_GBufferDraws.Append( restSkinned );
         }
         else
         {
-            BuildStaticDraws( m_GBufferDraws );
-            BuildSkinnedDraws( m_GBufferDraws );
+            const DrawBuildMode gbuffer{ .Pass = MeshPass::GBuffer, .Half = DeferredPrepassHalf::None };
+            m_IsmInstancesDrawn = BuildStaticDraws( m_GBufferDraws, gbuffer, m_DrawBuildScratch[0] );
+            BuildSkinnedDraws( m_GBufferDraws, gbuffer, m_DrawBuildScratch[0] );
         }
-        m_GeometryPass = MeshPass::Forward;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
         // The bins: this frame's early-Z issue when "Deferred: Masked Depth Prepass" drew some of them
@@ -105,12 +161,10 @@ namespace Desert::Graphic::System
         {
             const ViewFrame* const frame = m_SceneRenderer->GetViewFrame();
             m_PrepassFrame = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
-            m_GeometryPass = MeshPass::Depth;
-            m_DeferredHalf = DeferredPrepassHalf::Depth;
-            BuildStaticDraws( m_MaskedDepthDraws );
-            BuildSkinnedDraws( m_MaskedDepthDraws );
-            m_DeferredHalf = DeferredPrepassHalf::None;
-            m_GeometryPass = MeshPass::Forward;
+            // Serial: this half writes m_PrepassCellDraws, which both G-buffer halves read.
+            const DrawBuildMode depth{ .Pass = MeshPass::Depth, .Half = DeferredPrepassHalf::Depth };
+            static_cast<void>( BuildStaticDraws( m_MaskedDepthDraws, depth, m_DrawBuildScratch[0] ) );
+            BuildSkinnedDraws( m_MaskedDepthDraws, depth, m_DrawBuildScratch[0] );
         }
         // The GPU-instanced sections (the landscape grass): paired by BuildGpuInstancedDraws (m_MaskedPrepassed).
         if ( m_InstancedViewDepthPipeline && m_InstancedGBufferEqualPipeline )
@@ -157,10 +211,11 @@ namespace Desert::Graphic::System
         return false;
     }
 
-    bool MeshRenderer::DeferredHalfTakes( const DataDrivenMaterial* source, const PrepassCellKey& key ) const
+    bool MeshRenderer::DeferredHalfTakes( const DeferredPrepassHalf half, const DataDrivenMaterial* source,
+                                          const PrepassCellKey& key ) const
     {
         using CellDraw = MaterialPipelineTracker::CellDraw;
-        switch ( m_DeferredHalf )
+        switch ( half )
         {
             case DeferredPrepassHalf::None:
                 return true;
@@ -179,7 +234,21 @@ namespace Desert::Graphic::System
         auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr || built == nullptr )
             return nullptr;
+        // The service's permutation lookup interns the sibling (SiblingOf): a write, so never on a setup task.
+        if ( MissInSetupTask( "a DepthEqual sibling" ) )
+            return nullptr;
         return materials->GetVariant( built, path, MeshPass::GBuffer, SurfaceDepthEqualVariant() );
+    }
+
+    bool MeshRenderer::MissInSetupTask( const std::string_view what ) const
+    {
+        if ( !::Common::TaskGroup::InTask() )
+            return false;
+        LOG_ERROR( "[RenderTask] MeshRenderer: {} was not resolved before the setup tasks "
+                   "(DrawBuildPhase::Resolve missed it); not drawn",
+                   what );
+        assert( false && "MeshRenderer: a renderer cache missed inside a setup task (Common::TaskGroup)" );
+        return true;
     }
 
     std::shared_ptr<GraphicsPipeline> MeshRenderer::EarlyZTwinPipeline( const std::shared_ptr<Shader>& shader,
@@ -503,14 +572,12 @@ namespace Desert::Graphic::System
         BuildGpuInstancedDraws( list, m_InstancedVisibilityPipeline.get(), MeshPass::Visibility,
                                 CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
         list.Declare( pass, view,
-                                              [visibility]( RDG::BindingBlockBuilder&         block,
-                                                            const RDG::ShaderBindingLayout& layout )
-                                              {
-                                                  if ( SceneViewDetail::LayoutReadsBuffer(
-                                                            layout, SceneResources::kVisibilityBuffer.Name ) )
-                                                      block.Storage( SceneResources::kVisibilityBuffer, visibility,
-                                                                     RDG::Access::StorageWrite );
-                                              } );
+                      [visibility]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
+                      {
+                          if ( slotted.Slots.Has( SceneViewSlot::VisibilityBuffer ) )
+                              block.Storage( SceneResources::kVisibilityBuffer, visibility,
+                                             RDG::Access::StorageWrite );
+                      } );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
@@ -533,14 +600,12 @@ namespace Desert::Graphic::System
         BuildGpuInstancedDraws( list, m_InstancedVisibilityResolvePipeline.get(), MeshPass::VisibilityResolve,
                                 CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false, path );
         list.Declare( pass, view,
-                                               [visibility]( RDG::BindingBlockBuilder&         block,
-                                                             const RDG::ShaderBindingLayout& layout )
-                                               {
-                                                   if ( SceneViewDetail::LayoutReadsBuffer(
-                                                             layout, SceneResources::kVisibilityBuffer.Name ) )
-                                                       block.Storage( SceneResources::kVisibilityBuffer, visibility,
-                                                                      RDG::Access::StorageRead );
-                                               } );
+                      [visibility]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
+                      {
+                          if ( slotted.Slots.Has( SceneViewSlot::VisibilityBuffer ) )
+                              block.Storage( SceneResources::kVisibilityBuffer, visibility,
+                                             RDG::Access::StorageRead );
+                      } );
     }
 
     Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
@@ -661,10 +726,9 @@ namespace Desert::Graphic::System
         m_GenericPrepassRayTracedSun     = false;
         m_GenericPrepassLocalShadowMasks = false;
         m_GenericPrepassVirtualLocal     = m_ForwardVirtualLocal;
-        m_GeometryPass                   = MeshPass::Depth;
-        BuildStaticDraws( m_DepthPrepassDraws );
-        BuildSkinnedDraws( m_DepthPrepassDraws );
-        m_GeometryPass = MeshPass::Forward;
+        const DrawBuildMode prepass{ .Pass = MeshPass::Depth, .Half = DeferredPrepassHalf::None };
+        m_IsmInstancesDrawn = BuildStaticDraws( m_DepthPrepassDraws, prepass, m_DrawBuildScratch[0] );
+        BuildSkinnedDraws( m_DepthPrepassDraws, prepass, m_DrawBuildScratch[0] );
         BuildGenericDraws( m_DepthPrepassDraws, GenericSlice::ForwardDepth );
         m_DepthPrepassDraws.Declare( pass, view );
         // The skin cache's streams the (Skinned x Depth) cell fetches by address (Vertex_Skinned.glslh).
@@ -688,15 +752,17 @@ namespace Desert::Graphic::System
     {
         if ( !PrepassCurrent() )
             return std::nullopt;
-        const auto found = m_PrepassCellDraws.find( key );
-        return found != m_PrepassCellDraws.end() ? std::optional( found->second ) : std::nullopt;
+        const auto found = std::ranges::lower_bound( m_PrepassCellDraws, key, {}, &PrepassCellEntry::first );
+        if ( found == m_PrepassCellDraws.end() || !( found->first == key ) )
+            return std::nullopt;
+        return found->second;
     }
 
-    bool MeshRenderer::PairsWithPrepass( const bool wireframeReplaced ) const
+    bool MeshRenderer::PairsWithPrepass( const MeshPass pass, const bool wireframeReplaced ) const
     {
         // Only the forward path builds these two passes (the deferred one draws its meshes into the G-buffer), and
         // only with the prepass's cells; the Wireframe view's static and instanced twins write their own depth.
-        if ( m_GeometryPass != MeshPass::Forward && m_GeometryPass != MeshPass::Depth )
+        if ( pass != MeshPass::Forward && pass != MeshPass::Depth )
             return false;
         if ( wireframeReplaced && WireframeView() )
             return false;

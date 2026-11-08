@@ -65,10 +65,18 @@ namespace Desert::VFX
         std::uint64_t BudgetTakenBefore = 0;
     };
 
-    /// The verdict of every candidate, in their order. No view (headless) = nothing culled, scale 1.
-    std::vector<VFXScalabilityVerdict> EvaluateVFXScalability( std::span<const VFXViewReport>          views,
-                                                               std::span<const VFXScalabilityCandidate> candidates,
-                                                               double                                   tickSeconds );
+    /// The decision's working storage, owned by the caller and reused tick after tick (UE Niagara's scalability
+    /// manager keeps its arrays across updates), so a warm tick allocates nothing.
+    struct VFXScalabilityScratch
+    {
+        std::vector<std::size_t> Order; // candidate indices, sorted per pass
+    };
+
+    /// The verdict of every candidate, written into @p out in their order (out.size() == candidates.size();
+    /// every verdict is overwritten). No view (headless) = nothing culled, scale 1.
+    void EvaluateVFXScalability( std::span<const VFXViewReport>           views,
+                                 std::span<const VFXScalabilityCandidate> candidates, double tickSeconds,
+                                 std::span<VFXScalabilityVerdict> out, VFXScalabilityScratch& scratch ) noexcept;
 
     /// "distance", "view frustum", ... for the log.
     const char* VFXCullReasonName( VFXCullReason reason );

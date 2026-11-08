@@ -11,6 +11,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -41,6 +42,22 @@ namespace Desert::Graphic
      * subclass; its destructor hands them to the allocator's deferred queue, so a view may close at any point
      * of a frame.
      */
+    /**
+     * @brief CPU-RDG-PREPARE (UE FMaterialRenderProxy::CacheUniformExpressions: a material's uniform buffers are
+     * rewritten only when invalidated). What a material's prepare had applied to ONE (view, frame in flight) copy
+     * of its descriptor sets: the newest stamp of each process-wide monotonic counter its inputs carry. Every
+     * counter hands out a value greater than all earlier ones, so any input that changes raises its maximum: an
+     * equal revision means the prepare would write nothing into this copy.
+     */
+    struct PreparedRevision
+    {
+        uint64_t Properties = 0; // PropertyVersion: property writes and uniform-buffer field writes
+        uint64_t Images     = 0; // Image2D::GetResourceGeneration of the bound 2D images
+        uint64_t Copies     = 0; // ViewCopiedBlock::GetCopyEpoch of the bound uniform / storage blocks
+
+        bool operator==( const PreparedRevision& ) const = default;
+    };
+
     class IViewDescriptorSetCopy : public IViewResourceCopy
     {
     public:
@@ -53,6 +70,10 @@ namespace Desert::Graphic
         // Which buffer COPY each binding was last written with. A fresh set points at fallbacks, so every
         // buffer binding is owed a write — which an empty record says by construction.
         ShaderResources::DescriptorCopyRecord BoundCopies;
+        // CPU-RDG-PREPARE: what the last complete prepare applied to THESE sets (one view, one frame in flight);
+        // empty until one did, or after one met a refusal. Each frame-in-flight copy keeps its own, so a material
+        // edited once still reaches every slot: each slot's revision is behind until that slot's prepare ran.
+        std::optional<PreparedRevision> Prepared;
     };
 
     /**
@@ -135,9 +156,12 @@ namespace Desert::Graphic
                                                          "success and returned no sets",
                                                          view.GetName(), frameIndex );
 
-            HandOver handOver( std::move( made ) );
+            HandOver   handOver( std::move( made ) );
+            const auto filedCopy = view.Acquire( m_Key, frameIndex, handOver );
+            if ( !filedCopy.IsSuccess() )
+                return Common::MakeError<bool>( filedCopy.GetError() );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            out = static_cast<IViewDescriptorSetCopy*>( &view.Acquire( m_Key, frameIndex, handOver ) );
+            out = static_cast<IViewDescriptorSetCopy*>( filedCopy.GetValue() );
             initialize( frameIndex );
             return Common::MakeSuccess( true );
         }

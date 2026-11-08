@@ -87,10 +87,11 @@ namespace Desert::Graphic::GpuDriven
         entry.Frame     = m_Frame;
     }
 
-    void GpuSceneRegistry::AskedThisFrame( MaterialEntry& entry ) const
+    void GpuSceneRegistry::AskedThisFrame( MaterialEntry& entry )
     {
         if ( entry.Frame != m_Frame ) // the first view of this frame to ask
         {
+            ++m_MaterialsAsked;
             entry.PrevFrame = entry.Frame;
             entry.Frame     = m_Frame;
         }
@@ -135,12 +136,14 @@ namespace Desert::Graphic::GpuDriven
     void GpuSceneRegistry::DiscardFrame()
     {
         m_Scene.DiscardFrame();
+        m_CountsExact = false; // the restored stamps are of an older frame: the next retire walks every map
         for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
         {
             Entry& entry = it->second;
             if ( entry.BonesFrame == m_Frame )
             {
-                entry.Bones.swap( entry.PrevBones );
+                entry.BoneOffset = entry.PrevBoneOffset;
+                entry.BoneCount  = entry.PrevBoneCount;
                 entry.BonesFrame = entry.PrevBonesFrame;
             }
             if ( entry.Frame == m_Frame )
@@ -153,6 +156,26 @@ namespace Desert::Graphic::GpuDriven
             }
             ++it;
         }
+        // The static slots as the map's entries, only those the discarded frame stamped one by one (written or
+        // folded); the list's stamp rolls back as a whole. GpuScene rolled the frame's transforms back, so no
+        // list a caller holds is current any more: KeepStatic refuses until the next SyncStatic.
+        for ( const uint32_t index : m_StaticWritten )
+        {
+            StaticSlot& slot = m_StaticSlots[index];
+            if ( !slot.Live )
+                continue;
+            if ( slot.Held.Frame == m_Frame )
+                slot.Held.Frame = slot.Held.PrevFrame;
+            if ( slot.Held.Frame == kNoFrame ) // added by the discarded frame
+                RemoveStatic( slot );
+        }
+        m_StaticWritten.clear();
+        if ( m_StaticListFrame == m_Frame )
+        {
+            m_StaticListFrame     = m_StaticListPrevFrame;
+            m_StaticListPrevFrame = kNoFrame;
+        }
+        m_StaticToken = 0;
         for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
         {
             MaterialEntry& entry = it->second;
@@ -168,6 +191,8 @@ namespace Desert::Graphic::GpuDriven
         }
         m_Frame         = m_PreviousFrame;
         m_PreviousFrame = m_FrameBeforePrevious;
+        // The restored frame's palette is current again; the discarded one is never read (no entry names it).
+        m_FramePalettes.swap( m_PreviousPalettes );
     }
 
     void GpuSceneRegistry::BeginFrame( const uint64_t frame )
@@ -176,7 +201,11 @@ namespace Desert::Graphic::GpuDriven
             return;
         if ( m_Started && !m_Committed )
             DiscardFrame();
-        if ( m_Started )
+        // A map whose every element the ended frame stamped retires nothing: no walk (see m_CountsExact).
+        const bool walkEntries   = !m_CountsExact || m_EntriesQueued != m_Entries.size();
+        const bool walkScratch   = !m_CountsExact || m_ScratchNamed != m_EntityScratch.size();
+        const bool walkMaterials = !m_CountsExact || m_MaterialsAsked != m_MaterialRows.size();
+        if ( m_Started && walkEntries )
             for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
             {
                 if ( it->second.Frame == m_Frame )
@@ -187,9 +216,13 @@ namespace Desert::Graphic::GpuDriven
                 m_Scene.RemovePrimitive( it->second.Primitive );
                 it = m_Entries.erase( it );
             }
-        if ( m_Started ) // the scratch of entities the frame that ended did not name (they left the view or scene)
+        if ( m_Started ) // the static slots the frame that ended did not queue (they left the view or the scene)
+            RetireStatic();
+        m_StaticWritten.clear();
+        // the scratch of entities the frame that ended did not name (they left the view or the scene)
+        if ( m_Started && walkScratch )
             std::erase_if( m_EntityScratch, [this]( const auto& held ) { return held.second.Frame != m_Frame; } );
-        if ( m_Started )
+        if ( m_Started && walkMaterials )
             for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
             {
                 if ( it->second.Frame == m_Frame )
@@ -205,7 +238,12 @@ namespace Desert::Graphic::GpuDriven
         m_Frame               = frame;
         m_Started             = true;
         m_Committed           = false;
+        m_EntriesQueued       = 0;
+        m_MaterialsAsked      = 0;
+        m_ScratchNamed        = 0;
+        m_CountsExact         = true;
         m_Scene.BeginFrame();
+        m_PreviousPalettes.swap( m_FramePalettes );
         m_FramePalettes.clear();
     }
 
@@ -214,6 +252,8 @@ namespace Desert::Graphic::GpuDriven
         EntityScratch& scratch = m_EntityScratch[entity];
         if ( scratch.Sync != m_SyncSerial ) // the first record of this entity in this Sync: capacity kept
         {
+            if ( scratch.Frame != m_Frame ) // the first Sync of this frame to name the entity
+                ++m_ScratchNamed;
             scratch.Sync  = m_SyncSerial;
             scratch.Frame = m_Frame;
             scratch.Primitives.clear();
@@ -230,6 +270,13 @@ namespace Desert::Graphic::GpuDriven
         fresh                     = inserted || entry.Frame != m_Frame;
         if ( !fresh )
             return entry; // an earlier view of this frame synced it
+        ++m_EntriesQueued;
+        Write( entry, inserted, record );
+        return entry;
+    }
+
+    void GpuSceneRegistry::Write( Entry& entry, const bool inserted, const MotionRecord& record )
+    {
         if ( inserted || entry.Mesh != record.Mesh || entry.Geometry != GeometryOf( record.Mesh ) ||
              entry.Flags != record.Flags ||
              entry.ForcedLod != record.ForcedLod || entry.LodBias != record.LodBias )
@@ -256,7 +303,130 @@ namespace Desert::Graphic::GpuDriven
             m_Scene.SetTransform( entry.Primitive, record.World );
         BeginContent( entry, inserted, record.Content );
         Queued( entry );
-        return entry;
+    }
+
+    void GpuSceneRegistry::RemoveStatic( StaticSlot& slot )
+    {
+        m_Scene.RemovePrimitive( slot.Held.Primitive );
+        slot.Held     = Entry{};
+        slot.Live     = false;
+        m_StaticToken = 0; // the token's list no longer names the rows its caller holds
+    }
+
+    void GpuSceneRegistry::FoldListFrame( const uint32_t index )
+    {
+        StaticSlot& slot = m_StaticSlots[index];
+        if ( !slot.Live || slot.List != m_StaticListSerial || m_StaticListFrame == kNoFrame ||
+             slot.Held.Frame == m_StaticListFrame )
+            return;
+        // Within one list a member's own frame is never later than the list's stamp (SyncStatic writes both).
+        slot.Held.PrevFrame = m_StaticListPrevFrame;
+        slot.Held.Frame     = m_StaticListFrame;
+        if ( slot.Held.Frame == m_Frame )
+            m_StaticWritten.push_back( index );
+    }
+
+    void GpuSceneRegistry::OrphanStatic( const uint32_t index )
+    {
+        StaticSlot& slot = m_StaticSlots[index];
+        FoldListFrame( index );
+        if ( !slot.Live || slot.Orphan )
+            return;
+        slot.Orphan = true;
+        m_StaticOrphans.push_back( index );
+    }
+
+    void GpuSceneRegistry::RetireStatic()
+    {
+        // m_Frame is the frame that ended. A current list it did not queue is dissolved: each member stands on
+        // its own frame (an earlier list's stamp folded into it), the ones still queued become orphans.
+        if ( !m_StaticTokenSlots.empty() && m_StaticListFrame != m_Frame )
+        {
+            for ( const uint32_t index : m_StaticTokenSlots )
+                OrphanStatic( index );
+            m_StaticTokenSlots.clear();
+            ++m_StaticListSerial;
+            m_StaticListFrame     = kNoFrame;
+            m_StaticListPrevFrame = kNoFrame;
+            m_StaticToken         = 0;
+        }
+        std::size_t kept = 0;
+        for ( const uint32_t index : m_StaticOrphans )
+        {
+            StaticSlot& slot = m_StaticSlots[index];
+            if ( slot.Live && slot.List != m_StaticListSerial && slot.Held.Frame != m_Frame )
+                RemoveStatic( slot );
+            if ( !slot.Live || slot.List == m_StaticListSerial ) // gone, or the current list holds it again
+            {
+                slot.Orphan = false;
+                continue;
+            }
+            m_StaticOrphans[kept++] = index; // queued by the frame that ended outside the list: may lapse later
+        }
+        m_StaticOrphans.resize( kept );
+    }
+
+    bool GpuSceneRegistry::KeepStatic( const uint64_t token )
+    {
+        if ( token == 0 || token != m_StaticToken )
+            return false;
+        if ( m_StaticListFrame != m_Frame ) // the first view of this frame to keep it: one stamp, no slot visited
+        {
+            m_StaticListPrevFrame = m_StaticListFrame;
+            m_StaticListFrame     = m_Frame;
+        }
+        return true;
+    }
+
+    void GpuSceneRegistry::SyncStatic( const std::span<const StaticPrimitiveRecord> records, const uint64_t token,
+                                       GpuSceneRecordRows& out )
+    {
+        DESERT_PROFILE_SCOPE( "GpuSceneRegistry::SyncStatic" );
+        ++m_SyncSerial;
+        out.StaticPrimitives.clear();
+        out.StaticInstances.clear();
+        out.StaticPrimitives.reserve( records.size() );
+        out.StaticInstances.reserve( records.size() );
+        // The list this one replaces: each member's frame brought up to the list's stamp, and each a candidate
+        // for removal (the new list takes back the ones it names; BeginFrame drops the others no view queued).
+        for ( const uint32_t index : m_StaticTokenSlots )
+            OrphanStatic( index );
+        m_StaticTokenSlots.clear();
+        ++m_StaticListSerial;
+        m_StaticListFrame     = m_Frame;
+        m_StaticListPrevFrame = kNoFrame;
+        for ( const StaticPrimitiveRecord& record : records )
+        {
+            if ( record.Primitive >= m_StaticSlots.size() )
+                m_StaticSlots.resize( size_t( record.Primitive ) + 1u );
+            StaticSlot& slot = m_StaticSlots[record.Primitive];
+            if ( slot.Live && slot.Entity != record.Record.Entity ) // the slot was given to another entity
+                RemoveStatic( slot );
+            Entry& entry = slot.Held;
+            if ( slot.List != m_StaticListSerial ) // the slot's first record in this list
+            {
+                slot.List = m_StaticListSerial;
+                m_StaticTokenSlots.push_back( record.Primitive );
+            }
+            if ( !slot.Live )
+            {
+                Write( entry, true, record.Record );
+                slot.Live   = true;
+                slot.Entity = record.Record.Entity;
+                m_StaticWritten.push_back( record.Primitive );
+            }
+            else if ( entry.Frame != m_Frame ) // the slot's first record this frame
+            {
+                Write( entry, false, record.Record );
+                m_StaticWritten.push_back( record.Primitive );
+            }
+            else // another section of the slot (AddContent ignores a slot an earlier view of the frame synced)
+                AddContent( entry, record.Record.Content );
+            out.StaticPrimitives.push_back( entry.Primitive );
+            out.StaticInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
+        }
+        PublishContent();
+        m_StaticToken = token;
     }
 
     void GpuSceneRegistry::Sync( const std::span<const MotionRecord>      rigid,
@@ -329,17 +499,27 @@ namespace Desert::Graphic::GpuDriven
                 // Both palettes go into the ONE buffer every pass that draws the primitive skins it from. The
                 // previous one: what this primitive was drawn with in the last synced frame, unless it was not
                 // drawn then or its bone count changed (a mesh swap: the old palette indexes other bones).
-                const bool history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
-                                     entry.Bones.size() == record.Bones.size();
-                entry.BoneOffset = static_cast<uint32_t>( m_FramePalettes.size() );
+                // The history is read where the last frame wrote it (m_PreviousPalettes), not from a copy.
+                const size_t count   = record.Bones.size();
+                const bool   history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
+                                     entry.BoneCount == count &&
+                                     size_t( entry.BoneOffset ) + count <= m_PreviousPalettes.size();
+                const uint32_t written = static_cast<uint32_t>( m_FramePalettes.size() );
                 m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
                 entry.PrevOffset = static_cast<uint32_t>( m_FramePalettes.size() );
                 if ( history )
-                    m_FramePalettes.insert( m_FramePalettes.end(), entry.Bones.begin(), entry.Bones.end() );
+                {
+                    const auto first =
+                         m_PreviousPalettes.begin() + static_cast<std::ptrdiff_t>( entry.BoneOffset );
+                    const auto last  = first + static_cast<std::ptrdiff_t>( count );
+                    m_FramePalettes.insert( m_FramePalettes.end(), first, last );
+                }
                 else
                     m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
-                entry.PrevBones.swap( entry.Bones );
-                entry.Bones.assign( record.Bones.begin(), record.Bones.end() );
+                entry.PrevBoneOffset = entry.BoneOffset;
+                entry.PrevBoneCount  = entry.BoneCount;
+                entry.BoneOffset     = written;
+                entry.BoneCount      = static_cast<uint32_t>( count );
                 entry.PrevBonesFrame = entry.BonesFrame;
                 entry.BonesFrame     = m_Frame;
                 palettesChanged  = true;
@@ -366,6 +546,7 @@ namespace Desert::Graphic::GpuDriven
             Entry& entry              = it->second;
             if ( inserted || entry.Frame != m_Frame )
             {
+                ++m_EntriesQueued;
                 // The held snapshot is the instance rows' contents: the same object needs no per-instance compare.
                 const bool sameSnapshot =
                      !inserted && field.Snapshot != nullptr && entry.Instances == field.Snapshot;

@@ -129,11 +129,12 @@ namespace Desert::Editor::Commands
                     const auto& generated = m_Generated.Tiles[i];
                     auto&       entity    = scene->CreateEntityWithUUID(
                          m_Tiles[i], std::format( "Landscape Tile {}_{}", generated.TileX, generated.TileZ ) );
-                    auto& tile     = entity.AddComponent<ECS::LandscapeTileComponent>();
+                    ECS::LandscapeTileComponent tile;
                     tile.Landscape = m_Root;
                     tile.TileX     = generated.TileX;
                     tile.TileZ     = generated.TileZ;
                     tile.Heights   = generated.Heights;
+                    entity.AddComponent<ECS::LandscapeTileComponent>( std::move( tile ) );
                 }
                 return true;
             }

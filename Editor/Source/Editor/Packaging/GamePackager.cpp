@@ -960,6 +960,7 @@ namespace Desert::Editor
         // redistributable) is refused here by name.
         std::vector<fs::path> appLocalRuntime;
         std::vector<fs::path> vendorRuntime;
+        std::vector<fs::path> besideRuntime;
         if ( host.Platform == TargetPlatform::Windows )
         {
             auto crtDir = FindVcCrtRedistDir();
@@ -973,6 +974,18 @@ namespace Desert::Editor
             if ( !closure )
                 return { false, "Cannot decide the app-local C++ runtime: " + closure.GetError(), "" };
             appLocalRuntime = closure.ExtractValue();
+
+            // THE DLLs THE BINARY IMPORTS FROM ITS OWN BUILD DIRECTORY: the process allocator (mimalloc.dll, the
+            // executable's first import, and mimalloc-redirect.dll, which it imports; see Mimalloc.cmake).
+            // The closure rule of the C++ runtime above, over the directory the build wrote the binary into: a
+            // package without them is one the loader refuses before main.
+            auto beside = Common::Utils::AppLocalRuntimeClosure( runtimeBin, runtimeBin.parent_path() );
+            if ( !beside )
+                return { false,
+                         std::format( "Cannot decide the DLLs the Runtime binary imports from {}: {}",
+                                      runtimeBin.parent_path().string(), beside.GetError() ),
+                         "" };
+            besideRuntime = beside.ExtractValue();
 
             // THE VENDOR UPSCALER RUNTIMES (UE: a plugin's RuntimeDependencies, staged beside the game). DLSS
             // loads NVIDIA Streamline from the executable's directory at run time (Graphic/API/Vulkan/Streamline/
@@ -1084,6 +1097,17 @@ namespace Desert::Editor
             LOG_INFO( "[Package] app-local C++ runtime from {}: {}",
                       appLocalRuntime.front().parent_path().string(), names );
         }
+
+        // 2b') Windows: the DLLs the binary imports from its build directory (the process allocator), beside it.
+        for ( const fs::path& dll : besideRuntime )
+        {
+            fs::copy_file( dll, gameDir / dll.filename(), fs::copy_options::overwrite_existing, ec );
+            if ( ec )
+                return { false, "Cannot copy " + dll.string() + ": " + ec.message(), "" };
+            ++stats.Files;
+        }
+        for ( const fs::path& dll : besideRuntime )
+            LOG_INFO( "[Package] imported from the build directory: {}", dll.filename().string() );
 
         // 2c) Windows: the vendor upscaler runtimes, beside the binary, where StreamlineRuntime loads them from.
         for ( const fs::path& file : vendorRuntime )

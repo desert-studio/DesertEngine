@@ -1,6 +1,6 @@
 #include "Frustum.hpp"
 
-#include <algorithm>
+#include <array>
 
 namespace Desert::Core
 {
@@ -10,67 +10,106 @@ namespace Desert::Core
         Rebuild( projection, view );
     }
 
-    bool Frustum::IsInside( const glm::vec3& point ) const
+    // The point and sphere tests, four planes at a time like Intersects (Frustum.hpp): per lane the plain loop's
+    // arithmetic in its order, ((x*nx + y*ny) + z*nz) + d, and its compare.
+    bool Frustum::IsInside( const glm::vec3& point ) const noexcept
     {
-        for ( const auto& plane : m_Planes )
+        namespace S          = Common::Math::Simd;
+        const S::Float4 zero = S::Zero();
+        const S::Float4 x    = S::Splat( point.x );
+        const S::Float4 y    = S::Splat( point.y );
+        const S::Float4 z    = S::Splat( point.z );
+        for ( uint32_t group = 0; group < 2u; ++group )
         {
-            if ( plane.GetDistance( point ) < 0.0f )
-            {
+            const uint32_t  base = group * 4u;
+            const S::Float4 dot  = S::Add( S::Add( S::Mul( x, S::Load4( m_Lanes.Nx + base ) ),
+                                                 S::Mul( y, S::Load4( m_Lanes.Ny + base ) ) ),
+                                          S::Mul( z, S::Load4( m_Lanes.Nz + base ) ) );
+            // Outside on `distance < 0` (not `!( distance >= 0 )`): a NaN distance keeps the point, as it did.
+            const S::Float4 distance = S::Add( dot, S::Load4( m_Lanes.D + base ) );
+            const uint32_t  outside  = S::MaskBits( S::CompareLT( distance, zero ) );
+            if ( ( outside & kGroupLanes[group] ) != 0u )
                 return false;
-            }
         }
         return true;
     }
 
-    bool Frustum::Intersects( const Common::Math::AABB& worldBox ) const
+    bool Frustum::IntersectsSphere( const glm::vec3& center, const float radius ) const noexcept
     {
-        return std::all_of( m_Planes.begin(), m_Planes.end(),
-                            [&worldBox]( const Plane& plane )
-                            {
-                                // The corner farthest along this plane's normal. Written per axis rather
-                                // than with a select over the whole vector because that is exactly what
-                                // the test is: three independent choices.
-                                const glm::vec3 positiveVertex(
-                                     plane.Normal.x >= 0.0f ? worldBox.Max.x : worldBox.Min.x,
-                                     plane.Normal.y >= 0.0f ? worldBox.Max.y : worldBox.Min.y,
-                                     plane.Normal.z >= 0.0f ? worldBox.Max.z : worldBox.Min.z );
-                                return plane.GetDistance( positiveVertex ) >= 0.0f;
-                            } );
+        namespace S             = Common::Math::Simd;
+        const S::Float4 reach   = S::Splat( -radius );
+        const S::Float4 x       = S::Splat( center.x );
+        const S::Float4 y       = S::Splat( center.y );
+        const S::Float4 z       = S::Splat( center.z );
+        for ( uint32_t group = 0; group < 2u; ++group )
+        {
+            const uint32_t  base = group * 4u;
+            const S::Float4 dot  = S::Add( S::Add( S::Mul( x, S::Load4( m_Lanes.Nx + base ) ),
+                                                 S::Mul( y, S::Load4( m_Lanes.Ny + base ) ) ),
+                                          S::Mul( z, S::Load4( m_Lanes.Nz + base ) ) );
+            const S::Float4 distance = S::Add( dot, S::Load4( m_Lanes.D + base ) );
+            const uint32_t  kept     = S::MaskBits( S::CompareGE( distance, reach ) );
+            if ( ( kept & kGroupLanes[group] ) != kGroupLanes[group] )
+                return false;
+        }
+        return true;
     }
 
-    bool Frustum::IntersectsSphere( const glm::vec3& center, const float radius ) const
+    uint32_t Frustum::IntersectsSphere4( const Common::Math::SphereQuad& spheres ) const noexcept
     {
-        return std::all_of( m_Planes.begin(), m_Planes.end(),
-                            [&center, radius]( const Plane& plane ) { return plane.GetDistance( center ) >= -radius; } );
+        namespace S       = Common::Math::Simd;
+        const S::Float4 x = S::Load4( spheres.X );
+        const S::Float4 y = S::Load4( spheres.Y );
+        const S::Float4 z = S::Load4( spheres.Z );
+        // -radius per lane, the same negation as IntersectsSphere's Splat( -radius ) (not 0 - r: same value).
+        float negated[4];
+        for ( int lane = 0; lane < 4; ++lane )
+            negated[lane] = -spheres.R[lane];
+        const S::Float4 reach = S::Load4( negated );
+        uint32_t        kept  = 0xFu;
+        // Planes 0..5 (6 and 7 are padding, kGroupLanes); a batch every lane of which is out stops the walk.
+        for ( uint32_t plane = 0; plane < 6u && kept != 0u; ++plane )
+        {
+            // IntersectsSphere's Mul( x, nx ) order per lane (IEEE multiply commutes; the adds keep its order).
+            const S::Float4 dot = S::Add(
+                 S::Add( S::Mul( x, S::Splat( m_Lanes.Nx[plane] ) ), S::Mul( y, S::Splat( m_Lanes.Ny[plane] ) ) ),
+                 S::Mul( z, S::Splat( m_Lanes.Nz[plane] ) ) );
+            const S::Float4 distance = S::Add( dot, S::Splat( m_Lanes.D[plane] ) );
+            kept &= S::MaskBits( S::CompareGE( distance, reach ) );
+        }
+        return kept;
     }
 
     void Frustum::Rebuild( const glm::mat4& projection, const glm::mat4& view )
     {
         glm::mat4 viewProjection = projection * view;
 
+        // Built per plane, then stored lane per plane (m_Lanes, the only copy).
+        std::array<Plane, 6> planes;
+
         // Left plane
-        m_Planes[PLANE_LEFT].Normal.x = viewProjection[0][3] + viewProjection[0][0];
-        m_Planes[PLANE_LEFT].Normal.y = viewProjection[1][3] + viewProjection[1][0];
-        m_Planes[PLANE_LEFT].Normal.z = viewProjection[2][3] + viewProjection[2][0];
-        m_Planes[PLANE_LEFT].Distance = viewProjection[3][3] + viewProjection[3][0];
+        planes[PLANE_LEFT].Normal.x = viewProjection[0][3] + viewProjection[0][0];
+        planes[PLANE_LEFT].Normal.y = viewProjection[1][3] + viewProjection[1][0];
+        planes[PLANE_LEFT].Normal.z = viewProjection[2][3] + viewProjection[2][0];
+        planes[PLANE_LEFT].Distance = viewProjection[3][3] + viewProjection[3][0];
 
         // Right plane
-        m_Planes[PLANE_RIGHT].Normal.x = viewProjection[0][3] - viewProjection[0][0];
-        m_Planes[PLANE_RIGHT].Normal.y = viewProjection[1][3] - viewProjection[1][0];
-        m_Planes[PLANE_RIGHT].Normal.z = viewProjection[2][3] - viewProjection[2][0];
-        m_Planes[PLANE_RIGHT].Distance = viewProjection[3][3] - viewProjection[3][0];
+        planes[PLANE_RIGHT].Normal.x = viewProjection[0][3] - viewProjection[0][0];
+        planes[PLANE_RIGHT].Normal.y = viewProjection[1][3] - viewProjection[1][0];
+        planes[PLANE_RIGHT].Normal.z = viewProjection[2][3] - viewProjection[2][0];
+        planes[PLANE_RIGHT].Distance = viewProjection[3][3] - viewProjection[3][0];
 
         // Bottom plane
-        m_Planes[PLANE_DOWN].Normal.x = viewProjection[0][3] + viewProjection[0][1];
-        m_Planes[PLANE_DOWN].Normal.y = viewProjection[1][3] + viewProjection[1][1];
-        m_Planes[PLANE_DOWN].Normal.z = viewProjection[2][3] + viewProjection[2][1];
-        m_Planes[PLANE_DOWN].Distance = viewProjection[3][3] + viewProjection[3][1];
+        planes[PLANE_DOWN].Normal.x = viewProjection[0][3] + viewProjection[0][1];
+        planes[PLANE_DOWN].Normal.y = viewProjection[1][3] + viewProjection[1][1];
+        planes[PLANE_DOWN].Normal.z = viewProjection[2][3] + viewProjection[2][1];
+        planes[PLANE_DOWN].Distance = viewProjection[3][3] + viewProjection[3][1];
 
         // Top plane
-        m_Planes[PLANE_UP].Normal.x = viewProjection[0][3] - viewProjection[0][1];
-        m_Planes[PLANE_UP].Normal.y = viewProjection[1][3] - viewProjection[1][1];
-        m_Planes[PLANE_UP].Normal.z = viewProjection[2][3] - viewProjection[2][1];
-        m_Planes[PLANE_UP].Distance = viewProjection[3][3] - viewProjection[3][1];
+        planes[PLANE_UP].Normal.x = viewProjection[0][3] - viewProjection[0][1];
+        planes[PLANE_UP].Normal.y = viewProjection[1][3] - viewProjection[1][1];
+        planes[PLANE_UP].Normal.z = viewProjection[2][3] - viewProjection[2][1];
+        planes[PLANE_UP].Distance = viewProjection[3][3] - viewProjection[3][1];
 
         // Near and far come from the DEPTH convention, and are the only two planes that do — the side
         // planes are the same in every clip space. Vulkan keeps 0 <= z <= w (not OpenGL's -w <= z <= w),
@@ -79,23 +118,25 @@ namespace Desert::Core
         // `z >= 0` for far — NOT the `w + z` / `w - z` pair a GL-convention derivation gives.
 
         // Near plane: row3 - row2
-        m_Planes[PLANE_NEAR].Normal.x = viewProjection[0][3] - viewProjection[0][2];
-        m_Planes[PLANE_NEAR].Normal.y = viewProjection[1][3] - viewProjection[1][2];
-        m_Planes[PLANE_NEAR].Normal.z = viewProjection[2][3] - viewProjection[2][2];
-        m_Planes[PLANE_NEAR].Distance = viewProjection[3][3] - viewProjection[3][2];
+        planes[PLANE_NEAR].Normal.x = viewProjection[0][3] - viewProjection[0][2];
+        planes[PLANE_NEAR].Normal.y = viewProjection[1][3] - viewProjection[1][2];
+        planes[PLANE_NEAR].Normal.z = viewProjection[2][3] - viewProjection[2][2];
+        planes[PLANE_NEAR].Distance = viewProjection[3][3] - viewProjection[3][2];
 
         // Far plane: row2 alone
-        m_Planes[PLANE_FAR].Normal.x = viewProjection[0][2];
-        m_Planes[PLANE_FAR].Normal.y = viewProjection[1][2];
-        m_Planes[PLANE_FAR].Normal.z = viewProjection[2][2];
-        m_Planes[PLANE_FAR].Distance = viewProjection[3][2];
+        planes[PLANE_FAR].Normal.x = viewProjection[0][2];
+        planes[PLANE_FAR].Normal.y = viewProjection[1][2];
+        planes[PLANE_FAR].Normal.z = viewProjection[2][2];
+        planes[PLANE_FAR].Distance = viewProjection[3][2];
 
         // Normalize all planes
-        for ( auto& plane : m_Planes )
+        for ( uint32_t lane = 0; lane < 6u; ++lane )
         {
-            float length = glm::length( plane.Normal );
+            Plane&      plane  = planes[lane];
+            const float length = glm::length( plane.Normal );
             plane.Normal /= length;
             plane.Distance /= length;
+            SetPlane( lane, plane );
         }
     }
 

@@ -166,8 +166,7 @@ TEST( TextureOwnership, CreateDropCyclesLeaveNoImageBehind )
     EXPECT_EQ( s_LiveImages, before );
 
     size_t occupied = 0;
-    for ( const auto& image : Service().All() )
-        occupied += image ? 1U : 0U;
+    Service().ForEachImage( [&occupied]( Desert::Graphic::Image& ) { ++occupied; } );
     EXPECT_EQ( occupied, static_cast<size_t>( before ) )
          << "the service holds more images than there are live textures";
 }

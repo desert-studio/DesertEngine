@@ -95,10 +95,14 @@ TEST_F( ViewResourcesTest, CopiesAreLazyPerViewAndPerFrame )
     ViewResources         b( "b" );
 
     EXPECT_EQ( a.Find( key, 0 ), nullptr );
-    const IViewResourceCopy& a0 = a.Acquire( key, 0, factory );
-    EXPECT_EQ( &a.Acquire( key, 0, factory ), &a0 ) << "a second bind in the same frame made a second copy";
-    EXPECT_NE( &a.Acquire( key, 1, factory ), &a0 ) << "two frames in flight shared one copy";
-    EXPECT_NE( &b.Acquire( key, 0, factory ), &a0 ) << "two views shared one copy";
+    const auto a0        = a.Acquire( key, 0, factory );
+    const auto again     = a.Acquire( key, 0, factory );
+    const auto nextFrame = a.Acquire( key, 1, factory );
+    const auto otherView = b.Acquire( key, 0, factory );
+    ASSERT_TRUE( a0.IsSuccess() && again.IsSuccess() && nextFrame.IsSuccess() && otherView.IsSuccess() );
+    EXPECT_EQ( again.GetValue(), a0.GetValue() ) << "a second bind in the same frame made a second copy";
+    EXPECT_NE( nextFrame.GetValue(), a0.GetValue() ) << "two frames in flight shared one copy";
+    EXPECT_NE( otherView.GetValue(), a0.GetValue() ) << "two views shared one copy";
     EXPECT_EQ( factory.Created, 3 );
     EXPECT_EQ( a.CopyCount(), 2u );
     EXPECT_EQ( b.CopyCount(), 1u );
@@ -199,9 +203,9 @@ TEST_F( ViewResourcesTest, AcquireRefusesAnUnassignedKeyAndANullCopy )
     ViewResources   view( "main" );
     CountingFactory counting;
     NullFactory     none;
-    EXPECT_THROW( (void)view.Acquire( ViewResourceKey{}, 0, counting ), std::invalid_argument );
+    EXPECT_FALSE( view.Acquire( ViewResourceKey{}, 0, counting ).IsSuccess() );
     const ViewResourceKey key = ViewResourceKey::Allocate();
-    EXPECT_THROW( (void)view.Acquire( key, 0, none ), std::logic_error );
+    EXPECT_FALSE( view.Acquire( key, 0, none ).IsSuccess() );
     EXPECT_EQ( view.Find( key, 0 ), nullptr ) << "a refused copy was left behind as an empty entry";
     EXPECT_EQ( view.CopyCount(), 0u );
 }

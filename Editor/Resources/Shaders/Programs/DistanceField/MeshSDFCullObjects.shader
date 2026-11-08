@@ -4,6 +4,9 @@
 // DF_MESH_SDF_GRID_MAX_DISTANCE, and whose field has a resident mip, appended to one list - the candidates of
 // MeshSDFCullGrid.shader. One thread per object, appending through the list's count (uploaded as 0); the order the
 // threads append in is irrelevant (the grid keeps each cell's closest by distance, then index).
+// MESH OBJECTS ONLY: CullParams.counts.x is the mesh objects (MeshDistanceFieldReads::NumMeshObjects), which lead
+// the object records; the landscape tiles after them (DF_OBJECT_FLAG_HEIGHTFIELD) are surfaces of the global field
+// alone (UE r.AOGlobalDistanceFieldRepresentHeightfields) - no thread reads them, so no near-field list holds one.
 Shader "MeshSDFCullObjects"
 {
     Compute

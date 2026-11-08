@@ -113,6 +113,18 @@ namespace Common::Scalability
         RayTracingPipeline, // VK_KHR_ray_tracing_pipeline (raygen/hit/miss + SBT); NEVER on MoltenVK
     };
 
+    // How the device executes the rays RayTracingModes lists (UE GRHISupportsRayTracing is true only on hardware
+    // RT). Reader: VulkanCapabilityCatalog (only Hardware lists a RayTracingMode for render methods), the log.
+    // Emulated: the driver exposes the RT extensions over shader cores (GeForce GTX 10/16): the modes exist,
+    // no traced render method is offered, and the reason is logged. Set by a measured ray-throughput probe or
+    // by a device profile (DeviceCapsProbe.hpp DeviceProfile). Mac: None, or Hardware on Apple7+ ray query.
+    enum class RayTracingAcceleration : int
+    {
+        None = 0,
+        Emulated,
+        Hardware,
+    };
+
     // The swapchain's output encoding. Reader: the swapchain (format + colour space) and the tonemapper's
     // output transform. SDR is always present; the HDR entries exist only when the SURFACE lists the pair.
     enum class DisplayOutput : int
@@ -208,6 +220,26 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
 
+    // WHICH NVIDIA RTX ARCHITECTURE THE DEVICE IS (CapabilityCatalog::Architecture), as far as the DLSS networks'
+    // cost goes: Ada and newer run the transformer networks on FP8 tensor cores, Turing and Ampere do not, so
+    // there DLSS Ray Reconstruction costs 3.4-3.5 ms at 1080p (NVIDIA RR Integration Guide, tables 3-4: RTX 3070
+    // 3.52 ms) where Super Resolution preset K costs ~0.93 ms (DLSS Programming Guide 310.5), and NVIDIA's
+    // Performance / Ultra Performance defaults (M / L) are its heavier networks. Reader: RecommendUpscaler
+    // (RecommendedQuality.hpp). Other = not an NVIDIA RTX device (any other vendor, a GTX, an older NVIDIA GPU);
+    // Blackwell also stands for every NVIDIA architecture after it. From the PCI device id
+    // (VulkanCapabilityCatalog.cpp NvidiaArchitecture); a played device profile names its own.
+    enum class GpuArchitecture : int
+    {
+        Other = 0,
+        Turing,
+        Ampere,
+        Ada,
+        Blackwell,
+    };
+    inline constexpr std::array<std::string_view, 5> kGpuArchitectureNames{ "Other", "Turing", "Ampere", "Ada",
+                                                                             "Blackwell" };
+    static_assert( static_cast<std::size_t>( GpuArchitecture::Blackwell ) + 1 == kGpuArchitectureNames.size() );
+
     // WHICH DLSS NETWORK A DLSS MODE RUNS (UE: r.NGX.DLSS.DLAAPreset / QualityPreset / ... PerformancePreset /
     // UltraPerformancePreset), one Parameter per mode (Parameter::DlssPresetNative ..; "Native" is the 100 % mode
     // NVIDIA calls DLAA). Default is NVIDIA's choice for the mode, which a driver-side DLSS update may move. Only
@@ -227,17 +259,19 @@ namespace Common::Scalability
 
     // WHICH RAY RECONSTRUCTION NETWORK A DLSS MODE RUNS under Upscaler::DLSSRayReconstruction (UE: r.NGX.DLSS.RR.
     // <Mode>Preset), one Parameter per mode (Parameter::DlssRRPresetNative ..). Ray Reconstruction has its own
-    // networks (sl_dlss_d.h DLSSDPreset): A-C were removed, D and E are the transformer models, F-O revert to the
-    // default; only D and E are offered. Stored by name; the Streamline runtime maps a value to its
-    // sl::DLSSDPreset.
+    // networks (sl_dlss_d.h DLSSDPreset): A-C were removed, D and E are the earlier transformer models, F is the
+    // latest transformer model and NVIDIA's current default for every mode (the NGX log reports Preset_F under
+    // Default), G-O revert to the default; D, E and F are offered. Stored by name; the Streamline runtime maps a
+    // value to its sl::DLSSDPreset.
     enum class DlssRRPreset : int
     {
         Default = 0,
         D, // transformer
-        E, // transformer; NVIDIA's latest
+        E, // transformer
+        F, // transformer; NVIDIA's latest and its current default
     };
-    inline constexpr std::array<std::string_view, 3> kDlssRRPresetNames{ "Default", "D", "E" };
-    static_assert( static_cast<std::size_t>( DlssRRPreset::E ) + 1 == kDlssRRPresetNames.size() );
+    inline constexpr std::array<std::string_view, 4> kDlssRRPresetNames{ "Default", "D", "E", "F" };
+    static_assert( static_cast<std::size_t>( DlssRRPreset::F ) + 1 == kDlssRRPresetNames.size() );
 
     // WHAT DENOISES THE PATH-TRACED VIEW (Parameter::PathTracingDenoiser; UE r.PathTracing.Denoiser picks its
     // denoiser plugin the same way). Stored by name. Off: the accumulation alone. ReLAX: the path tracer's own
@@ -325,6 +359,10 @@ namespace Common::Scalability
         // RayTracingPipeline never.
         std::vector<RayTracingMode> RayTracingModes;
 
+        // Reader: VulkanCapabilityCatalog (RayTracingModes is {None} for render methods unless Hardware), the
+        // catalog log line (rtaccel=). See RayTracingAcceleration.
+        RayTracingAcceleration RayTracingAccel = RayTracingAcceleration::None;
+
         // Reader: Graphic::ResolveRenderMethods (NeedsRenderArea: the virtual shadow map's attachment-less
         // raster). The largest square render area the device rasterizes: min of maxFramebufferWidth / Height and
         // maxViewportDimensions. Mac: 16384 on Apple GPUs (Metal's texture and render-target limit).
@@ -363,6 +401,10 @@ namespace Common::Scalability
         // Reader: recommended settings (benchmark fallback + VRAM-scaled texture / shadow levels).
         DeviceClass Class       = DeviceClass::Unknown;
         uint64_t    VideoMemory = 0; // device-local bytes (Mac: recommendedMaxWorkingSetSize); 0 = unknown
+
+        // Reader: recommended settings (RecommendUpscaler: the upscaler and the DLSS presets for the display
+        // target). See GpuArchitecture. Mac: always Other.
+        GpuArchitecture Architecture = GpuArchitecture::Other;
 
         // Reader: System::PathTracer OIDN (Renderer::CreateSharedBuffer / CreateSharedTimeline refuse without
         // it). See GpuSharing. Mac: None until VK_EXT_metal_objects is probed.

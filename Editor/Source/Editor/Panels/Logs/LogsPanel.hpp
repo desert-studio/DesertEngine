@@ -2,6 +2,7 @@
 
 #include <Editor/Core/IPanel.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Editor/Core/LogView.hpp> // LogRepeatRun — the cached row type below
 
 #include <cstring>
@@ -49,17 +50,16 @@ namespace Desert::Editor
         };
 
         void Refresh();
-        void ResetParsed(); // forget every parsed line: the file was truncated or is another file
         void DrawToolbar();
         // One row: severity edge + tint, fixed-width timestamp column, category chip, message.
         static void DrawRow( const LogRepeatRun& row );
 
     private:
         std::vector<LogEntry>                    m_Entries;
-        std::ifstream                            m_File;           // opened once - an open per frame cost ~4 ms on Windows
-        std::filesystem::path                    m_FilePath;       // the log m_File was opened on
-        std::uintmax_t                           m_ReadOffset = 0; // bytes of the log file already parsed
-        std::string                              m_PendingLine;    // a line read before its '\n' was written
+        // The number of the next line to take from the log's parsed line ring (Common::Logger::TakeLogLines):
+        // the log writer's thread formats and levels every line, this panel only takes the new ones.
+        std::uint64_t                        m_NextLine = 0;
+        std::vector<Common::Logger::LogLine> m_Taken; // Refresh's scratch, capacity kept
         bool                                     m_ScrollToBottom = true;
         bool                                     m_ShowInfo       = true;
         bool                                     m_ShowWarnings   = true;

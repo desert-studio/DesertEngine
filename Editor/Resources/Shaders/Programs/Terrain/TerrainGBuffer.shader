@@ -148,6 +148,9 @@ Shader "TerrainGBuffer"
         // The stored roughness is widened by the ground normal's spread across the pixel, as every G-buffer writer's
         // is (Mesh/Surface/GBufferOutputs.glslh): the specular AA.
         #include <Common/SpecularAA.glslh>
+        // The view's decals (DECALS-DBUFFER): the ground folds the DBuffer exactly as the mesh G-buffer cells do
+        // (Mesh/Surface/GBufferOutputs.glslh), through the one encoding.
+        #include <Common/DBuffer.glslh>
 
         void main()
         {
@@ -167,13 +170,18 @@ Shader "TerrainGBuffer"
             s.N         = normalize( mix( s.N, snow.NormalWS, snow.Weight ) );
             cover        = snow.Weight > 0.5 ? 0.0 : cover * ( 1.0 - snow.Weight );
             transmission *= 1.0 - snow.Weight;
+            // The decals over the ground (and over its snow), before the specular AA widens the roughness. The
+            // ground is a dielectric: metallic 0 unless a decal lays metal on it.
+            float metallic = 0.0;
+            DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), s.Albedo, s.N, s.Roughness,
+                                metallic, s.AO );
 
             // Ground is a dielectric; roughness and occlusion are the landscape material's layers'. Where the grass
             // field's far cover lies over it (GRASS-FIELD) the pixel shades as the blades do - TwoSidedFoliage, its
             // SubsurfaceColor the cover's share of the blades' (stored as its square root, UE
             // EncodeSubsurfaceColor), so the transmitted light fades in with the cover and bare ground stays
             // DefaultLit.
-            oGBufferA        = vec4( s.Albedo, 0.0 );
+            oGBufferA        = vec4( s.Albedo, metallic );
             oGBufferB        = vec4( s.N, DesertSpecularAA( s.Roughness, s.N ) );
             const vec3 sss   = sqrt( clamp( transmission, 0.0, 1.0 ) );
             oGBufferShadingWord = cover > 0.0

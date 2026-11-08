@@ -131,6 +131,11 @@ namespace Desert::Editor
             s_ConvertRequested = true;
     }
 
+    bool RigBuilder::ConvertPending() noexcept
+    {
+        return s_ConvertRequested;
+    }
+
     bool RigBuilder::ProcessPending( ::Desert::Core::Scene& scene, const ::Desert::Assets::AssetManager& assets )
     {
         if ( !s_ConvertRequested )

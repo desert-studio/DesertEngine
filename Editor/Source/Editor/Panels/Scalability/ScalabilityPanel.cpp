@@ -239,7 +239,8 @@ namespace Desert::Editor
                 if ( ImGui::Button( "Apply recommended" ) )
                     SC::QualityState::ApplyRecommended( recommended->Levels );
                 Utils::ImGuiUtilities::Tooltip( "Sets every group to the level the GPU benchmark recommended for "
-                                                "this device and drops every override." );
+                                                "this device and drops every override except the recommended "
+                                                "upscaler (see the log's 'recommended upscaler' line)." );
             }
             if ( !selection.Overrides.empty() )
                 ImGui::TextDisabled( "%s", std::format( "{} parameter override(s) on top of the levels (Advanced).",

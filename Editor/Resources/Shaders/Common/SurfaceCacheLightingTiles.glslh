@@ -1,0 +1,57 @@
+// THE SURFACE CACHE'S LIGHTING TILES (GPU-GI-CRITPATH step 2; UE LumenSceneDirectLighting's card tiles,
+// SpliceCardPagesIntoTiles + the indirect args every Lumen scene lighting pass dispatches over): the 8x8 texel
+// tiles of the pages relit this frame (SceneFrame::LightingPages) that hold at least one captured texel (opacity
+// >= 0.5), listed on the GPU by SurfaceCacheLightingTiles.shader. One list for the three compute passes on the
+// async queue - Direct Lighting, Radiosity Trace, Indirect Lighting: one 8x8 group per listed tile, on a 2D grid
+// SURFACE_CACHE_TILE_GRID_WIDTH groups wide (a dispatch dimension holds at most 65535 groups); a group past the
+// count (the grid's last row) does nothing. A tile with no captured texel is skipped by all three: no reader takes
+// a texel of opacity < 0.5 (Common/SurfaceCacheSampling.glslh, the radiosity probes' placement).
+//
+// A tile word: bits 0..3 = the tile's x in its page, 4..7 = its y (a physical page is at most 16 tiles a side,
+// SurfaceCacheRenderer kPhysicalPageSize), 8..31 = the page's slot in SurfaceLightingPages.
+// The includer defines, for the builder only, SURFACE_CACHE_TILES_WRITE. The two buffers carry no binding: the
+// program build numbers them in each includer (DSL `Buffer` without (n), ShaderMapBuild.cpp AssignProgramBindings)
+// and SurfaceCacheRenderer binds them by name.
+#ifndef SURFACE_CACHE_LIGHTING_TILES_GLSLH
+#define SURFACE_CACHE_LIGHTING_TILES_GLSLH
+#define SURFACE_CACHE_TILE_SIZE 8
+#define SURFACE_CACHE_TILE_GRID_WIDTH 1024u
+
+#ifdef SURFACE_CACHE_TILES_WRITE
+#define SURFACE_CACHE_TILES_ACCESS
+#else
+#define SURFACE_CACHE_TILES_ACCESS readonly
+#endif
+// x, y, z = the consumers' dispatch (DispatchComputeIndirect), w = the listed tile count; uploaded as (0, 0, 1, 0)
+// each frame (SurfaceCacheRenderer::AddLightingTilesPass).
+SURFACE_CACHE_TILES_ACCESS Buffer SurfaceCacheLightingTileArgs
+{
+    uint lightingTileArgs[4];
+};
+SURFACE_CACHE_TILES_ACCESS Buffer SurfaceCacheLightingTiles
+{
+    uint lightingTiles[];
+};
+
+uint SurfaceCacheTileWord(uint slot, uvec2 tile)
+{
+    return (slot << 8u) | (tile.y << 4u) | tile.x;
+}
+
+#ifndef SURFACE_CACHE_TILES_WRITE
+// The tile this group lights: @p slot = its page's slot in SurfaceLightingPages, @p tileOrigin = its first texel
+// relative to the page. False past the list.
+bool SurfaceCacheLightingTile(out uint slot, out ivec2 tileOrigin)
+{
+    const uint index = gl_WorkGroupID.y * SURFACE_CACHE_TILE_GRID_WIDTH + gl_WorkGroupID.x;
+    slot       = 0u;
+    tileOrigin = ivec2(0);
+    if (index >= lightingTileArgs[3])
+        return false;
+    const uint word = lightingTiles[index];
+    slot       = word >> 8u;
+    tileOrigin = ivec2(uvec2(word & 0xFu, (word >> 4u) & 0xFu)) * SURFACE_CACHE_TILE_SIZE;
+    return true;
+}
+#endif
+#endif // SURFACE_CACHE_LIGHTING_TILES_GLSLH

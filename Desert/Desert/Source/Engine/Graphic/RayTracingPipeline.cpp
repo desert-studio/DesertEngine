@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingPipeline.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Core/EngineContext.hpp>
 
 namespace Desert::Graphic
 {
@@ -29,5 +31,15 @@ namespace Desert::Graphic
         }
         return Common::MakeFormattedError<Result>( "RayTracingPipeline '{}': unknown rendering API",
                                                    spec.DebugName );
+    }
+
+    void RayTracingPipeline::Retire( std::shared_ptr<RayTracingPipeline>&& outgoing ) noexcept
+    {
+        if ( !outgoing )
+            return;
+        const auto ctx = EngineContext::GetInstance().GetRendererContext();
+        if ( !ctx )
+            return; // `outgoing` dies here
+        ctx->RetireAfterFramesInFlight( [held = std::move( outgoing )]() mutable { held.reset(); } );
     }
 } // namespace Desert::Graphic

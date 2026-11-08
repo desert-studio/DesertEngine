@@ -7,6 +7,18 @@
 
 namespace Desert
 {
+    uint32_t GlfwDisplayRefreshHz( const void* nativeWindow )
+    {
+        GLFWwindow*  window  = static_cast<GLFWwindow*>( const_cast<void*>( nativeWindow ) );
+        GLFWmonitor* monitor = window ? glfwGetWindowMonitor( window ) : nullptr;
+        if ( !monitor )
+            monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* video = monitor ? glfwGetVideoMode( monitor ) : nullptr;
+        if ( !video || video->refreshRate <= 0 )
+            return 0;
+        return static_cast<uint32_t>( video->refreshRate );
+    }
+
     Common::BoolResultStr ApplyGlfwWindowMode( GLFWwindow* window, WindowMode mode, uint32_t width,
                                                uint32_t height, bool requestedFrame )
     {

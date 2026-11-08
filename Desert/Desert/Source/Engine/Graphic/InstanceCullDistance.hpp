@@ -123,21 +123,44 @@ namespace Desert::Graphic
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
                                      const Geometry::LODView& cullView, const Geometry::LODView& lodView,
                                      std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
-                                     std::vector<uint32_t>& levels )
+                                     std::vector<uint32_t>& levels, std::vector<uint32_t>* indices = nullptr )
     {
         visible.clear();
         levels.clear();
+        // @p indices: each kept instance's index in @p transforms, in kept order (an ISM drawn by GpuScene id,
+        // MeshRenderer's IsmViewCull::Indices); null for a caller that keeps the transforms only.
+        if ( indices != nullptr )
+            indices->clear();
         const InstanceCullDistance lensCull = ScaledByLens( cull, DrawDistanceScale( cullView ) );
-        for ( std::size_t i = 0; i < transforms.size(); ++i )
+        // FOUR INSTANCES PER FRUSTUM TEST (Core::Frustum::IntersectsEach4, Intersects bit for bit): the reaches
+        // of instances i .. i + 3, each as IsmInstanceReach gives it, then one batch; an instance the distance
+        // drops is out, an empty reach is in (no box: IntersectsEach4 keeps a null), any other is the test's.
+        std::optional<Common::Math::AABB> reaches[4];
+        const auto boxOf = [&reaches]( const std::size_t k ) -> const Common::Math::AABB*
         {
-            const glm::mat4&                        instanceTransform = transforms[i];
-            const std::optional<Common::Math::AABB> reach             = IsmInstanceReach(
-                 lensCull, static_cast<uint32_t>( i ), instanceTransform, localBounds, wind, cullView.Origin );
-            if ( !reach || ( !Geometry::IsEmpty( *reach ) && !frustum.Intersects( *reach ) ) )
-                continue;
-            visible.push_back( instanceTransform );
-            levels.push_back(
-                 Geometry::SelectLODFromBounds( instanceTransform, localBounds, lodView, lodScreenSizes, -1, 0 ) );
+            const std::optional<Common::Math::AABB>& reach = reaches[k & 3u];
+            if ( !reach || Geometry::IsEmpty( *reach ) )
+                return nullptr;
+            return &*reach;
+        };
+        for ( std::size_t first = 0; first < transforms.size(); first += 4u )
+        {
+            const std::size_t lanes = std::min<std::size_t>( 4u, transforms.size() - first );
+            for ( std::size_t lane = 0; lane < lanes; ++lane )
+                reaches[lane] = IsmInstanceReach( lensCull, static_cast<uint32_t>( first + lane ),
+                                                  transforms[first + lane], localBounds, wind, cullView.Origin );
+            const uint32_t inView = frustum.IntersectsEach4( first, transforms.size(), boxOf );
+            for ( std::size_t lane = 0; lane < lanes; ++lane )
+                if ( reaches[lane] && ( ( inView >> lane ) & 1u ) != 0u )
+                {
+                    visible.push_back( transforms[first + lane] );
+                    if ( indices != nullptr )
+                        indices->push_back( static_cast<uint32_t>( first + lane ) );
+                }
         }
+        // The kept instances' levels in one batch, eight per register (Geometry::SelectLODsFromBounds: per
+        // instance the per-instance policy bit for bit), in the order they were kept.
+        levels.resize( visible.size() );
+        Geometry::SelectLODsFromBounds( visible, localBounds, lodView, lodScreenSizes, -1, 0, levels );
     }
 } // namespace Desert::Graphic

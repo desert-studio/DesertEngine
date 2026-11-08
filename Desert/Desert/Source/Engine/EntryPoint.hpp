@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -11,7 +12,7 @@
 #include <memory>
 #include <typeinfo>
 
-// `execinfo.h` is POSIX and does not exist under MSVC. `_WIN32` rather than the project's own
+// `pthread.h` is POSIX and does not exist under MSVC. `_WIN32` rather than the project's own
 // DESERT_PLATFORM_WINDOWS: this is a question about the toolchain's headers, and the compiler is the
 // authority on that whether or not the build system remembered to say so.
 #ifdef _WIN32
@@ -22,10 +23,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <intrin.h>
 #endif
 
 #ifndef _WIN32
-#include <execinfo.h>
 #include <pthread.h>
 #endif
 
@@ -55,39 +56,23 @@ extern std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc,
  * `_Exit` rather than `abort`: the frames have been printed, and abort would run the same teardown that
  * is already known to fault on the way out, burying the message that was the point.
  */
-inline void DesertTerminateBacktrace()
+inline void DesertTerminateBacktrace() noexcept
 {
 #ifndef _WIN32
-    void*     frames[128];
-    const int count = backtrace( frames, 128 );
     std::fprintf( stderr, "\n=== DESERT TERMINATE (thread %p) ===\n", (void*)pthread_self() );
 #else
-    std::fprintf( stderr, "\n=== DESERT TERMINATE ===\n" );
+    std::fprintf( stderr, "\n=== DESERT TERMINATE (thread %lu) ===\n", ::GetCurrentThreadId() );
 #endif
 
-    // The exception itself is worth printing on EVERY platform even where the stack is not available:
-    // `what()` is what says `vector` rather than merely `std::length_error`, and that one word is what
-    // pointed at a torn container rather than at a bad argument.
-    if ( auto ptr = std::current_exception() )
-    {
-        try
-        {
-            std::rethrow_exception( ptr );
-        }
-        catch ( const std::exception& e )
-        {
-            std::fprintf( stderr, "uncaught %s: %s\n", typeid( e ).name(), e.what() );
-        }
-        catch ( ... )
-        {
-            std::fprintf( stderr, "uncaught non-std exception\n" );
-        }
-    }
+    // No rethrow-and-catch to read what(): engine code does not catch, and a job or a noexcept frame
+    // that a std or ThirdParty throw reaches lands here with the throwing frames still live, so the stack
+    // below is what names it.
+    if ( std::current_exception() )
+        std::fprintf( stderr, "an exception reached a noexcept frame (engine code does not throw)\n" );
     std::fflush( stderr );
 
-#ifndef _WIN32
-    backtrace_symbols_fd( frames, count, 2 );
-#endif
+    // Windows: a StackWalk64 walk named from the PDBs (UE: FWindowsPlatformStackWalk); POSIX: backtrace().
+    Common::Crash::PrintCallingThreadStack();
 
     std::fprintf( stderr, "=== END DESERT TERMINATE ===\n" );
     std::fflush( stderr );
@@ -115,8 +100,38 @@ static void OpenConsoleIfAsked( const int argc, char** argv )
 }
 #endif
 
+#if defined( _WIN32 ) && defined( __AVX2__ )
+// The engine is compiled with /arch:AVX2 (DESERT_AVX2). On a CPU without AVX2 (or an OS that does not save the
+// YMM state) the first AVX2 instruction is an illegal-instruction crash with no message, so main says it first.
+static bool DesertCpuHasAvx2() noexcept
+{
+    int info[4] = {};
+    __cpuid( info, 0 );
+    if ( info[0] < 7 )
+        return false;
+    __cpuid( info, 1 );
+    const bool osxsave = ( info[2] & ( 1 << 27 ) ) != 0;
+    const bool avx = ( info[2] & ( 1 << 28 ) ) != 0;
+    const bool fma = ( info[2] & ( 1 << 12 ) ) != 0;
+    if ( !osxsave || !avx || !fma )
+        return false;
+    if ( ( _xgetbv( 0 ) & 0x6 ) != 0x6 )
+        return false;
+    __cpuidex( info, 7, 0 );
+    return ( info[1] & ( 1 << 5 ) ) != 0;
+}
+#endif
+
 int main( int argc, char** argv )
 {
+#if defined( _WIN32 ) && defined( __AVX2__ )
+    if ( !DesertCpuHasAvx2() )
+    {
+        (void)MessageBoxA( nullptr, "This build needs a CPU with AVX2 (Intel Haswell / AMD Zen or newer).",
+                           "DesertEngine", MB_OK | MB_ICONERROR );
+        return 1;
+    }
+#endif
 #ifdef _WIN32
     // PER-MONITOR DPI AWARENESS, FIRST THING. It can only be declared before the process creates its first
     // window, and the native splash now does that before GLFW starts -- GLFW's own attempt then failed

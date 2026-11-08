@@ -54,6 +54,16 @@ struct GrassVarietyRow
     uvec2 LawScales;
     uint  LawGeneration;
     uint  LawCapacity;
+    // CPU-GRASS-POOL-5: Instances and the id lists are ranges of shared pools (GrassRenderer m_InstancesPool,
+    // m_IdsPool): the range's first row of Instances and first slot of FullIds / CameraIds / CascadeIds. Every id
+    // GrassCull writes is row + InstancesBase, every record's firstInstance its list's slot + the list's base.
+    uint  InstancesBase;
+    uint  FullIdsBase;
+    uint  CameraIdsBase;
+    uint  CascadeIdsBase;
+    // CPU-GRASS-POOL-7: Feedback is the variety's range of one readback pool; FinalizeFull writes this mark
+    // (GrassRenderer VarietyGpu::FeedbackMark, never 0) as the written mark: a range's earlier holder is told apart.
+    uint  FeedbackMark;
     // The row ends here; std430 rounds it to its 16-byte alignment.
 };
 
@@ -64,6 +74,11 @@ const uint kGrassRowBlade = 1u;
 // instances, guarded caster boxes, wind origin and rings as the frame that culled them), so GrassCull neither culls
 // nor finalizes them this frame; it copies their drawn counts into this frame in flight's Feedback.
 const uint kGrassRowCascadesHeld = 2u;
+// Info.z (GPU-GRASS-CULL-1; only with kGrassRowCascadesHeld): the camera's phase-1 list, its records and its frozen
+// candidates hold from an earlier frame (GrassRenderer VarietyGpu::CameraKey: the same camera planes, HZB matrix
+// and camera buffers), so GrassCull gives the row no camera cull groups; its finalize keeps them and restarts phase 2,
+// which retests the held candidates against this frame's HZB.
+const uint kGrassRowCameraHeld = 4u;
 
 // THE CHUNK CONTRACT (GRASS-VIEW-LAW-1; UE landscape grass: a component's instances are built once, the views cull
 // them): chunk c = tile slot x kTileClusters + cluster, written ONCE by the build (GrassGenerate.shader Write,

@@ -31,7 +31,8 @@ namespace Desert::Graphic
         None = 0,       // rendered as requested
         Scalability,    // the machine's ceiling (Scalability "<Group>.Method") is lower
         Override,       // machine.json overrides "<Group>.Method": it replaces the request, up or down
-        Device,         // the device cannot run it (no ray query in the CapabilityCatalog)
+        Device,         // the device cannot run it (no ray query in the CapabilityCatalog; worded "emulated RT"
+                        // when its RayTracingAccel is Emulated, whose catalog lists no ray tracing mode)
         DevicePipeline, // the device has no ray tracing pipeline (CapabilityCatalog RayTracingPipeline):
                         // PathTraced
         PathTracerPair, // PathTraced on one of GI / reflections only: the path tracer is one integrator for both
@@ -46,12 +47,17 @@ namespace Desert::Graphic
     template <typename Method>
     struct ResolvedMethod
     {
-        Method      Requested{}; // the view's PostProcessSettings
+        // The view's PostProcessSettings on this ladder (Common::Scalability::LadderOf): a Traced request is its
+        // best tracer, HardwareTraced; `TracedRequest` says so, and the rows print "Traced" for it.
+        Method      Requested{};
         Method      Ceiling{};   // the machine's Scalability value (a level's ceiling, or an override's choice)
         Method      Effective{}; // what the frame renders
         MethodLimit Limit = MethodLimit::None;
         // Limit == Program: the program that did not build (MethodRefusal::Program, static storage).
         std::string_view Program;
+        // The request was the Traced family: the tracer (hardware or software rays) was the machine's ceiling and
+        // the device's, never the view's (TRACED-METHOD-AXIS).
+        bool TracedRequest = false;
 
         [[nodiscard]] bool Lowered() const
         {
@@ -119,6 +125,10 @@ namespace Desert::Graphic
         // The shadow supplements, after the same rule (distance-field shadows refused at load until they land).
         bool ContactShadows       = false;
         bool DistanceFieldShadows = false;
+        // The catalog's RayTracingAccel: words a Device limit ("emulated RT" / "no ray query",
+        // FormatRenderMethods). The same for every view on the device; nothing branches on it.
+        Common::Scalability::RayTracingAcceleration RayTracingAccel =
+             Common::Scalability::RayTracingAcceleration::None;
 
         bool operator==( const RenderMethods& ) const = default;
     };
@@ -187,6 +197,13 @@ namespace Desert::Graphic
     // built) is lowered here to HardwareTraced on both axes with MethodLimit::FrameScene, before any pass is
     // declared, so the frame renders - and the overlay names - one decision. PURE.
     void LowerPathTracingForFrame( RenderMethods& methods, bool rayTracedSceneReady );
+
+    // The tracer GI / reflections run this frame, one row each, only for an axis on a traced rung
+    // (Common::Scalability::IsTracerRung): "GI tracer: Hardware", or "GI tracer: Software (<the limit that stopped
+    // hardware rays>)" - the device ("emulated RT: ..." / "the device offers no ray query"), the machine's ceiling
+    // ("Scalability GlobalIllumination.Method is SoftwareTraced") or an override. ReportRenderMethods logs each
+    // distinct row once.
+    [[nodiscard]] std::vector<std::string> FormatTracers( const RenderMethods& methods );
 
     // One row per axis: "GI: ScreenSpace" or, lowered, "GI: HardwareTraced -> ScreenSpace (device: no ray query)".
     // The log line and the overlay print exactly these.

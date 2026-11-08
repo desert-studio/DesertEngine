@@ -5,6 +5,9 @@
 #include <Engine/Graphic/Materials/Properties/PropertyVersion.hpp>
 
 #include <array>
+#include <atomic>
+#include <cstdint>
+#include <memory>
 
 namespace Desert::Graphic
 {
@@ -40,15 +43,37 @@ namespace Desert::Graphic
             return m_Version;
         }
 
+        // CPU-BIND-PREPARE (MaterialExecutor::CheckRecordable in O(1)): the owning executor's write counter,
+        // bumped by every write of this property or one of its fields. Shared, so a property a caller keeps past
+        // its executor never writes into freed memory. False when the property counts into another executor's
+        // counter already: that executor's writes would go uncounted here, so the caller checks in full.
+        [[nodiscard]] bool AttachWriteSink( const std::shared_ptr<std::atomic<uint64_t>>& sink ) noexcept
+        {
+            if ( m_WriteSink == sink )
+                return true;
+            if ( m_WriteSink != nullptr )
+                return false;
+            m_WriteSink = sink;
+            return true;
+        }
+
     protected:
         // Every write calls this: a fresh version puts every copy that applied an older one behind.
         void NoteWritten() noexcept
         {
             m_Version = PropertyVersion::Next();
+            NoteFieldWritten();
+        }
+        // A field of this property was written (UniformBufferProperty::WriteField): the version is the field's.
+        void NoteFieldWritten() noexcept
+        {
+            if ( m_WriteSink != nullptr )
+                m_WriteSink->fetch_add( 1, std::memory_order_relaxed );
         }
 
     private:
         // Born WRITTEN: a new property has been applied nowhere, so every set owes it one write.
-        uint64_t m_Version = PropertyVersion::Next();
+        uint64_t                               m_Version = PropertyVersion::Next();
+        std::shared_ptr<std::atomic<uint64_t>> m_WriteSink;
     };
 } // namespace Desert::Graphic

@@ -20,7 +20,7 @@ TEST( JobSystem, SubmitRunsJobs )
     std::atomic<int> done{ 0 };
     for ( int i = 0; i < kJobs; ++i )
         Common::JobSystem::Get().Submit(
-             [&]
+             [&]() noexcept
              {
                  counter.fetch_add( 1 );
                  done.fetch_add( 1 );
@@ -34,7 +34,7 @@ TEST( JobSystem, SubmitRunsJobs )
 
 TEST( JobSystem, AsyncReturnsValue )
 {
-    auto fut = Common::JobSystem::Get().Async( [] { return 7 * 6; } );
+    auto fut = Common::JobSystem::Get().Async( []() noexcept { return 7 * 6; } );
     EXPECT_EQ( fut.get(), 42 );
 }
 
@@ -79,9 +79,9 @@ TEST( JobSystem, NestedSubmitFromWorker )
     std::atomic<bool> outerDone{ false };
 
     Common::JobSystem::Get().Submit(
-         [&]
+         [&]() noexcept
          {
-             Common::JobSystem::Get().Submit( [&] { innerRan.store( true ); } );
+             Common::JobSystem::Get().Submit( [&]() noexcept { innerRan.store( true ); } );
              outerDone.store( true );
          } );
 
@@ -150,7 +150,7 @@ TEST( JobSystem, AParallelLoopInsideEveryWorkerStillFinishes )
     for ( size_t w = 0; w < workers; ++w )
     {
         Common::JobSystem::Get().Submit(
-             [&, workers]
+             [&, workers]() noexcept
              {
                  // Occupy every worker before any of them nests, so the pool really is saturated when the
                  // inner loop asks for help.

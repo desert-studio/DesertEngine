@@ -3,8 +3,10 @@
 #include <Common/Core/GpuQueue.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -113,13 +115,38 @@ namespace Desert::Graphic
      * timestamps at GpuScopeQueryBase( index ) for whatever index Begin hands out. Owners are opaque
      * addresses (the active ViewResources, or the frame context) used only as keys, never dereferenced, so
      * a view destroyed before its frame is resolved costs nothing here.
+     *
+     * THE KEY. @p Key is what a scope is named by: the profiler's row id (uint32_t, VulkanGpuProfiler - no string
+     * is built or copied per scope) or its text (std::string, the default: tests and tools).
+     *
+     * THREADS (CPU-ONE-SYNC). The scope array is allocated to its capacity at Reset and a scope's slot is claimed
+     * with one atomic add, so a graph chunk recording on a task worker (BeginUnder / EndUnder) takes no lock: it
+     * writes only its own slot and its chunk's `open` list. Everything else - the shared per-(view, queue) stacks
+     * (Begin / End / ChunkRoot), the queue, the order clock, SetOrder and Retract - belongs to ONE thread at a
+     * time (the thread walking the graph; the caller serialises it). Scopes() / LiveParent are read after every
+     * chunk of the frame has been joined (the resolve, frames later).
      */
+    // Where a chunk's scopes hang: its (view, queue) stack, the scope open on it, and the queue.
+    // RDG-PARALLEL-1-1: taken on the dispatching thread when the chunks are begun (ChunkRoot), because the
+    // chunks now record WHILE that thread walks the graph - its stack and its queue (SetQueue at an async
+    // segment) change under them, and a chunk is on its own pipe whatever segment the dispatching thread is
+    // in. Not a member type of the recorder, so every key's recorder hands out the same root.
+    struct GpuChunkRootScope
+    {
+        uint32_t                    Stack  = 0;
+        int32_t                     Parent = kGpuNoParent;
+        Common::Profiling::GpuQueue Queue  = Common::Profiling::GpuQueue::Graphics;
+    };
+
+    template <typename Key = std::string>
     class GpuScopeRecorder
     {
     public:
+        using ChunkRootScope = GpuChunkRootScope;
+
         struct Scope
         {
-            std::string Name;
+            Key Name{};
             // Index of the enclosing scope OF THE SAME OWNER, or kGpuNoParent. Always an earlier index,
             // which is what GpuSelfTimes requires.
             int32_t Parent = kGpuNoParent;
@@ -141,10 +168,13 @@ namespace Desert::Graphic
         // Starts a frame with room for @p capacityScopes.
         void Reset( uint32_t capacityScopes )
         {
-            m_Capacity  = capacityScopes;
-            m_Requested = 0;
-            m_Clock     = 0;
-            m_Scopes.clear();
+            m_Capacity = capacityScopes;
+            m_Requested.Value.store( 0, std::memory_order_relaxed );
+            m_Clock = 0;
+            // Grows, never shrinks: the slots are claimed in place (Claim), so the array is never resized while
+            // a frame records, and a frame start allocates nothing once the pool has stopped growing.
+            if ( m_Scopes.size() < capacityScopes )
+                m_Scopes.resize( capacityScopes );
             m_Stacks.clear();
             m_Queue = Common::Profiling::GpuQueue::Graphics;
         }
@@ -161,20 +191,20 @@ namespace Desert::Graphic
         // graph times every node by its name (VulkanRdgBackend::BeginPass) and a node's record body may open its own
         // DESERT_PROFILE_PASS with the same name: it is not timed twice (-1, as a refused scope), so one pass is
         // one row of one count, not "x2" at twice its time (FPS-MAC: "Clouds: ShadowMap" / "Sky: SkyViewLut").
-        [[nodiscard]] int32_t Begin( std::string name, const void* owner )
+        [[nodiscard]] int32_t Begin( Key name, const void* owner )
         {
             const uint32_t stackIndex = StackOf( owner, m_Queue );
             auto&          stack      = m_Stacks[stackIndex].Open;
             if ( !stack.empty() && m_Scopes[static_cast<size_t>( stack.back() )].Name == name )
                 return -1;
-            ++m_Requested;
-            if ( m_Scopes.size() >= m_Capacity )
+            const int32_t index = Claim();
+            if ( index < 0 )
                 return -1;
 
-            const auto index = static_cast<int32_t>( m_Scopes.size() );
-            m_Scopes.push_back(
-                 Scope{ std::move( name ), stack.empty() ? kGpuNoParent : stack.back(), stackIndex, m_Queue } );
-            m_Scopes.back().Order = m_Clock++ << 24;
+            const int32_t parent = stack.empty() ? kGpuNoParent : stack.back();
+            Scope&        scope  = m_Scopes[static_cast<size_t>( index )];
+            scope                = Scope{ std::move( name ), parent, stackIndex, m_Queue };
+            scope.Order          = m_Clock++ << 24;
             stack.push_back( index );
             return index;
         }
@@ -190,17 +220,7 @@ namespace Desert::Graphic
             m_Clock += count;
             return first;
         }
-        // Where a chunk's scopes hang: its (view, queue) stack, the scope open on it, and the queue.
-        // RDG-PARALLEL-1-1: taken on the dispatching thread when the chunks are begun (ChunkRoot), because the
-        // chunks now record WHILE that thread walks the graph - its stack and its queue (SetQueue at an async
-        // segment) change under them, and a chunk is on its own pipe whatever segment the dispatching thread is
-        // in.
-        struct ChunkRootScope
-        {
-            uint32_t                    Stack  = 0;
-            int32_t                     Parent = kGpuNoParent;
-            Common::Profiling::GpuQueue Queue  = Common::Profiling::GpuQueue::Graphics;
-        };
+        // Where a chunk's scopes hang (GpuChunkRootScope), taken on the dispatching thread.
         [[nodiscard]] ChunkRootScope ChunkRoot( const void* owner, Common::Profiling::GpuQueue queue )
         {
             const uint32_t stackIndex = StackOf( owner, queue );
@@ -213,26 +233,28 @@ namespace Desert::Graphic
         // A scope opened on a chunk's thread: it nests under @p open (the chunk's own open scopes), the first
         // under
         // @p root (ChunkRoot), and is never pushed onto the shared stack. @p order: the chunk's tick << 24 | the
-        // chunk's scope count.
-        [[nodiscard]] int32_t BeginUnder( std::string name, const ChunkRootScope& root, std::vector<int32_t>& open,
+        // chunk's scope count. LOCK-FREE: any number of chunk threads at once, and the dispatching thread's Begin
+        // beside them; each writes only the slot it claimed. The parent's slot was written before this chunk
+        // started (the root, on the dispatching thread) or by this chunk itself.
+        [[nodiscard]] int32_t BeginUnder( Key name, const ChunkRootScope& root, std::vector<int32_t>& open,
                                           uint64_t order )
         {
             const int32_t parent = !open.empty() ? open.back() : root.Parent;
             if ( parent != kGpuNoParent && m_Scopes[static_cast<size_t>( parent )].Name == name )
                 return -1;
-            ++m_Requested;
-            if ( m_Scopes.size() >= m_Capacity )
+            const int32_t index = Claim();
+            if ( index < 0 )
                 return -1;
-            const auto index = static_cast<int32_t>( m_Scopes.size() );
-            m_Scopes.push_back( Scope{ std::move( name ), parent, root.Stack, root.Queue } );
-            m_Scopes.back().Order = order;
+            Scope& scope = m_Scopes[static_cast<size_t>( index )];
+            scope        = Scope{ std::move( name ), parent, root.Stack, root.Queue };
+            scope.Order  = order;
             open.push_back( index );
             return index;
         }
         // RDG-PARALLEL-3: scope @p index takes @p order (a chunk's scopes, re-stamped as the chunk is replayed).
         void SetOrder( int32_t index, uint64_t order ) noexcept
         {
-            if ( index >= 0 && static_cast<size_t>( index ) < m_Scopes.size() )
+            if ( index >= 0 && static_cast<uint32_t>( index ) < Count() )
                 m_Scopes[static_cast<size_t>( index )].Order = order;
         }
         void EndUnder( int32_t index, std::vector<int32_t>& open )
@@ -243,7 +265,7 @@ namespace Desert::Graphic
 
         void End( int32_t index )
         {
-            if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
+            if ( index < 0 || static_cast<uint32_t>( index ) >= Count() )
                 return;
             auto& stack = m_Stacks[m_Scopes[static_cast<size_t>( index )].Stack].Open;
             if ( !stack.empty() && stack.back() == index )
@@ -254,7 +276,7 @@ namespace Desert::Graphic
         // A chunk's scopes are never on a shared stack (BeginUnder), so no stack holds it.
         void Retract( int32_t index ) noexcept
         {
-            if ( index >= 0 && static_cast<size_t>( index ) < m_Scopes.size() )
+            if ( index >= 0 && static_cast<uint32_t>( index ) < Count() )
                 m_Scopes[static_cast<size_t>( index )].Retracted = true;
         }
 
@@ -262,7 +284,7 @@ namespace Desert::Graphic
         // under once a discarded chunk's scopes are gone. Always an earlier index, as Scope::Parent is.
         [[nodiscard]] int32_t LiveParent( int32_t index ) const noexcept
         {
-            if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
+            if ( index < 0 || static_cast<uint32_t>( index ) >= Count() )
                 return kGpuNoParent;
             int32_t parent = m_Scopes[static_cast<size_t>( index )].Parent;
             while ( parent != kGpuNoParent && m_Scopes[static_cast<size_t>( parent )].Retracted )
@@ -270,15 +292,16 @@ namespace Desert::Graphic
             return parent;
         }
 
-        [[nodiscard]] const std::vector<Scope>& Scopes() const noexcept
+        // The frame's scopes: the claimed slots, at most the capacity.
+        [[nodiscard]] std::span<const Scope> Scopes() const noexcept
         {
-            return m_Scopes;
+            return std::span<const Scope>( m_Scopes.data(), Count() );
         }
 
         /// Scopes asked for this frame, refused ones included — the number the pool must grow to.
         [[nodiscard]] uint32_t Requested() const noexcept
         {
-            return m_Requested;
+            return m_Requested.Value.load( std::memory_order_relaxed );
         }
 
         [[nodiscard]] uint32_t Capacity() const noexcept
@@ -287,6 +310,18 @@ namespace Desert::Graphic
         }
 
     private:
+        // The next slot, or -1 when the pool is full; a refused claim still counts (Requested).
+        [[nodiscard]] int32_t Claim() noexcept
+        {
+            const uint32_t index = m_Requested.Value.fetch_add( 1, std::memory_order_relaxed );
+            return index < m_Capacity ? static_cast<int32_t>( index ) : -1;
+        }
+        [[nodiscard]] uint32_t Count() const noexcept
+        {
+            const uint32_t requested = m_Requested.Value.load( std::memory_order_relaxed );
+            return requested < m_Capacity ? requested : m_Capacity;
+        }
+
         // One stack per (view, queue): see 3. above.
         uint32_t StackOf( const void* owner, Common::Profiling::GpuQueue queue )
         {
@@ -307,7 +342,20 @@ namespace Desert::Graphic
 
         Common::Profiling::GpuQueue                               m_Queue = Common::Profiling::GpuQueue::Graphics;
         uint32_t                                                  m_Capacity  = 0;
-        uint32_t                                                  m_Requested = 0;
+        // Scopes asked for this frame: the claim counter (the slot index), refused ones included. Copyable so
+        // the recorder stays a value (one per frame in flight, in a vector).
+        struct Counter
+        {
+            std::atomic<uint32_t> Value{ 0 };
+            Counter() = default;
+            Counter( const Counter& other ) : Value( other.Value.load( std::memory_order_relaxed ) ) {}
+            Counter& operator=( const Counter& other )
+            {
+                Value.store( other.Value.load( std::memory_order_relaxed ), std::memory_order_relaxed );
+                return *this;
+            }
+        };
+        Counter m_Requested;
         uint64_t m_Clock = 0; // the next recording-order tick
         std::vector<Scope>                                        m_Scopes;
         std::vector<OwnerStack>                                   m_Stacks;
@@ -322,10 +370,12 @@ namespace Desert::Graphic
     //
     // The relation this exists for: for any tree whose children lie inside their parents, the self times
     // sum to the root's inclusive time. Nothing else in the breakdown may be summed.
-    [[nodiscard]] inline std::vector<double> GpuSelfTimes( const std::vector<double>&  inclusiveMs,
-                                                           const std::vector<int32_t>& parents )
+    //
+    // Written into @p self (CPU-ONE-SYNC: the profiler's resolve reuses one vector, no allocation per frame).
+    inline void GpuSelfTimes( const std::vector<double>& inclusiveMs, const std::vector<int32_t>& parents,
+                              std::vector<double>& self )
     {
-        std::vector<double> self = inclusiveMs;
+        self.assign( inclusiveMs.begin(), inclusiveMs.end() );
 
         const size_t count = inclusiveMs.size() < parents.size() ? inclusiveMs.size() : parents.size();
         for ( size_t i = 0; i < count; ++i )
@@ -342,8 +392,6 @@ namespace Desert::Graphic
         for ( size_t i = 0; i < self.size(); ++i )
             if ( inclusiveMs[i] >= 0.0 && self[i] < 0.0 )
                 self[i] = 0.0;
-
-        return self;
     }
 
     // One scope's interval on its queue's timeline, in ms from the frame bracket's begin. A scope whose two
@@ -375,13 +423,17 @@ namespace Desert::Graphic
     // time no scope was around - work recorded outside every scope, barriers between them, and idle - and can
     // never go negative. Intervals are clipped to the span. The relation it exists for: UncoveredMs plus the
     // union's length is the span's length.
-    [[nodiscard]] inline GpuCoverage GpuCoverageOf( const std::vector<GpuInterval>& intervals,
-                                                    std::vector<int32_t> members, double spanBeginMs,
-                                                    double spanEndMs )
+    //
+    // NO ALLOCATION PER FRAME (CPU-ONE-SYNC): @p members is the caller's list, filtered and sorted IN PLACE (by
+    // begin, then by index - the stable order of a list given in index order, without stable_sort's buffer, and
+    // the same order again when the sorted list is passed once more), and @p coverage keeps its gaps' capacity.
+    inline void GpuCoverageOf( const std::vector<GpuInterval>& intervals, std::vector<int32_t>& members,
+                               const double spanBeginMs, const double spanEndMs, GpuCoverage& coverage )
     {
-        GpuCoverage coverage;
+        coverage.UncoveredMs = 0.0;
+        coverage.Gaps.clear();
         if ( spanEndMs <= spanBeginMs )
-            return coverage;
+            return;
 
         std::erase_if( members,
                        [&]( int32_t index )
@@ -389,11 +441,13 @@ namespace Desert::Graphic
                            return index < 0 || static_cast<size_t>( index ) >= intervals.size() ||
                                   !intervals[static_cast<size_t>( index )].Valid;
                        } );
-        std::stable_sort( members.begin(), members.end(),
-                          [&]( int32_t a, int32_t b ) {
-                              return intervals[static_cast<size_t>( a )].BeginMs <
-                                     intervals[static_cast<size_t>( b )].BeginMs;
-                          } );
+        std::sort( members.begin(), members.end(),
+                   [&]( int32_t a, int32_t b )
+                   {
+                       const double beginA = intervals[static_cast<size_t>( a )].BeginMs;
+                       const double beginB = intervals[static_cast<size_t>( b )].BeginMs;
+                       return beginA != beginB ? beginA < beginB : a < b;
+                   } );
 
         double  cursor    = spanBeginMs;
         int32_t lastEnded = kGpuNoParent;
@@ -420,6 +474,5 @@ namespace Desert::Graphic
             coverage.Gaps.push_back( GpuUncovered{ lastEnded, kGpuNoParent, spanEndMs - cursor } );
             coverage.UncoveredMs += spanEndMs - cursor;
         }
-        return coverage;
     }
 } // namespace Desert::Graphic

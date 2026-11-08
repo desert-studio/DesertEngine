@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/AtmosphereEnv.hpp>
+#include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
@@ -139,10 +140,14 @@ namespace Desert::Graphic::System
         // distant sky light -- are DeclareAtmosphereCachedLutNodes, added at the head of the graph because the sky
         // capture marches them in the same frame (AddSkyCapturePasses). The per-view ones -- the Sky-View LUT and
         // the aerial-perspective volume -- are DeclareAtmosphereLutNodes, in the in-frame compute slot above.
-        std::vector<ComputeNodeDeclaration> DeclareAtmosphereCachedLutNodes();
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it (both Declare*).
+        ComputeNodeList DeclareAtmosphereCachedLutNodes( Common::Memory::FrameArena& arena );
         // The cached LUT pair counts as baked only once the frame graph accepted the nodes that bake it.
         void                                SettleAtmosphereCachedLutNodes( bool accepted );
-        std::vector<ComputeNodeDeclaration> DeclareAtmosphereLutNodes();
+        // @p refs carries the frame's cloud shadow map (CloudShadowMapOrWhite) and @p cloudShadow what was gathered
+        // about it (SceneRenderer::GetCloudShadowInput): both fills march the sun's single scattering through it.
+        ComputeNodeList DeclareAtmosphereLutNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
+                                                   const CloudShadowInput& cloudShadow );
         // The sky-view LUT counts as filled only once the frame graph accepted its node.
         void SettleAtmosphereLutNodes( bool accepted );
         // The sky pass samples the transmittance / sky-view LUTs this frame: the procedural backdrop is drawn and
@@ -296,6 +301,20 @@ namespace Desert::Graphic::System
 
         static AtmosphereLutFingerprint LutFingerprintOf( const SkySettings& sky );
 
+        // THE INPUTS OF A FILL THAT FOLLOWS THE SKY BLOCK (CLOUDS-MARCH-LATENCY): the Sky-View LUT (per light) and
+        // the distant sky light read nothing but the block UploadFrameSkyParams sent, the cached pair, and — the
+        // Sky-View fill only — its push (the camera position and the light index). A node is declared when this
+        // moved or its image was never filled; otherwise the image keeps what an earlier accepted frame wrote
+        // (Hillaire 2020's Sky-View LUT is a function of the camera's position and the sun, not of where the
+        // camera looks, so a camera turning on the spot re-marches nothing).
+        //
+        // THE BLOCK IS HASHED WHOLE, every byte bar the view's luminance ceiling (vec4 15's w, which neither
+        // shader reads): a typed list is the second place to remember that AtmosphereLutFingerprint's note
+        // warns about, and over-covering costs at most a fill nobody needed. @p pairGeneration counts the cached
+        // pair's accepted bakes, so a re-baked pair re-fills its dependants whatever the block says.
+        static uint64_t SkyLutFillInputsOf( uint64_t blockInputs, uint64_t pairGeneration,
+                                            const glm::vec4& push );
+
         // Lazily creates the two cached LUT images (latched on failure, one MiB log line on success).
         bool EnsureAtmosphereLutResources();
         // Same arrangement for the per-view Sky-View LUT image.
@@ -312,8 +331,11 @@ namespace Desert::Graphic::System
         // imports, orders and barriers them); the exec opens the block and adds only the push constants.
         [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
-        // lightIndex: the atmosphere light the fill integrates, in that light's own frame (0 = sun, 1 = light 1).
-        [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context, int lightIndex );
+        // @p cameraAndLight: xyz the camera position the fill marches from (world units), w the atmosphere light
+        // it integrates in that light's own frame (0 = sun, 1 = light 1). Formed when the node is declared, so the
+        // dispatch reads exactly the value its input fingerprint was taken over.
+        [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context,
+                                                                const glm::vec4&        cameraAndLight );
         [[nodiscard]] Common::BoolResultStr DispatchAerialPerspectiveLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchDistantLight( const RDG::PassContext& context );
 
@@ -350,6 +372,10 @@ namespace Desert::Graphic::System
         // (frame in flight x renderer slot). A persistent buffer would be shared by every live
         // SceneRenderer by design, and the mesh preview would overwrite the viewport's sky.
         std::shared_ptr<ShaderResources::StorageBuffer> m_SkyParams;
+        // The per-view fills' CloudShadowUniforms (kSkyCloudShadowBinding), written by DeclareAtmosphereLutNodes
+        // every frame the fills are declared; non-persistent for m_SkyParams' reason (one copy per frame in flight
+        // x renderer slot).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_SkyCloudShadow;
 
         // Physical-atmosphere LUTs (SkyModel::PhysicalAtmosphere only; see ExecuteAtmosphereLuts).
         // Per renderer, not per frame in flight: the cached pair is rewritten only on a parameter
@@ -386,14 +412,29 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D>         m_DistantLight;
         AtmosphereLutFingerprint         m_LutBaked;
         bool                             m_LutsValid                        = false;
-        // The sky-view LUT has been written by an earlier frame's SkyAtmosphereLuts node (it is refilled every
-        // frame after that). The SkyboxPass samples the LUTs only once this holds, see DeclareSkyDraw.
+        // The sky-view LUT has been written by an earlier frame's SkyAtmosphereLuts node (refilled after that
+        // whenever its inputs move, m_SkyViewLutInputs). The SkyboxPass samples the LUTs only once this
+        // holds, see DeclareSkyDraw.
         bool m_SkyViewLutFilled = false;
         // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
         bool m_SkyViewLutFillPending = false;
         // The same pair for m_SkyViewLut1, declared only while the scene has an atmosphere light 1.
         bool m_SkyViewLut1Filled      = false;
         bool m_SkyViewLut1FillPending = false;
+        // SkyLutFillInputsOf per fill: what the image holds (settled) and what this frame's node writes (pending,
+        // until the Settle that hears the graph). Empty = never filled, or the block's upload was refused.
+        std::optional<uint64_t> m_SkyViewLutInputs;
+        std::optional<uint64_t> m_SkyViewLutInputsPending;
+        std::optional<uint64_t> m_SkyViewLut1Inputs;
+        std::optional<uint64_t> m_SkyViewLut1InputsPending;
+        std::optional<uint64_t> m_DistantLightInputs;
+        std::optional<uint64_t> m_DistantLightInputsPending;
+        bool                    m_DistantLightPending = false; // its node was declared, until the Settle
+        // The block UploadFrameSkyParams sent this frame, hashed (SkyLutFillInputsOf); empty when it was refused,
+        // which re-fills every dependant rather than trusting a block the GPU may not hold.
+        std::optional<uint64_t> m_UploadedSkyBlockInputs;
+        // Accepted bakes of the cached pair: a dependant filled against an older pair is stale.
+        uint64_t m_LutBakeGeneration = 0;
         // What the SkyboxPass's setup (DeclareSkyDraw) chose this frame: the pipeline and material its block 0 was
         // declared against, or a refusal the exec returns (a skybox material without its pipeline). Empty when
         // nothing draws.

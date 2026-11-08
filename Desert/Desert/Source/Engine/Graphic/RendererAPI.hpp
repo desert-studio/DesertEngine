@@ -350,10 +350,14 @@ namespace Desert::Graphic
         // Copy the DEPTH aspect of the graph texture @p source (one layer) into layer @p targetLayer of the graph
         // texture @p target, inside the exec of the Copy node @p context that declared @p source CopySrc and
         // that layer of @p target CopyDst (the sun's static cascade cache into its layer of the cascade array).
-        // Same extent and sample count, else refused and named.
+        // Same extent and sample count, else refused and named. @p regions (texels: x, y, width, height, the same
+        // in both images): only those rectangles are copied, the rest of the layer keeps its depth (a cascade
+        // whose movable casters moved restores the cache under them alone, SHADOW-CACHE-MOTION); empty, the whole
+        // layer.
         virtual Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                              RDG::TextureRef source, RDG::TextureRef target,
-                                                             uint32_t targetLayer ) = 0;
+                                                             uint32_t                    targetLayer,
+                                                             std::span<const glm::uvec4> regions ) = 0;
         // A SCROLLED cascade's layer (MeshRenderer, UE's CSM scrolling): layer @p targetLayer of @p target cleared to
         // @p clearDepth, then the texels of @p source that still land inside it copied in, shifted by (@p shiftX,
         // @p shiftY) texels (destination = source + shift). The same Copy node declarations as CopyGraphDepthToLayer;

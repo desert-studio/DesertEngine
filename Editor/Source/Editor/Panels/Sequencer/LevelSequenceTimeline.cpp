@@ -50,6 +50,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <charconv>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,6 +61,18 @@ namespace Desert::Editor
     {
         namespace LevelTL = Animation::Timeline;
 
+        /// The UUID an Entity binding's locator spells (decimal digits, the whole text) - nullopt for any
+        /// other text: a UUID read from text is refused by value, never thrown (Common::UUID has no text ctor).
+        std::optional<Common::UUID> LocatorUUID( const std::string& locator ) noexcept
+        {
+            uint64_t   value = 0;
+            const auto end   = locator.data() + locator.size();
+            const auto read  = std::from_chars( locator.data(), end, value );
+            if ( locator.empty() || read.ec != std::errc() || read.ptr != end )
+                return std::nullopt;
+            return Common::UUID( value );
+        }
+
         /// The entity a binding names, in @p scene — nullopt for a binding that is not an Entity binding or
         /// names nothing of this scene.
         std::optional<ECS::Entity> BoundEntity( const ::Desert::Core::Scene& scene,
@@ -67,7 +80,10 @@ namespace Desert::Editor
         {
             if ( binding.Kind != LevelTL::BindingKind::Entity )
                 return std::nullopt;
-            const auto found = scene.FindEntityByID( Common::UUID( binding.Locator ) );
+            const std::optional<Common::UUID> id = LocatorUUID( binding.Locator );
+            if ( !id )
+                return std::nullopt;
+            const auto found = scene.FindEntityByID( *id );
             if ( !found )
                 return std::nullopt;
             return found->get();
@@ -736,7 +752,8 @@ namespace Desert::Editor
             if ( binding.Kind != LevelTL::BindingKind::Entity )
                 continue;
             // The Selected filter asks the level's selection — the binding's locator IS the entity's UUID.
-            const bool selected = Editor::Core::SelectionManager::IsSelected( Common::UUID( binding.Locator ) );
+            const std::optional<Common::UUID> id       = LocatorUUID( binding.Locator );
+            const bool                        selected = id && Editor::Core::SelectionManager::IsSelected( *id );
             if ( !Sequencer::BindingPasses( sequence, binding, selected, filters ) )
                 continue;
             // A track of this actor shows when it exists and passes the active filters.

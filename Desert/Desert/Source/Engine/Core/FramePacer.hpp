@@ -12,6 +12,11 @@ namespace Desert::Engine
     class FramePacer
     {
     public:
+        FramePacer() = default;
+        ~FramePacer();
+        FramePacer( const FramePacer& )            = delete;
+        FramePacer& operator=( const FramePacer& ) = delete;
+
         // 0 = not limited.
         void                   SetLimit( uint32_t framesPerSecond );
         [[nodiscard]] uint32_t Limit() const
@@ -24,6 +29,19 @@ namespace Desert::Engine
 
     private:
         using Clock = std::chrono::steady_clock;
+
+        // UE FPlatformProcess::Sleep's shape for a frame cap: the OS sleeps to 0.5 ms before @p until on a
+        // high-resolution waitable timer (Windows; a plain sleep_until is 15.6 ms coarse there), then the thread
+        // spins the rest, so a cap of 120 holds 120 and not the 64 the coarse tick rounds it to.
+        void SleepUntil( Clock::time_point until );
+
+        // Windows: sleeps @p span on the high-resolution timer; false, and nothing slept, when there is none - on
+        // another platform, or the timer refused (made, set or waited on), which is said in the log once and
+        // closes the timer for good. SleepUntil then makes the plain wait.
+        [[nodiscard]] bool SleepOnTimer( Clock::duration span ) noexcept;
+
+        void* m_Timer        = nullptr; // Windows: the high-resolution waitable timer, made on first use
+        bool  m_TimerRefused = false;   // Windows: the timer was refused once (said in the log); sleep_until then
 
         uint32_t          m_Limit = 0;
         Clock::time_point m_Next{};

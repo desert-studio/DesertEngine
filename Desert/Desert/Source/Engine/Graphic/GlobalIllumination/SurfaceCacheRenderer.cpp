@@ -1,6 +1,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 
 #include <Engine/Core/Projection.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -171,6 +172,28 @@ namespace Desert::Graphic::SurfaceCache
         constexpr float    kRadiosityMaxFramesAccumulated = 4.0f;
         constexpr std::string_view kRadiosityTraceName    = "SurfaceCache.RadiosityTrace";
         constexpr std::string_view kRadiosityShaderName   = "SurfaceCacheRadiosityTrace";
+        // The async compute path (IndirectLightingInputs::Async, GPU-GI-CRITPATH): the same per-texel work as
+        // the raster programs (Common/SurfaceCacheRadiosityTraceTexel.glslh, SurfaceCacheIndirectLightingTexel),
+        // one LocalSize(8, 8, 1) group per page tile and one z per relit page; the images the raster passes draw
+        // as colour targets written as storage.
+        constexpr std::string_view kRadiosityAsyncShaderName = "SurfaceCacheRadiosityTraceAsync";
+        constexpr std::string_view kIndirectAsyncShaderName  = "SurfaceCacheIndirectLightingAsync";
+        constexpr uint32_t         kLightingAsyncGroup       = 8;
+        static_assert( kPhysicalPageSize % kLightingAsyncGroup == 0 );
+        constexpr RDG::StorageTextureParameter kRadiosityTraceAtlas{ "RadiosityTraceAtlas" };
+        constexpr RDG::StorageTextureParameter kIndirectLightingImage{ "AtlasIndirectLightingImage" };
+        constexpr RDG::StorageTextureParameter kFinalLightingImage{ "AtlasFinalLightingImage" };
+        // GPU-GI-CRITPATH step 2: the direct lighting on the same queue, and the lighting tiles all three async
+        // passes dispatch over (Common/SurfaceCacheLightingTiles.glslh: one 8x8 group per tile holding a captured
+        // texel, on a grid kTileGridWidth groups wide; a tile word keeps 4 bits per axis of its page).
+        constexpr std::string_view kDirectAsyncShaderName = "SurfaceCacheDirectLightingAsync";
+        constexpr std::string_view kTilesShaderName       = "SurfaceCacheLightingTiles";
+        constexpr uint32_t         kPageTiles             = kPhysicalPageSize / kLightingAsyncGroup;
+        static_assert( kPageTiles <= 16u );
+        constexpr RDG::StorageTextureParameter    kDirectLightingImage{ "AtlasDirectLightingImage" };
+        constexpr RDG::StorageBufferParameter     kTileArgs{ "SurfaceCacheLightingTileArgs" };
+        constexpr RDG::StorageBufferParameter     kTileList{ "SurfaceCacheLightingTiles" };
+        constexpr std::array<uint32_t, 4>         kTileArgsReset{ 0u, 0u, 1u, 0u }; // x, y, z groups; w = tiles
 
         struct SceneViewPush
         {
@@ -213,18 +236,33 @@ namespace Desert::Graphic::SurfaceCache
         // The direct lighting is compiled per tracer (its shadow rays): EnsureLightingProgram, at its first pass.
         m_LightingShader = shaders->GetByName( "SurfaceCacheDirectLighting" );
         m_IndirectShader = shaders->GetByName( "SurfaceCacheIndirectLighting" );
+        m_IndirectAsyncShader = shaders->GetByName( std::string( kIndirectAsyncShaderName ) );
         for ( const auto& [shader, name] :
               { std::pair{ m_CopyShader.get(), "SurfaceCacheCardCopy" },
                 std::pair{ m_AtlasViewShader.get(), "SurfaceCacheAtlasView" },
                 std::pair{ m_SceneViewShader.get(), "SurfaceCacheSceneView" },
                 std::pair{ m_LightingShader.get(), "SurfaceCacheDirectLighting" },
-                std::pair{ m_IndirectShader.get(), "SurfaceCacheIndirectLighting" } } )
+                std::pair{ m_IndirectShader.get(), "SurfaceCacheIndirectLighting" },
+                std::pair{ m_IndirectAsyncShader.get(), "SurfaceCacheIndirectLightingAsync" } } )
             if ( shader == nullptr )
                 return Common::MakeFormattedError<bool>( "surface cache: shader {} not found", name );
         auto pipeline = ComputePipeline::Create( { .Shader = m_CopyShader, .DebugName = "SurfaceCacheCardCopy" } );
         if ( !pipeline )
             return Common::MakeError<bool>( pipeline.GetError() );
         m_CopyPipeline = pipeline.GetValue();
+        auto indirectAsync = ComputePipeline::Create(
+             { .Shader = m_IndirectAsyncShader, .DebugName = std::string( kIndirectAsyncShaderName ) } );
+        if ( !indirectAsync )
+            return Common::MakeError<bool>( indirectAsync.GetError() );
+        m_IndirectAsyncPipeline = indirectAsync.GetValue();
+        m_TilesShader           = shaders->GetByName( std::string( kTilesShaderName ) );
+        if ( m_TilesShader == nullptr )
+            return Common::MakeFormattedError<bool>( "surface cache: shader {} not found", kTilesShaderName );
+        auto tiles =
+             ComputePipeline::Create( { .Shader = m_TilesShader, .DebugName = std::string( kTilesShaderName ) } );
+        if ( !tiles )
+            return Common::MakeError<bool>( tiles.GetError() );
+        m_TilesPipeline = tiles.GetValue();
 
         // The indirect lighting: one quad per relit page into IndirectLighting and FinalLighting.
         {
@@ -337,13 +375,13 @@ namespace Desert::Graphic::SurfaceCache
     }
 
     void SurfaceCacheRenderer::BeginFrame( const uint64_t engineFrame, std::vector<glm::vec3> origins,
-                                           const entt::registry& registry, const bool deferred )
+                                           const Core::PostProcessSettings& scenePost, const bool deferred )
     {
+        ::Desert::Engine::RenderTask::CheckRenderStateWrite( "SurfaceCacheRenderer::BeginFrame" );
         const Common::Scalability::ResolvedQuality&   quality = Common::Scalability::QualityState::Resolved();
         const Common::Scalability::CapabilityCatalog& catalog = Common::Scalability::QualityState::Catalog();
         // THE SCENE'S GI METHOD: its unbound volumes (no view position: a volume around one camera is that view's
         // grade, not the scene's), under the machine's ceiling and the device - the resolution a view runs.
-        const Core::PostProcessSettings scenePost = ResolveViewSettings( registry, std::nullopt ).Post;
         const RenderMethods methods = ResolveRenderMethods( scenePost, quality, catalog, deferred, m_Refusals );
         GlobalIllumination::Pipeline tracer =
              GlobalIllumination::PipelineFor( methods.GlobalIllumination.Effective, quality, catalog );
@@ -696,16 +734,46 @@ namespace Desert::Graphic::SurfaceCache
         std::vector<Core::CookedProgramVariant> variants;
         for ( const GlobalIllumination::Pipeline& tracer : GlobalIllumination::kTracerPermutations )
             for ( const bool virtualLocalShadows : { false, true } )
+            {
                 variants.push_back( { std::string( kDirectLightingShaderName ),
                                       DirectLightingVariant( tracer, virtualLocalShadows ) } );
+                variants.push_back( { std::string( kDirectAsyncShaderName ),
+                                      DirectLightingVariant( tracer, virtualLocalShadows ) } );
+            }
         for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityShaderName ) )
+            variants.push_back( std::move( variant ) );
+        for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityAsyncShaderName ) )
             variants.push_back( std::move( variant ) );
         return variants;
     }
 
-    Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer )
+    Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                        const bool                          async )
     {
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        if ( async )
+        {
+            if ( m_RadiosityAsyncPipeline && tracer == m_RadiosityAsyncProgramFor )
+                return BOOLSUCCESS;
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                 std::string( kRadiosityAsyncShaderName ), GlobalIllumination::TracerVariant( tracer ) );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>(
+                     "surface cache: shader {} ({}) was refused: {}", kRadiosityAsyncShaderName,
+                     GlobalIllumination::TracerDefine( tracer.Tracer ), acquired.GetError() );
+            auto shader = acquired.ExtractValue();
+            ComputePipelineSpecification spec;
+            spec.Shader = shader;
+            spec.DebugName = std::format( "{} ({})", kRadiosityAsyncShaderName,
+                                          GlobalIllumination::TracerDefine( tracer.Tracer ) );
+            const auto pipeline = ComputePipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError<bool>( pipeline.GetError() );
+            m_RadiosityAsyncShader     = std::move( shader );
+            m_RadiosityAsyncPipeline   = pipeline.GetValue();
+            m_RadiosityAsyncProgramFor = tracer;
+            return BOOLSUCCESS;
+        }
         if ( m_RadiosityPipeline && tracer == m_RadiosityProgramFor )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
@@ -739,9 +807,39 @@ namespace Desert::Graphic::SurfaceCache
     }
 
     Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
-                                                                       const bool virtualLocalShadows )
+                                                                       const bool virtualLocalShadows,
+                                                                       const bool async )
     {
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        if ( async )
+        {
+            if ( m_LightingAsyncPipeline && tracer == m_LightingAsyncProgramFor &&
+                 virtualLocalShadows == m_LightingAsyncProgramVsm )
+                return BOOLSUCCESS;
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                 std::string( kDirectAsyncShaderName ), DirectLightingVariant( tracer, virtualLocalShadows ) );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>( "surface cache: shader {} ({}) was refused: {}",
+                                                         kDirectAsyncShaderName,
+                                                         GlobalIllumination::TracerDefine( tracer.Tracer ),
+                                                         acquired.GetError() );
+            auto                         shader = acquired.ExtractValue();
+            ComputePipelineSpecification spec;
+            spec.Shader    = shader;
+            std::string_view vsmSuffix;
+            if ( virtualLocalShadows )
+                vsmSuffix = ", VSM";
+            spec.DebugName = std::format( "{} ({}{})", kDirectAsyncShaderName,
+                                          GlobalIllumination::TracerDefine( tracer.Tracer ), vsmSuffix );
+            const auto pipeline = ComputePipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError<bool>( pipeline.GetError() );
+            m_LightingAsyncShader     = std::move( shader );
+            m_LightingAsyncPipeline   = pipeline.GetValue();
+            m_LightingAsyncProgramFor = tracer;
+            m_LightingAsyncProgramVsm = virtualLocalShadows;
+            return BOOLSUCCESS;
+        }
         if ( m_LightingPipeline && tracer == m_LightingProgramFor && virtualLocalShadows == m_LightingProgramVsm )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
@@ -773,6 +871,53 @@ namespace Desert::Graphic::SurfaceCache
         m_LightingPipeline   = pipeline.GetValue();
         m_LightingProgramFor = tracer;
         m_LightingProgramVsm = virtualLocalShadows;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SurfaceCacheRenderer::AddLightingTilesPass( RDG::Builder&      graph,
+                                                                      const ImportImage& import,
+                                                                      const SceneFrame&  frame,
+                                                                      FrameBuffers&      buffers )
+    {
+        if ( frame.LightingPages.empty() )
+            return BOOLSUCCESS;
+        if ( m_TilesPipeline == nullptr )
+            return Common::MakeError<bool>( "surface cache lighting tiles: the renderer was not initialised" );
+        const uint32_t count    = static_cast<uint32_t>( frame.LightingPages.size() );
+        const uint64_t maxTiles = static_cast<uint64_t>( count ) * kPageTiles * kPageTiles;
+        // A tile word keeps the page's slot in 24 bits (Common/SurfaceCacheLightingTiles.glslh).
+        if ( count >= ( 1u << 24 ) )
+            return Common::MakeFormattedError<bool>(
+                 "surface cache lighting tiles: {} relit pages pass the tile word's 24-bit slot", count );
+        const RDG::BufferRef args =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kTileArgsReset ) }, "SurfaceCache.LightingTileArgs" );
+        graph.QueueStaticBufferUpload( args, std::as_bytes( std::span( kTileArgsReset ) ) );
+        const RDG::BufferRef list =
+             graph.CreateBuffer( RDG::BufferDesc{ maxTiles * sizeof( uint32_t ) }, "SurfaceCache.LightingTiles" );
+        const RDG::TextureRef  opacity  = import( m_Layers[2], kLayerNames[2] );
+        ComputePipeline* const pipeline = m_TilesPipeline.get();
+        graph.AddPass(
+             "SurfaceCache: Lighting Tiles", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 using P    = SurfaceCacheDirectLightingShaderParameters;
+                 auto block = pass.Bindings( m_TilesLayout.Get( m_TilesShader ),
+                                             Renderer::GetPipelineRouteFill( *pipeline ) );
+                 block.Storage( P::SurfaceCardPageBuffer, buffers.Pages, RDG::Access::StorageRead )
+                      .Storage( P::SurfaceLightingPages, buffers.LightingPages, RDG::Access::StorageRead )
+                      .Texture( kLayerTextures[2], opacity, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Storage( kTileArgs, args, RDG::Access::StorageWrite )
+                      .Storage( kTileList, list, RDG::Access::StorageWrite );
+             },
+             [pipeline, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::DispatchCompute( bindings, *pipeline, kPageTiles, kPageTiles, count );
+             } );
+        buffers.LightingTileArgs = args;
+        buffers.LightingTiles    = list;
         return BOOLSUCCESS;
     }
 
@@ -808,7 +953,12 @@ namespace Desert::Graphic::SurfaceCache
         if ( emissiveLights && !inputs.Emissive.Valid )
             return Common::MakeError<bool>( "surface cache direct lighting: the GI tracer samples the emissive "
                                             "triangles, and the frame built no list (AddFrameEmissiveLights)" );
-        if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline, virtualLocalShadows ); !program )
+        if ( inputs.Async && ( !buffers.LightingTileArgs.IsValid() || !buffers.LightingTiles.IsValid() ) )
+            return Common::MakeError<bool>( "surface cache direct lighting: the async path runs over the frame's "
+                                            "lighting tiles, and none were listed (AddLightingTilesPass)" );
+        if ( const auto program =
+                  EnsureLightingProgram( inputs.Tracer.Pipeline, virtualLocalShadows, inputs.Async );
+             !program )
             return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
@@ -833,14 +983,88 @@ namespace Desert::Graphic::SurfaceCache
             push.Emissive        = inputs.Emissive.StaticParams();
             push.EmissiveDynamic = inputs.Emissive.DynamicParams();
         }
-        GraphicsPipeline* const raw   = m_LightingPipeline.get();
-        const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );
+        const uint32_t count = static_cast<uint32_t>( frame.LightingPages.size() );
+        if ( inputs.Async )
+        {
+            // GPU-GI-CRITPATH step 2: compute on the async compute queue over the frame's lighting tiles (UE
+            // LumenSceneDirectLighting on async compute with the rest of Lumen's scene lighting). The shadow maps,
+            // light buffers and tracer it reads are the graphics queue's earlier work; the radiance cache update,
+            // the radiosity and the screen probes after it read its FinalLighting on the same queue.
+            constexpr RDG::Access  kR   = RDG::Access::StorageRead;
+            constexpr RDG::Access  kS   = RDG::Access::SampledCompute;
+            const auto             all  = RDG::SubresourceRange::All();
+            ComputePipeline* const pipe = m_LightingAsyncPipeline.get();
+            const RDG::BufferRef   args = buffers.LightingTileArgs;
+            graph.AddPass(
+                 std::format( "SurfaceCache: Direct Lighting ({} pages)", count ),
+                 RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P                      = SurfaceCacheDirectLightingShaderParameters;
+                     const SlottedLayout& slotted = m_LightingAsyncLayout.GetSlotted( m_LightingAsyncShader );
+                     const auto&          layout  = slotted.Layout;
+                     auto block = pass.Bindings( layout, Renderer::GetPipelineRouteFill( *pipe ) );
+                     pass.Read( args, RDG::Access::IndirectArgs );
+                     block.Storage( P::SurfaceCardBuffer, buffers.Cards, kR )
+                          .Storage( P::SurfaceCardPageBuffer, buffers.Pages, kR )
+                          .Storage( P::SurfaceLightingPages, relit, kR )
+                          .Storage( ShaderProtocols::PointLight::Parameter, inputs.Lights.Point, kR )
+                          .Storage( ShaderProtocols::SpotLight::Parameter, inputs.Lights.Spot, kR )
+                          .Storage( P::SurfaceCacheShadowUB, shadow, kR )
+                          .Storage( P::SurfaceCacheCloudShadowUB, cloud, kR )
+                          .Storage( kLightGridParamsBlock, inputs.Lights.WorldGridParams, kR )
+                          .Storage( kLightGridWorldCellsBlock, inputs.Lights.WorldGridCells, kR )
+                          .Storage( kTileArgs, args, kR )
+                          .Storage( kTileList, buffers.LightingTiles, kR )
+                          .Storage( kDirectLightingImage, direct, RDG::Access::StorageWrite )
+                          .Storage( kFinalLightingImage, finalLit, RDG::Access::StorageWrite )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
+                     if ( virtualLocalShadows )
+                     {
+                         if ( layout )
+                             BindVirtualShadowMapReads( block, inputs.View.Vsm, slotted.Slots );
+                     }
+                     else
+                         block.Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews, kR );
+                     for ( std::size_t i = 0; i < layers.size(); ++i )
+                         block.Texture( kLayerTextures[i], layers[i], kS, all )
+                              .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+                     block.Texture( P::AtlasIndirectLightingTexture, indirect, kS, all );
+                     GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                     if ( emissiveLights )
+                     {
+                         using E          = SurfaceCacheEmissiveLightsShaderParameters;
+                         const auto& list = inputs.Emissive;
+                         block.Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
+                              .Storage( E::EmissiveLookupUB, list.Lookup, kR )
+                              .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
+                              .Storage( E::EmissivePowerUB, list.Static.Power, kR )
+                              .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
+                              .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
+                              .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR );
+                     }
+                     // The cascades, the cloud map and the local shadow atlas, sampled by the compute stage.
+                     if ( layout )
+                         SceneViewDetail::BindWhere(
+                              block, inputs.View,
+                              [slots = slotted.Slots]( SceneViewSlot slot ) { return slots.Has( slot ); }, kS );
+                 },
+                 [pipe, push, args]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipe, args, 0u );
+                 } );
+            return BOOLSUCCESS;
+        }
+        GraphicsPipeline* const raw = m_LightingPipeline.get();
         graph.AddPass(
              std::format( "SurfaceCache: Direct Lighting ({} pages)", count ), RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 const auto& layout = m_LightingLayout.Get( m_LightingShader );
-                 auto        block  = pass.Bindings( layout, RDG::NoOtherRouteFill() );
+                 const SlottedLayout& slotted = m_LightingLayout.GetSlotted( m_LightingShader );
+                 const auto&          layout  = slotted.Layout;
+                 auto                 block   = pass.Bindings( layout, RDG::NoOtherRouteFill() );
                  block.Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCardBuffer, buffers.Cards,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCardPageBuffer, buffers.Pages,
@@ -862,7 +1086,7 @@ namespace Desert::Graphic::SurfaceCache
                  if ( virtualLocalShadows )
                  {
                      if ( layout )
-                         BindVirtualShadowMapReads( block, inputs.View.Vsm, *layout );
+                         BindVirtualShadowMapReads( block, inputs.View.Vsm, slotted.Slots );
                  }
                  else
                      block.Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews, RDG::Access::StorageRead );
@@ -894,8 +1118,8 @@ namespace Desert::Graphic::SurfaceCache
                  // light grid read is the world grid bound above, not the view's.
                  // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
                  if ( layout )
-                     SceneViewDetail::BindWhere( block, inputs.View, [&bound = *layout]( std::string_view name )
-                                                 { return SceneViewDetail::LayoutSamples( bound, name ); } );
+                     SceneViewDetail::BindWhere( block, inputs.View, [slots = slotted.Slots]( SceneViewSlot slot )
+                                                 { return slots.Has( slot ); } );
                  pass.ColorTarget( 0, direct, RDG::LoadOp::Load() );
                  pass.ColorTarget( 1, finalLit, RDG::LoadOp::Load() );
              },
@@ -931,7 +1155,10 @@ namespace Desert::Graphic::SurfaceCache
              !inputs.WorldGridParams.IsValid() || !inputs.WorldGridCells.IsValid() || !inputs.EnvSpecular.IsValid() ||
              !inputs.GBufferDepth.IsValid() || !inputs.GBufferA.IsValid() || !inputs.GBufferEmissive.IsValid() )
             return Common::MakeError<bool>( "surface cache radiosity: the GI ray contract's reads are incomplete" );
-        if ( const auto program = EnsureRadiosityProgram( inputs.Tracer.Pipeline ); !program )
+        if ( inputs.Async && ( !buffers.LightingTileArgs.IsValid() || !buffers.LightingTiles.IsValid() ) )
+            return Common::MakeError<bool>( "surface cache radiosity: the async path runs over the frame's "
+                                            "lighting tiles, and none were listed (AddLightingTilesPass)" );
+        if ( const auto program = EnsureRadiosityProgram( inputs.Tracer.Pipeline, inputs.Async ); !program )
             return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
@@ -950,6 +1177,95 @@ namespace Desert::Graphic::SurfaceCache
         tracePush.Frame.y   = m_ResetRadiosity ? 1u : 0u;
         tracePush.Weights.x = 1.0f / kRadiosityMaxFramesAccumulated;
         m_ResetRadiosity    = false;
+        if ( inputs.Async )
+        {
+            // GPU-GI-CRITPATH: both passes as compute on the async compute queue (UE LumenRadiosity's
+            // DistanceFieldTracingCS / IntegrateCS with the rest of the Lumen scene lighting). Added right after
+            // the radiance cache's async update they read and ahead of the screen probes' async trace that reads
+            // their FinalLighting, they join that one segment: no graphics wait on the cache in front of them and
+            // no async wait on graphics behind them (the old raster path below forked and joined around each).
+            constexpr RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+            constexpr RDG::Access    kR         = RDG::Access::StorageRead;
+            constexpr RDG::Access    kS         = RDG::Access::SampledCompute;
+            ComputePipeline* const   tracePipe  = m_RadiosityAsyncPipeline.get();
+            const RDG::BufferRef     tileArgs   = buffers.LightingTileArgs;
+            graph.AddPass(
+                 std::format( "SurfaceCache: Radiosity Trace ({} pages)", count ), kAsyncPass,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P     = SurfaceCacheRadiosityTraceShaderParameters;
+                     auto  block = pass.Bindings( m_RadiosityAsyncLayout.Get( m_RadiosityAsyncShader ),
+                                                  Renderer::GetPipelineRouteFill( *tracePipe ) );
+                     block.Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                          .Storage( P::GIFrameUB, inputs.GIFrame, kR )
+                          .Storage( P::PointLightsUB, inputs.PointLights, kR )
+                          .Storage( P::SpotLightsUB, inputs.SpotLights, kR )
+                          .Storage( P::LightGridParamsUB, inputs.WorldGridParams, kR )
+                          .Storage( P::LightGridWorldCellsUB, inputs.WorldGridCells, kR )
+                          .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )
+                          .Storage( P::RadianceCacheIndirectionUB, inputs.Indirection, kR )
+                          .Storage( P::RadianceCacheProbesUB, inputs.Probes, kR )
+                          .Texture( P::RadianceCacheIrradianceTexture, inputs.Irradiance, kS, all )
+                          .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                          .Texture( P::RadianceCacheDepthTexture, inputs.Depth, kS, all )
+                          .Texture( P::EnvironmentSpecularTexture, inputs.EnvSpecular, kS, all )
+                          .Texture( P::GBufferDepthTexture, inputs.GBufferDepth, kS, all )
+                          .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( P::GBufferATexture, inputs.GBufferA, kS, all )
+                          .Texture( P::GBufferEmissiveTexture, inputs.GBufferEmissive, kS, all )
+                          .Texture( P::AtlasNormalTexture, layers[3], kS, all )
+                          .Storage( kRadiosityTraceAtlas, trace, RDG::Access::StorageWrite )
+                          .Storage( kTileArgs, tileArgs, kR )
+                          .Storage( kTileList, buffers.LightingTiles, kR )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
+                     pass.Read( tileArgs, RDG::Access::IndirectArgs );
+                     GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
+                     GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                     if ( SamplesEmissiveLights( inputs.Tracer.Pipeline ) )
+                         block.Texture( kRadiosityExcludedEmissive, layers[4], kS, all );
+                 },
+                 [tracePipe, tracePush, tileArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &tracePush, static_cast<uint32_t>( sizeof( tracePush ) ) );
+                     return Renderer::DispatchComputeIndirect( bindings, *tracePipe, tileArgs, 0u );
+                 } );
+
+            ComputePipeline* const integratePipe = m_IndirectAsyncPipeline.get();
+            graph.AddPass(
+                 std::format( "SurfaceCache: Indirect Lighting ({} pages)", count ), kAsyncPass,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P     = SurfaceCacheIndirectLightingShaderParameters;
+                     auto  block = pass.Bindings( m_IndirectAsyncLayout.Get( m_IndirectAsyncShader ),
+                                                  Renderer::GetPipelineRouteFill( *integratePipe ) );
+                     block.Storage( P::SurfaceCardBuffer, buffers.Cards, kR )
+                          .Storage( P::SurfaceCardPageBuffer, buffers.Pages, kR )
+                          .Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                          .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )
+                          .Storage( P::RadianceCacheIndirectionUB, inputs.Indirection, kR )
+                          .Storage( P::RadianceCacheProbesUB, inputs.Probes, kR )
+                          .Texture( P::RadianceCacheIrradianceTexture, inputs.Irradiance, kS, all )
+                          .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                          .Texture( P::RadianceCacheDepthTexture, inputs.Depth, kS, all )
+                          .Texture( P::AtlasDirectLightingTexture, direct, kS, all )
+                          .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( P::RadiosityTraceTexture, trace, kS, all )
+                          .Storage( kIndirectLightingImage, indirect, RDG::Access::StorageWrite )
+                          .Storage( kFinalLightingImage, finalLit, RDG::Access::StorageWrite )
+                          .Storage( kTileArgs, tileArgs, kR )
+                          .Storage( kTileList, buffers.LightingTiles, kR );
+                     pass.Read( tileArgs, RDG::Access::IndirectArgs );
+                     for ( std::size_t i = 0; i < layers.size(); ++i )
+                         block.Texture( kLayerTextures[i], layers[i], kS, all );
+                 },
+                 [integratePipe, tileArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchComputeIndirect( bindings, *integratePipe, tileArgs, 0u );
+                 } );
+            return BOOLSUCCESS;
+        }
         GraphicsPipeline* const traceRaw = m_RadiosityPipeline.get();
         graph.AddPass(
              std::format( "SurfaceCache: Radiosity Trace ({} pages)", count ), RDG::PassFlags::Raster,

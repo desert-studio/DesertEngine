@@ -1,9 +1,9 @@
 {
-    "Version": 2,
+    "Version": 3,
     "Groups": {
         "AntiAliasing": {
             "Low": {
-                "AntiAliasing.Method": "FXAA",
+                "AntiAliasing.Method": "TSR",
                 "AntiAliasing.TemporalQuality": 0,
                 "AntiAliasing.TSR.HistoryScreenPercentage": 100,
                 "AntiAliasing.TSR.HistoryUpdateQuality": 0,
@@ -13,7 +13,7 @@
                 "AntiAliasing.TSR.Resurrection": 0
             },
             "Medium": {
-                "AntiAliasing.Method": "FXAA",
+                "AntiAliasing.Method": "TSR",
                 "AntiAliasing.TemporalQuality": 1,
                 "AntiAliasing.TSR.HistoryScreenPercentage": 100,
                 "AntiAliasing.TSR.HistoryUpdateQuality": 1,
@@ -137,6 +137,7 @@
                 "Shadows.Cascades": 2,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 8000,
+                "Shadows.DistanceFieldCascadeDistance": 4000,
                 "Shadows.ContactShadowSteps": 0,
                 "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
@@ -168,6 +169,7 @@
                 "Shadows.Cascades": 3,
                 "Shadows.MapSize": 1024,
                 "Shadows.Distance": 10000,
+                "Shadows.DistanceFieldCascadeDistance": 5000,
                 "Shadows.ContactShadowSteps": 8,
                 "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
@@ -195,6 +197,7 @@
             "High": {
                 "Shadows.MapSize": 2048,
                 "Shadows.Distance": 15000,
+                "Shadows.DistanceFieldCascadeDistance": 6000,
                 "Shadows.ContactShadowSteps": 12,
                 "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,
@@ -212,6 +215,7 @@
             "Epic": {},
             "Cinematic": {
                 "Shadows.Distance": 30000,
+                "Shadows.DistanceFieldCascadeDistance": 10000,
                 "Shadows.ContactShadowSteps": 24,
                 "Shadows.Method": "Stochastic",
                 "Shadows.LightGridSlices": 64,
@@ -236,7 +240,7 @@
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 64,
-                "GlobalIllumination.Method": "ScreenSpace",
+                "GlobalIllumination.Method": "ProbeVolume",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
                 "GlobalIllumination.CardMaxResolution": 256,
@@ -246,7 +250,6 @@
                 "GlobalIllumination.RadianceCacheProbeResolution": 16,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
                 "GlobalIllumination.HitLighting": 0,
-                "GlobalIllumination.ScreenSpaceSamples": 6,
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
                 "GlobalIllumination.AdaptiveProbeAllocationPercent": 50,
@@ -264,7 +267,6 @@
                 "GlobalIllumination.RadianceCacheProbeResolution": 16,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
                 "GlobalIllumination.HitLighting": 0,
-                "GlobalIllumination.ScreenSpaceSamples": 8,
                 "GlobalIllumination.ScreenProbeDownsample": 32,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
                 "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
@@ -280,7 +282,6 @@
                 "GlobalIllumination.RadianceCacheProbeResolution": 16,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 100,
                 "GlobalIllumination.HitLighting": 0,
-                "GlobalIllumination.ScreenSpaceSamples": 12,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
                 "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
             },
@@ -288,7 +289,6 @@
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 350,
-                "GlobalIllumination.ScreenSpaceSamples": 32,
                 "GlobalIllumination.ScreenProbeDownsample": 8,
                 "GlobalIllumination.ScreenProbeTracedTexels": 16,
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 233
@@ -312,7 +312,8 @@
             },
             "High": {
                 "Reflections.MaxSteps": 48,
-                "Reflections.RaysPerPixel": 2
+                "Reflections.RaysPerPixel": 2,
+                "Reflections.Method": "SoftwareTraced"
             },
             "Epic": {},
             "Cinematic": {
@@ -489,6 +490,27 @@
                 0,
                 0,
                 1024,
+                2048,
+                4096
+            ],
+            "GlobalIllumination": [
+                0,
+                2048,
+                4096,
+                6144,
+                8192
+            ],
+            "Reflections": [
+                0,
+                0,
+                4096,
+                6144,
+                8192
+            ],
+            "Foliage": [
+                0,
+                0,
+                2048,
                 2048,
                 4096
             ]

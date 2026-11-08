@@ -255,7 +255,7 @@ namespace Desert::Editor
 
         /// Close and push AT MOST ONE entry: 0 when nothing stored changed (a click that missed is not an
         /// undo step), 1 otherwise.
-        [[nodiscard]] Common::ResultStr<uint32_t> End();
+        [[nodiscard]] Common::ResultStr<uint32_t> End() noexcept;
 
         /// Close and push nothing — the abandoned edit.
         void Cancel();

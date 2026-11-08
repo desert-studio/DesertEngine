@@ -42,6 +42,11 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::RG32_UINT;
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
+    // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh; UE DBufferA/B/C, all RGBA8): premultiplied base
+    // colour, encoded world normal, roughness / metallic / AO, each with the transmittance in alpha.
+    inline constexpr ImageFormat kDBufferA = ImageFormat::RGBA8F;
+    inline constexpr ImageFormat kDBufferB = ImageFormat::RGBA8F;
+    inline constexpr ImageFormat kDBufferC = ImageFormat::RGBA8F;
     // Screen motion of the surface each pixel shows: current minus previous UNJITTERED NDC.xyz, w = 0 (TAA1, see
     // View/SceneViewState.hpp "Velocity" — kVelocityFormat there is this constant; z = the device depth's change,
     // UE's VELOCITY_ENCODE_DEPTH, which the screen probe gather's history test reprojects by). A colour attachment

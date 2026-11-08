@@ -71,5 +71,11 @@ namespace Desert::Graphic::API::Vulkan
         // The interface graph from a draw buffer's copy: on the render task, behind the frame's views (End).
         [[nodiscard]] Common::BoolResultStr RecordInterface( ImDrawData& interfaceData );
         std::array<std::unique_ptr<InterfaceDrawBuffer>, kInterfaceDrawBuffers> m_DrawBuffers;
+
+        // THE DETACHED WINDOWS (VK-SUBMIT-THREAD step 7; VulkanImGuiLayer.cpp): their frames are copies the
+        // submit thread draws, and the renderer half of ImGui's platform interface is the layer's, over the
+        // backend's. From OnAttach (after the backend) to OnDetach (after the backend's shutdown).
+        struct DetachedWindows;
+        std::unique_ptr<DetachedWindows> m_Detached;
     };
 } // namespace Desert::Graphic::API::Vulkan

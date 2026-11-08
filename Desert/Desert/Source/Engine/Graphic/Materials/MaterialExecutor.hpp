@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Memory/Buffer.hpp>
 
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
@@ -14,15 +15,23 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <atomic>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Graphic
 {
     class Material;
+    class ViewResources;
 
     // A pass that applies the material in its exec declares it in setup (PassBuilder::Prepares).
     class MaterialExecutor : public RDG::IRecordPrerequisite
@@ -82,6 +91,57 @@ namespace Desert::Graphic
         std::shared_ptr<Texture2DProperty>     GetTexture2DProperty( const std::string& name ) const;
         std::shared_ptr<TextureCubeProperty>   GetTextureCubeProperty( const std::string& name ) const;
 
+        // TEX-STREAMING (CPU-STREAM-DEMAND; UE UMaterialInterface::GetUsedTextures, cached per material): the
+        // texture assets this executor's 2D slots bind (Image::GetOwningAsset, unowned images left out), resolved
+        // again only when a 2D slot was written since (Texture2DProperty::GetVersion) - not by name, not per
+        // frame. Any thread; null when no slot binds an asset image.
+        [[nodiscard]] std::shared_ptr<const std::vector<Common::AssetHandle>> GetStreamedTextureAssets() const;
+
+        // CPU-MAT-VIEW-UB (UE: FShaderParameter resolves to an index, a draw takes no reference): the property
+        // itself, owned by this executor for as long as its properties are not re-initialised - no shared_ptr
+        // copy (two atomic operations) and no std::string per lookup. Null when the shader declares no such name.
+        [[nodiscard]] UniformBufferProperty* FindUniformBufferProperty( std::string_view name ) const;
+        [[nodiscard]] StorageBufferProperty* FindStorageBufferProperty( std::string_view name ) const;
+        [[nodiscard]] Texture2DProperty*     FindTexture2DProperty( std::string_view name ) const;
+        [[nodiscard]] TextureCubeProperty*   FindTextureCubeProperty( std::string_view name ) const;
+
+        // DL-6 (UE: FShaderParameter is bound once per shader, a draw reads the bound index): the scene frame's
+        // blocks, which SceneFrameBinding::ApplyTo writes into every drawn material every frame, resolved ONCE
+        // where the properties are built (InitializeProperties). The property set is fixed from then on and a
+        // rebuilt material is a new executor, so no pointer here can outlive its property. Null = the shader
+        // declares no such block (the writers say a miss of a block the template must have, as Get did).
+        struct SceneBlocks
+        {
+            UniformBufferProperty* Camera             = nullptr;
+            UniformBufferProperty* Time               = nullptr;
+            StorageBufferProperty* PointLights        = nullptr;
+            StorageBufferProperty* SpotLights         = nullptr;
+            UniformBufferProperty* DirectionLights    = nullptr;
+            UniformBufferProperty* LightsMetadata     = nullptr;
+            UniformBufferProperty* Shadow             = nullptr;
+            UniformBufferProperty* SkyLook            = nullptr;
+            UniformBufferProperty* CloudShadow        = nullptr;
+            UniformBufferProperty* RainOcclusion      = nullptr;
+            StorageBufferProperty* GpuScenePrimitives = nullptr;
+            StorageBufferProperty* ObjectBones        = nullptr;
+            StorageBufferProperty* WorldParameters    = nullptr;
+        };
+        [[nodiscard]] const SceneBlocks& GetSceneBlocks() const noexcept
+        {
+            return m_SceneBlocks;
+        }
+
+        // The dense property arrays, in the order the lookups index them: a walk over every block of the material
+        // (the prepare, the field flush) reads these and never goes back through a name.
+        [[nodiscard]] const std::vector<std::shared_ptr<UniformBufferProperty>>& GetUniformBufferStorage() const
+        {
+            return m_UniformBufferPropertiesStorage;
+        }
+        [[nodiscard]] const std::vector<std::shared_ptr<StorageBufferProperty>>& GetStorageBufferStorage() const
+        {
+            return m_StorageBufferPropertiesStorage;
+        }
+
         // RENDER-THREADS M1 + M3 (UE: a pass's uniform buffers and descriptor sets are created from its parameters
         // in its setup, the lambda only binds them). Called by the graph once per declaring pass's graph, after
         // every setup and before the first pass records: makes the active view's descriptor sets and block copies
@@ -116,7 +176,7 @@ namespace Desert::Graphic
         // own sampler, whether there are push constants; the names change only in InitializeProperties), so a
         // pass's setup copies, formats and sorts no name. Safe from several declaring threads.
         [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill> GetRouteFill() const;
-        std::shared_ptr<Shader> GetShader() const
+        [[nodiscard]] const std::shared_ptr<Shader>& GetShader() const
         {
             return m_Shader;
         }
@@ -146,8 +206,19 @@ namespace Desert::Graphic
         template <typename T>
         using PropertyStorage = std::vector<std::shared_ptr<T>>;
 
+        // CPU-MAT-VIEW-UB: transparent, so a Find by std::string_view hashes the parameter's name in place - no
+        // std::string is built per lookup (Material::Find ran one per scene block per material per frame).
+        struct PropertyNameHash
+        {
+            using is_transparent = void;
+            size_t operator()( std::string_view name ) const noexcept
+            {
+                return std::hash<std::string_view>{}( name );
+            }
+        };
+
         template <typename T>
-        using PropertyLookup = std::unordered_map<std::string, size_t>;
+        using PropertyLookup = std::unordered_map<std::string, size_t, PropertyNameHash, std::equal_to<>>;
 
         Common::Memory::Buffer m_PushConstantBuffer;
         Material*              m_Owner                = nullptr;
@@ -158,6 +229,32 @@ namespace Desert::Graphic
         mutable uint64_t m_PreparedVersion = 0;
 
     private:
+        // CPU-BIND-PREPARE (UE: a cached mesh draw command is checked once, when it is built, not per draw).
+        // What CheckRecordable answers for a draw is fixed by the prepare unless something is written after it, so
+        // the prepare records its answer and a draw compares counters: m_Writes (every property and field write of
+        // this executor, MaterialProperty::AttachWriteSink) and the owner's registered writes. The answer belongs
+        // to the (view, frame in flight) copy the prepare checked - a field is pending per copy - so each clean
+        // prepare of the frame adds its copy; a write between two prepares of one frame drops the earlier ones.
+        // Anything not recorded here falls back to the whole check, which names what is wrong.
+        struct RecordableCopy
+        {
+            const ViewResources* View = nullptr;
+            uint32_t             Slot = 0;
+        };
+        static constexpr size_t kRecordableCopies = 4;
+        // After a prepare: attaches the write counter, records whether the active copy may be bound as it is.
+        void NoteRecordable( bool fieldsPending ) const noexcept;
+        // Whether a prepare of this frame recorded the active copy recordable and nothing was written since.
+        [[nodiscard]] bool IsRecordableAsPrepared() const noexcept;
+
+        std::shared_ptr<std::atomic<uint64_t>> m_Writes           = std::make_shared<std::atomic<uint64_t>>( 0 );
+        mutable bool                           m_WritesCounted    = true;
+        mutable uint64_t                       m_RecordableFrame  = std::numeric_limits<uint64_t>::max();
+        mutable uint64_t                       m_RecordableWrites = 0;
+        mutable std::optional<uint64_t>        m_RecordableOwnerWrites;
+        mutable std::array<RecordableCopy, kRecordableCopies> m_RecordableCopies{};
+        mutable size_t                                        m_RecordableCount = 0;
+
         // The upload and descriptor writes of the prepare (above).
         void ApplyForRecording() const;
         // Everything GetRouteFill reads besides the property names, one byte per property in the lookups' own
@@ -166,8 +263,12 @@ namespace Desert::Graphic
         mutable std::mutex                                 m_RouteFillLock;
         mutable std::vector<uint8_t>                       m_RouteFillInputs;
         mutable std::shared_ptr<const RDG::OtherRouteFill> m_RouteFill;
+        // Whether a FIELD-filled uniform buffer's active (view x frame) copy is behind one of its fields.
+        [[nodiscard]] bool HasPendingFields() const;
         // The newest write of any property this executor owns.
         [[nodiscard]] uint64_t NewestPropertyWrite() const;
+        // CPU-RDG-PREPARE: what a prepare now would apply (PreparedRevision), read with no view lookup.
+        [[nodiscard]] PreparedRevision CurrentRevision() const;
 
     protected:
         // Compact storage
@@ -181,5 +282,15 @@ namespace Desert::Graphic
         PropertyLookup<StorageBufferProperty> m_StorageBufferPropertiesLookup;
         PropertyLookup<Texture2DProperty>     m_Texture2DPropertiesLookup;
         PropertyLookup<TextureCubeProperty>   m_TextureCubePropertiesLookup;
+
+    private:
+        // GetSceneBlocks: filled by ResolveSceneBlocks at the end of InitializeProperties.
+        SceneBlocks m_SceneBlocks;
+        void        ResolveSceneBlocks() noexcept;
+
+        // GetStreamedTextureAssets: the list and the newest 2D slot write it was resolved at.
+        mutable std::mutex                                              m_StreamedTexturesLock;
+        mutable uint64_t                                                m_StreamedTexturesVersion = 0;
+        mutable std::shared_ptr<const std::vector<Common::AssetHandle>> m_StreamedTextures;
     };
 } // namespace Desert::Graphic

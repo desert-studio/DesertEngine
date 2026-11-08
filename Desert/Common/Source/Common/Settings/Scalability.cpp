@@ -208,11 +208,6 @@ namespace Common::Scalability
              { P::ShadowRainOcclusionRefreshPercent, G::Shadows, "Shadows.RainOcclusionRefreshPercent", 5, 50,
                CL::None, "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)",
                25, Vis::Advanced },
-             { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
-               CL::None,
-               "SceneRenderer::BeginScene -> MaterialDeferredLighting (ScreenSpaceGi.x: DeferredLighting.shader "
-               "GatherIndirectGI samples)",
-               16, Vis::Advanced },
              { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)", 2,
                Vis::Advanced },
@@ -384,6 +379,10 @@ namespace Common::Scalability
              { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
                CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)", 1,
                Vis::Advanced },
+             { P::SurfaceCacheAsyncRadiosity, G::GlobalIllumination,
+               "GlobalIllumination.SurfaceCacheAsyncRadiosity", 0, 1, CL::None,
+               "SceneRenderer -> SurfaceCacheRenderer::AddIndirectLightingPass (IndirectLightingInputs::Async)", 1,
+               Vis::Advanced },
              { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
                CL::None,
                "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
@@ -449,10 +448,40 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
                "workers into secondary command buffers, replayed in pass order)",
                1, Vis::Advanced },
+             { P::ParallelSetup, G::ViewDistance, "RenderPipeline.ParallelSetup", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> Common::TaskGroup (the grass variety plans and the deferred G-buffer's "
+               "two early-Z halves' static draws, recorded on task workers after a serial resolve and applied "
+               "on the render thread in a fixed order; the masked prepass and skinned draws stay serial)",
+               1, Vis::Advanced },
+             { P::HZBSinglePass, G::ViewDistance, "RenderPipeline.HZBSinglePass", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> HZBRenderer::SetSinglePass (the closest and furthest HZBs built up to "
+               "four mips per dispatch through group-shared memory; 0 = one dispatch per mip, the same texels)",
+               1, Vis::Advanced },
+             { P::LandscapeDicePoolCache, G::ViewDistance, "RenderPipeline.LandscapeDicePoolCache", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetDicePoolCache (the dice pool kept across frames, "
+               "evaluated only when a diced row or its maps change; 0 = a transient evaluated every frame)",
+               1, Vis::Advanced },
              { P::ShadowFoliageLodBias, G::Shadows, "Shadows.FoliageShadowLodBias", 0, 3, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
                "and thinning per cascade, MeshRenderer::BladeShadowSet)",
                0, Vis::Advanced },
+             { P::ShadowDistanceFieldCascadeDistance, G::Shadows, "Shadows.DistanceFieldCascadeDistance", 1000,
+               100000, CL::None,
+               "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: the cascades end at min(Shadows."
+               "Distance, this) when the sun reads the distance-field shadow past them)",
+               8000, Vis::Advanced },
+             { P::RenderPipelineTileClassify, G::Effects, "RenderPipeline.TileClassify", 0, 1, CL::None,
+               "SceneRenderer::AddFrameComposite -> DeferredLightingRenderer (the 8x8 tile lists the "
+               "direct and composite passes draw indirectly; 0 = both draw the whole view)",
+               1, Vis::Advanced },
+             { P::CloudFootprintSteps, G::Effects, "Effects.CloudFootprintSteps", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings (CloudPush::Visualize.z: "
+               "the march's lit step grows with the trace texel's footprint, CloudFootprintStepKm)",
+               1, Vis::Advanced },
+             { P::RenderPipelineGrassCullAsync, G::ViewDistance, "RenderPipeline.GrassCullAsync", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
+               "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -918,10 +947,11 @@ namespace Common::Scalability
             r.Set( parameter, static_cast<ParameterValue>( method ), reason );
         }
 
+        // Ray query itself, never "any ray tracing mode": the pipeline does not imply it (a driver may expose the
+        // pipeline alone), and the traced methods trace with ray query.
         [[nodiscard]] bool OffersRayQuery( const CapabilityCatalog& catalog )
         {
-            return std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
-                                []( RayTracingMode m ) { return m != RayTracingMode::None; } );
+            return CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayQuery );
         }
 
         // Largest offered <= value; the list's front when none is (MSAACounts / AnisotropyLevels are ascending
@@ -1033,6 +1063,7 @@ namespace Common::Scalability
             CapabilityCatalog                                     Catalog;
             QualitySelection                                      Selection;
             ResolvedQuality                                       Resolved;
+            UpscalerRecommendation                                RecommendedUpscaler;
             QualityState::Saver                                   Save = nullptr;
             bool                                                  SessionOnly = false;
             std::vector<std::pair<QualityState::Listener, void*>> Listeners;
@@ -1615,12 +1646,19 @@ namespace Common::Scalability
 
     QualityState::ApplyReport QualityState::ApplyRecommended( const std::array<Level, kGroupCount>& levels )
     {
-        // UE's benchmark sets the group levels and nothing else; overrides belong to a choice the player made,
-        // and the host calls this on a first run with no saved choice (QualityBoot) or when the user asks for it
-        // (the editor Scalability panel's "Apply recommended").
+        // UE's benchmark sets the group levels; overrides belong to a choice the player made, and the host calls
+        // this on a first run with no saved choice (QualityBoot) or when the user asks for it (the editor
+        // Scalability panel's "Apply recommended"). The one override set it adds is the recommended upscaler
+        // (UE: the DLSS plugin's per-architecture choice), which the levels cannot express.
         QualitySelection selection;
-        selection.Levels = levels;
+        selection.Levels    = levels;
+        selection.Overrides = S().RecommendedUpscaler.Overrides;
         return Apply( selection );
+    }
+
+    void QualityState::SetUpscalerRecommendation( UpscalerRecommendation recommendation )
+    {
+        S().RecommendedUpscaler = std::move( recommendation );
     }
 
     bool QualityState::Initialized()

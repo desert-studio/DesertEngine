@@ -1,5 +1,4 @@
 #include <Common/Core/Core.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingScene.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -11,6 +10,7 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -119,8 +119,19 @@ namespace Desert::Graphic::API::Vulkan
             m_External.RecordFinalState = [this]( const RDG::AccessState& state ) -> Common::BoolResultStr
             {
                 m_External.State = state;
+                // After EndGraph: the build or update this graph recorded is submitted, so it is the storage's.
+                if ( m_RecordedInstances != kNoBuild )
+                    m_BuiltInstances = m_RecordedInstances;
+                m_RecordedInstances = kNoBuild;
                 return BOOLSUCCESS;
             };
+        }
+        // A build recorded into a graph that never ended (abandoned: nothing submitted) is still pending: its
+        // renderer counted it as done, so this frame builds instead of updating a source that build never wrote.
+        if ( m_RecordedInstances != kNoBuild )
+        {
+            m_BuiltInstances    = kNoBuild;
+            m_RecordedInstances = kNoBuild;
         }
         // Recreated storage resets m_BuiltInstances (Release): its first frame builds.
         const bool updates = update && m_BuiltInstances == instanceCount;
@@ -128,6 +139,90 @@ namespace Desert::Graphic::API::Vulkan
              Sizes{ .ScratchBytes = ( updates ? frameSizes.updateScratchSize : frameSizes.buildScratchSize ) +
                                     kMaxAccelerationStructureScratchAlignment,
                     .Update       = updates } );
+    }
+
+    Common::ResultStr<bool> VulkanRayTracingScene::EnsureRows( const RayTracing::SceneRowBuffer buffer,
+                                                               const uint64_t                   bytes )
+    {
+        const auto index = static_cast<std::size_t>( buffer );
+        if ( index >= kRowBufferCount )
+            return Common::MakeFormattedError<bool>( "scene row buffer {} does not exist", index );
+        RowBuffer& rows = m_Rows[index];
+        if ( rows.Buffer != VK_NULL_HANDLE && bytes <= rows.Bytes )
+            return Common::MakeSuccess( false );
+        ReleaseRows( rows );
+        // The same growth as the storage: a scene that adds one row a frame does not recreate every frame. 1 KiB
+        // at least (sixteen TLAS rows); no row size needs the capacity to be its multiple.
+        constexpr uint64_t kMinBytes = 1024u;
+        const uint64_t     capacity  = std::bit_ceil( std::max( bytes, kMinBytes ) );
+        // Copies write every buffer and ray-query passes read it; the build reads the instance rows by address.
+        VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        if ( buffer == RayTracing::SceneRowBuffer::Instances )
+            usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        constexpr std::array<const char*, kRowBufferCount> kNames = {
+             "TLAS instances", "RT primitive instances", "RT geometry records", "RT material records" };
+        const auto& allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        info.size        = capacity;
+        info.usage       = usage;
+        info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        const auto memory =
+             allocator->RT_AllocateBuffer( kNames[index], info, VMA_MEMORY_USAGE_GPU_ONLY, rows.Buffer );
+        if ( !memory.IsSuccess() )
+        {
+            rows.Buffer = VK_NULL_HANDLE;
+            return Common::MakeError<bool>( memory.GetError() );
+        }
+        rows.Memory = memory.GetValue();
+        rows.Bytes  = capacity;
+        rows.Ledger = ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer,
+                                               VulkanAllocator::AllocationSize( rows.Memory ) );
+        // A new buffer starts untouched; each graph hands back the state it leaves the buffer in.
+        rows.External          = RDG::ExternalBuffer( RDG::BufferDesc{ capacity }, RDG::Access::None );
+        rows.External.Physical = VulkanRdgBuffer::Wrap( rows.Buffer, capacity );
+        rows.External.RecordFinalState = [this, index]( const RDG::AccessState& state ) -> Common::BoolResultStr
+        {
+            m_Rows[index].External.State = state;
+            ++m_Rows[index].GraphsEnded; // after EndGraph: this graph's commands are submitted
+            return BOOLSUCCESS;
+        };
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRayTracingScene::RecordRowScatter(
+         const RDG::PassContext& context, const RDG::BufferBinding& staging, const RDG::BufferBinding& rows,
+         const std::span<const RayTracing::SceneRowRun> runs, const uint32_t rowBytes )
+    {
+        const auto command = VulkanRdgBackend::CommandBufferOf( context );
+        if ( !command )
+            return Common::MakeError( command.GetError() );
+        const auto source = VulkanRdgBackend::BufferOf( staging );
+        if ( !source )
+            return Common::MakeError( source.GetError() );
+        const auto destination = VulkanRdgBackend::BufferOf( rows );
+        if ( !destination )
+            return Common::MakeError( destination.GetError() );
+        const VkDeviceSize        sourceBase      = source.GetValue()->GetOffset();
+        const VkDeviceSize        destinationBase = destination.GetValue()->GetOffset();
+        std::vector<VkBufferCopy> regions;
+        regions.reserve( runs.size() );
+        VkDeviceSize packed = 0;
+        for ( const RayTracing::SceneRowRun& run : runs )
+        {
+            VkBufferCopy region{};
+            region.size      = static_cast<VkDeviceSize>( run.RowCount ) * rowBytes;
+            region.srcOffset = sourceBase + packed;
+            region.dstOffset = destinationBase + static_cast<VkDeviceSize>( run.FirstRow ) * rowBytes;
+            regions.push_back( region );
+            packed += region.size;
+        }
+        if ( regions.empty() )
+            return BOOLSUCCESS;
+        vkCmdCopyBuffer( command.GetValue(), source.GetValue()->GetBuffer(), destination.GetValue()->GetBuffer(),
+                         static_cast<uint32_t>( regions.size() ), regions.data() );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanRayTracingScene::RecordBuild( const RDG::PassContext&   context,
@@ -170,7 +265,8 @@ namespace Desert::Graphic::API::Vulkan
         range.primitiveCount                                   = instanceCount;
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
-        m_BuiltInstances = instanceCount;
+        // Recorded, not yet submitted: m_BuiltInstances follows only when this graph ends (RecordFinalState).
+        m_RecordedInstances = instanceCount;
         return BOOLSUCCESS;
     }
 
@@ -190,16 +286,33 @@ namespace Desert::Graphic::API::Vulkan
         m_StorageBytes  = 0;
         m_Ledger        = ResourceOwnership{};
         m_Capacity      = 0;
-        m_BuiltInstances = kNoBuild;
-        m_External      = RDG::ExternalBuffer{};
+        m_BuiltInstances    = kNoBuild;
+        m_RecordedInstances = kNoBuild;
+        m_External          = RDG::ExternalBuffer{};
+    }
+
+    void VulkanRayTracingScene::ReleaseRows( RowBuffer& rows )
+    {
+        if ( rows.Buffer == VK_NULL_HANDLE )
+            return;
+        // Queued, not destroyed: a frame still in flight may read the old rows (RT_DestroyBuffer's deletion
+        // queue).
+        const auto& allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        allocator->RT_DestroyBuffer( rows.Buffer, rows.Memory );
+        rows.Buffer   = VK_NULL_HANDLE;
+        rows.Memory   = nullptr;
+        rows.Bytes    = 0;
+        rows.Ledger   = ResourceOwnership{};
+        rows.External = RDG::ExternalBuffer{};
     }
 
     VulkanRayTracingScene::~VulkanRayTracingScene()
-    try
     {
         Release();
+        for ( RowBuffer& rows : m_Rows )
+            ReleaseRows( rows );
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingScene" )
 } // namespace Desert::Graphic::API::Vulkan
 
 namespace Desert::Graphic::RayTracing

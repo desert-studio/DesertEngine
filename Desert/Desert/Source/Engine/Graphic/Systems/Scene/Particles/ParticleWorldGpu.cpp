@@ -388,7 +388,7 @@ namespace Desert::Graphic::System
         auto                                          compile = std::make_shared<ProgramCompile>(
              ProgramCompile{ .Job = job, .Ticket = ticket, .Name = name } );
         const std::weak_ptr<ProgramCompile> wanted = compile;
-        const auto                          run    = [job, wanted]
+        const auto                          run    = [job, wanted]() noexcept
         {
             if ( !wanted.expired() ) // every world let go before it ran: superseded, nothing to compile
                 job->Built.emplace( Core::BuildShaderMap( job->Request ) );

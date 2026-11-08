@@ -816,9 +816,15 @@ void main()
         {
             m_Inner.AbandonGraph();
         }
-        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t at,
+                                            std::span<const std::byte> bytes ) override
         {
-            return m_Inner.UploadBuffer( resource, bytes );
+            return m_Inner.UploadBuffer( resource, at, bytes );
+        }
+        Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
+                                          uint64_t targetOffset, uint64_t bytes ) override
+        {
+            return m_Inner.CopyBuffer( source, sourceOffset, target, targetOffset, bytes );
         }
         [[nodiscard]] std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override
         {
@@ -827,6 +833,14 @@ void main()
         [[nodiscard]] std::shared_ptr<RDG::IPhysicalBuffer> GetPhysicalBuffer( uint32_t resource ) const override
         {
             return m_Inner.GetPhysicalBuffer( resource );
+        }
+        [[nodiscard]] RDG::IPhysicalTexture* FindPhysicalTexture( uint32_t resource ) const override
+        {
+            return m_Inner.FindPhysicalTexture( resource );
+        }
+        [[nodiscard]] RDG::IPhysicalBuffer* FindPhysicalBuffer( uint32_t resource ) const override
+        {
+            return m_Inner.FindPhysicalBuffer( resource );
         }
 
         // Every BeginRenderPass the graph asked for: one vkCmdBeginRenderPass each in the Vulkan backend.

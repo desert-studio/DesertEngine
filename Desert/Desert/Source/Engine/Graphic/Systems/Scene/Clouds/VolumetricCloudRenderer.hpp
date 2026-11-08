@@ -109,6 +109,21 @@ namespace Desert::Graphic::System
         static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ) };
     };
 
+    // GPU-FARFIELD-4: one frame of the march's own counters ("Clouds.MarchCounters", CloudRaymarch.shader
+    // CLOUD_MARCH_COUNT_*, in that order), read back slots-in-flight late. A ray is one trace texel, counted once
+    // by its first segment lane after the lanes' results are composed.
+    struct CloudMarchCounters
+    {
+        static constexpr uint32_t kWords = 8;
+        // [0] rays marched (reached the loop), [1] view-ray field evaluations (the primary steps: search and fine
+        // samples; a column-probe jump is not one), [2] lit samples (density > 0, a shadow ray each), [3] the
+        // light samples those scheduled, [4] rays stopped on the transmittance (the early exit), [5] segment
+        // lanes that hit their iteration ceiling, [6] column-probe jumps, [7] lit samples that ran the full
+        // light ray (outside the shadow map).
+        std::array<uint32_t, kWords> Words{};
+        bool                         Valid = false;
+    };
+
     class VolumetricCloudRenderer final : public RenderSystem
     {
     public:
@@ -116,6 +131,12 @@ namespace Desert::Graphic::System
         ~VolumetricCloudRenderer() override;
 
         Common::BoolResultStr Initialize() override;
+
+        // GPU-FARFIELD-4: the march's counters of the newest frame read back (CloudMarchCounters).
+        [[nodiscard]] const CloudMarchCounters& LastMarchCounters() const
+        {
+            return m_MarchCounters;
+        }
 
         // The S3 composite as one raster pass on the scene target: its body, pipeline and declared reads. Not
         // registered with the builder: its place in the frame is the call that adds it
@@ -149,10 +170,13 @@ namespace Desert::Graphic::System
          *                   than being read from a global because this renderer is one of several live at
          *                   once (Docs/RENDERER_FRAME_STATE.md) and a tier is per-view state like any
          *                   other.
+         * @param footprintSteps Scalability Effects.CloudFootprintSteps, taken with @p quality: the march's lit
+         *                   step grows with the trace texel's footprint (CloudFootprintStepKm); false = the
+         *                   fixed fine step, the A/B reference.
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
                                const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
-                               const std::vector<HeroCloudInstance>& heroClouds );
+                               bool footprintSteps, const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
          * @brief Stages S0, S1 and S2 as compute nodes of @p graph, after the scene depth is final.
@@ -163,8 +187,8 @@ namespace Desert::Graphic::System
          */
         // @p frame: this view's frame (TAA1 step 3) — the march's and the resolve's matrices and camera position,
         // and whether the view's previous frame may be reprojected at all (ViewFrame::HistoryValid).
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
-                                                               VolumetricCloudHistory& history );
+        ComputeNodeList DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
+                                           VolumetricCloudHistory& history );
         // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted publishes
         // the frame's reconstruction refs and advances the frame index; a refusal publishes none (the composite
         // draws nothing) and drops the sky-occlusion volume rather than claim a resolve that never ran.
@@ -177,8 +201,9 @@ namespace Desert::Graphic::System
         // forever (BuildEnvironmentBake: InputsPending while undecided). The node is the one DeclareFrameNodes
         // declares (SkyOcclusionNode). SettleSkyOcclusionNodes( false ) drops the volume when the graph refused
         // the node.
-        std::vector<ComputeNodeDeclaration> DeclareSkyOcclusionNodes();
-        void                                SettleSkyOcclusionNodes( bool accepted );
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it.
+        ComputeNodeList DeclareSkyOcclusionNodes( Common::Memory::FrameArena& arena );
+        void            SettleSkyOcclusionNodes( bool accepted );
 
         // This frame's cloud images, after SettleFrameNodes. All invalid when the frame has none (clouds off, or
         // the nodes were refused): the composite then draws nothing.
@@ -214,13 +239,13 @@ namespace Desert::Graphic::System
         SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const;
         // The sky-occlusion volume's dispatch over m_ParamsBuffer / m_AuthoredBuffer as this frame uploaded them
         // (DeclareFrameNodes, DeclareSkyOcclusionNodes), writing m_SkyOcclusionVolume (EnsureSkyOcclusionVolume).
-        ComputeNodeDeclaration SkyOcclusionNode();
+        ComputeNodeDeclaration SkyOcclusionNode( Common::Memory::FrameArena& arena );
         // The volume's node when its inputs (SkyOcclusionInputsKey) moved since the bytes it holds were marched,
         // none when they did not: the volume is a pure function of them
         // (Graphic/Clouds/CloudAmortizedRefresh.hpp). Either way the volume may be read this frame. Settled by
         // NoteSkyOcclusionAccepted.
-        void DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
-                                         const CloudGpuPayload&               payload );
+        void DeclareSkyOcclusionIfStale( ComputeNodeList& nodes, Common::Memory::FrameArena& arena,
+                                         const CloudGpuPayload& payload );
         void NoteSkyOcclusionAccepted( bool accepted );
         // Every input of the two cached field producers but the push constant and the wind: the field block as
         // they read it, the authored block (@p withHeroClouds: the shadow map's rigid copies march without slot
@@ -242,7 +267,8 @@ namespace Desert::Graphic::System
          * cloud march reads it as the far half of the clouds' own shadow ray (GPU-CLOUD-MARCH); whether
          * the ground reads it is GetShadowStrength().
          */
-        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
+        // @p arena: the frame graph's (RDG::Builder::GetFrameArena), the nodes' lists live in it.
+        ComputeNodeList DeclareShadowMapNodes( Common::Memory::FrameArena& arena );
         // HasShadowMap() becomes true only when the graph accepted the shadow-map node DeclareShadowMapNodes
         // built.
         void SettleShadowMapNodes( bool accepted );
@@ -268,6 +294,14 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image> GetShadowMap() const
         {
             return m_ShadowMapValid ? m_ShadowMap : nullptr;
+        }
+
+        /// Which content GetShadowMap() holds (CloudShadowInput::MapGeneration): moved by SettleShadowMapNodes for
+        /// every accepted frame that rewrote the front (Full, the hero patch) or swapped a completed back in. A
+        /// Reuse frame keeps it - the wind's translation of the same texels is WorldToMap's, not the content's.
+        uint64_t GetShadowMapContentGeneration() const
+        {
+            return m_ShadowMapContentGeneration;
         }
 
         /// This frame's projection and its far depth, for a consumer that has to transform a world
@@ -596,11 +630,17 @@ namespace Desert::Graphic::System
         // read and the BACK a wind-only refresh re-marches in bands (Graphic/Clouds/CloudAmortizedRefresh.hpp).
         // m_ShadowMap is this frame's front, null when the frame has no map. The plan is decided at declaration
         // and committed by SettleShadowMapNodes only when the graph accepted its node.
+        // GPU-FARFIELD-4: the march counters' readback slots, one per frame in flight, indexed by a frame count
+        // that a camera cut does not reset (m_FrameIndex does, and a slot read early is a fence not passed).
+        std::vector<RDG::ExternalBuffer>        m_MarchCounterSlots;
+        uint64_t                                m_MarchCounterFrame = 0;
+        CloudMarchCounters                      m_MarchCounters;
         std::shared_ptr<Image>                  m_ShadowMap;
         std::array<std::shared_ptr<Image2D>, 2> m_ShadowMapImages;
         uint32_t                                m_ShadowMapImageResolution = 0;
         CloudShadowRefreshState                 m_ShadowRefresh{};
         CloudShadowRefreshPlan                  m_ShadowRefreshPlan{};
+        uint64_t                                m_ShadowMapContentGeneration = 0; // GetShadowMapContentGeneration
         uint64_t                                m_ShadowRefreshKey        = 0;
         uint32_t                                m_ShadowRefreshResolution = 0;
         // THE HERO CLOUDS' PART, patched into the front in place (CloudShadowHeroRect). m_ShadowHeroFrontRect is
@@ -868,6 +908,8 @@ namespace Desert::Graphic::System
         // every use because DeclareShadowMapNodes announces the map's size when it CHANGES — the size is a
         // property of the tier, not of the view.
         Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
+        // Scalability Effects.CloudFootprintSteps for this view (SetCloudSettings), CloudPush::Visualize.z.
+        bool m_FootprintSteps = true;
         float              m_ShadowMapScaleInUse = 0.0f;
 
         // The HALF-resolution grid, which is what the sub-pixel jitter and the reconstruction are both

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string_view>
+#include <atomic>
+#include <cstdint>
 #include <cstring>
 
 namespace Desert::Graphic
@@ -42,6 +44,14 @@ namespace Desert::Graphic
         virtual PropertyKind GetKind() const                = 0;
         virtual size_t       GetByteSize() const            = 0;
         virtual void         CopyValueTo( void* out ) const = 0;
+
+        // CPU-BIND-PREPARE (MaterialExecutor::CheckRecordable in O(1)): the owner's counter, bumped by every
+        // write that leaves the property dirty. False when this kind counts no writes, so the owner checks every
+        // property instead (Material::HasPendingRegisteredProperties).
+        [[nodiscard]] virtual bool AttachWriteSink( std::atomic<uint64_t>* /*sink*/ ) noexcept
+        {
+            return false;
+        }
     };
 
     // Base interface for objects that own typed properties (i.e. Material and its subclasses).
@@ -72,6 +82,11 @@ namespace Desert::Graphic
         std::string_view GetShaderName() const override { return m_ShaderName; }
         bool             IsDirty()       const override { return m_Dirty; }
         void             MarkClean()           override { m_Dirty = false; }
+        bool             AttachWriteSink( std::atomic<uint64_t>* sink ) noexcept override
+        {
+            m_WriteSink = sink;
+            return true;
+        }
         PropertyKind     GetKind()       const override { return PropertyKind::Value; }
         size_t           GetByteSize()   const override { return sizeof( T ); }
 
@@ -85,7 +100,7 @@ namespace Desert::Graphic
             if ( m_Value != m_Default )
             {
                 m_Value = m_Default;
-                m_Dirty = true;
+                NoteDirty();
             }
         }
 
@@ -97,17 +112,24 @@ namespace Desert::Graphic
             if ( m_Value != value )
             {
                 m_Value = value;
-                m_Dirty = true;
+                NoteDirty();
             }
         }
 
         void ForceSet( const T& value )
         {
             m_Value = value;
-            m_Dirty = true;
+            NoteDirty();
         }
 
     private:
+        void NoteDirty() noexcept
+        {
+            m_Dirty = true;
+            if ( m_WriteSink != nullptr )
+                m_WriteSink->fetch_add( 1, std::memory_order_relaxed );
+        }
+
         std::string_view    m_Name;
         std::string_view    m_ShaderName;
         T                   m_Value;
@@ -115,6 +137,8 @@ namespace Desert::Graphic
         // Start dirty so the default value is uploaded to the GPU on the first frame even when
         // Set() is called with the same value (equality check would skip it).
         bool                m_Dirty = true;
+        // The owning Material's write counter (AttachWriteSink); it outlives its member properties.
+        std::atomic<uint64_t>* m_WriteSink = nullptr;
     };
 
     // `TTextureProperty` STOOD HERE AND NOTHING IN THE TREE EVER MADE ONE. Its only producer was the

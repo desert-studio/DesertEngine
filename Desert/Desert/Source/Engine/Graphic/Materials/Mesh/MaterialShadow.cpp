@@ -39,8 +39,18 @@ namespace Desert::Graphic
     {
     }
 
+    MaterialShadow::MaterialShadow( std::string&& debugName, const std::shared_ptr<Shader>& permutation )
+         : Material( std::move( debugName ), permutation )
+    {
+    }
+
     MaterialShadowInstanced::MaterialShadowInstanced( const MeshPass pass )
          : MaterialShadow( "MaterialShadowInstanced", ShadowShaderName( MeshVertexPath::Instanced, pass ) )
+    {
+    }
+
+    MaterialShadowInstanced::MaterialShadowInstanced( const std::shared_ptr<Shader>& sceneIdPermutation )
+         : MaterialShadow( "MaterialShadowInstancedSceneIds", sceneIdPermutation )
     {
     }
 

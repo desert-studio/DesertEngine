@@ -12,6 +12,7 @@
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/NumberText.hpp>
 
 #include <cstdint>
 #include <string>
@@ -86,11 +87,12 @@ namespace Desert::Player
                 if ( value.empty() || value.find_first_not_of( "0123456789" ) != std::string::npos )
                     return Common::MakeFormattedError<bool>( "--shot-frames '{}' is not a whole number of frames",
                                                              value );
-                const unsigned long long parsed = std::stoull( value );
-                if ( parsed == 0 || parsed > 100000 )
+                // Digits only, so a refusal is a count past 64 bits: out of range like any count over 100000.
+                const std::optional<uint64_t> parsed = Common::WholeIntegerFromText<uint64_t>( value );
+                if ( !parsed || *parsed == 0 || *parsed > 100000 )
                     return Common::MakeFormattedError<bool>(
                          "--shot-frames {} is out of range; frames are counted from 1", value );
-                out.Frames = static_cast<uint32_t>( parsed );
+                out.Frames = static_cast<uint32_t>( *parsed );
             }
         }
         return BOOLSUCCESS;

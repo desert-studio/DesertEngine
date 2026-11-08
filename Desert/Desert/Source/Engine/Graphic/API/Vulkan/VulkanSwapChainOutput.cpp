@@ -7,7 +7,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
-#include <Common/Core/DestructorGuard.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -40,6 +39,10 @@ namespace Desert::Graphic::API::Vulkan
         // the frame is recorded, so no frame ever records against a swapchain that changed under it. The acquire
         // is no longer here (AcquireImage, late), and that is why the two are separate: a rebuild late in the
         // frame would release the images and the composite framebuffer the frame already recorded against.
+        // The rebuild destroys the images and the swapchain the submit thread's queued presents name: they go out
+        // first (Application::Run joined the render task when a rebuild is pending: every frame is handed over).
+        if ( m_SwapChain->RebuildPending() )
+            VulkanFrameLoop::DrainSubmitThread();
         if ( const auto requested = m_SwapChain->ApplyRequestedRebuild();
              !requested.IsSuccess() && !Graphic::DeviceLost::IsLost() )
         {
@@ -53,6 +56,19 @@ namespace Desert::Graphic::API::Vulkan
             return false;
         if ( m_Acquired )
             return true;
+
+        // THE SWAPCHAIN IS EXTERNALLY SYNCHRONISED (vkAcquireNextImageKHR and vkQueuePresentKHR both name it):
+        // the present runs on the submit thread (VK-SUBMIT-THREAD), so the acquire holds the same mutex and first
+        // waits until every image handed over was presented. Without that wait this acquire could be the second
+        // image the application holds unpresented, which a swapchain of minImageCount + 1 images does not allow
+        // with an infinite timeout. Normally nothing to wait: the previous frame's present went out while this
+        // frame was recorded.
+        std::unique_lock<std::mutex> swapchainLock( m_PresentMutex );
+        if ( m_PresentsIssued != m_PresentsTaken )
+        {
+            DESERT_PROFILE_WAIT( "Vulkan: wait for previous present" );
+            m_PresentIssued.wait( swapchainLock, [this]() { return m_PresentsIssued == m_PresentsTaken; } );
+        }
 
         const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
 
@@ -88,32 +104,70 @@ namespace Desert::Graphic::API::Vulkan
                                   .RenderComplete = slot.RenderComplete };
     }
 
+    std::optional<VulkanPresentRequest> VulkanSwapChainOutput::TakePresent()
+    {
+        // A frame that held no image (it never imported the back buffer, or its late acquire was OUT_OF_DATE)
+        // was submitted without the output: nothing signals RenderComplete and there is no image to hand back.
+        if ( !m_Acquired )
+            return std::nullopt;
+        const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        // Given up by the hand-off: the submit thread presents it, whatever the present answers (an OUT_OF_DATE
+        // or SUBOPTIMAL present still releases the image).
+        m_Acquired = false;
+        {
+            const std::scoped_lock swapchainLock( m_PresentMutex );
+            ++m_PresentsTaken;
+        }
+        return VulkanPresentRequest{ .Output         = this,
+                                     .ImageIndex     = m_ImageIndex,
+                                     .RenderComplete = m_FrameSemaphores[currentIndex].RenderComplete };
+    }
+
     void VulkanSwapChainOutput::Present()
+    {
+        if ( !Graphic::DeviceLost::AllowWork() )
+            return;
+        if ( const std::optional<VulkanPresentRequest> taken = TakePresent() )
+        {
+            VulkanFrameLoop::DrainSubmitThread();
+            Present( *taken );
+        }
+    }
+
+    void VulkanSwapChainOutput::AbandonPresent( const VulkanPresentRequest& /*request*/ )
+    {
+        {
+            const std::scoped_lock swapchainLock( m_PresentMutex );
+            ++m_PresentsIssued;
+        }
+        m_PresentIssued.notify_all();
+    }
+
+    void VulkanSwapChainOutput::Present( const VulkanPresentRequest& request )
     {
         // A WAIT row (FPS-CPU-2, PRESENT-COST): vkQueuePresentKHR blocks while the swapchain's queue of
         // presented images is full (vsync, or the display behind the GPU); the driver's own present work is in
         // the same row and is small next to that. Enclosing rows count it in their wait column.
         DESERT_PROFILE_WAIT( "Vulkan: Present" );
-        if ( !Graphic::DeviceLost::AllowWork() )
-            return;
-        // A frame that held no image (it never imported the back buffer, or its late acquire was OUT_OF_DATE)
-        // was submitted without the output: nothing signals RenderComplete and there is no image to hand back.
-        if ( !m_Acquired )
-            return;
-
-        const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
-        const auto&    queue =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetGraphicsQueue();
-
-        const auto& queuePresent =
-             QueuePresent( queue, m_ImageIndex, m_FrameSemaphores[currentIndex].RenderComplete );
-        // Given back by the present whatever it answered (an OUT_OF_DATE or SUBOPTIMAL present still releases
-        // the image; only a lost device leaves anything behind, and nothing runs on it after this).
-        m_Acquired = false;
-        if ( !queuePresent.IsSuccess() )
+        // The swapchain is externally synchronised: this present and the frame thread's acquire hold one mutex,
+        // and the present counts as issued however it ends, so the next acquire never waits for it forever.
+        std::unique_lock<std::mutex> swapchainLock( m_PresentMutex );
+        if ( Graphic::DeviceLost::AllowWork() )
         {
-            LOG_INFO( "[QueuePresent] Error: {}", queuePresent.GetError() );
+            const auto& queue =
+                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetGraphicsQueue();
+            // An OUT_OF_DATE or SUBOPTIMAL answer requests the rebuild (QueuePresent). The request is
+            // mutex-guarded; Application::Run reads it at the next frame boundary, joins the render task, and
+            // ApplyFrameBoundaryRebuild drains this thread before it rebuilds.
+            const auto& queuePresent = QueuePresent( queue, request.ImageIndex, request.RenderComplete );
+            if ( !queuePresent.IsSuccess() )
+            {
+                LOG_INFO( "[QueuePresent] Error: {}", queuePresent.GetError() );
+            }
         }
+        ++m_PresentsIssued;
+        swapchainLock.unlock();
+        m_PresentIssued.notify_all();
 
         // Present is the OTHER place the loss surfaces first (a submit executes asynchronously, so the
         // frame that killed the device is usually already gone by the time anyone is told). The frame loop
@@ -193,11 +247,9 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanSwapChainOutput::~VulkanSwapChainOutput()
-    try
     {
         Release();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanSwapChainOutput" )
 
     void VulkanSwapChainOutput::Release()
     {

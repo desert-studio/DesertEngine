@@ -1,6 +1,7 @@
 #include "FontService.hpp"
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <TextCore/Text/FontCache.hpp>
 
@@ -13,6 +14,8 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
+#include <mutex>
+#include <shared_mutex>
 
 namespace Desert::Runtime
 {
@@ -22,9 +25,24 @@ namespace Desert::Runtime
 
     Font* FontService::Get( const std::string& ttfPath, float pixelHeight )
     {
+        return Share( ttfPath, pixelHeight ).get();
+    }
+
+    std::shared_ptr<Font> FontService::Share( const std::string& ttfPath, float pixelHeight )
+    {
         const std::string key = std::format( "{}|{}", ttfPath, static_cast<int>( pixelHeight ) );
-        if ( auto it = m_Fonts.find( key ); it != m_Fonts.end() )
-            return it->second.get();
+        {
+            const std::shared_lock read( m_Mutex );
+            if ( const auto it = m_Fonts.find( key ); it != m_Fonts.end() )
+                return it->second;
+        }
+
+        // A MISS BAKES UNDER THE EXCLUSIVE LOCK: one bake per key, and the other askers wait for its result
+        // instead of baking the same atlas twice. A miss happens on a scene's first frames and after a glyph
+        // request.
+        const std::unique_lock write( m_Mutex );
+        if ( const auto it = m_Fonts.find( key ); it != m_Fonts.end() )
+            return it->second;
 
         // A zero-byte .ttf is as unusable as a missing one, so both land in the same refusal.
         const auto ttfRead = Common::Utils::FileSystem::ReadByteFileContent( ttfPath );
@@ -103,15 +121,16 @@ namespace Desert::Runtime
             return nullptr;
         }
 
-        auto font   = std::make_unique<Font>();
+        auto font    = std::make_shared<Font>();
         font->Atlas = std::move( atlas );
         font->Baked = std::move( baked );
+        font->Revision = ++m_NextRevision; // under the exclusive lock taken above
         Font* raw   = font.get();
-        m_Fonts[key] = std::move( font );
+        m_Fonts[key] = font;
         LOG_INFO( "[FontService] {} '{}' @ {}px -> {}x{} atlas in {} ms", fromCache ? "Loaded cached" : "Baked",
                   ttfPath, static_cast<int>( pixelHeight ), raw->Baked.AtlasWidth, raw->Baked.AtlasHeight,
                   atlasMs );
-        return raw;
+        return font;
     }
 
     void FontService::Clear()
@@ -123,14 +142,35 @@ namespace Desert::Runtime
         // nothing. The binding lives in `Common::AssetPathIndex` now, recorded by `FromCookedPath` at
         // the moment the number is derived, and nothing here can take it away — which is the invariant
         // that file's own header is about.
+        const std::unique_lock write( m_Mutex );
         m_Fonts.clear();
         m_ExtraGlyphs.clear();
-        m_Retired.clear();
+        m_Generation.fetch_add( 1, std::memory_order_release );
         m_Available.clear();
         m_Scanned = false;
     }
 
     uint64_t FontService::RegisterFont( const std::string& ttfPath )
+    {
+        if ( ttfPath.empty() )
+            return 0;
+        // THE STEADY CALL TAKES ONLY THE SHARED LOCK: DefaultFontHandle registers the built-in font for every
+        // label that names none, every frame, from the text worker. A path not offered yet takes the exclusive
+        // one. AssetPathIndex has its own lock.
+        const uint64_t    handle    = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( ttfPath ) );
+        const std::string canonical = Common::AssetPathIndex::PathFor( handle ).generic_string();
+        if ( canonical.empty() )
+            return handle;
+        {
+            const std::shared_lock read( m_Mutex );
+            if ( std::find( m_Available.begin(), m_Available.end(), canonical ) != m_Available.end() )
+                return handle;
+        }
+        const std::unique_lock write( m_Mutex );
+        return RegisterFontLocked( ttfPath );
+    }
+
+    uint64_t FontService::RegisterFontLocked( const std::string& ttfPath )
     {
         if ( ttfPath.empty() )
             return 0;
@@ -180,20 +220,33 @@ namespace Desert::Runtime
 
     Font* FontService::Get( uint64_t handle, float pixelHeight )
     {
+        return Share( handle, pixelHeight ).get();
+    }
+
+    std::shared_ptr<Font> FontService::Share( uint64_t handle, float pixelHeight )
+    {
         const std::string path = PathForHandle( handle );
         if ( path.empty() )
             return nullptr;
-        return Get( path, pixelHeight );
+        return Share( path, pixelHeight );
+    }
+
+    // Roboto-Regular ships under the engine's (non-relocatable) FONTS_PATH, so this literal matches the
+    // form the scan produces and both map to the same handle.
+    static const std::string& DefaultFontPath()
+    {
+        static const std::string kDefault =
+             ( Common::Constants::Path::FONTS_PATH / "Roboto-Regular.ttf" ).generic_string();
+        return kDefault;
     }
 
     uint64_t FontService::DefaultFontHandle()
     {
-        // Roboto-Regular ships under the engine's (non-relocatable) FONTS_PATH, so this literal matches the
-        // form the scan produces and both map to the same handle.
-        static const std::string kDefault =
-             ( Common::Constants::Path::FONTS_PATH / "Roboto-Regular.ttf" ).generic_string();
-        return RegisterFont( kDefault );
+        return RegisterFont( DefaultFontPath() );
     }
+
+    // printable ASCII is always baked; control chars have no glyph
+    static constexpr uint32_t kLastBakedAsciiCodepoint = 126;
 
     bool FontService::RequestGlyphs( uint64_t handle, const std::vector<uint32_t>& codepoints )
     {
@@ -201,11 +254,33 @@ namespace Desert::Runtime
         if ( path.empty() )
             return false;
 
-        auto& have  = m_ExtraGlyphs[path];
+        // THE STEADY FRAME ONLY READS: every label asks for its codepoints every frame, and all of them are known
+        // after the first frames. Only a codepoint the font has not been asked for takes the exclusive lock.
+        {
+            const std::shared_lock read( m_Mutex );
+            const auto             known  = m_ExtraGlyphs.find( path );
+            bool                   anyNew = false;
+            for ( uint32_t cp : codepoints )
+            {
+                if ( cp <= kLastBakedAsciiCodepoint )
+                    continue;
+                if ( known == m_ExtraGlyphs.end() ||
+                     std::find( known->second.begin(), known->second.end(), cp ) == known->second.end() )
+                {
+                    anyNew = true;
+                    break;
+                }
+            }
+            if ( !anyNew )
+                return false;
+        }
+
+        const std::unique_lock write( m_Mutex );
+        auto&                  have  = m_ExtraGlyphs[path];
         bool  added = false;
         for ( uint32_t cp : codepoints )
         {
-            if ( cp <= 126 ) // printable ASCII is always baked; control chars have no glyph
+            if ( cp <= kLastBakedAsciiCodepoint )
                 continue;
             if ( std::find( have.begin(), have.end(), cp ) != have.end() )
                 continue;
@@ -213,18 +288,21 @@ namespace Desert::Runtime
             added = true;
         }
         if ( !added )
-            return false;
+            return false; // another thread requested the same codepoints between the two locks
         std::sort( have.begin(), have.end() ); // order-independent cache key
 
-        // Drop every baked size of this font so the next Get() re-bakes with the new glyphs. The atlas it
-        // replaces may still be in flight, so it is retired rather than destroyed.
+        // Drop every baked size of this font so the next Get() re-bakes with the new glyphs. THE WHOLE FONT IS
+        // RETIRED, NEVER FREED HERE (UE: BeginCleanup): another thread may be laying text out with its metrics
+        // right now, and the frames in flight sample its atlas (a draw names it by raw pointer, and ImGui by
+        // image view). FrameManager::RetireAfterFrames frees it once no frame in flight can name it, instead of
+        // a list that grew with every re-bake until teardown.
         for ( auto it = m_Fonts.begin(); it != m_Fonts.end(); )
         {
             if ( it->first.rfind( path + '|', 0 ) == 0 )
             {
-                if ( it->second && it->second->Atlas )
-                    m_Retired.push_back( it->second->Atlas );
+                Engine::FrameManager::GetInstance().RetireAfterFrames( std::move( it->second ) );
                 it = m_Fonts.erase( it );
+                m_Generation.fetch_add( 1, std::memory_order_release );
             }
             else
             {
@@ -234,19 +312,28 @@ namespace Desert::Runtime
         return true;
     }
 
-    const std::vector<std::string>& FontService::AvailableFonts()
+    std::vector<std::string> FontService::AvailableFonts()
     {
         EnsurePreloaded();
+        const std::shared_lock read( m_Mutex );
         return m_Available;
     }
 
     void FontService::EnsurePreloaded()
     {
+        {
+            const std::shared_lock read( m_Mutex );
+            if ( m_Scanned )
+                return;
+        }
+        // The scan runs once, under the exclusive lock: a second caller waits and finds it done.
+        const std::unique_lock write( m_Mutex );
         if ( m_Scanned )
             return;
         m_Scanned = true;
 
-        DefaultFontHandle(); // guarantee the built-in font is always offered, even if a root is missing
+        // guarantee the built-in font is always offered, even if a root is missing
+        RegisterFontLocked( DefaultFontPath() );
 
         // BOTH halves of the content world (loose files + the mounted .dpak), through the one shared
         // enumeration. This scan used to walk only the disk half, so in a packaged game — where the
@@ -255,7 +342,7 @@ namespace Desert::Runtime
         for ( const auto* root : FontScanRoots() )
             for ( const auto& p : Common::Utils::FileSystem::ListFilesRecursive( *root ) )
                 if ( p.extension() == ".ttf" )
-                    RegisterFont( p.generic_string() );
+                    RegisterFontLocked( p.generic_string() );
         std::sort( m_Available.begin(), m_Available.end() );
         m_Available.erase( std::unique( m_Available.begin(), m_Available.end() ), m_Available.end() );
     }

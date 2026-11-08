@@ -41,6 +41,18 @@ Shader "SSAO"
 
         layout(binding = 5, rgba8) writeonly uniform image2D SsaoOutputTexture; // ViewTargetFormats::kSSAO
 
+        // DESERT_DEFERRED_TILES (GPU-TILE-CLASSIFY, SSAORenderer's tiled permutation): dispatched indirectly over
+        // the view's tile list (Common/DeferredTiles.glslh, the geometry record), one workgroup per listed 8x8
+        // tile. A tile left out holds no geometry texel: its AO texels are never written and never read (the
+        // composite discards a sky texel before its SSAO fetch).
+        #ifdef DESERT_DEFERRED_TILES
+        #include <Common/DeferredTiles.glslh>
+        ReadBuffer(6) DeferredTilesUB
+        {
+        	uint deferredTiles[];
+        };
+        #endif
+
         Uniform(0) SSAOUB
         {
         	mat4 InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
@@ -162,7 +174,14 @@ Shader "SSAO"
         LocalSize(8, 8, 1);
         void main()
         {
+        #ifdef DESERT_DEFERRED_TILES
+        	const uint  listed = DeferredTileListWord(gl_WorkGroupID.x, deferredTiles[kDeferredTileSimpleArgs],
+        	                                          deferredTiles[kDeferredTileExtent + 3u]);
+        	const uvec2 origin = DeferredTileUnpack(deferredTiles[listed]) * kDeferredTileSize;
+        	const uvec2 texel  = origin + gl_LocalInvocationID.xy;
+        #else
         	const uvec2 texel = gl_GlobalInvocationID.xy;
+        #endif
         	if (texel.x >= uint(Target.x + 0.5) || texel.y >= uint(Target.y + 0.5))
         		return;
         	const ivec2 store    = ivec2(texel);

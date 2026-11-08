@@ -174,6 +174,12 @@ namespace Desert::Editor
         // time for almost no cost.
         bool GpuFrameOnly = false;
 
+        // --gpu-order-trace: log the [GpuOrder] pass-order line (VulkanGpuProfiler::Resolve) whenever the
+        // frame's recording order changes. Off by default: the trace sorts and hashes every timed scope of the
+        // frame, and the line itself is ~40 KB on FIELD_Barn (CPU-ONE-SYNC). A capture that proves a recording
+        // change kept the pass order asks for it.
+        bool GpuOrderTrace = false;
+
         // --play: run the scene in Play during the capture, so gameplay time advances and the world moves
         // under the camera instead of standing still (see the header comment).
         //

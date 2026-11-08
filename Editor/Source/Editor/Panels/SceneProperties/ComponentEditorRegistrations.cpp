@@ -136,6 +136,7 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StrainFieldComponent, Data, 
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::KillFieldComponent, Data, "KillFieldData", "Kill Field" )
 // The scene's wind (UE Wind Directional Source): read by foliage, clouds, cloth and hair through ECS::WindAt.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WindSourceComponent, Data, "WindSourceData", "Wind Source" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DecalComponent, Data, "DecalData", "Decal" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AnchorFieldComponent, Data, "AnchorFieldData", "Anchor Field" )
 // Character Controller is a CUSTOM entry: the reflected capsule fields PLUS the live state the physics
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
@@ -219,6 +220,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UITabsComponent, Data, "UITa
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,
                                      "ExponentialHeightFogData", "Exponential Height Fog" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::LocalFogVolumeComponent, Data, "LocalFogVolumeData",
+                                     "Local Fog Volume" )
 // Post Process Volume likewise: its bounds are the entity's Translation plus the Extent field.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, Data, "PostProcessVolumeData",
                                      "Post Process Volume" )

@@ -5,11 +5,15 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 71,
+            "SCNE": 74,
             "UNIT": 1,
             "WPAR": 1
         },
-        "Dependencies": ["02a74d5bec4236c300fc86c6c13a97a8", "1d329766c5c4c2d83fcfdafc37df272b", "1ff7bf41d54b6c595b934944215d82aa", "582f0def2b00efe8f1018b02af8340dd", "6336872c8642f7daeea018f4449c1529", "696ef13e06794f81abb420103958e9ca", "731f4f827c7b881bed18f470df8653e8", "88204c80060d80e7ebf5173d38f05fae", "a849328dedac15852ea59eb6cc7e4176", "b15fb21e65ca9e9e574fd69d1aa31877", "b272c29047a884c02a065b782ae62ea5", "b33524f57b8f411039fb457c1c34be51", "d27106039e9adb87a41069d7ce898854", "d85d458cca28da444ac2939074e0b757", "e71ff67b2d1649e6d2787be69933b7d5", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
+        "Dependencies": [
+            "02a74d5bec4236c300fc86c6c13a97a8", "1d329766c5c4c2d83fcfdafc37df272b", "1ff7bf41d54b6c595b934944215d82aa", "582f0def2b00efe8f1018b02af8340dd", "6336872c8642f7daeea018f4449c1529", "696ef13e06794f81abb420103958e9ca", "731f4f827c7b881bed18f470df8653e8", "88204c80060d80e7ebf5173d38f05fae",
+            "a849328dedac15852ea59eb6cc7e4176", "b15fb21e65ca9e9e574fd69d1aa31877", "b272c29047a884c02a065b782ae62ea5", "b33524f57b8f411039fb457c1c34be51", "d27106039e9adb87a41069d7ce898854", "d85d458cca28da444ac2939074e0b757", "e71ff67b2d1649e6d2787be69933b7d5", "f19593762f19be4d47cadcb269c4e878",
+            "f6f923426f71eb4a270b1db46ebceeff"
+        ]
     },
     "SceneName": "Gameplay Proof",
     "Entities": [
@@ -230,6 +234,146 @@
             }
         },
         {
+            "id": 7500100200300400601,
+            "siblingIndex": 26,
+            "Tag": "Button",
+            "Translation": [0.0, 1.0, 150.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [2.4000000953674316, 0.019999999552965164, 3.0],
+            "Collider": {
+                "Shape": 0,
+                "HalfExtents": [120.0, 40.0, 150.0],
+                "Radius": 50.0,
+                "HalfHeight": 50.0,
+                "Axis": 1,
+                "Center": [0.0, 0.0, 0.0]
+            },
+            "RigidBody": {
+                "Type": 0,
+                "Mass": 1.0,
+                "Friction": 0.5,
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "Trigger"
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/ButtonOpensDoor.lua",
+                        "Props": []
+                    }
+                ]
+            },
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7500100200300400602,
+            "siblingIndex": 27,
+            "Tag": "Door",
+            "Translation": [260.0, 150.0, 150.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 3.0, 2.0],
+            "Collider": {
+                "Shape": 0,
+                "HalfExtents": [10.0, 150.0, 100.0],
+                "Radius": 50.0,
+                "HalfHeight": 50.0,
+                "Axis": 1,
+                "Center": [0.0, 0.0, 0.0]
+            },
+            "RigidBody": {
+                "Type": 2,
+                "Mass": 1.0,
+                "Friction": 0.5,
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "BlockAllDynamic"
+            },
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7500100200300400603,
+            "siblingIndex": 28,
+            "Tag": "KillZone",
+            "Translation": [-300.0, 1.0, 350.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [3.0, 0.019999999552965164, 5.0],
+            "Collider": {
+                "Shape": 0,
+                "HalfExtents": [150.0, 100.0, 250.0],
+                "Radius": 50.0,
+                "HalfHeight": 50.0,
+                "Axis": 1,
+                "Center": [0.0, 0.0, 0.0]
+            },
+            "RigidBody": {
+                "Type": 0,
+                "Mass": 1.0,
+                "Friction": 0.5,
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "Trigger"
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/KillZone.lua",
+                        "Props": []
+                    }
+                ]
+            },
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b272c29047a884c02a065b782ae62ea5",
+                        "Path": "assets:Materials/Starter_Emissive.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7500100200300400604,
+            "siblingIndex": 29,
+            "Tag": "GameplayProof",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/GameplayProof.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
             "id": 8531153197229334075,
             "siblingIndex": 14,
             "Tag": "Metal_100",
@@ -254,7 +398,7 @@
             "id": 9104866094392921503,
             "siblingIndex": 19,
             "Tag": "Capsule",
-            "Translation": [-470.00000762939453, 75.0, 260.0],
+            "Translation": [-470.0, 75.0, 260.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
@@ -417,7 +561,7 @@
             "id": 13630584090071503227,
             "siblingIndex": 18,
             "Tag": "Cylinder",
-            "Translation": [470.00000762939453, 75.0, 260.0],
+            "Translation": [470.0, 75.0, 260.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.5, 0.6000000238418579],
             "StaticMesh": {
@@ -624,15 +768,48 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GlobalIlluminationMethod": 2,
-                    "GIIntensity": 2.0,
+                    "GrassVisibilityBuffer": false,
+                    "GlobalIlluminationMethod": 0,
                     "ReflectionsMethod": 2,
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
                     "ShadowsMethod": 0,
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
-                    "Tonemapper": 0,
+                    "Tonemapper": 2,
+                    "FilmSlope": 0.8799999952316284,
+                    "FilmToe": 0.550000011920929,
+                    "FilmShoulder": 0.25999999046325684,
+                    "FilmBlackClip": 0.0,
+                    "FilmWhiteClip": 0.03999999910593033,
+                    "BlueCorrection": 0.6000000238418579,
+                    "ExpandGamut": 1.0,
+                    "ToneCurveAmount": 1.0,
+                    "WhiteTemp": 6500.0,
+                    "WhiteTint": 0.0,
+                    "ColorSaturation": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrast": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGamma": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGain": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffset": [0.0, 0.0, 0.0, 0.0],
+                    "ColorSaturationShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrastShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGammaShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGainShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffsetShadows": [0.0, 0.0, 0.0, 0.0],
+                    "ColorCorrectionShadowsMax": 0.09000000357627869,
+                    "ColorSaturationMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrastMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGammaMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGainMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffsetMidtones": [0.0, 0.0, 0.0, 0.0],
+                    "ColorSaturationHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrastHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGammaHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGainHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffsetHighlights": [0.0, 0.0, 0.0, 0.0],
+                    "ColorCorrectionHighlightsMin": 0.5,
+                    "ColorCorrectionHighlightsMax": 1.0,
                     "ManualExposureEV100": 0.5260688662528992,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
@@ -640,6 +817,10 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "AutoExposureBias": 0.0,
+                    "AutoExposureCurveKeyCount": 0,
+                    "AutoExposureCurveEV100": [0.0, 0.0, 0.0, 0.0],
+                    "AutoExposureCurveBias": [0.0, 0.0, 0.0, 0.0],
                     "LocalExposureMethod": 0,
                     "LocalExposureHighlightContrastScale": 1.0,
                     "LocalExposureShadowContrastScale": 1.0,
@@ -681,146 +862,6 @@
                     "SubsurfaceScattering": true,
                     "SubsurfaceScale": 1.0
                 }
-            }
-        },
-        {
-            "id": 7500100200300400601,
-            "siblingIndex": 26,
-            "Tag": "Button",
-            "Translation": [0.0, 1.0, 150.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [2.4, 0.02, 3.0],
-            "Collider": {
-                "Shape": 0,
-                "HalfExtents": [120.0, 40.0, 150.0],
-                "Radius": 50.0,
-                "HalfHeight": 50.0,
-                "Axis": 1,
-                "Center": [0.0, 0.0, 0.0]
-            },
-            "RigidBody": {
-                "Type": 0,
-                "Mass": 1.0,
-                "Friction": 0.5,
-                "Restitution": 0.10000000149011612,
-                "CollisionProfile": "Trigger"
-            },
-            "StaticMesh": {
-                "Primitive": "Cube",
-                "MeshHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
-                        "Path": "assets:Materials/Starter_Prop.demat"
-                    }
-                ]
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/ButtonOpensDoor.lua",
-                        "Props": []
-                    }
-                ]
-            }
-        },
-        {
-            "id": 7500100200300400602,
-            "siblingIndex": 27,
-            "Tag": "Door",
-            "Translation": [260.0, 150.0, 150.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [0.2, 3.0, 2.0],
-            "Collider": {
-                "Shape": 0,
-                "HalfExtents": [10.0, 150.0, 100.0],
-                "Radius": 50.0,
-                "HalfHeight": 50.0,
-                "Axis": 1,
-                "Center": [0.0, 0.0, 0.0]
-            },
-            "RigidBody": {
-                "Type": 2,
-                "Mass": 1.0,
-                "Friction": 0.5,
-                "Restitution": 0.10000000149011612,
-                "CollisionProfile": "BlockAllDynamic"
-            },
-            "StaticMesh": {
-                "Primitive": "Cube",
-                "MeshHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
-                        "Path": "assets:Materials/Starter_Prop.demat"
-                    }
-                ]
-            }
-        },
-        {
-            "id": 7500100200300400603,
-            "siblingIndex": 28,
-            "Tag": "KillZone",
-            "Translation": [-300.0, 1.0, 350.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [3.0, 0.02, 5.0],
-            "Collider": {
-                "Shape": 0,
-                "HalfExtents": [150.0, 100.0, 250.0],
-                "Radius": 50.0,
-                "HalfHeight": 50.0,
-                "Axis": 1,
-                "Center": [0.0, 0.0, 0.0]
-            },
-            "RigidBody": {
-                "Type": 0,
-                "Mass": 1.0,
-                "Friction": 0.5,
-                "Restitution": 0.10000000149011612,
-                "CollisionProfile": "Trigger"
-            },
-            "StaticMesh": {
-                "Primitive": "Cube",
-                "MeshHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "b272c29047a884c02a065b782ae62ea5",
-                        "Path": "assets:Materials/Starter_Emissive.demat"
-                    }
-                ]
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/KillZone.lua",
-                        "Props": []
-                    }
-                ]
-            }
-        },
-        {
-            "id": 7500100200300400604,
-            "siblingIndex": 29,
-            "Tag": "GameplayProof",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/GameplayProof.lua",
-                        "Props": []
-                    }
-                ]
             }
         }
     ],

@@ -42,9 +42,10 @@ namespace Desert::Engine
      * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
-     * Join: the renderer's own per-frame copies (BeginScene snapshots the camera, the world parameters and the
-     * replayed draws), never the registry, the live camera, the editor's selection or the OS. A pass that must
-     * read the world reads it on the game thread (ExtensionPass::Gather).
+     * Join: the renderer's own per-frame copies (BeginScene snapshots the camera and the world parameters; the
+     * view's job replays the recorded draws read-only - their intake ran at Scene::OnUpdate's fence,
+     * RenderCommand::Prepare), never the registry, the live camera, the editor's selection
+     * or the OS. A pass that must read the world reads it on the game thread (ExtensionPass::Gather).
      *
      * SERIAL. Off by default — a test, a tool or a bake that drives Scene::OnUpdate itself gets the inline
      * sequence it always had — and the application switches it on (Application::Run). SetSerial(true) runs every
@@ -75,12 +76,36 @@ namespace Desert::Engine
         // preview render) waits for them instead of racing them.
         void AfterJoin( Command command );
 
+        // GAME THREAD. Enqueue for a job that holds a VIEW'S BRACKET (Scene::OnUpdate's "Scene view": a renderer's
+        // replay, OnUpdate and EndScene). What JoinViews waits for; every other job is the frame's own work.
+        void EnqueueView( std::string name, Job job );
+
+        // GAME THREAD. AfterJoin for a command whose fence is the views alone (CPU-GT-OVERLAP): what it writes is
+        // read by view jobs and by nothing else on the render task - not the interface's draw, not the frame's
+        // begin, submit or present. It runs at the next JoinViews (or Join), in order with every other command.
+        void AfterViews( Command command );
+
+        // GAME THREAD. THE BRACKET'S FENCE (SceneRenderer::BeginScene; UE: the game thread opens view N+1's
+        // family while the rendering thread still submits N). Returns when no view job is queued or running and
+        // the deferred commands have run - and only when every deferred command is an AfterViews one; any other
+        // makes it a Join. The frame's own jobs in flight (frame N-1's interface draw, census, submit and
+        // present; frame N's begin; the surface cache's frame statement) keep running under the caller. Nested
+        // in a fence (a capture face opened by a deferred command), off the game thread, or with nothing in
+        // flight, it is Join.
+        void JoinViews();
+
         // THE FENCE FOR A MUTATION OF WHAT A JOB READS, from code that runs on more than one thread (a shared view
         // resource forgotten, an extension pass registered, a view resized): joins when the caller is the game
         // thread and a job is in flight, and returns at once anywhere else. The render task changing what it
         // reads itself is sequential with its own jobs, and a worker never fences (the render task may be
         // waiting on that worker: a join there would deadlock).
         void JoinOnGameThread();
+
+        // THE OWNERSHIP CHECK (CPU-ONE-SYNC). Render-owned state - what a job in flight may read (a material's
+        // pools, a retire queue, a surface cache) - is written on the game thread only while no job is in flight
+        // (inside a deferred command, AfterJoin, or after a Join) or on the render task itself. A game-thread
+        // write that breaks it is named once per @p site (an error, so a scenario's log check goes red).
+        static void CheckRenderStateWrite( std::string_view site );
 
         // GAME THREAD, THE FRAME BOUNDARY'S FENCE (UE FFrameEndSync): the first statement of
         // Renderer::PresentFinalImage (frame N's submission takes its slot's list as it is, so N's jobs have
@@ -182,6 +207,8 @@ namespace Desert::Engine
             uint32_t Slot = 0;
             // ScopedOwner at Enqueue (JoinUnlessOwnedBy).
             const void* Owner = nullptr;
+            // EnqueueView: the job holds a view's bracket (m_ViewsInFlight, JoinViews).
+            bool View = false;
         };
         // A command deferred to the next Join, with the frame of the last job enqueued before it:
         // SyncPreviousFrame runs it once that frame's work has finished.
@@ -189,7 +216,13 @@ namespace Desert::Engine
         {
             Command  Body;
             uint64_t Frame = 0;
+            // AfterViews: the views are its whole fence (JoinViews may run it with frame jobs in flight).
+            bool ViewsOnly = false;
         };
+        void Push( std::string name, Job job, bool view );
+        void Defer( Command command, bool viewsOnly );
+        // Game thread: every deferred command is an AfterViews one.
+        [[nodiscard]] bool OnlyViewCommandsDeferred() const noexcept;
         // Under m_Mutex: every job of a frame before @p frame has finished.
         [[nodiscard]] bool FramesBeforeDone( uint64_t frame ) const;
         void               RunDueCommands( uint64_t currentFrame );
@@ -205,6 +238,7 @@ namespace Desert::Engine
         std::condition_variable m_Drained; // game thread: the queue drained
         std::deque<QueuedJob>   m_Jobs;
         bool                    m_Running = false; // a job is executing (under m_Mutex)
+        uint32_t                m_ViewsInFlight = 0;     // EnqueueView jobs queued or running (under m_Mutex)
         bool                    m_Stop    = false;
         std::thread             m_Thread;
 
@@ -216,6 +250,8 @@ namespace Desert::Engine
         // Game thread only.
         std::vector<Deferred> m_AfterJoin;
         bool                  m_Joining           = false;
+        // JoinViews is running AfterViews commands (CheckRenderStateWrite: the views are drained).
+        bool m_InViewFence = false;
         const void*           m_EnqueueOwner      = nullptr;
         uint64_t              m_LastEnqueuedFrame = 0;
         // Under m_Mutex: the running job's frame and owner.

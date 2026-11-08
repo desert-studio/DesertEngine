@@ -670,15 +670,22 @@ namespace Desert::Editor
         // Runs a queued "Convert to Skinned" (rig builder) here, outside ImGui component iteration — the swap
         // removes the StaticMeshComponent the Details panel is drawing, so it must not happen mid-render.
         DESERT_PROFILE_PHASE( phases, "Editor: Rig builder + shot record" );
-        // AFTER THE SCENE VIEWS (RenderTask::AfterJoin; now when nothing is in flight): the swap edits the registry
-        // and creates GPU resources, while this frame's views may be recording on the render task. Read again when
-        // it runs, so it acts on the scene active then.
-        ::Desert::Engine::RenderTask::Get().AfterJoin(
-             [this]
-             {
-                 if ( m_Workspace.ActiveScene() && m_AssetManager )
-                     RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
-             } );
+        // AFTER THE SCENE VIEWS (RenderTask::AfterJoin; now when nothing is in flight): the swap edits the
+        // registry and creates GPU resources, while this frame's views may be recording on the render task. Read
+        // again when it runs, so it acts on the scene active then. ONLY WHEN A CONVERSION IS QUEUED
+        // (CPU-GT-OVERLAP): a full-fence command deferred every frame made the next frame's first view bracket
+        // (SceneRenderer::BeginScene -> RenderTask::JoinViews) fall back to a full Join - waiting for frame N-1's
+        // interface draw, submit and present ("Render task: Join") - for a no-op. The swap itself keeps the full
+        // fence: it edits the registry and frees the static mesh a job may name.
+        if ( RigBuilder::ConvertPending() )
+        {
+            ::Desert::Engine::RenderTask::Get().AfterJoin(
+                 [this]
+                 {
+                     if ( m_Workspace.ActiveScene() && m_AssetManager )
+                         RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
+                 } );
+        }
 
         // Screenshot mode: this frame's render is recorded. It is read back, counted and written once it has
         // been SUBMITTED (ShotDirector::EndFrame in OnFramePresented); read here, the image is the last frame's.

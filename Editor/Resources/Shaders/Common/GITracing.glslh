@@ -20,6 +20,9 @@
 //   GITraceVisibility  visibility only, 1 when nothing lies within @p maxT of @p origin along @p direction (the far
 //                      field from @p farTMin on) — the shadow ray of hit lighting (and of the cards' lighting where
 //                      no shadow map covers them).
+//   GITraceVisibilityGlobalField  the same through the coarse field alone (no near field): the shadow test of a
+//                      global-field hit no card holds (software: the global distance field; hardware: its one
+//                      field).
 //   GIRayBias          how far a secondary ray leaves a hit — TWO offsets: the near field's (nearOffset, the ray's
 //                      origin) and the far field's (farOffset, which the ray must have risen to before the far
 //                      field counts: GIFarFieldTMin -> GITraceInput.farTMin) — and how close the view's pixel
@@ -37,7 +40,9 @@
 //                      (GIHitLighting.glslh; GI-SURFACE-CACHE): the surface cache's FinalLighting at the hit; a hit
 //                      with no cards (GI_NO_MESH_CARDS — this hit only, never the whole tracer), or any hit under
 //                      DESERT_GI_HIT_LIGHTING_IN_PLACE (hardware only), is lit in place: the lights of the world
-//                      light grid with GITraceVisibility + emissive + albedo x the radiance cache. UE returns black
+//                      light grid with GITraceVisibility + emissive + albedo x the radiance cache; a global-field
+//                      hit (GIHit.globalField) only by the directional lights, one GITraceVisibilityGlobalField
+//                      each, + emissive + albedo x the radiance cache (no per-light rays). UE returns black
 //                      outside coverage (FSurfaceCacheSample.bValid = false); here it is never black.
 //   GIMissRadiance     the sky in the ray's direction (the live sky, not the baked ambient cube).
 // A consumer includes Common/GITracer.glslh (the permutation's tracer) and Common/GIHitLighting.glslh, and calls
@@ -88,6 +93,10 @@ struct GIHit {
     // identity and no motion (UE TraceVoxels writes no moving trace).
     vec3  velocity;
     bool  motionKnown;
+    // A hit of the coarse global field (the software tracer's far field; UE TraceVoxels): no object, no material.
+    // Where no card holds it, GIHitRadiance lights it from the directional lights with one global-field visibility
+    // test each (GITraceVisibilityGlobalField) and never fires a per-light ray (GIHitRadianceGlobalField).
+    bool  globalField;
 };
 
 struct GITraceResult {
@@ -106,6 +115,7 @@ GITraceResult GITraceRay( GITraceInput ray );
 GITraceResult GITraceNearField( GITraceInput ray, out float farStart );
 GITraceResult GITraceFarField( GITraceInput ray );
 float         GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT );
+float         GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, float maxT );
 GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 uvec4         GIHitInstanceRows( GIHit hit );

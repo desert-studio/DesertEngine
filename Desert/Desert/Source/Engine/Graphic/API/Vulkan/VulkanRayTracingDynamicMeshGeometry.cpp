@@ -4,7 +4,6 @@
 // or alpha-tested (VulkanRayTracingBuildInput.hpp maps the segments). Built with ALLOW_UPDATE so a change of the
 // vertices alone refits in place; every object is freed on the frame ring and has its own ledger row. The build is
 // recorded by RayTracingScene.DynamicGeometry like every other dynamic BLAS.
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -59,11 +58,9 @@ namespace Desert::Graphic::API::Vulkan
         {
         }
         ~VulkanRayTracingDynamicMeshGeometry() override
-        try
         {
             Release();
         }
-        DESERT_DESTRUCTOR_GUARD( "~VulkanRayTracingDynamicMeshGeometry" )
         VulkanRayTracingDynamicMeshGeometry( const VulkanRayTracingDynamicMeshGeometry& )            = delete;
         VulkanRayTracingDynamicMeshGeometry& operator=( const VulkanRayTracingDynamicMeshGeometry& ) = delete;
 
@@ -152,8 +149,24 @@ namespace Desert::Graphic::API::Vulkan
                 MakeExternal( m_VerticesExternal, m_Vertices, VK_NULL_HANDLE );
                 MakeExternal( m_IndicesExternal, m_Indices, VK_NULL_HANDLE );
                 MakeExternal( m_StorageExternal, m_Storage, m_Handle );
+                m_StorageExternal.RecordFinalState = [this]( const RDG::AccessState& ) -> Common::BoolResultStr
+                {
+                    // The BLAS's last readers are not the TLAS build the graph saw but every ray query that
+                    // traverses it through the TLAS (readers declare the TLAS, never the BLAS). The next frame's
+                    // build or refit writes this storage in place, so it waits for those reads.
+                    m_StorageExternal.State = RDG::GetAccessState( RDG::Access::AccelStructRead );
+                    // After EndGraph: the build this graph recorded is submitted, so the BLAS holds it.
+                    if ( m_Recorded )
+                        m_Built = true;
+                    m_Recorded = false;
+                    return BOOLSUCCESS;
+                };
             }
-            m_Update = update && !recreate;
+            // A build still recorded here was abandoned (its graph never ended): m_Built stayed false since the
+            // Prepare that planned it, so this one builds.
+            m_Recorded = false;
+            m_Update   = update && !recreate && m_Built;
+            m_Built    = false; // pending until RecordBuild records this plan and its graph ends
             return Common::MakeSuccess(
                  Plan{ .ScratchBytes = ( m_Update ? sizes.updateScratchSize : sizes.buildScratchSize ) +
                                        kMaxAccelerationStructureScratchAlignment,
@@ -212,7 +225,15 @@ namespace Desert::Graphic::API::Vulkan
 
             const VkAccelerationStructureBuildRangeInfoKHR* rangeList = input.Ranges.data();
             functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &rangeList );
+            // Recorded, not yet submitted: m_Built follows only when this graph ends (the storage's
+            // RecordFinalState).
+            m_Recorded = true;
             return BOOLSUCCESS;
+        }
+
+        [[nodiscard]] bool IsBuilt() const override
+        {
+            return m_Built;
         }
 
         // The tile's own Desert::Vertex buffer is both the BLAS input and the hit's attribute stream.
@@ -287,6 +308,8 @@ namespace Desert::Graphic::API::Vulkan
             m_VertexAddress    = 0;
             m_IndexAddress     = 0;
             m_Update           = false;
+            m_Built            = false;
+            m_Recorded         = false;
             m_Layout           = {};
             m_VerticesExternal = RDG::ExternalBuffer{};
             m_IndicesExternal  = RDG::ExternalBuffer{};
@@ -300,6 +323,11 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t m_VertexAddress = 0;     // m_Vertices' device address (GetMetadataLayout)
         uint64_t m_IndexAddress  = 0;     // m_Indices' device address
         bool     m_Update        = false; // the last Prepare's plan
+        // THE BUILD COMMITS ON GRAPH END (IsBuilt). m_Recorded: RecordBuild recorded the last Prepare's plan
+        // into the current graph. m_Built: that build's graph ended (the storage's RecordFinalState); cleared by
+        // every Prepare, so an abandoned graph or a build never recorded leaves it false.
+        bool                                    m_Recorded = false;
+        bool                                    m_Built    = false;
         RayTracing::RayTracingDynamicMeshLayout m_Layout;
         OwnedBuffer                             m_Vertices;
         OwnedBuffer                             m_Indices;

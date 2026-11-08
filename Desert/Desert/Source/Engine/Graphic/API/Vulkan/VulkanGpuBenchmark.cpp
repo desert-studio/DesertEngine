@@ -90,19 +90,15 @@ namespace Desert::Graphic::API::Vulkan
         public:
             ~Cleanup()
             {
-                // A step is a vkDestroy* call, which does not throw; calling an empty std::function is what could.
-                try
-                {
-                    for ( const std::function<void()>& step : std::ranges::reverse_view( m_Steps ) )
-                        step();
-                }
-                catch ( ... )
-                {
-                    std::terminate();
-                }
+                // A step is a vkDestroy* call, which does not throw; Add refuses an empty one, so no call here
+                // can throw std::bad_function_call either.
+                for ( const std::function<void()>& step : std::ranges::reverse_view( m_Steps ) )
+                    step();
             }
             void Add( std::function<void()> step )
             {
+                if ( !step )
+                    return; // nothing to destroy, and calling it would throw
                 m_Steps.push_back( std::move( step ) );
             }
 

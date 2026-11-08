@@ -7,6 +7,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanUploadRing.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
@@ -18,6 +19,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <unordered_map>
@@ -61,8 +63,10 @@ namespace Desert::Graphic::API::Vulkan
         // access of the layout being left (ALL_COMMANDS for a read-only or GENERAL image, so a frame still
         // sampling it finishes first) and of the layout being entered (ALL_COMMANDS / SHADER_READ for a sampled
         // image). A reader on another queue waits the upload timeline on the GPU (CommandBufferAllocator::
-        // NewestUploadSync: FlushOneShot, VulkanFrameLoop::Submit). @p staging, when there is one, is released once the fence is seen signalled; on a
-        // refused submit it is released at once, since nothing reads it. Also how a begun buffer is handed back
+        // NewestUploadSync: FlushOneShot, VulkanFrameLoop::ExecuteFrame). @p staging, when there is one, is
+        // released once its upload timeline value is seen reached (CommandBufferAllocator::CollectFinished; the
+        // submission is queued on the submit thread and this returns at once); on a refused submit it is
+        // released at once, since nothing reads it. Also how a begun buffer is handed back
         // on an error path: empty, it costs one submit and no wait (the blocking flush it replaced waited the
         // whole queue ahead of it for nothing).
         Common::BoolResultStr SubmitWithoutWait( const VkCommandBuffer cmd, VulkanAllocator* const allocator = nullptr,
@@ -290,6 +294,9 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImage2D::Release()
     {
+        // A recorded upload still owed goes with the image: its slice retires once the batches that already copied
+        // out of it have finished (they keep their own lease).
+        m_PendingUpload.reset();
         DropGraphTexture(); // its views name the VkImage released below
         if ( m_BindlessSlot.IsValid() )
         {
@@ -299,6 +306,8 @@ namespace Desert::Graphic::API::Vulkan
             m_BindlessSlot = {};
         }
         if ( !m_Resource.Image ) return BOOLSUCCESS;
+        // CPU-RDG-PREPARE: a released view is a new generation, so a prepare skipped by revision cannot keep it.
+        m_ResourceGeneration = NextResourceGeneration();
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         if ( m_EncodedView != VK_NULL_HANDLE )
             m_MipViews.push_back( m_EncodedView ); // destroyed with the other extra views, on the same queue
@@ -633,6 +642,32 @@ namespace Desert::Graphic::API::Vulkan
             m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect,
                                                      viewType, m_Resource.LayerCount, 1, i ) );
 
+        if ( m_Specification.Upload == Core::Formats::ImageUpload::Recorded )
+        {
+            // RECORDED, NOT SUBMITTED (CPU-STREAM-UPLOAD-RING; UE FTexture2DStreamIn's async reallocation): no
+            // command buffer is taken here, so a cook worker makes the image and its views; the levels go into the
+            // upload ring and RecordUploadStep records their copies on the frame's thread. Until its last step the
+            // image is in UNDEFINED, has no bindless slot, and nothing holds it but its uploader.
+            const bool plain = m_Specification.Usage == Core::Formats::Image2DUsage::Image2D &&
+                               ( m_Specification.Properties & Core::Formats::Storage ) == 0 &&
+                               m_Specification.Samples <= 1 && !isArray && !zeroOnCreate &&
+                               ( suppliedChain || m_Resource.MipLevels == 1 );
+            if ( !plain || !Core::Formats::HasData( m_Specification.Data ) )
+                return Common::MakeFormattedError<bool>(
+                     "Image2D '{}': a recorded upload is a plain sampled 2D image with pixel data and its whole "
+                     "mip table (no attachment, storage, array, multisampling, zero content or generated mips)",
+                     m_Specification.Tag );
+            const uint64_t size =
+                 suppliedChain ? Core::Formats::GetPixelDataSize( m_Specification.Data )
+                               : Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
+                                                                    m_Specification.Format );
+            if ( auto staged = StageRecordedUpload( size ); !staged.IsSuccess() )
+                return staged;
+            m_IsLoaded           = true;
+            m_ResourceGeneration = NextResourceGeneration();
+            return BOOLSUCCESS;
+        }
+
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )
             return Common::MakeFormattedError<bool>( "VulkanImage2D::CreateResource: no command buffer: {}",
@@ -784,15 +819,191 @@ namespace Desert::Graphic::API::Vulkan
         // pixels are no test of it: ReleaseUploadedPixels above has already emptied Data, and testing it here left
         // every uploaded texture without a slot, drawing the table's missing texture. Attachments, storage and
         // multisampled images never get one (the graph writes them; BindlessTextureTable).
-        if ( m_Specification.Usage == Core::Formats::Image2DUsage::Image2D &&
-             ( m_Specification.Properties & Core::Formats::Storage ) == 0 && m_Specification.Samples <= 1 )
+        return RegisterBindless();
+    }
+
+    Common::BoolResultStr VulkanImage2D::RegisterBindless()
+    {
+        if ( m_Specification.Usage != Core::Formats::Image2DUsage::Image2D ||
+             ( m_Specification.Properties & Core::Formats::Storage ) != 0 || m_Specification.Samples > 1 )
+            return BOOLSUCCESS;
+        const auto slot = GetBindlessTextureTable().Register( *this );
+        if ( !slot.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "image '{}': {}", m_Specification.Tag, slot.GetError() );
+        m_BindlessSlot = slot.GetValue();
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanImage2D::StageRecordedUpload( const uint64_t size )
+    {
+        PendingUpload pending;
+        if ( m_Specification.MipLevels.empty() )
+            pending.Levels.push_back( Core::Formats::MipLevelSpan{ 0, size } );
+        else
+            pending.Levels = m_Specification.MipLevels;
+
+        // EVERY SPAN INSIDE THE SOURCE, checked once here, before a byte is copied: both paths read the pixels at
+        // the spans' offsets (the staged one through the slice, the full one straight from the blob), and a span
+        // past the blob is refused by name rather than read.
+        const std::size_t sourceBytes = Core::Formats::GetPixelDataSize( m_Specification.Data );
+        if ( Utils::GetPixelDataPtr( m_Specification.Data ) == nullptr || sourceBytes < size )
+            return Common::MakeFormattedError<bool>(
+                 "Image2D '{}': a recorded upload of {} bytes has {} bytes of owned pixels to read from",
+                 m_Specification.Tag, size, sourceBytes );
+        for ( std::size_t level = 0; level < pending.Levels.size(); ++level )
         {
-            const auto slot = GetBindlessTextureTable().Register( *this );
-            if ( !slot.IsSuccess() )
-                return Common::MakeFormattedError<bool>( "image '{}': {}", m_Specification.Tag, slot.GetError() );
-            m_BindlessSlot = slot.GetValue();
+            const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+            if ( span.ByteOffset > size || span.ByteSize > size - span.ByteOffset )
+                return Common::MakeFormattedError<bool>(
+                     "Image2D '{}': level {} spans [{}, +{}) past the {} bytes of its chain", m_Specification.Tag,
+                     level, span.ByteOffset, span.ByteSize, size );
         }
-        return Common::MakeSuccess( true );
+
+        auto reservation = VulkanUploadRing::Get().Reserve( size );
+        if ( auto* const slice = std::get_if<VulkanUploadRing::Slice>( &reservation ) )
+        {
+            // THE ONE COPY OF THE BYTES, on the thread that made the image (the cook worker): straight into the
+            // ring's mapped system memory, which the copy engine reads; the image keeps no second copy.
+            std::memcpy( slice->Mapped, Utils::GetPixelDataPtr( m_Specification.Data ),
+                         static_cast<std::size_t>( size ) );
+            pending.Lease       = std::move( slice->Lease );
+            pending.Buffer      = slice->Buffer;
+            pending.SliceOffset = slice->Offset;
+            pending.StagedBytes = size;
+            Core::Formats::ReleaseUploadedPixels( m_Specification );
+        }
+        else
+        {
+            // THE FULL PATH: the ring has no room now (or the chain is larger than the ring). The pixels stay with
+            // the image, in CPU memory, and every RecordUploadStep stages only the levels it records, into a slice
+            // of their size: a texture larger than the ring goes by levels over several frames, and a full ring
+            // costs a frame's wait, never a stall.
+            pending.Pixels       = std::move( m_Specification.Data );
+            m_Specification.Data = Core::Formats::ImagePixelData{};
+        }
+        m_PendingUpload = std::move( pending );
+        return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<Image2D::RecordedUploadStep> VulkanImage2D::RecordUploadStep( GpuBatch&      batch,
+                                                                                  const uint64_t budgetBytes )
+    {
+        if ( !m_PendingUpload || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<RecordedUploadStep>( "image '{}': no recorded upload is owed",
+                                                                   m_Specification.Tag );
+        PendingUpload& pending    = *m_PendingUpload;
+        const auto     levelCount = static_cast<uint32_t>( pending.Levels.size() );
+
+        // The levels of this step: from NextLevel while they fit the budget, and one at least.
+        const uint32_t first = pending.NextLevel;
+        uint32_t       end   = first;
+        uint64_t       bytes = 0;
+        while ( end < levelCount && ( end == first || bytes + pending.Levels[end].ByteSize <= budgetBytes ) )
+            bytes += pending.Levels[end++].ByteSize;
+
+        VkBuffer                    source = pending.Buffer;
+        std::shared_ptr<const void> lease  = pending.Lease;
+        std::vector<uint64_t>       offsets;
+        offsets.reserve( end - first );
+        if ( pending.Buffer != VK_NULL_HANDLE )
+        {
+            // STAGED: the chain is in the slice already. Asked by the buffer, not by `if ( lease )`.
+            for ( uint32_t level = first; level < end; ++level )
+            {
+                const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+                if ( span.ByteOffset > pending.StagedBytes ||
+                     span.ByteSize > pending.StagedBytes - span.ByteOffset )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} [{}, +{}) lies outside its {}-byte staged slice",
+                         m_Specification.Tag, level, span.ByteOffset, span.ByteSize, pending.StagedBytes );
+                offsets.push_back( pending.SliceOffset + span.ByteOffset );
+            }
+        }
+        else
+        {
+            // THE PIXELS ARE OWNED HERE OR THE STEP IS REFUSED: a pending upload whose source is gone is an error
+            // value, never a read of null + offset.
+            const auto* const pixels = static_cast<const std::byte*>( Utils::GetPixelDataPtr( pending.Pixels ) );
+            const std::size_t sourceBytes = Core::Formats::GetPixelDataSize( pending.Pixels );
+            if ( pixels == nullptr )
+                return Common::MakeFormattedError<RecordedUploadStep>(
+                     "image '{}': level {} is neither staged nor held: the upload owns no pixels to copy",
+                     m_Specification.Tag, first );
+            for ( uint32_t level = first; level < end; ++level )
+            {
+                const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+                if ( span.ByteOffset > sourceBytes || span.ByteSize > sourceBytes - span.ByteOffset )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} [{}, +{}) lies outside its {} bytes of pixels", m_Specification.Tag,
+                         level, span.ByteOffset, span.ByteSize, sourceBytes );
+            }
+            auto        reservation = VulkanUploadRing::Get().Reserve( bytes );
+            auto* const slice       = std::get_if<VulkanUploadRing::Slice>( &reservation );
+            if ( slice == nullptr )
+            {
+                // get_if, not get: std::get throws bad_variant_access, and nothing here may throw.
+                const auto* const full = std::get_if<VulkanUploadRing::Full>( &reservation );
+                if ( full == nullptr || full->NeverFits )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} ({} bytes) cannot be staged: it is larger than the {} MB upload "
+                         "ring, or the ring was not made",
+                         m_Specification.Tag, first, bytes, VulkanUploadRing::kCapacity / ( 1024ull * 1024ull ) );
+                return Common::MakeSuccess( RecordedUploadStep{ 0, false } ); // full now: the next frame retries
+            }
+            uint64_t written = 0;
+            for ( uint32_t level = first; level < end; ++level )
+            {
+                const Core::Formats::MipLevelSpan& span = pending.Levels[level];
+                if ( span.ByteSize > slice->Size - written )
+                    return Common::MakeFormattedError<RecordedUploadStep>(
+                         "image '{}': level {} ({} bytes) does not fit the {}-byte slice reserved for it",
+                         m_Specification.Tag, level, span.ByteSize, slice->Size );
+                std::memcpy( slice->Mapped + written, pixels + span.ByteOffset,
+                             static_cast<std::size_t>( span.ByteSize ) );
+                offsets.push_back( slice->Offset + written );
+                written += span.ByteSize;
+            }
+            source = slice->Buffer;
+            lease  = slice->Lease;
+        }
+
+        std::vector<VkBufferImageCopy> regions;
+        regions.reserve( end - first );
+        for ( uint32_t level = first; level < end; ++level )
+        {
+            const VkExtent3D extent{ std::max( 1u, m_Specification.Width >> level ),
+                                     std::max( 1u, m_Specification.Height >> level ), 1 };
+            regions.push_back( VkBufferImageCopy{
+                 .bufferOffset     = offsets[level - first],
+                 .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                       .mipLevel   = level,
+                                       .layerCount = 1 },
+                 .imageExtent      = extent } );
+        }
+
+        const VkCommandBuffer cmd = RecordingBuffer( batch );
+        if ( !pending.Begun )
+        {
+            TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+            pending.Begun = true;
+        }
+        vkCmdCopyBufferToImage( cmd, source, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                static_cast<uint32_t>( regions.size() ), regions.data() );
+        // The slice outlives the copy: the batch drops its lease once its submission's upload-timeline value is
+        // reached (GpuBatch::IsComplete), which is when the ring may hand those bytes out again.
+        batch.Retain( std::move( lease ) );
+        pending.NextLevel = end;
+        if ( end < levelCount )
+            return Common::MakeSuccess( RecordedUploadStep{ bytes, false } );
+
+        // THE LAST LEVEL: sampled from here on. The barrier's first scope is every earlier submission on the
+        // queue,
+        // so the levels an earlier frame's batch copied are covered too.
+        TransitionLayout( cmd, Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties ) );
+        m_PendingUpload.reset();
+        if ( auto registered = RegisterBindless(); !registered.IsSuccess() )
+            return Common::MakeError<RecordedUploadStep>( registered.GetError() );
+        return Common::MakeSuccess( RecordedUploadStep{ bytes, true } );
     }
 
     namespace
@@ -904,6 +1115,13 @@ namespace Desert::Graphic::API::Vulkan
                 return CommandBufferAllocator::GetInstance().IsComplete( m_Submitted );
             }
 
+            // Blocks until the copy completed (ReadPixelsRGBA8). On the submit thread a copy still queued behind
+            // the entry it runs is submitted first, so this is never a wait on itself (WaitComplete).
+            [[nodiscard]] Common::BoolResultStr Wait() const
+            {
+                return CommandBufferAllocator::GetInstance().WaitComplete( m_Submitted );
+            }
+
             [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const override
             {
                 if ( !m_Source )
@@ -921,6 +1139,12 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !IsComplete() )
                     return Common::MakeError<std::vector<uint8_t>>(
                          "ReadBytes: the GPU copy has not completed yet; poll IsComplete() first" );
+                // Reached but refused (CommandBufferAllocator::IsRefused): the copy never ran, so the staging
+                // buffer holds no pixels of the image; the refusal is the answer, not its uninitialised bytes.
+                if ( CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
+                    return Common::MakeError<std::vector<uint8_t>>(
+                         "ReadBytes: the copy's submission was refused by the driver (see the log); nothing was "
+                         "copied" );
                 std::vector<uint8_t> raw( static_cast<std::size_t>( m_Bytes ) );
                 MappedMemory         mapped = Allocator()->MapMemory( m_Allocation );
                 const auto           read   = mapped.ReadInto( raw.data(), raw.size() );
@@ -954,13 +1178,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !begun.IsSuccess() )
             return Common::MakeError<std::vector<uint8_t>>( begun.GetError() );
         const std::shared_ptr<ImageReadback>& readback = begun.GetValue();
-        while ( !readback->IsComplete() )
-        {
-            if ( !Graphic::DeviceLost::AllowWork() )
-                return Common::MakeError<std::vector<uint8_t>>(
-                     "ReadPixelsRGBA8: the device was lost while the copy was in flight" );
-            std::this_thread::yield();
-        }
+        // A WAIT, NOT A SPIN ON IsComplete (REVIEW G1): on the submit thread a spin would never see a copy still
+        // queued behind the entry it runs; Wait submits it there first. A lost device ends the wait.
+        // Every readback BeginCopyToHost makes is a VulkanImageReadback, so the downcast cannot miss.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        if ( const auto waited = static_cast<const VulkanImageReadback&>( *readback ).Wait(); !waited )
+            return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadPixelsRGBA8: {}", waited.GetError() );
         return readback->ReadRGBA8();
     }
 

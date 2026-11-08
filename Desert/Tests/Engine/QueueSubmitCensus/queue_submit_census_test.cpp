@@ -32,10 +32,11 @@ namespace
                                                           "vkQueuePresentKHR", "vkQueueWaitIdle",
                                                           "vkQueueBindSparse", "vkDeviceWaitIdle" };
 
-    // The only functions allowed to issue those calls, each under the queue lock.
-    constexpr std::array<const char*, 4> k_Owners = {
+    // The only functions allowed to issue those calls, each under the queue lock (WaitQueueIdle: the caller's
+    // LockQueues(), which it checks is this device's before the call).
+    constexpr std::array<const char*, 5> k_Owners = {
          "VulkanLogicalDevice::SubmitToQueue", "VulkanLogicalDevice::PresentToQueue",
-         "VulkanLogicalDevice::WaitIdle", "VulkanLogicalDevice::Destroy" };
+         "VulkanLogicalDevice::WaitIdle", "VulkanLogicalDevice::WaitQueueIdle", "VulkanLogicalDevice::Destroy" };
 
     std::string RepoRoot()
     {
@@ -167,28 +168,68 @@ TEST( QueueSubmitCensus, EveryOwnerTakesTheQueueLockBeforeItsCall )
             for ( const std::size_t at : CallsOf( body, call ) )
                 firstCall = std::min( firstCall, at );
         ASSERT_NE( firstCall, std::string::npos ) << owner << " no longer issues a queue call";
-        const std::size_t lock = body.find( "scoped_lock queues( m_QueueMutex )" );
+        // Its own lock, or the caller's checked to be this device's (a refusal before the call).
+        const std::size_t own  = body.find( "scoped_lock queues( m_QueueMutex )" );
+        const std::size_t held = body.find( "held.mutex() != &m_QueueMutex" );
+        const std::size_t lock = std::min( own, held );
         EXPECT_TRUE( lock != std::string::npos && lock < firstCall )
              << owner << " issues a queue call without holding m_QueueMutex first";
     }
 }
 
 // The ImGui Vulkan backend is third-party and issues its own queue calls for detached platform windows, so the
-// scan above cannot see them. What CAN be read is that the one place that drives them holds the lock first.
+// scan above cannot see them. What CAN be read (VK-SUBMIT-THREAD step 7): ImGui's default renderer loop is not
+// used (the layer draws the windows itself, as submit-thread entries), and every call into the backend goes
+// through DetachedWindows::Capture from a scope that took VulkanLogicalDevice::LockQueues() first.
 TEST( QueueSubmitCensus, DetachedImGuiWindowsRenderUnderTheQueueLock )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::string src = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
          ReadAll( fs::path( root ) / "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" ) );
-    const std::size_t render = src.find( "RenderPlatformWindowsDefault(" );
-    const std::size_t update = src.find( "UpdatePlatformWindows(" );
-    ASSERT_NE( render, std::string::npos )
-         << "VulkanImGuiLayer no longer renders platform windows; update the census";
-    ASSERT_NE( update, std::string::npos );
-    const std::size_t lock      = src.rfind( "LockQueues()", update );
-    const std::size_t scopeOpen = src.rfind( '{', update );
+    ASSERT_NE( src.find( "UpdatePlatformWindows(" ), std::string::npos )
+         << "VulkanImGuiLayer no longer drives platform windows; update the census";
+    EXPECT_EQ( src.find( "RenderPlatformWindowsDefault(" ), std::string::npos )
+         << "ImGui's default loop calls the backend outside the queue lock and the submit thread";
+    std::size_t calls = 0;
+    for ( std::size_t at = src.find( "return Capture(" ); at != std::string::npos;
+          at             = src.find( "return Capture(", at + 1 ) )
+        ++calls;
+    // The window calls (create / resize / destroy, AfterOwnWork) and the frame (Draw).
+    EXPECT_EQ( calls, 2u ) << "the backend is called from a new place; census it";
+    // Step 9: the window calls (AfterOwnWork) drain the submit thread with no lock held, then take the queue lock
+    // and keep it across their Capture: the fork's one wait (WaitWindowIdleFn) idles the queue under it before a
+    // swapchain and its semaphores go (a frame fence does not cover the present:
+    // VUID-vkDestroySemaphore-semaphore-05149).
+    const std::size_t owner    = src.find( "VkResult AfterOwnWork(" );
+    const std::size_t drain    = owner == std::string::npos ? owner : src.find( "DrainSubmitThread()", owner );
+    const std::size_t taken    = drain == std::string::npos ? drain : src.find( "LockQueues()", drain );
+    const std::size_t captured = taken == std::string::npos ? taken : src.find( "return Capture(", taken );
+    const std::size_t next     = owner == std::string::npos ? owner : src.find( "return Capture(", owner );
+    EXPECT_TRUE( captured != std::string::npos && captured == next )
+         << "AfterOwnWork must drain the submit thread, then take LockQueues(), then call the backend";
+    EXPECT_NE( src.find( "&DetachedWindows::WaitWindowIdle;" ), std::string::npos )
+         << "the layer no longer gives the ImGui backend its wait before a window's objects are destroyed";
+    EXPECT_NE( src.find( "WaitQueueIdle(" ), std::string::npos )
+         << "the layer's window wait no longer idles the queue under the lock AfterOwnWork holds";
+    // The frame (the backend's acquire, submit and present) touches the queue: its Capture holds the lock too.
+    const std::size_t render    = src.find( "BackendRender(" );
+    const std::size_t frame     = render == std::string::npos ? render : src.rfind( "return Capture(", render );
+    const std::size_t lock      = frame == std::string::npos ? frame : src.rfind( "LockQueues()", frame );
+    const std::size_t scopeOpen = frame == std::string::npos ? frame : src.rfind( '{', frame );
     EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
-         << "UpdatePlatformWindows / RenderPlatformWindowsDefault must run inside a scope that took "
+         << "the frame's backend call (Capture around BackendRender) must run in a scope that took "
             "VulkanLogicalDevice::LockQueues() first: the backend submits and presents on the shared queue.";
+    // The fork (gitlink ThirdParty/ImGui) is what gives the window calls one waiter and makes a failed frame stop.
+    const std::string backend = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "ThirdParty/ImGui/backends/imgui_impl_vulkan.cpp" ) );
+    EXPECT_NE( backend.find( "WaitWindowIdleFn(" ), std::string::npos )
+         << "the ImGui fork no longer waits through the layer before a window's objects go (gitlink rolled back?)";
+    EXPECT_EQ( backend.find( "ImGui_ImplVulkanH_WaitWindowFrames(" ), std::string::npos )
+         << "the ImGui fork waits a window's fences again: a second waiter, and no cover for the present";
+    EXPECT_NE( backend.find( "PresentPending" ), std::string::npos )
+         << "the ImGui fork presents after a failed RenderWindow again (gitlink rolled back?)";
+    for ( const char* const call : { "BackendCreate(", "BackendDestroy(", "BackendResize(", "BackendRender(",
+                                     "BackendPresent(" } )
+        EXPECT_NE( src.find( call ), std::string::npos ) << call << " is no longer called; update the census";
 }

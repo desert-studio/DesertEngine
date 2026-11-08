@@ -9,6 +9,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -45,14 +46,54 @@ namespace Desert::Graphic::API::Vulkan
         virtual void Invalidate() override;
         virtual void Release() override;
 
+        // EVERYTHING ONE Invalidate PRODUCES, immutable once published (UE: a compute PSO is never edited after
+        // it is built; the replaced one goes to deferred deletion). The pipeline, the layout made from Layouts,
+        // the material backend whose sets match Layouts, and the batch ring allocated from Layouts are ONE
+        // record, so a reader that took the record once binds a pipeline, a layout and sets of one contract
+        // even if the game thread rebuilds this pipeline meanwhile. The replaced record is retired through
+        // VulkanAllocator::RT_DestroyLater: it stays valid for the frames in flight.
+        struct BuiltCompute
+        {
+            BuiltCompute()                                 = default;
+            BuiltCompute( const BuiltCompute& )            = delete;
+            BuiltCompute& operator=( const BuiltCompute& ) = delete;
+            ~BuiltCompute();
+
+            VkPipeline                          Pipeline = VK_NULL_HANDLE;
+            VkPipelineLayout                    Layout   = VK_NULL_HANDLE;
+            std::vector<DescriptorSetLayoutRef> Layouts;
+            uint64_t                            ShaderGeneration = 0;
+            // Co-owned: a rebuild against an unchanged shader generation shares it into the next record.
+            std::shared_ptr<VulkanMaterialBackend> Backend;
+
+            // The next set of the lazily-created ring for the dispatches of a GpuBatch (Record), one per
+            // dispatch so the batch's pending dispatches never alias one set; reused round-robin. Allocated
+            // from THIS record's Layouts, never the shader's current ones. VK_NULL_HANDLE with no layouts.
+            [[nodiscard]] VkDescriptorSet NextBatchSet() const noexcept;
+
+        private:
+            static constexpr uint32_t            kBatchRingSize = 64;
+            mutable std::mutex                   m_BatchLock;
+            mutable VkDescriptorPool             m_BatchPool = VK_NULL_HANDLE;
+            mutable std::vector<VkDescriptorSet> m_BatchRing;
+            mutable uint32_t                     m_BatchCursor = 0;
+        };
+
+        // THE ONE READ of the published record: pipeline, layout, set layouts and backend of one build. Valid
+        // for the frames in flight (a rebuild retires it, never frees it at once). Never null.
+        [[nodiscard]] const BuiltCompute& GetBuilt() const noexcept
+        {
+            return *m_Current.load( std::memory_order_acquire );
+        }
+
         VkPipeline GetVkPipeline() const
         {
-            return m_ComputePipeline;
+            return GetBuilt().Pipeline;
         }
 
         VkPipelineLayout GetVkPipelineLayout() const
         {
-            return m_ComputePipelineLayout;
+            return GetBuilt().Layout;
         }
 
         auto GetCommandBuffer() const
@@ -67,7 +108,7 @@ namespace Desert::Graphic::API::Vulkan
         // The descriptor set layouts this pipeline's layout was built from, one per set.
         [[nodiscard]] const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
         {
-            return m_Layouts;
+            return GetBuilt().Layouts;
         }
         // The set-0 bindings the pipeline's own setters (SetInput / SetSampler / SetOutput / SetStorageBuffer)
         // fill: the "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
@@ -82,30 +123,32 @@ namespace Desert::Graphic::API::Vulkan
         // changes. A pass's setup shares the kept object; a rebind of the same binding (the GDF composite rebinds
         // its buffers every frame) changes nothing. Safe from several declaring threads.
         [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill> GetRouteFill() const;
-        // Writes the resources the setters bound into @p descriptorSet (set 0). Refused, naming the pipeline and
-        // the binding, when a bound resource has no view or copy to write.
-        Common::BoolResultStr WriteBoundResources( VkDescriptorSet descriptorSet );
+        // Writes the resources the setters bound into @p descriptorSet (set 0) of @p built (the record the caller
+        // binds). Refused, naming the pipeline and the binding, when a bound resource has no view or copy to
+        // write.
+        Common::BoolResultStr WriteBoundResources( const BuiltCompute& built, VkDescriptorSet descriptorSet );
 
         VulkanMaterialBackend* GetVulkanMaterialBackend() const
         {
-            return m_VulkanMaterialBackend.get();
+            return GetBuilt().Backend.get();
         }
 
     private:
+        // Release's body: publishes a record with no handles (the backend kept); @p deferred retires the
+        // replaced record through the allocator's deletion queue, otherwise it dies at once.
+        void ReleaseHandles( bool deferred );
+        // Makes @p next THE record readers see; the replaced one is retired (deferred) or dropped at once.
+        void Publish( std::shared_ptr<const BuiltCompute> next, bool deferred ) noexcept;
+
         ComputePipelineSpecification m_Specification;
-        VkPipeline                   m_ComputePipeline       = VK_NULL_HANDLE;
-        VkPipelineLayout             m_ComputePipelineLayout = VK_NULL_HANDLE;
-        // Pipeline cache is now the shared device-wide one (VulkanLogicalDevice::GetPipelineCache).
+        // Pipeline cache is the shared device-wide one (VulkanLogicalDevice::GetPipelineCache).
 
-        std::unique_ptr<VulkanMaterialBackend> m_VulkanMaterialBackend;
-
-        // THE layouts of this pipeline: the ones m_ComputePipelineLayout was built from, the ones the
-        // batch ring is allocated from, and the ones its pool is sized against. One capture, one
-        // contract — a descriptor set and the pipeline layout it is bound to cannot describe different
-        // shaders while both come from here. Strong references, so a shader recompile cannot pull them
-        // out from under a pipeline that is still using them.
-        std::vector<DescriptorSetLayoutRef> m_Layouts;
-        uint64_t                            m_ShaderGeneration = 0;
+        // The published record (owned here, written by the game thread only) and the pointer readers load. The
+        // layouts in it are strong references, so a shader recompile cannot pull them out from under a
+        // pipeline that is still using them, and the pipeline layout, the backend's sets and the batch ring
+        // all come from them: a set and the pipeline layout it is bound to cannot describe different shaders.
+        std::shared_ptr<const BuiltCompute> m_Owned;
+        std::atomic<const BuiltCompute*>    m_Current{ nullptr };
 
         VkCommandBuffer m_ActiveComputeCommandBuffer = nullptr;
 
@@ -146,21 +189,15 @@ namespace Desert::Graphic::API::Vulkan
         // Records the currently-bound resources into @p cmd against @p descriptorSet and dispatches.
         // Shared by the immediate Dispatch() and the batched Record(); performs no layout transitions and no
         // submission of its own.
-        void RecordDescriptorsAndDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
-                                           uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ );
+        void RecordDescriptorsAndDispatch( const BuiltCompute& built, VkCommandBuffer cmd,
+                                           VkDescriptorSet descriptorSet, uint32_t groupsX, uint32_t groupsY,
+                                           uint32_t groupsZ );
 
         // Outputs to GENERAL, the dispatch, outputs back to SHADER_READ — the body both Dispatch (persistent
-        // set, own buffer, waited) and Record (ring set, the batch's buffer) share.
-        void RecordTransitionedDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet, uint32_t groupsX,
-                                         uint32_t groupsY, uint32_t groupsZ );
-
-        // Lazily-created ring of descriptor sets for the dispatches of a GpuBatch (Record), one per dispatch so
-        // the batch's pending dispatches never alias one set; reused round-robin. In-graph dispatches do not
-        // use it: Renderer::DispatchCompute writes the pass's own sets.
-        void                         EnsureBatchRing();
-        VkDescriptorPool             m_BatchPool = VK_NULL_HANDLE;
-        std::vector<VkDescriptorSet> m_BatchRing;
-        uint32_t                     m_BatchCursor  = 0;
-        static constexpr uint32_t    kBatchRingSize = 64;
+        // set, own buffer, waited) and Record (ring set, the batch's buffer) share. In-graph dispatches use
+        // neither: Renderer::DispatchCompute writes the pass's own sets.
+        void RecordTransitionedDispatch( const BuiltCompute& built, VkCommandBuffer cmd,
+                                         VkDescriptorSet descriptorSet, uint32_t groupsX, uint32_t groupsY,
+                                         uint32_t groupsZ );
     };
 } // namespace Desert::Graphic::API::Vulkan

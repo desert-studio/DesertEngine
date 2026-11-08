@@ -1,6 +1,7 @@
 #include "ReflectionCaptureRenderer.hpp"
 
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -395,6 +397,9 @@ namespace Desert::Graphic
                                                         const std::optional<Environment>&      environment,
                                                         const bool skyRecapturesForSun )
     {
+        // RENDER-OWNED (CPU-ONE-SYNC): the views in flight read the captures' cubes and state below, so the
+        // driver runs at a fence (Scene::OnUpdate: RenderTask::AfterViews), never under a recording view.
+        ::Desert::Engine::RenderTask::CheckRenderStateWrite( "ReflectionCaptureRenderer::RenderCaptureViews" );
         m_WriteCapture = false;
 
         const auto& frames = Engine::FrameManager::GetInstance();
@@ -600,9 +605,12 @@ namespace Desert::Graphic
         view.Renderer->BorrowEnvironment( environment );
         // The capture point's one field (m_FaceField), shared by the six faces.
         view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
-        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture point.
+        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture
+        // point. The scene's unbound volumes, read here on the game thread (the capture driver runs with nothing
+        // in flight: Scene::OnUpdate defers it behind the views, RenderTask::AfterJoin).
+        const Core::PostProcessSettings facePost = ResolveViewSettings( scene.GetRegistry(), std::nullopt ).Post;
         m_FaceSurfaceCache->BeginFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
-                                        { capture.CapturePosition }, scene.GetRegistry(),
+                                        { capture.CapturePosition }, facePost,
                                         scene.GetSettings().RenderingPath == Core::RenderPath::Deferred );
         view.Renderer->ShareSurfaceCache( m_FaceSurfaceCache.get() );
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )

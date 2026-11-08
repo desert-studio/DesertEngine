@@ -38,6 +38,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <format>
 #include <memory>
 #include <optional>
@@ -86,11 +87,9 @@ namespace Desert::ECS
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
                     m_Ragdolls.reset();
-                    m_RefusedColliders.clear();
-                    m_BodyEntities.clear();
+                    m_PosedLastFrame.clear(); // entities of the Play that ends
                     if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
                         queue->Events.clear();
-                    m_RefusedCharacters.clear();
                     m_Landscape.reset();
                     m_Foliage.reset();
                     m_Destructibles.reset();
@@ -103,8 +102,6 @@ namespace Desert::ECS
                 m_ProfilesRefused = false; // the next Play reads the register again
                 return;
             }
-
-            auto bodies = registry.view<TransformComponent, RigidBodyComponent, ColliderComponent>();
 
             if ( !m_World )
             {
@@ -162,15 +159,27 @@ namespace Desert::ECS
             // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
             m_Foliage->Sync( registry );
 
-            // Create a Jolt body for any physics entity that doesn't have one yet (uses its authored pose).
-            for ( auto entity : bodies )
+            // Create a Jolt body for the entities whose body components were added or replaced since the last
+            // frame (uses the authored pose) - PhysicsBodyLifetime's pending set, not a walk of every body.
+            // From the back: erasing the current entity swaps in the last one, which is already looked at.
+            PhysicsBodyLifetime::PendingSet& pendingBodies = m_Lifetime->GetPendingBodies();
+            for ( std::size_t i = pendingBodies.size(); i-- > 0; )
             {
-                auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody != Physics::kInvalidBody || m_RefusedColliders.contains( entity ) )
+                const entt::entity entity = pendingBodies.data()[i];
+                if ( !registry.valid( entity ) ||
+                     !registry.has<TransformComponent, RigidBodyComponent, ColliderComponent>( entity ) )
+                {
+                    pendingBodies.erase( entity ); // a missing component marks it again when it is added
                     continue;
+                }
+                auto& rb = registry.get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody != Physics::kInvalidBody )
+                {
+                    pendingBodies.erase( entity ); // replaced on a body that already exists
+                    continue;
+                }
 
-                const auto& transform = bodies.get<TransformComponent>( entity );
-                const auto& collider  = bodies.get<ColliderComponent>( entity );
+                const auto& collider = registry.get<ColliderComponent>( entity );
 
                 Physics::BodyDesc desc;
                 desc.Shape       = collider.Data.Shape;
@@ -207,7 +216,7 @@ namespace Desert::ECS
                         continue;
                     }
                     if ( !gathered.GetValue() )
-                        continue; // the mesh asset is still loading: try again next frame
+                        continue; // the mesh asset is still loading: stays pending, tried again next frame
                     colliderMesh     = *gathered.GetValue();
                     desc.MeshPoints  = colliderMesh->Points;
                     desc.MeshIndices = colliderMesh->Indices;
@@ -220,26 +229,36 @@ namespace Desert::ECS
                     continue;
                 }
                 rb.RuntimeBody = created.GetValue();
+                m_Lifetime->Track( rb.RuntimeBody, entity );
+                pendingBodies.erase( entity );
             }
 
-            // Create a Jolt CharacterVirtual for any character entity that doesn't have one (authored pose).
-            auto characters = registry.view<TransformComponent, CharacterControllerComponent>();
-            for ( auto entity : characters )
+            // Create a Jolt CharacterVirtual for the pending character entities (authored pose), same rule.
+            PhysicsBodyLifetime::PendingSet& pendingCharacters = m_Lifetime->GetPendingCharacters();
+            for ( std::size_t i = pendingCharacters.size(); i-- > 0; )
             {
-                auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter || m_RefusedCharacters.contains( entity ) )
+                const entt::entity entity = pendingCharacters.data()[i];
+                // Looked at once whatever the outcome: built, already built, gone, or refused (said once).
+                pendingCharacters.erase( entity );
+                if ( !registry.valid( entity ) ||
+                     !registry.has<TransformComponent, CharacterControllerComponent>( entity ) )
                     continue;
-                const auto& transform = characters.get<TransformComponent>( entity );
+                auto& cc = registry.get<CharacterControllerComponent>( entity );
+                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
+                    continue;
+                const auto& transform = registry.get<TransformComponent>( entity );
 
                 if ( const auto created = CharacterMovement::CreateCharacter(
                           cc, *m_World, transform.GetTranslation() ); // capsule centre
                      !created )
                 {
-                    m_RefusedCharacters.insert( entity );
                     LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),
                                created.GetError() );
                     continue;
                 }
+                // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that
+                // walks into a trigger is named by its entity.
+                m_Lifetime->Track( m_World->GetCharacterBody( cc.RuntimeCharacter ), entity );
             }
 
             if ( !playing )
@@ -247,10 +266,11 @@ namespace Desert::ECS
 
             // The events of this frame's steps are readable until the next frame's physics.
             m_Destruction->ClearEvents();
-            // The water the step's bodies are in: this frame's bodies over this frame's ground, gathered every
-            // frame so a moved, added or removed body is the water at once. The landscape tiles' heights are
-            // borrowed from the registry for the step's queries only. The water's clock advances by the FIXED
-            // step, once per substep, in the pre-step callback below.
+            // The water the step's bodies are in: this frame's bodies over this frame's ground. The body list is
+            // retained (WaterBodyGather: re-walked only when a body is added, patched or removed) and its values
+            // read every frame, so a moved or edited body is the water at once; nothing is allocated in a steady
+            // frame. The landscape tiles' heights are borrowed from the registry for the step's queries only. The
+            // water's clock advances by the FIXED step, once per substep, in the pre-step callback below.
             m_Water->SetWorld( m_WaterGather.Gather(
                                     registry, []( const Assets::AssetHandle& waves )
                                     { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); } ),
@@ -304,6 +324,7 @@ namespace Desert::ECS
             // This frame's root motion has been stepped (the velocity); its turn goes onto the character here, the
             // one place a character's transform is written from movement. The next frame's animation states both
             // again (or not).
+            auto characters = registry.view<TransformComponent, CharacterControllerComponent>();
             for ( auto entity : characters )
             {
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
@@ -327,19 +348,8 @@ namespace Desert::ECS
             // its own queue; the Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on.
             m_Destructibles->PublishEvents( registry );
 
-            // Write the pose to DRAW back into the transform for moving bodies: interpolated between the last
-            // two fixed steps, so motion is smooth at any frame rate.
-            for ( auto entity : bodies )
-            {
-                auto& rb = bodies.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
-                    continue;
-
-                LocalTransform transform = bodies.get<TransformComponent>( entity ).GetLocal();
-                transform.Translation    = m_World->GetInterpolatedPosition( rb.RuntimeBody );
-                transform.Rotation       = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
-                SetLocalTransform( registry, entity, transform );
-            }
+            auto bodies = registry.view<TransformComponent, RigidBodyComponent, ColliderComponent>();
+            WriteBackMovingBodies( registry, bodies );
 
             for ( auto entity : characters )
             {
@@ -355,7 +365,7 @@ namespace Desert::ECS
             // so ScriptSystem's OnHit and ComponentEventSystem's RigidBodyData::OnHit see them with the rest. A
             // projectile whose Life Span ran out is destroyed here (UE InitialLifeSpan -> Destroy).
             ProjectileMovement::FrameResult projectiles =
-                 ProjectileMovement::Step( registry, *m_World, m_BodyEntities, ts.GetSeconds() );
+                 ProjectileMovement::Step( registry, *m_World, m_Lifetime->GetBodyEntities(), ts.GetSeconds() );
             if ( !projectiles.Hits.empty() )
             {
                 auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
@@ -527,43 +537,55 @@ namespace Desert::ECS
             }
         }
 
+        // Write the pose to DRAW back into the transform of the dynamic bodies that MOVE: interpolated between
+        // the last two fixed steps, so motion is smooth at any frame rate. Only the awake bodies and those the
+        // last step moved (PhysicsWorld::CollectMovingBodies; UE FPhysScene syncs the awake bodies), not every
+        // dynamic body: a sleeping body is not read from Jolt at all. A body written last frame from an
+        // interpolated pose that has since left the set is written once more, at its exact resting pose.
+        // The body -> entity map is PhysicsBodyLifetime's, kept at body creation and release.
+        template <typename BodyView>
+        void WriteBackMovingBodies( entt::registry& registry, BodyView& bodies )
+        {
+            m_World->CollectMovingBodies( m_MovingBodies );
+            m_PoseTargets.clear();
+            const PhysicsBodyLifetime::BodyEntityMap& bodyEntities = m_Lifetime->GetBodyEntities();
+            for ( const Physics::BodyHandle body : m_MovingBodies )
+                if ( const auto found = bodyEntities.find( body ); found != bodyEntities.end() )
+                    m_PoseTargets.push_back( found->second );
+            std::sort( m_PoseTargets.begin(), m_PoseTargets.end() );
+            m_PoseTargets.erase( std::unique( m_PoseTargets.begin(), m_PoseTargets.end() ), m_PoseTargets.end() );
+            const size_t movingCount = m_PoseTargets.size();
+            for ( const entt::entity entity : m_PosedLastFrame )
+                if ( !std::binary_search( m_PoseTargets.begin(), m_PoseTargets.begin() + movingCount, entity ) )
+                    m_PoseTargets.push_back( entity );
+
+            for ( const entt::entity entity : m_PoseTargets )
+            {
+                if ( !registry.valid( entity ) || !bodies.contains( entity ) )
+                    continue;
+                const auto& rb = bodies.template get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
+                    continue;
+
+                LocalTransform transform = bodies.template get<TransformComponent>( entity ).GetLocal();
+                transform.Translation    = m_World->GetInterpolatedPosition( rb.RuntimeBody );
+                transform.Rotation       = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+                SetLocalTransform( registry, entity, transform );
+            }
+            // Next frame's "written from a possibly interpolated pose": this frame's moving ones only.
+            m_PoseTargets.resize( movingCount );
+            m_PosedLastFrame.swap( m_PoseTargets );
+        }
+
         void PublishEvents( entt::registry& registry )
         {
             auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
             queue.Events.clear();
             ++queue.Publication;
-            for ( auto entity : registry.view<RigidBodyComponent>() )
-            {
-                const auto& rb = registry.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody != Physics::kInvalidBody )
-                    m_BodyEntities[rb.RuntimeBody] = entity;
-            }
-            // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that walks
-            // into a trigger is named by its entity.
-            for ( auto entity : registry.view<CharacterControllerComponent>() )
-            {
-                const auto& cc = registry.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
-                    continue;
-                if ( const Physics::BodyHandle body = m_World->GetCharacterBody( cc.RuntimeCharacter );
-                     body != Physics::kInvalidBody )
-                    m_BodyEntities[body] = entity;
-            }
-            NameContactEvents( m_World->GetContactEvents(), m_BodyEntities, queue.Events );
+            // Bodies are named through the map PhysicsBodyLifetime keeps at creation and release (UE Chaos: the
+            // body carries its owner), so no per-frame walk of every body rebuilds it.
+            NameContactEvents( m_World->GetContactEvents(), m_Lifetime->GetBodyEntities(), queue.Events );
             LogVolumeOverlaps( registry, queue.Events );
-
-            std::erase_if( m_BodyEntities,
-                           [&]( const auto& entry )
-                           {
-                               if ( !registry.valid( entry.second ) )
-                                   return true;
-                               if ( const auto* rb = registry.try_get<RigidBodyComponent>( entry.second );
-                                    rb != nullptr && rb->RuntimeBody == entry.first )
-                                   return false;
-                               const auto* cc = registry.try_get<CharacterControllerComponent>( entry.second );
-                               return cc == nullptr || cc->RuntimeCharacter == Physics::kInvalidCharacter ||
-                                      m_World->GetCharacterBody( cc->RuntimeCharacter ) != entry.first;
-                           } );
         }
 
         // One fixed step of every character controller: the script's intent resolved against the camera basis,
@@ -589,10 +611,11 @@ namespace Desert::ECS
             }
         }
 
-        // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
+        // Said once: the entity leaves the pending set, so it is not retried (and logged) every frame. It is
+        // looked at again only when one of its body components is added or replaced.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {
-            m_RefusedColliders.insert( entity );
+            m_Lifetime->GetPendingBodies().erase( entity );
             LOG_ERROR( "[Physics] entity {} has no body: {}", static_cast<uint32_t>( entity ), reason );
         }
 
@@ -615,10 +638,10 @@ namespace Desert::ECS
         std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
-        // Entities whose collider was refused during this Play; cleared with the world.
-        std::unordered_set<entt::entity> m_RefusedColliders;
-        std::unordered_map<Physics::BodyHandle, entt::entity> m_BodyEntities; // see PublishEvents
-        std::unordered_set<entt::entity> m_RefusedCharacters;
+        // WriteBackMovingBodies' storage, reused across frames (no per-frame allocation once warm).
+        std::vector<Physics::BodyHandle>                      m_MovingBodies;
+        std::vector<entt::entity>                             m_PoseTargets;
+        std::vector<entt::entity>                             m_PosedLastFrame;
         bool                                                  m_ProfilesRefused = false;
     };
 } // namespace Desert::ECS

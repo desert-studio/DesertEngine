@@ -3,9 +3,11 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
@@ -45,6 +47,7 @@ namespace
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
         DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVertexPool );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCells );
     };
 
     // "Landscape: Dice Pool" (LandscapeDicePool.shader).
@@ -64,6 +67,38 @@ namespace
     constexpr std::string_view kDicePoolCornerPass = "Landscape: Dice Pool Corners";
     constexpr std::string_view kDicePoolShader     = "LandscapeDicePool";
     constexpr uint32_t         kDicePoolLocalSize  = 64; // LocalSize of the shader
+
+    // "Landscape: Dice Cull" (LandscapeDiceCull.shader, TERRAIN-DICE-CULL).
+    struct DiceCullShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCullRows );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDicePoolCorners );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCells );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCullArgs );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCullView );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, LandscapeDiceHzbTexture );
+    };
+    struct DiceCullPush
+    {
+        glm::uvec4 Hzb{ 0u };      // xy = the HZB's mip-0 size, z = its mip count (0: the frustum alone)
+        glm::uvec4 Tile{ 0u };     // the row, the fade square's cells, the first corner node, the first record
+        glm::vec4  Bounds{ 0.0f }; // x = the displacement's reach (cm)
+    };
+    constexpr std::string_view kDiceCullPass      = "Landscape: Dice Cull";
+    constexpr std::string_view kDiceCullShader    = "LandscapeDiceCull";
+    constexpr uint32_t         kDiceCullLocalSize = 64; // LocalSize of the shader
+    constexpr uint32_t         kDiceLevels =
+         static_cast<uint32_t>( Desert::Graphic::System::kLandscapeDiceLevels );
+    // A record is a VkDrawIndirectCommand - vertexCount (the cull adds to it), instanceCount, firstVertex,
+    // firstInstance - and ring level l's draw starts at kLandscapeDiceCulledVertex x (l + 1)
+    // (LandscapeDisplacement.glslh LANDSCAPE_DICE_CULLED_VERTEX, the same number).
+    constexpr uint32_t kDiceCullRecordWords       = 4;
+    constexpr uint32_t kLandscapeDiceCulledVertex = 1u << 27;
+    // The eye's largest move (cm) since the HZB's frame at which last frame's HZB still rejects: a pure turn keeps
+    // every occlusion (the same rays from the same eye); a moved eye uncovers what the HZB hid, and the terrain has
+    // no second (post-occlusion) phase yet, so then the frustum alone culls.
+    constexpr float kDiceHzbStillCm = 0.01f;
 } // namespace
 
 namespace Desert::Graphic::System
@@ -124,38 +159,72 @@ namespace Desert::Graphic::System
             const int32_t quads        = static_cast<int32_t>( l.QuadsPerTile );
             const float   lowY         = std::min( l.MinY, l.MaxY ) - reach;
             const float   highY        = std::max( l.MinY, l.MaxY ) + reach;
-            // Whether a strip reaches the grid's cells [cx0, cx1) x [cz0, cz1).
-            const auto reaches = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
+            // The box of the grid's cells [cx0, cx1) x [cz0, cz1).
+            const auto cellsBox = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
             {
                 const float ax = tileX + static_cast<float>( std::min( cx0 * stride, quads ) ) * l.SpacingCm;
                 const float bx = tileX + static_cast<float>( std::min( cx1 * stride, quads ) ) * l.SpacingCm;
                 const float az = tileZ + static_cast<float>( std::min( cz0 * stride, quads ) ) * l.SpacingCm;
                 const float bz = tileZ + static_cast<float>( std::min( cz1 * stride, quads ) ) * l.SpacingCm;
-                const Common::Math::AABB box{
+                return Common::Math::AABB{
                      glm::vec3( std::min( ax, bx ) - acrossCm, lowY, std::min( az, bz ) - acrossCm ),
                      glm::vec3( std::max( ax, bx ) + acrossCm, highY, std::max( az, bz ) + acrossCm ) };
+            };
+            // Whether a strip reaches the grid's cells [cx0, cx1) x [cz0, cz1).
+            const auto reaches = [&]( const int32_t cx0, const int32_t cx1, const int32_t cz0, const int32_t cz1 )
+            {
+                const Common::Math::AABB box = cellsBox( cx0, cx1, cz0, cz1 );
                 for ( const Core::Frustum& strip : strips )
                     if ( strip.Intersects( box ) )
                         return true;
                 return false;
+            };
+            // The patches per side of the grid. `reaches` for the four patches px0 .. px0 + 3 of the row
+            // [cz0, cz1) (bit i: patch px0 + i; bits at or past `side` clear): the same boxes, each strip
+            // testing the four at once (Intersects4, Intersects bit for bit), a lane kept when any strip keeps it
+            // - the per-patch loop's "any strip" answer.
+            const int32_t side     = ( cells + kStripPatchCells - 1 ) / kStripPatchCells;
+            const auto    reaches4 = [&]( const int32_t px0, const int32_t cz0, const int32_t cz1 )
+            {
+                Common::Math::AABBQuad quad;
+                uint32_t               live = 0u;
+                for ( int32_t lane = 0; lane < 4 && px0 + lane < side; ++lane )
+                {
+                    const int32_t px = px0 + lane;
+                    quad.Set( static_cast<std::size_t>( lane ),
+                              cellsBox( px * kStripPatchCells, std::min( ( px + 1 ) * kStripPatchCells, cells ),
+                                        cz0, cz1 ) );
+                    live |= 1u << lane;
+                }
+                uint32_t kept = 0u;
+                for ( const Core::Frustum& strip : strips )
+                {
+                    kept |= strip.Intersects4( quad ) & live;
+                    if ( kept == live )
+                        break;
+                }
+                return kept;
             };
             if ( !reaches( 0, cells, 0, cells ) )
                 return patches;
             // The rings exist on the LOD-0 grid only: the hole is in the draw's cells.
             if ( split.RingVertices > 0u && split.Hole.z > split.Hole.x && split.Hole.w > split.Hole.y )
                 patches.Rings = reaches( split.Hole.x, split.Hole.z, split.Hole.y, split.Hole.w );
-            const int32_t side = ( cells + kStripPatchCells - 1 ) / kStripPatchCells;
             for ( int32_t pz = 0; pz < side; ++pz )
             {
                 const int32_t cz0      = pz * kStripPatchCells;
                 const int32_t cz1      = std::min( cz0 + kStripPatchCells, cells );
                 int32_t       runStart = -1;
+                uint32_t      kept4    = 0u;
                 for ( int32_t px = 0; px <= side; ++px )
                 {
                     bool kept = false;
                     if ( px < side )
-                        kept = reaches( px * kStripPatchCells, std::min( ( px + 1 ) * kStripPatchCells, cells ),
-                                        cz0, cz1 );
+                    {
+                        if ( ( px & 3 ) == 0 )
+                            kept4 = reaches4( px, cz0, cz1 );
+                        kept = ( ( kept4 >> ( px & 3 ) ) & 1u ) != 0u;
+                    }
                     if ( kept && runStart < 0 )
                         runStart = px;
                     if ( kept || runStart < 0 )
@@ -246,6 +315,8 @@ namespace Desert::Graphic::System
                      static_cast<float>( layers.InputOf( t.Weights.LayerNames[c] ) );
             instance.InputSlices   = layers.Slices;
             instance.GroundInput.x = static_cast<float>( layers.InputOf( t.Weights.GroundLayer ) );
+            // The tile's layer allocation (LandscapeWeightDraw::EmptyLayers; 8 bits, exact as a float).
+            instance.GroundInput.y = static_cast<float>( t.Weights.EmptyLayers );
             return instance;
         }
 
@@ -324,6 +395,23 @@ namespace Desert::Graphic::System
                 const float sine = eyeHeight / std::sqrt( eyeHeight * eyeHeight + d * d );
                 return pixelsAtCm * std::sqrt( sine ) / std::max( d, 1.0f );
             };
+            // THE RELIEF'S 1 PX STOP (TERRAIN-DICE-CULL): a sub-vertex is its cell's flat triangle moved by the
+            // relief alone, so a dice past 1 adds nothing where the whole relief (DisplacementMagnitude times the
+            // fade's weight there) spans under a pixel: magnitude x fade(d) x pixelsAtCm / (S d) < 1, falling with
+            // d. The horizontal d is below the eye's, so the stop is never nearer than the pixel; the fade's square
+            // (dice 1) stays, it holds every vertex that moves.
+            const auto reliefPixels = [&]( float d )
+            {
+                const float t    = std::clamp( ( d - fadeStart ) / ( fadeEnd - fadeStart ), 0.0f, 1.0f );
+                const float fade = 1.0f - t * t * ( 3.0f - 2.0f * t );
+                return magnitude * fade * pixelsAtCm / ( l.SpacingCm * std::max( d, 1.0f ) );
+            };
+            float reliefCm = 0.0f, reliefFarCm = fadeEnd;
+            for ( int step = 0; step < 32; ++step )
+            {
+                const float mid                                          = 0.5f * ( reliefCm + reliefFarCm );
+                ( reliefPixels( mid ) >= 1.0f ? reliefCm : reliefFarCm ) = mid;
+            }
             float outer = fadeCells;
             for ( int level = 1; level < kLandscapeDiceLevels; ++level )
             {
@@ -335,7 +423,7 @@ namespace Desert::Graphic::System
                     const float mid                                     = 0.5f * ( nearCm + farCm );
                     ( subCellPixels( mid ) >= target ? nearCm : farCm ) = mid;
                 }
-                const float reach = nearCm;
+                const float reach = std::min( nearCm, reliefCm );
                 const float half  = std::min( std::floor( reach / l.SpacingCm ), outer );
                 if ( half < 0.0f || reach < 0.5f * l.SpacingCm )
                     break;
@@ -536,6 +624,21 @@ namespace Desert::Graphic::System
             const float    tileX    = at.OriginX + ( static_cast<float>( at.FirstSampleX ) * at.SpacingCm );
             const float    tileZ    = at.OriginZ + ( static_cast<float>( at.FirstSampleZ ) * at.SpacingCm );
             uint32_t       mask     = 0u;
+            // FOUR SECTIONS PER TEST (Core::Frustum::Intersects4): the boxes are built exactly as before, in
+            // row order, into one AABBQuad; every fourth box (and the last) tests the batch and lands each lane's
+            // verdict on its own section's bit. Intersects4's lane is Intersects bit for bit, so the mask is the
+            // one the per-section test wrote.
+            Common::Math::AABBQuad quad;
+            uint32_t               quadBits[4] = {};
+            uint32_t               queued      = 0u;
+            const auto             flush       = [&]()
+            {
+                const uint32_t kept = frustum.Intersects4( quad );
+                for ( uint32_t lane = 0; lane < queued; ++lane )
+                    if ( ( kept >> lane ) & 1u )
+                        mask |= quadBits[lane];
+                queued = 0u;
+            };
             for ( uint32_t sz = 0; sz < sections; ++sz )
             {
                 for ( uint32_t sx = 0; sx < sections; ++sx )
@@ -551,10 +654,14 @@ namespace Desert::Graphic::System
                               glm::vec3( reach );
                     box.Max = glm::vec3( std::max( x0, x1 ), std::max( at.MinY, at.MaxY ), std::max( z0, z1 ) ) +
                               glm::vec3( reach );
-                    if ( frustum.Intersects( box ) )
-                        mask |= 1u << ( sz * kLandscapeMaxSections + sx );
+                    quad.Set( queued, box );
+                    quadBits[queued] = 1u << ( sz * kLandscapeMaxSections + sx );
+                    if ( ++queued == 4u )
+                        flush();
                 }
             }
+            if ( queued > 0u )
+                flush();
             return mask;
         }
 
@@ -655,7 +762,7 @@ namespace Desert::Graphic::System
             const MaterialExecutor* executor = material.GetMaterialExecutor();
             if ( executor == nullptr )
                 return 0u;
-            const std::shared_ptr<Shader> shader = executor->GetShader();
+            const std::shared_ptr<Shader>& shader = executor->GetShader();
             return shader != nullptr ? shader->GetCodeGeneration() : 0u;
         }
 
@@ -678,9 +785,9 @@ namespace Desert::Graphic::System
 
     namespace
     {
-        // Whether a pipeline draws the forward BASE PASS over the view's depth prepass: then it tests
-        // CloserOrEqual (its own prepassed depth passes) and writes no depth (UE: the base pass after a full
-        // depth prepass, DepthRead).
+        // Whether a pipeline draws the BASE PASS over the view's depth prepass (the forward "TerrainPass", the
+        // deferred "TerrainGBuffer" under an early-Z pass): then it tests CloserOrEqual (its own prepassed depth
+        // passes) and writes no depth (UE: the base pass after a full depth prepass, DepthRead).
         enum class TerrainDepthState : uint8_t
         {
             Shader,   // the shader's own `State` block
@@ -761,6 +868,10 @@ namespace Desert::Graphic::System
         // The VSM permutation's pipeline follows the target layout: built again on the next frame that asks.
         m_PipelineVsm.reset();
         m_PipelineVsmRefused = false;
+        // The no-holes depth twins follow the depth layouts too (EnsureDepthNoHolesPipelines).
+        m_DepthNoHolesPipeline.reset();
+        m_GBufferDepthNoHolesPipeline.reset();
+        m_DepthNoHolesRefused = false;
 #if DESERT_DEV_INSTRUMENTS
         // The twins follow their solid pipelines' layout: built again on the next wireframe frame.
         m_WireframePipeline.reset();
@@ -784,6 +895,19 @@ namespace Desert::Graphic::System
                                                    GBufferLayout(), error, TerrainDepthState::Shader );
         if ( !m_GBufferPipeline )
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
+        // The deferred path's early-Z pair (UE: the landscape in the depth pass, its base pass testing that depth
+        // without writes): TerrainDepth.shader into the G-buffer depth ("Deferred: Terrain Depth Prepass"), then
+        // the same G-buffer program CloserOrEqual with no depth write (PrepassesGBuffer).
+        m_GBufferDepthPipeline =
+             CreateTerrainPipeline( m_SceneRenderer, "TerrainDepth", "TerrainGBufferDepthPipeline",
+                                    GBufferDepthLayout(), error, TerrainDepthState::Shader );
+        if ( !m_GBufferDepthPipeline )
+            return Common::MakeError( "TerrainRenderer: the G-buffer depth prepass pipeline: " + error );
+        m_GBufferPrepassedPipeline =
+             CreateTerrainPipeline( m_SceneRenderer, "TerrainGBuffer", "TerrainGBufferPrepassedPipeline",
+                                    GBufferLayout(), error, TerrainDepthState::BasePass );
+        if ( !m_GBufferPrepassedPipeline )
+            return Common::MakeError( "TerrainRenderer: the prepassed G-buffer pipeline: " + error );
 
         // Terrain materials are created lazily, one set per texture key, in PrepareFrame — a material made
         // now would only ever serve one key.
@@ -880,17 +1004,19 @@ namespace Desert::Graphic::System
         row.DicePool.x = static_cast<float>( m_DicePoolVertices );
         const uint32_t corners =
              LandscapeDicePoolCornerCount( t.Landscape.QuadsPerTile, static_cast<uint32_t>( row.Params.w ), row );
-        m_DicePoolJobs.push_back( { .Row          = row,
-                                    .Heightmap    = t.Heightmap,
-                                    .Weightmap    = t.Weights.Weightmap != nullptr
-                                                         ? std::shared_ptr<Image>( t.Weights.Weightmap )
-                                                         : FallbackTextures::Get().GetFallbackTexture2D(
+        m_DicePoolJobs.push_back( { .Row            = row,
+                                    .Heightmap      = t.Heightmap,
+                                    .Weightmap      = t.Weights.Weightmap != nullptr
+                                                           ? std::shared_ptr<Image>( t.Weights.Weightmap )
+                                                           : FallbackTextures::Get().GetFallbackTexture2D(
                                                              Core::Formats::ImageFormat::RGBA8F ),
-                                    .HasWeightmap = t.Weights.Weightmap != nullptr,
-                                    .LayerHeights = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
-                                    .Vertices     = pooled,
-                                    .Corners      = corners,
-                                    .FirstCorner  = m_DicePoolCorners } );
+                                    .HasWeightmap   = t.Weights.Weightmap != nullptr,
+                                    .LayerHeights   = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
+                                    .Vertices       = pooled,
+                                    .Corners        = corners,
+                                    .FirstCorner    = m_DicePoolCorners,
+                                    .HeightRevision = t.Landscape.HeightRevision,
+                                    .WeightRevision = t.Weights.Revision } );
         m_DicePoolVertices += pooled;
         m_DicePoolCorners += corners;
     }
@@ -951,8 +1077,18 @@ namespace Desert::Graphic::System
         m_FrameInstances.clear();
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
+        // The view depth prepass discards only in a hole: a frame whose tiles have no visibility layer takes the
+        // early-tested TerrainDepth (ViewDepthPipeline). Conservative: any queued tile with one keeps the discard.
+        m_FrameHasHoles = false;
+        for ( const TerrainDrawData& t : m_Queue )
+            m_FrameHasHoles = m_FrameHasHoles || t.Weights.VisibilityLayer >= 0;
+        if ( !m_FrameHasHoles && !m_Queue.empty() )
+            EnsureDepthNoHolesPipelines();
         m_DicePoolVertices = 0;
         m_DicePoolCorners  = 0;
+        m_DiceCullJobs.clear();
+        m_DiceCullCells = 0;
+        m_DiceCulled    = false;
         m_VsmDraws.clear();
         m_VsmInstances.clear();
         if ( m_Queue.empty() )
@@ -991,6 +1127,13 @@ namespace Desert::Graphic::System
         // growing a storage buffer reallocates the VkBuffer under a draw already recorded
         // against the old one.
         //
+        // GPU-TERRAIN-HZB: the per-tile stages below (Tile LODs, Group textures, Tile params, Displacement, Frame
+        // material) are CPU work only - no dispatch, no copy, no draw is recorded by them - so they are CPU
+        // scopes (DESERT_PROFILE_SCOPE, aggregated by name: one row each per frame), not GPU passes: a
+        // DESERT_PROFILE_PASS wrote a timestamp pair per tile into the frame's buffer (~80 empty GPU rows for
+        // 20 tiles, each spending the frame's query budget). The stages that do record GPU work keep theirs
+        // (Layer inputs: the layer arrays' copies; Tile proxy; Upload rows).
+        //
         // What does not change from frame to frame is the tiles' proxies (TileProxy, ProxyOf): a tile's set, its
         // layer inputs and its samplers are looked up by entity and rebuilt only when a revision moved.
         ++m_PrepareSerial;
@@ -1009,7 +1152,7 @@ namespace Desert::Graphic::System
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         TileLodMap tileLods;
         {
-            DESERT_PROFILE_PASS( "Terrain: Tile LODs" );
+            DESERT_PROFILE_SCOPE( "Terrain: Tile LODs" );
             for ( const auto& t : m_Queue )
                 tileLods[KeyOf( t.Landscape, 0, 0 )] =
                      TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
@@ -1066,7 +1209,7 @@ namespace Desert::Graphic::System
             // The first tile of a set this frame opens its group, in the next of last frame's slots.
             if ( materials.GroupFrame != m_PrepareSerial )
             {
-                DESERT_PROFILE_PASS( "Terrain: Group textures" );
+                DESERT_PROFILE_SCOPE( "Terrain: Group textures" );
                 materials.GroupFrame = m_PrepareSerial;
                 materials.GroupIndex = groupCount;
                 if ( groupCount == m_FrameGroups.size() )
@@ -1120,7 +1263,7 @@ namespace Desert::Graphic::System
                 // The params are the overrides on the schema defaults, written again only when their revision
                 // moved (ProgramMaterials::AppliedOverrides); GetParamRow below still runs every frame (it writes
                 // the texture slots of the images the properties draw now).
-                DESERT_PROFILE_PASS( "Terrain: Tile params" );
+                DESERT_PROFILE_SCOPE( "Terrain: Tile params" );
                 const uint64_t generation = ProgramGeneration( *surface );
                 if ( materials.AppliedOverrides != t.Overrides || materials.AppliedSurface != surface ||
                      materials.AppliedGeneration != generation )
@@ -1137,7 +1280,7 @@ namespace Desert::Graphic::System
             TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
             const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
             {
-                DESERT_PROFILE_PASS( "Terrain: Displacement" );
+                DESERT_PROFILE_SCOPE( "Terrain: Displacement" );
                 ApplyLandscapeDisplacement(
                      instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
                      slab != diceSlabs.end() ? std::optional<glm::vec2>( slab->second ) : std::nullopt, viewHeight,
@@ -1145,10 +1288,14 @@ namespace Desert::Graphic::System
             }
             // The tile's displaced sub-vertices, evaluated once this frame (AddDicePoolPass) for every view's
             // draw.
+            std::optional<uint32_t> poolCorners;
             if ( const uint32_t pooled = LandscapeDicePoolVertexCount(
                       t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
                  pooled > 0u )
+            {
                 PushDicePoolJob( instance, t, layers, pooled );
+                poolCorners = m_DicePoolJobs.back().FirstCorner;
+            }
 
             FrameDraw draw;
             draw.Group       = materials.GroupIndex;
@@ -1168,6 +1315,9 @@ namespace Desert::Graphic::System
                 FrameDraw view = draw;
                 view.Split.Visible =
                      LandscapeSectionViewMask( t.Landscape, instance.Displacement.x, cameraFrustum );
+                // TERRAIN-DICE-CULL: the camera's rasters draw the ring cells the frustum and the HZB keep.
+                if ( view.Split.RingVertices > 0u && poolCorners )
+                    QueueDiceCull( view, instance, *poolCorners );
                 m_ViewDraws.push_back( view );
             }
 
@@ -1177,7 +1327,7 @@ namespace Desert::Graphic::System
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
             {
-                DESERT_PROFILE_PASS( "Terrain: Frame material" );
+                DESERT_PROFILE_SCOPE( "Terrain: Frame material" );
                 m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
             }
         }
@@ -1206,7 +1356,8 @@ namespace Desert::Graphic::System
                          LandscapeSectionVisible( draw.Split, k % draw.Split.Sections, k / draw.Split.Sections ) );
                 sections += draw.Split.Sections * draw.Split.Sections;
             }
-            const uint64_t logged = m_LoggedViewTriangles;
+            m_DiceCullGridTriangles = triangles - rings; // the dice cull's census adds the kept rings
+            const uint64_t logged   = m_LoggedViewTriangles;
             if ( triangles * 10u > logged * 11u || triangles * 11u < logged * 10u )
             {
                 LOG_INFO(
@@ -1216,6 +1367,26 @@ namespace Desert::Graphic::System
                      m_DicePoolVertices, m_DicePoolCorners );
                 m_LoggedViewTriangles = triangles;
             }
+        }
+        // GPU-TERRAIN-GB: the camera's ground every 60th frame - its tile draws, their triangles, and the weight
+        // layers each tile's surface walks: its layer allocation, the channels the root names and paints
+        // somewhere on the tile (LandscapeWeightDraw::EmptyLayers; UE's per-component layer list).
+        if ( m_PrepareSerial % 60u == 0u && !m_ViewDraws.empty() )
+        {
+            uint64_t triangles = 0u;
+            uint64_t walked    = 0u;
+            for ( const FrameDraw& draw : m_ViewDraws )
+            {
+                triangles += LandscapeDrawTriangles( draw.Split );
+                const TerrainInstance& row   = m_FrameGroups[draw.Group].Instances[draw.Row];
+                const auto             empty = static_cast<uint32_t>( row.GroundInput.y );
+                const auto             count = static_cast<uint32_t>( row.Params2.y );
+                for ( uint32_t c = 0; c < count && c < World::Landscape::kLandscapeMaxWeightLayers; ++c )
+                    walked +=
+                         static_cast<uint64_t>( row.LayerColors[c].a > 0.5f && ( empty & ( 1u << c ) ) == 0u );
+            }
+            LOG_INFO( "[Terrain] tiles {}, triangles {}, layers per tile avg {:.2f}", m_ViewDraws.size(),
+                      triangles, static_cast<double>( walked ) / static_cast<double>( m_ViewDraws.size() ) );
         }
 
         // The virtual shadow map's own rows and pool jobs, past every camera row of their groups (a draw's Row
@@ -1340,7 +1511,7 @@ namespace Desert::Graphic::System
     }
 
     void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,
-                                                   const std::vector<float>& cascadeWorldPerTexel )
+                                                   const std::span<const float>               cascadeWorldPerTexel )
     {
         // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
         m_LocalLightDraws.clear();
@@ -1466,7 +1637,18 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr TerrainRenderer::AddDicePoolPass( RDG::Builder& graph, FrameTextures& textures )
     {
-        m_DicePool = {};
+        m_DicePool            = {};
+        m_DicePoolCornerNodes = {};
+        // The camera's kept ring cells (AddDiceCullPass writes them), bound by every terrain draw as the pool is:
+        // one zero word when no row is culled.
+        m_DiceCells = graph.CreateBuffer(
+             RDG::BufferDesc{ uint64_t{ std::max<uint32_t>( m_DiceCullCells, 1u ) } * sizeof( uint32_t ) },
+             "Landscape.DiceCull.Cells" );
+        if ( m_DiceCullJobs.empty() )
+        {
+            const std::vector<std::byte> zero( sizeof( uint32_t ), std::byte{ 0 } );
+            graph.QueueBufferUpload( m_DiceCells, zero );
+        }
         if ( m_FrameDraws.empty() )
             return BOOLSUCCESS;
         // The row's first vertex rides as a float (TerrainInstance.DicePool.x): exact below 2^24 vertices (512
@@ -1474,11 +1656,13 @@ namespace Desert::Graphic::System
         if ( m_DicePoolVertices >= ( 1u << 24 ) )
             return Common::MakeFormattedError<bool>( "{}: {} pooled vertices exceed the 2^24 a row can address",
                                                      kDicePoolPass, m_DicePoolVertices );
-        const uint64_t vertices = std::max<uint32_t>( m_DicePoolVertices, 1u );
-        m_DicePool =
-             graph.CreateBuffer( RDG::BufferDesc{ vertices * 2u * sizeof( glm::vec4 ) }, "Landscape.DicePool" );
+        const uint64_t vertices    = std::max<uint32_t>( m_DicePoolVertices, 1u );
+        const uint64_t poolBytes   = vertices * 2u * sizeof( glm::vec4 );
+        const uint64_t cornerCount = std::max<uint32_t>( m_DicePoolCorners, 1u );
+        const uint64_t cornerBytes = cornerCount * 2u * sizeof( glm::vec4 );
         if ( m_DicePoolJobs.empty() )
         {
+            m_DicePool = graph.CreateBuffer( RDG::BufferDesc{ poolBytes }, "Landscape.DicePool" );
             // No tile is diced this frame: nothing reads the pool, but every terrain vertex stage binds it.
             const std::array<std::byte, 2 * sizeof( glm::vec4 )> zero{};
             graph.QueueBufferUpload( m_DicePool, zero );
@@ -1500,6 +1684,44 @@ namespace Desert::Graphic::System
             m_DicePoolPipeline = pipeline.GetValue();
         }
 
+        // GPU-TERRAIN-HZB: the kept pool is evaluated only when a job's key differs from what it holds.
+        if ( m_DicePoolCache )
+        {
+            m_DicePoolFrameKeys.clear();
+            for ( const DicePoolJob& job : m_DicePoolJobs )
+            {
+                DicePoolKey key;
+                key.Row              = job.Row;
+                key.Heightmap        = job.Heightmap.get();
+                key.Weightmap        = job.Weightmap.get();
+                key.LayerHeights     = job.LayerHeights.get();
+                key.HeightGeneration = job.Heightmap ? job.Heightmap->GetResourceGeneration() : 0u;
+                const auto* const weight2d = dynamic_cast<const Image2D*>( job.Weightmap.get() );
+                key.WeightGeneration = weight2d != nullptr ? weight2d->GetResourceGeneration() : 0u;
+                key.LayerGeneration  = job.LayerHeights ? job.LayerHeights->GetResourceGeneration() : 0u;
+                key.HeightRevision   = job.HeightRevision;
+                key.WeightRevision   = job.WeightRevision;
+                key.Vertices         = job.Vertices;
+                key.Corners          = job.Corners;
+                key.FirstCorner      = job.FirstCorner;
+                m_DicePoolFrameKeys.push_back( key );
+            }
+            if ( const Common::BoolResultStr imported = ImportPersistentDicePool( graph, poolBytes, cornerBytes );
+                 !imported )
+                return imported;
+            if ( m_DicePoolKeysValid &&
+                 std::equal( m_DicePoolFrameKeys.begin(), m_DicePoolFrameKeys.end(), m_DicePoolKeys.begin(),
+                             m_DicePoolKeys.end(), &TerrainRenderer::SameDicePoolKey ) )
+                return BOOLSUCCESS; // the kept pool is this frame's: no dispatch
+            m_DicePoolKeysValid = false;
+        }
+        else
+        {
+            m_DicePool = graph.CreateBuffer( RDG::BufferDesc{ poolBytes }, "Landscape.DicePool" );
+            m_DicePoolCornerNodes =
+                 graph.CreateBuffer( RDG::BufferDesc{ cornerBytes }, "Landscape.DicePool.Corners" );
+        }
+
         std::vector<std::byte> rowBytes( m_DicePoolJobs.size() * sizeof( TerrainInstance ) );
         for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
             std::memcpy( rowBytes.data() + i * sizeof( TerrainInstance ), &m_DicePoolJobs[i].Row,
@@ -1510,9 +1732,7 @@ namespace Desert::Graphic::System
 
         // The diced tiles' corner nodes (TERRAIN-COST-2): every sub-vertex reads its cell's three from here
         // instead of evaluating them (LandscapeDicePool.shader, LandscapeDicePoolCornerCount).
-        const RDG::BufferRef corners = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t{ std::max<uint32_t>( m_DicePoolCorners, 1u ) } * 2u * sizeof( glm::vec4 ) },
-             "Landscape.DicePool.Corners" );
+        const RDG::BufferRef corners = m_DicePoolCornerNodes;
 
         // Two nodes, one binding block and one dispatch per diced tile each: the corner nodes (Tile.w = 0), then -
         // after the graph's barrier on the corners - the pool's sub-vertices from them (Tile.w = 1), every tile
@@ -1522,10 +1742,10 @@ namespace Desert::Graphic::System
         const auto  declare =
              [&]( const std::string_view name, const uint32_t phase, const RDG::Access cornerAccess )
         {
-            ComputeNodeDeclaration  node;
+            ComputeNodeDeclaration  node( graph.GetFrameArena() );
             std::vector<glm::uvec4> pushes;
             std::vector<uint32_t>   groups;
-            node.Name = std::string( name );
+            node.Name = name; // kDicePoolCornerPass / kDicePoolPass: static
             for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
             {
                 const DicePoolJob& job = m_DicePoolJobs[i];
@@ -1574,7 +1794,7 @@ namespace Desert::Graphic::System
             };
             return node;
         };
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
         nodes.push_back( declare( kDicePoolCornerPass, 0u, RDG::Access::StorageWrite ) );
         nodes.push_back( declare( kDicePoolPass, 1u, RDG::Access::StorageRead ) );
         if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
@@ -1582,6 +1802,274 @@ namespace Desert::Graphic::System
             m_DicePool = {};
             return Common::MakeFormattedError<bool>( "{}: the node could not be declared", kDicePoolPass );
         }
+        if ( m_DicePoolCache )
+        {
+            m_DicePoolKeys.swap( m_DicePoolFrameKeys );
+            m_DicePoolKeysValid = true;
+        }
+        return BOOLSUCCESS;
+    }
+
+    bool TerrainRenderer::SameDicePoolKey( const DicePoolKey& a, const DicePoolKey& b ) noexcept
+    {
+        return std::memcmp( &a.Row, &b.Row, sizeof( TerrainInstance ) ) == 0 && a.Heightmap == b.Heightmap &&
+               a.Weightmap == b.Weightmap && a.LayerHeights == b.LayerHeights &&
+               a.HeightGeneration == b.HeightGeneration && a.WeightGeneration == b.WeightGeneration &&
+               a.LayerGeneration == b.LayerGeneration && a.HeightRevision == b.HeightRevision &&
+               a.WeightRevision == b.WeightRevision && a.Vertices == b.Vertices && a.Corners == b.Corners &&
+               a.FirstCorner == b.FirstCorner;
+    }
+
+    Common::BoolResultStr TerrainRenderer::ImportPersistentDicePool( RDG::Builder& graph, const uint64_t poolBytes,
+                                                                     const uint64_t cornerBytes )
+    {
+        if ( poolBytes > UINT32_MAX || cornerBytes > UINT32_MAX )
+            return Common::MakeFormattedError<bool>( "{}: a {} / {} byte pool exceeds a storage buffer's 4 GB",
+                                                     kDicePoolPass, poolBytes, cornerBytes );
+        // Grown, never shrunk: a bigger buffer than this frame's pool is read only up to its rows' vertices.
+        if ( !m_DicePoolBuffer || m_DicePoolBytes < poolBytes )
+        {
+            m_DicePoolKeysValid = false;
+            m_DicePoolBytes     = 0u;
+            m_DicePoolBuffer    = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "Landscape.DicePool", static_cast<uint32_t>( poolBytes ), 0u );
+            if ( !m_DicePoolBuffer )
+                return Common::MakeFormattedError<bool>( "{}: the kept pool ({} bytes) was not made",
+                                                         kDicePoolPass, poolBytes );
+            m_DicePoolBytes = poolBytes;
+        }
+        if ( !m_DicePoolCornerBuffer || m_DicePoolCornerBytes < cornerBytes )
+        {
+            m_DicePoolKeysValid    = false;
+            m_DicePoolCornerBytes  = 0u;
+            m_DicePoolCornerBuffer = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "Landscape.DicePool.Corners", static_cast<uint32_t>( cornerBytes ), 0u );
+            if ( !m_DicePoolCornerBuffer )
+                return Common::MakeFormattedError<bool>( "{}: the kept corner nodes ({} bytes) were not made",
+                                                         kDicePoolPass, cornerBytes );
+            m_DicePoolCornerBytes = cornerBytes;
+        }
+        Common::BoolResultStr imported = Renderer::ImportBuffer( m_DicePoolBuffer, m_DicePoolImport );
+        if ( imported )
+            imported = Renderer::ImportBuffer( m_DicePoolCornerBuffer, m_DicePoolCornerImport );
+        if ( !imported )
+        {
+            m_DicePoolKeysValid = false;
+            return imported;
+        }
+        m_DicePool            = graph.RegisterExternal( m_DicePoolImport, "Landscape.DicePool" );
+        m_DicePoolCornerNodes = graph.RegisterExternal( m_DicePoolCornerImport, "Landscape.DicePool.Corners" );
+        return BOOLSUCCESS;
+    }
+
+    void TerrainRenderer::QueueDiceCull( FrameDraw& view, TerrainInstance& row, const uint32_t firstCorner )
+    {
+        // The fade square's cells (ring 0: every diced cell) are the cull's lanes and each level's list stride.
+        const uint32_t square =
+             LandscapeDiceRectArea( LandscapeDiceRingRect( row, 0, static_cast<int>( view.Split.Cells ) ) );
+        if ( square == 0u )
+            return;
+        row.DicePool.z      = static_cast<float>( m_DiceCullCells );
+        view.DiceCull       = static_cast<uint32_t>( m_DiceCullJobs.size() ) * kDiceLevels;
+        const float center  = row.Displacement.y;
+        const float reachCm = row.Displacement.x * std::max( std::abs( center ), std::abs( 1.0f - center ) );
+        m_DiceCullJobs.push_back( { .Row = row, .Cells = square, .FirstCorner = firstCorner, .Reach = reachCm } );
+        m_DiceCullCells += square * kDiceLevels;
+    }
+
+    RDG::BufferRef TerrainRenderer::CameraDiceCullArgs() const
+    {
+        if ( !m_DiceCulled )
+            return {};
+        return m_DiceCullArgs;
+    }
+
+    void TerrainRenderer::ReportDiceCullCensus( const uint64_t frameIndex )
+    {
+        // The pattern of InstanceCullValidation: the slot's frame has completed (the frame start waited its fence).
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_DiceCullCensus.size() != slots )
+        {
+            m_DiceCullCensus.clear();
+            m_DiceCullCensus.resize( slots );
+        }
+        DiceCullCensus& slot = m_DiceCullCensus[static_cast<std::size_t>( frameIndex % slots )];
+        if ( slot.Args.Physical && slot.Jobs > 0u )
+        {
+            const std::span<const std::byte> bytes   = slot.Args.Physical->ReadForHost();
+            const std::size_t                records = std::size_t{ slot.Jobs } * kDiceLevels;
+            if ( bytes.size() >= records * kDiceCullRecordWords * sizeof( uint32_t ) )
+            {
+                std::vector<uint32_t> words( records * kDiceCullRecordWords );
+                std::memcpy( words.data(), bytes.data(), words.size() * sizeof( uint32_t ) );
+                uint64_t vertices = 0u;
+                uint64_t kept     = 0u;
+                for ( std::size_t r = 0; r < records; ++r )
+                {
+                    const uint32_t dice = 1u << static_cast<uint32_t>( r % kDiceLevels );
+                    vertices += words[r * kDiceCullRecordWords];
+                    kept += words[r * kDiceCullRecordWords] / ( dice * dice * 6u );
+                }
+                const uint64_t triangles = vertices / 3u + slot.GridTriangles;
+                const uint64_t logged    = m_LoggedCulledTriangles;
+                if ( triangles * 10u > logged * 11u || triangles * 11u < logged * 10u )
+                {
+                    LOG_INFO( "[Terrain] triangles in view {} (blocks kept {} of {}: cells of {} culled rows; "
+                              "rings {}, grid {})",
+                              triangles, kept, slot.Tested, slot.Jobs, vertices / 3u, slot.GridTriangles );
+                    m_LoggedCulledTriangles = triangles;
+                }
+            }
+        }
+        slot = DiceCullCensus{};
+    }
+
+    Common::BoolResultStr TerrainRenderer::AddDiceCullPass( RDG::Builder& graph, FrameTextures& textures,
+                                                            const ViewFrame&      frame,
+                                                            const DiceOcclusion&  occlusion )
+    {
+        m_DiceCulled   = false;
+        m_DiceCullArgs = {};
+        ReportDiceCullCensus( frame.FrameIndex );
+        if ( m_DiceCullJobs.empty() || !m_DiceCells.IsValid() )
+            return BOOLSUCCESS;
+        // Refused, the rings stay the procedural decode; the list still gets its content (every draw binds it).
+        const auto zeroCells = [&]()
+        {
+            const std::vector<std::byte> zero( std::size_t{ m_DiceCullCells } * sizeof( uint32_t ),
+                                               std::byte{ 0 } );
+            graph.QueueBufferUpload( m_DiceCells, zero );
+        };
+        if ( m_DiceCullCells >= ( 1u << 24 ) || !m_DicePoolCornerNodes.IsValid() )
+        {
+            zeroCells();
+            return Common::MakeFormattedError<bool>(
+                 "{}: {} list cells (DicePool.z is a float, exact below 2^24) or no corner nodes", kDiceCullPass,
+                 m_DiceCullCells );
+        }
+        const auto ensure = [&]() -> Common::BoolResultStr
+        {
+            if ( !m_DiceCullPipeline )
+            {
+                const auto shaders = Runtime::ResourceRegistry::GetShaderService();
+                const auto shader  = shaders ? shaders->GetByName( std::string( kDiceCullShader ) ) : nullptr;
+                if ( !shader )
+                    return Common::MakeFormattedError<bool>(
+                         "{}: compute shader '{}' is not registered (Programs/Terrain/{}.shader)", kDiceCullPass,
+                         kDiceCullShader, kDiceCullShader );
+                const auto pipeline =
+                     ComputePipeline::Create( { .Shader = shader, .DebugName = std::string( kDiceCullShader ) } );
+                if ( !pipeline )
+                    return Common::MakeFormattedError<bool>( "{}: {}", kDiceCullPass, pipeline.GetError() );
+                m_DiceCullPipeline = pipeline.GetValue();
+            }
+            return BOOLSUCCESS;
+        };
+        if ( Common::BoolResultStr ready = ensure(); !ready )
+        {
+            zeroCells();
+            return ready;
+        }
+
+        std::vector<std::byte> rowBytes( m_DiceCullJobs.size() * sizeof( TerrainInstance ) );
+        std::vector<uint32_t>  records( m_DiceCullJobs.size() * kDiceLevels * kDiceCullRecordWords, 0u );
+        uint64_t               tested = 0u;
+        for ( std::size_t i = 0; i < m_DiceCullJobs.size(); ++i )
+        {
+            std::memcpy( rowBytes.data() + i * sizeof( TerrainInstance ), &m_DiceCullJobs[i].Row,
+                         sizeof( TerrainInstance ) );
+            tested += m_DiceCullJobs[i].Cells;
+            for ( uint32_t level = 0; level < kDiceLevels; ++level )
+            {
+                uint32_t* record = records.data() + ( i * kDiceLevels + level ) * kDiceCullRecordWords;
+                record[1]        = 1u;                                          // instanceCount
+                record[2]        = kLandscapeDiceCulledVertex * ( level + 1u ); // firstVertex: the level
+            }
+        }
+        const RDG::BufferRef rows =
+             graph.CreateBuffer( RDG::BufferDesc{ rowBytes.size() }, "Landscape.DiceCull.Rows" );
+        graph.QueueBufferUpload( rows, rowBytes );
+        std::vector<std::byte> recordBytes( records.size() * sizeof( uint32_t ) );
+        std::memcpy( recordBytes.data(), records.data(), recordBytes.size() );
+        m_DiceCullArgs = graph.CreateBuffer( RDG::BufferDesc{ recordBytes.size() }, "Landscape.DiceCull.Args" );
+        graph.QueueBufferUpload( m_DiceCullArgs, recordBytes );
+        const std::array<glm::mat4, 2> matrices{ frame.JitteredViewProjection, occlusion.PrevViewProjection };
+        std::vector<std::byte>         viewBytes( sizeof( matrices ) );
+        std::memcpy( viewBytes.data(), matrices.data(), viewBytes.size() );
+        const RDG::BufferRef view =
+             graph.CreateBuffer( RDG::BufferDesc{ viewBytes.size() }, "Landscape.DiceCull.View" );
+        graph.QueueBufferUpload( view, viewBytes );
+
+        // Last frame's HZB only while the eye stays where it was (kDiceHzbStillCm), with a history of this view.
+        const bool      still = glm::length( frame.CameraPosition - frame.PrevCameraPosition ) <= kDiceHzbStillCm;
+        const bool      tests = occlusion.Hzb.IsValid() && frame.HistoryValid() && still;
+        RDG::TextureRef hzb   = occlusion.Neutral;
+        DiceCullPush    base;
+        if ( tests )
+        {
+            hzb      = occlusion.Hzb;
+            base.Hzb = glm::uvec4( occlusion.Extent, 0u );
+        }
+
+        const auto&               layout = m_DiceCullLayout.Get( m_DiceCullPipeline->GetSpecification().Shader );
+        ComputeNodeDeclaration    node( graph.GetFrameArena() );
+        std::vector<DiceCullPush> pushes;
+        std::vector<uint32_t>     groups;
+        node.Name = kDiceCullPass;
+        for ( std::size_t i = 0; i < m_DiceCullJobs.size(); ++i )
+        {
+            const DiceCullJob& job = m_DiceCullJobs[i];
+            // The block's push range is declared with its bindings (RDGPassBindings validates it against the
+            // shader's PushConstants block: 48 bytes) - the Record below pushes exactly this many.
+            node.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DiceCullPipeline ) )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( DiceCullPush ) ) )
+                 .Storage( DiceCullShaderParameters::LandscapeDiceCullRows, rows, RDG::Access::StorageRead )
+                 .Storage( DiceCullShaderParameters::LandscapeDicePoolCorners, m_DicePoolCornerNodes,
+                           RDG::Access::StorageRead )
+                 .Storage( DiceCullShaderParameters::LandscapeDiceCells, m_DiceCells, RDG::Access::StorageWrite )
+                 .Storage( DiceCullShaderParameters::LandscapeDiceCullArgs, m_DiceCullArgs,
+                           RDG::Access::StorageWrite )
+                 .Storage( DiceCullShaderParameters::LandscapeDiceCullView, view, RDG::Access::StorageRead )
+                 .Sampler( DiceCullShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Texture( DiceCullShaderParameters::LandscapeDiceHzbTexture, hzb, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() );
+            DiceCullPush push = base;
+            push.Tile   = glm::uvec4( static_cast<uint32_t>( i ), job.Cells, job.FirstCorner,
+                                      static_cast<uint32_t>( i ) * kDiceLevels );
+            push.Bounds = glm::vec4( job.Reach, 0.0f, 0.0f, 0.0f );
+            pushes.push_back( push );
+            groups.push_back( ( job.Cells + kDiceCullLocalSize - 1u ) / kDiceCullLocalSize );
+        }
+        node.Record = [pipeline = m_DiceCullPipeline, pushes = std::move( pushes ),
+                       groups = std::move( groups )]( RDG::PassContext&     context,
+                                                      const FrameGraphRefs& ) -> Common::BoolResultStr
+        {
+            for ( uint32_t block = 0; block < pushes.size(); ++block )
+            {
+                RDG::PassBindings bindings( context, context.GetBindingBlock( block ) );
+                bindings.PushConstants( &pushes[block], static_cast<uint32_t>( sizeof( DiceCullPush ) ) );
+                if ( const Common::BoolResultStr dispatched =
+                          Renderer::DispatchCompute( bindings, *pipeline, groups[block], 1, 1 );
+                     !dispatched )
+                    return dispatched;
+            }
+            return BOOLSUCCESS;
+        };
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
+        nodes.push_back( std::move( node ) );
+        if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
+        {
+            m_DiceCullArgs = {};
+            zeroCells();
+            return Common::MakeFormattedError<bool>( "{}: the node could not be declared", kDiceCullPass );
+        }
+        DiceCullCensus& slot =
+             m_DiceCullCensus[static_cast<std::size_t>( frame.FrameIndex % m_DiceCullCensus.size() )];
+        graph.Extract( m_DiceCullArgs, slot.Args, RDG::Access::HostRead );
+        slot.Jobs          = static_cast<uint32_t>( m_DiceCullJobs.size() );
+        slot.Tested        = tested;
+        slot.GridTriangles = m_DiceCullGridTriangles;
+        m_DiceCulled       = true;
         return BOOLSUCCESS;
     }
 
@@ -1591,22 +2079,26 @@ namespace Desert::Graphic::System
         // in order - the layout kept for the shader of @p pipeline, the one EVERY group's draws record with
         // (RecordDraws), the material's route fill, and @p view's scene/view inputs where the layout has their
         // slots (none: a program that samples none). Returns how many it declared.
-        template <typename Declaration>
+        template <typename Declaration, typename Executors>
         uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
-                                     ShaderBindingLayoutCache&                   layoutCache,
-                                     const std::vector<const MaterialExecutor*>& executors,
-                                     const SceneViewInputs* view, const RDG::BufferRef dicePool )
+                                     ShaderBindingLayoutCache& layoutCache, const Executors& executors,
+                                     const SceneViewInputs* view, const RDG::BufferRef dicePool,
+                                     const RDG::BufferRef diceCells, const RDG::BufferRef diceCull )
         {
-            const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
-                 layoutCache.Get( pipeline->GetSpecification().Shader );
+            // TERRAIN-DICE-CULL: the camera's rasters draw their rings from the cull's records.
+            if ( diceCull.IsValid() )
+                declaration.Read( diceCull, RDG::Access::IndirectArgs );
+            const SlottedLayout& slotted = layoutCache.GetSlotted( pipeline->GetSpecification().Shader );
+            const std::shared_ptr<const RDG::ShaderBindingLayout>& layout = slotted.Layout;
             for ( const MaterialExecutor* executor : executors )
             {
                 auto block = declaration.Bindings( layout, executor->GetRouteFill() );
                 // Every terrain vertex stage reads the frame's dice pool (TerrainVertex.glslh).
                 block.Storage( TerrainShaderParameters::LandscapeVertexPool, dicePool, RDG::Access::StorageRead );
-                if ( view != nullptr && SamplesSceneViewInputs( *layout ) )
+                block.Storage( TerrainShaderParameters::LandscapeDiceCells, diceCells, RDG::Access::StorageRead );
+                if ( view != nullptr && SamplesSceneViewInputs( slotted.Slots ) )
                 {
-                    BindSceneViewInputs( block, *view, *layout );
+                    BindSceneViewInputs( block, *view, slotted.Slots );
                 }
             }
             return static_cast<uint32_t>( executors.size() );
@@ -1616,23 +2108,29 @@ namespace Desert::Graphic::System
         // (exactly @p executors), so their view sets and block copies exist before the graph records and the exec
         // runs sealed. A node shared with the meshes (a shadow view, a virtual shadow level, the rain occlusion)
         // declares them too: the meshes' lists declare theirs (MeshDrawList::DeclareBlocks).
-        template <typename Declaration>
-        void PrepareGroupExecutors( Declaration&                                declaration,
-                                    const std::vector<const MaterialExecutor*>& executors )
+        template <typename Declaration, typename Executors>
+        void PrepareGroupExecutors( Declaration& declaration, const Executors& executors )
         {
             for ( const MaterialExecutor* executor : executors )
                 declaration.Prepares( *executor );
         }
     } // namespace
 
-    std::vector<const MaterialExecutor*>
+    namespace
+    {
+        // CPU-FRAME-ARENA 3 (UE FMemStack: a thread's scratch, kept): RecordDraws' per-draw push block.
+        thread_local std::vector<std::byte> t_TerrainRecordPush;
+    } // namespace
+
+    const MaterialExecutor* TerrainRenderer::GroupExecutorRange::Iterator::operator*() const
+    {
+        return ( m_Group->Materials->*m_Program )->GetMaterialExecutor();
+    }
+
+    TerrainRenderer::GroupExecutorRange
     TerrainRenderer::GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const
     {
-        std::vector<const MaterialExecutor*> executors;
-        executors.reserve( m_FrameGroups.size() );
-        for ( const auto& group : m_FrameGroups )
-            executors.push_back( ( group.Materials->*program )->GetMaterialExecutor() );
-        return executors;
+        return GroupExecutorRange( m_FrameGroups, program );
     }
 
     // ── Record. The push constant is per-draw state, snapshotted by Vulkan at record: the row index AND the
@@ -1649,19 +2147,21 @@ namespace Desert::Graphic::System
          const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
          std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
          const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope,
-         const std::optional<VirtualShadowIndirect>& indirect )
+         const std::optional<VirtualShadowIndirect>& indirect, const RDG::BufferRef diceCull )
     {
-        std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
-        blocks.reserve( m_FrameGroups.size() );
-        for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
-            blocks.push_back(
-                 std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
-        std::vector<std::byte> push;
+        // CPU-FRAME-ARENA 3: the groups' blocks in this thread's kept slots (RDG::OpenBindingBlocks), the push
+        // block in its kept scratch (rewritten whole per draw, read by that draw's call alone), and each cell
+        // shader's layout placed once per shader code (DrawPushFields::ShaderPlacements, CPU-FRAME-ARENA 4), no
+        // field found by name per draw or per record: a steady frame records the terrain with no allocation.
+        const RDG::OpenBindingBlocks      blocks( context, firstBlock, m_FrameGroups.size() );
+        std::vector<std::byte>&           push       = t_TerrainRecordPush;
+        DrawPushFields::ShaderPlacements& placements = DrawPushFields::ThreadShaderPlacements();
         for ( size_t k = 0; k < draws.size(); ++k )
         {
             const FrameDraw&        draw     = draws[k];
             const auto*             material = ( m_FrameGroups[draw.Group].Materials->*program ).get();
             const MaterialExecutor* executor = material->GetMaterialExecutor();
+            const RDG::PassBindings& groupBlock = blocks.At( draw.Group );
             const Common::Memory::Buffer& block = executor->GetPushConstantBuffer();
             push.assign( block.Size, std::byte{ 0 } );
             if ( block.Data != nullptr && block.Size != 0u )
@@ -1670,7 +2170,9 @@ namespace Desert::Graphic::System
             fields.MaterialIndex( draw.Row ).Transform( clipFromWorld );
             if ( shadowSlope )
                 fields.ShadowSlope( shadowSlope->x, shadowSlope->y );
-            if ( auto written = fields.WriteInto( push, material->GetMaterialLayout() ); !written )
+            // Material::GetMaterialLayout's layout: its executor's shader's (none: nothing placed).
+            const DrawPushFields::Placement& placement = placements.Of( executor->GetShader().get() );
+            if ( auto written = fields.WriteInto( push, placement ); !written )
                 return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): {}", context.GetPassName(), k,
                                                    executor->GetDubugName(), written.GetError() );
             if ( indirect )
@@ -1678,7 +2180,7 @@ namespace Desert::Graphic::System
                 // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the
                 // terrain's).
                 const uint64_t offset = ( uint64_t{ indirect->FirstRecord } + k ) * kMeshDrawArgumentsBytes;
-                if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline, executor,
+                if ( auto drawn = Renderer::DrawProceduralIndirect( groupBlock, pipeline, executor,
                                                                     indirect->Arguments, offset, push );
                      !drawn.IsSuccess() )
                     return drawn;
@@ -1688,11 +2190,27 @@ namespace Desert::Graphic::System
             // sub-vertices the dice pool's - then every other cell through the grid's shared index buffer, one
             // vertex a grid node, where the decode evaluated each node six times (FPS-FIELD-BARN: 5.5 M vertex
             // invocations of the camera's tiles, ten heightmap fetches each).
-            if ( draw.Split.RingVertices > 0u )
-                if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor,
+            // TERRAIN-DICE-CULL: a camera draw whose rings the cull kept draws one indirect record a ring level,
+            // finest first as the decode orders them, of the kept cells alone (LandscapeDecodeCulledVertex).
+            if ( draw.Split.RingVertices > 0u && draw.DiceCull != kNoDiceCull && diceCull.IsValid() )
+            {
+                for ( uint32_t level = kDiceLevels; level-- > 0u; )
+                {
+                    const uint64_t offset =
+                         ( uint64_t{ draw.DiceCull } + level ) * kDiceCullRecordWords * sizeof( uint32_t );
+                    if ( auto drawn = Renderer::DrawProceduralIndirect( groupBlock, pipeline, executor,
+                                                                        diceCull, offset, push );
+                         !drawn.IsSuccess() )
+                        return drawn;
+                }
+            }
+            else if ( draw.Split.RingVertices > 0u )
+            {
+                if ( auto drawn = Renderer::DrawProcedural( groupBlock, pipeline, executor,
                                                             draw.Split.RingVertices, 1, push );
                      !drawn.IsSuccess() )
                     return drawn;
+            }
             // TERRAIN-LOD-1 (UE: each section with its own LOD's index buffer): every section's cells on its own
             // grid, every range of one grid one indexed call (the ranges are disjoint cells, so their order is
             // free: a section row's alternating grids are not one call each); the instance names the grid
@@ -1730,7 +2248,7 @@ namespace Desert::Graphic::System
                          k, executor->GetDubugName(), side );
                 }
                 const std::span<const ProceduralIndexedRange> gridRanges( ranges.data(), count );
-                if ( auto indexed = Renderer::DrawProceduralIndexed( *blocks[draw.Group], pipeline, executor,
+                if ( auto indexed = Renderer::DrawProceduralIndexed( groupBlock, pipeline, executor,
                                                                      *grid->second, gridRanges, push );
                      !indexed.IsSuccess() )
                     return indexed;
@@ -1794,7 +2312,8 @@ namespace Desert::Graphic::System
                                    (void)refs;
                                    return RecordDraws( context, 0, *BasePassPipeline(), ForwardProgram(),
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
-                                                       m_ViewDraws );
+                                                       m_ViewDraws, std::nullopt, std::nullopt,
+                                                       CameraDiceCullArgs() );
                                },
                                .TargetFramebuffer = targetFb };
         pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
@@ -1807,11 +2326,11 @@ namespace Desert::Graphic::System
                 return;
             }
             const SceneViewInputs                      view      = SceneViewInputsOf( refs );
-            const std::vector<const MaterialExecutor*> executors = GroupExecutors( ForwardProgram() );
+            const GroupExecutorRange                   executors = GroupExecutors( ForwardProgram() );
             PrepareGroupExecutors( declared, executors );
             (void)DeclareGroupBlocks( declared, BasePassPipeline(),
                                       m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout, executors, &view,
-                                      m_DicePool );
+                                      m_DicePool, m_DiceCells, CameraDiceCullArgs() );
         };
         return pass;
     }
@@ -1820,55 +2339,97 @@ namespace Desert::Graphic::System
     {
         const auto& gbuffer = m_SceneRenderer->GetGBuffer();
         const auto* camera  = m_SceneRenderer->GetMainCamera();
-        if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_ViewDraws.empty() )
+        const GraphicsPipeline* const pipeline = GBufferPassPipeline();
+        if ( !gbuffer || ( camera == nullptr ) || pipeline == nullptr || m_ViewDraws.empty() )
             return BOOLSUCCESS;
 
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
-        // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
-        // Through the blocks DeclareGBufferDraws declared.
-        return RecordDraws( context, 0, *m_GBufferPipeline, &ProgramMaterials::GBuffer,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
+        // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against -
+        // under an early-Z pass the ground's own prepassed depth ("Deferred: Terrain Depth Prepass"), tested
+        // CloserOrEqual without writes, so a texel the grass or a mesh covers is rejected before the layers are
+        // fetched. Through the blocks DeclareGBufferDraws declared (both pipelines run the one TerrainGBuffer
+        // shader, so one layout).
+        return RecordDraws( context, 0, *pipeline, &ProgramMaterials::GBuffer,
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws,
+                            std::nullopt, std::nullopt, CameraDiceCullArgs() );
     }
 
-    void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass )
+    void TerrainRenderer::DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
-        // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples no scene/view input.
-        if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr || !m_GBufferPipeline ||
-             m_ViewDraws.empty() )
+        // Exactly when RenderGBufferManual draws. TerrainGBuffer.shader samples the view's DBuffer alone.
+        const GraphicsPipeline* const pipeline = GBufferPassPipeline();
+        if ( !m_SceneRenderer->GetGBuffer() || m_SceneRenderer->GetMainCamera() == nullptr ||
+             pipeline == nullptr || m_ViewDraws.empty() )
         {
             return;
         }
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::GBuffer );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::GBuffer );
         PrepareGroupExecutors( pass, executors );
-        (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout, executors, nullptr, m_DicePool );
+        (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, &view, m_DicePool, m_DiceCells,
+                                  CameraDiceCullArgs() );
+    }
+
+    bool TerrainRenderer::PrepassesGBuffer() const
+    {
+        return m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && m_GBufferDepthPipeline &&
+               m_GBufferPrepassedPipeline;
+    }
+
+    const GraphicsPipeline* TerrainRenderer::GBufferPassPipeline() const
+    {
+        if ( PrepassesGBuffer() )
+            return m_GBufferPrepassedPipeline.get();
+        return m_GBufferPipeline.get();
+    }
+
+    const GraphicsPipeline* TerrainRenderer::ViewDepthPipeline() const
+    {
+        if ( m_SceneRenderer->GetMainCamera() == nullptr || m_ViewDraws.empty() )
+            return nullptr;
+        // Deferred: under the frame's early-Z pass, into the G-buffer depth ("TerrainGBuffer" then tests it).
+        // A frame whose tiles have no visibility layer discards nothing: the early-tested twin (UE: a landscape
+        // without holes is opaque in the depth pass). Same layout and declarations, so m_DepthLayout holds.
+        const bool noHoles = !m_FrameHasHoles && m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline;
+        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+        {
+            if ( !m_SceneRenderer->GetGBuffer() || !PrepassesGBuffer() )
+                return nullptr;
+            if ( noHoles )
+                return m_GBufferDepthNoHolesPipeline.get();
+            return m_GBufferDepthPipeline.get();
+        }
+        // Forward: the frames that draw the terrain at all ("TerrainPass" draws the same m_ViewDraws,
+        // CloserOrEqual against this depth); the wireframe view's base pass writes its own depth
+        // (BasePassPipeline): not prepassed, as the meshes'.
+        if ( m_ForwardRefused || WireframeView() )
+            return nullptr;
+        if ( noHoles )
+            return m_DepthNoHolesPipeline.get();
+        return m_DepthPipeline.get();
     }
 
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
     {
-        // Exactly when RenderDepthManual draws: the forward path's frames that draw the terrain at all
-        // ("TerrainPass" draws the same m_ViewDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
-        // no scene/view input.
-        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
-             m_ForwardRefused || WireframeView() )
-        {
+        // Exactly when RenderDepthManual draws (ViewDepthPipeline). TerrainDepth.shader samples no scene/view
+        // input; both its pipelines run the one shader, so one layout.
+        const GraphicsPipeline* const pipeline = ViewDepthPipeline();
+        if ( pipeline == nullptr )
             return;
-        }
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Depth );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::Depth );
         PrepareGroupExecutors( pass, executors );
-        (void)DeclareGroupBlocks( pass, m_DepthPipeline.get(), m_DepthLayout, executors, nullptr, m_DicePool );
+        (void)DeclareGroupBlocks( pass, pipeline, m_DepthLayout, executors, nullptr, m_DicePool, m_DiceCells,
+                                  CameraDiceCullArgs() );
     }
 
     Common::BoolResultStr TerrainRenderer::RenderDepthManual( const RDG::PassContext& context )
     {
-        // The wireframe view's base pass writes its own depth (BasePassPipeline): not prepassed, as the meshes'.
-        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_ViewDraws.empty() ||
-             m_ForwardRefused || WireframeView() )
+        const GraphicsPipeline* const pipeline = ViewDepthPipeline();
+        if ( pipeline == nullptr )
             return BOOLSUCCESS;
-        // The base pass's very matrix (GeometryPass), so both rasterise the same depth.
-        return RecordDraws( context, 0, *m_DepthPipeline, &ProgramMaterials::Depth,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws );
+        // The base pass's very matrix (GeometryPass / "TerrainGBuffer"), so both rasterise the same depth.
+        return RecordDraws( context, 0, *pipeline, &ProgramMaterials::Depth,
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws,
+                            std::nullopt, std::nullopt, CameraDiceCullArgs() );
     }
 
     const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const
@@ -1966,10 +2527,20 @@ namespace Desert::Graphic::System
         const Core::Frustum box = IsDirectionalCasterView( casterViewProj ) ? CascadeCasterFrustum( casterViewProj )
                                                                             : Core::Frustum( casterViewProj, glm::mat4( 1.0f ) );
         ShadowSignatureHash hash;
+        // Four tiles' caster boxes per test (Intersects4, Intersects bit for bit): at every i % 4 == 0 the next
+        // four boxes go into one AABBQuad; tile i reads bit i % 4 (bits past the queue never read).
+        uint32_t reached4 = 0u;
         for ( std::size_t i = 0; i < m_Queue.size(); ++i )
         {
+            if ( ( i & 3u ) == 0u )
+            {
+                Common::Math::AABBQuad quad;
+                for ( std::size_t lane = 0; lane < 4u && i + lane < m_Queue.size(); ++lane )
+                    quad.Set( lane, TileCasterBox( m_Queue[i + lane].Landscape ) );
+                reached4 = box.Intersects4( quad );
+            }
             const TerrainDrawData& t = m_Queue[i];
-            if ( !box.Intersects( TileCasterBox( t.Landscape ) ) )
+            if ( ( ( reached4 >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             const FrameDraw& draw = m_FrameDraws[i];
             if ( draw.Group >= m_FrameGroups.size() || m_FrameGroups[draw.Group].Key == nullptr )
@@ -2001,10 +2572,10 @@ namespace Desert::Graphic::System
         if ( !m_ShadowPipeline || ShadowViewDraws( view ).empty() )
             return 0;
         // A depth-only caster samples no scene/view input.
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Shadow );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::Shadow );
         PrepareGroupExecutors( declared, executors );
         return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout, executors, nullptr,
-                                   m_DicePool );
+                                   m_DicePool, m_DiceCells, RDG::BufferRef{} );
     }
 
     Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, const uint32_t view,
@@ -2169,6 +2740,43 @@ namespace Desert::Graphic::System
         return Core::ShaderVariant{ .Defines = { std::string( kLocalShadowVsmDefine ) }, .ShippedByCook = true };
     }
 
+    Core::ShaderVariant TerrainRenderer::DepthNoHolesVariant()
+    {
+        return Core::ShaderVariant{ .Defines       = { std::string( "DESERT_TERRAIN_NO_HOLES" ) },
+                                    .ShippedByCook = true };
+    }
+
+    void TerrainRenderer::EnsureDepthNoHolesPipelines()
+    {
+        if ( m_DepthNoHolesRefused || ( m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline ) )
+            return;
+        const Core::ShaderVariant variant = DepthNoHolesVariant();
+        auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "TerrainDepth", variant );
+        std::string error;
+        if ( acquired )
+        {
+            const std::shared_ptr<Shader> shader = acquired.ExtractValue();
+            m_DepthNoHolesPipeline =
+                 CreateTerrainPipeline( m_SceneRenderer, shader, "TerrainDepthPipeline|DESERT_TERRAIN_NO_HOLES",
+                                        SceneDepthLayout(), error, TerrainDepthState::Shader );
+            if ( m_DepthNoHolesPipeline )
+                m_GBufferDepthNoHolesPipeline = CreateTerrainPipeline(
+                     m_SceneRenderer, shader, "TerrainGBufferDepthPipeline|DESERT_TERRAIN_NO_HOLES",
+                     GBufferDepthLayout(), error, TerrainDepthState::Shader );
+        }
+        else
+            error = std::format( "the permutation was refused: {}", acquired.GetError() );
+        if ( m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline )
+            return;
+        m_DepthNoHolesPipeline.reset();
+        m_GBufferDepthNoHolesPipeline.reset();
+        m_DepthNoHolesRefused = true;
+        LOG_ERROR(
+             "[TerrainRenderer] TerrainDepth|DESERT_TERRAIN_NO_HOLES is not built ({}): the depth prepass of a "
+             "landscape without holes keeps the discarding program (exact, late depth test)",
+             error );
+    }
+
     bool TerrainRenderer::EnsureForwardVsmPipeline()
     {
         if ( m_PipelineVsm )
@@ -2235,15 +2843,15 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* pipeline = VirtualShadowPipeline();
         if ( pipeline == nullptr )
             return 0;
-        const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
-             m_VirtualShadowLayout.Get( pipeline->GetSpecification().Shader );
-        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
+        const SlottedLayout& slotted = m_VirtualShadowLayout.GetSlotted( pipeline->GetSpecification().Shader );
+        const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
         PrepareGroupExecutors( pass, executors );
         for ( const MaterialExecutor* executor : executors )
         {
-            auto block = pass.Bindings( layout, executor->GetRouteFill() );
+            auto block = pass.Bindings( slotted.Layout, executor->GetRouteFill() );
             block.Storage( TerrainShaderParameters::LandscapeVertexPool, m_DicePool, RDG::Access::StorageRead );
-            parameters( block, *layout );
+            block.Storage( TerrainShaderParameters::LandscapeDiceCells, m_DiceCells, RDG::Access::StorageRead );
+            parameters( block, slotted );
         }
         return static_cast<uint32_t>( executors.size() );
     }

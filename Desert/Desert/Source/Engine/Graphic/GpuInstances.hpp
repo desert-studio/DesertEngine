@@ -29,6 +29,12 @@ namespace Desert::Graphic
         // RENDER-JOB-CPU-4: the device address of Args' buffer (a compacted bin's gather copies the records
         // from it, GpuDrawCompactEntry::Records); 0: the producer gave none, the section draws per variety.
         uint64_t ArgsAddress = 0;
+        // CPU-GRASS-POOL-4 (UE GPU Scene: a primitive's instances and arguments are ranges of shared pools, a
+        // consumer addresses its range by offset): the byte offset of this list's header in Args' buffer, which
+        // every indirect read adds (ArgsAddress already includes it). A pooled producer's records state ABSOLUTE
+        // slots of Ids' buffer (firstInstance counts from the pool's start) and its ids absolute rows of
+        // Instances' buffer, so the bound Ids / Instances need no base. 0: the producer owns Args alone.
+        uint64_t ArgsOffset = 0;
     };
 
     // The argument buffer: a 16-byte header (bucket count, total capacity, submesh count, last drawn count), one
@@ -152,6 +158,18 @@ namespace Desert::Graphic
         uint32_t       BinCapacity   = 0; // Refs.Counts words
         bool           Open          = false;
         bool           Overflow      = false;
+        // GRASS-GPU-DRIVEN-DRAWS, THE SECTION AS A WHOLE (MeshRenderer::DrawBinsOf): each section's verdict for
+        // the phase this frame (by GpuInstancedRenderData::Key), kept for every list of it, and the slots the
+        // admitted ones reserved (MeshRenderer::DrawBinSlots x the phase's lists, at most EntryCapacity).
+        // A flat list (a frame asks a few dozen sections): cleared per frame, its capacity kept, no node
+        // allocations.
+        struct SectionVerdict
+        {
+            uint32_t Key      = 0;
+            bool     Admitted = false;
+        };
+        std::vector<SectionVerdict> Verdicts;
+        uint32_t                    Reserved = 0;
         // This frame's content: the entries (FirstSlot final once their list is built), the rows they read, the
         // slots and bins handed out so far.
         std::vector<GpuDrawCompactEntry> Entries;

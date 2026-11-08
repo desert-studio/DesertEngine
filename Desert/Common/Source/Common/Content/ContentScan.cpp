@@ -9,6 +9,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Core/NumberText.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -730,8 +731,12 @@ namespace Common::Content
             const std::size_t      space = line.find( ' ' );
             if ( space == std::string_view::npos )
                 return MakeFormattedError<RegistryCache>( "the registry cache line '{}' has no key", line );
-            cache.Modified.emplace( std::string( line.substr( space + 1 ) ),
-                                    std::stoll( std::string( line.substr( 0, space ) ) ) );
+            const std::optional<std::int64_t> modified =
+                 Common::WholeIntegerFromText<std::int64_t>( line.substr( 0, space ) );
+            if ( !modified )
+                return MakeFormattedError<RegistryCache>(
+                     "the registry cache line '{}' has no modification time before its key", line );
+            cache.Modified.emplace( std::string( line.substr( space + 1 ) ), *modified );
             at = end + 1;
         }
 

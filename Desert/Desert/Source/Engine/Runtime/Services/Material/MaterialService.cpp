@@ -1,4 +1,5 @@
 #include "MaterialService.hpp"
+#include <atomic>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
 
@@ -15,7 +16,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
-#include <mutex>
+#include <shared_mutex>
 
 namespace Desert::Runtime
 {
@@ -44,8 +45,13 @@ namespace Desert::Runtime
                          return;
                      }
 
-                     auto* textures = ResourceRegistry::GetTextureService();
-                     if ( auto* tex = textures->Get( Common::UUID( handle ) ) )
+                     // ONE ANSWER PER SLOT (CPU-ONE-SYNC step 11). Asked twice (Get, then Require for Pending), an
+                     // upload committed between the two on the game thread read as "Pending, then Ready": the slot
+                     // kept its default, no waiter was added and the error below was logged for a texture that
+                     // exists. The answer also holds the texture alive while its image is resolved.
+                     auto*      textures    = ResourceRegistry::GetTextureService();
+                     const auto slotTexture = textures->Require( Common::UUID( handle ) );
+                     if ( auto* tex = slotTexture.Get() )
                      {
                          if ( auto* image = ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() );
                               image != nullptr )
@@ -65,7 +71,7 @@ namespace Desert::Runtime
                      // PENDING IS NOT MISSING (AL1-4): the slot shows its default until the texture lands,
                      // and the texture service rebuilds this material then, bound.
                      setSlot( param.Name, nullptr );
-                     if ( textures->Require( Common::UUID( handle ) ).IsPending() )
+                     if ( slotTexture.IsPending() )
                      {
                          textures->RebuildWhenReady( Common::UUID( handle ), asset.GetMetadata().Handle );
                          return;
@@ -333,46 +339,134 @@ namespace Desert::Runtime
 
     namespace
     {
-        // ONE LOCK FOR THE SERVICE'S CACHES (MAT-CELL-LOAD). The render frame records on the job's workers
-        // (OVERLAP-ON-7) and asks for cells there - GetVariant/GetViewVariant build and insert - while the game
-        // thread registers, loads and invalidates; every cache of the service is `mutable` and was grown from
-        // both at once (the grass and instanced cells refused for the first seconds of FIELD_Barn). Recursive:
-        // one public call reaches another on its own thread (GetVariant -> Get, a load completion). One
-        // service per process, so the lock lives here and the header (27 includers) is untouched.
-        std::recursive_mutex& ServiceLock()
+        // THE SERVICE'S READER/WRITER LOCK (MAT-CELL-LOAD, CPU-ONE-SYNC R10; UE: an FRWLock around a table that
+        // parallel tasks read). The render frame records on the job's workers (OVERLAP-ON-7) and asks for cells
+        // there - GetVariant, GetViewVariant, Owns, BuildRevision - while MeshECSSystem builds runtime instances
+        // on its own worker and the game thread registers, loads and invalidates. It was one recursive mutex, so
+        // every worker's lookup of the steady frame queued behind every other. Now a HIT takes the SHARED lock
+        // (the readers of the header's private section insert nothing), and only a MISS takes it EXCLUSIVE,
+        // re-checks, then discovers, requests or builds. NO LOCK IS HELD ACROSS A LOAD: a walk that must read a
+        // shell now (EnsureLoaded -> FlushOne, whose completion locks the service itself) holds the shell by a
+        // strong reference and reads it unlocked. One service per process, so the lock lives here.
+        std::shared_mutex& ServiceLock() noexcept
         {
-            static std::recursive_mutex lock;
+            static std::shared_mutex lock;
             return lock;
         }
 
-        // A game-thread WRITER (it may destroy a material or write an instance) joins the render job BEFORE it
-        // locks: those paths join it again inside (ViewResourceRegistry::Forget, the MaterialInstance setters of
-        // OVERLAP-ON-2), and a join under the lock would wait for a job that waits for the lock. A thread that
-        // already holds the lock does not join; off the game thread the join returns at once.
-        thread_local uint32_t t_ServiceDepth = 0;
-        class ServiceGuard
+        // What THIS thread holds. One public call reaches another on its own thread (GetVariant -> Get, a load
+        // completion inside a writer), and std::shared_mutex is not recursive: a nested guard on a thread that
+        // already holds the lock takes nothing. A SHARED holder never asks for the exclusive lock, because an
+        // upgrade cannot be made in place: the shared sections call only the readers that insert nothing.
+        enum class Held : uint8_t
+        {
+            None,
+            Shared,
+            Exclusive
+        };
+        thread_local Held t_Held = Held::None;
+
+        // A graveyard collection is waiting behind the render work in flight (CollectGarbage): one at a time.
+        std::atomic<bool>& CollectQueued()
+        {
+            static std::atomic<bool> queued{ false };
+            return queued;
+        }
+
+        class ReadGuard
         {
         public:
-            explicit ServiceGuard( const bool writer )
+            ReadGuard() noexcept
             {
-                if ( writer && t_ServiceDepth == 0 )
+                if ( t_Held != Held::None )
+                    return;
+                ServiceLock().lock_shared();
+                t_Held = Held::Shared;
+                m_Owns = true;
+            }
+            ~ReadGuard() noexcept
+            {
+                if ( !m_Owns )
+                    return;
+                t_Held = Held::None;
+                ServiceLock().unlock_shared();
+            }
+            ReadGuard( const ReadGuard& )            = delete;
+            ReadGuard& operator=( const ReadGuard& ) = delete;
+
+        private:
+            bool m_Owns = false;
+        };
+
+        // What a writer waits for before it locks (UE: FMaterialUpdateContext flushes the render thread only for
+        // a destroy; a registration is ENQUEUE_RENDER_COMMAND, no flush).
+        //  - LockOnly: the exclusive lock alone. Every render reader holds the shared lock, so the lock serializes
+        //    them; a material the writer retires goes to the graveyard (destroyed frames-in-flight later, behind
+        //    the views), so no job in flight loses one it is recording. Register, Invalidate, Release, the pin and
+        //    the asset manager's binding, and every lookup miss.
+        //  - JoinRender: joins the whole render queue first - for a writer that DESTROYS materials at once (Clear:
+        //    at shutdown there is no next frame to collect a graveyard; ReleaseViewVariants: its owner's ledger
+        //    check follows). Joined BEFORE the lock: a join under it would wait for a job that waits for the lock.
+        enum class Fence : uint8_t
+        {
+            LockOnly,
+            JoinRender
+        };
+
+        // A thread that already holds the lock exclusively takes nothing; off the game thread the join returns at
+        // once.
+        class WriteGuard
+        {
+        public:
+            explicit WriteGuard( const Fence fence ) noexcept
+            {
+                if ( t_Held == Held::Exclusive )
+                    return;
+                if ( t_Held == Held::Shared )
+                {
+                    // A reader reached a writer: the upgrade would wait on this thread's own shared hold. Named,
+                    // never waited on; the shared sections are written so this does not happen.
+                    LOG_ERROR( "[MaterialService] a shared-lock section asked for the exclusive lock; the write "
+                               "runs under the shared lock. A reader called a writer - fix the caller." );
+                    return;
+                }
+                if ( fence == Fence::JoinRender )
                     ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
                 ServiceLock().lock();
-                ++t_ServiceDepth;
+                t_Held = Held::Exclusive;
+                m_Owns = true;
             }
-            ~ServiceGuard()
+            ~WriteGuard() noexcept
             {
-                --t_ServiceDepth;
+                if ( !m_Owns )
+                    return;
+                t_Held = Held::None;
                 ServiceLock().unlock();
             }
-            ServiceGuard( const ServiceGuard& )            = delete;
-            ServiceGuard& operator=( const ServiceGuard& ) = delete;
+            WriteGuard( const WriteGuard& )            = delete;
+            WriteGuard& operator=( const WriteGuard& ) = delete;
+
+        private:
+            bool m_Owns = false;
         };
+
+        // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial); a sibling that is not
+        // one was not built here, and is refused by its cell rather than drawn as the wrong class.
+        Graphic::DataDrivenMaterial* AsSurface( Graphic::Material* sibling, const Graphic::MeshVertexPath path,
+                                                const Graphic::MeshPass pass )
+        {
+            auto* surface = dynamic_cast<Graphic::DataDrivenMaterial*>( sibling );
+            if ( sibling != nullptr && surface == nullptr )
+                LOG_ERROR( "[MaterialService] the ({} x {}) sibling of a service material is not a "
+                           "DataDrivenMaterial; refusing it",
+                           Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) );
+            return surface;
+        }
     } // namespace
 
     Common::BoolResultStr MaterialService::Register( const std::shared_ptr<Assets::MaterialAsset>& materialAsset )
     {
-        const ServiceGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( !materialAsset->GetMetadata().IsValid() )
         {
             return Common::MakeError( "Material asset is invalid" );
@@ -394,8 +488,14 @@ namespace Desert::Runtime
         // reverse index and be handed to a render pass as a live sibling.
         auto& cell =
              m_Materials[handle][VariantSlot( Graphic::MeshVertexPath::Static, Graphic::MeshPass::Forward )];
+        // Parked, not destroyed: the register takes no render fence, so a frame in flight may still be recording
+        // with the cell it replaces (Invalidate's rule).
         if ( cell )
+        {
             m_BuiltToAsset.erase( cell.get() );
+            m_DisplacedBuilt.erase( cell.get() );
+            m_Graveyard.Park( std::move( cell ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        }
         if ( material )
         {
             m_BuiltToAsset[material.get()] = handle;
@@ -419,7 +519,12 @@ namespace Desert::Runtime
         {
             return Common::MakeError( "Material asset is invalid" );
         }
-        const auto handle = materialAsset->GetMetadata().Handle;
+        // It inserts into the maps the render workers read, so it locks exclusively (it never locked). It joins no
+        // render job: it builds and destroys no material, and a shell it replaces is read only under this lock or
+        // through a strong reference (ShellOf), so a lookup miss's rule holds - a streamed-in scene's first use of
+        // a material no longer waits for the frame being recorded.
+        const WriteGuard serviceLock( Fence::LockOnly );
+        const auto       handle = materialAsset->GetMetadata().Handle;
         if ( const auto refusal = RefuseOnCollision( handle, materialAsset ); !refusal )
             return refusal;
 
@@ -431,8 +536,9 @@ namespace Desert::Runtime
 
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceTemplate() const
     {
-        const ServiceGuard serviceLock( false );
-        const auto assets = m_Assets.lock();
+        // The manager is copied under the lock and asked with it released: no other service's lock is taken
+        // under this one, so an asset manager that registers a material under its own lock cannot cross it.
+        const auto assets = LockAssetManager();
         if ( !assets )
             return Common::MakeError<std::string>(
                  std::string( "no asset manager is bound, so no template declares 'Default Surface' yet" ) );
@@ -449,7 +555,6 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
-        const ServiceGuard serviceLock( false );
         auto templateName = DefaultSurfaceTemplate();
         if ( !templateName )
             return templateName;
@@ -464,8 +569,8 @@ namespace Desert::Runtime
     Common::ResultStr<std::string> MaterialService::StandInSurfaceShader( Graphic::MeshVertexPath path,
                                                                           Graphic::MeshPass       pass ) const
     {
-        const ServiceGuard serviceLock( false );
-        const auto assets = m_Assets.lock();
+        // As DefaultSurfaceTemplate: the manager is asked with this service's lock released.
+        const auto assets = LockAssetManager();
         if ( !assets )
             return Common::MakeError<std::string>(
                  std::string( "no asset manager is bound, so no template declares 'Role StandInSurface' yet" ) );
@@ -486,7 +591,7 @@ namespace Desert::Runtime
 
     void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
     {
-        const ServiceGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
              handle,
              "the engine's Default Surface template: every slotless mesh and every new material draws with it" );
@@ -494,14 +599,14 @@ namespace Desert::Runtime
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
-        const ServiceGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         m_Assets = assets;
     }
 
     void MaterialService::StartRead( const Assets::AssetHandle&        handle,
                                      std::vector<Assets::AssetHandle>& awaited ) const
     {
-        const ServiceGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( handle.IsNull() )
             return;
         // A copy of the pointer, not the iterator: the request below may discover and rehash.
@@ -555,7 +660,7 @@ namespace Desert::Runtime
 
     bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
-        const ServiceGuard serviceLock( false );
+        const WriteGuard serviceLock( Fence::LockOnly );
         if ( asset->IsReadyForUse() )
             return true;
         const auto handle = asset->GetMetadata().Handle;
@@ -573,7 +678,7 @@ namespace Desert::Runtime
              [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
                              const std::string& error )
              {
-                 const ServiceGuard serviceLock( false );
+                 const WriteGuard serviceLock( Fence::LockOnly );
                  m_Requests.erase( handle );
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
@@ -591,7 +696,7 @@ namespace Desert::Runtime
              },
              [this, handle]
              {
-                 const ServiceGuard serviceLock( false );
+                 const WriteGuard serviceLock( Fence::LockOnly );
                  m_Requests.erase( handle );
              } );
         return false;
@@ -613,6 +718,14 @@ namespace Desert::Runtime
         if ( const auto& failure = asset->LoadFailure() )
             return Common::MakeFormattedError<bool>( "material '{}' is broken: {}",
                                                      asset->GetMetadata().Filepath.string(), *failure );
+
+        // NO LOCK ACROSS A LOAD (R10): FlushOne reads the file on this thread and runs the read's completion,
+        // which locks the service. A caller holding the lock would wait on itself (shared) or stall every render
+        // worker behind a file read (exclusive), so that read is refused as a value instead.
+        if ( t_Held != Held::None )
+            return Common::MakeFormattedError<bool>(
+                 "material '{}' is not read: the material service lock is held by the caller",
+                 asset->GetMetadata().Filepath.string() );
 
         const auto handle = asset->GetMetadata().Handle;
         if ( !RequestIfUnread( asset ) )
@@ -665,10 +778,93 @@ namespace Desert::Runtime
                                                  want.generic_string() );
     }
 
+    bool MaterialService::IsKnownMissing( const Assets::AssetHandle& handle ) const
+    {
+        if ( handle.IsNull() || m_Assets.expired() )
+            return true;
+        return m_ReportedMissing.contains( handle ) && Assets::ContentRegistry::WriteSerial() == m_MissingSerial;
+    }
+
+    Assets::AssetHandle MaterialService::FindHandleByExternal( const Common::UUID& uuid ) const
+    {
+        if ( const auto it = m_ExternalToInternal.find( uuid ); it != m_ExternalToInternal.end() )
+            return it->second;
+        // The identity fallback of GetAssetHandleByExternal, without its discovery.
+        const Assets::AssetHandle asHandle{ uuid };
+        if ( m_Materials.contains( asHandle ) || m_MaterialAssets.contains( asHandle ) )
+            return asHandle;
+        return Common::UUID::Null();
+    }
+
+    MaterialService::CellLookup MaterialService::FindCell( const Assets::AssetHandle&    handle,
+                                                           const Graphic::MeshVertexPath path,
+                                                           const Graphic::MeshPass       pass,
+                                                           const bool                    displaced ) const
+    {
+        // Get's walk, step for step, answering only what it can answer without inserting.
+        Assets::AssetHandle current = handle;
+        for ( int depth = 0; depth < 8; ++depth )
+        {
+            const auto ait = m_MaterialAssets.find( current );
+            if ( ait == m_MaterialAssets.end() )
+            {
+                if ( !IsKnownMissing( current ) )
+                    return CellLookup{}; // a discovery may find its row
+                break;
+            }
+            const auto& shell = ait->second;
+            if ( !shell->IsReadyForUse() )
+            {
+                // RequestIfUnread starts nothing for a read in flight or a broken shell: Pending/broken is null.
+                const bool settled = m_Requests.contains( shell->GetMetadata().Handle ) || shell->IsBroken();
+                return CellLookup{ nullptr, settled };
+            }
+            const auto* surf = dynamic_cast<const Assets::SurfaceMaterialAsset*>( shell.get() );
+            const auto  parentId =
+                 ( surf != nullptr ) ? surf->Data().InstanceParentId() : std::optional<Common::UUID>{};
+            if ( !parentId.has_value() )
+                break;
+            const auto parent = FindHandleByExternal( *parentId );
+            if ( parent.IsNull() )
+                return CellLookup{ nullptr, IsKnownMissing( Assets::AssetHandle{ *parentId } ) };
+            if ( parent == current )
+                return CellLookup{ nullptr, true };
+            current = parent;
+        }
+        if ( const auto it = m_Materials.find( current ); it != m_Materials.end() )
+            if ( const auto& cell = it->second[VariantSlot( path, pass, displaced )] )
+                return CellLookup{ cell.get(), true };
+        return CellLookup{}; // a cell to build, or one its template refuses: the exclusive path decides
+    }
+
+    std::shared_ptr<Assets::MaterialAsset> MaterialService::ShellOf( const Assets::AssetHandle& handle ) const
+    {
+        {
+            const ReadGuard read;
+            if ( const auto it = m_MaterialAssets.find( handle ); it != m_MaterialAssets.end() )
+                return it->second;
+            if ( IsKnownMissing( handle ) )
+                return nullptr;
+        }
+        const WriteGuard write( Fence::LockOnly );
+        const auto       it = FindOrDiscover( handle );
+        if ( it == m_MaterialAssets.end() )
+            return nullptr;
+        return it->second;
+    }
+
     Graphic::Material* MaterialService::Get( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
                                              Graphic::MeshPass pass, const bool displaced ) const
     {
-        const ServiceGuard serviceLock( false );
+        // THE STEADY FRAME ONLY READS (R10): the shared lock answers every built cell, every read in flight and
+        // every known-missing handle. Only a miss re-walks below under the exclusive lock, which may discover a
+        // shell, start its read or build the cell - and re-checks first, since another thread may have.
+        {
+            const ReadGuard read;
+            if ( const auto found = FindCell( handle, path, pass, displaced ); found.Material || found.Settled )
+                return found.Material;
+        }
+        const WriteGuard serviceLock( Fence::LockOnly );
         // Material-instance assets resolve through the parent chain to the BASE material: an
         // instance never builds a runtime Material of its own (its overrides live on the
         // per-entity MaterialInstance, see CreateRuntimeInstance). Depth-capped cycle guard.
@@ -732,28 +928,31 @@ namespace Desert::Runtime
                                                               Graphic::MeshVertexPath  path,
                                                               Graphic::MeshPass        pass ) const
     {
-        const ServiceGuard serviceLock( false );
         if ( !built )
             return nullptr;
-
-        const auto it = m_BuiltToAsset.find( built );
-        if ( it == m_BuiltToAsset.end() )
-            return nullptr; // not service-owned: a renderer's own dedicated material has no `.demat`
 
         // Both axes come from the caller, because both are the caller's: a render pass owns the pass, and
         // the renderer owns whether this draw is instanced. What is NOT the caller's is the asset, and
         // that is the one thing this function supplies — the sibling is the same `.demat`, so it carries
         // the same parameters and the same textures by construction.
-        // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial); a sibling that is
-        // not one was not built here, and is refused by its cell rather than drawn as the wrong class.
-        Graphic::Material* sibling = Get( it->second, path, pass, m_DisplacedBuilt.contains( built ) );
-        auto*              surface = dynamic_cast<Graphic::DataDrivenMaterial*>( sibling );
-        if ( sibling != nullptr && surface == nullptr )
-            LOG_ERROR(
-                 "[MaterialService] the ({} x {}) sibling of a service material is not a DataDrivenMaterial; "
-                 "refusing it",
-                 Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) );
-        return surface;
+        //
+        // The render workers ask this per draw: a built sibling is answered under the shared lock (R10).
+        {
+            const ReadGuard read;
+            const auto      it = m_BuiltToAsset.find( built );
+            if ( it == m_BuiltToAsset.end() )
+                return nullptr; // not service-owned: a renderer's own dedicated material has no `.demat`
+            const bool displaced = m_DisplacedBuilt.contains( built );
+            if ( const auto found = FindCell( it->second, path, pass, displaced );
+                 found.Material || found.Settled )
+                return AsSurface( found.Material, path, pass );
+        }
+        const WriteGuard write( Fence::LockOnly );
+        const auto       it = m_BuiltToAsset.find( built );
+        if ( it == m_BuiltToAsset.end() )
+            return nullptr; // invalidated between the two locks
+        const bool displaced = m_DisplacedBuilt.contains( built );
+        return AsSurface( Get( it->second, path, pass, displaced ), path, pass );
     }
 
     Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
@@ -761,7 +960,6 @@ namespace Desert::Runtime
                                                                   Graphic::MeshPass pass, uint32_t view,
                                                                   const void* owner ) const
     {
-        const ServiceGuard serviceLock( false );
         return SiblingOf( built, path, pass, view, Core::ShaderVariant{}, owner );
     }
 
@@ -771,13 +969,14 @@ namespace Desert::Runtime
                                                                   const Core::ShaderVariant& permutation,
                                                                   const void*                owner ) const
     {
-        const ServiceGuard serviceLock( false );
         return SiblingOf( built, path, pass, view, permutation, owner );
     }
 
     void MaterialService::ReleaseViewVariants( const void* owner )
     {
-        const ServiceGuard serviceLock( true );
+        // The full fence, and destroyed at once: the owner (a view's MeshRenderer, on its destruction) checks its
+        // ledger right after, and the copies hold that view's buffers - a graveyard keeps them past it.
+        const WriteGuard serviceLock( Fence::JoinRender );
         if ( owner == nullptr )
             return;
         for ( auto& [handle, views] : m_ViewMaterials )
@@ -788,7 +987,6 @@ namespace Desert::Runtime
                                                               Graphic::MeshVertexPath path, Graphic::MeshPass pass,
                                                               const Core::ShaderVariant& permutation ) const
     {
-        const ServiceGuard serviceLock( false );
         if ( permutation.IsDefault() )
             return GetVariant( built, path, pass );
         return SiblingOf( built, path, pass, kEveryView, permutation );
@@ -800,7 +998,13 @@ namespace Desert::Runtime
                                                              const Core::ShaderVariant& permutation,
                                                              const void*                asker ) const
     {
-        const ServiceGuard serviceLock( false );
+        // A copy built before is answered under the shared lock (R10); building one is the exclusive path.
+        {
+            const ReadGuard read;
+            if ( auto* copy = FindSibling( built, path, pass, view, permutation, asker ) )
+                return copy;
+        }
+        const WriteGuard serviceLock( Fence::LockOnly );
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
         const auto* sibling = GetVariant( built, path, pass );
@@ -832,22 +1036,59 @@ namespace Desert::Runtime
         return raw;
     }
 
+    Graphic::DataDrivenMaterial* MaterialService::FindSibling( const Graphic::Material* built,
+                                                               Graphic::MeshVertexPath  path,
+                                                               Graphic::MeshPass pass, uint32_t view,
+                                                               const Core::ShaderVariant& permutation,
+                                                               const void*                asker ) const
+    {
+        // SiblingOf's lookup, step for step, with nothing inserted (m_ViewMaterials is found, never indexed).
+        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        if ( it == m_BuiltToAsset.end() )
+            return nullptr;
+        const bool displaced = m_DisplacedBuilt.contains( built );
+        const auto found     = FindCell( it->second, path, pass, displaced );
+        if ( found.Material == nullptr )
+            return nullptr;
+        const auto owner = m_BuiltToAsset.find( found.Material );
+        if ( owner == m_BuiltToAsset.end() )
+            return nullptr;
+        const auto views = m_ViewMaterials.find( owner->second );
+        if ( views == m_ViewMaterials.end() )
+            return nullptr;
+        const size_t slot = VariantSlot( path, pass, displaced );
+        for ( const auto& v : views->second )
+            if ( v.Slot == slot && v.View == view && v.Owner == asker && v.Defines == permutation.Defines )
+                return v.Material.get();
+        return nullptr;
+    }
+
     bool MaterialService::Owns( const Graphic::Material* material ) const
     {
-        const ServiceGuard serviceLock( false );
+        const ReadGuard serviceLock;
         return material && m_BuiltToAsset.count( material ) != 0;
     }
 
     bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
     {
-        const ServiceGuard serviceLock( false );
-        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
-        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
+        if ( built == nullptr )
+            return false;
+        // Only the built -> asset row is this lock's. The waiters are the texture table's, behind its own lock
+        // (CPU-ONE-SYNC R15), and asked with this one released: no worker holds two locks for a per-draw ask.
+        Assets::AssetHandle asset;
+        {
+            const ReadGuard serviceLock;
+            const auto      it = m_BuiltToAsset.find( built );
+            if ( it == m_BuiltToAsset.end() )
+                return false;
+            asset = it->second;
+        }
+        return ResourceRegistry::GetTextureService()->AwaitedBy( asset );
     }
 
     uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const
     {
-        const ServiceGuard serviceLock( false );
+        const ReadGuard serviceLock;
         const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
         if ( it == m_BuiltToAsset.end() )
             return 0;
@@ -857,7 +1098,7 @@ namespace Desert::Runtime
 
     std::vector<Graphic::Material*> MaterialService::GetBuiltVariants( const Assets::AssetHandle& handle ) const
     {
-        const ServiceGuard serviceLock( false );
+        const ReadGuard                 serviceLock;
         std::vector<Graphic::Material*> out;
         const auto                      it = m_Materials.find( handle );
         if ( it == m_Materials.end() )
@@ -877,47 +1118,67 @@ namespace Desert::Runtime
                                                                          Graphic::MeshVertexPath    path,
                                                                          const bool displaced ) const
     {
-        const ServiceGuard serviceLock( true );
         // Collect the instance chain child -> base (depth-capped cycle guard), then create one
         // runtime instance of the base material and apply overrides base-first so the NEAREST
         // (childmost) override wins.
-        std::vector<const Assets::SurfaceMaterialAsset*> chain;
-        Assets::AssetHandle                              current = handle;
+        //
+        // NO LOCK IS HELD HERE (R10). The walk needs each link's data now, and EnsureLoaded may read the file on
+        // this thread (FlushOne) and run the read's completion, which locks the service itself; a render worker
+        // must not wait behind a file read either. Each link is looked up under the lock (ShellOf) and held by a
+        // strong reference, so a Release on another thread cannot free a link the walk is reading.
+        std::vector<std::shared_ptr<const Assets::SurfaceMaterialAsset>> chain;
+        Assets::AssetHandle                                              current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            auto ait = FindOrDiscover( current );
-            if ( ait == m_MaterialAssets.end() )
+            const auto shell = ShellOf( current );
+            if ( !shell )
                 break;
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
-            (void)EnsureLoaded( ait->second );
-            auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
+            (void)EnsureLoaded( shell );
+            auto surf = std::dynamic_pointer_cast<const Assets::SurfaceMaterialAsset>( shell );
             if ( surf == nullptr )
-            {
                 break;
-            }
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
-            {
                 break;
-            }
-            chain.push_back( surf );
+            chain.push_back( std::move( surf ) );
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
                 break;
             current = parent;
         }
 
-        auto* base = Get( current, path, Graphic::MeshPass::Forward, displaced );
-        if ( !base )
+        if ( Get( current, path, Graphic::MeshPass::Forward, displaced ) == nullptr )
             return nullptr;
+        // The base by a strong reference for the same reason as the links: the instance is made from it unlocked.
+        std::shared_ptr<Graphic::Material> base;
+        {
+            const ReadGuard read;
+            if ( const auto it = m_Materials.find( current ); it != m_Materials.end() )
+                base = it->second[VariantSlot( path, Graphic::MeshPass::Forward, displaced )];
+        }
+        if ( !base )
+            return nullptr; // invalidated between Get and the read: the next tick asks again
 
+        // The instance is this caller's alone until it returns, so it is written unlocked. That is also why this
+        // no longer joins the render job: the join existed only because these setters ran under the lock.
         auto instance = base->CreateInstance();
         for ( auto it = chain.rbegin(); it != chain.rend(); ++it )
         {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
-            // UE bOverrideSubsurfaceProfile: the childmost instance that states a profile wins.
-            ApplySubsurfaceProfile( *instance, ( *it )->Data().SubsurfaceProfile );
+            // UE bOverrideSubsurfaceProfile: the childmost instance that states a profile wins. The row is
+            // resolved under the exclusive lock: SubsurfaceProfileService has no lock of its own, its one caller
+            // is this service, and the build's IndexFor (ApplySurfaceAsset) runs on a render worker under it.
+            if ( const auto& profile = ( *it )->Data().SubsurfaceProfile; profile.has_value() )
+            {
+                float row = 0.0f;
+                {
+                    const WriteGuard subsurface( Fence::LockOnly );
+                    row = SubsurfaceProfileRow( *profile );
+                }
+                instance->SetParamFromVec4( "SubsurfaceProfileIndex", glm::vec4( row ) );
+            }
             // The childmost instance that states TwoSided wins, as its parameters do.
             if ( ( *it )->Data().TwoSided.has_value() )
                 instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );
@@ -928,43 +1189,39 @@ namespace Desert::Runtime
     bool MaterialService::ResolveOverrides( const Assets::AssetHandle&  handle,
                                             Graphic::MaterialOverrides& out ) const
     {
-        const ServiceGuard serviceLock( false );
-        // Same walk as CreateRuntimeInstance: collect the instance chain child -> base (depth-capped
-        // cycle guard), then append base-first so the childmost override lands last and wins.
-        std::vector<const Assets::SurfaceMaterialAsset*> chain;
-        Assets::AssetHandle                              current = handle;
+        // Same walk as CreateRuntimeInstance, unlocked for the same reason (each link read by EnsureLoaded):
+        // collect the instance chain child -> base (depth-capped cycle guard), then append base-first so the
+        // childmost override lands last and wins.
+        std::vector<std::shared_ptr<const Assets::SurfaceMaterialAsset>> chain;
+        Assets::AssetHandle                                              current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            auto ait = FindOrDiscover( current );
-            if ( ait == m_MaterialAssets.end() )
+            const auto shell = ShellOf( current );
+            if ( !shell )
                 break;
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
-            (void)EnsureLoaded( ait->second );
-            auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
+            (void)EnsureLoaded( shell );
+            auto surf = std::dynamic_pointer_cast<const Assets::SurfaceMaterialAsset>( shell );
             if ( surf == nullptr )
-            {
                 break;
-            }
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
-            {
                 break;
-            }
-            chain.push_back( surf );
+            chain.push_back( std::move( surf ) );
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
                 break;
             current = parent;
         }
 
-        auto baseIt = FindOrDiscover( current );
-        if ( baseIt == m_MaterialAssets.end() )
+        const auto baseShell = ShellOf( current );
+        if ( !baseShell )
             return false;
         // The base is read for its parameters AND its textures, and a released shell has neither. This is
         // the terrain's path to its material, so without it a terrain drawn after a scene round trip loses
         // its authored surface silently.
-        (void)EnsureLoaded( baseIt->second );
-        auto* base = dynamic_cast<Assets::SurfaceMaterialAsset*>( baseIt->second.get() );
+        (void)EnsureLoaded( baseShell );
+        const auto base = std::dynamic_pointer_cast<const Assets::SurfaceMaterialAsset>( baseShell );
         if ( !base )
             return false;
 
@@ -988,32 +1245,31 @@ namespace Desert::Runtime
 
     std::string MaterialService::AssetNameOf( const Assets::AssetHandle& handle ) const
     {
-        const ServiceGuard serviceLock( false );
-        const auto it = FindOrDiscover( handle );
-        if ( it == m_MaterialAssets.end() || !it->second )
+        const auto shell = ShellOf( handle );
+        if ( !shell )
             return {};
-        return it->second->GetMetadata().Filepath.stem().string();
+        return shell->GetMetadata().Filepath.stem().string();
     }
 
     bool MaterialService::IsBroken( const Assets::AssetHandle& handle ) const
     {
-        const ServiceGuard serviceLock( false );
-        const auto it = FindOrDiscover( handle );
-        return it != m_MaterialAssets.end() && it->second && it->second->IsBroken();
+        const auto shell = ShellOf( handle );
+        return shell && shell->IsBroken();
     }
 
-    const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
+    std::shared_ptr<const Assets::SurfaceMaterialAsset>
+    MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
     {
-        const ServiceGuard serviceLock( false );
-        // An instance names no program of its own, so every question about its template is the base's.
+        // An instance names no program of its own, so every question about its template is the base's. Walked
+        // unlocked, each link held by a strong reference (CreateRuntimeInstance says why).
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            auto it = FindOrDiscover( current );
-            if ( it == m_MaterialAssets.end() )
+            const auto shell = ShellOf( current );
+            if ( !shell )
                 return nullptr;
-            (void)EnsureLoaded( it->second );
-            const auto* surf = dynamic_cast<const Assets::SurfaceMaterialAsset*>( it->second.get() );
+            (void)EnsureLoaded( shell );
+            auto surf = std::dynamic_pointer_cast<const Assets::SurfaceMaterialAsset>( shell );
             if ( !surf )
                 return nullptr;
             const auto parentId = surf->Data().InstanceParentId();
@@ -1029,8 +1285,7 @@ namespace Desert::Runtime
 
     MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
     {
-        const ServiceGuard serviceLock( false );
-        const auto* base = BaseOf( handle );
+        const auto base = BaseOf( handle );
         if ( base == nullptr )
             return MaterialTemplate{};
         return MaterialTemplate{ base->GetShaderHandle(), base->GetShaderName() };
@@ -1040,8 +1295,7 @@ namespace Desert::Runtime
                                                                       Graphic::MeshVertexPath    path,
                                                                       Graphic::MeshPass          pass ) const
     {
-        const ServiceGuard serviceLock( false );
-        const auto* base = BaseOf( handle );
+        const auto base = BaseOf( handle );
         if ( base == nullptr )
             return Common::MakeError<std::string>( std::format(
                  "material {} (or a parent in its instance chain) is not registered or not readable, so it has no "
@@ -1053,7 +1307,6 @@ namespace Desert::Runtime
     Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
                                                    Graphic::MeshPass pass ) const
     {
-        const ServiceGuard serviceLock( false );
         if ( const auto cell = CellShaderNameOf( handle, path, pass ); !cell )
             return Common::MakeFormattedError( "{}", cell.GetError() );
         return BOOLSUCCESS;
@@ -1061,7 +1314,7 @@ namespace Desert::Runtime
 
     void MaterialService::Clear()
     {
-        const ServiceGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::JoinRender );
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
         // The revisions outlive the clear and move: a material built after it is a new build of its asset.
@@ -1082,7 +1335,7 @@ namespace Desert::Runtime
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )
     {
-        const ServiceGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         auto it = m_Materials.find( handle );
         if ( it == m_Materials.end() )
             return;
@@ -1120,7 +1373,7 @@ namespace Desert::Runtime
 
     void MaterialService::Release( const Assets::AssetHandle& handle )
     {
-        const ServiceGuard serviceLock( true );
+        const WriteGuard serviceLock( Fence::LockOnly );
         // The built materials first, through the graveyard — Invalidate already writes that correctly
         // (reverse index dropped now, destruction deferred to a safe point) and it bumps the stamp, which
         // is what makes every cached runtime instance of the dying material rebuild instead of holding a
@@ -1142,30 +1395,67 @@ namespace Desert::Runtime
 
     void MaterialService::CollectGarbage()
     {
-        const ServiceGuard serviceLock( true );
-        // Safe point: no frame is being recorded (caller guarantees frame start). Only the materials whose
-        // last possible frame has retired are destroyed; the rest wait for a later frame start.
-        const auto& frames = Engine::FrameManager::GetInstance();
-        m_Graveyard.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+        // ONE SYNC PER FRAME (CPU-ONE-SYNC; UE: deferred deletion behind the rendering thread). The frame loop
+        // calls this every frame, and a writer's guard here joined the render task every frame: frame N-1's
+        // interface, submit and present had to finish before the world tick could start, and the render thread
+        // idled through the tick ("Render task: wait for game thread" 0.76 ms). Now the graveyard is only LOOKED
+        // AT here - the reader lock, no join - and when it holds anything the destruction runs as a command
+        // behind the views in flight (RenderTask::AfterViews): at the next view bracket's fence (BeginScene's
+        // JoinViews, step 4b SyncPreviousFrame), or at once when nothing is in flight (serial mode, tests, bakes).
+        {
+            const ReadGuard serviceLock;
+            if ( m_Graveyard.Size() == 0 )
+                return;
+        }
+        if ( CollectQueued().exchange( true ) )
+            return;
+        // BEHIND THE VIEWS ONLY (RenderTask::AfterViews, CPU-GT-OVERLAP): a full-fence command here made the next
+        // view bracket's JoinViews a full Join on every frame the graveyard held anything. It no longer races the
+        // frame jobs still in flight at JoinViews (frame N-1's interface draw, census, submit/present; frame N's
+        // begin and surface-cache frame): none of them reads a Material or this service's tables - the view jobs
+        // (their render passes and workers) are the only readers, and they are drained when this runs. What
+        // Collect destroys was parked at least frames-in-flight frames ago, so no recorded command buffer of a
+        // frame still in flight names its pools either. Hence the writer's guard does not join: the views are
+        // drained, and a join here would wait for exactly the frame jobs this fence lets run.
+        ::Desert::Engine::RenderTask::Get().AfterViews(
+             [this]()
+             {
+                 CollectQueued().store( false );
+                 const WriteGuard serviceLock( Fence::LockOnly );
+                 ::Desert::Engine::RenderTask::CheckRenderStateWrite( "MaterialService: graveyard collect" );
+                 // Only the materials whose last possible frame has retired are destroyed (the GPU side: the
+                 // slot fence of frame N - frames in flight was waited at BeginFrame); the rest wait for a later
+                 // collection.
+                 const auto& frames = Engine::FrameManager::GetInstance();
+                 m_Graveyard.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+             } );
     }
 
     Graphic::Material* MaterialService::GetByExternalHandle( const Common::UUID& handle ) const
     {
-        const ServiceGuard serviceLock( false );
-        auto it = m_ExternalToInternal.find( handle );
-        if ( it == m_ExternalToInternal.end() )
+        Assets::AssetHandle internal;
         {
-            return nullptr;
+            const ReadGuard serviceLock;
+            const auto      it = m_ExternalToInternal.find( handle );
+            if ( it == m_ExternalToInternal.end() )
+                return nullptr;
+            internal = it->second;
         }
-
-        return Get( it->second );
+        // Get locks for itself: a miss builds, which a shared hold here could not do.
+        return Get( internal );
     }
 
     Assets::AssetHandle MaterialService::GetAssetHandleByExternal( const Common::UUID& uuid ) const
     {
-        const ServiceGuard serviceLock( false );
-        auto it = m_ExternalToInternal.find( uuid );
-        if ( it != m_ExternalToInternal.end() )
+        {
+            const ReadGuard read;
+            if ( const auto found = FindHandleByExternal( uuid ); !found.IsNull() )
+                return found;
+            if ( IsKnownMissing( Assets::AssetHandle{ uuid } ) )
+                return Common::UUID::Null();
+        }
+        const WriteGuard serviceLock( Fence::LockOnly );
+        if ( const auto it = m_ExternalToInternal.find( uuid ); it != m_ExternalToInternal.end() )
             return it->second;
 
         // Identity fallback: file materials ADOPT their header GUID's handle as the asset handle,
@@ -1177,6 +1467,36 @@ namespace Desert::Runtime
             return asHandle;
 
         return Common::UUID::Null();
+    }
+
+    std::shared_ptr<Assets::AssetManager> MaterialService::LockAssetManager() const
+    {
+        const ReadGuard serviceLock;
+        return m_Assets.lock();
+    }
+
+    bool MaterialService::HasBuiltMaterial( const Assets::AssetHandle& handle ) const
+    {
+        const ReadGuard serviceLock;
+        return m_Materials.find( handle ) != m_Materials.end();
+    }
+
+    bool MaterialService::HasAsset( const Assets::AssetHandle& handle ) const
+    {
+        const ReadGuard serviceLock;
+        return m_MaterialAssets.find( handle ) != m_MaterialAssets.end();
+    }
+
+    bool MaterialService::IsPending( const Assets::AssetHandle& handle ) const
+    {
+        const ReadGuard serviceLock;
+        return m_Requests.contains( handle );
+    }
+
+    std::size_t MaterialService::GraveyardCount() const noexcept
+    {
+        const ReadGuard serviceLock;
+        return m_Graveyard.Size();
     }
 
 } // namespace Desert::Runtime

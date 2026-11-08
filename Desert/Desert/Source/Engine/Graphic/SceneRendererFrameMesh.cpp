@@ -2,7 +2,6 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
@@ -30,6 +29,7 @@
 #include <array>
 #include <bit>
 #include <functional>
+#include <span>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -54,7 +54,7 @@ namespace Desert::Graphic
         // with this node's PassContext (graph textures bound by name through RDG::PassBindings); its error is the
         // node's. NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
         void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
-                        const std::vector<RDG::LoadOp>& colors, const RDG::LoadOp& depth,
+                        std::span<const RDG::LoadOp> colors, const RDG::LoadOp& depth,
                         const std::vector<RDG::TextureRef>&                             sampled,
                         std::function<Common::BoolResultStr( const RDG::PassContext& )> body,
                         const std::function<void( RDG::PassBuilder& )>&                 declareBindings = {} )
@@ -84,7 +84,7 @@ namespace Desert::Graphic
     } // namespace
 
     void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
-                                          const std::span<const SystemRasterPass> passes, const bool clearFirst,
+                                          const std::span<SystemRasterPass> passes, const bool clearFirst,
                                           const OverlayTargets& overlay, const bool clearDepth )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
@@ -98,7 +98,7 @@ namespace Desert::Graphic
         // declaration shows.
         const RenderPassSpecification defaults;
         std::shared_ptr<Framebuffer>  previous;
-        for ( const SystemRasterPass& pass : passes )
+        for ( SystemRasterPass& pass : passes )
         {
             // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
             if ( ( !pass.TargetFramebuffer && !pass.TargetDepthArray.IsValid() ) || !pass.ExecuteFunc )
@@ -115,14 +115,14 @@ namespace Desert::Graphic
                  clears && clearDepth
                       ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
                       : RDG::LoadOp::Load();
-            AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
+            AddPassNode( graph, textures, std::move( pass ), color, depth, overlay );
         }
     }
 
     void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
-                                         const SystemRasterPass& pass, const OverlayTargets& overlay )
+                                         SystemRasterPass&& pass, const OverlayTargets& overlay )
     {
-        AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &pass, 1 ), false, overlay );
+        AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &pass, 1 ), false, overlay );
     }
 
     void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
@@ -130,8 +130,7 @@ namespace Desert::Graphic
         // The sun's cascades (MeshRenderer::ShadowCascadePasses): the static layers that went stale, each clearing
         // its cache (to 1: standard Z); each rebuilt map copied from its cache; the movable casters LOADING the
         // map over the copy. A cascade with none of the three keeps last frame's map.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* mesh = m_Systems.Mesh.get() )
         {
             // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs
             // read the screen mask, and the cascades are drawn only for the blended programs that sample them.
@@ -139,12 +138,12 @@ namespace Desert::Graphic
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).
-            const std::vector<SystemRasterPass> local = mesh->LocalShadowPasses();
+            const std::span<SystemRasterPass> local = mesh->LocalShadowPasses();
             AddSystemRasters( graph, textures, local, false );
             // The rain occlusion's top-down depth, when its box moved or its casters changed (it clears its own
             // target); otherwise the map keeps the depth it was drawn with.
-            if ( const std::optional<SystemRasterPass> rain = mesh->RainOcclusionPass() )
-                AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &*rain, 1 ), true );
+            if ( std::optional<SystemRasterPass> rain = mesh->RainOcclusionPass() )
+                AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &*rain, 1 ), true );
         }
     }
 
@@ -154,7 +153,7 @@ namespace Desert::Graphic
         {
             // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
             const RDG::TextureRef                          maps     = textures.Transients.ShadowCascades;
-            const System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
+            System::MeshRenderer::ShadowCascadeFrame cascades = mesh.ShadowCascadePasses( maps );
             // A scrolled cascade first (UE's CSM scrolling): its layer cleared to the far plane (1, standard Z) and
             // the part of its cache the new placement still covers copied in, shifted.
             for ( const auto& scroll : cascades.Scrolls )
@@ -205,8 +204,11 @@ namespace Desert::Graphic
                          pass.Read( cache, RDG::Access::CopySrc );
                          pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( copy.Layer ) );
                      },
-                     [cache, maps, layer = copy.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
-                     { return Renderer::CopyGraphDepthToLayer( context, cache, maps, layer ); } );
+                     // Only the rectangles a cascade's moved casters dirtied when it names them
+                     // (CascadeCacheCopy::Regions); none named, the whole layer.
+                     [cache, maps, layer = copy.Layer,
+                      regions = copy.Regions]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphDepthToLayer( context, cache, maps, layer, regions ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
         }
@@ -221,15 +223,12 @@ namespace Desert::Graphic
         // reached the scene target (AddFrameSkyBehindScene), so no texel geometry covers is shaded by it.
         const bool                    forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
         std::vector<SystemRasterPass> passes;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        if ( auto* sky = m_Systems.Skybox.get();
              sky != nullptr && forward )
             passes.push_back( sky->SkyPass() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* mesh = m_Systems.Mesh.get() )
             passes.push_back( mesh->GeometryPass() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
+        if ( auto* terrain = m_Systems.Terrain.get() )
             passes.push_back( terrain->GeometryPass() );
         AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
     }
@@ -241,19 +240,17 @@ namespace Desert::Graphic
         // meshes' depth/normal prepass included) - at CloserOrEqual against depth 0, writing none. The composite
         // discards the texels without geometry and the forward meshes are drawn at their own depth, so the sky
         // and they never shade the same texel.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
+        if ( auto* sky = m_Systems.Skybox.get() )
             AddSystemRaster( graph, textures, sky->SkyBehindScenePass() );
     }
 
     void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
     {
         // The outlined meshes' mask, cleared every frame so the Jump Flood outline has a fresh input.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* mesh = m_Systems.Mesh.get() )
         {
-            const SystemRasterPass silhouette = mesh->SilhouettePass();
-            AddSystemRasters( graph, textures, std::span<const SystemRasterPass>( &silhouette, 1 ), true );
+            SystemRasterPass silhouette = mesh->SilhouettePass();
+            AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &silhouette, 1 ), true );
         }
     }
 
@@ -265,12 +262,10 @@ namespace Desert::Graphic
         // First the far field, the cloud composite: everything after it is nearer the camera and paints over it.
         // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
         // grid). All on the scene target: the graph merges them into one render pass.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         AddSystemRaster( graph, textures,
-                         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
+                         m_Systems.VolumetricCloud
                               ->CompositePass() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        if ( auto* particles = m_Systems.Particle.get();
              particles != nullptr && !m_ViewProfile.SceneCapture )
             AddSystemRaster( graph, textures, particles->DrawPass() );
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
@@ -316,27 +311,31 @@ namespace Desert::Graphic
                      return ctx;
                  };
                  // The pass's functions are COPIED into the node: the scene may replace the registration while the
-                 // graph built this frame still holds the node.
-                 SystemRasterPass node;
+                 // graph built this frame still holds the node. The node's bodies are bound to the graph's arena,
+                 // so a copied std::function pair that does not fit the inline buffer spills into it.
+                 Common::Memory::FrameArena& arena = graph.GetFrameArena();
+                 SystemRasterPass            node;
                  node.Name              = extension.Name;
                  node.TargetFramebuffer = target;
-                 node.ExecuteFunc =
-                      [context, execute = extension.Execute]( RDG::PassContext& pass, const FrameGraphRefs& refs )
-                 { return execute( context( refs ), pass ); };
+                 node.ExecuteFunc       = NodeRecord(
+                      arena, [context, execute = extension.Execute](
+                                  RDG::PassContext& pass, const FrameGraphRefs& refs ) -> Common::BoolResultStr
+                      { return execute( context( refs ), pass ); } );
                  if ( extension.Declare )
-                     node.Declare = [context, declare = extension.Declare]( RenderPassDeclaration& declared,
-                                                                            const FrameGraphRefs&  refs )
-                     { declare( declared, context( refs ) ); };
-                 AddPassNode( graph, textures, node, target, node.Name, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
+                     node.Declare = SystemRasterPass::DeclareFunc(
+                          arena, [context, declare = extension.Declare]( RenderPassDeclaration& declared,
+                                                                         const FrameGraphRefs&  refs )
+                          { declare( declared, context( refs ) ); } );
+                 AddPassNode( graph, textures, std::move( node ), RDG::LoadOp::Load(), RDG::LoadOp::Load(),
                               overlay );
              } );
     }
 
-    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, const SystemRasterPass& pass,
-                                     const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
+    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
                                      const RDG::LoadOp& color, const RDG::LoadOp& depth,
                                      const OverlayTargets& overlay )
     {
+        const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
         // A pass on one layer of a graph depth array declares that layer alone; one on a framebuffer, all of it.
         const bool                   layered = pass.TargetDepthArray.IsValid();
         std::optional<RasterTargets> targets;
@@ -346,7 +345,7 @@ namespace Desert::Graphic
             targets->Depth = pass.TargetDepthArray;
         }
         else
-            targets = TargetsOf( textures, target, debugName, pass.Name );
+            targets = TargetsOf( textures, target, pass.Name, pass.Name );
         if ( !targets )
             return;
         // After the temporal resolve the scene target is the RENDER-extent pre-resolve scene: the overlay
@@ -370,7 +369,7 @@ namespace Desert::Graphic
             targets->Depth                            = overlay.Depth;
             targets->Resolves                         = {};
         }
-        RenderPassDeclaration declared;
+        RenderPassDeclaration declared( graph.GetFrameArena() );
         // The render area the node draws at: the overlay set's OUTPUT extent when it replaced the scene target,
         // the target framebuffer's otherwise (a layered depth pass lays out nothing in pixels: (0, 0)).
         if ( overlay.IsValid() && target == m_TargetFramebuffer )
@@ -379,11 +378,12 @@ namespace Desert::Graphic
             declared.SetTargetExtent( { target->GetFramebufferWidth(), target->GetFramebufferHeight() } );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
-        std::vector<RDG::TextureRef> images;
+        Common::Memory::ArenaVector<RDG::TextureRef> images(
+             Common::Memory::ArenaAllocator<RDG::TextureRef>( graph.GetFrameArena() ) );
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
 
-        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
+        const Common::Memory::ArenaVector<RDG::LoadOp> colors = textures.ColorLoads( *targets, color );
         graph.AddPass(
              pass.Name,
              RDG::PassFlags::Raster | RDG::PassFlags::NeverCull |
@@ -398,21 +398,24 @@ namespace Desert::Graphic
                                        layered ? pass.TargetLayer : RDG::kAllRemaining );
                  DeclareResolves( node, targets->Resolves );
              },
-             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+             // CPU-RDG-ALLOC: the body MOVED into the closure, which AddPass places in the graph's arena; Reset
+             // destroys the closure (and the body's captures) before it rewinds that arena.
+             [execute = std::move( pass.ExecuteFunc ), refs = textures.GraphRefs()](
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
     void SceneRenderer::AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures,
-                                                 const SystemRasterPass& pass, const RDG::TextureRef display,
+                                                 SystemRasterPass&& pass, const RDG::TextureRef display,
                                                  const RDG::TextureRef depth, const glm::uvec2 extent )
     {
         if ( !pass.ExecuteFunc || !display.IsValid() )
             return;
-        RenderPassDeclaration declared;
+        RenderPassDeclaration declared( graph.GetFrameArena() );
         declared.SetTargetExtent( extent );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
-        std::vector<RDG::TextureRef> images;
+        Common::Memory::ArenaVector<RDG::TextureRef> images(
+             Common::Memory::ArenaAllocator<RDG::TextureRef>( graph.GetFrameArena() ) );
         if ( !ResolveDeclared( textures, declared, pass.Name, images ) )
             return;
         graph.AddPass(
@@ -426,7 +429,7 @@ namespace Desert::Graphic
                  if ( depth.IsValid() )
                      node.DepthTarget( depth, RDG::LoadOp::Load(), /*write*/ false );
              },
-             [execute = pass.ExecuteFunc, refs = textures.GraphRefs()](
+             [execute = std::move( pass.ExecuteFunc ), refs = textures.GraphRefs()](
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
@@ -444,8 +447,8 @@ namespace Desert::Graphic
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-        auto* const meshes  = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        auto* const meshes  = m_Systems.Mesh.get();
+        auto* const terrain = m_Systems.Terrain.get();
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         // The meshes' node CLEARS (it is the first writer of the frame's scene depth); without a mesh renderer the
         // terrain's node does.
@@ -466,6 +469,49 @@ namespace Desert::Graphic
         return depthOnly.Depth;
     }
 
+    void SceneRenderer::AddFrameDecals( RDG::Builder& graph, FrameTextures& textures,
+                                        const RDG::TextureRef sceneDepth )
+    {
+        // No decal in this view: no node and no DBuffer - the view inputs bind System.Black (transmittance 1),
+        // and every G-buffer writer keeps its exact bits (Common/DBuffer.glslh DesertApplyDBuffer).
+        if ( !m_Decals.HasDraws() )
+            return;
+        // The DBuffer at the prepass depth's own extent: every decal texel is a G-buffer texel.
+        const auto depthDesc = graph.GetTextureDesc( sceneDepth );
+        if ( !depthDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: 'Deferred: Decals' refused, the prepass depth has no description: {}",
+                       m_ViewResources.GetName(), depthDesc.GetError() );
+            return;
+        }
+        RDG::TextureDesc desc;
+        desc.Size   = RDG::Extent3D{ depthDesc.GetValue().Size.Width, depthDesc.GetValue().Size.Height, 1 };
+        desc.Format = ViewTargetFormats::kDBufferA;
+        const RDG::TextureRef dbufferA = graph.CreateTexture( desc, "DBufferA" );
+        desc.Format                    = ViewTargetFormats::kDBufferB;
+        const RDG::TextureRef dbufferB = graph.CreateTexture( desc, "DBufferB" );
+        desc.Format                    = ViewTargetFormats::kDBufferC;
+        const RDG::TextureRef dbufferC = graph.CreateTexture( desc, "DBufferC" );
+
+        // UE RenderDBuffer: the boxes over the full early-Z, no depth attachment (the fragment reconstructs the
+        // receiver from @p sceneDepth). The DBuffer's own clears, not textures.ColorLoads: those are the
+        // G-buffer's slots. (0, 0, 0, 1) = nothing written, transmittance 1 (Common/DBuffer.glslh).
+        RasterTargets dbuffer;
+        dbuffer.Colors             = { dbufferA, dbufferB, dbufferC };
+        const RDG::LoadOp    clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
+        const RDG::LoadOp    clears[] = { clear, clear, clear };
+        const RDG::BufferRef rows  = m_Decals.UploadRows( graph );
+        AddRaster(
+             graph, "Deferred: Decals", dbuffer, clears, RDG::LoadOp::Load(), {},
+             [decals = &m_Decals]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return decals->Render( context ); },
+             [decals = &m_Decals, sceneDepth, rows]( RDG::PassBuilder& pass )
+             { decals->Declare( pass, sceneDepth, rows ); } );
+        textures.Transients.DBufferA = dbufferA;
+        textures.Transients.DBufferB = dbufferB;
+        textures.Transients.DBufferC = dbufferC;
+    }
+
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
@@ -478,17 +524,42 @@ namespace Desert::Graphic
         // the contract's clear value (Unlit, receives sun shadows).
         static_assert( Core::ShadingModels::kShadingWordClearValue == 0u,
                        "the G-buffer clear writes 0.0f bits into the uint shading word" );
-        // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
-        // alone, cleared here; the masked GPU-instanced sections write their clipped depth, and the G-buffer below
-        // LOADs it and draws those sections without depth writes (MeshRenderer::DeclareMaskedDepthDraws).
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
+        // THE GROUND IN THE SAME EARLY-Z PASS (UE: the depth pass draws the landscape, an opaque occluder, under
+        // every r.EarlyZPass mode that runs one; TERRAIN-GBUFFER-COST-1): the camera's tiles through
+        // TerrainDepth.shader whenever the frame runs an early-Z pass (TerrainRenderer::PrepassesGBuffer).
+        // "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground under the grass and the meshes
+        // is rejected before its layers are fetched - with its own depth write, its pixel shader's hole discard
+        // left early-Z to the driver and every covered texel was shaded. The meshes' G-buffer tests it too.
+        // FIRST, and it clears the depth (GPU-MASKED-PREPASS; UE's depth pass draws the opaque occluders before
+        // the masked draws): the alpha-tested grass and foliage of the mesh pass below then fail the early depth
+        // test where the ground or a hill hides them instead of running their clip on every layer. The depth the
+        // two passes leave is the nearest fragment whatever their order, so the picture does not move.
+        RDG::LoadOp meshDepthLoad = RDG::LoadOp::ClearDepth( Core::kDepthClear );
+        auto* const terrain       = m_Systems.Terrain.get();
+        if ( terrain != nullptr && terrain->PrepassesGBuffer() )
+        {
+            AddRaster(
+                 graph, "Deferred: Terrain Depth Prepass", depthOnly, {}, meshDepthLoad, {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+            meshDepthLoad = RDG::LoadOp::Load();
+        }
+        // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
+        // alone, cleared here unless the ground's pass above did; the meshes EarlyZPass admits write their
+        // (masked: clipped) depth, the GPU-culled bins first (MeshDrawList::RecordBinnedFirst), and the G-buffer
+        // below LOADs it and draws those meshes EQUAL without depth writes
+        // (MeshRenderer::DeclareMaskedDepthDraws).
         AddRaster(
-             graph, "Deferred: Masked Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             graph, "Deferred: Masked Depth Prepass", depthOnly, {}, meshDepthLoad, {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderMaskedDepthManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
+        AddFrameDecals( graph, textures, targets->Depth );
+        // The view's inputs below are taken AFTER "Deferred: Decals": the G-buffer reads the DBuffer it wrote.
         AddRaster(
              graph, "Deferred: GBuffer", *targets,
              textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
@@ -615,8 +686,7 @@ namespace Desert::Graphic
         // drawn into the same G-buffer: the visibility buffer's sections by a second raster and resolve, the rest
         // by their cells. None built this frame (GRASS-VIS-6): the candidates are drawn untested - phase 1 kept
         // them out on last frame's depth alone, so dropping them would lose grass on the frame's own say-so.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+        auto* grass = m_Systems.Grass.get();
         if ( grass == nullptr || meshRenderer == nullptr || m_ViewProfile.SceneCapture )
             return;
         const std::optional<glm::uvec2> hzbSize = m_FrameFurthestHzb.IsValid()
@@ -668,15 +738,16 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        auto* terrain = m_Systems.Terrain.get();
         AddRaster(
              graph, "TerrainGBuffer", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return terrain->RenderGBufferManual( context ); },
-             [terrain]( RDG::PassBuilder& pass )
+             // The view's inputs as they stand AFTER "Deferred: Decals" (AddFrameGBuffer): the DBuffer it wrote.
+             [terrain, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              {
                  DESERT_PROFILE_SCOPE( "Terrain: GBuffer setup" );
-                 terrain->DeclareGBufferDraws( pass );
+                 terrain->DeclareGBufferDraws( pass, view );
              } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
@@ -758,8 +829,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+        auto* water = m_Systems.Water.get();
         if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
@@ -773,8 +843,7 @@ namespace Desert::Graphic
         // Mesh/Surface/SceneFog.glslh, bound by name through BindSceneViewInputs).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshRenderer = m_Systems.Mesh.get();
         if ( meshRenderer == nullptr )
             return;
         const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
@@ -794,8 +863,7 @@ namespace Desert::Graphic
 #if DESERT_DEV_INSTRUMENTS
     void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* meshRenderer = m_Systems.Mesh.get();
         if ( meshRenderer == nullptr || !meshRenderer->EnsureOverdrawPass() )
             return;
         const auto accum =

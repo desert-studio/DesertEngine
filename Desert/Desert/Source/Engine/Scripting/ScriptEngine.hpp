@@ -111,11 +111,14 @@ namespace Desert::Scripting
         // another kind, is not applied (reported once). Call after LoadEntityScript, before OnStart.
         void ApplyProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& props );
 
-        // The running slot's per-frame sync with the editor's overrides (Details edits a played world live):
-        // ApplyProperties, and a property that held an override on the previous sync but holds none now (its
-        // reset arrow, or an edit back to the default, removes it — ECS::ScriptSlot::Properties keeps only what
-        // differs) gets its declared default back, so the running script sees the value Details shows.
-        void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides );
+        // The running slot's per-frame sync with the editor's overrides (Details edits a played world live), BY
+        // REVISION (ECS::ScriptSlot::PropertiesRevision, UE's PostEditChangeProperty): the same revision as the
+        // last sync does nothing; a new one is ApplyProperties, and a property that held an override on the
+        // previous sync but holds none now (its reset arrow, or an edit back to the default, removes it —
+        // ECS::ScriptSlot::Properties keeps only what differs) gets its declared default back, so the running
+        // script sees the value Details shows. Between edits the script owns its values (a script write stays).
+        void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides,
+                             uint64_t revision );
 
         // One property the running slot declares and the value its script holds NOW (what it last wrote to
         // `Properties.<name>`). Value is empty for a kind no scalar holds (Asset, Entity, Array) and for a value
@@ -134,8 +137,15 @@ namespace Desert::Scripting
         // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did
         // not list it yet), so the slot holds the game state a save captures. Call after OnStart / OnUpdate. A
         // value of another kind than a property can hold (a table, a function) is not copied.
+        // `scope` All reads every one of `names` (after OnStart); Written only those the script assigned since the
+        // last read-back (after OnUpdate: the write barrier, so an untouched slot costs one probe).
+        enum class ReadBackScope : uint8_t
+        {
+            All,
+            Written,
+        };
         void ReadBackProperties( uint32_t entity, uint32_t slot, const std::vector<std::string>& names,
-                                 std::vector<ScriptProperty>& props );
+                                 std::vector<ScriptProperty>& props, ReadBackScope scope );
 
         // After a SaveGame load wrote the SaveGame properties into the ScriptComponents: every running slot gets
         // its loaded values NOW, so the script that loaded reads them on its next line and the read-back after

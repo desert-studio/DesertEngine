@@ -139,12 +139,13 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
         DESERT_SHADER_PARAMETER( Texture, ShortRangeAoTexture );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateTilesUB );
     };
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeParamsUB );
-        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIndexUB );
-        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbesUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
         DESERT_SHADER_PARAMETER( Texture, Velocity );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
@@ -152,6 +153,7 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, DiffuseIndirectHistory );
         DESERT_SHADER_PARAMETER( Texture, HistoryGuide );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeDisocclusionUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, ScreenProbeHistoryTaps );
     };
     struct ScreenProbeGatherSpatialFilterShaderParameters
     {
@@ -167,7 +169,7 @@ namespace
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeParamsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
-        DESERT_SHADER_PARAMETER( Texture, Velocity );
+        DESERT_SHADER_PARAMETER( Texture, ScreenProbeHistoryTaps );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord );
         DESERT_SHADER_PARAMETER( Texture, DiffuseIndirect );
@@ -191,11 +193,24 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 12> kScreenProbeShaderNames{
-             "ScreenProbePlace",  "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",  "ScreenProbeCompactTraces",
-             "ScreenProbeTrace",  "ScreenProbeTrace",        "ScreenProbeTrace",        "ScreenProbeDisocclusion",
-             "ScreenProbeSpatialFilter",
-             "ScreenProbeFilter", "ScreenProbeIntegrate",    "ScreenProbeTemporal" };
+        constexpr std::array<std::string_view, 15> kScreenProbeShaderNames{
+             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
+             "ScreenProbeCompactTraces", "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeDisocclusion",
+             "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeTemporal" };
+
+        // The permutation define of a layout program that shares its shader with another (empty: none); the
+        // integrate's tile classification and its simple-diffuse permutation (ScreenProbeIntegrate.shader).
+        constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
+             "", "", "", "", "", "", "", "", "", "", "", "SP_INTEGRATE_CLASSIFY", "SP_INTEGRATE_SIMPLE_DIFFUSE",
+             "", "" };
+
+        // ScreenProbeIntegrateArgsUB: the simple-diffuse tiles' dispatch, then the full tiles' (x, y = a 2D grid
+        // of SP_INTEGRATE_GROUPS_X groups a row, z = 1, w = the list's count), counted by the classification.
+        // Static storage: QueueStaticBufferUpload copies nothing.
+        constexpr std::array<uint32_t, 8> kIntegrateArgsReset{ 0u, 0u, 1u, 0u, 0u, 0u, 1u, 0u };
+        constexpr uint64_t                kIntegrateFullArgsOffset = 4u * sizeof( uint32_t );
 
         // UE r.Lumen.ScreenProbeGather.SpatialFilterNumPasses.
         constexpr uint32_t kSpatialFilterPasses = 3;
@@ -204,11 +219,13 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr std::string_view kTraceNearFieldDefine = "SP_TRACE_NEAR_FIELD";
         constexpr std::string_view kTraceFarFieldDefine  = "SP_TRACE_FAR_FIELD";
         constexpr std::string_view kTraceCacheMissDefine = "SP_TRACE_CACHE_MISS";
+        constexpr std::string_view kTraceHitLightingDefine = "SP_TRACE_HIT_LIGHTING";
 
         // ScreenProbeCompactTraces' list (CompactPush::FarField): must match the shader's SP_COMPACT_*.
         constexpr uint32_t kCompactNearField = 0u; // no hit, not at the cache, before MaxDistance
         constexpr uint32_t kCompactFarField  = 1u; // no hit
         constexpr uint32_t kCompactCacheMiss = 2u; // the far field reached the cache and no traced probe answered
+        constexpr uint32_t kCompactHitLighting = 3u; // a far-field global-field hit no card holds, left to be lit
 
         // ScreenProbeCompactArgsUB: x = groups, y = z = 1 (a dispatch's three counts; w unused); the allocator: 0.
         constexpr std::array<uint32_t, 4> kCompactArgsReset{ 0u, 1u, 1u, 0u };
@@ -265,11 +282,16 @@ namespace Desert::Graphic::GlobalIllumination
                      std::format( "SP_TRACED_TEXELS={}", tracedTexels ) };
         }
 
-        // A layout-only program's permutation; cooked (ProgramVariants).
-        Core::ShaderVariant LayoutVariant( const uint32_t downsample, const uint32_t tracedTexels )
+        // A layout program's permutation: the layout's defines, then its own (kScreenProbeProgramDefines); cooked
+        // (ProgramVariants).
+        Core::ShaderVariant LayoutVariant( const uint32_t downsample, const uint32_t tracedTexels,
+                                           const std::string_view permutation )
         {
-            return Core::ShaderVariant{ .Defines       = ScreenProbeLayoutDefines( downsample, tracedTexels ),
-                                        .ShippedByCook = true };
+            Core::ShaderVariant variant{ .Defines       = ScreenProbeLayoutDefines( downsample, tracedTexels ),
+                                         .ShippedByCook = true };
+            if ( !permutation.empty() )
+                variant.Defines.emplace_back( permutation );
+            return variant;
         }
 
         // Trace's permutation: TracerVariant's defines, the leg, then the layout's; cooked (ProgramVariants).
@@ -294,13 +316,13 @@ namespace Desert::Graphic::GlobalIllumination
                                                  const uint32_t downsample, const uint32_t tracedTexels )
         {
             Core::ShaderVariant variant = TraceVariant( pipeline, leg, downsample, tracedTexels );
-            if ( leg == kTraceFarFieldDefine )
+            if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine )
                 variant.Defines.emplace_back( kTraceMissReasonsDefine );
             return variant;
         }
 
         // ScreenProbes.MissReasons, zeroed per frame: one word per RADIANCE_CACHE_READ_* (Common/RadianceCache.glslh).
-        constexpr std::array<uint32_t, ScreenProbeMissReasons::kReasons> kMissReasonsReset{};
+        constexpr std::array<uint32_t, ScreenProbeMissReasons::kWords> kMissReasonsReset{};
 #endif
     } // namespace
 
@@ -316,26 +338,29 @@ namespace Desert::Graphic::GlobalIllumination
         if ( downsample == m_ProgramDownsample && tracedTexels == m_ProgramTracedTexels )
             return BOOLSUCCESS;
         if ( !ScreenProbeLayoutSupported( downsample, tracedTexels ) )
-            return RefuseLayout( downsample, tracedTexels, {}, false,
+            return RefuseLayout( downsample, tracedTexels, {}, {}, false,
                                  std::format( "screen probes: the layout {} px / {} texels is not one the shaders "
                                               "compile (8, 16, 32 or 64 px a probe; 4..16 traced texels a side)",
                                               downsample, tracedTexels ) );
-        const auto                shaders = Runtime::ResourceRegistry::GetShaderService();
-        const Core::ShaderVariant variant = LayoutVariant( downsample, tracedTexels );
+        const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
-            if ( program == TraceNearField || program == TraceFarField || program == TraceCacheMiss )
+            if ( program == TraceNearField || program == TraceFarField || program == TraceCacheMiss ||
+                 program == TraceHitLighting )
                 continue; // tracer permutations, EnsureTraceProgram
-            const std::string name( kScreenProbeShaderNames[program] );
-            auto              acquired = shaders->AcquireVariant( name, variant );
+            const std::string         name( kScreenProbeShaderNames[program] );
+            const std::string_view    permutation = kScreenProbeProgramDefines[program];
+            const Core::ShaderVariant variant     = LayoutVariant( downsample, tracedTexels, permutation );
+            auto                      acquired    = shaders->AcquireVariant( name, variant );
             if ( !acquired )
-                return RefuseLayout( downsample, tracedTexels, name, true,
-                                     std::format( "screen probes: shader {} ({} px, {} texels) was refused: {}",
-                                                  name, downsample, tracedTexels, acquired.GetError() ) );
+                return RefuseLayout( downsample, tracedTexels, name, permutation, true,
+                                     std::format( "screen probes: shader {} {}({} px, {} texels) was refused: {}",
+                                                  name, permutation, downsample, tracedTexels,
+                                                  acquired.GetError() ) );
             auto shader   = acquired.ExtractValue();
             auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
             if ( !pipeline )
-                return RefuseLayout( downsample, tracedTexels, name, false,
+                return RefuseLayout( downsample, tracedTexels, name, permutation, false,
                                      std::format( "screen probes: {}: {}", name, pipeline.GetError() ) );
             m_Shaders[program]   = std::move( shader );
             m_Pipelines[program] = pipeline.GetValue();
@@ -347,16 +372,17 @@ namespace Desert::Graphic::GlobalIllumination
     }
 
     Common::BoolResultStr ScreenProbeGather::RefuseLayout( const uint32_t downsample, const uint32_t tracedTexels,
-                                                           std::string program, const bool service,
-                                                           std::string error )
+                                                           std::string program, const std::string_view permutation,
+                                                           const bool service, std::string error )
     {
         // The same refusal asked again keeps its Reported; a different layout or program is a new one.
         if ( !m_LayoutRefusal || m_LayoutRefusal->Downsample != downsample ||
              m_LayoutRefusal->TracedTexels != tracedTexels || m_LayoutRefusal->Program != program ||
-             m_LayoutRefusal->Service != service )
+             m_LayoutRefusal->Permutation != permutation || m_LayoutRefusal->Service != service )
             m_LayoutRefusal = LayoutRefusal{ .Downsample   = downsample,
                                              .TracedTexels = tracedTexels,
                                              .Program      = std::move( program ),
+                                             .Permutation  = permutation,
                                              .Service      = service };
         return Common::MakeError<bool>( std::move( error ) );
     }
@@ -370,7 +396,8 @@ namespace Desert::Graphic::GlobalIllumination
         if ( m_LayoutRefusal->Service )
             return Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport(
                  m_LayoutRefusal->Program,
-                 LayoutVariant( m_LayoutRefusal->Downsample, m_LayoutRefusal->TracedTexels ) );
+                 LayoutVariant( m_LayoutRefusal->Downsample, m_LayoutRefusal->TracedTexels,
+                                m_LayoutRefusal->Permutation ) );
         return !std::exchange( m_LayoutRefusal->Reported, true );
     }
 
@@ -403,12 +430,14 @@ namespace Desert::Graphic::GlobalIllumination
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
     {
         if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && m_Pipelines[TraceCacheMiss] &&
+             m_Pipelines[TraceHitLighting] &&
              pipeline == m_TraceProgramFor &&
              m_TraceProgramDownsample == m_ProgramDownsample && m_TraceProgramTracedTexels == m_ProgramTracedTexels )
             return BOOLSUCCESS;
         for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
                                              std::pair{ TraceFarField, kTraceFarFieldDefine },
-                                             std::pair{ TraceCacheMiss, kTraceCacheMissDefine } } )
+                                             std::pair{ TraceCacheMiss, kTraceCacheMissDefine },
+                                             std::pair{ TraceHitLighting, kTraceHitLightingDefine } } )
         {
             const std::string name( kScreenProbeShaderNames[program] );
 #if DESERT_DEV_INSTRUMENTS
@@ -444,18 +473,21 @@ namespace Desert::Graphic::GlobalIllumination
     {
         std::vector<Core::CookedProgramVariant> variants;
         for ( uint32_t program = 0; program < ProgramCount; ++program )
-            if ( program != TraceNearField && program != TraceFarField && program != TraceCacheMiss )
-                variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
-                                      LayoutVariant( downsample, tracedTexels ) } );
+            if ( program != TraceNearField && program != TraceFarField && program != TraceCacheMiss &&
+                 program != TraceHitLighting )
+                variants.push_back(
+                     { std::string( kScreenProbeShaderNames[program] ),
+                       LayoutVariant( downsample, tracedTexels, kScreenProbeProgramDefines[program] ) } );
         for ( const Pipeline& tracer : kTracerPermutations )
             for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
                                                  std::pair{ TraceFarField, kTraceFarFieldDefine },
-                                                 std::pair{ TraceCacheMiss, kTraceCacheMissDefine } } )
+                                                 std::pair{ TraceCacheMiss, kTraceCacheMissDefine },
+                                                 std::pair{ TraceHitLighting, kTraceHitLightingDefine } } )
             {
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                       TraceVariant( tracer, leg, downsample, tracedTexels ) } );
 #if DESERT_DEV_INSTRUMENTS
-                if ( leg == kTraceFarFieldDefine )
+                if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine )
                     variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                           CountedTraceVariant( tracer, leg, downsample, tracedTexels ) } );
 #endif
@@ -473,7 +505,9 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t res = layout.TracedTexels;
         m_Traced               = CreateTarget( "ScreenProbes.Traced", row * res, layout.AtlasRows * res );
         m_Filtered = CreateTarget( "ScreenProbes.Filtered", row * ( res + 2u ), layout.AtlasRows * ( res + 2u ) );
-        m_ShortRangeAO         = CreateTarget( "ScreenProbes.ShortRangeAO", extent.x, extent.y );
+        // Half the G-buffer's resolution, rounded up (UE r.Lumen.ScreenProbeGather.ShortRangeAO.Downsample).
+        m_ShortRangeAO = CreateTarget( "ScreenProbes.ShortRangeAO", DivideRoundUp( extent.x, 2u ),
+                                       DivideRoundUp( extent.y, 2u ) );
         if ( !m_Traced || !m_Filtered || !m_ShortRangeAO )
             return Common::MakeError<bool>( "screen probes: an image could not be created" );
         m_Extent    = extent;
@@ -584,7 +618,7 @@ namespace Desert::Graphic::GlobalIllumination
              RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( ScreenProbePayload ) ) },
              "ScreenProbes.Probes" );
         const RDG::BufferRef sh = graph.CreateBuffer(
-             RDG::BufferDesc{ layout.Probes() * ScreenProbeLayout::kSHCoefficients * 16ull }, "ScreenProbes.SH" );
+             RDG::BufferDesc{ layout.Probes() * ScreenProbeLayout::kSHPackedVec4 * 16ull }, "ScreenProbes.SH" );
         const RDG::BufferRef backfaceIrradiance =
              graph.CreateBuffer( RDG::BufferDesc{ layout.Probes() * 16ull }, "ScreenProbes.BackfaceIrradiance" );
         // The fast update's chain (UE ScreenProbeWorldSpeed -> the trace hit's moving bit -> ScreenProbeMoving ->
@@ -646,7 +680,9 @@ namespace Desert::Graphic::GlobalIllumination
         if ( inputs.ShortRangeAO )
         {
             ComputePipeline* const pipeline = m_Pipelines[ShortRangeAO].get();
-            const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
+            // One thread per half-resolution texel (ScreenProbes.ShortRangeAO's extent).
+            const glm::uvec2 groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ),
+                                     DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) );
             graph.AddPass(
                  "ScreenProbes: ShortRangeAO", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -796,7 +832,7 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( readsCards )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
 #if DESERT_DEV_INSTRUMENTS
-                     if ( program == TraceFarField )
+                     if ( program == TraceFarField || program == TraceHitLighting )
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
@@ -832,6 +868,11 @@ namespace Desert::Graphic::GlobalIllumination
                              CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), kCompactNearField } ) );
         traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
                     compact( "far field", CompactPush{ std::numeric_limits<float>::max(), kCompactFarField } ) );
+        // GPU-FARFIELD-3: the far field's global-field hits no card holds, lit in a list of their own (UE's hit
+        // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches.
+        traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting",
+                    compact( "hit lighting",
+                             CompactPush{ std::numeric_limits<float>::max(), kCompactHitLighting } ) );
         // The rays the far field took to the radiance cache's coverage and no traced probe answered (cells the view
         // just reached: allocated this frame past the trace budget, or not yet marked) go on to the full trace
         // distance in a list of their own, so the far field's waves stay as short as its own leg.
@@ -841,15 +882,26 @@ namespace Desert::Graphic::GlobalIllumination
         m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
 #endif
 
-        // SPATIAL FILTER (UE FilterScreenProbes, SpatialFilterNumPasses): the disocclusion of every probe's tile,
-        // then three passes across neighbouring probes, each reading the last one's radiance.
+        // HISTORY CLASSIFICATION (UE StochasticLightingTileClassification, PackedPixelData): every surface pixel's
+        // history taps reprojected and tested once (ScreenProbeDisocclusion.shader), packed for the temporal
+        // filter, and every uniform tile's disoccluded share for the spatial filter. SPATIAL FILTER (UE
+        // FilterScreenProbes, SpatialFilterNumPasses): then three passes across neighbouring probes, each reading
+        // the last one's radiance.
         RDG::TextureRef radiance = traced;
+        RDG::TextureRef historyTaps;
         if ( inputs.Denoise )
         {
-            const RDG::BufferRef disocclusion =
-                 graph.CreateBuffer( RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( float ) ) },
-                                     "ScreenProbes.Disocclusion" );
+            const RDG::BufferRef disocclusion = graph.CreateBuffer(
+                 RDG::BufferDesc{ static_cast<uint64_t>( layout.UniformProbes ) * sizeof( float ) },
+                 "ScreenProbes.Disocclusion" );
+            historyTaps = graph.CreateTexture(
+                 RDG::TextureDesc{ .Size   = { .Width = inputs.Extent.x, .Height = inputs.Extent.y },
+                                   .Format = Core::Formats::ImageFormat::RG32_UINT },
+                 "ScreenProbes.HistoryTaps" );
             {
+                // One group per uniform tile, from the strip before the jittered grid (tile -1) to past the frame.
+                const glm::uvec2       classifyGroups( DivideRoundUp( inputs.Extent.x, layout.Downsample ) + 1u,
+                                                       DivideRoundUp( inputs.Extent.y, layout.Downsample ) + 1u );
                 ComputePipeline* const pipeline = m_Pipelines[Disocclusion].get();
                 graph.AddPass(
                      "ScreenProbes: Disocclusion", kAsyncPass,
@@ -859,9 +911,8 @@ namespace Desert::Graphic::GlobalIllumination
                                                         Renderer::GetPipelineRouteFill( *pipeline ) );
                          block.Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeParamsUB,
                                         paramsBuffer, kR )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeIndexUB, index,
-                                        kR )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbesUB, probes, kR )
+                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeHistoryTaps,
+                                        historyTaps, kW )
                               .Storage( ScreenProbeGatherDisocclusionShaderParameters::GIFrameUB, inputs.GIFrame,
                                         kR )
                               .Texture( ScreenProbeGatherDisocclusionShaderParameters::Velocity, inputs.Velocity,
@@ -884,10 +935,11 @@ namespace Desert::Graphic::GlobalIllumination
                                         disocclusion, kW );
                          gbuf( block );
                      },
-                     [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     [pipeline, classifyGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                         return Renderer::DispatchCompute( bindings, *pipeline, classifyGroups.x, classifyGroups.y,
+                                                           1u );
                      } );
             }
             const uint32_t         res = layout.TracedTexels;
@@ -975,23 +1027,65 @@ namespace Desert::Graphic::GlobalIllumination
                      return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
                  } );
         }
+        // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification): every 8x8
+        // tile listed simple-diffuse or full (ScreenProbeIntegrate.shader SP_INTEGRATE_CLASSIFY), then the two
+        // integrate permutations dispatched indirectly over their own lists.
+        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
+        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
+                                             DivideRoundUp( inputs.Extent.y, 8u ) );
+        const RDG::BufferRef integrateArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
+        graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
+        const RDG::BufferRef integrateTileList = graph.CreateBuffer(
+             RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
+             "ScreenProbes.IntegrateTiles" );
         {
-            ComputePipeline* const pipeline = m_Pipelines[Integrate].get();
-            const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
+            ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
             graph.AddPass(
-                 "ScreenProbes: Integrate", kAsyncPass,
+                 "ScreenProbes: Integrate Classify", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
-                     auto block = builder.Bindings( m_Layouts[Integrate].Get( m_Shaders[Integrate] ),
+                     auto block =
+                          builder.Bindings( m_Layouts[IntegrateClassify].Get( m_Shaders[IntegrateClassify] ),
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
+                          .Texture( IntegrateSlots::GBufferBTexture, inputs.GBufferB, kS, all )
+                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW );
+                 },
+                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
+                                                       1u );
+                 } );
+        }
+        // One integrate permutation over its tiles: the simple-diffuse one binds no filtered radiance (it samples
+        // no GGX direction).
+        const auto integrate = [&]( const Program program, const std::string_view name, const uint64_t argsOffset )
+        {
+            ComputePipeline* const pipeline = m_Pipelines[program].get();
+            const bool             simple   = program == IntegrateSimpleDiffuse;
+            graph.AddPass(
+                 name, kAsyncPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
+                     builder.Read( integrateArgs, RDG::Access::IndirectArgs );
+                     if ( !simple )
+                         block.Texture( IntegrateSlots::ScreenProbeFilteredTexture, filtered, kS, all );
+                     // The args again as storage: the 2D grid's groups past the count read it (a buffer's two
+                     // reads merge into one barrier).
+                     block.Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kR )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kR );
                      block.Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeParamsUB, paramsBuffer,
                                     kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeIndexUB, index, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbesUB, probes, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeSHUB, sh, kR )
-                          .Texture( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeFilteredTexture,
-                                    filtered, kS, all )
                           .Sampler( ScreenProbeGatherIntegrateShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeDiffuseOutTexture,
@@ -1024,12 +1118,14 @@ namespace Desert::Graphic::GlobalIllumination
                                     RDG::SamplerDesc::PointClamp() );
                      gbuf( block );
                  },
-                 [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = integrateArgs, argsOffset]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, groups.x, groups.y, 1u );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, argsOffset );
                  } );
-        }
+        };
+        integrate( IntegrateSimpleDiffuse, "ScreenProbes: Integrate Simple Diffuse", 0u );
+        integrate( Integrate, "ScreenProbes: Integrate", kIntegrateFullArgsOffset );
 
         if ( !inputs.Denoise )
             return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,
@@ -1054,7 +1150,8 @@ namespace Desert::Graphic::GlobalIllumination
                      block.Storage( ScreenProbeGatherTemporalShaderParameters::ScreenProbeParamsUB, paramsBuffer,
                                     kR )
                           .Storage( ScreenProbeGatherTemporalShaderParameters::GIFrameUB, inputs.GIFrame, kR )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::Velocity, inputs.Velocity, kS, all )
+                          .Texture( ScreenProbeGatherTemporalShaderParameters::ScreenProbeHistoryTaps, historyTaps,
+                                    kS, all )
                           .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
                           .Texture( ScreenProbeGatherTemporalShaderParameters::GBufferShadingWord,

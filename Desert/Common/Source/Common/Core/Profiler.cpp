@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 
 namespace Common::Profiling
 {
@@ -19,6 +20,7 @@ namespace Common::Profiling
             double   WaitMs    = 0.0;
             double   GpuMs     = 0.0;
             double   GpuSelfMs = 0.0;
+            double   GpuAsyncSelfMs = 0.0; // the async compute queue's part of GpuSelfMs
             uint32_t Calls     = 0;
             uint32_t GpuCalls  = 0;
 
@@ -34,6 +36,7 @@ namespace Common::Profiling
                 WaitMs += other.WaitMs;
                 GpuMs += other.GpuMs;
                 GpuSelfMs += other.GpuSelfMs;
+                GpuAsyncSelfMs += other.GpuAsyncSelfMs;
                 Calls += other.Calls;
                 GpuCalls += other.GpuCalls;
                 return *this;
@@ -117,27 +120,46 @@ namespace Common::Profiling
                 std::vector<uint32_t>              Touched;           // ids added to in this half, for the merge
                 double                             OutermostMs = 0.0; // see Profiler::LastFrameNamedMs
 
-                ScopeAccum& Row( const uint32_t id )
+                [[nodiscard]] bool Reserved( const uint32_t id ) const noexcept
+                {
+                    const uint32_t page = id / kPageRows;
+                    return page < Pages.size() && Pages[page] != nullptr;
+                }
+
+                // Makes row @p id exist and Touched hold one slot per row there is, so Row never allocates: an
+                // id goes into Touched once per drain (every add counts a call), so it never outgrows that.
+                void Reserve( const uint32_t id )
                 {
                     const uint32_t page = id / kPageRows;
                     if ( page >= Pages.size() )
                         Pages.resize( page + 1 );
                     if ( !Pages[page] )
                         Pages[page] = std::make_unique<Page>();
-                    ScopeAccum& row = ( *Pages[page] )[id % kPageRows];
+                    Touched.reserve( Pages.size() * kPageRows );
+                }
+
+                // Row @p id of a reserved page (Reserve), null for one never reserved. Never allocates.
+                ScopeAccum* Row( const uint32_t id ) noexcept
+                {
+                    if ( !Reserved( id ) )
+                        return nullptr;
+                    ScopeAccum& row = ( *Pages[id / kPageRows] )[id % kPageRows];
                     if ( row.Empty() )
-                        Touched.push_back( id );
-                    return row;
+                        Touched.push_back( id ); // within the capacity Reserve made: no reallocation
+                    return &row;
                 }
 
                 // Adds every touched row into @p merged (by id) and leaves the half empty.
-                void DrainInto( std::vector<ScopeAccum>& merged )
+                // @p touched gains each id that was empty in @p merged before this.
+                void DrainInto( std::vector<ScopeAccum>& merged, std::vector<uint32_t>& touched )
                 {
                     for ( const uint32_t id : Touched )
                     {
                         ScopeAccum& row = ( *Pages[id / kPageRows] )[id % kPageRows];
                         if ( id >= merged.size() )
                             merged.resize( id + 1 );
+                        if ( merged[id].Empty() )
+                            touched.push_back( id );
                         merged[id] += row;
                         row = ScopeAccum{};
                     }
@@ -155,13 +177,30 @@ namespace Common::Profiling
             // This thread's runtime names (LocalScopeName). Read and written by this thread alone.
             std::unordered_map<std::string, InternedScopeName, ScopeNameKeyHash, ScopeNameKeyEqual> Names;
 
+            // Row @p id in both halves (Half::Reserve). The thread's own call, under the publisher's lock: the
+            // publisher drains a half under it, the only time anyone but this thread reads a half.
+            [[nodiscard]] bool Reserved( const uint32_t id ) const noexcept
+            {
+                return Halves[0].Reserved( id ); // Reserve grows both halves together
+            }
+            void Reserve( const uint32_t id )
+            {
+                for ( Half& half : Halves )
+                    half.Reserve( id );
+            }
+
+            // Adds into row @p id of the active half; false (nothing added) for a row never reserved. @p add
+            // must not throw: this runs in ScopedTimer's destructor.
             template <class Add>
-            void Write( const uint32_t id, Add&& add )
+            bool Write( const uint32_t id, Add&& add ) noexcept
             {
                 Writing.store( true, std::memory_order_seq_cst );
-                Half& half = Halves[Active.load( std::memory_order_seq_cst )];
-                add( half, half.Row( id ) );
+                Half&       half = Halves[Active.load( std::memory_order_seq_cst )];
+                ScopeAccum* row  = half.Row( id );
+                if ( row != nullptr )
+                    add( half, *row );
                 Writing.store( false, std::memory_order_release );
+                return row != nullptr;
             }
 
             // The publisher's side of the handover: the half this thread wrote until now, no longer written.
@@ -174,10 +213,63 @@ namespace Common::Profiling
                 return Halves[old];
             }
         };
+
+        // THE WINDOW BEING ACCUMULATED (Profiler::BeginFrame): every thread's samples drained into it once a
+        // frame, so a row knows each frame's cost (ScopeResult::MaxMs / P99Ms) and a frame its own largest
+        // self rows (HitchFrame). Written by the frame thread alone.
+        struct WindowState
+        {
+            struct FrameRecord
+            {
+                double                                 FrameMs = 0.0; // wall, BeginFrame to BeginFrame
+                std::array<uint32_t, kHitchTopScopes> Ids{};
+                std::array<double, kHitchTopScopes>   SelfMs{};
+                uint32_t                               Count = 0;
+
+                // Keeps the kHitchTopScopes largest self times, largest first.
+                void Offer( const uint32_t id, const double selfMs ) noexcept
+                {
+                    if ( Count == kHitchTopScopes && selfMs <= SelfMs[Count - 1] )
+                        return;
+                    uint32_t at = Count < kHitchTopScopes ? Count++ : Count - 1;
+                    for ( ; at > 0 && SelfMs[at - 1] < selfMs; --at )
+                    {
+                        Ids[at]    = Ids[at - 1];
+                        SelfMs[at] = SelfMs[at - 1];
+                    }
+                    Ids[at]    = id;
+                    SelfMs[at] = selfMs;
+                }
+            };
+
+            std::vector<ScopeAccum>                        Frame; // the frame being drained, by id
+            std::vector<uint32_t>                          FrameTouched;
+            std::vector<ScopeAccum>                        Accum; // the window, by id
+            std::vector<uint32_t>                          Touched;
+            std::vector<std::vector<float>>                RowFrames; // by id: cpu ms of each frame it ran in
+            std::vector<FrameRecord>                       Frames;
+            std::vector<double>                            FrameMsScratch;
+            std::vector<uint32_t>                          HitchScratch;
+            double                                         NamedMs = 0.0; // the frame thread's outermost ms
+            std::chrono::high_resolution_clock::time_point LastFrameAt{};
+            bool                                           HaveLastFrame = false;
+        };
     } // namespace Detail
 
     namespace
     {
+        // The @p q quantile (nearest rank) of a row's per-frame cost over @p frames frames: @p sorted holds the
+        // frames it ran in, ascending; every other frame of the window cost it 0.
+        double QuantileWithIdle( const std::vector<float>& sorted, const uint32_t frames, const double q )
+        {
+            const uint64_t n    = std::max<uint64_t>( frames, sorted.size() );
+            const auto     rank = std::max<uint64_t>( 1, static_cast<uint64_t>( std::ceil( q * double( n ) ) ) );
+            const uint64_t idle = n - sorted.size();
+            if ( rank <= idle )
+                return 0.0;
+            return static_cast<double>( sorted[static_cast<size_t>( rank - idle - 1 )] );
+        }
+
         // The calling thread's buffer (Profiler::LocalStats). Trivially destructible, so it can be read at any
         // point of the thread's exit, including after the retirer below has run.
         thread_local Detail::ThreadStats* t_Stats        = nullptr;
@@ -271,6 +363,9 @@ namespace Common::Profiling
     void Profiler::BeginFrame()
     {
         Detail::ThreadStats* const frameStats = LocalStats(); // the caller is the frame thread
+        if ( !m_Window )
+            m_Window = std::make_unique<Detail::WindowState>();
+        Detail::WindowState& window = *m_Window;
 
         const auto now = Clock::now();
         if ( !m_WindowStarted )
@@ -279,6 +374,62 @@ namespace Common::Profiling
             m_WindowStarted = true;
         }
         ++m_WindowFrames;
+
+        // THE FRAME DRAIN (UE FThreadStats: per-thread packets merged at the frame's end): every thread's half
+        // of the frame that just ended, by name id - once a frame, not once a window, so a row knows each frame's
+        // cost and a frame its own largest rows. A thread that exited since the last drain left both halves
+        // (nobody flips a retired buffer's halves again) and is dropped here.
+        {
+            std::lock_guard<std::mutex> lock( m_ThreadsMutex );
+            for ( auto it = m_Threads.begin(); it != m_Threads.end(); )
+            {
+                Detail::ThreadStats& stats   = **it;
+                const bool           retired = stats.Retired.load( std::memory_order_acquire );
+                if ( retired )
+                {
+                    for ( Detail::ThreadStats::Half& half : stats.Halves )
+                        half.DrainInto( window.Frame, window.FrameTouched );
+                    it = m_Threads.erase( it );
+                    continue;
+                }
+                Detail::ThreadStats::Half& half = stats.Flip();
+                half.DrainInto( window.Frame, window.FrameTouched );
+                if ( &stats == frameStats )
+                    window.NamedMs += half.OutermostMs;
+                half.OutermostMs = 0.0;
+                ++it;
+            }
+        }
+
+        // The drained frame into the window: its rows' sums, each row's cost this frame, its top self rows.
+        {
+            Detail::WindowState::FrameRecord record;
+            if ( window.HaveLastFrame )
+                record.FrameMs = std::chrono::duration<double, std::milli>( now - window.LastFrameAt ).count();
+            if ( window.Accum.size() < window.Frame.size() )
+            {
+                window.Accum.resize( window.Frame.size() );
+                window.RowFrames.resize( window.Frame.size() );
+            }
+            for ( const uint32_t id : window.FrameTouched )
+            {
+                Detail::ScopeAccum& row = window.Frame[id];
+                if ( window.Accum[id].Empty() )
+                    window.Touched.push_back( id );
+                window.Accum[id] += row;
+                if ( row.Calls > 0 )
+                {
+                    window.RowFrames[id].push_back( static_cast<float>( row.TotalMs ) );
+                    record.Offer( id, row.SelfMs );
+                }
+                row = Detail::ScopeAccum{};
+            }
+            window.FrameTouched.clear();
+            if ( window.HaveLastFrame )
+                window.Frames.push_back( record );
+            window.LastFrameAt   = now;
+            window.HaveLastFrame = true;
+        }
 
         const double windowMs    = std::chrono::duration<double, std::milli>( now - m_WindowStart ).count();
         const double windowLimit = static_cast<double>( m_AvgWindowSec ) * 1000.0;
@@ -289,43 +440,16 @@ namespace Common::Profiling
         if ( !forceClose && ( holdOpen || windowMs < windowLimit || m_WindowFrames == 0 ) )
             return; // still accumulating this window
 
-        // THE MERGE: every thread's half of the window, by name id. A thread that exited since the last
-        // publication left both halves (nobody flips a retired buffer's halves again) and is dropped here.
-        std::vector<Detail::ScopeAccum> merged;
-        double                          frameNamedMs = 0.0;
-        {
-            std::lock_guard<std::mutex> lock( m_ThreadsMutex );
-            for ( auto it = m_Threads.begin(); it != m_Threads.end(); )
-            {
-                Detail::ThreadStats& stats   = **it;
-                const bool           retired = stats.Retired.load( std::memory_order_acquire );
-                if ( retired )
-                {
-                    for ( Detail::ThreadStats::Half& half : stats.Halves )
-                        half.DrainInto( merged );
-                    it = m_Threads.erase( it );
-                    continue;
-                }
-                Detail::ThreadStats::Half& half = stats.Flip();
-                half.DrainInto( merged );
-                if ( &stats == frameStats )
-                    frameNamedMs = half.OutermostMs;
-                half.OutermostMs = 0.0;
-                ++it;
-            }
-        }
-
         // Window elapsed: publish the AVERAGE per-frame cost of every scope over the window.
-        const double inv = 1.0 / static_cast<double>( m_WindowFrames );
+        const double   inv    = 1.0 / static_cast<double>( m_WindowFrames );
+        const uint32_t frames = m_WindowFrames;
         m_Display.clear();
         {
             std::lock_guard<std::mutex> lock( m_NameMutex );
-            for ( uint32_t id = 0; id < merged.size(); ++id )
+            for ( const uint32_t id : window.Touched )
             {
-                const Detail::ScopeAccum& result = merged[id];
-                if ( result.Empty() )
-                    continue;
-                ScopeResult avg;
+                Detail::ScopeAccum& result = window.Accum[id];
+                ScopeResult         avg;
                 avg.Name    = m_NameText[id];
                 avg.TotalMs = result.TotalMs * inv;                                              // avg ms / frame
                 avg.Calls = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
@@ -333,8 +457,56 @@ namespace Common::Profiling
                 avg.WaitMs    = result.WaitMs * inv;
                 avg.GpuMs     = result.GpuMs * inv; // avg GPU ms / frame
                 avg.GpuSelfMs = result.GpuSelfMs * inv;
+                avg.GpuAsyncSelfMs = result.GpuAsyncSelfMs * inv;
                 avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
+                std::vector<float>& perFrame = window.RowFrames[id];
+                if ( !perFrame.empty() )
+                {
+                    std::sort( perFrame.begin(), perFrame.end() );
+                    avg.MaxMs = static_cast<double>( perFrame.back() );
+                    avg.P99Ms = QuantileWithIdle( perFrame, frames, 0.99 );
+                    perFrame.clear();
+                }
+                result = Detail::ScopeAccum{};
                 m_Display.push_back( std::move( avg ) );
+            }
+            window.Touched.clear();
+
+            // THE HITCHES: the window's frames over kHitchFactor x its median wall time, slowest first.
+            m_DisplayHitches.clear();
+            m_DisplayHitchCount = 0;
+            m_DisplayMedianMs   = 0.0;
+            if ( !window.Frames.empty() )
+            {
+                window.FrameMsScratch.clear();
+                for ( const Detail::WindowState::FrameRecord& record : window.Frames )
+                    window.FrameMsScratch.push_back( record.FrameMs );
+                const auto middle = window.FrameMsScratch.begin() +
+                                    static_cast<std::ptrdiff_t>( window.FrameMsScratch.size() / 2 );
+                std::nth_element( window.FrameMsScratch.begin(), middle, window.FrameMsScratch.end() );
+                m_DisplayMedianMs = *middle;
+                window.HitchScratch.clear();
+                for ( uint32_t f = 0; f < window.Frames.size(); ++f )
+                    if ( m_DisplayMedianMs > 0.0 && window.Frames[f].FrameMs > kHitchFactor * m_DisplayMedianMs )
+                        window.HitchScratch.push_back( f );
+                m_DisplayHitchCount = static_cast<uint32_t>( window.HitchScratch.size() );
+                std::sort( window.HitchScratch.begin(), window.HitchScratch.end(),
+                           [&window]( uint32_t a, uint32_t b )
+                           { return window.Frames[a].FrameMs > window.Frames[b].FrameMs; } );
+                if ( window.HitchScratch.size() > kMaxPublishedHitches )
+                    window.HitchScratch.resize( kMaxPublishedHitches );
+                for ( const uint32_t f : window.HitchScratch )
+                {
+                    const Detail::WindowState::FrameRecord& record = window.Frames[f];
+                    HitchFrame                              hitch;
+                    hitch.FrameMs  = record.FrameMs;
+                    hitch.MedianMs = m_DisplayMedianMs;
+                    hitch.Frame    = f;
+                    for ( uint32_t k = 0; k < record.Count; ++k )
+                        hitch.Top.emplace_back( m_NameText[record.Ids[k]], record.SelfMs[k] );
+                    m_DisplayHitches.push_back( std::move( hitch ) );
+                }
+                window.Frames.clear();
             }
         }
         if ( m_SortByTime )
@@ -345,7 +517,8 @@ namespace Common::Profiling
                        []( const ScopeResult& a, const ScopeResult& b ) { return a.Name < b.Name; } );
 
         m_DisplayFrameMs      = windowMs * inv; // avg frame time over the window
-        m_DisplayFrameNamedMs = frameNamedMs * inv;
+        m_DisplayFrameNamedMs = window.NamedMs * inv;
+        window.NamedMs        = 0.0;
 
         // The mesh draw split's groups, averaged over the same frames (empty when the split was off all window).
         {
@@ -400,26 +573,45 @@ namespace Common::Profiling
         m_Capture.compare_exchange_strong( expected, CaptureState::None, std::memory_order_acq_rel );
     }
 
+    bool Profiler::ReserveSample( const uint32_t nameId )
+    {
+        if ( !m_Enabled || nameId == kNoScopeName )
+            return false;
+        Detail::ThreadStats* const stats = LocalStats();
+        if ( stats == nullptr )
+            return false;
+        // Only this thread grows its halves, so it reads them without a lock; it grows them under the publisher's
+        // lock, the only other reader (BeginFrame drains a half under it). Once per page of rows per thread.
+        if ( !stats->Reserved( nameId ) )
+        {
+            const std::lock_guard<std::mutex> lock( m_ThreadsMutex );
+            stats->Reserve( nameId );
+        }
+        return true;
+    }
+
     void Profiler::AddSample( const uint32_t nameId, const double totalMs, const double selfMs,
-                              const double waitMs, const bool outermost )
+                              const double waitMs, const bool outermost ) noexcept
     {
         if ( !m_Enabled || nameId == kNoScopeName )
             return;
-        Detail::ThreadStats* const stats = LocalStats();
+        // t_Stats, not LocalStats: the buffer exists since ReserveSample, and making one would allocate.
+        Detail::ThreadStats* const stats = t_Stats;
         if ( stats == nullptr )
             return;
 
-        // Summed across the whole window in this thread's half, merged and averaged on publish.
-        stats->Write( nameId,
-                      [&]( Detail::ThreadStats::Half& half, Detail::ScopeAccum& row )
-                      {
-                          if ( outermost )
-                              half.OutermostMs += totalMs;
-                          row.TotalMs += totalMs;
-                          row.SelfMs += selfMs;
-                          row.WaitMs += waitMs;
-                          row.Calls += 1;
-                      } );
+        // Summed across the whole window in this thread's half, merged and averaged on publish. A row not
+        // reserved (the profiler was off when the scope opened) is not counted: the scope began unmeasured.
+        (void)stats->Write( nameId,
+                            [&]( Detail::ThreadStats::Half& half, Detail::ScopeAccum& row )
+                            {
+                                if ( outermost )
+                                    half.OutermostMs += totalMs;
+                                row.TotalMs += totalMs;
+                                row.SelfMs += selfMs;
+                                row.WaitMs += waitMs;
+                                row.Calls += 1;
+                            } );
     }
 
     namespace
@@ -430,62 +622,61 @@ namespace Common::Profiling
         thread_local ScopedTimer* t_Innermost = nullptr;
     } // namespace
 
+    // EVERYTHING THAT CAN ALLOCATE HAPPENS WHEN THE SCOPE OPENS: the runtime name's id (this thread's name
+    // cache), the thread's buffer and the row in both its halves (ReserveSample). The destructor then only does
+    // arithmetic and AddSample (noexcept). A scope opened while the profiler is off keeps kNoScopeName and is
+    // not measured; m_Start is taken last, so the lookup is not this scope's own time.
     ScopedTimer::ScopedTimer( const char* name, ScopeKind kind )
-         : m_Name( name ), m_Enclosing( t_Innermost ), m_Start( std::chrono::high_resolution_clock::now() ),
-           m_Kind( kind )
+         : m_Enclosing( t_Innermost ), m_Kind( kind )
     {
+        Profiler& profiler = Profiler::Get();
+        if ( name != nullptr && profiler.Enabled() )
+        {
+            const uint32_t id = profiler.LocalScopeName( {}, name ).Id;
+            if ( profiler.ReserveSample( id ) )
+                m_NameId = id;
+        }
         t_Innermost = this;
+        m_Start     = std::chrono::high_resolution_clock::now();
     }
 
     ScopedTimer::ScopedTimer( const InternedScopeName& name, ScopeKind kind )
-         : m_Name( name.Text ), m_NameId( name.Id ), m_Enclosing( t_Innermost ),
-           m_Start( std::chrono::high_resolution_clock::now() ), m_Kind( kind )
+         : m_Enclosing( t_Innermost ), m_Kind( kind )
     {
+        if ( Profiler::Get().ReserveSample( name.Id ) )
+            m_NameId = name.Id;
         t_Innermost = this;
+        m_Start     = std::chrono::high_resolution_clock::now();
     }
 
-    ScopedTimer::~ScopedTimer()
+    ScopedTimer::~ScopedTimer() noexcept
     {
-        // A BODY-LEVEL try, not a function-try-block, and the difference is not style. A function-try-block
-        // on a destructor also covers the destruction of bases and members, none of which can throw here;
-        // what it DOES do is put a `try` between the class body and the brace, and the pointer-ownership
-        // census tracks members by brace depth (measured: it stopped seeing the members entirely).
-        try
+        const double totalMs =
+             std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - m_Start )
+                  .count();
+        // A Wait scope is wait from end to end; a Work scope reports the waits nested in it.
+        const double waitMs = m_Kind == ScopeKind::Wait ? totalMs : m_WaitMs;
+
+        // Off the stack. The innermost timer in the ordinary case; otherwise a timer opened after this one
+        // is still open (it outlives its parent) and takes this one's enclosing timer as its own.
+        if ( t_Innermost == this )
+            t_Innermost = m_Enclosing;
+        else
+            for ( ScopedTimer* inner = t_Innermost; inner != nullptr; inner = inner->m_Enclosing )
+                if ( inner->m_Enclosing == this )
+                {
+                    inner->m_Enclosing = m_Enclosing;
+                    break;
+                }
+        if ( m_Enclosing != nullptr )
         {
-            const double totalMs =
-                 std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - m_Start )
-                      .count();
-            // A Wait scope is wait from end to end; a Work scope reports the waits nested in it.
-            const double waitMs = m_Kind == ScopeKind::Wait ? totalMs : m_WaitMs;
-
-            // Off the stack. The innermost timer in the ordinary case; otherwise a timer opened after this one
-            // is still open (it outlives its parent) and takes this one's enclosing timer as its own.
-            if ( t_Innermost == this )
-                t_Innermost = m_Enclosing;
-            else
-                for ( ScopedTimer* inner = t_Innermost; inner != nullptr; inner = inner->m_Enclosing )
-                    if ( inner->m_Enclosing == this )
-                    {
-                        inner->m_Enclosing = m_Enclosing;
-                        break;
-                    }
-            if ( m_Enclosing != nullptr )
-            {
-                m_Enclosing->m_NestedMs += totalMs;
-                m_Enclosing->m_WaitMs += waitMs;
-            }
-
-            Profiler& profiler = Profiler::Get();
-            if ( profiler.Enabled() && m_Name != nullptr )
-            {
-                // An interned name is its id already; a runtime one is found in this thread's name cache.
-                const uint32_t nameId =
-                     m_NameId != kNoScopeName ? m_NameId : profiler.LocalScopeName( {}, m_Name ).Id;
-                profiler.AddSample( nameId, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs,
-                                    m_Enclosing == nullptr );
-            }
+            m_Enclosing->m_NestedMs += totalMs;
+            m_Enclosing->m_WaitMs += waitMs;
         }
-        DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
+
+        if ( m_NameId != kNoScopeName )
+            Profiler::Get().AddSample( m_NameId, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs,
+                                       m_Enclosing == nullptr );
     }
 
     void Profiler::AddGpuSample( const char* name, double inclusiveMs, double selfMs )
@@ -497,18 +688,58 @@ namespace Common::Profiling
         // lands in a LATER window than the CPU sample of the same scope. Over a window of hundreds of
         // frames that shifts the average by the lag divided by the window — well under a per cent — and it
         // keeps the read off the GPU's critical path, which is the whole point.
-        const uint32_t             nameId = LocalScopeName( {}, name ).Id;
-        Detail::ThreadStats* const stats  = LocalStats();
-        if ( stats == nullptr )
-            return;
-        stats->Write( nameId,
-                      [&]( Detail::ThreadStats::Half&, Detail::ScopeAccum& row )
-                      {
-                          row.GpuMs += inclusiveMs;
-                          row.GpuSelfMs += selfMs;
-                          row.GpuCalls += 1;
-                      } );
+        AddGpuSample( LocalScopeName( {}, name ).Id, inclusiveMs, selfMs, GpuQueue::Graphics );
     }
+
+    void Profiler::AddGpuSample( const uint32_t nameId, const double inclusiveMs, const double selfMs,
+                                 const GpuQueue queue )
+    {
+        if ( !ReserveSample( nameId ) )
+            return;
+        const double asyncSelfMs = queue == GpuQueue::AsyncCompute ? selfMs : 0.0;
+        (void)t_Stats->Write( nameId,
+                              [&]( Detail::ThreadStats::Half&, Detail::ScopeAccum& row )
+                              {
+                                  row.GpuMs += inclusiveMs;
+                                  row.GpuSelfMs += selfMs;
+                                  row.GpuAsyncSelfMs += asyncSelfMs;
+                                  row.GpuCalls += 1;
+                              } );
+    }
+
+    const char* Profiler::ScopeNameText( const uint32_t id )
+    {
+        std::lock_guard<std::mutex> lock( m_NameMutex );
+        return id < m_NameText.size() ? m_NameText[id].c_str() : "";
+    }
+
+#if USE_OPTICK
+    ::Optick::EventDescription* Profiler::OptickEventOf( const InternedScopeName& name )
+    {
+        thread_local std::vector<::Optick::EventDescription*> t_Events;
+        if ( name.Id == kNoScopeName || name.Text == nullptr )
+        {
+            static ::Optick::EventDescription* const s_Unnamed =
+                 ::Optick::EventDescription::Create( "(unnamed scope)", __FILE__, __LINE__ );
+            return s_Unnamed;
+        }
+        if ( name.Id < t_Events.size() && t_Events[name.Id] != nullptr )
+            return t_Events[name.Id];
+        ::Optick::EventDescription* made = nullptr;
+        {
+            std::lock_guard<std::mutex> lock( m_NameMutex );
+            if ( name.Id >= m_OptickEvents.size() )
+                m_OptickEvents.resize( name.Id + 1, nullptr );
+            if ( m_OptickEvents[name.Id] == nullptr ) // the table's text lives as long as the process
+                m_OptickEvents[name.Id] = ::Optick::EventDescription::Create( name.Text, __FILE__, __LINE__ );
+            made = m_OptickEvents[name.Id];
+        }
+        if ( name.Id >= t_Events.size() )
+            t_Events.resize( name.Id + 1, nullptr );
+        t_Events[name.Id] = made;
+        return made;
+    }
+#endif
 
     void Profiler::AddDrawSplitSample( std::string_view pass, std::string_view mesh, std::string_view material,
                                        double gpuMs, const DrawSplitCounts& counts )

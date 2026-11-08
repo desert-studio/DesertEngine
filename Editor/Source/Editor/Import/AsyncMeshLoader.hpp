@@ -112,7 +112,7 @@ namespace Desert::Editor
             }
 
             Common::JobSystem::Get().Submit(
-                 [this, job]
+                 [this, job]() noexcept
                  {
                      // The heavy part, OFF the main thread. No GPU, no AssetManager, no ECS — only this
                      // loader's own ImportManager + the filesystem.

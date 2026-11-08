@@ -47,6 +47,7 @@ namespace Desert::Assets::Serialization
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/ECS/LocalFogVolumeComponent.hpp>
 #include <Engine/ECS/LightUnits.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
@@ -61,6 +62,7 @@ namespace Desert::Assets::Serialization
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
+#include <Engine/ECS/DecalComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/ECS/VFXUserOverride.hpp>
@@ -83,6 +85,7 @@ namespace Desert
     namespace Animation
     {
         class Skeleton;
+        class ClipBindingCache;
         namespace Graph
         {
             struct AnimGraph;
@@ -94,6 +97,16 @@ namespace Desert
 namespace Desert::Graphic
 {
     class Image2D;
+}
+
+namespace Desert::Graphic::Render
+{
+    struct GenericMeshDrawParams; // DrawGenericMeshCommand.hpp
+}
+
+namespace Desert::Runtime
+{
+    struct Font; // FontService.hpp
 }
 
 namespace Desert::Reflection::Generated
@@ -534,11 +547,30 @@ namespace Desert::ECS
         float     EmissiveIntensity = 1.0f;  // >1 => the text blooms
         bool      Billboard         = false; // face the camera (added by the system per frame)
 
+        // Transient: the label's resolve (UE: FSlateFontInfo -> cached FFontData, the shaped text cached until the
+        // string or style changes). TextECSSystem redoes it only when the authored string, the font asset, the
+        // language (Localization::Generation) or the font cache (FontService::Generation) moved; a steady frame
+        // compares these and resolves nothing, decodes nothing and allocates nothing.
+        std::string                    ResolvedSource;    // the authored Text ResolvedText came from
+        std::string                    ResolvedText;      // what is drawn (the localised string)
+        Assets::AssetHandle            ResolvedFontAsset; // the authored Font it was resolved for
+        uint32_t                       ResolvedLocaleGeneration = 0;
+        uint64_t                       ResolvedFontGeneration   = 0;
+        std::shared_ptr<Runtime::Font> ResolvedFont; // co-owned: valid however the cache moves on
+
         // Transient: the laid-out glyph-quad mesh, rebuilt only when the text/font/size changes.
         std::shared_ptr<DynamicMesh> RuntimeMesh;
         std::string                  BuiltText;
-        std::string                  BuiltFont; // resolved ttf path used for the current mesh (font-change guard)
         float                        BuiltSize = 0.0f;
+        uint64_t                     BuiltFontRevision = 0; // Runtime::Font::Revision the mesh's UVs were laid on
+
+        // Transient: the draw's material overrides + ray hit, rebuilt only when the colour, the emission or the
+        // font bake moves. The draw names it by raw pointer, so a rebuild retires the old one (RetireRenderCache).
+        std::shared_ptr<const Graphic::Render::GenericMeshDrawParams> RuntimeDraw;
+        glm::vec4                                                     DrawColor             = glm::vec4( 0.0f );
+        float                                                         DrawEmissiveIntensity = 0.0f;
+        uint64_t                                                      DrawFontRevision      = 0;
+        uint64_t DrawAtlasGeneration = 0; // the atlas's Image2D::GetResourceGeneration (its bindless slot's life)
     };
 
     // SkinnedMeshComponent's authored state as a value (field meanings on the component below).
@@ -998,6 +1030,8 @@ namespace Desert::ECS
     inline void RetireRenderCachesOf( const TextComponent& c )
     {
         RetireRenderCache( c.RuntimeMesh );
+        RetireRenderCache( c.RuntimeDraw );  // the draw's overrides + ray hit, named by raw pointer
+        RetireRenderCache( c.ResolvedFont ); // its atlas is the draw's DirectTexture
     }
 
     // A FOLIAGE FIELD (UE: one FFoliageInfo of an AInstancedFoliageActor). Sits beside an
@@ -1008,6 +1042,20 @@ namespace Desert::ECS
     struct FoliageComponent
     {
         Assets::AssetHandle FoliageType;
+
+        // RUNTIME, never saved: what a Prefab-type field's children were last realized from
+        // (World::Foliage::RealizePrefabFoliage). A field whose instances, child count, world transform, type and
+        // prefab all match it is skipped - realized on an edit, not re-reconciled every frame (UE: foliage
+        // instances change only by an edit).
+        struct PrefabRealization
+        {
+            uint64_t            InstanceRevision = 0; // InstancedStaticMeshComponent::GetInstanceRevision
+            size_t              ChildCount       = 0;
+            glm::mat4           FieldWorld{ 0.0f };
+            Assets::AssetHandle Type;
+            const void*         Prefab = nullptr; // the PrefabAsset realized; null = never realized
+        };
+        PrefabRealization RuntimePrefabRealized;
     };
 
     // One binding of the sequence re-pointed at another entity of THIS scene (UE: a binding override on
@@ -1138,6 +1186,11 @@ namespace Desert::ECS
     // HELD BY VALUE, because the component is its one owner (PointerOwnership's Q1): a pointer here would
     // answer a sharing question nobody has asked yet. A consumer that must keep the tile across frames
     // (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
+    //
+    // ONE WRITER after construction: ECS::SetLandscapeTileHeights / ECS::EditLandscapeTile
+    // (LandscapeRootOf.hpp), both a registry.patch, so the shared tile table (DrawableLandscapeTiles) is
+    // rebuilt on exactly the changes that can move or refuse a tile. Sample values edited in place report
+    // through the tile's dirty rectangles instead.
     struct LandscapeTileComponent
     {
         Common::UUID Landscape = Common::UUID::Null(); // the root entity; null = no frame
@@ -1184,8 +1237,12 @@ namespace Desert::ECS
     class MaterialComponent
     {
     public:
-        MaterialComponent() = default;
-        explicit MaterialComponent( MaterialDesc desc ) : m_Desc( std::move( desc ) ) {}
+        MaterialComponent() : m_Revision( NextRevision() )
+        {
+        }
+        explicit MaterialComponent( MaterialDesc desc ) : m_Desc( std::move( desc ) ), m_Revision( NextRevision() )
+        {
+        }
 
         [[nodiscard]] const MaterialDesc& GetDesc() const
         {
@@ -1203,9 +1260,24 @@ namespace Desert::ECS
         {
             return m_Desc.Textures;
         }
+        // UE: the material's uniform-expression cache is keyed by the material's revision. Process-unique, taken
+        // again by every SetMaterial that changes the desc, so a draw built from this component (MeshECSSystem's
+        // GenericMeshDrawParams) is rebuilt only when it moves. Runtime only: not part of the desc, not serialized
+        // (MaterialComponentSer is built from GetDesc). A copy keeps it, since it keeps the same desc.
+        [[nodiscard]] uint64_t GetRevision() const
+        {
+            return m_Revision;
+        }
 
     private:
+        [[nodiscard]] static uint64_t NextRevision()
+        {
+            static std::atomic<uint64_t> s_Revision{ 0 };
+            return s_Revision.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        }
+
         MaterialDesc m_Desc;
+        uint64_t     m_Revision = 0; // see GetRevision
 
         friend bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc );
     };
@@ -1218,7 +1290,12 @@ namespace Desert::ECS
         {
             if ( component->m_Desc == desc )
                 return false;
-            registry.patch<MaterialComponent>( entity, [&desc]( MaterialComponent& c ) { c.m_Desc = desc; } );
+            registry.patch<MaterialComponent>( entity,
+                                               [&desc]( MaterialComponent& c )
+                                               {
+                                                   c.m_Desc     = desc;
+                                                   c.m_Revision = MaterialComponent::NextRevision();
+                                               } );
             return true;
         }
         registry.emplace<MaterialComponent>( entity, desc );
@@ -1288,6 +1365,9 @@ namespace Desert::ECS
          */
         std::shared_ptr<Animation::Graph::AnimGraph> Graph;
         std::shared_ptr<Animation::Graph::Evaluator> GraphEvaluator; // transient runtime state
+        // TRANSIENT: this entity's clips resolved against its rig (AnimationLibrary.hpp), asked again only
+        // when the library's revision or the rig moves. Shared, not unique, for the incomplete type here.
+        std::shared_ptr<Animation::ClipBindingCache> ClipBindings;
 
         /**
          * @brief Parameter writes a script has asked for and the graph has not consumed yet. TRANSIENT.
@@ -1645,6 +1725,18 @@ namespace Desert::ECS
     class TransformComponent;
     bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
 
+    // Recomposes the cached WORLD transform of `root` (from its nearest transformed ancestor's cached world)
+    // and of every entity under it, parent before child (UE USceneComponent::UpdateComponentToWorld, which
+    // propagates to the attached children). Called by every hierarchy write: SetLocalTransform, Scene::Attach /
+    // Detach, and Core::Scene's construct/replace hooks. Cost is the subtree, on the write; reads are a load.
+    void UpdateWorldTransforms( entt::registry& registry, entt::entity root );
+    // Whether `transform` still holds the root-only world its constructor gave it (a fresh emplace or a
+    // registry.replace), i.e. its parent chain has not been composed into it yet. Core::Scene's hooks ask.
+    [[nodiscard]] bool WorldTransformPending( const TransformComponent& transform );
+    // The cached world transform of the nearest ancestor of `entity` that has a TransformComponent (identity
+    // at a root): what a child composes under, and what an entity without a transform of its own stands at.
+    [[nodiscard]] glm::mat4 ParentWorldTransform( const entt::registry& registry, entt::entity entity );
+
     // THE ENTITY'S LOCAL TRANSFORM, READ-ONLY. Nothing may write it in place: every write goes through
     // SetLocalTransform (below), which is a registry.patch, so EnTT's on_update<TransformComponent> fires for
     // every change and Core::Scene's render-state dirty set (UE MarkRenderStateDirty) sees it at the source —
@@ -1656,7 +1748,7 @@ namespace Desert::ECS
     {
     public:
         TransformComponent() = default;
-        TransformComponent( const LocalTransform& local ) : m_Local( local ) {}
+        TransformComponent( const LocalTransform& local ) : m_Local( local ), m_World( local.GetTransform() ) {}
 
         [[nodiscard]] const LocalTransform& GetLocal() const
         {
@@ -1678,11 +1770,24 @@ namespace Desert::ECS
         {
             return m_Local.GetTransform();
         }
+        // THE CACHED WORLD TRANSFORM (UE USceneComponent::ComponentToWorld): parent world x local, kept current
+        // by UpdateWorldTransforms on every hierarchy write, so a reader neither walks the parent chain nor
+        // recomposes a TRS. Copies with the component (registry copy, duplicate) stay consistent with it.
+        [[nodiscard]] const glm::mat4& GetWorldTransform() const
+        {
+            return m_World;
+        }
 
     private:
         LocalTransform m_Local;
+        glm::mat4      m_World = glm::mat4( 1.0f );
+        // False until UpdateWorldTransforms composed the parent chain in; a constructed component holds the
+        // root-only world (local), which is right for an unparented entity in a registry without hooks.
+        bool m_WorldComposed = false;
 
         friend bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
+        friend void UpdateWorldTransforms( entt::registry& registry, entt::entity root );
+        friend bool WorldTransformPending( const TransformComponent& transform );
     };
 
     // THE ONE WRITER of a TransformComponent (UE USceneComponent::SetRelativeTransform, which ends in
@@ -1693,8 +1798,14 @@ namespace Desert::ECS
     {
         if ( registry.get<TransformComponent>( entity ).m_Local == local )
             return false;
-        registry.patch<TransformComponent>( entity, [&local]( TransformComponent& component )
-                                            { component.m_Local = local; } );
+        // The world cache (this entity's and its subtree's) is recomposed inside the patch, so every
+        // on_update<TransformComponent> listener already reads the new world.
+        registry.patch<TransformComponent>( entity,
+                                            [&registry, entity, &local]( TransformComponent& component )
+                                            {
+                                                component.m_Local = local;
+                                                UpdateWorldTransforms( registry, entity );
+                                            } );
         return true;
     }
 
@@ -3013,6 +3124,17 @@ namespace Desert::ECS
         // listed runs on the script's own default — a new default in the script reaches every entity that never
         // overrode it, the way a UE instance holds only its delta from the class default.
         std::vector<Scripting::ScriptProperty> Properties;
+
+        // Transient: the edit revision of Properties (UE's PostEditChangeProperty). Every writer of Properties
+        // OUTSIDE the running script calls PropertiesEdited() — Details, a script swap; ScriptSystem pushes the
+        // overrides into the running script only when this differs from the revision it pushed last
+        // (ScriptEngine::SyncProperties), never property by property every frame. The SaveGame read-back does
+        // NOT bump it: what it copies came out of the script, which already holds it.
+        std::uint64_t PropertiesRevision = 0;
+        void          PropertiesEdited() noexcept
+        {
+            ++PropertiesRevision;
+        }
 
         bool Started = false; // transient: OnStart already called for this instance
         // Transient: the script's SaveGame property names (Scripting::ReadScriptSaveGameProperties), read

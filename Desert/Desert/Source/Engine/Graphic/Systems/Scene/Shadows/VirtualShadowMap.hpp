@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/PassNameTable.hpp>
 
 #include <glm/glm.hpp>
 
@@ -484,6 +485,15 @@ namespace Desert::Graphic::System
         void ReadAllocator( uint32_t slot );
 
         std::array<KernelProgram, KernelCount> m_Kernels;
+        // The graph's names of the per-level buffers and passes (PassNameTable: made the first frame a level is
+        // drawn, the same string after), each pair indexed [static, movable]. AddCasterCulling is const and asks
+        // its tables while it adds the nodes: they are a cache of strings, no state of the map.
+        std::array<PassNameTable, 2>         m_RasterLevelNames;
+        mutable std::array<PassNameTable, 2> m_CasterArgumentNames;
+        mutable std::array<PassNameTable, 2> m_InstanceRemapNames;
+        mutable std::array<PassNameTable, 2> m_CullDrawNames;
+        mutable std::array<PassNameTable, 2> m_CullInstanceNames;
+        mutable std::array<PassNameTable, 2> m_CullPassNames;
 
         // "VSM: Allocate"'s counters, extracted for the host once per frame-in-flight slot, and the pool size that
         // frame had.

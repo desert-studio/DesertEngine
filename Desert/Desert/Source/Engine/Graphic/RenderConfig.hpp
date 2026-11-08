@@ -49,7 +49,17 @@ namespace Desert::Graphic
         // the column, B 1 where the column is kept (G < R). 2 = along the ray: R the share of 32 samples the
         // cut keeps, G the largest rank step between neighbours x 8 (a seam reads bright). 3 = which clip
         // level of the modelling volume answers at the entry (0 red, 1 green, 2 blue; blend bands mixed).
+        // 4 = the march's cost per ray: R view-ray field evaluations / 256, G lit samples / 64, B the light
+        // samples they scheduled / 512 (8 B / G = light samples per lit sample; CloudRaymarch.shader).
         static inline std::atomic<int> CloudVisualize{ 0 };
+
+        // RDG-RECORD-COMPILE-CACHE: `--rdg-compile-cache <0|1>` (Editor CommandLine). Off, VulkanRdgBackend keeps
+        // no compiled plans (GetCompileCache nullptr) and every graph is compiled every frame.
+        static inline std::atomic<bool> RdgCompileCache{ true };
+
+        // RENDER-PARALLEL-SETUP: `--parallel-setup <0|1>` (Editor CommandLine) for this session, over the
+        // RenderPipeline.ParallelSetup quality value (SceneRenderer::OnUpdate). -1: no override.
+        static inline std::atomic<int> ParallelSetupOverride{ -1 };
     };
 
     // The sampler an engine Image2D / ImageCube carries as its own (VulkanImage CreateSampler, Global policy):

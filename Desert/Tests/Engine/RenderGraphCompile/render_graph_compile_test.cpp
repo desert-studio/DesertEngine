@@ -39,6 +39,7 @@
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <deque>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -258,10 +259,18 @@ namespace
         {
             Calls.push_back( "AbandonGraph" );
         }
-        Common::BoolResultStr UploadBuffer( uint32_t resource, std::span<const std::byte> bytes ) override
+        Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t,
+                                            std::span<const std::byte> bytes ) override
         {
             Calls.push_back( std::format( "UploadBuffer {} {} first {}", resource, bytes.size(),
                                           bytes.empty() ? -1 : static_cast<int>( bytes.front() ) ) );
+            return Common::MakeSuccess( true );
+        }
+        Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
+                                          uint64_t targetOffset, uint64_t bytes ) override
+        {
+            Calls.push_back(
+                 std::format( "CopyBuffer {} {} {} {} {}", source, sourceOffset, target, targetOffset, bytes ) );
             return Common::MakeSuccess( true );
         }
         [[nodiscard]] std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
@@ -269,6 +278,14 @@ namespace
             return nullptr;
         }
         [[nodiscard]] std::shared_ptr<IPhysicalBuffer> GetPhysicalBuffer( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        [[nodiscard]] IPhysicalTexture* FindPhysicalTexture( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        [[nodiscard]] IPhysicalBuffer* FindPhysicalBuffer( uint32_t ) const override
         {
             return nullptr;
         }
@@ -878,7 +895,7 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
                    Access::SampledGraphics, "Sky.TransmittanceLut" )
          .Sampler( RenderGraphCompileTestSecondShaderParameters::LinearClampSampler, SamplerDesc::LinearClamp() );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
-    EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
+    EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName(), "Sky.TransmittanceLut" );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( writer ), nullptr );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( reader ), nullptr );
 
@@ -2434,7 +2451,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "system[terrain->GeometryPass()]",
          "rasters[passes,true]",
          "system[mesh->SilhouettePass()]",
-         "rasters[std::span<constSystemRasterPass>(&silhouette,1),true]",
+         "rasters[std::span<SystemRasterPass>(&silhouette,1),true]",
          "Deferred: GBuffer",
          "TerrainGBuffer",
          "Deferred: DepthResolve",
@@ -2452,7 +2469,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // evaluation of the OPAQUE depth and its apply over the scene, all before the scene copy (the refraction
          // reads the fogged scene) and before every translucent draw, which fogs itself at its own depth.
          "Scene: DepthResolve",
-         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput())]",
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
@@ -2461,7 +2478,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: Glass",
          // The forward path's opaque fog (the same call; the deferred path took it above).
          "Scene: DepthResolve",
-         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput())]",
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
@@ -2469,7 +2486,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Scene: DepthResolve",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
          // A path-traced frame took no opaque fog: its sky LUTs here.
-         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput())]",
          // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
          "extension[AfterOpaque]",
          // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:
@@ -2607,10 +2624,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
               { "m_TargetFramebuffer->Resize(width,height);", "m_GBuffer->Resize(width,height);",
                 "resolve->Resize(width,height);", "maskFb->Resize(width,height);",
                 "overdrawFb->Resize(width,height);", "->OnResize(width,height);" } );
-    declares( "Resize", { "m_RenderSystems[\"TonemapSystem\"])->Resize(width,height);",
-                          "m_RenderSystems[\"FXAASystem\"])->Resize(width,height);",
-                          "m_RenderSystems[\"SMAASystem\"])->Resize(width,height);",
-                          "ResizeRenderTargets(split.GetValue().Render);" } );
+    declares( "Resize",
+              { "m_Systems.Tonemap->Resize(width,height);", "m_Systems.FXAA->Resize(width,height);",
+                "m_Systems.SMAA->Resize(width,height);", "ResizeRenderTargets(split.GetValue().Render);" } );
     {
         const std::string resize = squeeze( bodyOf( "Resize" ) );
         EXPECT_EQ( resize.find( "m_TargetFramebuffer->Resize(" ), std::string::npos )
@@ -3839,14 +3855,14 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
             "node.DepthTarget(targets->Depth,depth,!pass.DepthReadOnly)",
             "DeclareResolves(node,targets->Resolves)",
             "RDG::LoadOp::ClearDepth(pass.ClearDepth.value_or(defaults.ClearColor.DepthStencil.x))",
-            "AddPassNode(graph,textures,pass,target,pass.Name,color,depth,overlay);" } )
+            "AddPassNode(graph,textures,std::move(pass),color,depth,overlay);" } )
         EXPECT_NE( bridge.find( needle ), std::string::npos ) << "the system raster node does not " << needle;
     EXPECT_EQ( bridge.find( "BeginRenderPass(" ), std::string::npos );
     EXPECT_EQ( bridge.find( "EndRenderPass(" ), std::string::npos );
 
     // The declaration lives on the pass registration, not in a list in SceneRenderer.
     EXPECT_NE( source( "SystemRasterPass.hpp" )
-                    .find( "std::function<void(RenderPassDeclaration&,constFrameGraphRefs&)>Declare;" ),
+                    .find( "ArenaFunction<void(RenderPassDeclaration&,constFrameGraphRefs&)>;" ),
                std::string::npos );
     EXPECT_NE( source( "ExtensionPass.hpp" )
                     .find( "std::function<void(RenderPassDeclaration&,constExtensionPassContext&)>Declare;" ),
@@ -3945,7 +3961,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     const std::string frame = source( "SceneRendererFrameAtmosphere.cpp" );
     for ( const char* needle :
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
-            "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
+            "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes(textures.GraphRefs(),GetCloudShadowInput()))",
             "AddComputeNodes(graph,textures,volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual()))",
             "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients,volumeResult))",
             "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
@@ -5244,12 +5260,20 @@ namespace
     struct CollectedBlock
     {
         DeclaredBindingBlock Block;
+        // An entry views its slot name (CPU-RDG-ALLOC); outside a graph the block's owner keeps the characters.
+        // A deque never moves what it holds when it grows.
+        std::deque<std::string> Names;
+
+        std::string_view Keep( std::string name )
+        {
+            return Names.emplace_back( std::move( name ) );
+        }
 
         CollectedBlock& Texture( Desert::Graphic::RDG::TextureParameter parameter, TextureRef texture,
                                  Access access, SubresourceRange range )
         {
-            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::Texture, ResourceKind::Texture,
-                                       texture.Index, access, range, std::nullopt } );
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::Texture,
+                                       ResourceKind::Texture, texture.Index, access, range, std::nullopt } );
             return *this;
         }
         CollectedBlock& Sampler( Desert::Graphic::RDG::SamplerParameter parameter, SamplerDesc sampler )
@@ -5258,15 +5282,15 @@ namespace
             for ( const DeclaredBindingEntry& e : Block.Entries )
                 if ( e.Kind == ShaderResourceKind::Sampler && e.ShaderName == name && e.Sampler == sampler )
                     return *this;
-            Block.Entries.push_back( { name, ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
-                                       Access::None, SubresourceRange::All(), sampler } );
+            Block.Entries.push_back( { Keep( name ), ShaderResourceKind::Sampler, ResourceKind::Texture,
+                                       kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageBufferParameter parameter, BufferRef buffer,
                                  Access access )
         {
-            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageBuffer,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::StorageBuffer,
                                        ResourceKind::Buffer, buffer.Index, access, SubresourceRange::All(),
                                        SamplerDesc::LinearClamp() } );
             return *this;
@@ -5275,7 +5299,7 @@ namespace
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageTextureParameter parameter, TextureRef texture,
                                  Access access )
         {
-            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageTexture,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::StorageTexture,
                                        ResourceKind::Texture, texture.Index, access, SubresourceRange::All(),
                                        std::nullopt } );
             return *this;

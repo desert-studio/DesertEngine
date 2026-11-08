@@ -47,6 +47,7 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class Image;
+    class Image2D;
     class Image3D;
     class Shader;
     class ComputePipeline;
@@ -99,14 +100,42 @@ namespace Desert::Graphic::DistanceField
     // (SceneRenderer::AddFrameGlobalDistanceField: the GpuScene's change stream, a field landing, the surface
     // cache's placements) and then seals it; the field's update reads the seal instead of re-deriving the
     // list's identity and the objects' boxes every frame.
+    // ONE LANDSCAPE TILE AS A HEIGHTFIELD OBJECT OF THE GLOBAL DISTANCE FIELD (UE
+    // r.AOGlobalDistanceFieldRepresentHeightfields: a landscape component is a surface of the global field): its
+    // distance is analytic from the R16 heights the raster draws (Shaders/Common/HeightfieldDistanceField.glslh),
+    // so the ground is in the software trace scene without a baked volume, and a sculpt (a new HeightRevision)
+    // recomposites the bricks the tile touches. The per-object near field is for meshes: a tile is never a
+    // near-field cull candidate (MeshDistanceFieldReads::NumMeshObjects). Skinned meshes stay out of the software
+    // scene (UE parity).
+    struct GlobalDistanceFieldHeightfield
+    {
+        // The tile's R16_UNORM heights with the one-sample ring of its neighbours (LandscapeBorderedSamples), read
+        // through the bindless table, and the revision of their pixels (LandscapeTileDraw::HeightRevision).
+        std::shared_ptr<Image2D> Heightmap;
+        uint64_t                 HeightRevision = 0;
+        // World x, z of the tile's sample (0, 0) (root origin + first global sample x spacing), cm.
+        glm::vec2 SampleOrigin{ 0.0f };
+        float     SpacingCm    = 0.0f;
+        float     BaseY        = 0.0f; // the root's base height, world cm
+        float     ZScale       = 0.0f; // the landscape's vertical scale
+        uint32_t  QuadsPerTile = 0;
+        // The world box: xz the tile, y its lowest and highest sample (LandscapeTileDraw::MinY / MaxY).
+        Common::Math::AABB Bounds;
+        // The instance-table row of the tile's heightfield cards (kNoObjectGridRow while it has none).
+        uint32_t Row = kNoObjectGridRow;
+    };
+
     struct GlobalDistanceFieldObjectSet
     {
         std::vector<GlobalDistanceFieldObject> Objects;
         // Each object's world box (its field's LocalSpaceMeshBounds through World), index for index with Objects.
         std::vector<Common::Math::AABB> Bounds;
-        // The list's identity (field, transform, foliage flag and row of each, in order): what the once-per-frame
-        // rule compares and what the field's kept placement is keyed on. Not PrevWorld: the clipmaps hold this
-        // frame's surface only.
+        // The landscape tiles, placed after the objects in the object records (DF_OBJECT_FLAG_HEIGHTFIELD): the
+        // global field's composite reads them, the near field's cull stops before them.
+        std::vector<GlobalDistanceFieldHeightfield> Heightfields;
+        // The list's identity (field, transform, foliage flag and row of each, in order, then every heightfield's
+        // heights, revision, frame and row): what the once-per-frame rule compares and what the field's kept
+        // placement is keyed on. Not PrevWorld: the clipmaps hold this frame's surface only.
         uint64_t Identity = 0;
     };
     // Fills @p set's Bounds and Identity from its Objects; call after every rebuild of the Objects.
@@ -229,6 +258,9 @@ namespace Desert::Graphic::DistanceField
             uint64_t                        Lookups       = 0;
             std::vector<Common::Math::AABB> PlacedBounds;
             std::vector<glm::vec4>          ObjectData;
+            // The placed mesh objects, which lead PlacedBounds and ObjectData; the landscape tiles follow them
+            // (the global field's only - MeshDistanceFieldReads::NumMeshObjects).
+            uint32_t MeshObjects = 0;
         };
         std::optional<KeptPlacement> m_Placement;
         // The fields of the set m_FieldsIdentity names, as BeginViewFrame takes them (rebuilt with the set only).
@@ -246,7 +278,8 @@ namespace Desert::Graphic::DistanceField
             glm::vec3                                           Camera{ 0.0f };
             uint64_t                                            Objects = 0;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps> Levels{};
-            uint32_t                                            NumObjects = 0;
+            uint32_t                                            NumMeshObjects = 0;
+            uint32_t                                            NumObjects     = 0;
         };
         std::optional<FrameUpdate> m_FrameUpdate;
 

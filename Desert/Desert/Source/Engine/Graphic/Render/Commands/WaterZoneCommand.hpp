@@ -20,7 +20,7 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitWaterZone( std::move( Zone ) );
+            renderer.SubmitWaterZone( Zone ); // by reference: read until EndScene, which this command outlives
         }
     };
 } // namespace Desert::Graphic::Render

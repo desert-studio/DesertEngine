@@ -29,9 +29,9 @@ namespace Desert
 
         Common::BoolResultWithCodes<MeshError> Invalidate() override;
 
+        // GAME THREAD. Replaces the CPU geometry; the device side follows at the next fence that prepares a draw
+        // of this mesh (SceneRenderer::PrepareMesh), never under a view job.
         void Update( const std::vector<Vertex>& vertices, const std::vector<Index>& indices );
-
-        void Flatten();
 
         [[nodiscard]] std::vector<Vertex>&       GetVertices() { return m_Vertices; }
         [[nodiscard]] const std::vector<Vertex>& GetVertices() const { return m_Vertices; }

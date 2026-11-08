@@ -461,13 +461,14 @@ namespace Desert::Editor
         // The source hash is taken HERE, at dispatch, for the reason ThumbnailFreshness::Record gives.
         m_PaintInFlight = Common::JobSystem::Get().Async(
              [source = req.Source, png = req.Png,
-              hash = ThumbnailFreshness::ContentHash( req.Source )]() -> Common::BoolResultStr
+              hash = ThumbnailFreshness::ContentHash( req.Source )]() noexcept -> Common::BoolResultStr
              {
                  Common::BoolResultStr written = CloudThumbnail::Write( source, png );
                  if ( !written || !hash )
                      return written;
                  return ThumbnailFreshness::Record( png, *hash );
-             } );
+             },
+             Common::JobPriority::Background ); // nobody waits on a thumbnail this frame (JobPriority)
     }
 
     void ThumbnailService::TickDiskAndDecode()

@@ -14,7 +14,7 @@
 // is a statement about that function as much as about the BRDF.
 //
 // The arrangement is the house one for a shader-maths reference (see DirectLightingReference.hpp,
-// IndirectBounceReference.hpp, AmbientIBLReference.hpp):
+// AmbientIBLReference.hpp):
 //   * glm supplies vec2/vec3/vec4 and the maths built-ins with GLSL semantics;
 //   * the include sits inside an ANONYMOUS namespace so each translation unit gets its own copy — GLSL
 //     has no `inline`, so the shared text cannot carry one.

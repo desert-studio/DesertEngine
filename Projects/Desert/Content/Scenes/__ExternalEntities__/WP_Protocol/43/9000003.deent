@@ -4,6 +4,7 @@
     "Translation": [0.0, 5000.0, 0.0],
     "Rotation": [0.0, 0.0, 0.0],
     "Scale": [2.0, 2.0, 2.0],
+    "AlwaysLoaded": {},
     "Script": {
         "Scripts": [
             {
@@ -39,6 +40,5 @@
         "TargetGrids": ["Main", "Foliage"],
         "LookAheadTime": 2.0,
         "MaxLookAhead": 50000.0
-    },
-    "AlwaysLoaded": {}
+    }
 }

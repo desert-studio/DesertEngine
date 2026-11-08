@@ -2,7 +2,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
@@ -58,8 +57,7 @@ namespace Desert::Graphic
         // NeverCull: a node is live because it writes the imported pool; with no emitter it declares nothing and
         // the graph culls it. The graph executes before OnUpdate returns, so the imports held by the renderer
         // outlive these passes.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        auto* particles = m_Systems.Particle.get();
         if ( particles == nullptr )
             return;
         // VFX-07b: the pool is the scene's (ParticleWorldGpu). Every view imports it for its draw; only the view
@@ -79,8 +77,7 @@ namespace Desert::Graphic
         particles->AddSortPasses( graph, VFX::VFXTickStage::PreOpaque );
         // VFX-09: Mesh renderer rows as GPU instances of the mesh renderer (lit by the GBuffer, cast into the
         // cascades) - submitted here, before the cascades and the base pass build their draws.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+        if ( auto* meshes = m_Systems.Mesh.get() )
             particles->AddMeshInstances( graph, *meshes );
     }
 
@@ -135,8 +132,7 @@ namespace Desert::Graphic
         // the opaque scene's depth is resolved, then this view's sort of their forward draws (current half); the
         // G-buffer rows and Mesh instances recorded earlier drew their previous half. A capture face view neither
         // simulates nor draws particles (AddFrameParticlesSimulate).
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+        auto* particles = m_Systems.Particle.get();
         if ( particles == nullptr )
             return;
         if ( particles->ClaimsSimulation() )
@@ -180,12 +176,11 @@ namespace Desert::Graphic
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of the
         // frame, because its readers are the lit passes (the deferred Composite, the forward meshes and terrain),
         // which take it as a scene view input (SceneViewInputsOf). It reads no scene depth, no G-buffer and no
-        // atmosphere LUT. NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this
         // exact type
-        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
-        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareShadowMapNodes();
+        ComputeNodeList nodes = clouds->DeclareShadowMapNodes( graph.GetFrameArena() );
         // NOT ON THE ASYNC PIPE: the map is two persistent copies now (CloudAmortizedRefresh.hpp), and the copy a
         // node writes was read by the previous frame's lit passes on the graphics queue; on the one queue the
         // graph's barrier from the image's recorded state orders the two, across the queues nothing here does.
@@ -200,45 +195,43 @@ namespace Desert::Graphic
         // A path-traced frame draws no screen clouds, but the layer's sky-occlusion volume is an input of the sky
         // capture that marches the clouds into the environment the paths read (PathTracerSky "Prepare"): without
         // it the capture waits on an undecided volume and the path-traced sky has no clouds.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
-        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareSkyOcclusionNodes();
+        ComputeNodeList nodes = clouds->DeclareSkyOcclusionNodes( graph.GetFrameArena() );
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
     }
 
     void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        auto* sky = m_Systems.Skybox.get();
         if ( sky == nullptr )
             return;
         // The cloud inputs the environment bake made this update (OnUpdate, before this graph) reach their images
         // here, ahead of the capture that marches them.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         if ( auto* clouds =
-                  UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] ) )
+                  m_Systems.VolumetricCloud.get() )
             clouds->AddInputUploads( graph, textures );
         sky->SettleAtmosphereCachedLutNodes(
-             AddComputeNodes( graph, textures, sky->DeclareAtmosphereCachedLutNodes() ) );
+             AddComputeNodes( graph, textures, sky->DeclareAtmosphereCachedLutNodes( graph.GetFrameArena() ) ) );
         sky->AddSkyCapturePasses( graph, textures );
     }
 
     void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+        auto* sky = m_Systems.Skybox.get();
         if ( sky != nullptr )
-            sky->SettleAtmosphereLutNodes( AddComputeNodes( graph, textures, sky->DeclareAtmosphereLutNodes() ) );
+            sky->SettleAtmosphereLutNodes( AddComputeNodes(
+                 graph, textures,
+                 sky->DeclareAtmosphereLutNodes( graph.GetFrameArena(), textures.GraphRefs(),
+                                                 GetCloudShadowInput() ) ) );
     }
 
     void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
                                                const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
+        auto* volume = m_Systems.VolumetricFog.get();
         if ( volume == nullptr )
             return;
 
@@ -252,9 +245,8 @@ namespace Desert::Graphic
             sun.Radiance  = glm::vec3( lights[0].ColorIntensity ) * lights[0].ColorIntensity.w *
                            glm::max( m_SunVolumetricScatteringIntensity, 0.0f );
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         // The sun is directional-shadow slot 0, published by the mesh renderer exactly as every receiver packs it.
-        if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( const auto* mesh = m_Systems.Mesh.get();
              mesh != nullptr && mesh->AreShadowsEnabled() )
         {
             // The sun is directional slot 0 (DirLights[0]); its cascades as this frame publishes them, the same
@@ -269,10 +261,17 @@ namespace Desert::Graphic
                 sun.CascadeDepthRange    = view.CascadeDepthRange;
             }
         }
+        // The cloud layer's shadow on the sun term (UE "Shadow On Atmosphere"): the surfaces' very pair, valid
+        // once AddFrameCloudShadowMap declared this frame's map. The sky term's visibility: the view's rain
+        // occlusion, the top-down depth of every caster around the camera (a roof hides the sky).
+        sun.CloudShadow = CloudShadowPackUniforms( GetCloudShadowInput() );
+        if ( const auto* mesh = m_Systems.Mesh.get() )
+            sun.SkyOcclusion = mesh->GetRainOcclusionUniforms();
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
         AddComputeNodes( graph, textures,
-                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual() ) );
+                         volume->DeclareFrameNodes( graph.GetFrameArena(), textures.GraphRefs(), frame, sun,
+                                                    LocalShadowsAreVirtual(), m_LocalFogVolumes ) );
     }
 
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
@@ -286,10 +285,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* fog = UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* volume = UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] );
+        auto* fog = m_Systems.HeightFog.get();
+        auto* volume = m_Systems.VolumetricFog.get();
         const System::VolumetricFogFrameResult volumeResult =
              volume != nullptr ? volume->GetFrameResult() : System::VolumetricFogFrameResult{};
         if ( fog == nullptr )
@@ -331,12 +328,11 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
                                                   const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
         VolumetricCloudHistory&             history = m_ViewState.Clouds();
-        std::vector<ComputeNodeDeclaration> nodes   = clouds->DeclareFrameNodes( graph, frame, history );
+        ComputeNodeList                     nodes   = clouds->DeclareFrameNodes( graph, frame, history );
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         // One AddPass per node from here: the resolve's index among the nodes (FrameResult::ResolveNode) plus this
         // is the writer whose loss the view's EndFrame checks.

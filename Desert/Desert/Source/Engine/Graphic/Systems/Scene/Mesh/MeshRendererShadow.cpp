@@ -2,6 +2,14 @@
 #include "MeshRendererInternal.hpp"
 
 #include <Common/Core/GlslAsCpp.hpp>
+#include <Common/Core/JobSystem.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <cstring>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Shader.hpp>
@@ -127,6 +135,19 @@ namespace Desert::Graphic::System
         // (SHADOW-CINE-ABORT). The caller takes the re-budget at the frame boundary, before any shadow view of the
         // frame is planned (SceneRenderer::OnUpdate, RebudgetShadowsFor).
         //
+        // A BUDGET THAT MOVES ONLY THE DISTANCE sizes nothing (the distance-field sun's nearer cascades,
+        // ShadowQualityOf: the view's first frame that resolves Distance Field Shadows): the maps, the static
+        // caches' targets, the lease and the local rows stay, no drain. The splits move, so the static caches
+        // drawn at the old ones are redrawn.
+        ShadowQuality sameTargets = budget;
+        sameTargets.MaxDistance   = m_Shadow.MaxDistance;
+        if ( sameTargets == m_Shadow )
+        {
+            m_Shadow.MaxDistance = budget.MaxDistance;
+            InvalidateCascadeCaches();
+            return true;
+        }
+
         // The maps may still be referenced by a frame in flight; a quality change is rare and user-driven, so the
         // whole device is drained rather than each object's release deferred.
         Renderer::GetInstance().WaitDeviceIdle();
@@ -251,6 +272,38 @@ namespace Desert::Graphic::System
             {
                 LOG_ERROR( "[MeshRenderer] instanced shadow casting is off: {}", instanced.GetError() );
             }
+            // CPU-ISM-PACK 5: the same caster in its GpuScene-id permutation (an ISM's casters by id). Refused:
+            // the ISMs cast through the packed matrices (said once, here).
+            const std::optional<std::string> cellName =
+                 DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::ShadowDepth );
+            std::shared_ptr<Shader> idShader;
+            if ( !cellName )
+            {
+                LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: no instanced caster cell" );
+            }
+            else
+            {
+                Common::ResultStr<std::shared_ptr<Shader>> sceneIds =
+                     Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( *cellName,
+                                                                                     SurfaceSceneInstancesVariant() );
+                if ( sceneIds )
+                    idShader = sceneIds.ExtractValue();
+                else
+                {
+                    LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", sceneIds.GetError() );
+                }
+            }
+            if ( idShader )
+            {
+                m_ShadowInstancedIdShader         = std::move( idShader );
+                GraphicsPipelineSpecification idspec = ispec;
+                idspec.DebugName                  = "ShadowPipelineInstancedSceneIds";
+                idspec.Shader                     = m_ShadowInstancedIdShader;
+                if ( const auto byId = GraphicsPipeline::Create( idspec ) )
+                    m_ShadowInstancedIdPipeline = byId.GetValue();
+                else
+                    LOG_ERROR( "[MeshRenderer] ISM shadows pack their transforms: {}", byId.GetError() );
+            }
         }
 
         // SKINNED caster (optional): same depth-only state and the same standard-Z convention, but the
@@ -304,6 +357,7 @@ namespace Desert::Graphic::System
         };
         m_CascadeShadowPipeline          = pancaked( m_ShadowPipeline );
         m_CascadeShadowInstancedPipeline = pancaked( m_ShadowInstancedPipeline );
+        m_CascadeShadowInstancedIdPipeline = pancaked( m_ShadowInstancedIdPipeline );
         m_CascadeShadowSkinnedPipeline   = pancaked( m_ShadowSkinnedPipeline );
 
         EnsureCascadeCasterMaterials();
@@ -340,6 +394,9 @@ namespace Desert::Graphic::System
                 if ( m_ShadowInstancedPipeline && !m_ShadowInstancedMaterial[v] )
                     m_ShadowInstancedMaterial[v] =
                          std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
+                if ( m_ShadowInstancedIdPipeline && !m_ShadowInstancedIdMaterial[v] )
+                    m_ShadowInstancedIdMaterial[v] =
+                         std::make_unique<MaterialShadowInstanced>( m_ShadowInstancedIdShader );
                 if ( m_ShadowSkinnedPipeline && !m_ShadowSkinnedMaterial[v] )
                     m_ShadowSkinnedMaterial[v] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
             }
@@ -395,6 +452,7 @@ namespace Desert::Graphic::System
             state.Movable      = false;
             state.Scroll       = false;
             state.StripCount   = 0;
+            state.MovableRegion.reset();
         }
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
@@ -584,9 +642,8 @@ namespace Desert::Graphic::System
             // level invalidates and culls it by too.
             setup.Skinned[i].WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
         }
-        // A field's instances are gathered by the first view that walks it (ShadowIsmInstances). A kept gather's
-        // fields carry over to this gather (their rows stay in Instances); a field no view walked yet stays
-        // ungathered and is appended when one does.
+        // Every casting field's instances are gathered here when the gather starts over (GatherIsmCasters, on
+        // the setup tasks); a kept gather's fields carry over to this gather (their rows stay in Instances).
         if ( keepIsm )
         {
             for ( ShadowIsmField& field : setup.Fields )
@@ -596,6 +653,7 @@ namespace Desert::Graphic::System
         }
         setup.Instances.clear();
         setup.InstanceIndex.clear();
+        setup.InstanceBounds.Clear();
         for ( ShadowIsmField& field : setup.Fields )
             field = ShadowIsmField{};
         setup.IsmKey = ismKey;
@@ -603,12 +661,15 @@ namespace Desert::Graphic::System
         setup.IsmSources.resize( m_InstancedQueue.size() );
         for ( std::size_t i = 0; i < m_InstancedQueue.size(); ++i )
             setup.IsmSources[i] = m_InstancedQueue[i].Transforms;
+        GatherIsmCasters();
     }
 
     uint64_t MeshRenderer::IsmGatherKey() const
     {
-        // Every input of ShadowIsmInstances but the transforms' content (held by owner, GatherShadowCasters) and
-        // the kShadowWindEdge constant.
+        // Every input of GatherIsmCasters but the transforms' content (held by owner, GatherShadowCasters) and
+        // the kShadowWindEdge constant. The camera's EXACT position and lens: the GPU bins cull and pick levels
+        // from them each frame, and a cached layer keyed by a coarser cell would keep an instance that crossed
+        // its cull distance, level or wind ring inside the cell (CPU-ISM-SHADOW REMAINDER says what replaces it).
         const auto*             camera = m_SceneRenderer->GetMainCamera();
         const Geometry::LODView lodView =
              camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
@@ -698,31 +759,88 @@ namespace Desert::Graphic::System
             // built once; an empty local box stays empty (no extent: in every view).
             const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
             { return Geometry::IsEmpty( local ) ? local : Geometry::TransformBounds( transform, local ); };
+            // The dense snapshot's boxes (m_StaticSnapshot), every entry with a mesh; casters' rows copy theirs.
+            m_StaticSnapshot.WorldBounds.resize( m_StaticQueue.size() );
+            m_StaticSnapshot.GenericBounds.resize( m_GenericQueue.size() );
+            // The same boxes as columns, in entry order (CPU-SIMD 4): refilled only here, with the revision.
+            m_StaticSnapshot.WorldLanes.Clear();
+            setup.StaticBounds.Clear();
             for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
             {
                 const StaticMeshRenderData& rd = m_StaticQueue[i];
                 setup.Statics[i]               = ShadowCasterRow{};
-                if ( rd.Mesh != nullptr && rd.CastShadows )
+                m_StaticSnapshot.WorldBounds[i] = Common::Math::AABB{};
+                if ( rd.Mesh != nullptr )
                 {
-                    setup.Statics[i].WorldBounds =
+                    m_StaticSnapshot.WorldBounds[i] =
                          worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
+                    if ( rd.CastShadows )
+                        setup.Statics[i].WorldBounds = m_StaticSnapshot.WorldBounds[i];
                 }
+                m_StaticSnapshot.WorldLanes.PushBack( m_StaticSnapshot.WorldBounds[i] );
+                setup.StaticBounds.PushBack( setup.Statics[i].WorldBounds );
             }
             for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
             {
                 const GenericMeshRenderData& g = m_GenericQueue[i];
                 setup.Generics[i]              = ShadowCasterRow{};
-                if ( g.Mesh != nullptr && g.CastShadows )
-                {
-                    setup.Generics[i].WorldBounds =
-                         worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
-                }
+                m_StaticSnapshot.GenericBounds[i] = Common::Math::AABB{};
+                if ( g.Mesh == nullptr )
+                    continue;
+                m_StaticSnapshot.GenericBounds[i] =
+                     worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
+                if ( g.CastShadows )
+                    setup.Generics[i].WorldBounds = m_StaticSnapshot.GenericBounds[i];
             }
         }
         // Revision 0 (untracked: no stream read for this gather) never keeps them next time.
         setup.StaticRowsRevision = track.Gather == setup.Gather ? track.Revision : 0u;
         setup.StaticLodKey       = lodKey;
         setup.StaticRowsGather   = setup.Gather;
+        // Kept with the rows (the same revision, the same queue sizes): of this gather either way.
+        m_StaticSnapshot.Gather = setup.Gather;
+    }
+
+    bool MeshRenderer::StaticEntryInView( const Core::Frustum& frustum, const std::size_t index ) const
+    {
+        if ( m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+             m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() )
+            return IsVisibleInView( frustum, m_StaticSnapshot.WorldBounds[index] );
+        const StaticMeshRenderData& data = m_StaticQueue[index];
+        return IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) );
+    }
+
+    bool MeshRenderer::StaticLanesCurrent() const noexcept
+    {
+        return m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+               m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() &&
+               m_StaticSnapshot.WorldLanes.Size() == m_StaticQueue.size();
+    }
+
+    uint32_t MeshRenderer::StaticEntriesInView4( const Core::Frustum& frustum,
+                                                 const std::size_t    base ) const noexcept
+    {
+        return VisibleInView4( frustum, m_StaticSnapshot.WorldLanes, base );
+    }
+
+    bool MeshRenderer::GenericEntryInView( const Core::Frustum& frustum, const std::size_t index ) const
+    {
+        if ( m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+             m_StaticSnapshot.GenericBounds.size() == m_GenericQueue.size() )
+            return IsVisibleInView( frustum, m_StaticSnapshot.GenericBounds[index] );
+        const GenericMeshRenderData& g = m_GenericQueue[index];
+        return IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
+    }
+
+    Common::Math::AABB MeshRenderer::StaticEntryWorldBounds( const std::size_t index ) const
+    {
+        // An empty snapshot box is an empty local box: TransformBounds of it, as the glass sort always read.
+        if ( m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
+             m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() &&
+             !Geometry::IsEmpty( m_StaticSnapshot.WorldBounds[index] ) )
+            return m_StaticSnapshot.WorldBounds[index];
+        const StaticMeshRenderData& data = m_StaticQueue[index];
+        return Geometry::TransformBounds( data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) );
     }
 
     uint32_t MeshRenderer::ShadowStaticLod( const uint32_t index )
@@ -804,25 +922,99 @@ namespace Desert::Graphic::System
         return glm::vec4( origin, ShadowWindDistanceOf( view ) );
     }
 
-    const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field )
+    const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field ) const
     {
-        ShadowCasterSetup& setup  = m_ShadowCasterSetup;
-        ShadowIsmField&    caster = setup.Fields[field];
-        if ( caster.Gather == setup.Gather )
-            return caster;
-        caster =
-             ShadowIsmField{ .Gather = setup.Gather, .First = static_cast<uint32_t>( setup.Instances.size() ) };
-        const InstancedMeshRenderData& ism = m_InstancedQueue[field];
+        return m_ShadowCasterSetup.Fields[field];
+    }
+
+    void MeshRenderer::GatherIsmCasters()
+    {
+        ShadowCasterSetup& setup = m_ShadowCasterSetup;
         // THE LOD AND THE CULL DISTANCE ARE THE MAIN CAMERA'S, as the geometry pass measures them: an instance
         // faded out of the view casts no shadow either, and a caster drawn at a coarser level than the object the
         // camera sees casts a silhouette that does not match it (CollectIsmInstances' rule, asked once here).
-        const auto*             camera = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView =
-             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
-                               : Geometry::LODView{};
-        const Common::Math::AABB      localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-        const InstanceCullDistance    lensCull    = ScaledByLens( ism.CullDistance, DrawDistanceScale( lodView ) );
-        const std::vector<glm::mat4>& transforms  = *ism.Transforms;
+        const auto*       camera = m_SceneRenderer->GetMainCamera();
+        Geometry::LODView lodView{};
+        if ( camera != nullptr )
+            lodView = Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        // The runs of every field a caster view asks (each one's filter: a mesh, CastShadows, instances), in field
+        // order and, within a field, in index order.
+        std::size_t runs = 0;
+        for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            const InstancedMeshRenderData& ism = m_InstancedQueue[f];
+            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                continue;
+            const auto count = static_cast<uint32_t>( ism.Transforms->size() );
+            for ( uint32_t begin = 0; begin < count; begin += kIsmGatherRun )
+            {
+                if ( runs == m_IsmGatherRuns.size() )
+                    m_IsmGatherRuns.emplace_back();
+                IsmGatherRun& run = m_IsmGatherRuns[runs++];
+                run.Field         = static_cast<uint32_t>( f );
+                run.Begin         = begin;
+                run.End           = count - begin > kIsmGatherRun ? begin + kIsmGatherRun : count;
+            }
+        }
+        if ( runs != 0 )
+        {
+            // About WorkerCount() + 1 contiguous slices of runs (a run costs at most kIsmGatherRun instances),
+            // each one setup task; the joining thread runs one too (the ISM view culls' split,
+            // BuildStaticDraws).
+            DESERT_PROFILE_SCOPE( "Mesh: ISM shadow gather" );
+            const std::size_t   participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+            const std::size_t   slices       = std::min( runs, participants );
+            ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+            for ( std::size_t s = 0; s < slices; ++s )
+            {
+                const std::size_t first = runs * s / slices;
+                const std::size_t last  = runs * ( s + 1 ) / slices;
+                tasks.Launch( "Mesh: ISM shadow gather run",
+                              [this, &lodView, first, last]() noexcept
+                              {
+                                  for ( std::size_t r = first; r < last; ++r )
+                                      GatherIsmRun( m_IsmGatherRuns[r], lodView );
+                              } );
+            }
+            tasks.Join();
+        }
+        // The runs appended in field and run order: the rows, their indices and their boxes' columns, as the one
+        // serial walk pushed them.
+        std::size_t r = 0;
+        for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            ShadowIsmField& field = setup.Fields[f];
+            field = ShadowIsmField{ .Gather = setup.Gather,
+                                    .First  = static_cast<uint32_t>( setup.Instances.size() ) };
+            for ( ; r < runs && m_IsmGatherRuns[r].Field == f; ++r )
+            {
+                const IsmGatherRun& run = m_IsmGatherRuns[r];
+                setup.Instances.insert( setup.Instances.end(), run.Rows.begin(), run.Rows.end() );
+                setup.InstanceIndex.insert( setup.InstanceIndex.end(), run.Index.begin(), run.Index.end() );
+                for ( const ShadowCasterRow& row : run.Rows )
+                    setup.InstanceBounds.PushBack( row.WorldBounds );
+            }
+            field.Count = static_cast<uint32_t>( setup.Instances.size() ) - field.First;
+        }
+    }
+
+    void MeshRenderer::GatherIsmRun( IsmGatherRun& run, const Geometry::LODView& lodView ) const noexcept
+    {
+        run.Rows.clear();
+        run.Index.clear();
+        const InstancedMeshRenderData& ism         = m_InstancedQueue[run.Field];
+        const Common::Math::AABB       localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+        const float                    lensScale   = DrawDistanceScale( lodView );
+        const InstanceCullDistance     lensCull    = ScaledByLens( ism.CullDistance, lensScale );
+        const std::vector<glm::mat4>&  transforms  = *ism.Transforms;
+        // The run's levels eight per register (SelectLODsFromBounds: per instance SelectLODFromBounds bit for
+        // bit), the culled instances' too: one pass over the run's transforms in place costs less than copying
+        // the kept.
+        const std::span<const glm::mat4> runTransforms( transforms.data() + run.Begin, run.End - run.Begin );
+        run.Levels.resize( runTransforms.size() );
+        Geometry::SelectLODsFromBounds( runTransforms, localBounds, lodView, ism.Mesh->GetLODScreenSizes(), -1, 0,
+                                        run.Levels );
+
         // WHO SWAYS IN THE SHADOWS (UE WPO Disable Distance;
         // r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange):
         // a swaying instance nearer the main camera than Shadows.WindAnimationDistance is a mover; a farther one
@@ -840,7 +1032,7 @@ namespace Desert::Graphic::System
         // its GpuScene row (LocalBoundsExtent, LocalBoundsCenter.w = WindBoundsPad), for the per-cascade ring.
         const glm::vec3 boundsExtent = ( localBounds.Max - localBounds.Min ) * 0.5f;
         const float     windPad      = WindBoundsPad( ism.Wind );
-        for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
+        for ( uint32_t k = run.Begin; k < run.End; ++k )
         {
             const std::optional<Common::Math::AABB> reach =
                  IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
@@ -852,32 +1044,33 @@ namespace Desert::Graphic::System
             glm::vec2 casterReach( 0.0f );
             if ( fieldSways )
                 casterReach = ShadowWindCasterReach( transforms[k], boundsExtent, windPad );
-            setup.Instances.push_back(
+            run.Rows.push_back(
                  { .WorldBounds  = *reach,
-                   .LodLevel     = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
-                                                                  ism.Mesh->GetLODScreenSizes(), -1, 0 ),
+                   .LodLevel     = run.Levels[k - run.Begin],
                    .Sways        = fieldSways && ( nearEdge || !ShadowWindCastsRestPose( point, lodView.Origin,
                                                                                          m_ShadowWindDistance ) ),
                    .NearWindEdge = nearEdge,
                    .WindPoint    = point,
                    .CasterReach  = casterReach } );
-            setup.InstanceIndex.push_back( k );
+            run.Index.push_back( k );
         }
-        caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
-        return caster;
     }
 
     std::size_t MeshRenderer::ShadowBucketKeyHash::operator()( const ShadowBucketKey& key ) const noexcept
     {
-        std::size_t h = std::hash<const void*>{}( key.Mesh );
-        h ^= std::hash<uint64_t>{}( key.Hidden.Low ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u );
-        h ^= std::hash<const void*>{}( key.Hidden.High.data() ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) +
-             ( h >> 2u );
-        return h ^ ( key.Hidden.High.size() * 0x9E3779B97F4A7C15ull );
+        // The words SubmeshMask::operator== compares (the High view by address), mixed so the low bits a
+        // power-of-two table masks by depend on every word (a pointer's low bits are alignment zeros).
+        uint64_t h = static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( key.Mesh ) );
+        h          = ( h ^ ( h >> 33u ) ) * 0xFF51AFD7ED558CCDull;
+        h ^= key.Hidden.Low * 0x9E3779B97F4A7C15ull;
+        h ^= static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( key.Hidden.High.data() ) ) +
+             static_cast<uint64_t>( key.Hidden.High.size() );
+        h = ( h ^ ( h >> 29u ) ) * 0xC4CEB9FE1A85EC53ull;
+        return static_cast<std::size_t>( h ^ ( h >> 32u ) );
     }
 
     uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, const glm::mat4& casterVP,
-                                                   const bool withLod, bool& movable, bool& windSplit )
+                                                   const bool withLod, CascadeMovers& movers, bool& windSplit )
     {
         // THE CASTER BOX, as BuildShadowCascadeDraws culls with: a static caster outside it is not in the cache,
         // so it moving changes nothing drawn.
@@ -885,7 +1078,7 @@ namespace Desert::Graphic::System
         // BuildShadowCascadeDraws says why).
         if ( !ShadowCastersGathered() )
         {
-            movable = true;
+            movers.Unkeyed = "casters gathered for other mesh queues";
             return 0;
         }
         // Open on the sun's side, as that walk's (CascadeCasterFrustum: a sun cascade's casters draw pancaked).
@@ -908,25 +1101,34 @@ namespace Desert::Graphic::System
              still.WithLod != withLod )
         {
             SignatureHash stillHash;
-            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            // The statics from the walk columns (this view's sync), the world as its primitive's stamp
+            // (PlacementOf); the record is read only for ForcedLOD, LODBias and SectionSlot of a caster that
+            // reaches the cascade (and its transform when its primitive has no stamp).
+            const StaticWalkColumns& columns = m_StaticColumns;
+            const std::size_t        synced  = std::min( m_StaticQueue.size(), columns.Count() );
+            for ( std::size_t i = 0; i < synced; ++i )
             {
-                const StaticMeshRenderData& rd = m_StaticQueue[i];
-                if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasterSetup.Statics[i] ) )
+                const Desert::Mesh* const mesh = columns.Meshes[i];
+                if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kCastsShadow ) == 0u ||
+                     !reaches( m_ShadowCasterSetup.Statics[i] ) )
                     continue;
-                stillHash.Add( rd.Mesh->GetRenderRevision() );
-                stillHash.Add( rd.Transform );
-                stillHash.Add( rd.HiddenSubmeshes );
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                stillHash.Add( mesh->GetRenderRevision() );
+                if ( columns.Placements[i] != 0u )
+                    stillHash.Add( columns.Placements[i] );
+                else
+                    stillHash.Add( rd.Transform );
+                stillHash.Add( columns.Hidden[i] );
                 stillHash.Add( rd.ForcedLOD );
                 stillHash.Add( rd.LODBias );
                 // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 if ( withLod )
                     stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
                 // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
-                // (ShadingOf: the same answer the casters draw with).
-                const SectionShading shading = ShadingOf( rd );
+                // (ShadingOf's answer, the column the casters draw with).
                 stillHash.Add( rd.SectionSlot );
-                stillHash.Add( shading.Surface );
-                stillHash.Add( shading.Instance );
+                stillHash.Add( columns.Surfaces[i] );
+                stillHash.Add( columns.Instances[i] );
             }
             for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
             {
@@ -934,7 +1136,11 @@ namespace Desert::Graphic::System
                 if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasterSetup.Generics[i] ) )
                     continue;
                 stillHash.Add( g.Mesh->GetRenderRevision() );
-                stillHash.Add( g.Transform );
+                const uint64_t placement = PlacementOf( g.GpuPrimitive ); // the world's stamp, as the statics
+                if ( placement != 0u )
+                    stillHash.Add( placement );
+                else
+                    stillHash.Add( g.Transform );
                 if ( withLod )
                     stillHash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
             }
@@ -967,63 +1173,109 @@ namespace Desert::Graphic::System
         const glm::vec3 ringOrigin( CasterWindOrigin( cascade ) );
         hash.Add( cascadeRing );
         // THE ISM FIELDS' PART (SCENE-CACHE-3), kept per cascade while the gather it walks (IsmRevision: the
-        // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in a
-        // still frame no instance of any field is walked again here. A part that met an instance at the wind edge
-        // keys this frame's gather, so it is made again on the next frame.
+        // gather was kept, GatherShadowCasters) and the cascade's caster matrix are the ones it was made from: in
+        // a still frame no instance of any field is walked again here. A part that met an instance at the wind
+        // edge keys this frame's gather, so it is made again on the next frame. THE BIN-HELD FIELDS
+        // (CPU-ISM-SHADOW; UE VSM: the GPU decides which instances invalidate a cached page): a field whose every
+        // shown submesh the cascade's bins (or their cluster cut) draw is culled per instance on the GPU - fade,
+        // LOD, wind ring - and keyed by what that cull drew, the cascade's content hash read back
+        // (CascadeContentAnswer), not by a CPU walk of its instances. Only while the GPU hashes every frame
+        // (m_CascadeContentAge); otherwise every field is walked here as before.
+        const bool gpuContent = m_CascadeContentAge <= 1u && m_DrawCommandCache;
+        const auto heldByBins = [&]( const InstancedMeshRenderData& ism, const uint32_t field )
+        {
+            return gpuContent && field < m_FieldPrimitives.size() &&
+                   m_DrawCommandCache->SubmeshesBinned( GpuDriven::MeshPass::ShadowCascade,
+                                                        m_FieldPrimitives[field], ism.HiddenSubmeshes );
+        };
+        SignatureHash heldKey;
+        bool          anyHeld = false;
+        for ( const auto& ism : m_InstancedQueue )
+        {
+            if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                continue;
+            const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
+            if ( !heldByBins( ism, field ) )
+                continue;
+            heldKey.Add( field );
+            anyHeld = true;
+        }
         if ( m_CascadeIsmParts.size() <= cascade )
             m_CascadeIsmParts.resize( static_cast<std::size_t>( cascade ) + 1u );
         CascadeIsmPart& part = m_CascadeIsmParts[cascade];
-        if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision ||
-             part.CasterVP != casterVP || part.WithLod != withLod || part.Wind != cascadeWind ||
-             part.Ring != cascadeRing )
+        if ( !part.Valid || part.Revision != m_ShadowCasterSetup.IsmRevision || part.CasterVP != casterVP ||
+             part.WithLod != withLod || part.Wind != cascadeWind || part.Ring != cascadeRing ||
+             part.Held != heldKey.Value )
         {
             SignatureHash ismHash;
             bool          ismMovable = false;
             bool          nearEdge   = false;
             bool          ismSplit   = false;
+            // The fields' headers in queue order, each field's rows in runs of kIsmGatherRun on the setup tasks
+            // (SignIsmRun: the walk this loop made per row), their hashes added in field and run order.
+            std::size_t runs = 0;
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                     continue;
+                const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
+                if ( heldByBins( ism, field ) )
+                    continue; // keyed by the GPU's content hash below, not walked
+                const ShadowIsmField& kept = ShadowIsmInstances( field );
+                for ( uint32_t first = 0; first < kept.Count; first += kIsmGatherRun )
+                {
+                    if ( runs == m_IsmSignatureRuns.size() )
+                        m_IsmSignatureRuns.emplace_back();
+                    IsmSignatureRun& run = m_IsmSignatureRuns[runs++];
+                    run.Field            = field;
+                    run.First            = kept.First + first;
+                    run.Count            = std::min( kIsmGatherRun, kept.Count - first );
+                }
+            }
+            const IsmSignatureView signView{ .CasterFrustum = &frustum,
+                                             .Wind          = cascadeWind,
+                                             .Ring          = cascadeRing,
+                                             .RingOrigin    = ringOrigin,
+                                             .WithLod       = withLod };
+            if ( runs != 0 )
+            {
+                const std::size_t   participants = ::Common::JobSystem::Get().WorkerCount() + 1;
+                const std::size_t   slices       = std::min( runs, participants );
+                ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
+                for ( std::size_t s = 0; s < slices; ++s )
+                {
+                    const std::size_t first = runs * s / slices;
+                    const std::size_t last  = runs * ( s + 1 ) / slices;
+                    tasks.Launch( "Mesh: ISM cascade signature run",
+                                  [this, &signView, first, last]() noexcept
+                                  {
+                                      for ( std::size_t r = first; r < last; ++r )
+                                          SignIsmRun( m_IsmSignatureRuns[r], signView );
+                                  } );
+                }
+                tasks.Join();
+            }
+            std::size_t r = 0;
+            for ( const auto& ism : m_InstancedQueue )
+            {
+                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                    continue;
+                const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
                 ismHash.Add( ism.Mesh->GetRenderRevision() );
                 ismHash.Add( ism.Transforms.get() );
                 ismHash.Add( ism.Transforms->size() );
                 ismHash.Add( ism.Material.get() );
-                const ShadowIsmField& kept =
-                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-                for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+                // A bin-held swaying field in a cascade the wind reaches: the GPU splits its instances between the
+                // layers per frame (GpuCull_CastsRestPose), so the movable layer is drawn for it.
+                if ( ism.Wind.Sways() && cascadeWind > 0.0f && heldByBins( ism, field ) )
+                    ismMovable = true;
+                for ( ; r < runs && m_IsmSignatureRuns[r].Field == field; ++r )
                 {
-                    const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
-                    if ( !reaches( row ) )
-                        continue;
-                    // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
-                    // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
-                    // each frame until it leaves the edge.
-                    if ( row.NearWindEdge && cascadeWind > 0.0f )
-                    {
-                        ismSplit = true;
-                        ismHash.Add( m_ShadowCasterSetup.Gather );
-                        nearEdge = true;
-                    }
-                    if ( row.Sways && cascadeWind > 0.0f )
-                    {
-                        ismSplit = true;
-                        const ShadowWindRingSide side =
-                             ShadowWindRingSideOf( row.WindPoint, row.CasterReach, cascadeRing, ringOrigin );
-                        if ( side == ShadowWindRingSide::Edge )
-                        {
-                            ismHash.Add( m_ShadowCasterSetup.Gather );
-                            nearEdge = true;
-                        }
-                        if ( side != ShadowWindRingSide::Rest )
-                        {
-                            ismMovable = true;
-                            continue;
-                        }
-                    }
-                    ismHash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
-                    if ( withLod )
-                        ismHash.Add( row.LodLevel );
+                    const IsmSignatureRun& run = m_IsmSignatureRuns[r];
+                    ismHash.Add( run.Hash );
+                    ismMovable = ismMovable || run.Movable;
+                    nearEdge   = nearEdge || run.NearEdge;
+                    ismSplit   = ismSplit || run.Split;
                 }
             }
             part.Valid    = !nearEdge;
@@ -1035,18 +1287,78 @@ namespace Desert::Graphic::System
             part.Ring     = cascadeRing;
             part.Hash     = ismHash.Value;
             part.Movable  = ismMovable;
+            part.Held      = heldKey.Value;
         }
         hash.Add( part.Hash );
+        // The bin-held fields' content: the GPU cull's answer for this box (the cascade's placement this frame, or
+        // the cached one's when the cached box is asked). None read for it yet: the layer is redrawn every frame
+        // until one is (a fresh key each frame; windSplit keeps it off the content key, so it neither scrolls).
+        if ( anyHeld )
+        {
+            const CascadeCacheState&        state = m_CascadeCache[cascade];
+            std::optional<CascadePlacement> boxPlacement;
+            if ( casterVP == m_CascadeCasterVP[cascade] )
+                boxPlacement = m_CascadePlacement[cascade];
+            else if ( state.Placement && state.CasterVP == casterVP )
+                boxPlacement = state.Placement;
+            std::optional<uint64_t> answer;
+            if ( boxPlacement )
+                answer = CascadeContentAnswer( cascade, *boxPlacement, withLod );
+            if ( answer )
+                hash.Add( *answer );
+            else
+            {
+                hash.Add( ++m_CascadeContentPending );
+                windSplit = true;
+            }
+        }
         if ( part.Movable )
-            movable = true;
+            movers.Unkeyed = "swaying instances (wind time)";
         if ( part.WindSplit )
             windSplit = true;
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
-            if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 reaches( m_ShadowCasterSetup.Skinned[i] ) )
-                movable = true;
+            if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() ||
+                 !reaches( m_ShadowCasterSetup.Skinned[i] ) )
+                continue;
+            // A skinned caster is keyed by everything its depth is drawn from (BuildShadowCascadeDraws' skinned
+            // walk, the movable bins): its entry, its meshes (a displaced or morphed twin and the base it skins,
+            // each with its content revision), its sections' materials and masks, its transform, its bones and its
+            // morph blend (MorphTwin: a pending blend keys apart from the blended one).
+            movers.Keyed = true;
+            movers.Casters.Add( i );
+            movers.Casters.Add( sd.Entity );
+            movers.Casters.Add( sd.GpuPrimitive );
+            movers.Casters.Add( sd.Mesh );
+            movers.Casters.Add( sd.Mesh->GetRenderRevision() );
+            movers.Casters.Add( sd.SkinSource );
+            if ( sd.SkinSource != nullptr )
+                movers.Casters.Add( sd.SkinSource->GetRenderRevision() );
+            movers.Casters.Add( sd.Transform );
+            movers.Casters.Add( sd.Sections.size() );
+            for ( const SkinnedSection& section : sd.Sections )
+            {
+                movers.Casters.Add( section.Material );
+                movers.Casters.Add( section.Instance );
+                movers.Casters.Add( section.HiddenSubmeshes );
+            }
+            movers.Pose.Add( sd.BoneMatrices.size() );
+            movers.Pose.Bytes( sd.BoneMatrices.data(), sd.BoneMatrices.size() * sizeof( glm::mat4 ) );
+            if ( const auto twin = m_MorphTwins.find( sd.Entity ); twin != m_MorphTwins.end() )
+            {
+                movers.Pose.Add( twin->second.Twin.get() );
+                movers.Pose.Add( twin->second.Blended );
+                movers.Pose.Add( twin->second.Revision );
+                movers.Pose.Add( twin->second.Pending );
+                movers.Pose.Add( twin->second.PendingRevision );
+            }
+            const Common::Math::AABB& box = m_ShadowCasterSetup.Skinned[i].WorldBounds;
+            if ( movers.Bounds )
+                movers.Bounds = Common::Math::AABB{ glm::min( movers.Bounds->Min, box.Min ),
+                                                    glm::max( movers.Bounds->Max, box.Max ) };
+            else
+                movers.Bounds = box;
         }
         // A GPU-instanced section (BuildGpuInstancedShadowDraws): one whose instances move by themselves makes
         // every cascade it reaches movable. A still one (the grass, GpuInstancedRenderData::Still) is keyed by its
@@ -1062,7 +1374,7 @@ namespace Desert::Graphic::System
                 continue;
             if ( !gpu.Still )
             {
-                movable = true;
+                movers.Unkeyed = "instances the GPU moves";
                 continue;
             }
             hash.Add( gpu.Key );
@@ -1096,15 +1408,189 @@ namespace Desert::Graphic::System
             const glm::vec3 moverReach( windOrigin.w + gpu.Still->Reach );
             const glm::vec3 origin( windOrigin );
             if ( frustum.Intersects( Common::Math::AABB{ origin - moverReach, origin + moverReach } ) )
-                movable = true;
+                movers.Unkeyed = "swaying GPU instances (wind time)";
         }
-        if ( m_GpuInstancedCastersExpected )
-            movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
+        if ( m_GpuInstancedCastersExpected ) // submitted later this frame (ExpectGpuInstancedCasters)
+            movers.Unkeyed = "particle mesh casters (submitted after the plan)";
+        return hash.Value;
+    }
+
+    void MeshRenderer::SignIsmRun( IsmSignatureRun& run, const IsmSignatureView& view ) const noexcept
+    {
+        // CascadeStaticSignature's per-row walk over Instances[First, First + Count): `reaches` four boxes per
+        // register (VisibleInViewBits: the same verdict per row as IsVisibleInView on its WorldBounds).
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
+        SignatureHash            hash;
+        run.Movable  = false;
+        run.NearEdge = false;
+        run.Split    = false;
+        run.Bits.resize( ( std::size_t{ run.Count } + 63u ) / 64u );
+        VisibleInViewBits( *view.CasterFrustum, setup.InstanceBounds, run.First, run.Count, run.Bits );
+        for ( uint32_t k = run.First; k < run.First + run.Count; ++k )
+        {
+            const ShadowCasterRow& row = setup.Instances[k];
+            if ( !VisibleBit( run.Bits, k - run.First ) )
+                continue;
+            // One at the distance within the two sides' rounding (NearWindEdge): the GPU bins may have put it
+            // in either layer, so the movable layer is drawn and the static one keyed by this gather, redrawn
+            // each frame until it leaves the edge.
+            if ( row.NearWindEdge && view.Wind > 0.0f )
+            {
+                run.Split = true;
+                hash.Add( setup.Gather );
+                run.NearEdge = true;
+            }
+            if ( row.Sways && view.Wind > 0.0f )
+            {
+                run.Split = true;
+                const ShadowWindRingSide side =
+                     ShadowWindRingSideOf( row.WindPoint, row.CasterReach, view.Ring, view.RingOrigin );
+                if ( side == ShadowWindRingSide::Edge )
+                {
+                    hash.Add( setup.Gather );
+                    run.NearEdge = true;
+                }
+                if ( side != ShadowWindRingSide::Rest )
+                {
+                    run.Movable = true;
+                    continue;
+                }
+            }
+            hash.Add( setup.InstanceIndex[k] );
+            if ( view.WithLod )
+                hash.Add( row.LodLevel );
+        }
+        run.Hash = hash.Value;
+    }
+
+    namespace
+    {
+        // Floor / ceil of a / b for b > 0 and any a (the absolute texel grid runs negative).
+        int32_t FloorDiv( const int32_t a, const int32_t b ) noexcept
+        {
+            const int32_t q = a / b;
+            return ( a % b != 0 && a < 0 ) ? q - 1 : q;
+        }
+        int32_t CeilDiv( const int32_t a, const int32_t b ) noexcept
+        {
+            return -FloorDiv( -a, b );
+        }
+    } // namespace
+
+    std::optional<MeshRenderer::CascadeContentView> MeshRenderer::CascadeContentViewOf( const uint32_t view ) const
+    {
+        namespace Cells = GpuDriven::CascadeContentHash;
+        const auto side = static_cast<int32_t>( m_Shadow.ShadowMapSize );
+        if ( view >= kCascadeViews || side <= 0 || side % static_cast<int32_t>( Cells::kCellsPerMap ) != 0 )
+            return std::nullopt;
+        const int32_t cell = side / static_cast<int32_t>( Cells::kCellsPerMap );
+        // The box grown by kMarginCells cells on each side: clip x, y scaled by side / (side + 2 margin cells).
+        const float grow = static_cast<float>( side ) /
+                           static_cast<float>( side + 2 * static_cast<int32_t>( Cells::kMarginCells ) * cell );
+        CascadeContentView content;
+        content.GrownViewProjection =
+             glm::scale( glm::mat4( 1.0f ), glm::vec3( grow, grow, 1.0f ) ) * m_CascadeCasterVP[view];
+        content.TexelOrigin = m_CascadePlacement[view].TexelOrigin;
+        content.CellTexels  = cell;
+        return content;
+    }
+
+    void MeshRenderer::ExtractCascadeContent( RDG::Builder& graph, const uint64_t frameIndex,
+                                              const RDG::BufferRef& cells, const uint32_t regions,
+                                              const std::span<const uint32_t> regionViews )
+    {
+        namespace Cells             = GpuDriven::CascadeContentHash;
+        constexpr std::size_t kRow  = std::size_t{ Cells::kCells } * Cells::kWords;
+        const uint32_t        slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_CascadeContentSlots.size() != slots )
+        {
+            m_CascadeContentSlots.clear();
+            m_CascadeContentSlots.resize( slots );
+        }
+        CascadeContentSlot& slot = m_CascadeContentSlots[static_cast<std::size_t>( frameIndex % slots )];
+        // The slot's frame is slots-in-flight old: its fence has passed. Its regions become the newest answers.
+        if ( slot.Handed && slot.Cells.Physical )
+        {
+            const std::span<const std::byte> bytes = slot.Cells.Physical->ReadForHost();
+            for ( std::size_t r = 0; r < slot.Views.size(); ++r )
+            {
+                if ( bytes.size() < ( r + 1u ) * kRow * sizeof( uint32_t ) || slot.Views[r] >= kCascadeViews )
+                    break;
+                CascadeContentRead& read = m_CascadeContent[slot.Views[r]];
+                read.Cells.resize( kRow );
+                std::memcpy( read.Cells.data(), bytes.data() + r * kRow * sizeof( uint32_t ),
+                             kRow * sizeof( uint32_t ) );
+                read.Placement  = slot.Placements[r];
+                read.CellTexels = slot.CellTexels[r];
+                read.Valid      = true;
+            }
+        }
+        slot.Handed = false;
+        slot.Views.clear();
+        slot.Placements.clear();
+        slot.CellTexels.clear();
+        m_CascadeContentAge = 0u;
+        if ( !cells.IsValid() || regions == 0u || regions != regionViews.size() )
+            return;
+        for ( const uint32_t view : regionViews )
+        {
+            const std::optional<CascadeContentView> content = CascadeContentViewOf( view );
+            slot.Views.push_back( view );
+            slot.Placements.push_back( m_CascadePlacement[std::min( view, kCascadeViews - 1u )] );
+            slot.CellTexels.push_back( content ? content->CellTexels : 0 );
+        }
+        graph.Extract( cells, slot.Cells, RDG::Access::HostRead );
+        slot.Handed = true;
+    }
+
+    std::optional<uint64_t> MeshRenderer::CascadeContentAnswer( const uint32_t          cascade,
+                                                                const CascadePlacement& placement,
+                                                                const bool              withLod ) const
+    {
+        namespace Cells = GpuDriven::CascadeContentHash;
+        if ( cascade >= kCascadeViews || m_CascadeContentAge > 1u )
+            return std::nullopt;
+        const CascadeContentRead& read = m_CascadeContent[cascade];
+        const auto                side = static_cast<int32_t>( m_Shadow.ShadowMapSize );
+        const int32_t             cell = read.CellTexels;
+        if ( !read.Valid || cell <= 0 || cell * static_cast<int32_t>( Cells::kCellsPerMap ) != side ||
+             !read.Placement.SameMapAs( placement ) ||
+             read.Cells.size() != std::size_t{ Cells::kCells } * Cells::kWords )
+            return std::nullopt;
+        // The box's absolute texels (x from TexelOrigin.x, y from -TexelOrigin.y: CascadePlacement::ShiftTo) and
+        // the cells they touch; the read's whole cells are those inside its grown box.
+        const int32_t margin    = static_cast<int32_t>( Cells::kMarginCells ) * cell;
+        const int32_t lowX      = FloorDiv( placement.TexelOrigin.x, cell );
+        const int32_t highX     = FloorDiv( placement.TexelOrigin.x + side - 1, cell );
+        const int32_t lowY      = FloorDiv( -placement.TexelOrigin.y, cell );
+        const int32_t highY     = FloorDiv( -placement.TexelOrigin.y + side - 1, cell );
+        const int32_t readLowX  = CeilDiv( read.Placement.TexelOrigin.x - margin, cell );
+        const int32_t readHighX = FloorDiv( read.Placement.TexelOrigin.x + side + margin, cell ) - 1;
+        const int32_t readLowY  = CeilDiv( -read.Placement.TexelOrigin.y - margin, cell );
+        const int32_t readHighY = FloorDiv( -read.Placement.TexelOrigin.y + side + margin, cell ) - 1;
+        if ( lowX < readLowX || highX > readHighX || lowY < readLowY || highY > readHighY )
+            return std::nullopt;
+        const std::size_t word = withLod ? 2u : 0u;
+        const auto        add  = [&]( SignatureHash& into, const std::size_t row )
+        {
+            into.Add( read.Cells[row * Cells::kWords + word] );
+            into.Add( read.Cells[row * Cells::kWords + word + 1u] );
+        };
+        constexpr int32_t kWrap = static_cast<int32_t>( Cells::kGrid ) - 1;
+        SignatureHash     hash;
+        for ( int32_t y = lowY; y <= highY; ++y )
+            for ( int32_t x = lowX; x <= highX; ++x )
+                add( hash, static_cast<std::size_t>( ( y & kWrap ) * static_cast<int32_t>( Cells::kGrid ) +
+                                                     ( x & kWrap ) ) );
+        add( hash, std::size_t{ Cells::kGrid } * Cells::kGrid ); // the overflow cell
         return hash.Value;
     }
 
     void MeshRenderer::PlanCascadeCache()
     {
+        // A plan with no ExtractCascadeContent since the last: the GPU no longer hashes (CascadeContentAnswer).
+        if ( m_CascadeContentAge != ~0u )
+            ++m_CascadeContentAge;
         // UE's cached shadow maps for a directional light's cascades: the static casters' depth is kept per
         // cascade and drawn again only when the cascade's map moved other than by whole texels (the sun turned, a
         // depth quantum was crossed, ComputeShadowCascades) or one of the static casters it reaches changed; a map
@@ -1136,7 +1622,7 @@ namespace Desert::Graphic::System
                 // it); an unkeyed one makes the cascade movable. Asked of THIS frame's draws: the plan runs after
                 // TerrainRenderer::PrepareLocalShadowViews. A keyed one's content (CascadeShadowContent: its key less
                 // the camera's detail) is what the content key below holds of it.
-                bool          movable = false;
+                bool          unkeyedCaster = false;
                 SignatureHash casterKey;
                 bool          contentKnown = StaticCastersTracked();
                 for ( const auto& weak : m_ShadowCasters )
@@ -1151,7 +1637,7 @@ namespace Desert::Graphic::System
                     }
                     else
                     {
-                        movable = true;
+                        unkeyedCaster = true;
                         m_CascadeUnkeyedCasters[v].push_back( weak );
                     }
                 }
@@ -1169,11 +1655,11 @@ namespace Desert::Graphic::System
                 // landscape in the box the cache was drawn with, not this frame's draws, so a shifted map whose
                 // old box holds the same tiles scrolls; nullopt (a caster that cannot tell its content apart) keys
                 // by the full key.
-                const auto contentKey = [&]( const glm::mat4& casterVP, bool& reachedMovable,
+                const auto contentKey = [&]( const glm::mat4& casterVP, CascadeMovers& reached,
                                              bool& windSplit ) -> std::optional<uint64_t>
                 {
                     SignatureHash content;
-                    content.Add( CascadeStaticSignature( v, casterVP, false, reachedMovable, windSplit ) );
+                    content.Add( CascadeStaticSignature( v, casterVP, false, reached, windSplit ) );
                     for ( const auto& weak : m_CascadeKeyedCasters[v] )
                     {
                         const auto caster = weak.lock();
@@ -1194,6 +1680,7 @@ namespace Desert::Graphic::System
                 uint64_t                newKey       = 0;
                 state.Scroll                         = false;
                 state.StripCount                     = 0;
+                CascadeMovers movers;
                 if ( keyIsContent )
                 {
                     glm::ivec2 shift( 0 );
@@ -1205,14 +1692,14 @@ namespace Desert::Graphic::System
                     if ( samePlace && shift != glm::ivec2( 0 ) && state.KeyIsContent && state.StaticKey &&
                          CascadeScrollOverlaps( shift, m_Shadow.ShadowMapSize ) )
                     {
-                        bool                          cachedMovable = false;
+                        CascadeMovers                 cachedMovers;
                         bool                          cachedSplit   = false;
                         const std::optional<uint64_t> cached =
-                             contentKey( state.CasterVP, cachedMovable, cachedSplit );
+                             contentKey( state.CasterVP, cachedMovers, cachedSplit );
                         cacheHolds = cached && *cached == *state.StaticKey && !cachedSplit;
                     }
                     bool                          windSplit = false;
-                    const std::optional<uint64_t> content = contentKey( m_CascadeCasterVP[v], movable, windSplit );
+                    const std::optional<uint64_t> content = contentKey( m_CascadeCasterVP[v], movers, windSplit );
                     if ( content )
                         newKey = *content;
                     if ( windSplit || !content )
@@ -1232,7 +1719,8 @@ namespace Desert::Graphic::System
                 {
                     bool          unusedSplit = false;
                     SignatureHash key;
-                    key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], true, movable, unusedSplit ) );
+                    movers = CascadeMovers{}; // the full key's walk: its movers, not the content key's again
+                    key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], true, movers, unusedSplit ) );
                     key.Add( casterKey.Value );
                     key.Add( m_CascadeCasterVP[v] );
                     key.Add( m_CascadeCasterBias[v] );
@@ -1240,15 +1728,115 @@ namespace Desert::Graphic::System
                     redraw = state.KeyIsContent || state.StaticKey != newKey;
                 }
 
-                state.Movable      = movable;
+                if ( unkeyedCaster )
+                    movers.Unkeyed = "a non-mesh caster with no key";
+                state.Movable      = movers.Any();
                 state.RedrawStatic = redraw || state.Scroll;
                 state.StaticKey    = newKey;
                 state.KeyIsContent = keyIsContent;
                 state.Placement    = placement;
                 state.CasterVP     = m_CascadeCasterVP[v];
-                state.Rebuild      = state.RedrawStatic || state.Movable || state.MapHasMovable;
+
+                // THE MOVABLE LAYER (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a
+                // primitive that updates). Keyed movers only (CascadeMovers): their casters and poses, the caster
+                // matrix and the bias the movable pass draws with. Their box in framebuffer texels (x right, y
+                // down, as CascadeScrollStrips): its corners through the caster matrix, grown two texels.
+                state.MovableKey.reset();
+                state.MovableRect.reset();
+                if ( movers.Keyed && movers.Unkeyed == nullptr )
+                {
+                    SignatureHash movableKey;
+                    movableKey.Add( movers.Casters.Value );
+                    movableKey.Add( movers.Pose.Value );
+                    movableKey.Add( m_CascadeCasterVP[v] );
+                    movableKey.Add( m_CascadeCasterBias[v] );
+                    state.MovableKey = movableKey.Value;
+                    if ( movers.Bounds )
+                    {
+                        const float side = static_cast<float>( m_Shadow.ShadowMapSize );
+                        glm::vec2   low( side );
+                        glm::vec2   high( 0.0f );
+                        for ( uint32_t corner = 0; corner < 8u; ++corner )
+                        {
+                            const glm::vec3 pick( static_cast<float>( corner & 1u ),
+                                                  static_cast<float>( ( corner >> 1u ) & 1u ),
+                                                  static_cast<float>( ( corner >> 2u ) & 1u ) );
+                            const glm::vec3 span  = movers.Bounds->Max - movers.Bounds->Min;
+                            const glm::vec3 point = movers.Bounds->Min + span * pick;
+                            const glm::vec4 clip  = m_CascadeCasterVP[v] * glm::vec4( point, 1.0f );
+                            const glm::vec2 texel( ( clip.x / clip.w + 1.0f ) * 0.5f * side,
+                                                   ( 1.0f - clip.y / clip.w ) * 0.5f * side );
+                            low  = glm::min( low, texel );
+                            high = glm::max( high, texel );
+                        }
+                        low  = glm::clamp( glm::floor( low ) - 2.0f, glm::vec2( 0.0f ), glm::vec2( side ) );
+                        high = glm::clamp( glm::ceil( high ) + 2.0f, glm::vec2( 0.0f ), glm::vec2( side ) );
+                        const glm::vec2 extent = glm::max( high - low, glm::vec2( 0.0f ) );
+                        state.MovableRect      = glm::uvec4( glm::uvec2( low ), glm::uvec2( extent ) );
+                    }
+                }
+                // Equal keys over a standing static layer: the map is last frame's, no restore, no movable draw.
+                const bool movableHeld = state.MapHasMovable && state.Movable && state.MovableKey &&
+                                         state.MapMovableKey == state.MovableKey;
+                const bool hadMovable  = state.MapHasMovable;
+                state.Rebuild = state.RedrawStatic || ( ( state.Movable || state.MapHasMovable ) && !movableHeld );
+                // A rebuild over a standing static layer restores and draws only the union of the texels the
+                // map's movers covered and this frame's cover, when both are known (an unkeyed mover, or a map
+                // whose movers had no box: the whole layer).
+                state.MovableRegion.reset();
+                if ( state.Rebuild && !state.RedrawStatic &&
+                     ( !state.MapHasMovable || state.MapMovableRect.has_value() ) &&
+                     ( !state.Movable || state.MovableRect.has_value() ) )
+                {
+                    glm::uvec2 low( m_Shadow.ShadowMapSize );
+                    glm::uvec2 high( 0u );
+                    const auto cover = [&low, &high]( const glm::uvec4& rect )
+                    {
+                        low  = glm::min( low, glm::uvec2( rect.x, rect.y ) );
+                        high = glm::max( high, glm::uvec2( rect.x + rect.z, rect.y + rect.w ) );
+                    };
+                    if ( state.MapHasMovable )
+                        cover( *state.MapMovableRect );
+                    if ( state.Movable )
+                        cover( *state.MovableRect );
+                    if ( high.x > low.x && high.y > low.y )
+                        state.MovableRegion = glm::uvec4( low, high - low );
+                }
                 if ( state.Rebuild )
-                    state.MapHasMovable = state.Movable;
+                {
+                    state.MapHasMovable  = state.Movable;
+                    state.MapMovableKey  = state.MovableKey;
+                    state.MapMovableRect = state.MovableRect;
+                }
+                // One line a change of why the movable layer is drawn or kept.
+                std::string reason;
+                if ( movableHeld )
+                    reason = "holds: no restore, no movable draw";
+                else if ( state.Movable && movers.Unkeyed != nullptr )
+                    reason = std::format( "unkeyed: {}", movers.Unkeyed );
+                else if ( state.Movable && state.RedrawStatic )
+                    reason = "static layer redrawn";
+                else if ( state.Movable && !hadMovable )
+                    reason = "movers arrived";
+                else if ( state.Movable )
+                    reason = "pose, transform or caster matrix";
+                else if ( hadMovable )
+                    reason = "movers left";
+                if ( reason != state.MovableLogged )
+                {
+                    if ( !reason.empty() )
+                    {
+                        std::string restored = "none";
+                        if ( state.MovableRegion )
+                            restored =
+                                 std::format( "{}x{} texels", state.MovableRegion->z, state.MovableRegion->w );
+                        else if ( state.Rebuild )
+                            restored = "whole layer";
+                        LOG_INFO( "[Shadow] cascade {}.{} movable key changed ({}); restore {}", v / kMaxCascades,
+                                  v % kMaxCascades, reason, restored );
+                    }
+                    state.MovableLogged = reason;
+                }
             }
         }
 
@@ -1326,10 +1914,10 @@ namespace Desert::Graphic::System
         // of a forward cell) carries its base program's name but is not registered under it, and its bindings
         // are its own; a pipeline found by the name alone would bind the base program to the twin's sets.
         const MaterialExecutor* const executor = cell.GetMaterialExecutor();
-        const std::shared_ptr<Shader> program  = executor != nullptr ? executor->GetShader() : nullptr;
-        if ( program == nullptr || program->GetVariant().IsDefault() )
+        if ( executor == nullptr || executor->GetShader() == nullptr ||
+             executor->GetShader()->GetVariant().IsDefault() )
             return CellPipeline( passState, cell.GetShaderName() );
-        return CellPipeline( passState, cell.GetShaderName(), program );
+        return CellPipeline( passState, cell.GetShaderName(), executor->GetShader() );
     }
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader )
@@ -1346,6 +1934,8 @@ namespace Desert::Graphic::System
                                  permutation != nullptr ? permutation->GetVariant().Hash() : 0u };
         if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
+        if ( MissInSetupTask( "a cell pipeline" ) )
+            return nullptr;
         auto& slot = m_CellPipelines[key];
 
         auto shader =
@@ -1393,19 +1983,50 @@ namespace Desert::Graphic::System
             own = CullPermutation( own, true );
 
         // Keyed by the PIPELINE, not the shader: one cell has a pipeline per pass state and cull permutation,
-        // and they leave the driver at different moments.
-        const std::string key =
-             own != nullptr
-                  ? own->GetSpecification().DebugName
-                  : std::format( "{} {}{}", passState != nullptr ? passState->GetSpecification().DebugName : "?",
-                                 cell.GetShaderName(), twoSided ? "_TwoSided" : "" );
-        return ChoosePipelineDraw( own, key, standIn );
+        // and they leave the driver at different moments. By identity (CellKey), so no name is built per draw.
+        if ( own != nullptr )
+            return ChoosePipelineDraw( own, standIn, {} );
+        return ChoosePipelineDraw( nullptr, standIn, { passState, &cell, twoSided } );
+    }
+
+    std::string MeshRenderer::CellLogName( const GraphicsPipeline* own, const RefusedCell& refused )
+    {
+        if ( own != nullptr )
+            return own->GetSpecification().DebugName;
+        const char* const pass =
+             refused.PassState != nullptr ? refused.PassState->GetSpecification().DebugName.c_str() : "?";
+        const char* const cull = refused.TwoSided ? "_TwoSided" : "";
+        if ( refused.Cell == nullptr )
+            return std::format( "{} ?{}", pass, cull );
+        return std::format( "{} {}{}", pass, refused.Cell->GetShaderName(), cull );
     }
 
     MaterialPipelineTracker::CellDraw MeshRenderer::ChoosePipelineDraw( const GraphicsPipeline* own,
-                                                                        const std::string&      key,
-                                                                        const GraphicsPipeline* standIn )
+                                                                        const GraphicsPipeline* standIn,
+                                                                        const RefusedCell&      refused )
     {
+        // The program by identity too (CellKey: serial x code generation), so an address reused after a free or
+        // a hot reload is a new row and never a stale one.
+        MaterialPipelineTracker::CellKey key;
+        const Shader*                    program = nullptr;
+        if ( own != nullptr )
+        {
+            key.Pipeline = own;
+            program      = own->GetShader().get();
+        }
+        else
+        {
+            key = { nullptr, refused.PassState, refused.Cell, refused.TwoSided };
+            const MaterialExecutor* const executor =
+                 refused.Cell != nullptr ? refused.Cell->GetMaterialExecutor() : nullptr;
+            if ( executor != nullptr )
+                program = executor->GetShader().get();
+        }
+        if ( program != nullptr )
+        {
+            key.ShaderSerial   = program->GetSerial();
+            key.CodeGeneration = program->GetCodeGeneration();
+        }
         MaterialPipelineState reports = MaterialPipelineState::Failed; // refused: its builder logged why
         if ( own != nullptr )
         {
@@ -1423,16 +2044,18 @@ namespace Desert::Graphic::System
             }
         }
         const bool standInReady = standIn != nullptr && standIn->GetReadiness() == PipelineReadiness::Ready;
+        if ( MissInSetupTask( "the pipeline tracker" ) ) // every call writes the tracker: serial only
+            return MaterialPipelineTracker::CellDraw::Nothing;
         const auto before       = m_MaterialPipelines.StateOf( key );
         const auto choice       = m_MaterialPipelines.ChooseCell( key, reports, standInReady );
         if ( choice.Draw != MaterialPipelineTracker::CellDraw::Own )
             ++m_StandInDraws;
         else if ( before && *before != MaterialPipelineState::Ready )
-            LOG_INFO( "[MeshRenderer] '{}' draws its own pipeline now (it was {})", key,
+            LOG_INFO( "[MeshRenderer] '{}' draws its own pipeline now (it was {})", CellLogName( own, refused ),
                       MaterialPipelineStateName( *before ) );
         if ( choice.Announce )
             LOG_INFO( "[MeshRenderer] '{}' draws the default surface until its pipeline is ready (pipeline {}{})",
-                      key, MaterialPipelineStateName( reports ),
+                      CellLogName( own, refused ), MaterialPipelineStateName( reports ),
                       choice.Draw == MaterialPipelineTracker::CellDraw::Nothing
                            ? "; the default surface is not ready either, so it is not drawn yet"
                            : "" );
@@ -1441,9 +2064,11 @@ namespace Desert::Graphic::System
 
     MeshRenderer::StandInCell* MeshRenderer::StandIn( const MeshVertexPath path, const MeshPass pass )
     {
-        const uint32_t key = ( static_cast<uint32_t>( path ) * 16u ) + static_cast<uint32_t>( pass );
+        const uint32_t key  = ( static_cast<uint32_t>( path ) * 16u ) + static_cast<uint32_t>( pass );
         if ( const auto found = m_StandIns.find( key ); found != m_StandIns.end() )
             return found->second.Material ? &found->second : nullptr;
+        if ( MissInSetupTask( "a default-surface stand-in" ) )
+            return nullptr;
         auto& slot    = m_StandIns[key];
         slot.Material = CreateCellMaterial( path, pass );
         if ( slot.Material )
@@ -1475,9 +2100,10 @@ namespace Desert::Graphic::System
         // A sun cascade's two layers draw pancaked (SetupShadowPass); the rain occlusion and the local views clip.
         if ( view < kVsmViewBase )
             return { m_CascadeShadowPipeline.get(), m_CascadeShadowInstancedPipeline.get(),
-                     m_CascadeShadowSkinnedPipeline.get(), MeshPass::ShadowDepth };
+                     m_CascadeShadowSkinnedPipeline.get(), MeshPass::ShadowDepth,
+                     m_CascadeShadowInstancedIdPipeline.get() };
         return { m_ShadowPipeline.get(), m_ShadowInstancedPipeline.get(), m_ShadowSkinnedPipeline.get(),
-                 MeshPass::ShadowDepth };
+                 MeshPass::ShadowDepth, m_ShadowInstancedIdPipeline.get() };
     }
 
     GraphicsPipeline* MeshRenderer::MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
@@ -1489,19 +2115,22 @@ namespace Desert::Graphic::System
         // define) has a layout of its own that the registered default program of the same name lacks, so the
         // name alone is not the key: name # variant hash, as ShaderService keys a variant.
         const auto& name    = caster.GetShaderName();
-        const auto  program = caster.GetMaterialExecutor()->GetShader();
+        const auto& program = caster.GetMaterialExecutor()->GetShader();
         if ( !program )
         {
             LOG_ERROR( "[Shadows] masked caster '{}' will not draw: its material holds no program", name );
             return nullptr;
         }
         // Per shared state too: a sun cascade's caster is pancaked, a local view's clips (CasterPipelinesOf).
-        const std::string key = std::format( "{}#{:016x}@{}", name,
-                                             static_cast<unsigned long long>( program->GetVariant().Hash() ),
-                                             static_cast<const void*>( casters.Static ) );
+        // By identity (MaskedCasterKey): one program object per permutation, so its serial names name # variant.
+        const MaskedCasterKey key{ program->GetSerial(), casters.Static };
         if ( const auto found = m_MaskedCasterPipelines.find( key ); found != m_MaskedCasterPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_MaskedCasterPipelines[key];
+        // Its name (the log and the pipeline's DebugName), built once: on the miss that builds it.
+        const std::string label = std::format( "{}#{:016x}@{}", name,
+                                               static_cast<unsigned long long>( program->GetVariant().Hash() ),
+                                               static_cast<const void*>( casters.Static ) );
 
         // The shared caster's state for this path and pass (vertex layout, standard-Z depth, the cascade target or
         // the virtual map's render area) — only the program differs, which is the whole difference between an
@@ -1522,11 +2151,12 @@ namespace Desert::Graphic::System
         }
         if ( shared == nullptr )
         {
-            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: the path has no shared caster pipeline", key );
+            LOG_ERROR( "[Shadows] masked caster '{}' will not draw: the path has no shared caster pipeline",
+                       label );
             return nullptr;
         }
         GraphicsPipelineSpecification spec = shared->GetSpecification();
-        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", key );
+        spec.DebugName                     = std::format( "ShadowPipelineMasked {}", label );
         spec.Shader                        = program;
         const auto pipeline                = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !pipeline )
@@ -1573,6 +2203,14 @@ namespace Desert::Graphic::System
         // group of >= 2 identical meshes collapses into ONE instanced draw per cascade. This is
         // the dominant cost in the 256-mesh stress test (256x4 per-object draws -> 4 draws).
         const bool instancingOn = casters.Instanced != nullptr && m_ShadowInstancedMaterial[c];
+        // CPU-ISM-PACK 6 (UE: a shadow view draws its instances from GPU Scene by its own id list): this view's
+        // ISM casters name their GpuScene rows (FirstGpuInstance + index, 4 B each) instead of packing matrices,
+        // once the id caster's pipeline is built. A virtual shadow map level has none (its GPU cull reads the
+        // draws' matrices); a pipeline still compiling or refused leaves the ISMs on the packed matrices.
+        const bool ismIds = instancingOn && casters.InstancedSceneIds != nullptr &&
+                            m_ShadowInstancedIdMaterial[c] && m_FrameSceneInstances.IsValid() &&
+                            casters.InstancedSceneIds->GetReadiness() == PipelineReadiness::Ready &&
+                            m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer() != nullptr;
 
         // THE CASCADE'S OWN MATRIX, NOT THE CAMERA'S — and that distinction is the whole
         // safety of culling a shadow pass at all. An object behind the camera casts into
@@ -1609,18 +2247,20 @@ namespace Desert::Graphic::System
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
         // A SCROLLED CASCADE'S STATIC LAYER (PlanCascadeCache) draws what reaches the strips its shift uncovered: the
         // rest of the layer is its cache, copied in shifted.
-        std::vector<Core::Frustum> strips;
+        // CPU-FRAME-ARENA 4: the strips in place (at most CascadeCache::Strips' two), no vector per view.
+        std::array<Core::Frustum, 2> strips{};
+        std::size_t                  stripCount = 0;
         if ( layer == ShadowCasterLayer::Static && c < kCascadeViews && m_CascadeCache[c].Scroll )
-            for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount; ++s )
-                strips.push_back( CascadeCasterFrustum( m_CascadeCache[c].Strips[s] ) );
-        const auto inView = [&cascadeFrustum, &strips]( const Common::Math::AABB& box )
+            for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount && stripCount < strips.size(); ++s )
+                strips[stripCount++] = CascadeCasterFrustum( m_CascadeCache[c].Strips[s] );
+        const auto inView = [&cascadeFrustum, &strips, stripCount]( const Common::Math::AABB& box )
         {
             if ( !IsVisibleInView( cascadeFrustum, box ) )
                 return false;
-            if ( strips.empty() )
+            if ( stripCount == 0 )
                 return true;
-            for ( const Core::Frustum& strip : strips )
-                if ( IsVisibleInView( strip, box ) )
+            for ( std::size_t s = 0; s < stripCount; ++s )
+                if ( IsVisibleInView( strips[s], box ) )
                     return true;
             return false;
         };
@@ -1643,18 +2283,99 @@ namespace Desert::Graphic::System
         };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
-        // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
-        std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
-             byMesh;
-        m_ScratchShadowBucketOf.clear();
-        const auto bucketFor = [&]( Desert::Mesh*     mesh,
+        // in first-seen order; the key's bucket found by m_ScratchShadowBucketSlots, not by a search. Reused by
+        // index, as the slots: no allocation per cascade in the steady state.
+        // THE RETAINED IDS FIRST (CPU-TAILS-F10 5; UE's cached shadow-depth draw commands: per frame only the
+        // visibility and the instance lists): a row the walk leaves its own mask takes its bucket by the plan
+        // rows' shadow id (StaticPlanRows::ShadowBucket, built at the sync from one sort) through a stamped
+        // id -> bucket table - no hash, no table clear per view. The key hash is built only when a row of this
+        // view needs it (the walk gave it another mask - a VG cut -, or the rows do not cover it), and then holds
+        // every bucket of the view, so a walked row still joins an id-made bucket of its key: the same buckets,
+        // in the same first-seen order, as one hash over every caster.
+        m_ScratchShadowBucketCount        = 0;
+        const StaticPlanRows&  planRows   = m_StaticPlanRows;
+        const bool             rowsCover  = planRows.ShadowBucket.size() == planRows.Count();
+        std::vector<uint32_t>& bucketOfId = m_ScratchShadowBucketOfId;
+        std::vector<uint32_t>& idStamp    = m_ScratchShadowIdStamp;
+        if ( rowsCover && idStamp.size() < planRows.ShadowBucketCount )
+        {
+            bucketOfId.resize( planRows.ShadowBucketCount, 0u );
+            idStamp.resize( planRows.ShadowBucketCount, 0u );
+        }
+        if ( ++m_ScratchShadowStamp == 0u )
+        {
+            std::fill( idStamp.begin(), idStamp.end(), 0u );
+            m_ScratchShadowStamp = 1u;
+        }
+        const uint32_t stamp      = m_ScratchShadowStamp;
+        bool           hashActive = false;
+        const auto     makeBucket = [this]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> uint32_t
+        {
+            if ( m_ScratchShadowBucketCount == m_ScratchShadowBuckets.size() )
+                m_ScratchShadowBuckets.emplace_back();
+            ShadowMeshBucket& made = m_ScratchShadowBuckets[m_ScratchShadowBucketCount++];
+            made.first             = std::make_pair( mesh, hidden );
+            made.second.clear();
+            return static_cast<uint32_t>( m_ScratchShadowBucketCount );
+        };
+        // The key's slot in the hash (a bucket index + 1, 0 = empty): open addressed, at least twice the queue.
+        const auto hashSlot = [this]( const Desert::Mesh* mesh, const SubmeshMask hidden ) -> uint32_t&
+        {
+            std::vector<uint32_t>& table = m_ScratchShadowBucketSlots;
+            const std::size_t      mask  = table.size() - 1u;
+            for ( std::size_t at = ShadowBucketKeyHash{}( ShadowBucketKey{ mesh, hidden } ) & mask;;
+                  at             = ( at + 1u ) & mask )
+            {
+                uint32_t& slot = table[at];
+                if ( slot == 0u )
+                    return slot;
+                const ShadowMeshBucket& found = m_ScratchShadowBuckets[slot - 1u];
+                if ( found.first.first == mesh && found.first.second == hidden )
+                    return slot;
+            }
+        };
+        const auto activateHash = [&]()
+        {
+            hashActive        = true;
+            std::size_t slots = 64;
+            while ( slots < m_StaticQueue.size() * 2u )
+                slots <<= 1u;
+            m_ScratchShadowBucketSlots.assign( slots, 0u );
+            for ( std::size_t b = 0; b < m_ScratchShadowBucketCount; ++b )
+            {
+                const ShadowMeshBucket& made                    = m_ScratchShadowBuckets[b];
+                hashSlot( made.first.first, made.first.second ) = static_cast<uint32_t>( b + 1u );
+            }
+        };
+        // The bucket index + 1 of key (mesh, hidden), made in first-seen order when new (hash active).
+        const auto hashedBucket = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> uint32_t
+        {
+            uint32_t& slot = hashSlot( mesh, hidden );
+            if ( slot == 0u )
+                slot = makeBucket( mesh, hidden );
+            return slot;
+        };
+        const auto bucketFor = [&]( const std::size_t row, Desert::Mesh* mesh,
                                     const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
-            const auto [it, added] =
-                 m_ScratchShadowBucketOf.try_emplace( ShadowBucketKey{ mesh, hidden }, byMesh.size() );
-            if ( added )
-                byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<const StaticMeshRenderData*>{} );
-            return byMesh[it->second].second;
+            // The id names (row mesh, own mask): a walk that draws another mesh (an LOD swap) takes the hash.
+            const bool ownMask = hidden.High.empty() && hidden.Low == m_StaticColumns.Hidden[row] &&
+                                 mesh == m_StaticColumns.Meshes[row];
+            const uint32_t id      = rowsCover && ownMask && row < planRows.ShadowBucket.size()
+                                          ? planRows.ShadowBucket[row]
+                                          : StaticPlanRows::kNoBucket;
+            if ( id == StaticPlanRows::kNoBucket || id >= idStamp.size() )
+            {
+                if ( !hashActive )
+                    activateHash();
+                return m_ScratchShadowBuckets[hashedBucket( mesh, hidden ) - 1u].second;
+            }
+            if ( idStamp[id] != stamp )
+            {
+                idStamp[id]    = stamp;
+                bucketOfId[id] = hashActive ? hashedBucket( mesh, hidden ) : makeBucket( mesh, hidden );
+            }
+            return m_ScratchShadowBuckets[bucketOfId[id] - 1u].second;
         };
         const auto staticIndex = [this]( const StaticMeshRenderData* rd )
         { return static_cast<uint32_t>( rd - m_StaticQueue.data() ); };
@@ -1680,6 +2401,8 @@ namespace Desert::Graphic::System
             auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
             set.Caster = caster;
             set.Transforms.clear();
+            set.Ids.clear();
+            set.SceneIds = false;
             return set;
         };
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
@@ -1702,30 +2425,59 @@ namespace Desert::Graphic::System
                                      const GpuDriven::PrimitiveIndex primitive,
                                      const uint64_t                  hidden ) -> std::optional<SubmeshMask>
         { return CpuWalkHidden( walkView, mesh, primitive, hidden ); };
-        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+        // The queue's hot columns (m_StaticColumns, dense by position: mesh, primitive, mask, caster flag and the
+        // section's surface with its masked answer), so a record is read only once it casts in this view. A
+        // record past the columns was queued after the sync: skipped.
+        const StaticWalkColumns& columns = m_StaticColumns;
+        const std::size_t        statics = drawStatic ? columns.Count() : 0u;
+        // inView four rows at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record that
+        // reaches the test is tested once over the rows' columns (StaticBounds, kept with the rows), the view's
+        // bits AND the union of the strips' - per row the verdict inView gives its box. Rows whose columns are
+        // not of these rows (another count, or rows not finished for this gather) are tested one at a time.
+        const Common::Math::AABBLanes& staticLanes = gathered.StaticBounds;
+        const bool                     staticBatch = gathered.StaticRowsGather == gathered.Gather &&
+                                 staticLanes.Size() == gathered.Statics.size();
+        const auto                     staticGroup = [&]( const std::size_t base ) noexcept
         {
-            const StaticMeshRenderData& rd = m_StaticQueue[i];
-            if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows )
+            uint32_t bits = VisibleInView4( cascadeFrustum, staticLanes, base );
+            if ( stripCount == 0 || bits == 0u )
+                return bits;
+            uint32_t stripBits = 0u;
+            for ( std::size_t s = 0; s < stripCount; ++s )
+                stripBits |= VisibleInView4( strips[s], staticLanes, base );
+            return bits & stripBits;
+        };
+        VisibleInViewQuads staticQuads;
+        for ( std::size_t i = 0; i < statics; ++i )
+        {
+            const Desert::Mesh* const mesh  = columns.Meshes[i];
+            const uint8_t             flags = columns.Flags[i];
+            if ( mesh == nullptr || ( flags & StaticWalkColumns::kCastsShadow ) == 0u )
                 continue;
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
-                 walkHidden( rd.Mesh, rd.Mesh->GetSubmeshes().size(), rd.GpuPrimitive, rd.HiddenSubmeshes );
-            if ( !walk || !inView( gathered.Statics[i].WorldBounds ) )
+                 walkHidden( mesh, mesh->GetSubmeshes().size(), columns.Primitives[i], columns.Hidden[i] );
+            if ( !walk )
                 continue;
-            const SubmeshMask hidden = *walk;
+            const bool caster = staticBatch && i < staticLanes.Size() ? staticQuads.Visible( i, staticGroup )
+                                                                      : inView( gathered.Statics[i].WorldBounds );
+            if ( !caster )
+                continue;
+            const StaticMeshRenderData& rd     = m_StaticQueue[i];
+            const SubmeshMask           hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
             // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so
-            // a masked section takes the masked route and an opaque one the opaque route.
-            const SurfaceSlot         slot = SectionSurface( rd.MaterialSlots.get(), rd.SectionSlot );
-            MaterialInstance*         inst = slot.Instance;
-            const DataDrivenMaterial* mat  = slot.Surface;
-            if ( !isMasked( mat ) )
+            // a masked section takes the masked route and an opaque one the opaque route. The columns hold that
+            // surface and its IsMaskedSurface answer (ShadingOf at the sync), so no template name is asked here.
+            MaterialInstance*         inst = columns.Instances[i];
+            const DataDrivenMaterial* mat  = columns.Surfaces[i];
+            if ( ( flags & StaticWalkColumns::kMasked ) == 0u )
             {
-                bucketFor( rd.Mesh, hidden ).push_back( &rd );
+                bucketFor( i, rd.Mesh, hidden ).push_back( &rd );
                 continue;
             }
-            auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
-            if ( caster == nullptr )
+            auto* masked = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
+            if ( masked == nullptr )
             {
                 continue; // refused by name, once
             }
@@ -1736,7 +2488,7 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            auto&            set = maskedSetFor( caster );
+            auto&            set = maskedSetFor( masked );
             MaskedCasterDraw draw;
             draw.Set       = &set;
             draw.Path      = MeshVertexPath::Static;
@@ -1755,11 +2507,16 @@ namespace Desert::Graphic::System
         auto& instTransforms = m_ScratchInstTransforms;
         auto& batches        = m_ScratchShadowBatches;
         auto& singles        = m_ScratchShadowSingles;
+        auto& idBatches      = m_ScratchShadowIdBatches;
+        auto& shadowIsmIds   = m_ScratchShadowIsmIds;
         instTransforms.clear();
         batches.clear();
         singles.clear();
-        for ( auto& [meshKey, bucket] : byMesh )
+        idBatches.clear();
+        shadowIsmIds.clear();
+        for ( std::size_t bi = 0; bi < m_ScratchShadowBucketCount; ++bi )
         {
+            const auto& [meshKey, bucket] = m_ScratchShadowBuckets[bi];
             Desert::Mesh* const mesh = meshKey.first;
             if ( instancingOn && bucket.size() >= 2 )
             {
@@ -1774,7 +2531,8 @@ namespace Desert::Graphic::System
                 for ( const auto* rd : bucket )
                     levels.push_back( std::min( ShadowStaticLod( staticIndex( rd ) ), maxLevel ) );
 
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                for ( const uint32_t level : m_ScratchDistinctLods )
                 {
                     const auto first = static_cast<uint32_t>( instTransforms.size() );
                     for ( std::size_t i = 0; i < bucket.size(); ++i )
@@ -1839,6 +2597,22 @@ namespace Desert::Graphic::System
                 // wind can reach and the level, are the gather's (ShadowIsmInstances: asked once per field).
                 const ShadowIsmField& field =
                      ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+                // inView for every instance of the field at once, four boxes per register (VisibleInViewBits:
+                // per instance the verdict inView gives its gathered box): the view's bits, AND the union of the
+                // scrolled strips' when there are strips.
+                const std::size_t fieldWords = ( std::size_t{ field.Count } + 63u ) / 64u;
+                m_ScratchCasterBits.resize( fieldWords );
+                VisibleInViewBits( cascadeFrustum, gathered.InstanceBounds, field.First, field.Count,
+                                   m_ScratchCasterBits );
+                if ( stripCount != 0 )
+                {
+                    m_ScratchStripBits.assign( fieldWords, 0u );
+                    for ( std::size_t stripIndex = 0; stripIndex < stripCount; ++stripIndex )
+                        AddVisibleInViewBits( strips[stripIndex], gathered.InstanceBounds, field.First,
+                                              field.Count, m_ScratchStripBits );
+                    for ( std::size_t w = 0; w < fieldWords; ++w )
+                        m_ScratchCasterBits[w] &= m_ScratchStripBits[w];
+                }
                 // The field's movers and its still-standing instances are two draws: the wind is pushed per draw.
                 for ( const bool swaying : { false, true } )
                 {
@@ -1847,14 +2621,20 @@ namespace Desert::Graphic::System
                     const InstanceWind wind = swaying ? ism.Wind : InstanceWind{};
                     auto& visible = m_ScratchIsmVisible;
                     auto& levels  = m_ScratchLodLevels;
+                    auto&              visibleIds = m_ScratchIsmVisibleIds;
                     visible.clear();
                     levels.clear();
+                    visibleIds.clear();
                     for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
                     {
-                        if ( instanceSways( k ) != swaying || !inView( gathered.Instances[k].WorldBounds ) )
+                        if ( instanceSways( k ) != swaying || !VisibleBit( m_ScratchCasterBits, k - field.First ) )
                             continue;
                         visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
                         levels.push_back( gathered.Instances[k].LodLevel );
+                        // Its GpuScene row (MeshRenderer.hpp InstancedDraw::FirstGpuInstance: field instance i is
+                        // row FirstGpuInstance + i), the id this view's id casters read it by.
+                        if ( ismIds )
+                            visibleIds.push_back( ism.FirstGpuInstance + gathered.InstanceIndex[k] );
                     }
                     if ( visible.empty() )
                         continue;
@@ -1867,7 +2647,27 @@ namespace Desert::Graphic::System
                                             : nullptr;
                     if ( isMasked( ismMat ) )
                     {
-                        auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
+                        // By id: the template's (Instanced x ShadowDepth) cell in SurfaceSceneInstancesVariant, on
+                        // this view's own copy, once its pipeline is built; else the packed-matrix caster.
+                        DataDrivenMaterial* caster = nullptr;
+                        bool                byId   = false;
+                        // The permutation lookup interns the sibling (a write): never from a setup task
+                        // (the forward pass's MissInSetupTask rule); there the packed-matrix caster draws.
+                        if ( ismIds && !::Common::TaskGroup::InTask() )
+                        {
+                            DataDrivenMaterial* const idCaster =
+                                 Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant(
+                                      ismMat, MeshVertexPath::Instanced, casters.Pass, c,
+                                      SurfaceSceneInstancesVariant(), nullptr );
+                            GraphicsPipeline* idPipeline = nullptr;
+                            if ( idCaster != nullptr )
+                                idPipeline = MaskedCasterPipeline( *idCaster, MeshVertexPath::Instanced, casters );
+                            byId = idPipeline != nullptr && idPipeline->GetReadiness() == PipelineReadiness::Ready;
+                            if ( byId )
+                                caster = idCaster;
+                        }
+                        if ( !byId )
+                            caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
                         if ( caster == nullptr )
                         {
                             continue; // refused by name, once
@@ -1877,17 +2677,23 @@ namespace Desert::Graphic::System
                         {
                             continue;
                         }
-                        auto& set = maskedSetFor( caster );
-                        for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                        auto& set    = maskedSetFor( caster );
+                        set.SceneIds = byId;
+                        Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                        for ( const uint32_t level : m_ScratchDistinctLods )
                         {
-                            const auto first = static_cast<uint32_t>( set.Transforms.size() );
+                            const std::size_t setSize = byId ? set.Ids.size() : set.Transforms.size();
+                            const auto        first   = static_cast<uint32_t>( setSize );
                             for ( std::size_t i = 0; i < visible.size(); ++i )
                             {
-                                if ( levels[i] == level )
-                                {
+                                if ( levels[i] != level )
+                                    continue;
+                                if ( byId )
+                                    set.Ids.push_back( visibleIds[i] );
+                                else
                                     set.Transforms.push_back( visible[i] );
-                                }
                             }
+                            const std::size_t setEnd = byId ? set.Ids.size() : set.Transforms.size();
                             MaskedCasterDraw draw;
                             draw.Set      = &set;
                             draw.Path     = MeshVertexPath::Instanced;
@@ -1895,7 +2701,7 @@ namespace Desert::Graphic::System
                             draw.HiddenSubmeshMask = ismHidden;
                             draw.Instance = ismInst;
                             draw.Row      = *row;
-                            draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
+                            draw.Count             = static_cast<uint32_t>( setEnd ) - first;
                             draw.First    = first;
                             draw.LodLevel = level;
                             draw.Wind     = PackInstanceWind( wind );
@@ -1905,8 +2711,22 @@ namespace Desert::Graphic::System
                         continue;
                     }
 
-                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                    Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                    for ( const uint32_t level : m_ScratchDistinctLods )
                     {
+                        if ( ismIds )
+                        {
+                            // By id: the batch's slice of this view's id list (the id material's
+                            // InstanceTransforms), its rows the scene's GpuScene instances.
+                            const auto first = static_cast<uint32_t>( shadowIsmIds.size() );
+                            for ( std::size_t i = 0; i < visibleIds.size(); ++i )
+                                if ( levels[i] == level )
+                                    shadowIsmIds.push_back( visibleIds[i] );
+                            idBatches.push_back( ShadowBatch{
+                                 ism.Mesh, static_cast<uint32_t>( shadowIsmIds.size() ) - first, first, level,
+                                 ismHidden, PackInstanceWind( wind ), WindBoundsPad( wind ) } );
+                            continue;
+                        }
                         const auto first = static_cast<uint32_t>( instTransforms.size() );
                         for ( std::size_t i = 0; i < visible.size(); ++i )
                             if ( levels[i] == level )
@@ -1989,14 +2809,9 @@ namespace Desert::Graphic::System
             // Per section, as the static entries: a masked section through its template's caster, masked to its
             // own submeshes; the opaque sections of an entry are ONE depth draw (no material to tell apart),
             // drawing their union over one copy of the pose.
-            struct OpaqueCaster
-            {
-                const SkinnedMeshRenderData* Data       = nullptr;
-                uint32_t                     BoneOffset = 0;
-                uint64_t                     Hidden     = 0;
-                std::size_t                  Index      = 0; // into m_SkinnedQueue
-            };
-            std::vector<OpaqueCaster> opaqueCasters;
+            using OpaqueCaster  = OpaqueSkinnedCaster;
+            auto& opaqueCasters = m_ScratchOpaqueSkinnedCasters; // a member: its capacity persists
+            opaqueCasters.clear();
             for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
             {
                 const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
@@ -2103,6 +2918,40 @@ namespace Desert::Graphic::System
                             .BoundsPad = b.BoundsPad } );
             }
         }
+        // The ISMs by id (CPU-ISM-PACK 6): this view's own id list, uploaded once, its rows the scene's GpuScene
+        // instances (the list binds them to the id material's block). No .Instances: only a virtual shadow map
+        // level's GPU cull reads them, and a level draws no id caster (ismIds).
+        if ( ismIds && !idBatches.empty() )
+        {
+            auto* idMat = m_ShadowInstancedIdMaterial[c].get();
+            idMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
+                                   m_CascadeCasterBias[c], m_ParallaxQuality, viewWind );
+            if ( auto* sb = idMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
+                sb->SetRawData( shadowIsmIds.data(),
+                                static_cast<uint32_t>( shadowIsmIds.size() * sizeof( uint32_t ) ) );
+            // The instance's primitive row (Vertex_Instanced.glslh DESERT_SURFACE_SCENE_INSTANCES: LocalToWorld,
+            // wind) is read from the scene's GpuScenePrimitives: a light view carries no scene frame
+            // (CaptureFrameState binds view passes only), so the id caster's own material is lent the table here,
+            // for every view this list feeds (cascades, local lights, rain occlusion), as a skinned caster's is.
+            // The table is there by ismIds; the block is the id cell's by construction (it reads the rows).
+            auto* rows = idMat->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
+            DESERT_VERIFY( rows != nullptr, "the shadow id caster reads no GpuScenePrimitives block" );
+            rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
+            list.SetSceneInstances( m_FrameSceneInstances );
+            for ( const auto& b : idBatches )
+            {
+                list.Add( { .Pipeline          = casters.InstancedSceneIds,
+                            .Mesh              = b.Mesh,
+                            .Transform         = glm::mat4( 1.0f ),
+                            .Material          = idMat->GetMaterialExecutor(),
+                            .InstanceCount     = b.Count,
+                            .FirstInstance     = b.First,
+                            .HiddenSubmeshMask = b.HiddenSubmeshMask,
+                            .LodLevel          = b.LodLevel,
+                            .Push              = DrawPushFields{}.Wind( b.Wind ),
+                            .BoundsPad         = b.BoundsPad } );
+            }
+        }
 
         // Masked casters: each copy's rows and transforms uploaded once, here in setup, its camera set to THIS
         // cascade (the copy is this cascade's alone); then its draws, in collection order.
@@ -2116,19 +2965,20 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            if ( set.Transforms.empty() )
+            if ( set.SceneIds ? set.Ids.empty() : set.Transforms.empty() )
             {
                 continue;
             }
             // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
             const auto path = MeshCellPath( set.Caster->GetShaderName() );
             // A skinned caster also reads its primitive's skin-cache fields from the scene's GpuScene
-            // (Vertex_Skinned.glslh).
-            if ( path == MeshVertexPath::Skinned )
+            // (Vertex_Skinned.glslh), and a masked ISM caster by id its instances' primitive rows
+            // (Vertex_Instanced.glslh DESERT_SURFACE_SCENE_INSTANCES): a light view carries no scene frame.
+            if ( path == MeshVertexPath::Skinned || set.SceneIds )
             {
                 auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
                 const bool bound = rows != nullptr && m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer();
-                DESERT_VERIFY( bound, "a skinned masked caster reads GpuScenePrimitives but the view carries none" );
+                DESERT_VERIFY( bound, "a masked caster reads GpuScenePrimitives but the view carries none" );
                 rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
             }
             const std::optional<RDG::StorageBufferParameter> own =
@@ -2139,8 +2989,18 @@ namespace Desert::Graphic::System
             }
             if ( auto* sb = set.Caster->Get<StorageBufferProperty>( *own ) )
             {
-                sb->SetRawData( set.Transforms.data(),
-                                static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                // A caster by id (SurfaceSceneInstancesVariant): its block holds GpuScene instance ids, the rows
+                // the list binds (SetSceneInstances).
+                if ( set.SceneIds )
+                {
+                    sb->SetRawData( set.Ids.data(), static_cast<uint32_t>( set.Ids.size() * sizeof( uint32_t ) ) );
+                    list.SetSceneInstances( m_FrameSceneInstances );
+                }
+                else
+                {
+                    sb->SetRawData( set.Transforms.data(),
+                                    static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
+                }
             }
         }
         bool maskedPending = false;
@@ -2183,7 +3043,7 @@ namespace Desert::Graphic::System
                        return push;
                    }(),
                    .Instances =
-                        instanced
+                        instanced && !draw.Set->SceneIds
                              ? std::span<const glm::mat4>( draw.Set->Transforms ).subspan( draw.First, draw.Count )
                              : std::span<const glm::mat4>{},
                    .BoundsPad   = draw.BoundsPad,
@@ -2247,7 +3107,11 @@ namespace Desert::Graphic::System
             for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
             {
                 if ( c < fitted )
+                {
+                    // ...whole: a fresh layer holds no static depth around a region to keep (MovableRegion).
                     m_CascadeCache[slot * kMaxCascades + c].Rebuild = true;
+                    m_CascadeCache[slot * kMaxCascades + c].MovableRegion.reset();
+                }
                 else
                     m_CascadeCache[slot * kMaxCascades + c].StaticKey.reset();
             }
@@ -2391,9 +3255,15 @@ namespace Desert::Graphic::System
                                           .Name    = name + ".ToCache",
                                           .ToCache = true } );
             else
-                frame.Copies.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
+            {
+                CascadeCacheCopy restore{ .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
                                           .Layer = layer,
-                                          .Name  = name + ".FromCache" } );
+                                          .Name  = name + ".FromCache" };
+                // Over a standing static layer, only the texels the movers left and reach (PlanCascadeCache).
+                if ( state.MovableRegion )
+                    restore.Regions.push_back( *state.MovableRegion );
+                frame.Copies.push_back( std::move( restore ) );
+            }
 
             if ( !state.Movable )
                 continue;
@@ -2403,6 +3273,13 @@ namespace Desert::Graphic::System
                  .ExecuteFunc = [this, c]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
+                     // Under the restored region alone (PlanCascadeCache's MovableRegion): the layer around it is
+                     // last frame's, its movers' depth already gone from it or never there.
+                     const std::optional<glm::uvec4> region   = m_CascadeCache[c].MovableRegion;
+                     auto&                           renderer = Renderer::GetInstance();
+                     if ( region )
+                         renderer.SetScissor( static_cast<int32_t>( region->x ), static_cast<int32_t>( region->y ),
+                                              region->z, region->w );
                      if ( auto drawn = m_CascadeMovableDraws[c].Record( context ); !drawn.IsSuccess() )
                          return drawn;
 
@@ -2423,6 +3300,8 @@ namespace Desert::Graphic::System
                              return cast;
                          }
                      }
+                     if ( region )
+                         renderer.SetScissor( 0, 0, m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
                      return BOOLSUCCESS;
                  },
                  .TargetDepthArray = maps,

@@ -47,8 +47,11 @@ namespace Desert::Graphic::System
         // segments, z = its bucket count (GrassRenderer::PrepareVariety).
         glm::uvec4                Visibility{ 0u };
         std::array<glm::uvec4, 2> BucketFirst{}; // the first instance of bucket b < 8, [b / 4][b % 4]
+        // CPU-GRASS-POOL-5: x = the camera list's first slot in the shared ids pool (its CameraIds range), so
+        // the raster's gl_InstanceIndex - x is the variety's own slot; y, z, w = 0.
+        glm::uvec4 Lists{ 0u };
     };
-    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 3 );
+    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 4 );
     // The strip levels BucketFirst holds (a blade's buckets are its strip's levels: Segments halved down to one).
     inline constexpr uint32_t kGrassBladeVisibilityMaxBuckets = 8u;
 
@@ -124,6 +127,8 @@ namespace Desert::Graphic::System
             uint64_t  NonOpaque                           = 0;
             bool      operator==( const BladeKey& ) const = default;
         };
+        // Key: what the last declared builds were made from (Valid: they were declared). The levels hold it only
+        // while every target IsBuilt (their graph ended); otherwise the builds are pending and are made again.
         struct VarietyState
         {
             BladeKey                                                                      Key;

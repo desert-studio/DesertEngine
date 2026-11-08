@@ -291,7 +291,7 @@ namespace Desert::Graphic
                 // may run elsewhere. The entry is not erased until the future below is ready.
                 const ImageReadback* readback = write.Readback.get();
                 write.Encoded                 = Common::JobSystem::Get().Async(
-                     [readback, entry = write.Entry]() -> EncodedCube
+                     [readback, entry = write.Entry]() noexcept -> EncodedCube
                      {
                          auto bytes = readback->ReadBytes();
                          if ( !bytes.IsSuccess() )

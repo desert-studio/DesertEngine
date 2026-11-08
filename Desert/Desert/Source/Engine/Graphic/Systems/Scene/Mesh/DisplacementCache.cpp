@@ -881,7 +881,7 @@ namespace Desert::Graphic::System
             entry.PendingKey            = wanted;
             pendingKeys.emplace( HashKey( wanted ), wanted );
             entry.Pending               = Common::JobSystem::Get().Async(
-                 [topology, levels = std::move( levels )]() -> Common::ResultStr<Tessellation>
+                 [topology, levels = std::move( levels )]() noexcept -> Common::ResultStr<Tessellation>
                  {
                      Tessellation out;
                      out.Clusters.reserve( topology->Clusters.size() );

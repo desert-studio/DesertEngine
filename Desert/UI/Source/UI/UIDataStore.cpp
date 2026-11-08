@@ -1,5 +1,7 @@
 #include "UIDataStore.hpp"
 
+#include <Common/Core/NumberText.hpp>
+
 #include <algorithm>
 #include <charconv>
 #include <cstdint>
@@ -175,14 +177,7 @@ namespace Desert::UI
             return *b ? 1.0 : 0.0;
         if ( const std::string* s = std::get_if<std::string>( &it->second ) )
         {
-            try // a numeric string is a number the author clearly meant
-            {
-                return std::stod( *s );
-            }
-            catch ( ... )
-            {
-                return std::nullopt;
-            }
+            return Common::DoubleFromText( *s ); // a numeric string is a number the author clearly meant
         }
         return std::nullopt;
     }

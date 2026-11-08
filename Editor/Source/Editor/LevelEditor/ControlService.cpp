@@ -37,6 +37,7 @@
 #include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 
+#include <Common/Core/NumberText.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
@@ -181,20 +182,13 @@ namespace Desert::Editor
                 {
                     // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
                     after = *current;
-                    try
-                    {
-                        std::size_t used = 0;
-                        const float size = std::stof( text, &used );
-                        if ( used != text.size() || !std::isfinite( size ) || size < 0.0f )
-                            throw std::invalid_argument( text );
-                        after.ChunkRegionSize = size > 0.0f ? std::optional<float>( size ) : std::nullopt;
-                    }
-                    catch ( const std::exception& )
-                    {
+                    std::size_t                used = 0;
+                    const std::optional<float> size = Common::FloatFromText( text, &used );
+                    if ( !size || used != text.size() || !std::isfinite( *size ) || *size < 0.0f )
                         return Common::MakeError<bool>( std::format(
                              "'{}' is not a region size in cm (a finite number >= 0; 0 = the base archive)",
                              text ) );
-                    }
+                    after.ChunkRegionSize = *size > 0.0f ? std::optional<float>( *size ) : std::nullopt;
                     return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
                 }
                 const std::size_t dot = property.rfind( '.' );
@@ -208,30 +202,35 @@ namespace Desert::Editor
                 if ( !index )
                     return Common::MakeError<bool>( std::format( "the world states no grid '{}'", name ) );
                 ::Desert::Core::WorldPartitionGridSerialized& grid = after.Grids[*index];
-                try
+                if ( field == "Name" )
+                    grid.Name = text;
+                else if ( field == "HLODLayer" )
+                    grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
+                else if ( field == "CellSize" || field == "LoadingRange" )
                 {
-                    std::size_t used = 0;
-                    if ( field == "Name" )
-                        grid.Name = text;
-                    else if ( field == "HLODLayer" )
-                        grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
-                    else if ( field == "CellSize" )
-                        grid.CellSize = std::stof( text, &used );
-                    else if ( field == "LoadingRange" )
-                        grid.LoadingRange = std::stof( text, &used );
-                    else if ( field == "Priority" )
-                        grid.Priority = std::stoi( text, &used );
+                    std::size_t                used  = 0;
+                    const std::optional<float> value = Common::FloatFromText( text, &used );
+                    if ( !value || used != text.size() )
+                        return Common::MakeError<bool>(
+                             std::format( "'{}' is not a value for {}", text, property ) );
+                    if ( field == "CellSize" )
+                        grid.CellSize = *value;
                     else
-                        return Common::MakeError<bool>( std::format(
-                             "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
-                             field ) );
-                    if ( used != 0 && used != text.size() )
-                        throw std::invalid_argument( text );
+                        grid.LoadingRange = *value;
                 }
-                catch ( const std::exception& )
+                else if ( field == "Priority" )
                 {
-                    return Common::MakeError<bool>( std::format( "'{}' is not a value for {}", text, property ) );
+                    int        priority = 0;
+                    const auto read     = std::from_chars( text.data(), text.data() + text.size(), priority );
+                    if ( read.ec != std::errc{} || read.ptr != text.data() + text.size() )
+                        return Common::MakeError<bool>(
+                             std::format( "'{}' is not a value for {}", text, property ) );
+                    grid.Priority = priority;
                 }
+                else
+                    return Common::MakeError<bool>( std::format(
+                         "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
+                         field ) );
             }
             return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
         }

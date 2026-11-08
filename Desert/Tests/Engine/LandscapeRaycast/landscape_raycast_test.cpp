@@ -407,11 +407,12 @@ namespace
             Collision->Attach( Registry );
             for ( size_t i = 0; i < 4; ++i )
             {
-                Entities[i]       = Registry.create();
-                auto& component   = Registry.emplace<ECS::LandscapeTileComponent>( Entities[i] );
+                Entities[i] = Registry.create();
+                ECS::LandscapeTileComponent component;
                 component.TileX   = land.Coords[i].x;
                 component.TileZ   = land.Coords[i].y;
                 component.Heights = land.Tiles[i];
+                Registry.emplace<ECS::LandscapeTileComponent>( Entities[i], std::move( component ) );
             }
             Sync( land );
         }
@@ -621,7 +622,7 @@ TEST( LandscapeCollision, AnEditPatchesTheBodyInPlaceAndItsLifetimeFollowsTheTil
     EXPECT_NEAR( *jolt.JoltHeight( x, z ), *raised, kJoltQuantisationCm ) << "clamped at the old range?";
 
     // Unloading the heights drops the body at the next pass; destroying the entity drops it at once.
-    jolt.Registry.get<ECS::LandscapeTileComponent>( jolt.Entities[1] ).Heights.reset();
+    ECS::SetLandscapeTileHeights( jolt.Registry, jolt.Entities[1], std::nullopt );
     jolt.Sync( land );
     EXPECT_EQ( jolt.Collision->BodyOf( jolt.Entities[1] ), Physics::kInvalidBody );
     EXPECT_EQ( jolt.World.GetBodyCount(), 3u );

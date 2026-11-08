@@ -11,6 +11,7 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -82,6 +83,14 @@ namespace Desert::Core
                        { return static_cast<uint32_t>( a.Stage ) < static_cast<uint32_t>( b.Stage ); } );
             // Every stage is compiled: the one place every binding of the program is a number
             // (SharedSamplerBinding).
+            // Auto-numbered slots and locations (ShaderCompiler.cpp) are per stage; one program-wide answer, or
+            // a refusal naming both holders, before any number is patched. Then the program numbers what the DSL
+            // left unnumbered (kAutoResourceBinding, one slot per name for all stages), and the shared samplers
+            // after every resource.
+            if ( const auto checked = CheckProgramSlots( built.Stages, request.Name ); !checked )
+                return Common::MakeError<ShaderMap>( checked.GetError() );
+            if ( const auto resources = AssignProgramBindings( built.Stages, request.Name ); !resources )
+                return Common::MakeError<ShaderMap>( resources.GetError() );
             if ( const auto numbered = AssignSharedSamplerBindings( built.Stages, request.Name ); !numbered )
                 return Common::MakeError<ShaderMap>( numbered.GetError() );
             if ( const auto stored = StoreShaderMap( mapKey, built ); !stored )
@@ -216,6 +225,86 @@ namespace Desert::Core
             }
             return Common::MakeSuccess( std::move( resources ) );
         }
+
+        constexpr uint32_t kSpvDecorationLocation = 30;
+        constexpr uint32_t kSpvStorageInput       = 1;
+        constexpr uint32_t kSpvStorageOutput      = 3;
+
+        // One located stage-interface variable (`layout(location = n) in/out ...`, numbered by the author or by
+        // glslang's auto-mapped locations): its name, as ReadSpvResources names a resource, and its location.
+        struct SpvInterfaceVariable
+        {
+            std::string Name;
+            uint32_t    Location = 0;
+            bool        IsOutput = false;
+        };
+
+        Common::ResultStr<std::vector<SpvInterfaceVariable>> ReadSpvInterface( const std::vector<uint32_t>& words )
+        {
+            using Located = std::vector<SpvInterfaceVariable>;
+            if ( words.size() < kSpvHeaderWords || words[0] != kSpvMagic )
+                return Common::MakeError<Located>( "the stage is not SPIR-V (bad header)" );
+            std::unordered_map<uint32_t, std::string> names;
+            std::unordered_map<uint32_t, uint32_t>    locations;
+            std::unordered_map<uint32_t, uint32_t>    pointee;   // pointer type -> pointed-to type
+            std::unordered_map<uint32_t, uint32_t>    element;   // array type -> element type
+            std::vector<std::array<uint32_t, 3>>      variables; // (id, pointer type, storage class)
+            for ( size_t at = kSpvHeaderWords; at < words.size(); )
+            {
+                const uint32_t count  = words[at] >> 16;
+                const uint32_t opcode = words[at] & 0xffffu;
+                if ( count == 0 || at + count > words.size() )
+                    return Common::MakeError<Located>(
+                         std::format( "malformed SPIR-V instruction at word {}", at ) );
+                if ( opcode == kSpvOpName && count >= 3 )
+                    names[words[at + 1]] = SpvString( words, at + 2, at + count );
+                else if ( ( opcode == kSpvOpTypeArray && count >= 4 ) ||
+                          ( opcode == kSpvOpTypeRuntimeArray && count >= 3 ) )
+                    element[words[at + 1]] = words[at + 2];
+                else if ( opcode == kSpvOpTypePointer && count >= 4 )
+                    pointee[words[at + 1]] = words[at + 3];
+                else if ( opcode == kSpvOpVariable && count >= 4 )
+                    variables.push_back( { words[at + 2], words[at + 1], words[at + 3] } );
+                else if ( opcode == kSpvOpDecorate && count >= 4 && words[at + 2] == kSpvDecorationLocation )
+                    locations[words[at + 1]] = words[at + 3];
+                at += count;
+            }
+            Located located;
+            for ( const auto& [id, pointerType, storage] : variables )
+            {
+                if ( storage != kSpvStorageInput && storage != kSpvStorageOutput )
+                    continue;
+                const auto location = locations.find( id );
+                if ( location == locations.end() )
+                    continue; // a built-in, or a block whose members carry the locations
+                SpvInterfaceVariable variable;
+                const auto           name = names.find( id );
+                if ( name != names.end() )
+                    variable.Name = name->second;
+                const auto pointed = pointee.find( pointerType );
+                if ( variable.Name.empty() && pointed != pointee.end() )
+                {
+                    uint32_t type = pointed->second;
+                    for ( auto inner = element.find( type ); inner != element.end(); inner = element.find( type ) )
+                        type = inner->second;
+                    if ( const auto typeName = names.find( type ); typeName != names.end() )
+                        variable.Name = typeName->second;
+                }
+                if ( variable.Name.empty() )
+                    continue;
+                variable.Location = location->second;
+                variable.IsOutput = storage == kSpvStorageOutput;
+                located.push_back( std::move( variable ) );
+            }
+            return Common::MakeSuccess( std::move( located ) );
+        }
+
+        // The stages whose outputs feed the next such stage's inputs by location, in ShaderStage order.
+        bool IsGraphicsInterfaceStage( const Formats::ShaderStage stage )
+        {
+            return stage == Formats::ShaderStage::Vertex || stage == Formats::ShaderStage::TessControl ||
+                   stage == Formats::ShaderStage::TessEvaluation || stage == Formats::ShaderStage::Fragment;
+        }
     } // namespace
 
     Common::BoolResultStr AssignSharedSamplerBindings( std::vector<ShaderMapStage>& stages,
@@ -329,6 +418,170 @@ namespace Desert::Core
                      shaderName, name, binding, kAutoSamplerBinding );
             for ( const auto& [stage, word] : entry.Words )
                 stages[stage].Spirv[word] = binding;
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr AssignProgramBindings( std::vector<ShaderMapStage>& stages,
+                                                 const std::string_view       shaderName )
+    {
+        struct Marked
+        {
+            uint32_t                               Set = 0;
+            std::vector<std::pair<size_t, size_t>> Words; // (stage index, binding word)
+            std::string                            Stage; // the first stage that marked it
+        };
+        struct Explicit
+        {
+            uint32_t    Set     = 0;
+            uint32_t    Binding = 0;
+            std::string Stage;
+        };
+        std::map<std::string, Marked>   marked;      // ordered: numbered by name
+        std::map<std::string, Explicit> numbered;    // name -> its explicit slot (CheckProgramSlots: one per name)
+        std::map<uint32_t, uint32_t>    lastBinding; // set -> one past the highest explicit binding
+        for ( size_t s = 0; s < stages.size(); ++s )
+        {
+            auto read = ReadSpvResources( stages[s].Spirv );
+            if ( !read.IsSuccess() )
+                return Common::MakeFormattedError( "shader '{}' [{}]: {}", shaderName,
+                                                   Graphic::Shader::GetStringShaderStage( stages[s].Stage ),
+                                                   read.GetError() );
+            for ( const SpvResource& resource : read.GetValue() )
+            {
+                // A nameless resource is refused by the shared-sampler rule; a shared sampler is numbered by it,
+                // after every resource this pass numbers.
+                if ( resource.Name.empty() || resource.Binding == kAutoSamplerBinding )
+                    continue;
+                if ( resource.Binding != kAutoResourceBinding )
+                {
+                    numbered.try_emplace( resource.Name,
+                                          Explicit{ resource.Set, resource.Binding,
+                                                    Graphic::Shader::GetStringShaderStage( stages[s].Stage ) } );
+                    uint32_t& last = lastBinding[resource.Set];
+                    last           = std::max( last, resource.Binding + 1 );
+                    continue;
+                }
+                Marked& entry = marked[resource.Name];
+                if ( !entry.Words.empty() && entry.Set != resource.Set )
+                    return Common::MakeFormattedError(
+                         "shader '{}': '{}' is declared without a binding in set {} [{}] and in set {} [{}]; one "
+                         "resource is one slot",
+                         shaderName, resource.Name, entry.Set, entry.Stage, resource.Set,
+                         Graphic::Shader::GetStringShaderStage( stages[s].Stage ) );
+                if ( entry.Words.empty() )
+                    entry.Stage = Graphic::Shader::GetStringShaderStage( stages[s].Stage );
+                entry.Set = resource.Set;
+                entry.Words.emplace_back( s, resource.BindingWord );
+            }
+        }
+
+        for ( const auto& [name, entry] : marked )
+        {
+            uint32_t binding = 0;
+            if ( const auto held = numbered.find( name ); held != numbered.end() )
+            {
+                // Declared with a number in another stage: that number is the resource's slot in every stage.
+                if ( held->second.Set != entry.Set )
+                    return Common::MakeFormattedError( "shader '{}': '{}' is on set {} in [{}] and declared "
+                                                       "without a binding in set {} in [{}]; "
+                                                       "one resource is one slot",
+                                                       shaderName, name, held->second.Set, held->second.Stage,
+                                                       entry.Set, entry.Stage );
+                binding = held->second.Binding;
+            }
+            else
+            {
+                uint32_t& last = lastBinding[entry.Set];
+                binding        = last;
+                last           = binding + 1;
+            }
+            if ( binding >= kAutoResourceBinding )
+                return Common::MakeFormattedError(
+                     "shader '{}': '{}' would be numbered {}, at or past the marker {}", shaderName, name, binding,
+                     kAutoResourceBinding );
+            for ( const auto& [stage, word] : entry.Words )
+                stages[stage].Spirv[word] = binding;
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr CheckProgramSlots( const std::vector<ShaderMapStage>& stages,
+                                             const std::string_view             shaderName )
+    {
+        struct Holder
+        {
+            uint32_t    Set     = 0;
+            uint32_t    Binding = 0;
+            std::string Name;
+            std::string Stage;
+        };
+        std::map<std::string, Holder>                   byName;   // resource name -> its first slot
+        std::map<std::pair<uint32_t, uint32_t>, Holder> bySlot;   // (set, binding) -> its first holder
+        std::vector<SpvInterfaceVariable>               upstream; // the previous graphics stage's interface
+        std::string                                     upstreamStage;
+        for ( const ShaderMapStage& stage : stages )
+        {
+            const std::string stageName = Graphic::Shader::GetStringShaderStage( stage.Stage );
+            auto              read      = ReadSpvResources( stage.Spirv );
+            if ( !read.IsSuccess() )
+                return Common::MakeFormattedError( "shader '{}' [{}]: {}", shaderName, stageName,
+                                                   read.GetError() );
+            for ( const SpvResource& resource : read.GetValue() )
+            {
+                // A nameless resource is refused by the shared-sampler rule with its own message; a marked shared
+                // sampler and a marked unnumbered resource are numbered once for the program after this check.
+                if ( resource.Name.empty() || resource.Binding == kAutoSamplerBinding ||
+                     resource.Binding == kAutoResourceBinding )
+                    continue;
+                const Holder holder{ resource.Set, resource.Binding, resource.Name, stageName };
+                const auto [named, firstName] = byName.try_emplace( resource.Name, holder );
+                const bool movedSlot =
+                     named->second.Set != resource.Set || named->second.Binding != resource.Binding;
+                if ( !firstName && movedSlot )
+                    return Common::MakeFormattedError(
+                         "shader '{}': '{}' is on set {}, binding {} in [{}] and on set {}, binding {} in [{}]; "
+                         "one resource is one slot. A resource declared without `binding` takes its stage's "
+                         "lowest free slot, so the stages numbered it apart - give it an explicit binding",
+                         shaderName, resource.Name, named->second.Set, named->second.Binding, named->second.Stage,
+                         resource.Set, resource.Binding, stageName );
+                const std::pair<uint32_t, uint32_t> slot{ resource.Set, resource.Binding };
+                const auto [held, firstSlot] = bySlot.try_emplace( slot, holder );
+                if ( !firstSlot && held->second.Name != resource.Name )
+                    return Common::MakeFormattedError(
+                         "shader '{}': binding collision on set {}, binding {}: '{}' [{}] and '{}' [{}]; one slot "
+                         "is one resource. A resource declared without `binding` takes its stage's lowest free "
+                         "slot, which another stage may hold explicitly - give one of the two an explicit binding",
+                         shaderName, resource.Set, resource.Binding, held->second.Name, held->second.Stage,
+                         resource.Name, stageName );
+            }
+
+            if ( !IsGraphicsInterfaceStage( stage.Stage ) )
+                continue;
+            auto located = ReadSpvInterface( stage.Spirv );
+            if ( !located.IsSuccess() )
+                return Common::MakeFormattedError( "shader '{}' [{}]: {}", shaderName, stageName,
+                                                   located.GetError() );
+            // An input of this stage and an output of the graphics stage before it with one name are one varying:
+            // an auto-mapped location numbers each stage's interface in its own declaration order, so a mismatch
+            // is two stages declaring their varyings in different orders.
+            for ( const SpvInterfaceVariable& input : located.GetValue() )
+            {
+                if ( input.IsOutput )
+                    continue;
+                for ( const SpvInterfaceVariable& output : upstream )
+                {
+                    if ( !output.IsOutput || output.Name != input.Name || output.Location == input.Location )
+                        continue;
+                    return Common::MakeFormattedError(
+                         "shader '{}': the varying '{}' is written at location {} by [{}] and read at location {} "
+                         "by [{}]; declare the varyings in the same order in both stages or give them explicit "
+                         "locations",
+                         shaderName, input.Name, output.Location, upstreamStage, input.Location, stageName );
+                }
+            }
+            upstream      = located.ExtractValue();
+            upstreamStage = stageName;
         }
         return Common::MakeSuccess( true );
     }

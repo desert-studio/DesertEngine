@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/GpuBatch.hpp>
+
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRef.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -9,8 +11,11 @@
 #include <Engine/Runtime/Services/Texture/TextureUploadQueue.hpp>
 #include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -43,6 +48,11 @@ namespace Desert::Runtime
         float TexelsPerPixel = 2.0f;
         /// Frames a texture may go without any draw asking for it before it falls back to its tail.
         uint32_t UnseenFrames = 120;
+        /// Frames the largest screen size a texture was asked for is held before a smaller ask replaces it (UE
+        /// FStreamingRenderAsset keeps the max over its update window). A take can land while the render task
+        /// still notes the frame before (OVERLAP-ON-1), so one take may carry only that frame's far draws; the
+        /// held peak keeps such a take from dropping the mips the next take asks for again.
+        uint32_t HoldFrames = 60;
         /// Frames between two pool lines in the log (only when the pool changed).
         uint32_t LogEveryFrames = 120;
     };
@@ -50,7 +60,8 @@ namespace Desert::Runtime
     /// What a cook worker hands the frame loop: the decoded texture, or why there is none.
     struct TextureCookOutcome
     {
-        std::optional<Graphic::CookedTexture2D> Cooked;
+        /// The worker made the image and staged its levels (Texture2D::PrepareCooked); copies not recorded yet.
+        std::optional<Graphic::Texture2D::PreparedTexture2D> Prepared;
         std::string                             Error;
     };
 
@@ -68,6 +79,15 @@ namespace Desert::Runtime
      * to a JobSystem worker. The worker's decoded result waits in `TextureUploads`, and `PumpUploads` creates
      * GPU images from it once per frame within `TextureUploadSettings::BytesPerFrame`. The texture stays
      * Pending, drawing the slot default, until its upload runs.
+     *
+     * THE TABLE HAS ITS OWN READER-WRITER LOCK (CPU-ONE-SYNC R15; UE FRWLock per table). Render workers ask it
+     * while the frame loop settles it: `Require`'s hit, `Get`, `AwaitedBy`, the counters and the streaming scan
+     * take it SHARED; a miss (re-checked), `RebuildWhenReady`, a read's completion, an upload's commit, the
+     * streaming commit of the rows that move (re-checked; none on a frame with nothing to move) and `Clear` take
+     * it EXCLUSIVE. One order: the material service's lock, then `m_DiscoverLock`, then `m_TableLock`, then
+     * only leaf locks (the loader's, the job queue's, the log's). Nothing runs under the table lock that reads a
+     * file, creates or frees a GPU image, asks the AssetManager, or reaches RenderTask (an AfterJoin may run at
+     * once or Join, and a join waits for workers that wait for this lock) or the material service.
      */
     class TextureService
     {
@@ -100,11 +120,9 @@ namespace Desert::Runtime
         /// on its next draw) when the texture lands.
         void RebuildWhenReady( const Assets::AssetHandle& texture, const Assets::AssetHandle& material ) const;
 
-        /// @p material still binds a slot default for a texture that has not settled (Ready or Failed).
-        bool AwaitedBy( const Assets::AssetHandle& material ) const
-        {
-            return m_Waiters.IsWaiting( material );
-        }
+        /// @p material still binds a slot default for a texture that has not settled (Ready or Failed). Asked per
+        /// draw by render workers: no lock once nothing waits, the shared lock while something does.
+        bool AwaitedBy( const Assets::AssetHandle& material ) const;
 
         // Original source file of a texture (e.g. ".../foo.gif"), empty when the handle is unknown. The one
         // synchronous door: an unread shell is finished NOW through AsyncAssetLoader::FlushOne, which the
@@ -128,7 +146,11 @@ namespace Desert::Runtime
         /// (Graphic::TextureStreamingDemand), turns it into the first mip each texture wants, fits the wanted set
         /// into the pool budget by dropping the least asked-for mips first, and starts the reads that move a
         /// texture to its wanted mips. The new levels go into the same texture when their upload runs
-        /// (Texture2D::ReplaceLevels): no material is rebuilt.
+        /// (Texture2D::ReplaceLevels): no material is rebuilt. Decided under the SHARED table lock into a list of
+        /// changes; one EXCLUSIVE section then commits only the rows that move, each re-checked against what the
+        /// scan saw: a render worker's Require hit, Get and AwaitedBy run beside the scan and wait only for that
+        /// short commit (a miss or a RebuildWhenReady also waits for the scan), and a frame with nothing to move
+        /// takes no exclusive lock.
         void UpdateStreaming();
 
         /// Cooked results still waiting for their upload (tests, diagnostics).
@@ -150,24 +172,44 @@ namespace Desert::Runtime
             std::shared_ptr<Assets::TextureAsset> Source;
             std::shared_ptr<Graphic::Texture2D>   Built;
             Assets::LoadRequest                   Request;
+            /// The read was asked for and neither of its delegates has run yet. Not `Request.IsValid()`: the
+            /// loader takes a landed read out of its live set BEFORE the completion runs (Pump, then the delegate
+            /// with its lock released), and in that window a worker saw no read and no cook - a second cook
+            /// started, and a RebuildWhenReady was dropped with nothing left to settle it (CPU-ONE-SYNC step 11).
+            bool Reading = false;
             /// Which cook the entry waits for; a result carrying another ticket is stale and dropped.
             uint64_t CookTicket = 0;
             /// The platform data is being read or cooked on a worker, or waits for its upload.
             bool Cooking = false;
             /// Latched so a corrupt file is not re-read every frame.
             bool Failed = false;
+            /// Settled (built or failed) with its waiters' settle still queued behind the render work in flight:
+            /// a material whose Require saw Pending before the upload still registers, and that settle takes it.
+            bool SettleQueued = false;
             /// Streaming: the asset's level 0 size and every level's bytes (known after the first read), the
             /// level the built image starts at, the level the running read will start at, and the last frame a
-            /// draw asked for the texture with how many screen pixels.
+            /// draw asked for the texture with how many screen pixels. The last two belong to the frame loop:
+            /// UpdateStreaming alone reads and writes them, under the SHARED lock (no worker touches them), so a
+            /// frame's screen demand takes no exclusive lock.
             uint32_t              FullWidth = 0, FullHeight = 0;
             std::vector<uint64_t> LevelBytes;
             uint32_t              ResidentFirstMip  = 0;
             uint32_t              RequestedFirstMip = Graphic::Texture2D::kStreamingTail;
             uint64_t              LastAskedFrame    = 0;
-            float                 AskedPixels       = 0.0f;
+            uint64_t              HeldFrame         = 0;    // the frame AskedPixels was last raised or refreshed
+            float                 AskedPixels       = 0.0f; // the largest ask held over HoldFrames
         };
 
-        Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        /// What `Require` answers without starting anything: Ready, Null (failed, or no shell) or Pending (a read
+        /// or a cook in flight). Empty for a row never asked for, whose read the caller starts. Lock held.
+        static std::optional<Assets::AssetRef<Graphic::Texture2D>> Answer( const Assets::AssetHandle& handle,
+                                                                           const Entry&               entry );
+        /// A handle with no row yet gets its shell from the content registry: one discovery at a time under
+        /// `m_DiscoverLock`, the AssetManager and the disk asked with the table unlocked. False when it has none.
+        bool Discover( const Assets::AssetHandle& handle ) const;
+        /// The waiters of a settled texture are settled, and their materials invalidated, at the hand-off. Called
+        /// with the table lock released (AfterJoin may run it at once).
+        void SettleAtHandOff( const Assets::AssetHandle& texture ) const;
         // THE LIVE-IMAGE CHANGES AT THE HAND-OFF (OVERLAP-ON-7): a streamed raise's swap and a stream-out move
         // the Image2D a recording view may read, so they run behind the render work in flight
         // (RenderTask::AfterJoin); a new texture nothing references yet is still built at once (FinishCook).
@@ -175,12 +217,52 @@ namespace Desert::Runtime
                                     Graphic::Texture2D::StagedLevels           staged );
         static void StreamOutAtHandOff( const std::shared_ptr<Graphic::Texture2D>& texture,
                                         uint32_t                                   droppedLevels );
-        void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
-        void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
-        void        SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
-        void        StartAdmittedCooks();
-        void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome );
+        // These four run with the table lock held EXCLUSIVE by their caller.
+        void BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void SubmitCook( const Assets::AssetHandle& handle, const Entry& entry ) const;
+        void StartAdmittedCooks();
+        /// One upload result: checked shared, the GPU image staged or created unlocked, committed exclusive.
+        /// @p recordMs: the main-thread time the upload's copies took to record (RecordUploads), in its log line.
+        /// Called with the table lock released; it does not give the cook's admission back (its caller does).
+        void FinishCook( const Assets::AssetHandle& handle, uint64_t ticket, TextureCookOutcome outcome,
+                         double recordMs );
 
+        /// A prepared texture whose copies PumpUploads records, a few levels a frame (CPU-STREAM-UPLOAD-RING). It
+        /// holds its cook's admission (CookAdmission) until it leaves m_Recording: on the full path its decoded
+        /// pixels are still in CPU memory, which is what CooksInFlight bounds. Frame loop only, outside the table
+        /// lock: no worker reaches m_Recording; its rows name their entry by handle and ticket, never by address.
+        struct RecordingUpload
+        {
+            Assets::AssetHandle                   Handle;
+            uint64_t                              Ticket    = 0;
+            uint64_t                              Remaining = 0;
+            double                                RecordMs  = 0.0;
+            Graphic::Texture2D::PreparedTexture2D Prepared;
+            /// Its last step found no room in the upload ring: it waits for slices to retire and is not owed.
+            bool Starved = false;
+            /// A step of it is in the batch this pump records (failed with that batch if it is not submitted).
+            bool InThisBatch = false;
+            /// RecordUploads' shared check found its entry cleared or re-cooked: dropped with the table unlocked.
+            bool Stale = false;
+        };
+        /// PumpUploads' second half: one batch for the copies of m_Recording within the frame's budget. Checks
+        /// the rows SHARED, records the copies and settles the finished ones (FinishCook) with the table
+        /// unlocked. Answers how many recordings left m_Recording: each owes its cook's admission back.
+        std::size_t RecordUploads();
+        /// Settles @p recording as failed with @p error (FinishCook: dropped there when stale). Its admission is
+        /// its caller's to give back.
+        void FailRecording( const RecordingUpload& recording, const std::string& error );
+
+        /// Guards m_Entries, m_ReportedMissing, m_Waiters, m_CookAdmission and m_NextCookTicket.
+        mutable std::shared_mutex m_TableLock;
+        /// Serializes TEXTURE discovery only (`Discover` against itself): two workers missing one handle make one
+        /// shell, and no two texture discoveries enter the AssetManager together. It is NOT the AssetManager's
+        /// lock: mesh and material discovery and `HandleForPath` (FindByPath/CreateAsset, game thread) still reach
+        /// AssetManager::CreateAsset beside it (CPU-ONE-SYNC R19). Taken before m_TableLock, never under.
+        mutable std::mutex m_DiscoverLock;
+        /// m_Waiters is not empty: written under the exclusive lock, read by AwaitedBy before any lock.
+        mutable std::atomic<bool> m_AnyWaiting{ false };
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.
         mutable std::unordered_map<Assets::AssetHandle, Entry> m_Entries;
@@ -188,7 +270,8 @@ namespace Desert::Runtime
         std::weak_ptr<Assets::AssetManager>                    m_Assets;
         /// Materials that drew a slot default while a texture was Pending.
         mutable TextureWaiters m_Waiters;
-        /// Textures eviction dropped, alive until the frames that could sample them have retired.
+        /// Textures eviction dropped, alive until the frames that could sample them have retired. Frame loop
+        /// only (EvictBuilt, RetireEvicted, Clear): no worker reaches it, so it is outside the table lock.
         Assets::FrameRetireQueue<std::shared_ptr<Graphic::Texture2D>> m_Retiring;
         /// Shared with the cook jobs, which may still finish after this service is cleared or destroyed.
         std::shared_ptr<TextureUploads> m_Uploads        = std::make_shared<TextureUploads>();
@@ -199,5 +282,12 @@ namespace Desert::Runtime
         uint64_t m_LoggedResident = 0, m_LoggedWanted = 0;
         /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).
         mutable CookAdmission<Assets::AssetHandle> m_CookAdmission{ m_UploadSettings.CooksInFlight };
+        /// Main thread: the prepared textures being recorded, in the order their reads finished. At most
+        /// CooksInFlight (each holds an admission): both are reserved to it once, so no pump allocates them.
+        std::vector<RecordingUpload> m_Recording;
+        /// Main thread, RecordUploads only: the recordings whose last level the batch being recorded holds.
+        std::vector<RecordingUpload> m_Finished;
+        /// The pumps' upload batches until the GPU has finished them: dropping one retires its upload-ring slices.
+        std::vector<std::unique_ptr<Graphic::GpuBatch>> m_UploadBatches;
     };
 } // namespace Desert::Runtime

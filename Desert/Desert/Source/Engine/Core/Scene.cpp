@@ -15,6 +15,7 @@
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -148,35 +149,17 @@ namespace Desert::Core
         return Raycast( ray, outHit, {} );
     }
 
-    // Every landscape tile that is drawn: loaded heights, under a loaded root they match. A tile the
-    // renderer refuses (LandscapeECSSystem warns why) is not on screen, so it is not pickable either.
+    // Every landscape tile that is drawn: loaded heights, under a loaded root they match — the renderer's
+    // own table (ECS::DrawableLandscapeTiles), so a tile the renderer refuses (LandscapeECSSystem warns why
+    // once) is not on screen and not pickable either, by the same test. Refreshing the table is a cache
+    // update, not a scene edit: the const_cast is the registry-ctx equivalent of a `mutable` cache.
     Scene::RaycastLandscapeSet Scene::GatherRaycastLandscape() const
     {
+        const ECS::DrawableLandscape& drawable =
+             ECS::DrawableLandscapeTiles( const_cast<entt::registry&>( m_Registry ) );
         RaycastLandscapeSet set;
-        for ( const auto& entity : GetAllEntities() )
-        {
-            if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
-                continue;
-            const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
-            if ( !tile.Heights.has_value() )
-                continue;
-            const auto rootEntity = FindEntityByID( tile.Landscape );
-            if ( !rootEntity.has_value() || !rootEntity->get().HasComponent<ECS::LandscapeComponent>() )
-                continue;
-            const auto root = ECS::LandscapeRootOf( rootEntity->get() );
-            // The renderer refuses the same tile (and says so once); a pick is an explicit request, so
-            // it is told why the tile under the cursor cannot answer.
-            const auto fits = World::Landscape::CheckTileMatchesRoot( *tile.Heights, root );
-            if ( !fits.IsSuccess() )
-            {
-                LOG_WARN( "[Landscape] tile ({}, {}) is not pickable: {}", tile.TileX, tile.TileZ,
-                          fits.GetError() );
-                continue;
-            }
-            set.Entities.push_back( entity.GetComponent<ECS::UUIDComponent>().UUID );
-            set.Tiles.push_back(
-                 { &*tile.Heights, World::Landscape::LandscapeTileFrame( root, tile.TileX, tile.TileZ ) } );
-        }
+        set.Entities = drawable.RayEntities;
+        set.Tiles    = drawable.RayTiles;
         return set;
     }
 
@@ -387,6 +370,11 @@ namespace Desert::Core
         }
     } // namespace
 
+    struct Scene::FrameRendererInfos
+    {
+        std::array<Graphic::SceneRenderer::UpdateInfo, 2> Slots; // index-matched to m_SystemCommandArenas
+    };
+
     const std::vector<Scene*>& Scene::LiveScenes()
     {
         return LiveSceneList();
@@ -398,8 +386,10 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
+           m_DistanceFields(
+                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
+           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -412,8 +402,10 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
+           m_DistanceFields(
+                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
+           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -584,20 +576,10 @@ namespace Desert::Core
 
             if ( mainCam && mainEntity != entt::null )
             {
-                // WORLD transform of the camera entity (walk the parent chain), so a camera parented to a
-                // moving entity (e.g. a child of the character controller) follows it — 1st/3rd person is
-                // just the child's local offset.
-                glm::mat4    world = m_Registry.get<ECS::TransformComponent>( mainEntity ).GetTransform();
-                entt::entity cur   = mainEntity;
-                while ( m_Registry.has<ECS::RelationshipComponent>( cur ) )
-                {
-                    const auto& rel = m_Registry.get<ECS::RelationshipComponent>( cur );
-                    if ( rel.Parent == entt::null )
-                        break;
-                    cur = rel.Parent;
-                    if ( m_Registry.has<ECS::TransformComponent>( cur ) )
-                        world = m_Registry.get<ECS::TransformComponent>( cur ).GetTransform() * world;
-                }
+                // WORLD transform of the camera entity (the cached one), so a camera parented to a moving
+                // entity (e.g. a child of the character controller) follows it — 1st/3rd person is just the
+                // child's local offset.
+                const glm::mat4 world = m_Registry.get<ECS::TransformComponent>( mainEntity ).GetWorldTransform();
                 if ( !m_GameplayCamera )
                     m_GameplayCamera = std::make_shared<GameplayCamera>();
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )
@@ -684,9 +666,10 @@ namespace Desert::Core
     {
         // THE TICK RUNS PAST THIS WORLD'S VIEWS OF THE PREVIOUS FRAME (UE: the game thread ticks N+1 while the
         // rendering thread draws N). Every job this update enqueues carries this world as its owner; another
-        // world's views still recording are joined here, this world's are joined before the surface cache below.
-        // What the tick writes and a view job reads is guarded at its writer (Scene.hpp m_SystemCommandArenas:
-        // the other arena; the deformation log and the rest: by value at BeginScene).
+        // world's views still recording are joined here, this world's by the first view's bracket below
+        // (SceneRenderer::BeginScene; the surface cache, retire queues and captures are handed over,
+        // CPU-ONE-SYNC). What the tick writes and a view job reads is guarded at its writer (Scene.hpp
+        // m_SystemCommandArenas: the other arena; the deformation log and the rest: by value at BeginScene).
         const ::Desert::Engine::RenderTask::ScopedOwner owner( this );
         ::Desert::Engine::RenderTask::Get().JoinUnlessOwnedBy( this );
 
@@ -704,6 +687,7 @@ namespace Desert::Core
             m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
             m_RenderStateDirty.clear();
         }
+        m_RenderStateDelta.FrameBoundary();
 
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
@@ -727,7 +711,16 @@ namespace Desert::Core
 
         // The renderers step by the world's Delta; the wall-clock step goes beside it for what is about
         // the machine rather than the world (the sky's re-bake debounce).
-        Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
+        // The slot of the arena this update records into (flipped below, "ECS Systems"; m_FrameRendererInfos):
+        // reset to its defaults, its light list's capacity kept. The views and the captures read it by reference.
+        const std::size_t                   frameSlot = ( m_RecordingArena + 1 ) % m_SystemCommandArenas.size();
+        Graphic::SceneRenderer::UpdateInfo& sceneRendererInfo = m_FrameRendererInfos->Slots[frameSlot];
+        {
+            auto lights = std::move( sceneRendererInfo.DirLights.DirectionLights );
+            lights.clear();
+            sceneRendererInfo                           = Graphic::SceneRenderer::UpdateInfo{};
+            sceneRendererInfo.DirLights.DirectionLights = std::move( lights );
+        }
         sceneRendererInfo.Timestep     = Common::Timestep( m_WorldTime.GetDeltaSeconds() );
         sceneRendererInfo.RealTimestep = ts;
 
@@ -795,7 +788,7 @@ namespace Desert::Core
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
             // THE OTHER ARENA (m_SystemCommandArenas): the previous update's views may still replay from theirs.
-            m_RecordingArena = ( m_RecordingArena + 1 ) % m_SystemCommandArenas.size();
+            m_RecordingArena = frameSlot;
             ExecuteSystems( gameplayTs );
         }
 
@@ -903,22 +896,26 @@ namespace Desert::Core
                             ? m_Registry.get<ECS::TagComponent>( entity ).Tag
                             : std::string( "<untagged>" );
             };
-            std::string unused;
+            // Latched on the STATE (which lights are unused, whether there is a sun), not on a flag: this runs
+            // every frame, so an unlatched LOG_ERROR here would bury the log at 60 lines a second, and a plain
+            // once-only flag would go quiet about the SECOND state. The state is compared as entity handles in a
+            // reused buffer; the names are formatted only when it changes - including back to empty, which is
+            // the line that tells a user their fix worked.
+            m_DirLightsUnusedScratch.clear();
             for ( size_t i = 0; i < pick.Candidates.size(); ++i )
-            {
                 if ( pick.Selection.Chosen != i && pick.Entities[i] != second )
-                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
-                                    nameOf( pick.Entities[i] ) );
-            }
-
-            // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR here
-            // would bury the log at 60 lines a second, and a plain once-only flag would go quiet about the
-            // SECOND state. Comparing the text reports each distinct state once and re-reports when the set
-            // changes — including back to empty, which is the line that tells a user their fix worked.
-            const std::string report = std::format( "{}|{}", unused, pick.Sun() ? "sun" : "" );
-            if ( report != m_DirLightsReported )
+                    m_DirLightsUnusedScratch.push_back( pick.Entities[i] );
+            const bool hasSun = static_cast<bool>( pick.Sun() );
+            if ( !m_DirLightsLatched || hasSun != m_DirLightsSunReported ||
+                 m_DirLightsUnusedScratch != m_DirLightsUnusedReported )
             {
-                m_DirLightsReported = report;
+                m_DirLightsLatched     = true;
+                m_DirLightsSunReported = hasSun;
+                m_DirLightsUnusedReported = m_DirLightsUnusedScratch; // reuses its capacity
+                std::string unused;
+                for ( const entt::entity entity : m_DirLightsUnusedScratch )
+                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
+                                    nameOf( entity ) );
                 if ( !unused.empty() && pick.Sun() )
                     LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders the two "
                                "atmosphere lights only (the sun '{}' at index 0, a moon at index 1). Remove them, "
@@ -954,57 +951,112 @@ namespace Desert::Core
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
         const SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
-        // THE FENCE OF THIS WORLD'S PREVIOUS VIEWS: the surface cache, the retire queues and the reflection
-        // captures below are what those views read; from here to the end the update writes the renderer's state.
-        ::Desert::Engine::RenderTask::Get().Join();
-        // THE MATERIAL HAND-OFF (MaterialInstance, THE RENDER COPY): the parameters this tick wrote while those
-        // views recorded reach the render copies here, before any view of this update reads them.
-        ::Desert::Graphic::MaterialInstance::PublishPending();
+        // NO FENCE HERE (CPU-ONE-SYNC; UE: the game thread never joins the rendering thread per frame, it enqueues
+        // render commands). This world's views of the previous frame may still be recording, and the surface
+        // cache, the retire queues and the reflection captures below are what they read, so nothing here writes
+        // them: the surface cache's frame is a render command behind those views, the retire queues and the
+        // captures are deferred to the fence the first view's bracket takes (SceneRenderer::BeginScene joins and
+        // runs the deferred commands, RenderTask::AfterJoin), and each writer names a write under a recording
+        // view (RenderTask::CheckRenderStateWrite). THE MATERIAL HAND-OFF (MaterialInstance, THE RENDER COPY) is
+        // BeginScene's too, after that fence, before any view of this update reads a parameter.
+        const auto&    frames         = Engine::FrameManager::GetInstance();
+        const uint64_t absoluteFrame  = frames.GetAbsoluteFrameCount();
+        const uint32_t framesInFlight = frames.GetMaxFramesInFlight();
+        // THE INTAKE OF THIS UPDATE'S RECORDING (CPU-ONE-SYNC step 4, REVIEW-FPS14 BUG 1; UE: a proxy's resources
+        // are initialised before the rendering thread draws it). The replays - the capture faces at the fence and
+        // every view on the render task - only read (RenderCommand::Execute); what they need from a mesh the
+        // commands point at (its device buffers, Mesh::EnsureGpuResources) is made HERE, on the game thread, at
+        // the fence: the previous frame's views that read those buffers are done, it runs before the captures
+        // below (deferred commands run in order) and before this update's first view is enqueued (that view's
+        // BeginScene joins first). Serial, or nothing in flight: it runs now.
+        // THE VIEWS ARE ITS WHOLE FENCE, and the captures' and the retire queues' below (RenderTask::AfterViews,
+        // CPU-GT-OVERLAP): what the three write - the meshes' device geometry and render revision, the cubes,
+        // the parked caches - is read by view jobs only, so BeginScene's JoinViews runs them while the previous
+        // frame's interface draw, submit and present and this frame's begin still record on the render task.
+        {
+            const SystemCommandArena* const prepared = &arena;
+            ::Desert::Engine::RenderTask::Get().AfterViews(
+                 [prepared]()
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Prepare recorded draws (fence)" );
+                     ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: Prepare recorded draws" );
+                     for ( const auto& buffer : *prepared )
+                         buffer->PrepareAll();
+                 } );
+        }
         {
             // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
             // and the scene's budget and card tracer are stated before the first view opens, so the one update the
             // first view to reach the cache runs captures the cards in front of every viewport, not its own.
             DESERT_PROFILE_SCOPE( "Scene: Surface cache + retire" );
-            const auto& frames = Engine::FrameManager::GetInstance();
-            m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
-            m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            // The parked caches and captures die at the fence, the same frame numbers as before (stamped here).
+            ::Desert::Engine::RenderTask::Get().AfterViews(
+                 [this, absoluteFrame, framesInFlight]()
+                 {
+                     ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: retire queues (Collect)" );
+                     m_RetiringSurfaceCaches.Collect( absoluteFrame, framesInFlight );
+                     m_RetiringReflectionCaptures.Collect( absoluteFrame, framesInFlight );
+                 } );
             std::vector<glm::vec3> origins;
             for ( const auto& view : m_Views.All() )
                 if ( view.Camera )
                     origins.push_back( view.Camera->GetPosition() );
-            m_SurfaceCache->BeginFrame( frames.GetAbsoluteFrameCount(), std::move( origins ), m_Registry,
-                                        m_Settings.RenderingPath == RenderPath::Deferred );
+            // The registry is read HERE, on the game thread (the scene's unbound volumes); the command takes the
+            // values. The cache outlives the command: a Clear parks it (m_RetiringSurfaceCaches) for frames.
+            const Core::PostProcessSettings scenePost =
+                 Graphic::ResolveViewSettings( m_Registry, std::nullopt ).Post;
+            const bool deferred = m_Settings.RenderingPath == RenderPath::Deferred;
+            Graphic::SurfaceCache::SurfaceCacheRenderer* const cache = m_SurfaceCache.get();
+            ::Desert::Engine::RenderTask::Get().Enqueue(
+                 "Scene: Surface cache frame",
+                 [cache, absoluteFrame, origins, scenePost, deferred]() -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Surface cache frame" );
+                     cache->BeginFrame( absoluteFrame, origins, scenePost, deferred );
+                     return BOOLSUCCESS;
+                 } );
         }
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
             // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
             // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
-            // scene; a face bakes none). A scope of
-            // their own, so "Scene: Views" stays the cost of the views alone.
+            // scene; a face bakes none). A scope of their own, so "Scene: Views" stays the cost of the views
+            // alone. AT THE FENCE (RenderTask::AfterJoin): the driver reads the world and writes what the views in
+            // flight read (the cubes, the round's state). It runs before the first view of this update opens -
+            // that view's BeginScene joins first - and the recorded arena is cleared only behind this update's
+            // views.
             DESERT_PROFILE_SCOPE( "Scene: Reflection Captures" );
-            for ( auto& view : m_Views.All() )
-            {
-                if ( !view.Renderer->ReadsReflectionCaptures() )
-                    continue;
-                // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured again for
-                // is rendered into the captures with that sky, not under the old one. Index 0 is the atmosphere
-                // sun (ECS::Rules::AtmosphereSunDirection, the one negation).
-                const auto& suns = sceneRendererInfo.DirLights.DirectionLights;
-                const bool  skyFollows =
-                     !suns.empty() && view.Renderer->SkyLightRecapturesFor( ECS::Rules::AtmosphereSunDirection(
-                                           glm::vec3( suns.front().Direction ) ) );
-                m_ReflectionCaptures->RenderCaptureViews(
-                     *this,
-                     [&arena]( Graphic::SceneRenderer& face )
+            const SystemCommandArena* const                 recorded = &arena;
+            const Graphic::SceneRenderer::UpdateInfo* const info     = &sceneRendererInfo;
+            ::Desert::Engine::RenderTask::Get().AfterViews(
+                 [this, recorded, info]()
+                 {
+                     DESERT_PROFILE_SCOPE( "Scene: Reflection Captures (fence)" );
+                     for ( auto& view : m_Views.All() )
                      {
-                         for ( const auto& buffer : arena )
-                             buffer->ExecuteAll( face );
-                     },
-                     sceneRendererInfo.Timestep, sceneRendererInfo.RealTimestep, sceneRendererInfo.DirLights,
-                     view.Renderer->GetEnvironment(), skyFollows );
-                break;
-            }
+                         if ( !view.Renderer->ReadsReflectionCaptures() )
+                             continue;
+                         // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured
+                         // again for is rendered into the captures with that sky, not under the old one. Index 0
+                         // is the atmosphere sun (ECS::Rules::AtmosphereSunDirection, the one negation).
+                         const auto& suns = info->DirLights.DirectionLights;
+                         const bool  skyFollows =
+                              !suns.empty() &&
+                              view.Renderer->SkyLightRecapturesFor(
+                                   ECS::Rules::AtmosphereSunDirection( glm::vec3( suns.front().Direction ) ) );
+                         const std::optional<Graphic::Environment> environment = view.Renderer->GetEnvironment();
+                         m_ReflectionCaptures->RenderCaptureViews(
+                              *this,
+                              [recorded]( Graphic::SceneRenderer& face )
+                              {
+                                  for ( const auto& buffer : *recorded )
+                                      buffer->ExecuteAll( face );
+                              },
+                              info->Timestep, info->RealTimestep, info->DirLights, environment, skyFollows );
+                         break;
+                     }
+                 } );
         }
         {
             DESERT_PROFILE_SCOPE( "Scene: Views" );
@@ -1036,25 +1088,41 @@ namespace Desert::Core
                     continue; // do NOT record into a renderer that refused to open
                 }
 
-                // Registration order — NOT completion order — so the frame's submission order is
-                // identical to the old single-buffer sequential path.
-                {
-                    DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
-                    for ( const auto& buffer : arena )
-                        buffer->ExecuteAll( *view.Renderer );
-                }
-
                 // THE HALF THAT NO LONGER READS THE WORLD goes to the render task (RENDER-TASK-1; UE: the game
-                // thread enqueues the view family and goes on to the interface). BeginScene and the replay above
-                // read the registry and the live camera; from here the renderer works from its own copies (the
-                // frozen camera, the replayed draws, `info` copied by value). The next view's BeginScene joins
-                // this job first, so two brackets are never open at once. Its failure is reported by the render
-                // task.
-                auto* const renderer = &*view.Renderer;
-                ::Desert::Engine::RenderTask::Get().Enqueue(
-                     "Scene view", [renderer, info = sceneRendererInfo]() -> Common::BoolResultStr
+                // thread enqueues the view family and goes on to the interface). BeginScene reads the registry
+                // and the live camera; from here the renderer works from its own copies (the frozen camera, the
+                // recorded draws) and from `info`, this update's slot of m_FrameRendererInfos, by reference (it
+                // lives as long as the arena). The next view's BeginScene joins this job first, so
+                // two brackets are never open at once. Its failure is reported by the render task.
+                //
+                // THE REPLAY IS THE JOB'S (CPU-ONE-SYNC step 3; UE: the mesh draw commands are built on the
+                // rendering thread from the proxies the game thread handed over). The recorded commands hold
+                // values AND raw pointers to meshes and materials; the replay only READS them (RenderCommand::
+                // Execute): the one write it used to make - a stale mesh's upload - is the intake's, done at the
+                // fence above (RenderCommand::Prepare). The arena is this update's one: the next update records
+                // into the other arena, and this one is cleared only behind this update's views ("Scene: CmdBuffer
+                // Clear"). What the replay writes - the renderer's per-frame draw lists - is render-owned, so it
+                // is written on the render task, after BeginScene's state and before OnUpdate reads it. A
+                // game-thread edit of a drawn mesh while the job runs (DynamicMesh::Update from an editor tool,
+                // a system ticking past the previous frame's views) writes only what no replay reads: its CPU
+                // arrays and a pending flag (Mesh::MarkGpuStale). The revision, the BLAS and the device
+                // buffers change at the next fence (SceneRenderer::PrepareMesh, CPU-ONE-SYNC step 5).
+                // ECS::SetEditableMesh builds a new mesh and retires the old one behind the views
+                // (SetStaticMesh, RetireRenderCache). Registration order - NOT
+                // completion order - so the frame's submission order is the old sequential path's.
+                auto* const                     renderer = &*view.Renderer;
+                const SystemCommandArena* const                 replayed = &arena;
+                const Graphic::SceneRenderer::UpdateInfo* const info     = &sceneRendererInfo;
+                ::Desert::Engine::RenderTask::Get().EnqueueView(
+                     "Scene view",
+                     [renderer, replayed, info]() -> Common::BoolResultStr
                      {
-                         renderer->OnUpdate( info );
+                         {
+                             DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
+                             for ( const auto& buffer : *replayed )
+                                 buffer->ExecuteAll( *renderer );
+                         }
+                         renderer->OnUpdate( *info );
                          DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
                          return renderer->EndScene();
                      } );
@@ -1154,9 +1222,11 @@ namespace Desert::Core
         r.prepare<ECS::SkyAtmosphereComponent>();
         r.prepare<ECS::TimeOfDayComponent>();
         r.prepare<ECS::ExponentialHeightFogComponent>();
+        r.prepare<ECS::LocalFogVolumeComponent>();
         r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();
         r.prepare<ECS::WindSourceComponent>();
+        r.prepare<ECS::DecalComponent>();
         r.prepare<ECS::HeroCloudComponent>();
         r.prepare<ECS::ProceduralFoliageComponent>();
         r.prepare<ECS::ProceduralFoliageFieldComponent>();
@@ -1198,17 +1268,20 @@ namespace Desert::Core
         SystemCommandArena& arena = m_SystemCommandArenas[m_RecordingArena];
         while ( arena.size() < m_Systems.size() )
             arena.emplace_back( std::make_unique<Graphic::Render::RenderCommandBuffer>() );
+        // The dereference is bound to a reference first because `typeid` on an expression WITH SIDE EFFECTS
+        // evaluates it - `*system` is `unique_ptr::operator*`, a function call. Same dynamic type.
+        while ( m_SystemScopeNames.size() < m_Systems.size() )
+        {
+            [[maybe_unused]] const auto& systemRef = *m_Systems[m_SystemScopeNames.size()];
+            m_SystemScopeNames.push_back( DESERT_PROFILE_INTERN_NAME( typeid( systemRef ).name() ) );
+        }
 
         const auto runOne = [&]( size_t index )
         {
             const auto& system = m_Systems[index];
-            // Per-system timing (named by the system's type) so every ECS system is individually
-            // visible in the profiler — no per-system edits.
-            // The dereference is bound to a reference first because `typeid` on an expression WITH SIDE
-            // EFFECTS evaluates it — `*system` is `unique_ptr::operator*`, a function call, so the operand
-            // is not the plain lvalue it looks like. Same dynamic type, and the intent is now stated.
-            const auto& systemRef = *system;
-            DESERT_PROFILE_SCOPE_DYNAMIC( typeid( systemRef ).name() );
+            // Per-system timing (named by the system's type, interned above) so every ECS system is
+            // individually visible in the profiler — no per-system edits.
+            DESERT_PROFILE_SCOPE_INTERNED( m_SystemScopeNames[index] );
             system->Update( m_Registry, *arena[index], gameplayTs );
         };
 
@@ -1233,8 +1306,13 @@ namespace Desert::Core
             if ( const size_t count = groupEnd - i; count == 1 )
                 runOne( i );
             else
+            {
+                // The shared landscape tile table is brought up to date HERE, serially, so the group's
+                // readers (WaterZoneECSSystem) only read it (LandscapeRootOf.hpp, RefreshLandscapeTileTable).
+                ECS::RefreshLandscapeTileTable( m_Registry );
                 Common::JobSystem::Get().ParallelFor( count,
                                                       [&]( size_t local ) { runOne( i + local ); } );
+            }
             i = groupEnd;
         }
     }
@@ -1430,12 +1508,14 @@ namespace Desert::Core
 
     void Scene::ReleaseParkedRenderers()
     {
+        // The render task is joined FIRST (a view of another world may be recording the draws that name its own,
+        // and the parked objects' destructors free into the allocators that view records with); the device is
+        // idle. Then the parked caches and captures die, and the render caches this world's Clear parked as its
+        // components died (ECS::RetireRenderCachesOf) go too, with any other world's.
+        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
+        ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene::ReleaseParkedRenderers" );
         m_RetiringSurfaceCaches.Clear();
         m_RetiringReflectionCaptures.Clear();
-        // The render caches this world's Clear parked as its components died (ECS::RetireRenderCachesOf) go too,
-        // with any other world's: the device is idle, and the render task is joined first (a view of another
-        // world may be recording the draws that name its own).
-        ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         ::Desert::Engine::FrameManager::GetInstance().ReleaseRetiredNow();
     }
 
@@ -1510,6 +1590,11 @@ namespace Desert::Core
         m_Registry.on_construct<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_construct<ECS::RelationshipComponent>().disconnect( this );
+        // The world-transform cache first, so the render-state listeners below already see the composed world.
+        m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
+        m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
+        m_Registry.on_construct<ECS::RelationshipComponent>().connect<&Scene::OnRelationshipConstructed>( this );
         m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
         m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
         m_Registry.on_destroy<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
@@ -1543,6 +1628,23 @@ namespace Desert::Core
             m_RenderStateDirty.clear();
             m_RenderStateDirtyLastFrame = 0;
         }
+        // The retained render cache rebuilds from the registry as it now stands (MeshECSSystem).
+        m_RenderStateDelta.RequestFullRebuild();
+        m_Registry.ctx_or_set<ECS::RenderStateDeltaLink>().Delta = &m_RenderStateDelta;
+    }
+
+    void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )
+    {
+        // SetLocalTransform composed the world inside its patch; only an emplace or a replace is pending.
+        if ( ECS::WorldTransformPending( registry.get<ECS::TransformComponent>( entity ) ) )
+            ECS::UpdateWorldTransforms( registry, entity );
+    }
+
+    void Scene::OnRelationshipConstructed( entt::registry& registry, entt::entity entity )
+    {
+        // Unconditional: a root emplaced with its Children already listed (scene load restores children before
+        // their parent's relationship) has to push its world down to them as well.
+        ECS::UpdateWorldTransforms( registry, entity );
     }
 
     void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
@@ -1561,6 +1663,7 @@ namespace Desert::Core
         if ( !subtree )
         {
             m_RenderStateDirty.insert( entity );
+            m_RenderStateDelta.Mark( entity );
             return;
         }
         // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
@@ -1572,6 +1675,7 @@ namespace Desert::Core
             const entt::entity current = pending.back();
             pending.pop_back();
             m_RenderStateDirty.insert( current );
+            m_RenderStateDelta.Mark( current );
             if ( !m_Registry.valid( current ) )
                 continue;
             if ( const auto* relation = m_Registry.try_get<ECS::RelationshipComponent>( current ) )
@@ -1606,6 +1710,7 @@ namespace Desert::Core
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
         // A new parent is a new world transform for the child and everything under it.
+        ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
     }
 
@@ -1634,6 +1739,7 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
     }
 

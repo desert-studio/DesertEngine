@@ -1,5 +1,4 @@
 #include <Common/Core/Core.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanProceduralRayTracingGeometry.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -30,6 +29,9 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<RayTracing::ProceduralBlasPrepared>(
                  "procedural BLAS: the device has no acceleration-structure functions, but a resolved method "
                  "traces rays" );
+        // A build recorded into a graph that never ended (abandoned: nothing submitted) is still pending:
+        // m_Built stayed false, so this frame answers NeedsBuild again.
+        m_Recorded = false;
 
         const auto& vertices     = input.Vertices;
         const auto& indices      = input.Indices;
@@ -119,6 +121,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             // Its last readers are the ray queries traversing it through the TLAS (they declare the TLAS only).
             m_StorageExternal.State = RDG::GetAccessState( RDG::Access::AccelStructRead );
+            // After EndGraph: the build this graph recorded is submitted, so the storage holds it.
+            if ( m_Recorded )
+                m_Built = true;
+            m_Recorded = false;
             return BOOLSUCCESS;
         };
         return Common::MakeSuccess( RayTracing::ProceduralBlasPrepared{
@@ -160,7 +166,8 @@ namespace Desert::Graphic::API::Vulkan
 
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = input.Ranges.data();
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
-        m_Built = true;
+        // Recorded, not yet submitted: m_Built follows only when this graph ends (the storage's RecordFinalState).
+        m_Recorded = true;
         return BOOLSUCCESS;
     }
 
@@ -191,14 +198,13 @@ namespace Desert::Graphic::API::Vulkan
         m_Segments.clear();
         m_BuildScratch = 0;
         m_Built         = false;
+        m_Recorded      = false;
     }
 
     VulkanProceduralRayTracingGeometry::~VulkanProceduralRayTracingGeometry()
-    try
     {
         Release();
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanProceduralRayTracingGeometry" )
 } // namespace Desert::Graphic::API::Vulkan
 
 namespace Desert::Graphic::RayTracing

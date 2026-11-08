@@ -1,0 +1,12 @@
+# FIELD-GTX-1060: FIELD_Barn as a GeForce GTX 1060 6 GB sees it (GTX-DEVICE-PROFILE; UE DeviceProfiles +
+# Preview Rendering Level). `--device-profile gtx1060` on the Проект line: the probe withholds every ray tracing
+# row (acceleration_structure, ray_query, ray_tracing_pipeline; RayTracingAccel None), DLSS / DLSS-RR,
+# cooperative matrix and shaderFloat16, and VMA caps every device-local heap at 6144 MiB. Speed is not
+# imitated: the ms are this machine's. Camera: FPS-FIELD-BARN's still-air view; one still frame.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --device-profile gtx1060
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Тогда-вид g_0 FIELD_Barn at 1.7 m as a GTX 1060: field, barn, trees and sky drawn, frame not black (mean > 0), no "did not execute"; editor.log 0 VUID, the caps and catalog lines end "profile=gtx1060", catalog rt=None, aa without DLSS / DLSSRayReconstruction, no ray-query program built; [Memory] census within 6144 MiB or a visible over-budget line

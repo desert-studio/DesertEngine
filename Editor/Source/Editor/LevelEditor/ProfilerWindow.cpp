@@ -24,6 +24,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -165,20 +166,119 @@ namespace Desert::Editor
         }
         // cpu self: the row with its nested CPU scopes subtracted; cpu wait: the part of cpu ms blocked in a
         // Wait scope (fence, acquire, present, pacer) - cpu ms minus cpu wait is the row's real work.
-        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10}", "scope", "cpu ms", "x",
-                  "gpu ms", "gpu self", "x", "cpu self", "cpu wait" );
+        // cpu max / cpu p99: the row's cpu ms in its costliest frame of the window and the 99th percentile over
+        // the window's frames (CPU-PROFILER-ZERO-COST; appended after the old columns, which keep their places).
+        LOG_INFO( "[Profiler] {:<34} {:>10} {:>6} {:>10} {:>10} {:>6} {:>10} {:>10} {:>10} {:>10}", "scope",
+                  "cpu ms", "x", "gpu ms", "gpu self", "x", "cpu self", "cpu wait", "cpu max", "cpu p99" );
 
-        for ( const auto& s : prof.LastFrame() )
+        // GPU-PASS-TIMES-1: THE JOIN. A pass's CPU scope is one row ("Deferred: GBuffer"), its timestamp pair
+        // another: the backend names a view's GPU rows "<view> | <pass>" (GpuViewScopeName), so several views keep
+        // their passes apart. Read side by side they were two rows, the CPU one with a 0.000 GPU column and the
+        // GPU one sorted to the table's bottom by its 0 cpu ms - the table read as "no pass costs GPU time".
+        // Here a view's GPU row is joined onto the CPU row of its pass (summed over views, as the CPU row sums
+        // them), and the per-view rows are listed apart, largest first, in the GPU table below.
+        const std::vector<::Common::Profiling::ScopeResult>& rows = prof.LastFrame();
+        struct JoinedGpu
         {
-            if ( std::string_view( s.Name ).starts_with( gapPrefix ) )
-                continue; // printed below, largest first
-            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f}", s.Name,
-                      s.TotalMs, s.Calls, s.GpuMs, s.GpuSelfMs, s.GpuCalls, s.SelfMs, s.WaitMs );
+            double   Ms     = 0.0;
+            double   SelfMs = 0.0;
+            uint32_t Calls  = 0;
+        };
+        std::vector<JoinedGpu> joined( rows.size() );
+        std::vector<uint8_t>   joinedAway( rows.size(), 0 ); // 1: a view's GPU row now read on its pass's row
+        {
+            std::unordered_map<std::string_view, size_t> rowByName;
+            rowByName.reserve( rows.size() );
+            for ( size_t i = 0; i < rows.size(); ++i )
+                rowByName.emplace( rows[i].Name, i );
+            for ( size_t i = 0; i < rows.size(); ++i )
+            {
+                const std::string_view name = rows[i].Name;
+                const size_t           view = name.find( " | " );
+                if ( rows[i].GpuCalls == 0 || rows[i].Calls != 0 || view == std::string_view::npos )
+                    continue;
+                const auto pass = rowByName.find( name.substr( view + 3 ) );
+                if ( pass == rowByName.end() )
+                    continue;
+                // Only onto a CPU row with no GPU time of its own: a row timed under its own name stays as is.
+                const ::Common::Profiling::ScopeResult& cpuRow = rows[pass->second];
+                if ( cpuRow.Calls == 0 || cpuRow.GpuCalls != 0 )
+                    continue;
+                JoinedGpu& into = joined[pass->second];
+                into.Ms += rows[i].GpuMs;
+                into.SelfMs += rows[i].GpuSelfMs;
+                into.Calls += rows[i].GpuCalls;
+                joinedAway[i] = 1;
+            }
+        }
+
+        double gpuAsyncSumMs = 0.0;
+        for ( size_t i = 0; i < rows.size(); ++i )
+        {
+            const auto& s = rows[i];
             // SELF time is the only summable column — the inclusive one counts a parent's microseconds
             // again in each child. The frame bracket is the denominator and the Unaccounted rows are its
-            // remainder, not passes, so they stay out.
+            // remainder, not passes, so they stay out. Only the GRAPHICS queue's self time tiles the frame
+            // bracket: the async compute queue is another timeline overlapping it, summed apart.
             if ( s.GpuCalls > 0 && !isRemainder( s.Name ) )
-                gpuSumMs += s.GpuSelfMs;
+            {
+                gpuSumMs += s.GpuSelfMs - s.GpuAsyncSelfMs;
+                gpuAsyncSumMs += s.GpuAsyncSelfMs;
+            }
+            if ( std::string_view( s.Name ).starts_with( gapPrefix ) || joinedAway[i] != 0 )
+                continue; // gaps are printed below, largest first; a joined view row in the GPU table
+            JoinedGpu gpu{ s.GpuMs, s.GpuSelfMs, s.GpuCalls };
+            if ( joined[i].Calls != 0 )
+                gpu = joined[i];
+            LOG_INFO( "[Profiler] {:<34} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>6} {:>10.3f} {:>10.3f} {:>10.3f} "
+                      "{:>10.3f}",
+                      s.Name, s.TotalMs, s.Calls, gpu.Ms, gpu.SelfMs, gpu.Calls, s.SelfMs, s.WaitMs, s.MaxMs,
+                      s.P99Ms );
+        }
+
+        // THE GPU TABLE (UE "stat gpu"): every timed GPU row - per view, async segments and waits included - by
+        // self time, largest first, with the queue it ran on. The last column is a word, so a reader of the
+        // per-pass rows' numeric columns (scripts/Dev/profiler_compare.py) does not take these rows for them.
+        {
+            std::vector<const ::Common::Profiling::ScopeResult*> timed;
+            for ( const auto& s : rows )
+                if ( s.GpuCalls > 0 && !isRemainder( s.Name ) )
+                    timed.push_back( &s );
+            std::sort( timed.begin(), timed.end(),
+                       []( const auto* a, const auto* b ) { return a->GpuSelfMs > b->GpuSelfMs; } );
+            LOG_INFO( "[Profiler] ---- GPU per pass ({} timed row(s), gpu self largest first) ----",
+                      timed.size() );
+            LOG_INFO( "[Profiler] {:<60} {:>10} {:>10} {:>6} {:>8}", "gpu scope", "gpu self", "gpu ms", "x",
+                      "queue" );
+            for ( const ::Common::Profiling::ScopeResult* s : timed )
+            {
+                std::string_view queue = "graphics";
+                if ( s->GpuAsyncSelfMs > 0.0 && s->GpuAsyncSelfMs + 1e-9 < s->GpuSelfMs )
+                    queue = "both";
+                else if ( s->GpuAsyncSelfMs > 0.0 )
+                    queue = "async";
+                LOG_INFO( "[Profiler] {:<60} {:>10.3f} {:>10.3f} {:>6} {:>8}", s->Name, s->GpuSelfMs, s->GpuMs,
+                          s->GpuCalls, queue );
+            }
+        }
+
+        // [Hitch]: each frame of the window over kHitchFactor x its median wall time (slowest first, at most
+        // kMaxPublishedHitches) with its five largest self rows; one "none" line when no frame was.
+        if ( prof.LastHitches().empty() )
+            LOG_INFO( "[Hitch] none: no frame of {} over {:.1f}x the window median {:.3f} ms",
+                      prof.LastWindowFrames(), Common::Profiling::kHitchFactor, prof.LastFrameMedianMs() );
+        for ( const Common::Profiling::HitchFrame& hitch : prof.LastHitches() )
+        {
+            std::string top;
+            for ( const auto& [name, selfMs] : hitch.Top )
+            {
+                if ( !top.empty() )
+                    top += ", ";
+                top += fmt::format( "{} {:.3f}", name, selfMs );
+            }
+            LOG_INFO( "[Hitch] frame {} of {}: {:.3f} ms = {:.2f}x median {:.3f} ms ({} hitch(es)); top self: {}",
+                      hitch.Frame, prof.LastWindowFrames(), hitch.FrameMs, hitch.FrameMs / hitch.MedianMs,
+                      hitch.MedianMs, prof.LastHitchCount(), top );
         }
 
         // UNACCOUNTED, CPU (UE "stat unit"): the frame thread's wall time outside every outermost scope it
@@ -191,9 +291,10 @@ namespace Desert::Editor
                       cpuRest, frameMs, frameMs > 0.0001 ? cpuRest / frameMs * 100.0 : 0.0, namedMs );
         }
 
-        LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
-                  "remainder is device work no pass is marked around.",
-                  gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
+        LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %) on the graphics "
+                  "queue; the remainder is device work no pass is marked around. Async compute queue self "
+                  "times (overlapping it, not in that sum): {:.3f} ms.",
+                  gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0, gpuAsyncSumMs );
 
         // UNACCOUNTED, PER QUEUE (UE "stat gpu"): the GPU frame minus the union of the labelled graphics scopes,
         // and the async segments minus the union of their passes - the backend's numbers, not this sum (which
@@ -289,6 +390,23 @@ namespace Desert::Editor
                                          view.Phase1 + view.Phase2 + view.Occluded );
         LOG_INFO( "[Profiler] DrawBins{} (instances drawn phase 1 + phase 2 / in view without occlusion)",
                   binViews.empty() ? " none" : binViews );
+        // GPU-FARFIELD-4: what 'Clouds: March' did with its rays (System::CloudMarchCounters, frames in flight
+        // late).
+        const Graphic::System::CloudMarchCounters* const cloudMarch =
+             renderer != nullptr ? renderer->GetCloudMarchCounters() : nullptr;
+        if ( cloudMarch != nullptr && cloudMarch->Valid )
+        {
+            const auto&  words      = cloudMarch->Words;
+            const double rays       = std::max( 1.0, static_cast<double>( words[0] ) );
+            const double litSamples = std::max( 1.0, static_cast<double>( words[2] ) );
+            LOG_INFO( "[Profiler] Clouds march: rays {} | primary steps {} ({:.1f} a ray) | lit {} ({:.1f} a ray) "
+                      "| light samples {} ({:.1f} a lit sample, full ray {}) | early exit {} ({:.1f} %) | "
+                      "column jumps {} | lanes at the ceiling {} (a frame; primary = view-ray field evaluations, "
+                      "lit = samples with density and a shadow ray, early exit = transmittance under the stop)",
+                      words[0], words[1], words[1] / rays, words[2], words[2] / rays, words[3],
+                      words[3] / litSamples,
+                      words[7], words[4], 100.0 * words[4] / rays, words[6], words[5] );
+        }
 #if DESERT_DEV_INSTRUMENTS
         // PROBE-TURN-1: why this view's screen probe rays took the cache-miss leg - the far field's radiance cache
         // reads by why they answered or not (GlobalIllumination::ScreenProbeMissReasons, frames in flight late).
@@ -310,6 +428,17 @@ namespace Desert::Editor
                  "atlas had no free slot; rejected / nan = the traced probes of the coverage, or of the coarser "
                  "level its untraced cells fell back to, saw the point behind something / weighed NaN)",
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
+            // GPU-FARFIELD-1: what the far-field leg's own trace did with its rays (ScreenProbeMissReasons
+            // [6..8]); GPU-FARFIELD-3: the global field's steps of its marches and of the hit-lighting leg
+            // [9..11].
+            const double stepsPerRay = rays[6] > 0u ? static_cast<double>( rays[9] ) / rays[6] : 0.0;
+            const double stepsPerHit = rays[10] > 0u ? static_cast<double>( rays[11] ) / rays[10] : 0.0;
+            LOG_INFO(
+                 "[Profiler] ScreenProbes far field rays: listed {} global-field hit {} outside the cache {} | "
+                 "steps {} ({:.1f} a ray) | lit in place {} (hit-lighting leg, steps {}, {:.1f} a hit) (a frame, "
+                 "frames in flight late; a hit is lit by the cards, or in place by the hit-lighting leg with one "
+                 "global-field shadow march per directional light; outside = marched to the full trace distance)",
+                 rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[11], stepsPerHit );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the

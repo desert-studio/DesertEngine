@@ -9,6 +9,8 @@
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -40,6 +42,30 @@ namespace Desert::Graphic::API::Vulkan
             const uint32_t geometric = current + current / 2;
             const uint32_t target    = required > geometric ? required : geometric;
             return ( target + kGpuQueryGranularity - 1 ) / kGpuQueryGranularity * kGpuQueryGranularity;
+        }
+
+        // THE VIEW'S ROW PREFIX ("<view> | ", GpuViewScopeName's text), kept per thread and rebuilt only when the
+        // active view's name changes: a scope's row id is then a hit in the thread's name cache on (prefix, name)
+        // (Profiler::LocalScopeName) - no string is built per scope (CPU-ONE-SYNC; it was one heap string each).
+        struct ViewRowPrefix
+        {
+            std::string View;
+            std::string Prefix;
+        };
+        thread_local ViewRowPrefix t_ViewRowPrefix;
+
+        [[nodiscard]] uint32_t GpuRowId( const std::string_view viewName, const std::string_view name )
+        {
+            auto& profiler = Common::Profiling::Profiler::Get();
+            if ( viewName.empty() )
+                return profiler.LocalScopeName( {}, name ).Id;
+            ViewRowPrefix& cached = t_ViewRowPrefix;
+            if ( cached.View != viewName )
+            {
+                cached.View.assign( viewName );
+                cached.Prefix.assign( viewName ).append( " | " );
+            }
+            return profiler.LocalScopeName( cached.Prefix, name ).Id;
         }
     } // namespace
 
@@ -137,6 +163,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanGpuProfiler::Shutdown()
     {
+        // The resolve job reads this profiler's members and writes its samples: it is done before they go.
+        WaitResolve();
         if ( Common::Profiling::Profiler::Get().GetGpuSink() == this )
             Common::Profiling::Profiler::Get().SetGpuSink( nullptr );
 
@@ -398,11 +426,11 @@ namespace Desert::Graphic::API::Vulkan
 
     int32_t VulkanGpuProfiler::BeginScope( const char* name )
     {
-        const std::lock_guard<std::mutex> lock( m_Lock );
+        VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
         // A GPU scope on a thread that owns no recording target (the game thread while the views record on the
         // render task) times nothing: CPU-only code takes DESERT_PROFILE_SCOPE. Named once, so the call site is
         // fixed instead of the frame quietly losing a row.
-        if ( m_Active && VulkanRecordContext::Bound() == nullptr && !OwnsRecordingTarget() )
+        if ( m_Active && chunk == nullptr && !OwnsRecordingTarget() )
         {
             static std::atomic<bool> reported{ false };
             if ( !reported.exchange( true ) )
@@ -416,6 +444,8 @@ namespace Desert::Graphic::API::Vulkan
         // of thing that reads as a wild number rather than an error.
         // No buffer recording (between ExecuteGraph ending the frame's buffer and the graph arming its first
         // segment, or after a failure disarmed the target): there is nowhere for the timestamp to go.
+        // m_Recording / m_Active change only in BeginFrame / EndFrame, on the recording thread, before any chunk
+        // starts and after every chunk was joined: read here without a lock.
         if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten ||
              Target() == VK_NULL_HANDLE )
             return -1;
@@ -425,20 +455,27 @@ namespace Desert::Graphic::API::Vulkan
         ViewResources&         active       = ViewResourceRegistry::Active();
         const bool             frameContext = &active == &ViewResourceRegistry::FrameContext();
         const std::string_view viewName = frameContext ? std::string_view{} : std::string_view{ active.GetName() };
+        const uint32_t         row      = GpuRowId( viewName, name );
 
         // A refused scope (pool full this frame) returns -1, and EndScope's matching -1 leaves the nesting
         // of the scopes that were timed untouched. The refusal raises the high-water mark, so the pool
         // is big enough the next time this frame index comes round.
-        VulkanRecordContext* const chunk = VulkanRecordContext::Bound();
-        const int32_t              index = chunk != nullptr
-                                                ? m_Recording->Recorder.BeginUnder(
-                                          GpuViewScopeName( viewName, name ), chunk->GpuRoot, chunk->GpuScopes,
-                                          ( chunk->GpuOrder << 24 ) | chunk->GpuOrderNext++ )
-                                                : m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
+        int32_t index = -1;
+        if ( chunk != nullptr )
+        {
+            // A chunk's scope: no lock (GpuScopeRecorder, THREADS) - its own slot and its chunk's lists.
+            const uint64_t order = ( chunk->GpuOrder << 24 ) | chunk->GpuOrderNext++;
+            index = m_Recording->Recorder.BeginUnder( row, chunk->GpuRoot, chunk->GpuScopes, order );
+            if ( index >= 0 )
+                chunk->GpuScopesMade.push_back( index );
+        }
+        else
+        {
+            const std::lock_guard<std::mutex> lock( m_Lock );
+            index = m_Recording->Recorder.Begin( row, &active );
+        }
         if ( index < 0 )
             return -1;
-        if ( chunk != nullptr )
-            chunk->GpuScopesMade.push_back( index );
 
         vkCmdWriteTimestamp( Target(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
                              GpuScopeQueryBase( static_cast<uint32_t>( index ) ) );
@@ -447,7 +484,6 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanGpuProfiler::EndScope( int32_t handle )
     {
-        const std::lock_guard<std::mutex> lock( m_Lock );
         if ( handle < 0 || !m_Active || m_Recording == nullptr )
             return;
 
@@ -457,7 +493,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( VulkanRecordContext* const chunk = VulkanRecordContext::Bound(); chunk != nullptr )
             m_Recording->Recorder.EndUnder( handle, chunk->GpuScopes );
         else
+        {
+            const std::lock_guard<std::mutex> lock( m_Lock );
             m_Recording->Recorder.End( handle );
+        }
         // A scope still open when a failure disarmed the target loses its end query; Resolve already reads a
         // scope whose two queries did not both land as untimed.
         if ( Target() == VK_NULL_HANDLE )
@@ -466,7 +505,7 @@ namespace Desert::Graphic::API::Vulkan
                              GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
     }
 
-    GpuScopeRecorder::ChunkRootScope VulkanGpuProfiler::ChunkRoot( Common::Profiling::GpuQueue queue )
+    GpuChunkRootScope VulkanGpuProfiler::ChunkRoot( Common::Profiling::GpuQueue queue )
     {
         const std::lock_guard<std::mutex> lock( m_Lock );
         if ( m_Recording == nullptr )
@@ -507,75 +546,178 @@ namespace Desert::Graphic::API::Vulkan
             m_Recording->Recorder.Retract( index );
     }
 
+    namespace
+    {
+        // The resolve job's state word: (generation << 2) | phase; phase 0 = idle.
+        constexpr uint64_t kResolvePhaseMask = 3;
+        constexpr uint64_t kResolveQueued    = 1;
+        constexpr uint64_t kResolveRunning   = 2;
+
+        [[nodiscard]] constexpr uint64_t ResolveWord( const uint64_t generation, const uint64_t phase ) noexcept
+        {
+            return ( generation << 2 ) | phase;
+        }
+
+        // Queued -> Running for @p generation's job; false when it is not queued (done, running, or older).
+        [[nodiscard]] bool ClaimResolve( std::atomic<uint64_t>& state, const uint64_t generation ) noexcept
+        {
+            uint64_t expected = ResolveWord( generation, kResolveQueued );
+            return state.compare_exchange_strong( expected, ResolveWord( generation, kResolveRunning ),
+                                                  std::memory_order_acq_rel, std::memory_order_acquire );
+        }
+
+        void ReleaseResolve( std::atomic<uint64_t>& state, const uint64_t generation ) noexcept
+        {
+            state.store( ResolveWord( generation, 0 ), std::memory_order_release );
+            state.notify_all();
+        }
+    } // namespace
+
     void VulkanGpuProfiler::Resolve( FrameQueries& frame )
     {
         if ( !frame.FrameTotalWritten )
             return;
         frame.FrameTotalWritten = false;
+        // The previous frame's resolve job reads the members refilled below.
+        WaitResolve();
 
-        const std::vector<GpuScopeRecorder::Scope>& scopes = frame.Recorder.Scopes();
+        const std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes = frame.Recorder.Scopes();
+        auto&                                                    profiler = Common::Profiling::Profiler::Get();
 
         // PASS ORDER TRACE: the frame's timed scopes in recording order, one '>' per nesting level, logged
         // whenever the sequence changes. It is how a change to the way the frame is recorded proves it kept
         // the pass order: two builds on one scene must print the same line.
+        // CPU-ONE-SYNC: only under --gpu-order-trace (Profiler::GpuOrderTrace), where a capture asks for it; off,
+        // the frame pays nothing. On, the order is compared by a hash of (depth, row id) - no string per frame -
+        // and the text (~40 KB on FIELD_Barn) is built only when that hash changes.
+        if ( profiler.GpuOrderTrace() )
         {
-            std::string order;
             // RDG-PARALLEL-1: in recording order (Scope::Order), not in the order threads opened the scopes.
             m_OrderScratch.resize( scopes.size() );
             for ( size_t at = 0; at < scopes.size(); ++at )
                 m_OrderScratch[at] = static_cast<uint32_t>( at );
             std::stable_sort( m_OrderScratch.begin(), m_OrderScratch.end(), [&scopes]( uint32_t a, uint32_t b )
                               { return scopes[a].Order < scopes[b].Order; } );
-            for ( const uint32_t at : m_OrderScratch )
+            const auto depthOf = [&frame]( uint32_t at )
             {
-                const GpuScopeRecorder::Scope& scope = scopes[at];
-                // RDG-PARALLEL-5: a discarded chunk's scope is no row; its passes are in the trace once, inline.
-                if ( scope.Retracted )
-                    continue;
+                uint64_t depth = 0;
                 for ( int32_t parent = frame.Recorder.LiveParent( static_cast<int32_t>( at ) );
                       parent != kGpuNoParent; parent = frame.Recorder.LiveParent( parent ) )
-                    order += '>';
-                order += scope.Name;
-                order += '|';
-            }
-            if ( order != m_LastLoggedOrder )
+                    ++depth;
+                return depth;
+            };
+            uint64_t hash = 14695981039346656037ull; // FNV-1a over (depth << 32 | row id)
+            for ( const uint32_t at : m_OrderScratch )
             {
-                LOG_INFO( "[GpuOrder] {}", order );
-                m_LastLoggedOrder = std::move( order );
+                // RDG-PARALLEL-5: a discarded chunk's scope is no row; its passes are in the trace once, inline.
+                if ( scopes[at].Retracted )
+                    continue;
+                hash ^= ( depthOf( at ) << 32 ) | scopes[at].Name;
+                hash *= 1099511628211ull;
+            }
+            if ( hash != m_LastOrderHash )
+            {
+                m_LastOrderHash = hash;
+                std::string order;
+                for ( const uint32_t at : m_OrderScratch )
+                {
+                    if ( scopes[at].Retracted )
+                        continue;
+                    order.append( static_cast<size_t>( depthOf( at ) ), '>' );
+                    order += profiler.ScopeNameText( scopes[at].Name );
+                    order += '|';
+                }
+                if ( order != m_LastLoggedOrder )
+                {
+                    LOG_INFO( "[GpuOrder] {}", order );
+                    m_LastLoggedOrder = std::move( order );
+                }
             }
         }
         const uint32_t queryCount = GpuQueriesForScopes( static_cast<uint32_t>( scopes.size() ) );
-        m_ResultScratch.assign( static_cast<size_t>( queryCount ) * kWordsPerQuery, 0ull );
+        m_ResolveWords.assign( static_cast<size_t>( queryCount ) * kWordsPerQuery, 0ull );
 
         // One read for the queries this frame actually wrote. WITHOUT VK_QUERY_RESULT_WAIT_BIT: the fence
         // guarantees the data is there, and asking Vulkan to wait would turn a free read into a GPU stall.
         const VkResult result = vkGetQueryPoolResults(
-             m_Device, frame.Pool, 0, queryCount, m_ResultScratch.size() * sizeof( uint64_t ),
-             m_ResultScratch.data(), sizeof( uint64_t ) * kWordsPerQuery,
+             m_Device, frame.Pool, 0, queryCount, m_ResolveWords.size() * sizeof( uint64_t ),
+             m_ResolveWords.data(), sizeof( uint64_t ) * kWordsPerQuery,
              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT );
 
         if ( result != VK_SUCCESS && result != VK_NOT_READY )
             return;
+
+        // THE JOB'S COPIES: the caller resets the recorder and may grow the pool as soon as this returns.
+        const size_t scopeCount = scopes.size();
+        m_ResolveScopes.assign( scopes.begin(), scopes.end() );
+        m_Parents.resize( scopeCount );
+        // A retracted scope (a discarded chunk's) is no one's parent (LiveParent skips it).
+        for ( size_t i = 0; i < scopeCount; ++i )
+            m_Parents[i] = frame.Recorder.LiveParent( static_cast<int32_t>( i ) );
+
+        // OFF THE CALLER'S PATH: the arithmetic and the samples run on a worker. Inline when the job system
+        // refuses the job (not started, or stopping) - the same result, on this thread.
+        // THE CLAIM (REVIEW-FPS14 BUG 2; UE::Tasks retraction): the job stays Queued until a worker or a wait
+        // claims it (CAS to Running), so the next Resolve or Shutdown runs a job no worker started instead of
+        // waiting behind a long Background or Normal job. The state is shared with the job: a job that lost the
+        // claim (run inline, or the profiler is gone) touches nothing but the state.
+        ++m_ResolveGeneration;
+        const uint64_t generation = m_ResolveGeneration;
+        m_ResolveState->store( ResolveWord( generation, kResolveQueued ), std::memory_order_release );
+        const bool submitted = Common::JobSystem::Get().Submit(
+             [this, state = m_ResolveState, generation]() noexcept
+             {
+                 if ( !ClaimResolve( *state, generation ) )
+                     return;
+                 ResolveTimes();
+                 ReleaseResolve( *state, generation );
+             },
+             Common::JobPriority::Normal );
+        if ( !submitted )
+            WaitResolve(); // the job was dropped unrun: claimed and run here
+    }
+
+    void VulkanGpuProfiler::WaitResolve() noexcept
+    {
+        std::atomic<uint64_t>& state = *m_ResolveState;
+        // A WAIT THAT CAN RUN THE AWAITED WORK RUNS IT: no worker took the job yet, so it is claimed and run here.
+        if ( ClaimResolve( state, m_ResolveGeneration ) )
+        {
+            ResolveTimes();
+            ReleaseResolve( state, m_ResolveGeneration );
+            return;
+        }
+        // A worker runs it: wait for that one only, never for a job still in the queue.
+        uint64_t word = state.load( std::memory_order_acquire );
+        while ( ( word & kResolvePhaseMask ) == kResolveRunning )
+        {
+            state.wait( word, std::memory_order_acquire );
+            word = state.load( std::memory_order_acquire );
+        }
+    }
+
+    void VulkanGpuProfiler::ResolveTimes() noexcept
+    {
+        const std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes   = m_ResolveScopes;
+        auto&                                                    profiler = Common::Profiling::Profiler::Get();
 
         // Inclusive milliseconds of the pair starting at @p queryBase, or -1 when either end did not land.
         const auto pairMs = [this]( uint32_t queryBase ) -> double
         {
             const size_t beginWord = static_cast<size_t>( queryBase ) * kWordsPerQuery;
             const size_t endWord   = beginWord + kWordsPerQuery;
-            if ( endWord + 1 >= m_ResultScratch.size() )
+            if ( endWord + 1 >= m_ResolveWords.size() )
                 return -1.0;
-            if ( m_ResultScratch[beginWord + 1] == 0 || m_ResultScratch[endWord + 1] == 0 )
+            if ( m_ResolveWords[beginWord + 1] == 0 || m_ResolveWords[endWord + 1] == 0 )
                 return -1.0; // a scope whose end never recorded (early-out inside the pass)
 
-            const uint64_t beginTicks = m_ResultScratch[beginWord];
-            const uint64_t endTicks   = m_ResultScratch[endWord];
+            const uint64_t beginTicks = m_ResolveWords[beginWord];
+            const uint64_t endTicks   = m_ResolveWords[endWord];
             if ( endTicks < beginTicks )
                 return -1.0; // counter wrapped; one lost sample beats a nonsense one
 
             return static_cast<double>( endTicks - beginTicks ) * m_PeriodNs * 1e-6;
         };
-
-        auto& profiler = Common::Profiling::Profiler::Get();
 
         // The whole-frame bracket: one number per frame, belonging to no view, never anyone's child.
         const double frameMs = pairMs( kGpuFrameTotalQuery );
@@ -584,12 +726,10 @@ namespace Desert::Graphic::API::Vulkan
 
         const size_t scopeCount = scopes.size();
         m_Inclusive.assign( scopeCount, -1.0 );
-        m_Parents.resize( scopeCount );
         for ( size_t i = 0; i < scopeCount; ++i )
         {
-            // A retracted scope (a discarded chunk's) is untimed and no one's parent: its queries were never
-            // executed, and the inline re-record timed the same passes under the live enclosing scope.
-            m_Parents[i] = frame.Recorder.LiveParent( static_cast<int32_t>( i ) );
+            // A retracted scope (a discarded chunk's) is untimed: its queries were never executed, and the
+            // inline re-record timed the same passes under the live enclosing scope (Resolve took the parents).
             if ( scopes[i].Retracted )
                 continue;
             m_Inclusive[i] = pairMs( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
@@ -600,34 +740,50 @@ namespace Desert::Graphic::API::Vulkan
         // (GpuScopeRecorder), so one pass over the interleaved list is each view's partition at once. The
         // arithmetic lives in Engine/Graphic/GpuTimestampLayout.hpp and is asserted by
         // Tests/Engine/GpuTimestampLayout.
-        m_Self = GpuSelfTimes( m_Inclusive, m_Parents );
+        GpuSelfTimes( m_Inclusive, m_Parents, m_Self );
 
         for ( size_t i = 0; i < scopeCount; ++i )
             if ( m_Inclusive[i] >= 0.0 )
-                profiler.AddGpuSample( scopes[i].Name.c_str(), m_Inclusive[i], m_Self[i] );
+                profiler.AddGpuSample( scopes[i].Name, m_Inclusive[i], m_Self[i], scopes[i].Queue );
 
         if ( frameMs >= 0.0 )
             PublishUnaccounted( scopes );
     }
 
-    void VulkanGpuProfiler::PublishUnaccounted( const std::vector<GpuScopeRecorder::Scope>& scopes )
+    bool VulkanGpuProfiler::IsSegmentRow( const uint32_t nameId )
+    {
+        if ( nameId == Common::Profiling::kNoScopeName )
+            return false;
+        if ( nameId >= m_SegmentById.size() )
+            m_SegmentById.resize( static_cast<size_t>( nameId ) + 1, 0 );
+        uint8_t& known = m_SegmentById[nameId];
+        if ( known == 0 )
+        {
+            // The table's lock, once per row for the process' life (ScopeNameText).
+            const std::string_view text = Common::Profiling::Profiler::Get().ScopeNameText( nameId );
+            known = Common::Profiling::GpuAsyncSegmentLabelStart( text ) != std::string_view::npos ? 1 : 2;
+        }
+        return known == 1;
+    }
+
+    void VulkanGpuProfiler::PublishUnaccounted( std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes )
     {
         using Common::Profiling::GpuQueue;
 
         // Timestamps as ms from the frame bracket's begin. Signed: an async compute stamp can precede the
         // graphics bracket's first one (the compute queue is another timeline of the same device clock).
         const uint64_t frameBeginTicks =
-             m_ResultScratch[static_cast<size_t>( kGpuFrameTotalQuery ) * kWordsPerQuery];
+             m_ResolveWords[static_cast<size_t>( kGpuFrameTotalQuery ) * kWordsPerQuery];
         const auto intervalOf = [&]( uint32_t queryBase ) -> GpuInterval
         {
             const size_t beginWord = static_cast<size_t>( queryBase ) * kWordsPerQuery;
             const size_t endWord   = beginWord + kWordsPerQuery;
-            if ( endWord + 1 >= m_ResultScratch.size() || m_ResultScratch[beginWord + 1] == 0 ||
-                 m_ResultScratch[endWord + 1] == 0 || m_ResultScratch[endWord] < m_ResultScratch[beginWord] )
+            if ( endWord + 1 >= m_ResolveWords.size() || m_ResolveWords[beginWord + 1] == 0 ||
+                 m_ResolveWords[endWord + 1] == 0 || m_ResolveWords[endWord] < m_ResolveWords[beginWord] )
                 return GpuInterval{};
             const auto toMs = [&]( uint64_t ticks )
             { return static_cast<double>( static_cast<int64_t>( ticks - frameBeginTicks ) ) * m_PeriodNs * 1e-6; };
-            return GpuInterval{ toMs( m_ResultScratch[beginWord] ), toMs( m_ResultScratch[endWord] ), true };
+            return GpuInterval{ toMs( m_ResolveWords[beginWord] ), toMs( m_ResolveWords[endWord] ), true };
         };
 
         const GpuInterval frameInterval = intervalOf( kGpuFrameTotalQuery );
@@ -636,13 +792,11 @@ namespace Desert::Graphic::API::Vulkan
 
         const size_t scopeCount = scopes.size();
         m_Intervals.resize( scopeCount );
-        std::vector<int32_t>   graphicsScopes;
-        std::vector<int32_t>   asyncPasses;
-        std::vector<int32_t>   asyncSegments;
+        m_GraphicsScopes.clear();
+        m_AsyncPasses.clear();
+        m_AsyncSegments.clear();
         // A segment row of a view carries the view's name first ("scene view #1 | RDG Async: ..",
-        // GpuViewScopeName): the prefix is matched on the scope's own name, after the view's.
-        const auto isSegment = []( std::string_view name )
-        { return Common::Profiling::GpuAsyncSegmentLabelStart( name ) != std::string_view::npos; };
+        // GpuViewScopeName): the prefix is matched on the row's text, after the view's (IsSegmentRow).
         for ( size_t i = 0; i < scopeCount; ++i )
         {
             // A retracted scope (a discarded chunk's) covers nothing: it is no member of any timeline.
@@ -654,47 +808,51 @@ namespace Desert::Graphic::API::Vulkan
             m_Intervals[i]   = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
             const auto index = static_cast<int32_t>( i );
             if ( scopes[i].Queue == GpuQueue::Graphics )
-                graphicsScopes.push_back( index );
-            else if ( isSegment( scopes[i].Name ) )
-                asyncSegments.push_back( index );
+                m_GraphicsScopes.push_back( index );
+            else if ( IsSegmentRow( scopes[i].Name ) )
+                m_AsyncSegments.push_back( index );
             else
-                asyncPasses.push_back( index );
+                m_AsyncPasses.push_back( index );
         }
 
         auto& profiler = Common::Profiling::Profiler::Get();
 
         // THE GRAPHICS QUEUE: the bracket minus the union of every graphics scope in it, and where it sits.
-        const GpuCoverage graphics =
-             GpuCoverageOf( m_Intervals, std::move( graphicsScopes ), frameInterval.BeginMs, frameInterval.EndMs );
+        // m_Coverage is read here before the async pass below reuses it.
+        GpuCoverageOf( m_Intervals, m_GraphicsScopes, frameInterval.BeginMs, frameInterval.EndMs, m_Coverage );
+        const GpuCoverage& graphics = m_Coverage;
         profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedGraphicsScope, graphics.UncoveredMs,
                                graphics.UncoveredMs );
         for ( const GpuUncovered& gap : graphics.Gaps )
         {
             if ( gap.Ms < Common::Profiling::kGpuGapReportMs )
                 continue;
-            const std::string_view after =
-                 gap.After == kGpuNoParent ? std::string_view( "frame begin" )
-                                           : std::string_view( scopes[static_cast<size_t>( gap.After )].Name );
-            const std::string_view before =
-                 gap.Before == kGpuNoParent ? std::string_view( "frame end" )
-                                            : std::string_view( scopes[static_cast<size_t>( gap.Before )].Name );
-            const std::string name = std::string( Common::Profiling::kGpuGapScopePrefix ) + std::string( after ) +
-                                     " -> " + std::string( before );
-            profiler.AddGpuSample( name.c_str(), gap.Ms, gap.Ms );
+            // Only the gaps over kGpuGapReportMs (a few a frame) look their neighbours' text up.
+            std::string_view after = "frame begin";
+            if ( gap.After != kGpuNoParent )
+                after = profiler.ScopeNameText( scopes[static_cast<size_t>( gap.After )].Name );
+            std::string_view before = "frame end";
+            if ( gap.Before != kGpuNoParent )
+                before = profiler.ScopeNameText( scopes[static_cast<size_t>( gap.Before )].Name );
+            m_GapName.assign( Common::Profiling::kGpuGapScopePrefix );
+            m_GapName.append( after ).append( " -> " ).append( before );
+            profiler.AddGpuSample( m_GapName.c_str(), gap.Ms, gap.Ms );
         }
 
         // THE ASYNC COMPUTE QUEUE: each segment minus the union of the async passes inside it. No segment row
         // this frame (async off, or every segment demoted to the graphics queue) publishes nothing, which the
         // dump already reads as "no segment".
-        if ( asyncSegments.empty() )
+        if ( m_AsyncSegments.empty() )
             return;
         double asyncUncoveredMs = 0.0;
-        for ( const int32_t segment : asyncSegments )
+        for ( const int32_t segment : m_AsyncSegments )
         {
             const GpuInterval& span = m_Intervals[static_cast<size_t>( segment )];
             if ( span.Valid )
-                asyncUncoveredMs +=
-                     GpuCoverageOf( m_Intervals, asyncPasses, span.BeginMs, span.EndMs ).UncoveredMs;
+            {
+                GpuCoverageOf( m_Intervals, m_AsyncPasses, span.BeginMs, span.EndMs, m_Coverage );
+                asyncUncoveredMs += m_Coverage.UncoveredMs;
+            }
         }
         profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedAsyncScope, asyncUncoveredMs, asyncUncoveredMs );
     }

@@ -2,7 +2,7 @@
 
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/DevInstruments.hpp>
-#include <Common/Core/Logger.hpp>
+#include <Common/Core/EngineThread.hpp>
 
 // Optick is on the shipping link line and contributes nothing to it, because after the two guards below
 // no translation unit in this engine references a single Optick symbol — the profiling macros are empty
@@ -11,8 +11,9 @@
 #include <optick.h>
 
 #include <algorithm>
-#include <exception>
+#include <format>
 #include <memory>
+#include <string>
 
 namespace Common
 {
@@ -45,25 +46,33 @@ namespace Common
         (void)::Optick::IsActive();
 #endif
 
-        // cores - 1: leave the main thread its own core. At least one worker so Submit() always makes
-        // progress on single-core machines.
+        // cores - 2: the game thread and the render thread keep a core each (the render thread records the
+        // graph's serial passes and replays the chunks the workers recorded; a worker on its core only delays
+        // that). At least one worker so Submit() always makes progress on a one- or two-core machine.
         const unsigned hw      = std::thread::hardware_concurrency();
-        const size_t   workers = std::max( 1u, hw > 1 ? hw - 1 : 1u );
+        const size_t   workers = hw > 3 ? hw - 2 : 1u;
+        // Background jobs on cores - 3 at most (one worker fewer), never fewer than one: a one-worker pool
+        // runs its Background jobs too, between the others.
+        m_BackgroundCap = workers > 1 ? workers - 1 : 1u;
         m_Workers.reserve( workers );
         for ( size_t i = 0; i < workers; ++i )
-            m_Workers.emplace_back( [this] { WorkerLoop(); } );
+            m_Workers.emplace_back( [this, i]() noexcept { WorkerLoop( i ); } );
     }
 
-    JobSystem::~JobSystem()
+    JobSystem::~JobSystem() noexcept
     {
         Shutdown();
     }
 
-    void JobSystem::WorkerLoop()
+    void JobSystem::WorkerLoop( const size_t index ) noexcept
     {
         // Held for the worker's whole life: without it a stack overflow in a job dies with no crash
         // report on POSIX (CR1d; see ThreadCrashStackScope).
         const Crash::ThreadCrashStackScope crashStack;
+        // Named for debuggers, captures and the '[Threads]' census, which counts "Job Worker #i" as one role;
+        // Normal: the frame's two AboveNormal threads keep a core each and the workers have the rest
+        // (workers = cores - 2). Once per worker, at its start: the name's string is not on a frame's path.
+        NameCurrentThread( std::format( "Job Worker #{}", index ), ThreadPriority::Normal );
         // Register with Optick so job scopes (e.g. parallel ECS systems) show on their own timeline
         // rows instead of being silently dropped for an unknown thread.
 #if DESERT_DEV_INSTRUMENTS
@@ -72,56 +81,85 @@ namespace Common
         for ( ;; )
         {
             QueuedJob queued;
+            bool      background = false;
             {
                 std::unique_lock<std::mutex> lk( m_Mutex );
-                m_CV.wait( lk, [this] { return m_Stop || !m_Queue.empty(); } );
-                if ( m_Stop && m_Queue.empty() )
-                    return;
-                queued = std::move( m_Queue.front() );
-                m_Queue.pop_front();
+                // A Background job past the cap is not taken, so the wait ends on a queue this worker may take
+                // from; at Stop every queue drains, the cap aside (nothing else is left to run then).
+                size_t from = kPriorityCount;
+                m_CV.wait( lk,
+                           [this, &from]
+                           {
+                               from = NextQueueLocked();
+                               return from != kPriorityCount || m_Stop;
+                           } );
+                if ( from == kPriorityCount )
+                {
+                    const auto backgroundQueue = static_cast<size_t>( JobPriority::Background );
+                    if ( m_Queues[backgroundQueue].empty() )
+                        return; // stopping, every queue drained
+                    from = backgroundQueue;
+                }
+                queued = std::move( m_Queues[from].front() );
+                m_Queues[from].pop_front();
                 ++m_Running;
+                background = from == static_cast<size_t>( JobPriority::Background );
+                if ( background )
+                    ++m_RunningBackground;
             }
             InlineJob& job = queued.Job;
             // THE SUBMITTER'S FRAME for the job's run (RecordingFrame): a worker is unbound between jobs.
             RecordingFrame& binding = RecordingFrame::OfThisThread();
             binding                 = queued.Recording;
 
-            // Never let a throwing job escape the worker thread: an uncaught exception here unwinds
-            // through this loop (and Optick's per-thread ThreadScope) and calls std::terminate(), taking
-            // the WHOLE app down — which showed up as a hard crash mid-startup while a background asset
-            // preload threw. Swallow + log so one bad job degrades gracefully and names itself.
-            try
-            {
-                job();
-            }
-            catch ( const std::exception& e )
-            {
-                LOG_ERROR( "[JobSystem] Worker job threw '{}' — swallowed to keep the app alive.", e.what() );
-            }
-            catch ( ... )
-            {
-                LOG_ERROR( "[JobSystem] Worker job threw a non-std exception — swallowed to keep the app alive." );
-            }
+            // NOTHING IS CAUGHT HERE. InlineJob::operator() is noexcept, so a job that throws ends the process at
+            // the job, and EntryPoint's terminate handler prints what() and the stack. Catching it here would
+            // leave the job's tail unrun (its counter, its hand-over) and the failure would surface far away.
+            job();
 
             binding = RecordingFrame{};
             // The job's captures die here, unbound: a deletion they queue takes the game thread's frame, as on
             // the render task after a job.
             queued = QueuedJob{};
 
+            bool backgroundWaits = false;
             {
                 std::lock_guard<std::mutex> lk( m_Mutex );
                 --m_Running;
+                if ( background )
+                {
+                    --m_RunningBackground;
+                    backgroundWaits = !m_Queues[static_cast<size_t>( JobPriority::Background )].empty();
+                }
             }
+            // A Background slot came free: a worker parked on the cap may take the next one. This worker loops
+            // back and may take it itself; the wake covers a queue it leaves for a High job that came first.
+            if ( backgroundWaits )
+                m_CV.notify_one();
         }
     }
 
-    bool JobSystem::Submit( InlineJob job )
+    size_t JobSystem::NextQueueLocked() const
+    {
+        for ( size_t p = 0; p < kPriorityCount; ++p )
+        {
+            if ( m_Queues[p].empty() )
+                continue;
+            if ( p == static_cast<size_t>( JobPriority::Background ) && m_RunningBackground >= m_BackgroundCap )
+                return kPriorityCount;
+            return p;
+        }
+        return kPriorityCount;
+    }
+
+    bool JobSystem::Submit( InlineJob job, const JobPriority priority )
     {
         {
             std::lock_guard<std::mutex> lk( m_Mutex );
             if ( m_Stop )
                 return false; // shutting down: dropped, and the caller is told so
-            m_Queue.push_back( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
+            const size_t queue = std::min( static_cast<size_t>( priority ), kPriorityCount - 1u );
+            m_Queues[queue].push_back( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
         }
         m_CV.notify_one();
         return true;
@@ -130,7 +168,10 @@ namespace Common
     size_t JobSystem::PendingJobs() const
     {
         std::lock_guard<std::mutex> lk( m_Mutex );
-        return m_Queue.size() + m_Running;
+        size_t                      queued = 0;
+        for ( const std::deque<QueuedJob>& queue : m_Queues )
+            queued += queue.size();
+        return queued + m_Running;
     }
 
     namespace
@@ -178,10 +219,19 @@ namespace Common
                 Done.wait( lk, [this] { return Active == 0; } );
             }
         };
+
+        // EVERY RANGE RUNS INSIDE THIS noexcept FUNCTION, on the caller and on each helper. A body that throws
+        // ends the process at the range that threw (std::terminate, EntryPoint's handler). So no helper is left
+        // running against a caller frame that unwound, and no throw reaches a worker loop one level up.
+        void RunRange( const std::function<void( size_t, size_t )>& body, size_t begin, size_t end ) noexcept
+        {
+            body( begin, end );
+        }
     } // namespace
 
     void JobSystem::ParallelRanges( size_t count, size_t grain,
-                                    const std::function<void( size_t begin, size_t end )>& body )
+                                    const std::function<void( size_t begin, size_t end )>& body,
+                                    const JobPriority                                      priority )
     {
         if ( count == 0 )
             return;
@@ -191,7 +241,7 @@ namespace Common
         const size_t ranges = ( count + grain - 1 ) / grain;
         if ( ranges == 1 || m_Workers.empty() )
         {
-            body( 0, count );
+            RunRange( body, 0, count );
             return;
         }
 
@@ -211,51 +261,34 @@ namespace Common
         for ( size_t h = 0; h < helpers; ++h )
         {
             Submit(
-                 [share, bodyPtr, count, grain]
+                 [share, bodyPtr, count, grain]() noexcept
                  {
                      size_t index = 0;
                      while ( share->Claim( index, true ) )
                      {
-                         // Finish() must run even if the body throws, or the caller waits for a helper
-                         // that is already gone. The worker loop logs and swallows the exception above us.
-                         struct Guard
-                         {
-                             RangeShare* Share;
-                             ~Guard()
-                             {
-                                 Share->Finish();
-                             }
-                         } guard{ share.get() };
-
+                         // RunRange returns or ends the process, so Finish() always follows a claimed range.
                          const size_t begin = index * grain;
-                         ( *bodyPtr )( begin, std::min( count, begin + grain ) );
+                         RunRange( *bodyPtr, begin, std::min( count, begin + grain ) );
+                         share->Finish();
                      }
-                 } );
+                 },
+                 priority );
         }
 
         // THE CALLER WORKS TOO, and it is what makes the loop independent of the pool: if every worker is
         // busy the cursor still empties, here, serially.
-        try
+        size_t index = 0;
+        while ( share->Claim( index, false ) )
         {
-            size_t index = 0;
-            while ( share->Claim( index, false ) )
-            {
-                const size_t begin = index * grain;
-                body( begin, std::min( count, begin + grain ) );
-            }
-        }
-        catch ( ... )
-        {
-            // A throwing body still leaves helpers running against this stack frame. Drain them before
-            // letting the exception out, or the frame dies underneath them.
-            share->WaitForHelpers();
-            throw;
+            const size_t begin = index * grain;
+            RunRange( body, begin, std::min( count, begin + grain ) );
         }
 
         share->WaitForHelpers();
     }
 
-    void JobSystem::ParallelFor( size_t count, const std::function<void( size_t )>& body )
+    void JobSystem::ParallelFor( size_t count, const std::function<void( size_t )>& body,
+                                 const JobPriority priority )
     {
         // About four ranges per participant. One range per participant is what the old implementation did
         // and it is only right when every index costs the same; four lets a participant that drew the
@@ -263,15 +296,17 @@ namespace Common
         const size_t participants = m_Workers.size() + 1;
         const size_t grain        = std::max<size_t>( 1, count / ( participants * 4 ) );
 
-        ParallelRanges( count, grain,
-                        [&body]( size_t begin, size_t end )
-                        {
-                            for ( size_t i = begin; i < end; ++i )
-                                body( i );
-                        } );
+        ParallelRanges(
+             count, grain,
+             [&body]( size_t begin, size_t end )
+             {
+                 for ( size_t i = begin; i < end; ++i )
+                     body( i );
+             },
+             priority );
     }
 
-    void JobSystem::Shutdown()
+    void JobSystem::Shutdown() noexcept
     {
         {
             std::lock_guard<std::mutex> lk( m_Mutex );
@@ -284,5 +319,133 @@ namespace Common
             if ( worker.joinable() )
                 worker.join();
         m_Workers.clear();
+    }
+
+    namespace
+    {
+        // How many TaskGroup tasks this thread is inside (a task may run a group of its own).
+        thread_local uint32_t t_TaskDepth = 0;
+    } // namespace
+
+    /// The tasks one TaskGroup shares with the jobs it submitted. Held by shared_ptr, so a job the pool runs after
+    /// the group was joined and destroyed finds every task claimed rather than a dead object. A task is CLAIMED
+    /// ONCE, UNDER THE LOCK, together with the count of tasks a worker runs: "every task claimed and nothing
+    /// active" then really means no thread will touch the launcher's frame again (RangeShare's argument).
+    struct TaskGroup::Shared
+    {
+        struct Task
+        {
+            const char*           Name = nullptr;
+            std::function<void()> Body;
+            bool                  Claimed = false;
+        };
+
+        std::mutex              Mutex;
+        std::condition_variable Done;
+        std::vector<Task>       Tasks;
+        size_t                  Active = 0; // tasks a WORKER runs right now
+
+        /// Under the lock: task @p index, unless someone has it. @p helper counts the claim as active.
+        bool Claim( const size_t index, std::function<void()>& body, const char*& name, const bool helper )
+        {
+            std::lock_guard<std::mutex> lk( Mutex );
+            if ( index >= Tasks.size() || Tasks[index].Claimed )
+                return false;
+            Tasks[index].Claimed = true;
+            body                 = std::move( Tasks[index].Body );
+            name                 = Tasks[index].Name;
+            if ( helper )
+                ++Active;
+            return true;
+        }
+
+        /// A task body is noexcept by contract: no catch here, a throw terminates at its own site.
+        void Run( const char* name, std::function<void()>& body ) noexcept
+        {
+#if DESERT_DEV_INSTRUMENTS
+            OPTICK_EVENT_DYNAMIC( name );
+#else
+            (void)name;
+#endif
+            ++t_TaskDepth;
+            body();
+            --t_TaskDepth;
+            body = nullptr; // the task's captures die on the thread that ran it, before the join returns
+        }
+
+        void Finish()
+        {
+            std::lock_guard<std::mutex> lk( Mutex );
+            if ( --Active == 0 )
+                Done.notify_all();
+        }
+    };
+
+    TaskGroup::TaskGroup( const bool parallel )
+         : m_Shared( std::make_shared<Shared>() ), m_Parallel( parallel && JobSystem::Get().WorkerCount() > 0 )
+    {
+    }
+
+    TaskGroup::~TaskGroup()
+    {
+        if ( !m_Joined )
+            Join();
+    }
+
+    bool TaskGroup::InTask() noexcept
+    {
+        return t_TaskDepth > 0;
+    }
+
+    void TaskGroup::Launch( const char* name, std::function<void()> task )
+    {
+        m_Joined = false;
+        if ( !m_Parallel )
+        {
+            // The switch off: the task runs here and now, still under InTask (the builder's check holds either
+            // way).
+            m_Shared->Run( name, task );
+            return;
+        }
+        size_t index = 0;
+        {
+            std::lock_guard<std::mutex> lk( m_Shared->Mutex );
+            index = m_Shared->Tasks.size();
+            m_Shared->Tasks.push_back( Shared::Task{ name, std::move( task ), false } );
+        }
+        // A job the pool refuses (shutting down) owes nothing: the task stays unclaimed and Join runs it.
+        std::shared_ptr<Shared> shared = m_Shared;
+        JobSystem::Get().Submit(
+             [shared, index]() noexcept
+             {
+                 std::function<void()> body;
+                 const char*           taskName = nullptr;
+                 if ( !shared->Claim( index, body, taskName, true ) )
+                     return;
+                 shared->Run( taskName, body );
+                 shared->Finish();
+             },
+             JobPriority::High );
+    }
+
+    void TaskGroup::Join() noexcept
+    {
+        m_Joined = true;
+        // THE CALLER WORKS FIRST: every task no worker has claimed runs here, so the wait below is only ever for a
+        // task that is running on a worker - never for a job still in a queue.
+        for ( size_t index = 0;; ++index )
+        {
+            {
+                std::lock_guard<std::mutex> lk( m_Shared->Mutex );
+                if ( index >= m_Shared->Tasks.size() )
+                    break;
+            }
+            std::function<void()> body;
+            const char*           name = nullptr;
+            if ( m_Shared->Claim( index, body, name, false ) )
+                m_Shared->Run( name, body );
+        }
+        std::unique_lock<std::mutex> lk( m_Shared->Mutex );
+        m_Shared->Done.wait( lk, [this] { return m_Shared->Active == 0; } );
     }
 } // namespace Common

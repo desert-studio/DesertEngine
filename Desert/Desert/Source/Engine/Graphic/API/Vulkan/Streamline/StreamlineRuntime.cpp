@@ -101,6 +101,8 @@ namespace Desert::Graphic::Streamline
                     return sl::DLSSDPreset::ePresetD;
                 case DlssRRPreset::E:
                     return sl::DLSSDPreset::ePresetE;
+                case DlssRRPreset::F:
+                    return sl::DLSSDPreset::ePresetF;
             }
             return sl::DLSSDPreset::eDefault;
         }

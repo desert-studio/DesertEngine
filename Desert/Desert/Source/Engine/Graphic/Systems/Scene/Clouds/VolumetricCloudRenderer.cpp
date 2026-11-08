@@ -5,6 +5,7 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialBake.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -23,7 +24,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <array>
 #include <cstring>
+#include <span>
 
 namespace
 {
@@ -63,6 +66,8 @@ namespace
         // The cloud shadow map as the march's far shadow term - a SAMPLED read under its own name, since the
         // producer's CloudShadowMapTexture above is the storage image it writes.
         DESERT_SHADER_PARAMETER( Texture, CloudSelfShadowMapTexture );
+        // GPU-FARFIELD-4: the march's counters (CloudMarchCounters), zeroed per frame and read back.
+        DESERT_SHADER_PARAMETER( StorageBuffer, CloudMarchCountersUB );
     };
 } // namespace
 
@@ -74,6 +79,11 @@ namespace Desert::Graphic::System
         // inside every implementation's guaranteed maximum and the dispatch bounds-checks, so any target
         // size is fine.
         constexpr uint32_t kMarchWorkGroupSize = 8;
+
+        // GPU-FARFIELD-4: lanes per view ray, CloudRaymarch.shader CLOUD_MARCH_SEGMENT_LANES. Each lane marches
+        // one contiguous quarter of the ray's segment and the four are composed front to back, so the dispatch
+        // is four times as wide for the same rays (see the shader for why).
+        constexpr uint32_t kMarchSegmentLanes = 4;
 
         // One spelling with the material schema's own — the march program IS the cloud material shader.
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
@@ -1104,9 +1114,9 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
-    ComputeNodeDeclaration VolumetricCloudRenderer::SkyOcclusionNode()
+    ComputeNodeDeclaration VolumetricCloudRenderer::SkyOcclusionNode( Common::Memory::FrameArena& arena )
     {
-        ComputeNodeDeclaration occlusion;
+        ComputeNodeDeclaration occlusion( arena );
         occlusion.Name = "Clouds: SkyOcclusion";
         // SETUP: the pipeline route (the renderer's own sampled volumes and buffers) and the node's block over
         // it; the volume it writes is the block's entry.
@@ -1177,8 +1187,9 @@ namespace Desert::Graphic::System
         return key.Get();
     }
 
-    void VolumetricCloudRenderer::DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
-                                                              const CloudGpuPayload&               payload )
+    void VolumetricCloudRenderer::DeclareSkyOcclusionIfStale( ComputeNodeList&            nodes,
+                                                              Common::Memory::FrameArena& arena,
+                                                              const CloudGpuPayload&      payload )
     {
         // THE VOLUME IS A PURE FUNCTION OF THE FIELD, and in the frame it is addressed in (wind-shifted, by
         // producer and consumer alike) the wind is not one of its inputs while the field is rigid in it. It used
@@ -1196,7 +1207,7 @@ namespace Desert::Graphic::System
             m_SkyOcclusionBuilt = false;
         if ( m_SkyOcclusionBuilt && m_SkyOcclusionBuiltKey == inputs )
             return;
-        nodes.push_back( SkyOcclusionNode() );
+        nodes.push_back( SkyOcclusionNode( arena ) );
         m_SkyOcclusionPendingKey = inputs;
     }
 
@@ -1210,9 +1221,9 @@ namespace Desert::Graphic::System
         m_SkyOcclusionBuiltKey = *pending;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareSkyOcclusionNodes()
+    ComputeNodeList VolumetricCloudRenderer::DeclareSkyOcclusionNodes( Common::Memory::FrameArena& arena )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_SkyOcclusionValid = false;
 
         if ( !m_SkyOcclusionPipeline || !m_ParamsBuffer || !m_Present || !m_Data.Enabled )
@@ -1241,7 +1252,7 @@ namespace Desert::Graphic::System
 
         if ( m_Data.SkyOcclusionVolume && EnsureSkyOcclusionVolume() )
         {
-            DeclareSkyOcclusionIfStale( nodes, payload );
+            DeclareSkyOcclusionIfStale( nodes, arena, payload );
             m_SkyOcclusionValid = true;
         }
         return nodes;
@@ -1254,9 +1265,9 @@ namespace Desert::Graphic::System
             m_SkyOcclusionValid = false;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes()
+    ComputeNodeList VolumetricCloudRenderer::DeclareShadowMapNodes( Common::Memory::FrameArena& arena )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         // Cleared FIRST and set only at the end, so every early return below leaves consumers with "no
         // cloud shadow this frame" rather than with the projection of a frame the sun has since left.
         m_ShadowMapValid   = false;
@@ -1502,7 +1513,7 @@ namespace Desert::Graphic::System
             CloudShadowPush rigid = push;
             rigid.Depth.y         = static_cast<float>( plan.RowBegin );
             rigid.Wind            = glm::vec4( plan.WindKm, 0.0f );
-            ComputeNodeDeclaration shadow;
+            ComputeNodeDeclaration shadow( arena );
             // m_ShadowMapImage: the copy the plan writes, which the lit passes sample as a scene view input
             // (SceneViewInputsOf) once it is the front.
             const std::shared_ptr<Image> m_ShadowMapImage = m_ShadowMapImages[plan.Target];
@@ -1522,7 +1533,7 @@ namespace Desert::Graphic::System
             hero.Depth.y         = static_cast<float>( patchRect.Y );
             hero.Depth.z         = static_cast<float>( patchRect.X );
             hero.Wind            = glm::vec4( windKm, 1.0f );
-            ComputeNodeDeclaration patch;
+            ComputeNodeDeclaration patch( arena );
             declare( patch, "Clouds: ShadowMapHero", m_ShadowMapImages[front], "Clouds.ShadowMap", hero,
                      patchRect.Width, patchRect.Height );
             nodes.push_back( std::move( patch ) );
@@ -1539,6 +1550,10 @@ namespace Desert::Graphic::System
         if ( m_ShadowMapValid )
         {
             const uint32_t frontBefore = m_ShadowRefresh.Front;
+            // The front's texels are new when this frame re-marched it whole or patched the hero rectangle into
+            // it; a band into the back counts once the back is swapped in (below).
+            if ( m_ShadowHeroPlanned || m_ShadowRefreshPlan.Kind == CloudShadowRefreshKind::Full )
+                ++m_ShadowMapContentGeneration;
             if ( m_ShadowHeroPlanned )
             {
                 // The front now carries this frame's slot-A march over the hero rectangle, and nothing of slot A
@@ -1557,6 +1572,7 @@ namespace Desert::Graphic::System
             // A completed back became the front: it was marched without slot A and carries no patch yet.
             if ( m_ShadowRefresh.Front != frontBefore )
             {
+                ++m_ShadowMapContentGeneration;
                 m_ShadowHeroBuilt     = false;
                 m_ShadowHeroFrontRect = {};
             }
@@ -1570,6 +1586,7 @@ namespace Desert::Graphic::System
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
                                                     const glm::vec3& windOffset, const glm::vec3& windDirection,
                                                     Common::Settings::CloudQuality        quality,
+                                                    bool                                  footprintSteps,
                                                     const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Present    = present;
@@ -1577,6 +1594,7 @@ namespace Desert::Graphic::System
         m_WindOffset    = windOffset;
         m_WindDirection = windDirection;
         m_Quality    = quality;
+        m_FootprintSteps = footprintSteps;
 
         // RE-ARM THE WARNINGS WHEN THE ARRANGEMENT CHANGES. A latch that is never released says a thing
         // once and then lies for the rest of the session: an artist who moves a body back inside the
@@ -1709,7 +1727,8 @@ namespace Desert::Graphic::System
 
     void VolumetricCloudRenderer::ResolveMediumValues( const MaterialOverrides& overrides )
     {
-        const std::vector<Core::Formats::ShaderParam>* schema = nullptr;
+        // Co-owned: a hot reload of the medium may replace the service's entry while this worker reads it.
+        std::shared_ptr<const std::vector<Core::Formats::ShaderParam>> schema;
         if ( !m_Material.Medium.IsNull() )
         {
             if ( const auto shaderService = Runtime::ResourceRegistry::GetShaderService() )
@@ -2107,11 +2126,11 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration>
-    VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
-                                                VolumetricCloudHistory& history )
+    ComputeNodeList VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
+                                                                VolumetricCloudHistory& history )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        Common::Memory::FrameArena& arena = graph.GetFrameArena();
+        ComputeNodeList             nodes = MakeComputeNodeList( arena );
         m_FrameResult = {};
         m_PendingResult.reset();
 
@@ -2218,7 +2237,7 @@ namespace Desert::Graphic::System
 
         if ( wantsSkyOcclusion && EnsureSkyOcclusionVolume() )
         {
-            DeclareSkyOcclusionIfStale( nodes, payload );
+            DeclareSkyOcclusionIfStale( nodes, arena, payload );
             skyOcclusionReady = true;
         }
 
@@ -2264,8 +2283,10 @@ namespace Desert::Graphic::System
         push.Frame =
              glm::vec4( skyOcclusionReady ? 1.0f : 0.0f, perSampleSun ? 1.0f : 0.0f,
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
-        push.Visualize = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
-                                    static_cast<float>( gridPhase.Index() ), 0.0f, 0.0f );
+        // z: the footprint step's gate (Scalability Effects.CloudFootprintSteps, CloudFootprintStepKm).
+        const float footprintSteps = m_FootprintSteps ? 1.0f : 0.0f;
+        push.Visualize             = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
+                                                static_cast<float>( gridPhase.Index() ), footprintSteps, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
         // atmosphere's LUTs; writes the half-resolution trace and its guide.
@@ -2288,7 +2309,7 @@ namespace Desert::Graphic::System
                                           .Format = ViewTargetFormats::kCloudTrace };
         const RDG::TextureRef  trace      = graph.CreateTexture( traceDesc, "Clouds.Trace" );
         const RDG::TextureRef  traceGuide = graph.CreateTexture( traceDesc, "Clouds.TraceGuide" );
-        ComputeNodeDeclaration march;
+        ComputeNodeDeclaration march( graph.GetFrameArena() );
         march.Name = "Clouds: March";
         // SETUP: everything but the graph's two transients is the renderer's own (or the sky's), bound by the
         // pipeline's setters here; the two transients are the block's entries, each the declaration of its write.
@@ -2332,6 +2353,12 @@ namespace Desert::Graphic::System
         // has cost this project a build before).
         const std::shared_ptr<Image> selfShadowImage = selfShadowMap ? m_ShadowMap : fallback2D;
         const char* const selfShadowName = selfShadowMap ? "Clouds.ShadowMap" : "Clouds.SelfShadowMapFallback";
+        // GPU-FARFIELD-4: the march's counters (CloudMarchCounters), zeroed per frame. Always bound: the shader
+        // declares the block unconditionally, and a declared buffer with nothing bound is an invalid set.
+        constexpr std::array<uint32_t, CloudMarchCounters::kWords> kMarchCountersReset{};
+        const RDG::BufferRef marchCounters =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kMarchCountersReset ) }, "Clouds.MarchCounters" );
+        graph.QueueBufferUpload( marchCounters, std::as_bytes( std::span( kMarchCountersReset ) ) );
         SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, m_MarchPipeline.get(), m_MarchLayout,
                                                             static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
              .Storage( VolumetricCloudShaderParameters::CloudScatterTexture, trace, RDG::Access::StorageWrite )
@@ -2362,11 +2389,14 @@ namespace Desert::Graphic::System
              // The column maximum of the clipmap's levels, written by the same Write as the volume above it
              // (CloudProceduralClipmap), so it exists exactly when CloudModellingTexture does.
              .Texture( VolumetricCloudShaderParameters::CloudColumnMaxTexture, m_Clipmap.GetColumnImage(),
-                       RDG::Access::SampledCompute, "Clouds.ColumnMax" );
+                       RDG::Access::SampledCompute, "Clouds.ColumnMax" )
+             .Storage( VolumetricCloudShaderParameters::CloudMarchCountersUB, marchCounters,
+                       RDG::Access::StorageWrite );
         // ONE 2x2 LATTICE PHASE PER FRAME (CloudTraceGridPhase): thread (x, y) marches texel
         // (2x + phase.X, 2y + phase.Y), so the dispatch is half the grid's width and half its height, rounded up,
         // and no lane idles on a texel of another phase (CloudRaymarch.shader main).
-        const uint32_t marchColumns = HalfExtent( traceWidth );
+        // GPU-FARFIELD-4: kMarchSegmentLanes lanes a ray, side by side in x (CLOUD_MARCH_SEGMENT_LANES).
+        const uint32_t marchColumns = HalfExtent( traceWidth ) * kMarchSegmentLanes;
         const uint32_t marchRows    = HalfExtent( traceHeight );
         march.Record                = [this, push, marchColumns, marchRows]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -2379,6 +2409,31 @@ namespace Desert::Graphic::System
                                               GroupCount( marchRows, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( march ) );
+
+        // GPU-FARFIELD-4: the slot of this frame count was handed its words slots-in-flight frames ago, so its
+        // fence has passed (the ScreenProbeMissCounts pattern); read it, then hand it this frame's counters.
+        {
+            const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+            if ( m_MarchCounterSlots.size() != slots )
+            {
+                m_MarchCounterSlots.clear();
+                m_MarchCounterSlots.resize( slots );
+            }
+            const std::size_t    index = static_cast<std::size_t>( m_MarchCounterFrame % slots );
+            RDG::ExternalBuffer& slot  = m_MarchCounterSlots[index];
+            if ( slot.Physical )
+            {
+                const std::span<const std::byte> bytes = slot.Physical->ReadForHost();
+                if ( bytes.size() >= sizeof( m_MarchCounters.Words ) )
+                {
+                    std::memcpy( m_MarchCounters.Words.data(), bytes.data(), sizeof( m_MarchCounters.Words ) );
+                    m_MarchCounters.Valid = true;
+                }
+            }
+            slot = RDG::ExternalBuffer{};
+            graph.Extract( marchCounters, slot, RDG::Access::HostRead );
+            ++m_MarchCounterFrame;
+        }
 
         // S2 — THE TEMPORAL RECONSTRUCTION, through the VIEW's history (SceneViewState::Clouds): last frame's
         // pair registered back into this graph, this frame's a transient pair extracted for the next. Readable
@@ -2420,7 +2475,7 @@ namespace Desert::Graphic::System
 
         // The temporal resolve: samples this frame's trace and, when valid, last frame's history; writes this
         // frame's history slot, which the upsample below reads.
-        ComputeNodeDeclaration temporal;
+        ComputeNodeDeclaration temporal( graph.GetFrameArena() );
         temporal.Name = "Clouds: TemporalResolve";
         // SETUP: the parameters are the renderer's own buffer, bound by the pipeline's setter here; this frame's
         // trace pair, last frame's history (or the fallback) and this frame's history slot are the block's
@@ -2490,7 +2545,7 @@ namespace Desert::Graphic::System
         const RDG::TextureDesc upsampledDesc{ .Size   = RDG::Extent3D{ .Width = fullWidth, .Height = fullHeight },
                                               .Format = ViewTargetFormats::kCloudTrace };
         const RDG::TextureRef  upsampled = graph.CreateTexture( upsampledDesc, "Clouds.Upsampled" );
-        ComputeNodeDeclaration upsample;
+        ComputeNodeDeclaration upsample( graph.GetFrameArena() );
         upsample.Name = "Clouds: Upsample";
         m_UpsamplePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
         DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout, 0 )

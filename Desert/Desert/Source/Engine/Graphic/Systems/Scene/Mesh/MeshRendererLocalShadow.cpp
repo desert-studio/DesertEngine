@@ -49,6 +49,7 @@ namespace Desert::Graphic::System
         {
             m_ShadowMaterial.resize( viewCount );
             m_ShadowInstancedMaterial.resize( viewCount );
+            m_ShadowInstancedIdMaterial.resize( viewCount );
             m_ShadowSkinnedMaterial.resize( viewCount );
             m_CascadeCasterVP.resize( viewCount, glm::mat4( 1.0f ) );
             m_CascadeCasterBias.resize( viewCount );
@@ -79,6 +80,7 @@ namespace Desert::Graphic::System
         {
             m_ShadowMaterial[view].reset();
             m_ShadowInstancedMaterial[view].reset();
+            m_ShadowInstancedIdMaterial[view].reset();
             m_ShadowSkinnedMaterial[view].reset();
             m_ShadowMaterialsVirtual[view] = kind;
         }
@@ -86,6 +88,9 @@ namespace Desert::Graphic::System
             m_ShadowMaterial[view] = std::make_unique<MaterialShadow>( casters.Pass );
         if ( casters.Instanced != nullptr && !m_ShadowInstancedMaterial[view] )
             m_ShadowInstancedMaterial[view] = std::make_unique<MaterialShadowInstanced>( casters.Pass );
+        if ( casters.InstancedSceneIds != nullptr && !m_ShadowInstancedIdMaterial[view] )
+            m_ShadowInstancedIdMaterial[view] =
+                 std::make_unique<MaterialShadowInstanced>( m_ShadowInstancedIdShader );
         if ( casters.Skinned != nullptr && !m_ShadowSkinnedMaterial[view] )
             m_ShadowSkinnedMaterial[view] = std::make_unique<MaterialShadowSkinned>( casters.Pass );
         return true;
@@ -175,16 +180,25 @@ namespace Desert::Graphic::System
         const auto walk    = [this, &setup, &centre, radius]
         {
             SignatureHash still;
-            for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+            // The statics from the walk columns (this view's sync): a record outside the sphere costs its mesh,
+            // flag and box; one inside is read only for its section slot (and the transform when its primitive
+            // has no stamp). The world enters as its primitive's stamp (PlacementOf), not 64 bytes of transform.
+            const StaticWalkColumns& columns = m_StaticColumns;
+            const std::size_t        synced  = std::min( m_StaticQueue.size(), columns.Count() );
+            for ( std::size_t i = 0; i < synced; ++i )
             {
-                const StaticMeshRenderData& rd = m_StaticQueue[i];
-                if ( rd.Mesh == nullptr || !rd.CastShadows ||
+                const Desert::Mesh* const mesh = columns.Meshes[i];
+                if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kCastsShadow ) == 0u ||
                      !CasterInSphere( setup.Statics[i].WorldBounds, centre, radius ) )
                     continue;
-                still.Add( rd.Mesh->GetRenderRevision() );
-                still.Add( rd.Transform );
+                const StaticMeshRenderData& rd = m_StaticQueue[i];
+                still.Add( mesh->GetRenderRevision() );
+                if ( columns.Placements[i] != 0u )
+                    still.Add( columns.Placements[i] );
+                else
+                    still.Add( rd.Transform );
                 // One entry per section material: which submeshes it casts, and through which slot's route.
-                still.Add( rd.HiddenSubmeshes );
+                still.Add( columns.Hidden[i] );
                 still.Add( rd.SectionSlot );
                 // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 still.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
@@ -196,7 +210,11 @@ namespace Desert::Graphic::System
                      !CasterInSphere( setup.Generics[i].WorldBounds, centre, radius ) )
                     continue;
                 still.Add( g.Mesh->GetRenderRevision() );
-                still.Add( g.Transform );
+                const uint64_t placement = PlacementOf( g.GpuPrimitive ); // the world's stamp, as the statics
+                if ( placement != 0u )
+                    still.Add( placement );
+                else
+                    still.Add( g.Transform );
                 still.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
             }
             return still.Value;
@@ -280,17 +298,9 @@ namespace Desert::Graphic::System
         // light's projected radius, times ShadowResolutionScale, under the pool's maximum). A cube face may take
         // an eighth of the atlas side, a spot a quarter: six faces of a light that fills the screen then cover
         // 6/64 of the pool, a spot 1/16.
-        struct Request
-        {
-            uint64_t                        Key          = 0;
-            bool                            Spot         = false;
-            std::size_t                     Index        = 0;
-            uint32_t                        Size         = 0;
-            float                           ScreenRadius = 0.0f;
-            float                           Distance     = 0.0f; // from the eye to the light, cm
-            const LocalLightShadowSettings* Settings     = nullptr;
-        };
-        const auto* camera         = m_SceneRenderer->GetMainCamera();
+        // The kept list (MeshRenderer::m_LocalShadowRequests): refilled per call, its storage kept across frames.
+        using Request                  = LocalShadowRequest;
+        const auto*     camera         = m_SceneRenderer->GetMainCamera();
         const float viewportHeight = static_cast<float>( std::max( m_SceneRenderer->GetViewExtent().Height, 1u ) );
         const float tanHalfFov     = camera != nullptr && camera->GetProjectionMatrix()[1][1] != 0.0f
                                           ? 1.0f / std::abs( camera->GetProjectionMatrix()[1][1] )
@@ -302,7 +312,8 @@ namespace Desert::Graphic::System
                                      : viewportHeight;
         };
 
-        std::vector<Request> requests;
+        std::vector<Request>& requests = m_LocalShadowRequests;
+        requests.clear();
         for ( std::size_t i = 0; i < points.size() && i < pointShadows.size(); ++i )
         {
             const LocalLightShadowSettings& s = pointShadows[i];
@@ -503,12 +514,21 @@ namespace Desert::Graphic::System
         m_LocalCachePlans.clear();
     }
 
-    std::vector<SystemRasterPass> MeshRenderer::LocalShadowPasses()
+    std::span<SystemRasterPass> MeshRenderer::LocalShadowPasses()
     {
-        std::vector<SystemRasterPass> passes;
+        // Last frame's passes go (and the atlas their bodies captured); the kept list keeps its storage and each
+        // entry's name buffer, so a frame with no more passes than a past one allocates nothing for them.
+        for ( std::size_t i = 0; i < m_LocalShadowPassCount; ++i )
+        {
+            SystemRasterPass& stale = m_LocalShadowPassList[i];
+            stale.ExecuteFunc       = nullptr;
+            stale.Declare           = nullptr;
+            stale.TargetFramebuffer.reset();
+        }
+        m_LocalShadowPassCount = 0;
         const LocalShadowCache* const cache = m_SceneRenderer->GetFrameLocalShadows();
         if ( !m_ShadowPipeline || cache == nullptr || !cache->GetAtlas() )
-            return passes;
+            return {};
         PlanLocalShadowCache();
         const std::shared_ptr<Framebuffer> atlas = cache->GetAtlas();
         for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
@@ -517,7 +537,6 @@ namespace Desert::Graphic::System
             const uint32_t   slot = view - kLocalShadowViewBase;
             const AtlasTile  tile = redraw.Tile;
             SystemRasterPass pass{
-                 .Name        = std::format( "MeshShadowLocal{}", slot ),
                  .ExecuteFunc = [this, slot, tile, atlas]( RDG::PassContext& context,
                                                            const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
@@ -570,9 +589,22 @@ namespace Desert::Graphic::System
                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                     declared.Read( streams, RDG::Access::StorageRead );
             };
-            passes.push_back( std::move( pass ) );
+            // Its name from the table (one string per slot, made the first frame the slot is drawn), copied into
+            // the kept entry's own string, whose buffer survives the move below.
+            while ( m_LocalShadowPassNames.size() <= slot )
+            {
+                const std::size_t next = m_LocalShadowPassNames.size();
+                m_LocalShadowPassNames.push_back( std::format( "MeshShadowLocal{}", next ) );
+            }
+            if ( m_LocalShadowPassCount == m_LocalShadowPassList.size() )
+                m_LocalShadowPassList.emplace_back();
+            SystemRasterPass& kept = m_LocalShadowPassList[m_LocalShadowPassCount++];
+            std::string       name = std::move( kept.Name );
+            kept                   = std::move( pass );
+            kept.Name              = std::move( name );
+            kept.Name.assign( m_LocalShadowPassNames[slot] );
         }
-        return passes;
+        return std::span<SystemRasterPass>( m_LocalShadowPassList.data(), m_LocalShadowPassCount );
     }
 
     std::shared_ptr<Image2D> MeshRenderer::GetLocalShadowAtlasImage() const

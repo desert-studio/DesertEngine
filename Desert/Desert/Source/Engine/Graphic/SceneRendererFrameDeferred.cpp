@@ -5,8 +5,11 @@
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
+
+#include <bit>
+#include <cstdint>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupBuild.hpp>
@@ -126,10 +129,9 @@ namespace Desert::Graphic
     void SceneRenderer::ImportViewShadowMaps( RDG::Builder& graph, FrameTextures& textures )
     {
         FrameTransients& view = textures.Transients;
-        if ( const auto it = m_RenderSystems.find( "MeshSystem" ); it != m_RenderSystems.end() )
+        if ( const auto& it = m_Systems.Mesh )
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, it->second );
+            auto* mesh = it.get();
             if ( mesh != nullptr )
             {
                 view.ShadowCascades = mesh->AcquireCascadeMaps( graph );
@@ -163,9 +165,8 @@ namespace Desert::Graphic
         if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
              brdf && brdf->GetImageHandle().IsValid() )
             view.BrdfLut = textures.Import( images->Share( brdf->GetImageHandle() ), "BRDF.LUT" );
-        if ( const auto it = m_RenderSystems.find( "SkyboxSystem" ); it != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            if ( const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        if ( const auto& it = m_Systems.Skybox )
+            if ( const auto* sky = it.get();
                  sky != nullptr && sky->SkyPassSamplesLuts() )
             {
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
@@ -198,7 +199,7 @@ namespace Desert::Graphic
         const RDG::ImportedFramebuffer& target = *targets;
         // The first node of the frame on both paths: the scene colour to the engine grey, and every graph colour
         // (the view's velocity) to its own clear (no motion) - FrameTextures::ColorLoads.
-        const std::vector<RDG::LoadOp> colors = textures.ColorLoads( *targets, EngineClearColor() );
+        const auto colors = textures.ColorLoads( *targets, EngineClearColor() ); // the frame arena's
         graph.AddPass(
              "ClearMainFramebuffer", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -233,8 +234,7 @@ namespace Desert::Graphic
         const RDG::TextureRef          sourceRef =
              textures.Import( source, "GBuffer.Depth", DeferredFrameNodes::kGBufferDepthFinal );
         const RDG::TextureRef targetRef = textures.Depth( m_TargetFramebuffer, "SceneColor" );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* expand = UNIQUE_GET_AS( System::DepthExpandRenderer, m_RenderSystems["DepthExpandSystem"] );
+        auto* expand = m_Systems.DepthExpand.get();
         DeferredFrameNodes::AddDepthToScene(
              graph, m_TargetFramebuffer->GetSpecification().Samples, sourceRef, targetRef,
              [source, target]( RDG::PassContext& ) -> Common::BoolResultStr
@@ -258,11 +258,10 @@ namespace Desert::Graphic
             return nullptr;
         if ( m_TargetFramebuffer->GetSpecification().Samples <= 1 )
             return m_TargetFramebuffer->GetDepthAttachmentImage();
-        const auto found = m_RenderSystems.find( "SceneDepthResolveSystem" );
-        if ( found == m_RenderSystems.end() )
+        const auto& found = m_Systems.SceneDepthResolve;
+        if ( !found )
             return nullptr;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* resolve = UNIQUE_GET_AS( System::SceneDepthResolveRenderer, found->second );
+        auto* resolve = found.get();
         return resolve != nullptr && resolve->IsReady() ? resolve->GetFramebuffer()->GetDepthAttachmentImage()
                                                         : nullptr;
     }
@@ -277,8 +276,7 @@ namespace Desert::Graphic
         if ( samples <= 1 )
             return sceneDepth; // one sample: the consumers read the scene depth itself
         auto* resolve =
-             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
+             m_Systems.SceneDepthResolve.get();
         if ( resolve == nullptr || !resolve->IsReady() )
             return {};
         const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
@@ -297,11 +295,10 @@ namespace Desert::Graphic
         const std::vector<GraphColor>* colors = textures.GraphColorsOf( m_TargetFramebuffer.get() );
         if ( colors == nullptr )
             return;
-        const auto                         found   = m_RenderSystems.find( "GraphColorResolveSystem" );
+        const auto& found = m_Systems.GraphColorResolve;
         System::GraphColorResolveRenderer* resolve = nullptr;
-        if ( found != m_RenderSystems.end() )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            resolve = UNIQUE_GET_AS( System::GraphColorResolveRenderer, found->second );
+        if ( found )
+            resolve = found.get();
         AddGraphColorResolves(
              graph, *colors,
              [resolve]( RDG::PassBuilder& pass, const GraphColor& color )
@@ -338,8 +335,7 @@ namespace Desert::Graphic
 
         if ( !m_EnableSSAO || ScreenProbeAOReplacesSSAO() )
             return;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] );
+        auto* ssao = m_Systems.SSAO.get();
         if ( ssao == nullptr )
             return;
         if ( gbuffer.size() < 3 )
@@ -380,22 +376,67 @@ namespace Desert::Graphic
                                                   .TapsPerDirection = m_SSAOSamples,
                                                   .Angles           = kGTAOAngles } );
         // UE r.AmbientOcclusion.Compute: a compute dispatch whose every input is a graph resource, so it runs on
-        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off). Fork:
-        // the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the first
-        // graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap it.
+        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off).
+        // Fork: the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the
+        // first graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap
+        // it. GPU-TILE-CLASSIFY: only the view's listed tiles (the tile list, AddFrameTileClassify, before this on
+        // the same async chain); a tile left out is sky, whose AO texels the composite never reads.
+        const RDG::BufferRef tiles =
+             ssao->DispatchesTiles( textures.Transients.DeferredTiles, aoDesc.Size.Width, aoDesc.Size.Height )
+                  ? textures.Transients.DeferredTiles.Buffer
+                  : RDG::BufferRef{};
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
-             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms ); },
-             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height](
-                  RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssao->Record( context, width, height ); } );
+             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms, tiles ); },
+             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height,
+              tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return ssao->Record( context, width, height, tiles ); } );
+    }
+
+    void SceneRenderer::AddFrameTileClassify( RDG::Builder& graph, FrameTextures& textures,
+                                              const std::vector<RDG::TextureRef>& gbuffer )
+    {
+        // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles, classified on the
+        // async pipe): the view's ONE tile list, before its first reader (SSAO), read by every screen pass that
+        // writes only geometry texels (System::DeferredTileLists). The Lit view only (and the post view modes
+        // drawn Lit): a G-buffer view writes the sky's texels too, so every pass covers the view there.
+        textures.Transients.DeferredTiles = {};
+        auto* const deferred              = m_Systems.DeferredLighting.get();
+        if ( m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineTileClassify ) == 0 ||
+             deferred == nullptr || !deferred->ClassifyReady() )
+            return;
+        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
+             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+            return;
+        if ( gbuffer.size() < 3 )
+        {
+            LOG_ERROR(
+                 "[SceneRenderer] Deferred: Tile Classify needs GBufferB and the shading word, the graph has {}",
+                 gbuffer.size() );
+            return;
+        }
+        // The lighting targets' extent (AddFrameComposite's directDesc); a pass at another extent covers its view.
+        const System::DeferredTileLists lists = System::DeferredLightingRenderer::CreateTileLists(
+             graph, m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        textures.Transients.DeferredTiles = lists;
+        const RDG::TextureRef normal      = gbuffer[1];
+        const RDG::TextureRef shadingWord = gbuffer[2];
+        // ASYNC COMPUTE (UE Substrate's classification on the async pipe): every input is a graph resource. Fork:
+        // the G-buffer's last writer; its readers are SSAO (the same async chain, after it in order) and the
+        // lighting passes, which already wait on that chain for SSAO - no join of its own before Direct Lighting.
+        graph.AddPass(
+             "Deferred: Tile Classify", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, normal, shadingWord, buffer = lists.Buffer]( RDG::PassBuilder& pass )
+             { deferred->DeclareClassifyBindings( pass, normal, shadingWord, buffer ); },
+             [deferred, grid = lists.Tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return deferred->RecordClassify( context, grid ); } );
     }
 
     LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
                                                              const ViewFrame& frame )
     {
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         if ( deferred == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] LightGrid: no DeferredLightingSystem, the view has no light grid" );
@@ -411,8 +452,7 @@ namespace Desert::Graphic
         // "Upload: Lights.GridParams", ordered before the nodes that read them.
         const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
              graph, GetPointLights(), GetSpotLights(),
-             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GetLocalShadowRows(), grid );
+             m_Systems.Mesh->GetLocalShadowRows(), grid );
         textures.Transients.Lights = lights;
 
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
@@ -620,7 +660,8 @@ namespace Desert::Graphic
                         .EnvSpecular     = inputs.EnvSpecular,
                         .GBufferDepth    = inputs.GBufferDepth,
                         .GBufferA        = inputs.GBufferA,
-                        .GBufferEmissive = inputs.GBufferEmissive } );
+                        .GBufferEmissive = inputs.GBufferEmissive,
+                        .Async           = m_SurfaceCacheAsyncRadiosity } );
                  !lit )
             {
                 if ( m_TracedGICardLightingRefusal.Claim( lit.GetError() ) )
@@ -728,7 +769,7 @@ namespace Desert::Graphic
                                                 const ViewFrame& frame )
     {
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         ViewLightBuffers& lights = textures.Transients.Lights;
         if ( deferred == nullptr || !lights.Point.IsValid() )
         {
@@ -797,7 +838,7 @@ namespace Desert::Graphic
             return;
         }
         const RDG::ImportedFramebuffer& target = *targets;
-        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not traced, fewer cascades).
@@ -847,7 +888,15 @@ namespace Desert::Graphic
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
-            shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
+        {
+            // The distance-field mask's channels this frame wrote, per directional slot
+            // (AddFrameDistanceFieldShadow logged why it is missing: the cascades alone then).
+            DeferredCascadeShadow cascades{ .Lights = meshRenderer->DirectionalShadows() };
+            for ( uint32_t light = 0; light < SceneResources::kMaxShadowedDirectionalLights; ++light )
+                cascades.DistanceField[light] = refs.Transients.SunDistanceFieldShadow.IsValid() &&
+                                                ( refs.Transients.DistanceFieldShadowLights >> light & 1u ) != 0u;
+            shadow.Sun = cascades;
+        }
         // Shadows Stochastic: MegaLights' local lighting under either sun arm (the mask under rayquery and
         // vsm+screen, the cascades under screen; AddFrameMegaLights logged why one is missing, a view without local
         // lights has none to add): black adds no local light, never the unshadowed grid loop.
@@ -894,22 +943,21 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none, 1 the screen-space gather inside
-        // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
-        // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
-        // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
+        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none (the sky's two cubes), 2 the traced
+        // final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3 the same gather occluded
+        // by its own short-range AO (the material AO alone left to apply). The composite gathers no bounce of its
+        // own: GI is the method's (GTX-TIER-LADDER). Spelled here, not cast from the enum, whose numbering is the
+        // method ladder's (Common/Settings/RenderMethods.hpp).
         using Common::Scalability::GIMethod;
-        const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
-        const bool     roughFromGI   = TracedGatherAnswersRoughSpecular( gi, traced );
-        const int giMode = gi == GIMethod::ScreenSpace ? 1 : !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
-        const DeferredGIInput compositeGI{ .Mode      = giMode,
-                                           .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
-                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples,
-                                           .PreExposure        = frame.PreExposure,
-                                           .SubsurfaceSplit    = subsurfaceDiffuse.IsValid() };
+        const GIMethod gi          = m_RenderMethods.GlobalIllumination.Effective;
+        const bool     roughFromGI = TracedGatherAnswersRoughSpecular( gi, traced );
+        const int      giMode      = !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
+        const DeferredGIInput compositeGI{ .Mode            = giMode,
+                                           .PreExposure     = frame.PreExposure,
+                                           .SubsurfaceSplit = subsurfaceDiffuse.IsValid() };
 
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         // The lights and the light grid were made by AddFrameLightGrid, before any lit node.
         const ViewLightBuffers& lights = refs.Transients.Lights;
         if ( !lights.GridCells.IsValid() )
@@ -926,33 +974,60 @@ namespace Desert::Graphic
         // graphics queue runs it inside the async window (it is declared after the chain's fork and before its
         // first consumer). The composite then adds only the ambient, the emissive and the subsurface split.
         // FillMaterial fills both programs' materials.
-        graph.AddPass(
-             "Deferred: Direct Lighting", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
-                 const FrameSun light1 = GetFrameLight1();
-                 deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
-                                         frame.InvJitteredViewProjection,
-                                         m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
-                                              ? 0 // a post view mode: the lighting draws Lit
-                                              : static_cast<int>( m_DebugView.DeferredDebug ),
-                                         pointCount, spotCount,
-                                         shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
-                                         frame.JitteredViewProjection );
-                 deferred->DeclareDirectBindings( pass, inputs, lights );
-             },
-             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return deferred->RecordDirect( context ); } );
-        graph.AddPass(
-             "Deferred: Composite", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 deferred->DeclareCompositeBindings( pass, inputs );
-                 DeferredFrameNodes::LoadTarget( pass, target, loads );
-             },
-             [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return deferred->Record( context ); } );
+        // A post view mode draws Lit; a G-buffer view writes the sky's texels too (the composite's black).
+        const int debugMode = m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
+                                   ? 0
+                                   : static_cast<int>( m_DebugView.DeferredDebug );
+        // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles): both lighting passes
+        // draw only the 8x8 tiles that hold geometry (the view's tile list, AddFrameTileClassify), a
+        // DefaultLit-only tile through the permutation with the model folded. The list exists in the Lit view
+        // only.
+        const System::DeferredTileLists lists = refs.Transients.DeferredTiles;
+        const bool tiles = lists.Covers( directDesc.Size.Width, directDesc.Size.Height ) && debugMode == 0 &&
+                           deferred->TileClassifyReady( shadow );
+        const auto fill = [&]()
+        {
+            // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
+            const FrameSun light1 = GetFrameLight1();
+            deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
+                                    frame.InvJitteredViewProjection, debugMode, pointCount, spotCount, shadow,
+                                    compositeGI, m_EnableSSAO, cloudShadow, environment,
+                                    frame.JitteredViewProjection, tiles );
+        };
+        using System::DeferredTileClass;
+        constexpr std::array<DeferredTileClass, 1> kWhole = { DeferredTileClass::Fullscreen };
+        constexpr std::array<DeferredTileClass, 2> kTiled = { DeferredTileClass::Simple, DeferredTileClass::Complex };
+        const std::span<const DeferredTileClass> classes =
+             tiles ? std::span<const DeferredTileClass>( kTiled ) : std::span<const DeferredTileClass>( kWhole );
+        // One pass per list, so each class has its own GPU timing line.
+        constexpr std::array<std::string_view, 3> kDirectNames = { "Deferred: Direct Lighting",
+                                                                   "Deferred: Direct Lighting (Simple Tiles)",
+                                                                   "Deferred: Direct Lighting (Complex Tiles)" };
+        constexpr std::array<std::string_view, 3> kCompositeNames = { "Deferred: Composite",
+                                                                      "Deferred: Composite (Simple Tiles)",
+                                                                      "Deferred: Composite (Complex Tiles)" };
+        const RDG::BufferRef tileBuffer = lists.Buffer;
+        for ( const DeferredTileClass tileClass : classes )
+            graph.AddPass(
+                 kDirectNames[static_cast<std::size_t>( tileClass )], RDG::PassFlags::Raster,
+                 [&, tileClass]( RDG::PassBuilder& pass )
+                 {
+                     if ( tileClass == classes.front() )
+                         fill();
+                     deferred->DeclareDirectBindings( pass, inputs, lights, tileClass, tileBuffer );
+                 },
+                 [deferred, tileClass, tileBuffer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return deferred->RecordDirect( context, tileClass, tileBuffer ); } );
+        for ( const DeferredTileClass tileClass : classes )
+            graph.AddPass(
+                 kCompositeNames[static_cast<std::size_t>( tileClass )], RDG::PassFlags::Raster,
+                 [&, tileClass]( RDG::PassBuilder& pass )
+                 {
+                     deferred->DeclareCompositeBindings( pass, inputs, tileClass, tileBuffer );
+                     DeferredFrameNodes::LoadTarget( pass, target, loads );
+                 },
+                 [deferred, tileClass, tileBuffer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return deferred->Record( context, tileClass, tileBuffer ); } );
     }
 
     bool SceneRenderer::SubsurfaceRuns() const
@@ -966,31 +1041,28 @@ namespace Desert::Graphic
         // The shadow views write a grey occlusion / a cascade-tinted colour: no scattered texel to split off.
         if ( m_DebugView.ShadowDebug != ShadowDebugMode::Off )
             return false;
-        const auto it = m_RenderSystems.find( "SubsurfaceSystem" );
-        if ( it == m_RenderSystems.end() )
+        const auto& it = m_Systems.Subsurface;
+        if ( !it )
             return false;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* const subsurface = static_cast<const System::SubsurfaceRenderer*>( it->second.get() );
+        const auto* const subsurface = it.get();
         auto* const       profiles   = Runtime::ResourceRegistry::GetSubsurfaceProfileService();
         return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
     }
 
     bool SceneRenderer::GrassInstancesSettling() const
     {
-        const auto it = m_RenderSystems.find( "GrassSystem" );
-        if ( it == m_RenderSystems.end() || IsSceneCapture() )
+        const auto& it = m_Systems.Grass;
+        if ( !it || IsSceneCapture() )
             return false;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        return static_cast<const System::GrassRenderer*>( it->second.get() )->InstancesSettling();
+        return it->InstancesSettling();
     }
 
     bool SceneRenderer::SubsurfaceHistoryConverging() const
     {
         if ( !SubsurfaceRuns() )
             return false;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         const auto* const subsurface =
-             static_cast<const System::SubsurfaceRenderer*>( m_RenderSystems.at( "SubsurfaceSystem" ).get() );
+             m_Systems.Subsurface.get();
         return subsurface->HistoryConverging();
     }
 
@@ -1000,16 +1072,23 @@ namespace Desert::Graphic
     {
         if ( gbuffer.size() < 2 )
             return;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const subsurface = UNIQUE_GET_AS( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] );
+        auto* const subsurface = m_Systems.Subsurface.get();
         const System::SubsurfaceInputs inputs{ .SubsurfaceDiffuse = subsurfaceDiffuse,
                                                .GBufferA          = gbuffer[0],
                                                .GBufferB          = gbuffer[1],
                                                .Depth             = textures.Depth( m_GBuffer, "GBuffer" ) };
         const System::SubsurfaceSettings settings{ .Scale = m_SubsurfaceScale };
-        const System::SubsurfaceScatter  scatter = subsurface->AddScatter(
-             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings, frame,
-             m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        const uint32_t                   width  = m_TargetFramebuffer->GetFramebufferWidth();
+        const uint32_t                   height = m_TargetFramebuffer->GetFramebufferHeight();
+        // GPU-TILE-CLASSIFY (UE Substrate: the SSS over the complex ClassificationTiles): the scatter and the
+        // recombine cover only the view's complex tiles (a scattered texel is never DefaultLit). The list exists
+        // in the Lit view only (AddFrameTileClassify); without it both cover the view.
+        const System::DeferredTileLists& lists = textures.Transients.DeferredTiles;
+        const RDG::BufferRef             tiles =
+             subsurface->DispatchesTiles( lists, width, height ) ? lists.Buffer : RDG::BufferRef{};
+        const System::SubsurfaceScatter scatter =
+             subsurface->AddScatter( graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(),
+                                     inputs, settings, frame, width, height, tiles );
         if ( !scatter.Scattered.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Subsurface: Burley was not added (no atlas rows or no pipeline)" );
@@ -1019,16 +1098,16 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         const RDG::ImportedFramebuffer& target = *targets;
-        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
         graph.AddPass(
              "Subsurface: Recombine", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 subsurface->DeclareRecombineBindings( pass, inputs, scatter );
+                 subsurface->DeclareRecombineBindings( pass, inputs, scatter, tiles );
                  DeferredFrameNodes::LoadTarget( pass, target, loads );
              },
-             [subsurface]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return subsurface->RecordRecombine( context ); } );
+             [subsurface, tiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return subsurface->RecordRecombine( context, tiles ); } );
     }
 
     bool SceneRenderer::GlobalDistanceFieldRead() const
@@ -1041,6 +1120,9 @@ namespace Desert::Graphic
         // The traced reflections' own rays: SoftwareTraced walks the field whatever GI's method is.
         if ( ReflectionsTraced() && GlobalIllumination::TracerReadsGlobalDistanceField( ReflectionsTracer() ) )
             return true;
+        // "Shadows: Distance Field Sun": its trace's far leg walks the global field, its near leg the mesh fields.
+        if ( DistanceFieldShadowRuns() )
+            return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&
                m_DebugView.DeferredDebug == DeferredDebugMode::GlobalDistanceField;
@@ -1052,9 +1134,9 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures,
                                                      const ViewFrame& frame )
     {
-        const auto  it = m_RenderSystems.find( "MeshSystem" );
+        const auto& it = m_Systems.Mesh;
         auto* const meshRenderer =
-             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::MeshRenderer, it->second ) : nullptr;
+             it.get();
         if ( meshRenderer == nullptr )
         {
             LOG_ERROR( "[SceneRenderer] Global Distance Field: no MeshSystem" );
@@ -1118,9 +1200,32 @@ namespace Desert::Graphic
         if ( changes )
             for ( const GpuDriven::PrimitiveChange& change : *changes )
                 moved = moved || change.Kind == GpuDriven::PrimitiveChangeKind::Moved;
+        // The landscape's tiles as heightfield objects of the global distance field only (SHADE-GI-LANDSCAPE; UE
+        // r.AOGlobalDistanceFieldRepresentHeightfields - the near field's per-object trace is for meshes): which
+        // tiles, their heights' images, revisions and frames.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const terrainSystem =
+             m_Systems.Terrain.get();
+        std::span<const System::TerrainDrawData> landscapeTiles;
+        if ( terrainSystem != nullptr )
+            landscapeTiles = terrainSystem->GetQueue();
+        uint64_t landscape = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( landscapeTiles.size() );
+        for ( const System::TerrainDrawData& tile : landscapeTiles )
+        {
+            const System::LandscapeTileDraw& draw = tile.Landscape;
+            landscape =
+                 ( landscape ^ reinterpret_cast<std::uintptr_t>( tile.Heightmap.get() ) ) * 0x100000001B3ULL;
+            landscape = ( landscape ^ draw.HeightRevision ) * 0x100000001B3ULL;
+            for ( const float value :
+                  { draw.OriginX, draw.OriginZ, draw.BaseY, draw.SpacingCm, draw.ZScale, draw.MinY, draw.MaxY,
+                    static_cast<float>( draw.FirstSampleX ), static_cast<float>( draw.FirstSampleZ ),
+                    static_cast<float>( draw.QuadsPerTile ) } )
+                landscape = ( landscape ^ std::bit_cast<uint32_t>( value ) ) * 0x100000001B3ULL;
+        }
         const bool rebuild = !m_GdfObjects || !changes || !changes->empty() || m_GdfObjects->SettleAfterMove ||
                              m_GdfObjects->FieldsPublished != published ||
                              m_GdfObjects->SurfacePlacements != placements ||
+                             m_GdfObjects->Landscape != landscape ||
                              m_GdfObjects->SurfaceCache != static_cast<const void*>( surfaceCache );
         if ( rebuild )
         {
@@ -1129,6 +1234,7 @@ namespace Desert::Graphic
             kept.Cursor            = gpuScene.GetChangeSerial();
             kept.FieldsPublished   = published;
             kept.SurfacePlacements = placements;
+            kept.Landscape         = landscape;
             kept.SurfaceCache      = surfaceCache;
             // A rebuild after a move (or a first one, which cannot tell) looks once more next frame: by then the
             // moved primitives' previous worlds have settled.
@@ -1176,6 +1282,38 @@ namespace Desert::Graphic
                     if ( const auto field = ism.Mesh->GetDistanceField() )
                         for ( const glm::mat4& world : *ism.Transforms )
                             place( ism.Mesh, field, world, world, ism.Mesh->IsDistanceFieldMostlyTwoSided() );
+            // Every drawn tile whose heights are in the bindless table (the trace reads them there); one that is
+            // not is said, never dropped silently.
+            uint32_t unslotted = 0;
+            for ( const System::TerrainDrawData& tile : landscapeTiles )
+            {
+                const System::LandscapeTileDraw& draw = tile.Landscape;
+                if ( tile.Heightmap == nullptr || tile.Heightmap->GetBindlessSlot().Index == 0u ||
+                     draw.QuadsPerTile == 0u )
+                {
+                    ++unslotted;
+                    continue;
+                }
+                const glm::vec2 origin( draw.OriginX + static_cast<float>( draw.FirstSampleX ) * draw.SpacingCm,
+                                        draw.OriginZ + static_cast<float>( draw.FirstSampleZ ) * draw.SpacingCm );
+                const float     side = static_cast<float>( draw.QuadsPerTile ) * draw.SpacingCm;
+                const Common::Math::AABB bounds{ glm::vec3( origin.x, draw.MinY, origin.y ),
+                                                 glm::vec3( origin.x + side, draw.MaxY, origin.y + side ) };
+                kept.Set.Heightfields.push_back(
+                     DistanceField::GlobalDistanceFieldHeightfield{ .Heightmap      = tile.Heightmap,
+                                                                    .HeightRevision = draw.HeightRevision,
+                                                                    .SampleOrigin   = origin,
+                                                                    .SpacingCm      = draw.SpacingCm,
+                                                                    .BaseY          = draw.BaseY,
+                                                                    .ZScale         = draw.ZScale,
+                                                                    .QuadsPerTile   = draw.QuadsPerTile,
+                                                                    .Bounds         = bounds } );
+            }
+            if ( unslotted != 0u )
+                LOG_ERROR(
+                     "[SceneRenderer] {}: {} landscape tiles have no bindless heights; the software GI trace "
+                     "does not see them",
+                     m_ViewResources.GetName(), unslotted );
             DistanceField::SealGlobalDistanceFieldObjectSet( kept.Set );
             m_GdfObjects = std::move( kept );
         }
@@ -1218,9 +1356,9 @@ namespace Desert::Graphic
              m_RenderPath != Core::RenderPath::Deferred )
             return;
         const RDG::TextureRef velocity = textures.Transients.Velocity;
-        const auto            it       = m_RenderSystems.find( "VelocityViewSystem" );
+        const auto& it = m_Systems.VelocityView;
         auto* const           view =
-             it != m_RenderSystems.end() ? UNIQUE_GET_AS( System::VelocityViewRenderer, it->second ) : nullptr;
+             it.get();
         if ( view == nullptr || !target.IsValid() || !velocity.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Velocity not drawn: {}",
@@ -1255,7 +1393,7 @@ namespace Desert::Graphic
              m_RenderPath != Core::RenderPath::Deferred )
             return;
         auto* const deferred =
-             dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
+             m_Systems.DeferredLighting.get();
         const ViewLightBuffers& lights = textures.Transients.Lights;
         if ( deferred == nullptr || !target.IsValid() || !lights.WorldGridCells.IsValid() || !m_GBuffer )
         {
@@ -1420,8 +1558,7 @@ namespace Desert::Graphic
     {
         if ( textures.Transients.ClosestHzb.IsValid() )
             return textures.Transients.ClosestHzb; // one hierarchy per graph: its first caller built it
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* hzb = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        auto* hzb = m_Systems.HZB.get();
         if ( hzb == nullptr )
             return {};
         const RDG::TextureRef source = depth.IsValid() ? depth : textures.Depth( m_GBuffer, "GBuffer" );
@@ -1439,9 +1576,8 @@ namespace Desert::Graphic
     SceneRenderer::FrameScreenTrace
     SceneRenderer::AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* history =
-             UNIQUE_GET_AS( System::SceneColorHistoryRenderer, m_RenderSystems["SceneColorHistorySystem"] );
+             m_Systems.SceneColorHistory.get();
         if ( history == nullptr || !history->Prepare() )
             return {};
         const RDG::TextureRef hzb = AddFrameHZB( graph, textures );
@@ -1635,8 +1771,7 @@ namespace Desert::Graphic
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
                                                               const ViewFrame& frame )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const pathTracer = UNIQUE_GET_AS( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        auto* const pathTracer = m_Systems.PathTracer.get();
         if ( pathTracer == nullptr )
             return Common::MakeError( "the view has no path tracer (EnsurePathTracerResources)" );
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
@@ -2096,11 +2231,12 @@ namespace Desert::Graphic
                                                      hzb, traceUniforms, camera, *traced,
                                                      frontLayer != nullptr ? &frontInputs : nullptr );
                  },
-                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
-                  sceneHistoryReadable, seed,
-                  hits = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr {
-                     return ssrPtr->RecordHitLighting( context, cameraPos, settings, sceneHistoryReadable, seed,
-                                                       *hits );
+                 [ssrPtr = &ssr, pipeline = ssr.HitLightingPipeline(),
+                  cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable, seed,
+                  hits      = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     return ssrPtr->RecordHitLighting( context, pipeline.get(), cameraPos, settings,
+                                                       sceneHistoryReadable, seed, *hits );
                  } );
         }
         if ( raw )
@@ -2147,11 +2283,11 @@ namespace Desert::Graphic
         // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
         if ( prepared == nullptr && !meshRenderer->BuildFrontLayerDraws() )
             return {};
-        if ( m_RenderSystems.find( "FrontLayerReflectionsSystem" ) == m_RenderSystems.end() )
+        if ( !m_Systems.FrontLayerReflections )
         {
             Renderer::GetInstance().WaitDeviceIdle();
-            RegisterSystem<System::SSRRenderer>( "FrontLayerReflectionsSystem", this, m_TargetFramebuffer );
-            const auto& system = SP_CAST( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
+            RegisterSystem<System::SSRRenderer>( m_Systems.FrontLayerReflections, this, m_TargetFramebuffer );
+            const auto& system = m_Systems.FrontLayerReflections;
             system->TraceFrom( System::SSRRenderer::ReflectingSurface::TranslucentFrontLayer );
             if ( const Common::BoolResultStr initialized = system->Initialize(); !initialized )
             {
@@ -2162,8 +2298,7 @@ namespace Desert::Graphic
                 return {};
             }
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* reflections = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
+        auto* reflections = m_Systems.FrontLayerReflections.get();
 
         // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
         const std::optional<FrontLayerSurface> drawn =

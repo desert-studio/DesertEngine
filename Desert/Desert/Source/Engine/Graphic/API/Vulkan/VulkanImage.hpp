@@ -176,6 +176,8 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> sources ) override;
         NO_DISCARD Common::BoolResultStr TakeDeviceImageFrom( Image2D& replacement ) override;
         NO_DISCARD Common::BoolResultStr StreamOutLevels( uint32_t droppedLevels ) override;
+        NO_DISCARD Common::ResultStr<RecordedUploadStep> RecordUploadStep( GpuBatch& batch,
+                                                                           uint64_t  budgetBytes ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }
@@ -234,13 +236,38 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>>
                    BeginCopyToHost( std::optional<Graphic::PackedPixelSource> source, std::string_view caller );
 
+        // Upload = Recorded: the levels into the upload ring, nothing recorded (CreateResource, any thread).
+        Common::BoolResultStr StageRecordedUpload( uint64_t size );
+        // Registers the bindless slot of a plain sampled image (creation, or a recorded upload's last step).
+        Common::BoolResultStr RegisterBindless();
+
     private:
+        // A RECORDED UPLOAD STILL OWED (Image2DSpecification::Upload = Recorded): where the levels are and how
+        // many of them RecordUploadStep has recorded. Staged: the levels sit in a ring slice from SliceOffset, at
+        // the offsets the level table gives, and Lease keeps the slice. Not staged (the ring was full at
+        // creation): Pixels still holds them, and each step stages its own levels into a slice of their size.
+        struct PendingUpload
+        {
+            std::shared_ptr<const void>              Lease;
+            VkBuffer                                 Buffer      = VK_NULL_HANDLE;
+            uint64_t                                 SliceOffset = 0;
+            /// The staged path is `Buffer != VK_NULL_HANDLE` (set with the slice), never the lease's truthiness;
+            /// StagedBytes is what was written at SliceOffset, the bound every staged level is checked against.
+            uint64_t StagedBytes = 0;
+            /// Owned by the pending upload until its last level is recorded (the full path only).
+            Core::Formats::ImagePixelData            Pixels;
+            std::vector<Core::Formats::MipLevelSpan> Levels;
+            uint32_t                                 NextLevel = 0;
+            bool                                     Begun     = false;
+        };
+
         Core::Formats::Image2DSpecification m_Specification;
         VulkanImageResource                 m_Resource;
         std::vector<VkImageView>            m_MipViews;
         VkImageView                         m_EncodedView        = VK_NULL_HANDLE; // sRGB images only
         bool                                m_IsLoaded           = false;
         uint64_t                            m_ResourceGeneration = 0;
+        std::optional<PendingUpload>        m_PendingUpload;
     };
 
     /**

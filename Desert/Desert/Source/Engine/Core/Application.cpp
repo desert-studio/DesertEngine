@@ -16,8 +16,10 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <Common/Core/EngineThread.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Utilities/ProcessMemory.hpp>
 
 #include <Engine/Core/Glfw.hpp>
 
@@ -31,6 +33,21 @@ namespace Desert::Engine
 {
     Application::Application( const ApplicationInfo& appInfo ) : m_ApplicationInfo( appInfo )
     {
+        // Which heap the process allocates from (DESERT_MIMALLOC): the A/B of the allocator reads this line.
+        LOG_INFO( "[Memory] {}", Common::Utils::ReadProcessAllocator().Describe() );
+        // THE GAME THREAD is the thread that builds the application and runs its loop (UE: GGameThreadId, the
+        // thread FEngineLoop::PreInit runs on): named and raised here, and the process opts out of EcoQoS so a
+        // run without focus keeps the clock of one with it (OS-SCHED-HYGIENE).
+        Common::NameCurrentThread( "Game Thread", Common::ThreadPriority::AboveNormal );
+        // Said once: the opt-out is the process's, and this is its one call.
+        if ( const auto optedOut = Common::OptOutOfPowerThrottling(); !optedOut )
+        {
+            LOG_WARN( "[Threads] EcoQoS not opted out: {}", optedOut.GetError() );
+        }
+        else if ( !optedOut.GetValue() )
+        {
+            LOG_INFO( "[Threads] EcoQoS opt-out skipped: this Windows exports no SetProcessInformation" );
+        }
         WindowSpecification windowSpec;
         windowSpec.Title     = appInfo.Title;
         windowSpec.VSync     = appInfo.Display.VSync;
@@ -198,6 +215,8 @@ namespace Desert::Engine
         // Loop state rather than a member: nothing outside this loop has a use for it, and the whole of
         // what it remembers is whether the PREVIOUS iteration stood down (see 1b below).
         Graphic::DrawableAreaGate drawableArea;
+        // The '[Threads]' census is written once, after the first frame: the render, submit and pool threads run.
+        bool threadsCensused = false;
         // A shared view resource forgotten by the game thread while a view records on the render task waits for
         // it (ViewResourceRegistry::SetForgetFence).
         Graphic::ViewResourceRegistry::SetForgetFence( [] { ::Desert::Engine::RenderTask::Get().JoinOnGameThread(); } );
@@ -470,7 +489,9 @@ namespace Desert::Engine
             // 4b. THE FRAME BOUNDARY (UE FFrameEndSync with one frame of lag, OVERLAP-ON-1). Frame N-1's render
             // work - views, interface, submit and present - has finished before this frame's interface is painted,
             // and N-1 is announced (its presented notifications, then the commands deferred behind it). The head
-            // and the tick above overlapped it; a world's views joined it already before their own bracket.
+            // and the tick above overlapped it, and so did the views' game-thread halves: a view's bracket waits
+            // for the views in flight only (RenderTask::JoinViews, CPU-GT-OVERLAP), not for N-1's interface draw,
+            // submit and present.
             RenderTask::Get().SyncPreviousFrame();
             deliverPresented();
             if ( endRunOnRenderFailure() )
@@ -564,6 +585,12 @@ namespace Desert::Engine
                 DESERT_PROFILE_SCOPE( "PersistPipelineCache" );
                 if ( const auto persisted = m_Device->PersistPipelineCache(); !persisted )
                     LOG_WARN( "[PipelineCache] not written: {}", persisted.GetError() );
+            }
+
+            if ( !threadsCensused )
+            {
+                threadsCensused = true;
+                LOG_INFO( "[Threads] {}", Common::DescribeEngineThreads() );
             }
 
             // 9. The frame rate limit (GameUserSettings::Display.FrameRateLimit): the next frame starts on

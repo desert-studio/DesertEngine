@@ -5,6 +5,7 @@ desert_add_library(Common SOURCES
     "${DESERT_ROOT}/ThirdParty/desert-shared/Source/ProjectFormat.cpp"
     "${DESERT_ROOT}/ThirdParty/desert-shared/Source/EngineRegistry.cpp")
 desert_enable_unity(Common)
+desert_ltcg(Common)
 
 # Core/Version.gen.hpp is written before every build (only when its text changed).
 if(DESERT_IS_WINDOWS)
@@ -19,8 +20,7 @@ endif()
 
 target_include_directories(Common PRIVATE "Source/" "Source/Common")
 desert_external_includes(Common ${DESERT_COMMON_INCLUDE_DIRS})
-target_link_libraries(Common PRIVATE Optick ${DESERT_COMMONSPECIFIC_LIBRARIES})
-target_compile_definitions(Common PRIVATE ${DESERT_COMMON_DEFINES})
+target_link_libraries(Common PRIVATE ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_config_platform_defines(Common)
 if(DESERT_IS_WINDOWS)
     target_link_libraries(Common PRIVATE dbghelp)

@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -36,8 +37,14 @@ namespace Desert::Runtime
             bool               Animated = false; // false => not a multi-frame GIF
         };
 
+        // Called with m_Lock held.
         const Anim& GetOrDecode( const Assets::AssetHandle& handle );
 
+        // Guards m_Anims: Resolve decodes on a miss (inserts) while Clear swaps the table out. The frame
+        // textures leaving on Clear retire after the frames in flight
+        // (RendererContext::RetireAfterFramesInFlight), so an Image2D* handed out for frame N-1 stays live; their
+        // images retire through ImageService too.
+        std::mutex                                    m_Lock;
         std::unordered_map<Assets::AssetHandle, Anim> m_Anims;
         std::chrono::steady_clock::time_point         m_Epoch = std::chrono::steady_clock::now();
     };

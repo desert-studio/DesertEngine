@@ -117,8 +117,8 @@ namespace Desert::Graphic::System
          *        volumetric fog (VolumetricFogRenderer::GetFrameResult, after its nodes were added): composed in
          *        front of the analytic fog when its volume is set.
          */
-        std::vector<ComputeNodeDeclaration> DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
-                                                               const VolumetricFogFrameResult& volume );
+        ComputeNodeList DeclareFrameNodes( RDG::Builder& graph, FrameTransients& transients,
+                                           const VolumetricFogFrameResult& volume );
 
     private:
         bool CreatePipelines();

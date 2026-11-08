@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -44,11 +45,11 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+#include <execinfo.h>
 #if defined( __APPLE__ )
 #include <pthread.h>
 #include <sys/ucontext.h>
 #else
-#include <execinfo.h>
 #include <sys/syscall.h>
 #include <ucontext.h>
 #endif
@@ -1119,6 +1120,44 @@ namespace Common::Crash::Detail
     }
 } // namespace Common::Crash::Detail
 
+namespace Common::Crash
+{
+    void PrintCallingThreadStack() noexcept
+    {
+        // Not a fault: no report thread takes the walk, and this thread's own stack is intact, so the context
+        // is captured and walked here. Symbols are initialised now for the reason WriteReport gives (only a
+        // stop pays for them); when a report has initialised them already this call fails and theirs stand.
+        const HANDLE process = ::GetCurrentProcess();
+        ::SymSetOptions( SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME );
+        ::SymInitialize( process, nullptr, TRUE );
+
+        CONTEXT context = {};
+        ::RtlCaptureContext( &context );
+        STACKFRAME64 frame     = {};
+        frame.AddrPC.Offset    = context.Rip;
+        frame.AddrPC.Mode      = AddrModeFlat;
+        frame.AddrFrame.Offset = context.Rbp;
+        frame.AddrFrame.Mode   = AddrModeFlat;
+        frame.AddrStack.Offset = context.Rsp;
+        frame.AddrStack.Mode   = AddrModeFlat;
+
+        for ( std::size_t index = 0; index < Detail::kMaxStackFrames; ++index )
+        {
+            if ( ::StackWalk64( IMAGE_FILE_MACHINE_AMD64, process, ::GetCurrentThread(), &frame, &context, nullptr,
+                                &Detail::FunctionTableFromImage, &Detail::ModuleBaseFromImage, nullptr ) == 0 ||
+                 frame.AddrPC.Offset == 0 )
+                break;
+            Detail::ResolvedFrame resolved;
+            Detail::ResolveFrame( process, frame.AddrPC.Offset, resolved );
+            const char* const moduleName   = resolved.module[0] != '\0' ? resolved.module : "?";
+            const char* const functionName = resolved.function[0] != '\0' ? resolved.function : "?";
+            std::fprintf( stderr, "#%-2zu %s+0x%llX %s %s\n", index, moduleName,
+                          static_cast<unsigned long long>( resolved.address ), functionName, resolved.source );
+        }
+        std::fflush( stderr );
+    }
+} // namespace Common::Crash
+
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 // POSIX
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1406,6 +1445,17 @@ namespace Common::Crash::Detail
     }
 } // namespace Common::Crash::Detail
 // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast, performance-no-int-to-ptr)
+
+namespace Common::Crash
+{
+    void PrintCallingThreadStack() noexcept
+    {
+        constexpr int kFrames = 128;
+        void*         frames[kFrames];
+        const int     count = ::backtrace( frames, kFrames );
+        ::backtrace_symbols_fd( frames, count, 2 );
+    }
+} // namespace Common::Crash
 #endif
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1986,8 +2036,8 @@ namespace Common::Crash
         // `tid=` names the thread that overflowed and not the main thread or the report thread.
         [[noreturn]] void CrashTestStackOverflowWorker()
         {
-            std::thread worker = StartEngineThread(
-                 []
+            std::thread worker = StartEngineThread( "Crash Report Probe", Common::ThreadPriority::Normal,
+                 []() noexcept
                  {
                      LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
                      CrashTestStackOverflow();
@@ -2000,7 +2050,7 @@ namespace Common::Crash
         [[noreturn]] void CrashTestStackOverflowJob()
         {
             const std::future<void> job = JobSystem::Get().Async(
-                 []
+                 []() noexcept
                  {
                      LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
                      CrashTestStackOverflow();

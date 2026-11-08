@@ -1,7 +1,10 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <vk-bootstrap/VkBootstrap.h>
+
+#include <array>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
 
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -149,6 +152,24 @@ namespace Desert::Graphic::API::Vulkan
         // only when told. Only where the device enabled bufferDeviceAddress — the flag is invalid otherwise.
         if ( m_DeviceCaps.Has( Capability::BufferDeviceAddress ) )
             allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+        // --device-profile (DeviceCaps::Profile, VideoMemoryMiB): every device-local heap capped at the profiled
+        // card's memory, so VMA refuses an allocation past it (VK_ERROR_OUT_OF_DEVICE_MEMORY) and reports the
+        // capped size. With VK_EXT_memory_budget enabled VMA reads the driver's budget and clamps it to the same
+        // cap (vmaGetHeapBudgets: the census). Without a profile neither is set: the allocator is as before.
+        std::array<VkDeviceSize, VK_MAX_MEMORY_HEAPS> heapLimits{};
+        if ( m_DeviceCaps.Profile.VideoMemoryMiB != 0 )
+        {
+            const VkPhysicalDeviceMemoryProperties& memory =
+                 device->GetPhysicalDevice()->GetBootstrapDevice().memory_properties;
+            heapLimits.fill( VK_WHOLE_SIZE );
+            for ( uint32_t heap = 0; heap < memory.memoryHeapCount; ++heap )
+                if ( ( memory.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ) != 0 )
+                    heapLimits[heap] =
+                         ProfiledDeviceLocalBytes( m_DeviceCaps.Profile, memory.memoryHeaps[heap].size );
+            allocatorInfo.pHeapSizeLimit = heapLimits.data();
+            if ( m_DeviceCaps.Has( Capability::MemoryBudget ) )
+                allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+        }
 
         VK_CHECK_RESULT( vmaCreateAllocator( &allocatorInfo, &s_VmaAllocator ) );
 
@@ -630,6 +651,37 @@ namespace Desert::Graphic::API::Vulkan
         m_HostObjectDeletionQueue.push_back( { std::move( destroy ), queuedFrame } );
     }
 
+    void VulkanAllocator::RT_RetireServiceObject( std::function<void()> retire )
+    {
+        if ( !retire )
+            return;
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const std::lock_guard lock( m_DeletionMutex );
+        m_ServiceRetireQueue.push_back( { std::move( retire ), queuedFrame } );
+    }
+
+    std::size_t VulkanAllocator::ReleaseServiceRetirementsNow()
+    {
+        // TAKEN UNDER THE LOCK, RUN OUTSIDE IT (DestroyQueued's rule): a wrapper's destructor re-enters
+        // RT_Destroy* for its device handles, and a retirement may retire another (a mesh holding a material).
+        std::size_t released = 0;
+        for ( ;; )
+        {
+            std::vector<HostObjectDeletionEntry> taken;
+            {
+                const std::lock_guard lock( m_DeletionMutex );
+                taken.swap( m_ServiceRetireQueue );
+            }
+            if ( taken.empty() )
+                return released;
+            for ( const HostObjectDeletionEntry& entry : taken )
+            {
+                entry.Destroy();
+                ++released;
+            }
+        }
+    }
+
     void VulkanAllocator::RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets )
     {
         if ( pool == VK_NULL_HANDLE || sets.empty() )
@@ -895,6 +947,8 @@ namespace Desert::Graphic::API::Vulkan
             framebuffers           = take( m_FramebufferDeletionQueue );
             renderPasses           = take( m_RenderPassDeletionQueue );
             hostObjects            = take( m_HostObjectDeletionQueue );
+            for ( HostObjectDeletionEntry& entry : take( m_ServiceRetireQueue ) )
+                hostObjects.push_back( std::move( entry ) );
             queryPools             = take( m_QueryPoolDeletionQueue );
             pipelines              = take( m_PipelineDeletionQueue );
 
@@ -1005,11 +1059,11 @@ namespace Desert::Graphic::API::Vulkan
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
                m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
                m_PipelineDeletionQueue.size() + m_AccelerationStructureDeletionQueue.size() +
-               m_DescriptorPoolDeletionQueue.size() + m_HostObjectDeletionQueue.size();
+               m_DescriptorPoolDeletionQueue.size() + m_HostObjectDeletionQueue.size() +
+               m_ServiceRetireQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()
-    try
     {
         // SAYS SO RATHER THAN DESTROYING. By the time this runs the VkDevice may already be gone — the
         // context is the last of Application's three members to die — so destroying anything here is the
@@ -1026,6 +1080,5 @@ namespace Desert::Graphic::API::Vulkan
                        stranded );
         }
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanAllocator" )
 
 } // namespace Desert::Graphic::API::Vulkan

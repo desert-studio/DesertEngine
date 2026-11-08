@@ -5,6 +5,7 @@
 
 #include <Editor/Core/CommandLine.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Editor/Core/StartupRefusal.hpp>
@@ -269,6 +270,19 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
     Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
     Desert::Graphic::RenderConfig::CloudVisualize = options.CloudVisualize;
+    Desert::Graphic::RenderConfig::RdgCompileCache = options.RdgCompileCache;
+    Desert::Graphic::RenderConfig::ParallelSetupOverride = options.ParallelSetup;
+
+    // The device profile, before the device exists (VulkanLogicalDevice::Create reads it once). An unknown name
+    // stops the start with the table's list: a frame of the full device saved under a GTX name is the silent
+    // fallback this command line refuses everywhere else.
+    if ( options.LogLevel )
+        Common::Logger::SetLevel( *options.LogLevel ); // --log-level: the gate, before the device logs its start
+    if ( !options.DeviceProfile.empty() )
+    {
+        if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( options.DeviceProfile ); !set )
+            Desert::Editor::RefuseToStart( 2, set.GetError() );
+    }
 
     // The language, before the first frame for the same reason: a run that renders two frames of two
     // languages is not a capture of either. An empty value leaves the process in its source language,
@@ -288,6 +302,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // measured, and its frame time is the one a budget decision should be taken on.
     Common::Profiling::Profiler::Get().GpuEnabled()    = options.Shot.GpuProfile && options.Shot.GpuTiming;
     Common::Profiling::Profiler::Get().GpuPassScopes() = !options.Shot.GpuFrameOnly;
+    Common::Profiling::Profiler::Get().GpuOrderTrace() = options.Shot.GpuOrderTrace;
 
     // THE SPLASH, AS EARLY AS IT CAN SAY SOMETHING TRUE. Not earlier: the project it names and the cooked
     // picture's path both exist only once the project is open, three blocks up, and a refusal above this

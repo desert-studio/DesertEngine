@@ -34,7 +34,32 @@ namespace Desert::Graphic
             static auto* const pending = new PendingRenderWrites();
             return *pending;
         }
+
+        // MaterialInstance::RenderPublishGeneration: any thread may publish (the render task's own writes, the
+        // hand-off), a view reads it at its sync.
+        std::atomic<uint64_t>& RenderPublishCounter() noexcept
+        {
+            static std::atomic<uint64_t> counter{ 1 };
+            return counter;
+        }
+        void NoteRenderPublish() noexcept
+        {
+            RenderPublishCounter().fetch_add( 1, std::memory_order_relaxed );
+        }
     } // namespace
+
+    uint64_t MaterialInstance::RenderPublishGeneration() noexcept
+    {
+        return RenderPublishCounter().load( std::memory_order_relaxed );
+    }
+
+    void MaterialInstance::SetTwoSidedOverride( const std::optional<bool> twoSided ) noexcept
+    {
+        if ( m_TwoSidedOverride == twoSided )
+            return;
+        m_TwoSidedOverride = twoSided;
+        NoteRenderPublish();
+    }
 
     MaterialInstance::MaterialInstance( Material* parentMaterial, const std::string& name )
          : m_ParentMaterial( parentMaterial ), m_Name( name )
@@ -82,6 +107,7 @@ namespace Desert::Graphic
     void MaterialInstance::Publish()
     {
         m_RenderProperties.CopyFrom( m_Properties );
+        NoteRenderPublish();
         m_bNeedsApply = true;
         // A child binds from its own copy, but re-applies after its parent's write (today's propagation).
         for ( auto& child : m_ChildInstances )
@@ -255,6 +281,7 @@ namespace Desert::Graphic
         child->m_Properties.CopyFrom( m_Properties );
         // A fresh instance: no job holds it yet, so its render copy is written here, not published later.
         child->m_RenderProperties.CopyFrom( m_Properties );
+        NoteRenderPublish();
         m_ChildInstances.push_back( child );
         return child;
     }

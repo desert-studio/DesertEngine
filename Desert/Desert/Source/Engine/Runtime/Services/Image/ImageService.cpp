@@ -1,12 +1,34 @@
 #include "ImageService.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 
 namespace Desert::Runtime
 {
-    ImageHandle ImageService::Register( std::shared_ptr<Graphic::Image>&& image, ImageHandle::Type type )
+    namespace
     {
-        const auto& handle = m_HandlePool.Allocate();
+        // RESOLVE'S RAW POINTER OUTLIVES EVERY FRAME THAT MAY HAVE READ IT. A render worker of frame N-1
+        // resolves a handle while the game thread of frame N unregisters or replaces its image: the outgoing
+        // image is retired through the renderer's frame-retire queue (UE: deferred deletion), and dies at
+        // once only with no renderer. Called after m_Lock is released.
+        void RetireImage( std::shared_ptr<Graphic::Image>&& outgoing ) noexcept
+        {
+            if ( !outgoing )
+                return;
+            const auto ctx = EngineContext::GetInstance().GetRendererContext();
+            if ( !ctx )
+                return; // `outgoing` dies here
+            ctx->RetireAfterFramesInFlight( [held = std::move( outgoing )]() mutable { held.reset(); } );
+        }
+    } // namespace
+    ImageHandle ImageService::Register( std::shared_ptr<Graphic::Image>&& image, ImageHandle::Type type ) noexcept
+    {
+        // Exclusive: Allocate may grow the pool's vector and the two resizes below may move ours -- the
+        // crash this lock exists for was two Registers (SkyCapture on the main thread, a streaming job)
+        // growing HandlePool::m_Entries under each other.
+        std::unique_lock lock( m_Lock );
+        const auto       handle = m_HandlePool.Allocate();
 
         if ( handle.Index >= m_Images.size() )
             m_Images.resize( handle.Index + 1 );
@@ -22,7 +44,7 @@ namespace Desert::Runtime
         return ImageHandle{ handle, type };
     }
 
-    void ImageService::Unregister( const ImageHandle& handle )
+    void ImageService::Unregister( const ImageHandle& handle ) noexcept
     {
         // AN EMPTY HANDLE NAMES NO IMAGE, AND ASKING TO RELEASE NOTHING IS NOT AN ERROR. Without this
         // line an empty handle (index 0, generation 0) falls into the stale-handle branch below and is
@@ -40,51 +62,94 @@ namespace Desert::Runtime
         // `m_Images[Index]` unconditionally, so a stale or double Unregister cleared whichever image had
         // since moved into that slot while the pool correctly did nothing. Two things that must agree,
         // one of which was checked.
-        if ( handle.Value.Index >= m_Images.size() )
-            return;
-        if ( handle.Value.Index < m_Generations.size() &&
-             m_Generations[handle.Value.Index] != handle.Value.Generation )
+        // The released image leaves the slot under the lock and is destroyed at function end, after the
+        // inner scope has unlocked: its destructor never runs inside the service's lock.
+        std::shared_ptr<Graphic::Image> released;
+        uint32_t                        staleSlotGeneration = 0U;
+        bool                            stale               = false;
+        {
+            std::unique_lock lock( m_Lock );
+            if ( handle.Value.Index >= m_Images.size() )
+                return;
+            if ( handle.Value.Index < m_Generations.size() &&
+                 m_Generations[handle.Value.Index] != handle.Value.Generation )
+            {
+                stale               = true;
+                staleSlotGeneration = m_Generations[handle.Value.Index];
+            }
+            else
+            {
+                m_HandlePool.Release( handle.Value );
+                released.swap( m_Images[handle.Value.Index] );
+                if ( handle.Value.Index < m_Generations.size() )
+                    m_Generations[handle.Value.Index] = 0U;
+            }
+        }
+
+        RetireImage( std::move( released ) );
+
+        if ( stale )
         {
             LOG_ERROR( "[ImageService] Unregister was given a handle for slot {} generation {}, but that "
                        "slot now holds generation {}. The handle is stale; nothing was released. Something "
                        "is holding an image handle past the image's life.",
-                       handle.Value.Index, handle.Value.Generation, m_Generations[handle.Value.Index] );
-            return;
+                       handle.Value.Index, handle.Value.Generation, staleSlotGeneration );
         }
-
-        m_HandlePool.Release( handle.Value );
-        m_Images[handle.Value.Index].reset();
-        if ( handle.Value.Index < m_Generations.size() )
-            m_Generations[handle.Value.Index] = 0U;
     }
 
-    bool ImageService::Replace( const ImageHandle& handle, std::shared_ptr<Graphic::Image>&& image )
+    bool ImageService::Replace( const ImageHandle& handle, std::shared_ptr<Graphic::Image>&& image ) noexcept
     {
-        // Share answers null for exactly the empty, out-of-range and stale handles, so it is the one check.
-        if ( !image || !handle.IsValid() || !Share( handle ) )
+        if ( !image || !handle.IsValid() )
             return false;
-        m_Images[handle.Value.Index] = std::move( image );
+        // The outgoing image is destroyed after the lock is released (see Unregister).
+        std::shared_ptr<Graphic::Image> outgoing;
+        {
+            std::unique_lock lock( m_Lock );
+            // IsLiveLocked answers false for exactly the empty, out-of-range and stale handles.
+            if ( !IsLiveLocked( handle ) )
+                return false;
+            outgoing                     = std::move( m_Images[handle.Value.Index] );
+            m_Images[handle.Value.Index] = std::move( image );
+        }
+        RetireImage( std::move( outgoing ) );
         return true;
     }
 
-    void ImageService::Clear()
+    void ImageService::Clear() noexcept
     {
         // The vector is INDEXED by handle, so the handle pool has to be reset with it or the next
         // Allocate() would hand out an index into a table that no longer describes anything.
-        m_Images.clear();
-        m_Generations.clear();
-        m_HandlePool = Common::Core::HandlePool{};
+        // The images are swapped out under the lock and destroyed after it (see Unregister).
+        std::vector<std::shared_ptr<Graphic::Image>> outgoing;
+        {
+            std::unique_lock lock( m_Lock );
+            outgoing.swap( m_Images );
+            m_Generations.clear();
+            m_HandlePool = Common::Core::HandlePool{};
+        }
     }
 
-    Graphic::Image* ImageService::Resolve( const ImageHandle& handle ) const
+    Graphic::Image* ImageService::Resolve( const ImageHandle& handle ) const noexcept
     {
-        return Share( handle ).get();
+        // No shared_ptr copy: the hot per-draw path pays one uncontended shared lock and nothing else.
+        std::shared_lock lock( m_Lock );
+        if ( !IsLiveLocked( handle ) )
+            return nullptr;
+        return m_Images[handle.Value.Index].get();
     }
 
-    std::shared_ptr<Graphic::Image> ImageService::Share( const ImageHandle& handle ) const
+    std::shared_ptr<Graphic::Image> ImageService::Share( const ImageHandle& handle ) const noexcept
+    {
+        std::shared_lock lock( m_Lock );
+        if ( !IsLiveLocked( handle ) )
+            return nullptr;
+        return m_Images[handle.Value.Index];
+    }
+
+    bool ImageService::IsLiveLocked( const ImageHandle& handle ) const noexcept
     {
         if ( handle.Value.Index >= m_Images.size() )
-            return nullptr;
+            return false;
 
         // A STALE HANDLE USED TO RESOLVE TO WHOEVER MOVED INTO THE SLOT. This checked the index and
         // nothing else, while `HandlePool` recycles indices and bumps a generation on every release —
@@ -98,10 +163,10 @@ namespace Desert::Runtime
         if ( handle.Value.Index < m_Generations.size() &&
              m_Generations[handle.Value.Index] != handle.Value.Generation )
         {
-            return nullptr;
+            return false;
         }
 
-        return m_Images[handle.Value.Index];
+        return m_Images[handle.Value.Index] != nullptr;
     }
 
 } // namespace Desert::Runtime

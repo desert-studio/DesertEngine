@@ -1,4 +1,3 @@
-#include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPooledBuffer.hpp>
@@ -75,7 +74,15 @@ namespace Desert::Graphic::API::Vulkan
 
     uint64_t VulkanIndexBuffer::GetDeviceAddress() const
     {
-        return CurrentBufferAddress( m_VulkanBuffer );
+        // CPU-GRASS-VARIETY-1: asked of the driver once per buffer, not per question (a VkBuffer's address is
+        // fixed for its life); RT_Invalidate and Release forget it with the buffer. Racing readers store the
+        // same value. 0 (no address) is asked again, as before.
+        uint64_t address = m_DeviceAddress.load( std::memory_order_relaxed );
+        if ( address != 0 )
+            return address;
+        address = CurrentBufferAddress( m_VulkanBuffer );
+        m_DeviceAddress.store( address, std::memory_order_relaxed );
+        return address;
     }
 
     Common::BoolResultStr VulkanIndexBuffer::RT_Invalidate()
@@ -95,6 +102,7 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyBuffer( m_VulkanBuffer, m_MemoryAllocation );
             m_VulkanBuffer     = nullptr;
             m_MemoryAllocation = nullptr;
+            m_DeviceAddress.store( 0, std::memory_order_relaxed );
         }
 
         if ( m_Usage == BufferUsage::Pooled )
@@ -180,7 +188,6 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     VulkanIndexBuffer::~VulkanIndexBuffer()
-    try
     {
         // A destructor has no channel, so the report is the log. Left silent, a index buffer whose
         // VMA de-allocation refused leaked device memory with nothing anywhere to say a leak had begun —
@@ -189,7 +196,6 @@ namespace Desert::Graphic::API::Vulkan
         if ( !released.IsSuccess() )
             LOG_ERROR( "[VulkanIndexBuffer] Release failed during destruction: {}", released.GetError() );
     }
-    DESERT_DESTRUCTOR_GUARD( "~VulkanIndexBuffer" )
 
     Common::BoolResultStr VulkanIndexBuffer::Release()
     {
@@ -200,6 +206,7 @@ namespace Desert::Graphic::API::Vulkan
              ->RT_DestroyBuffer( m_VulkanBuffer, m_MemoryAllocation );
         m_VulkanBuffer     = nullptr;
         m_MemoryAllocation = nullptr;
+        m_DeviceAddress.store( 0, std::memory_order_relaxed );
         return BOOLSUCCESS;
     }
 

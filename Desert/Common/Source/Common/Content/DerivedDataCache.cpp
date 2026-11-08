@@ -166,8 +166,9 @@ namespace Common::DDC
              path, std::as_bytes( std::span( bytes.data(), bytes.size() ) ), UniqueWorkingFile( path ) );
     }
 
-    Common::ResultStr<std::string> GetOrBuild( const Deriver& deriver, const uint64_t key,
-                                               const std::function<Common::ResultStr<std::string>()>& build )
+    Common::ResultStr<std::string>
+    GetOrBuild( const Deriver& deriver, const uint64_t key,
+                const std::function<Common::ResultStr<std::string>()>& build ) noexcept
     {
         if ( auto hit = Get( deriver, key ); hit.has_value() )
             return Common::MakeSuccess( std::move( *hit ) );
@@ -191,30 +192,23 @@ namespace Common::DDC
             return FromOutcome( flight.get() );
 
         FlightOutcome outcome;
-        try
-        {
-            // The root this flight derives for: a build that outlives it (the root moved without RetireRoot)
-            // returns its bytes but writes nothing - into the new root it was not asked for, or the old one.
-            const std::filesystem::path root = Root();
-            // A flight that finished between our miss and our registration has already written the entry.
-            if ( auto hit = Get( deriver, key ); hit.has_value() )
-                outcome = { true, std::move( *hit ), {} };
-            else if ( auto built = build(); !built.IsSuccess() )
-                outcome.Error = built.GetError();
-            else if ( Root() != root )
-                outcome = { true, built.ExtractValue(), {} };
-            else if ( auto put = Put( deriver, key, built.GetValue() ); !put.IsSuccess() )
-                outcome.Error = std::format( "built but not cached under DDC key {:016x} ({}): {}", key,
-                                             RelativePath( deriver, key ).generic_string(), put.GetError() );
-            else
-                outcome = { true, built.ExtractValue(), {} };
-        }
-        catch ( ... )
-        {
-            promise.set_exception( std::current_exception() );
-            EndFlight( flightId );
-            throw;
-        }
+        // No catch: build, Get and Put answer with values, so every follower gets this outcome. Under
+        // the noexcept job rule a throw here (bad_alloc) ends the process; it is not a cache miss.
+        // The root this flight derives for: a build that outlives it (the root moved without RetireRoot)
+        // returns its bytes but writes nothing - into the new root it was not asked for, or the old one.
+        const std::filesystem::path root = Root();
+        // A flight that finished between our miss and our registration has already written the entry.
+        if ( auto hit = Get( deriver, key ); hit.has_value() )
+            outcome = { true, std::move( *hit ), {} };
+        else if ( auto built = build(); !built.IsSuccess() )
+            outcome.Error = built.GetError();
+        else if ( Root() != root )
+            outcome = { true, built.ExtractValue(), {} };
+        else if ( auto put = Put( deriver, key, built.GetValue() ); !put.IsSuccess() )
+            outcome.Error = std::format( "built but not cached under DDC key {:016x} ({}): {}", key,
+                                         RelativePath( deriver, key ).generic_string(), put.GetError() );
+        else
+            outcome = { true, built.ExtractValue(), {} };
         promise.set_value( outcome );
         EndFlight( flightId );
         return FromOutcome( outcome );

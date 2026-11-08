@@ -159,6 +159,18 @@ namespace Desert::Graphic::API::Vulkan
         // GPU objects created and destroyed through a third-party runtime's own API (the FidelityFX context of a
         // view whose extent changed), which the typed queues above cannot name.
         void RT_DestroyLater( std::function<void()> destroy );
+        /// A SERVICE'S HOST-SIDE RETIREMENT (RendererContext::RetireAfterFramesInFlight): drops an engine wrapper
+        /// (an Image2D, a Mesh, a pipeline record) a render worker of an earlier frame may still read by raw
+        /// pointer. Retired by the same frame rule as RT_DestroyLater, but in its own queue, because unlike a
+        /// third-party context it holds no GPU object of its own: the wrapper's destructor queues its device
+        /// handles through the typed queues above, by the frame current then. That is what lets a view close
+        /// release these at once (ReleaseServiceRetirementsNow) without idling the device.
+        void RT_RetireServiceObject( std::function<void()> retire );
+        /// UE FlushPendingDeletes at a view's close: runs every queued service retirement now, whatever frame
+        /// queued it, and answers how many. The caller has joined the render task (no worker reads a raw
+        /// pointer a service answered) and is outside any frame's recording. The device handles the wrappers
+        /// release still wait for their frames (above). Repeats until a pass finds nothing.
+        std::size_t ReleaseServiceRetirementsNow();
 
         /// The per-frame drain, called once per frame at its start (VulkanRendererAPI::BeginFrame), after WaitSlot
         /// of the frame now current: destroys every entry whose queuing frame that fence covers (IsRetired).
@@ -294,6 +306,8 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
         std::vector<HostObjectDeletionEntry>     m_HostObjectDeletionQueue;
+        // RT_RetireServiceObject's: engine wrappers only, never a third-party GPU object (see there).
+        std::vector<HostObjectDeletionEntry> m_ServiceRetireQueue;
 
         AllocationLedger m_Ledger;
         std::mutex                            m_ZeroBufferMutex;

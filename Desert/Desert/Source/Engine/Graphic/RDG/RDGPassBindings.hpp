@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -185,5 +186,64 @@ namespace Desert::Graphic::RDG
         std::vector<BoundBuffer>  m_Buffers;
         std::vector<std::byte>    m_PushConstants;
         std::string               m_FirstError; // empty while every entry resolved
+    };
+
+    // RDG-PARALLEL-9 (RDG-REC-2; UE: pass parameters live in the graph's allocator, never the heap per draw list),
+    // shared by every exec that opens one block per material (MeshDrawList::Record, TerrainRenderer::RecordDraws)
+    // since CPU-FRAME-ARENA 3: the blocks @p first .. @p first + @p count - 1 of the pass, opened in slots this
+    // thread keeps. A record leases the next slots for its blocks and closes them when it ends (a nested record on
+    // the thread leases the ones after), so a steady frame opens its blocks with no allocation: the slot is kept,
+    // and the block's entry storage comes back from PassBindings' own per-thread lists. Each slot is a heap object
+    // of its own, so growing the list moves no open block. A block is never kept past its record.
+    class OpenBindingBlocks
+    {
+    public:
+        OpenBindingBlocks( const PassContext& context, const uint32_t first, const size_t count )
+             : m_Base( Slots().Used ), m_Count( count )
+        {
+            ThreadSlots& open = Slots();
+            while ( open.Slots.size() < m_Base + m_Count )
+                open.Slots.push_back( std::make_unique<std::optional<PassBindings>>() );
+            open.Used = m_Base + m_Count;
+            for ( size_t index = 0; index < m_Count; ++index )
+                open.Slots[m_Base + index]->emplace(
+                     context, context.GetBindingBlock( first + static_cast<uint32_t>( index ) ) );
+        }
+        ~OpenBindingBlocks()
+        {
+            ThreadSlots& open = Slots();
+            for ( size_t index = 0; index < m_Count; ++index )
+                open.Slots[m_Base + index]->reset();
+            open.Used = m_Base;
+        }
+        OpenBindingBlocks( const OpenBindingBlocks& )            = delete;
+        OpenBindingBlocks& operator=( const OpenBindingBlocks& ) = delete;
+        OpenBindingBlocks( OpenBindingBlocks&& )                 = delete;
+        OpenBindingBlocks& operator=( OpenBindingBlocks&& )      = delete;
+
+        [[nodiscard]] size_t Count() const noexcept
+        {
+            return m_Count;
+        }
+        // Block @p index of the lease (pass block first + index).
+        [[nodiscard]] const PassBindings& At( const size_t index ) const
+        {
+            return **Slots().Slots[m_Base + index];
+        }
+
+    private:
+        struct ThreadSlots
+        {
+            std::vector<std::unique_ptr<std::optional<PassBindings>>> Slots;
+            size_t                                                     Used = 0;
+        };
+        [[nodiscard]] static ThreadSlots& Slots() noexcept
+        {
+            thread_local ThreadSlots t_Slots;
+            return t_Slots;
+        }
+
+        size_t m_Base  = 0;
+        size_t m_Count = 0;
     };
 } // namespace Desert::Graphic::RDG

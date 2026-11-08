@@ -30,6 +30,9 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, SkyViewLutTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, AerialPerspectiveLutTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, DistantSkyLightTexture );
+        // The per-view fills' cloud shadow on the air (kSkyCloudShadowMapBinding), read through its own clamp.
+        DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -62,6 +65,45 @@ namespace Desert::Graphic::System
         double LutBytesToMiB( uint64_t bytes )
         {
             return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 );
+        }
+
+        constexpr uint64_t kFnvOffsetBasis = 1469598103934665603ull;
+
+        // FNV-1a, SkyBakeFingerprint's arrangement: bit-identical inputs are the same fill, any differing bit is
+        // a new one (at worst a fill nobody needed, -0.0f against 0.0f).
+        uint64_t FnvMixBytes( uint64_t hash, const void* data, const size_t size )
+        {
+            const auto* bytes = static_cast<const unsigned char*>( data );
+            for ( size_t i = 0; i < size; ++i )
+            {
+                hash ^= static_cast<uint64_t>( bytes[i] );
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        }
+
+        // The sky block as the per-view fills read it: every byte, bar the view's luminance ceiling
+        // (AtmosphereLight.w), which Programs/Sky/SkyViewLut.shader and SkyDistantLight.shader never unpack and
+        // which follows the exposure every frame. The sun's direction is NOT excluded, unlike the panorama bake's
+        // fingerprint: these fills are exact functions of it, and a moving sun must re-march them every frame.
+        uint64_t SkyBlockLutInputsOf( const SkyGpuPayload& payload )
+        {
+            SkyGpuPayload fillInput     = payload;
+            fillInput.AtmosphereLight.w = 0.0f;
+            return FnvMixBytes( kFnvOffsetBasis, &fillInput, sizeof( fillInput ) );
+        }
+
+        // The cloud shadow as the Sky-View fill reads it, mixed into its fingerprint: the block's 80 bytes (the
+        // map's placement, live flag, fade and strength) and WHICH content the map holds (MapGeneration, moved by
+        // every accepted march that rewrote it). Without the generation the LUT would keep the shadow of the
+        // clouds it was first marched under while they drift; with clouds off the block is the constant
+        // not-live one and the generation is not mixed, so a map nobody reads re-marches nothing.
+        uint64_t SkyCloudShadowFillInputsOf( const uint64_t fillInputs, const CloudShadowUniforms& block,
+                                             const CloudShadowInput& input )
+        {
+            const uint64_t hash       = FnvMixBytes( fillInputs, &block, sizeof( block ) );
+            const uint64_t generation = input.IsLive() ? input.MapGeneration : 0u;
+            return FnvMixBytes( hash, &generation, sizeof( generation ) );
         }
     } // namespace
 
@@ -158,6 +200,9 @@ namespace Desert::Graphic::System
             // mesh preview, a thumbnail, another scene view) from overwriting this one's sky.
             m_SkyParams = ShaderResources::StorageBuffer::Create( "SkyBuffer", kSkyPayloadBytes,
                                                                   kSkyPayloadBinding, /*persistent=*/false );
+            m_SkyCloudShadow = ShaderResources::StorageBuffer::Create(
+                 "SkyCloudShadow", static_cast<uint32_t>( sizeof( CloudShadowUniforms ) ), kSkyCloudShadowBinding,
+                 /*persistent=*/false );
 
             // The cloud layer's two blocks, for the environment bake alone — see the members' declaration
             // for why the bytes are the cloud renderer's and the buffers are this one's. Created here
@@ -238,6 +283,14 @@ namespace Desert::Graphic::System
                                          .AtmosphereHeightKm        = sky.AtmosphereHeightKm,
                                          .MultiScatteringFactor     = sky.MultiScatteringFactor,
                                          .PlanetRadius              = sky.PlanetRadius };
+    }
+
+    uint64_t SkyboxRenderer::SkyLutFillInputsOf( const uint64_t blockInputs, const uint64_t pairGeneration,
+                                                 const glm::vec4& push )
+    {
+        uint64_t hash = FnvMixBytes( kFnvOffsetBasis, &blockInputs, sizeof( blockInputs ) );
+        hash          = FnvMixBytes( hash, &pairGeneration, sizeof( pairGeneration ) );
+        return FnvMixBytes( hash, &push, sizeof( push ) );
     }
 
     bool SkyboxRenderer::EnsureAtmosphereLutResources()
@@ -352,12 +405,12 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    Common::BoolResultStr SkyboxRenderer::DispatchSkyViewLut( const RDG::PassContext& context, const int lightIndex )
+    Common::BoolResultStr SkyboxRenderer::DispatchSkyViewLut( const RDG::PassContext& context,
+                                                              const glm::vec4&        cameraAndLight )
     {
         auto& renderer = Renderer::GetInstance();
 
-        const SkyViewLutPush push{ .CameraPosWorld =
-                                        glm::vec4( m_ActiveCamera->GetPosition(), static_cast<float>( lightIndex ) ) };
+        const SkyViewLutPush push{ .CameraPosWorld = cameraAndLight };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
@@ -486,12 +539,12 @@ namespace Desert::Graphic::System
         return block;
     }
 
-    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereCachedLutNodes()
+    ComputeNodeList SkyboxRenderer::DeclareAtmosphereCachedLutNodes( Common::Memory::FrameArena& arena )
     {
         // One Compute node per dispatch, each declaring the LUT it writes (StorageWrite) and the LUTs it samples
         // (SampledCompute): the graph orders transmittance -> multi-scattering -> distant light and places every
         // barrier. What runs is decided here, while the frame graph is built.
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_LutBakePending.reset();
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
@@ -517,7 +570,7 @@ namespace Desert::Graphic::System
         const AtmosphereLutFingerprint wanted = LutFingerprintOf( m_Sky );
         if ( !m_LutsValid || wanted != m_LutBaked )
         {
-            ComputeNodeDeclaration transmittance;
+            ComputeNodeDeclaration transmittance( arena );
             transmittance.Name = "Sky: TransmittanceLut";
             declareBlock( transmittance.Access, m_TransmittanceLutPipeline.get(), m_TransmittanceLutLayout, 0 )
                  .Storage( SkyboxLutWriteShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
@@ -530,7 +583,7 @@ namespace Desert::Graphic::System
             };
             nodes.push_back( std::move( transmittance ) );
 
-            ComputeNodeDeclaration multiScatter;
+            ComputeNodeDeclaration multiScatter( arena );
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, m_MultiScatterLutPipeline.get(), m_MultiScatterLutLayout, 0 )
                  .Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
@@ -556,9 +609,26 @@ namespace Desert::Graphic::System
             m_Atmosphere.TransmittanceLutTopRadiusKm    = AtmosphereTopRadiusKm( m_Sky );
         }
 
+        m_DistantLightInputsPending.reset();
         if ( m_DistantLightPipeline && EnsureDistantLightResources() )
         {
-            ComputeNodeDeclaration distant;
+            // RE-MARCHED ONLY WHEN WHAT IT READS MOVED (CLOUDS-MARCH-LATENCY): the block and the pair, no push. A
+            // pair baked by this very graph is one generation ahead once it settles, so its dependant re-fills
+            // now.
+            uint64_t pairGeneration = m_LutBakeGeneration;
+            if ( m_LutBakePending )
+                ++pairGeneration;
+            std::optional<uint64_t> wantedInputs;
+            if ( m_UploadedSkyBlockInputs )
+                wantedInputs = SkyLutFillInputsOf( *m_UploadedSkyBlockInputs, pairGeneration, glm::vec4( 0.0f ) );
+            if ( wantedInputs && m_DistantLightInputs == wantedInputs )
+            {
+                m_Atmosphere.DistantSkyLight = m_DistantLight;
+                return nodes;
+            }
+            m_DistantLightInputsPending = wantedInputs;
+
+            ComputeNodeDeclaration distant( arena );
             distant.Name = "Sky: DistantSkyLight";
             sampledLuts( declareBlock( distant.Access, m_DistantLightPipeline.get(), m_DistantLightLayout, 0 ) )
                  .Storage( SkyboxLutReadShaderParameters::DistantSkyLightTexture, m_DistantLight,
@@ -569,6 +639,7 @@ namespace Desert::Graphic::System
                 return DispatchDistantLight( context );
             };
             nodes.push_back( std::move( distant ) );
+            m_DistantLightPending = true;
 
             m_Atmosphere.DistantSkyLight = m_DistantLight;
         }
@@ -578,6 +649,13 @@ namespace Desert::Graphic::System
     void SkyboxRenderer::SettleAtmosphereCachedLutNodes( bool accepted )
     {
         const std::optional<AtmosphereLutFingerprint> pending = std::exchange( m_LutBakePending, std::nullopt );
+        // The distant light's node, when this graph declared one: accepted, the image now holds what it marched
+        // from (an empty pending — a refused block upload — leaves it unknown, so the next frame re-fills);
+        // refused, it wrote nothing and keeps the earlier frame's content and inputs.
+        const std::optional<uint64_t> distantPending = std::exchange( m_DistantLightInputsPending, std::nullopt );
+        if ( accepted && m_DistantLightPending )
+            m_DistantLightInputs = distantPending;
+        m_DistantLightPending = false;
         if ( !accepted )
         {
             // Nothing was recorded: a pair that was about to be baked is not baked, so the next frame bakes it.
@@ -589,22 +667,43 @@ namespace Desert::Graphic::System
             return;
         m_LutBaked  = *pending;
         m_LutsValid = true;
+        ++m_LutBakeGeneration;
         LOG_INFO( "[SkyAtmosphere] Atmosphere LUTs dispatched (transmittance {}x{}, multi-scattering {}x{}) — the "
                   "atmosphere parameter fingerprint changed.",
                   kTransmittanceLutWidth, kTransmittanceLutHeight, kMultiScatterLutSize, kMultiScatterLutSize );
     }
 
-    std::vector<ComputeNodeDeclaration> SkyboxRenderer::DeclareAtmosphereLutNodes()
+    ComputeNodeList SkyboxRenderer::DeclareAtmosphereLutNodes( Common::Memory::FrameArena& arena,
+                                                               const FrameGraphRefs&       refs,
+                                                               const CloudShadowInput&     cloudShadow )
     {
         // The per-view LUTs, the Sky-View LUT and the aerial-perspective volume, both following the camera. They
         // sample the cached pair DeclareAtmosphereCachedLutNodes added at the head of this graph.
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_SkyViewLutFillPending  = false;
         m_SkyViewLut1FillPending = false;
+        m_SkyViewLutInputsPending.reset();
+        m_SkyViewLut1InputsPending.reset();
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
         if ( !m_SkyParams || !m_TransmittanceLut || !m_MultiScatterLut || !m_LutsValid )
             return nodes;
+
+        // THE CLOUD LAYER'S SHADOW ON THE AIR (UE VolumetricCloud "Shadow On Atmosphere"): both fills multiply the
+        // sun's single scattering by the map at every sample. The block is the surfaces' one packing; a refused
+        // upload declares neither fill (the buffer would hold a previous frame's placement against this frame's
+        // map), and the next frame declares them again.
+        const CloudShadowUniforms cloudShadowBlock = CloudShadowPackUniforms( cloudShadow );
+        if ( !m_SkyCloudShadow )
+            return nodes;
+        if ( const auto uploaded = m_SkyCloudShadow->SetData( &cloudShadowBlock, sizeof( cloudShadowBlock ) );
+             !uploaded.IsSuccess() )
+        {
+            LOG_ERROR( "[SkyAtmosphere] The sky LUTs' cloud shadow block was refused; the Sky-View LUT and "
+                       "the aerial-perspective volume are not refilled this frame." );
+            return nodes;
+        }
+        const RDG::TextureRef cloudShadowMap = CloudShadowMapOrWhite( refs );
 
         const auto declareBlock = [this]( RenderPassDeclaration& declared, ComputePipeline* pipeline,
                                           ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
@@ -618,50 +717,97 @@ namespace Desert::Graphic::System
                            RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
             return block;
         };
+        // The two fills' own pipeline route (the block buffer) and block entries (the map, white when none casts).
+        const auto shadowedFill = [this]( ComputePipeline* pipeline )
+        { pipeline->SetStorageBuffer( kSkyCloudShadowBinding, m_SkyCloudShadow.get() ); };
+        const auto cloudShadowRead = [&cloudShadowMap]( RenderPassDeclaration::BlockDeclaration block )
+        {
+            block.Texture( SkyboxLutReadShaderParameters::CloudShadowMapTexture, cloudShadowMap,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SkyboxLutReadShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
+            return block;
+        };
 
         if ( m_SkyViewLutPipeline && m_ActiveCamera && EnsureSkyViewLutResources() )
         {
-            ComputeNodeDeclaration skyView;
-            skyView.Name = "Sky: SkyViewLut";
-            sampledLuts( declareBlock( skyView.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
-                                       static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) )
-                 .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut,
-                           RDG::Access::StorageWrite, "Sky.SkyViewLut" );
-            skyView.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+            // RE-MARCHED ONLY WHEN WHAT IT READS MOVED (CLOUDS-MARCH-LATENCY, SkyLutFillInputsOf): the block, the
+            // pair (settled above, so a pair this graph bakes is already counted), the camera's position and the
+            // light. The push is formed HERE and carried into the record, so the dispatch marches from exactly the
+            // position the fingerprint was taken at.
+            const glm::vec3 cameraPosition = m_ActiveCamera->GetPosition();
+            // ... and, for the sun's fill alone, the cloud shadow it marches through (SkyCloudShadowFillInputsOf):
+            // light 1's fill never reads the map, so a drifting cloud deck does not re-march it.
+            const auto fillInputs = [this, &cloudShadowBlock, &cloudShadow](
+                                         const glm::vec4& push, const bool shadowed ) -> std::optional<uint64_t>
             {
-                DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
-                return DispatchSkyViewLut( context, 0 );
+                if ( !m_UploadedSkyBlockInputs )
+                    return std::nullopt;
+                const uint64_t inputs = SkyLutFillInputsOf( *m_UploadedSkyBlockInputs, m_LutBakeGeneration, push );
+                if ( !shadowed )
+                    return inputs;
+                return SkyCloudShadowFillInputsOf( inputs, cloudShadowBlock, cloudShadow );
             };
-            nodes.push_back( std::move( skyView ) );
-            // BUILD TIME: the fill counts once SettleAtmosphereLutNodes hears the graph accepted the node.
-            m_SkyViewLutFillPending = true;
+            shadowedFill( m_SkyViewLutPipeline.get() );
+
+            const glm::vec4               push0   = glm::vec4( cameraPosition, 0.0f );
+            const std::optional<uint64_t> inputs0 = fillInputs( push0, true );
+            if ( !m_SkyViewLutFilled || !inputs0 || m_SkyViewLutInputs != inputs0 )
+            {
+                ComputeNodeDeclaration skyView( arena );
+                skyView.Name = "Sky: SkyViewLut";
+                cloudShadowRead(
+                     sampledLuts( declareBlock( skyView.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
+                                                static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) ) )
+                     .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut,
+                               RDG::Access::StorageWrite, "Sky.SkyViewLut" );
+                skyView.Record = [this, push0]( RDG::PassContext& context,
+                                                const FrameGraphRefs& ) -> Common::BoolResultStr
+                {
+                    DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
+                    return DispatchSkyViewLut( context, push0 );
+                };
+                nodes.push_back( std::move( skyView ) );
+                // BUILD TIME: the fill counts once SettleAtmosphereLutNodes hears the graph accepted the node.
+                m_SkyViewLutFillPending   = true;
+                m_SkyViewLutInputsPending = inputs0;
+            }
 
             // Atmosphere light 1 (the moon): its own fill, only while the scene has one.
             if ( m_Light1.Present )
             {
-                ComputeNodeDeclaration skyView1;
-                skyView1.Name = "Sky: SkyViewLut1";
-                sampledLuts( declareBlock( skyView1.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
-                                           static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) )
-                     .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut1,
-                               RDG::Access::StorageWrite, "Sky.SkyViewLut1" );
-                skyView1.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                const glm::vec4               push1   = glm::vec4( cameraPosition, 1.0f );
+                const std::optional<uint64_t> inputs1 = fillInputs( push1, false );
+                if ( !m_SkyViewLut1Filled || !inputs1 || m_SkyViewLut1Inputs != inputs1 )
                 {
-                    DESERT_PROFILE_PASS( "Sky: SkyViewLut1" );
-                    return DispatchSkyViewLut( context, 1 );
-                };
-                nodes.push_back( std::move( skyView1 ) );
-                m_SkyViewLut1FillPending = true;
+                    ComputeNodeDeclaration skyView1( arena );
+                    skyView1.Name = "Sky: SkyViewLut1";
+                    cloudShadowRead( sampledLuts( declareBlock(
+                                          skyView1.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
+                                          static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) ) )
+                         .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut1,
+                                   RDG::Access::StorageWrite, "Sky.SkyViewLut1" );
+                    skyView1.Record = [this, push1]( RDG::PassContext& context,
+                                                     const FrameGraphRefs& ) -> Common::BoolResultStr
+                    {
+                        DESERT_PROFILE_PASS( "Sky: SkyViewLut1" );
+                        return DispatchSkyViewLut( context, push1 );
+                    };
+                    nodes.push_back( std::move( skyView1 ) );
+                    m_SkyViewLut1FillPending   = true;
+                    m_SkyViewLut1InputsPending = inputs1;
+                }
             }
         }
 
         if ( m_AerialPerspectivePipeline && m_ActiveCamera && EnsureAerialPerspectiveResources() )
         {
             // A volume (Image3D), imported through the one ImportImage path.
-            ComputeNodeDeclaration aerial;
+            ComputeNodeDeclaration aerial( arena );
             aerial.Name = "Sky: AerialPerspectiveLut";
-            sampledLuts( declareBlock( aerial.Access, m_AerialPerspectivePipeline.get(), m_AerialPerspectiveLayout,
-                                       static_cast<uint32_t>( sizeof( SkyAerialPerspectivePush ) ) ) )
+            shadowedFill( m_AerialPerspectivePipeline.get() );
+            cloudShadowRead( sampledLuts( declareBlock(
+                                  aerial.Access, m_AerialPerspectivePipeline.get(), m_AerialPerspectiveLayout,
+                                  static_cast<uint32_t>( sizeof( SkyAerialPerspectivePush ) ) ) ) )
                  .Storage( SkyboxLutReadShaderParameters::AerialPerspectiveLutTexture, m_AerialPerspectiveLut,
                            RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
             aerial.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -681,11 +827,21 @@ namespace Desert::Graphic::System
 
     void SkyboxRenderer::SettleAtmosphereLutNodes( bool accepted )
     {
-        // A refused sky-view node wrote nothing; a LUT an earlier accepted frame filled keeps that content.
+        // A refused sky-view node wrote nothing; a LUT an earlier accepted frame filled keeps that content AND the
+        // inputs it was marched from. An accepted one holds this frame's (empty after a refused block upload, which
+        // re-fills next frame).
+        const std::optional<uint64_t> inputs0 = std::exchange( m_SkyViewLutInputsPending, std::nullopt );
+        const std::optional<uint64_t> inputs1 = std::exchange( m_SkyViewLut1InputsPending, std::nullopt );
         if ( std::exchange( m_SkyViewLutFillPending, false ) && accepted )
+        {
             m_SkyViewLutFilled = true;
+            m_SkyViewLutInputs = inputs0;
+        }
         if ( std::exchange( m_SkyViewLut1FillPending, false ) && accepted )
+        {
             m_SkyViewLut1Filled = true;
+            m_SkyViewLut1Inputs = inputs1;
+        }
     }
 
     void SkyboxRenderer::PrepareCamera( Core::Camera* camera )
@@ -800,6 +956,10 @@ namespace Desert::Graphic::System
 
         const SkyGpuPayload payload  = PackSky( m_SunDir, m_Sky, m_SunInputs, m_Light1 );
         const auto          uploaded = m_SkyParams->SetData( &payload, kSkyPayloadBytes );
+        // What the per-view fills read this frame (SkyLutFillInputsOf); unknown when the upload was refused.
+        m_UploadedSkyBlockInputs.reset();
+        if ( uploaded.IsSuccess() )
+            m_UploadedSkyBlockInputs = SkyBlockLutInputsOf( payload );
         if ( !uploaded.IsSuccess() )
             // REPORTED, NOT RETURNED: SceneRenderer::OnUpdate has nowhere to put a refusal of one block.
             // The consequence is bounded and self-correcting: the buffer keeps the previous block, the sky

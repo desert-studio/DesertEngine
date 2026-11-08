@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
@@ -1431,6 +1432,18 @@ namespace Desert::Graphic::API::Vulkan
                     {
                         LOG_INFO( "[RDG] {}", line );
                     }
+                } ),
+           m_CompileCache(
+                []( bool warning, std::string_view line )
+                {
+                    if ( warning )
+                    {
+                        LOG_WARN( "[RDG] {}", line );
+                    }
+                    else
+                    {
+                        LOG_INFO( "[RDG] {}", line );
+                    }
                 } )
     {
     }
@@ -1469,50 +1482,133 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( &static_cast<VulkanRdgBackend&>( backend ).PassSetsState() );
     }
 
-    bool VulkanRdgPassSetMemo::Matches( const Entry& entry, const Key& key )
+    uint64_t VulkanRdgPassSetMemo::HashOf( const Key& key ) noexcept
     {
+        // A splitmix64-finalised combine over each field: one pass, nothing allocated.
+        uint64_t   hash = 0x9E3779B97F4A7C15ull;
+        const auto mix  = [&hash]( uint64_t value ) noexcept
+        {
+            uint64_t z = hash ^ ( value + 0x9E3779B97F4A7C15ull + ( hash << 6 ) + ( hash >> 2 ) );
+            z          = ( z ^ ( z >> 30 ) ) * 0xBF58476D1CE4E5B9ull;
+            z          = ( z ^ ( z >> 27 ) ) * 0x94D049BB133111EBull;
+            hash       = z ^ ( z >> 31 );
+        };
+        mix( ( static_cast<uint64_t>( key.Block.Pass ) << 32 ) | key.Block.Block );
+        mix( key.Shader );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a handle's bits as a hash input only
+        mix( reinterpret_cast<uint64_t>( key.Layout ) );
+        mix( key.Material );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a handle's bits as a hash input only
+        mix( reinterpret_cast<uint64_t>( key.MaterialSet ) );
+        mix( ( static_cast<uint64_t>( key.BlockPushBytes ) << 1 ) | static_cast<uint64_t>( key.MaterialPush ) );
+        for ( const uint32_t binding : key.MaterialBindings )
+            mix( binding );
+        return hash;
+    }
+
+    bool VulkanRdgPassSetMemo::Matches( const Entry& entry, uint64_t hash, const Key& key ) const noexcept
+    {
+        if ( entry.Hash != hash || entry.BindingsCount != key.MaterialBindings.size() )
+            return false;
+        const std::span<const uint32_t> bindings( m_Bindings.data() + entry.BindingsFirst, entry.BindingsCount );
         return entry.Block.Pass == key.Block.Pass && entry.Block.Block == key.Block.Block &&
                entry.Shader == key.Shader && entry.Layout == key.Layout && entry.Material == key.Material &&
                entry.MaterialSet == key.MaterialSet && entry.MaterialPush == key.MaterialPush &&
-               entry.BlockPushBytes == key.BlockPushBytes &&
-               std::equal( entry.MaterialBindings.begin(), entry.MaterialBindings.end(), key.MaterialBindings.begin(),
-                           key.MaterialBindings.end() );
+               entry.BlockPushBytes == key.BlockPushBytes && std::ranges::equal( bindings, key.MaterialBindings );
     }
 
-    const std::vector<VkDescriptorSet>* VulkanRdgPassSetMemo::Find( const Key& key ) const
+    std::span<const VkDescriptorSet> VulkanRdgPassSetMemo::SetsOf( const Entry& entry ) const noexcept
     {
-        if ( m_LastHit < m_Entries.size() && Matches( m_Entries[m_LastHit], key ) )
-            return &m_Entries[m_LastHit].Sets;
-        for ( size_t index = 0; index < m_Entries.size(); ++index )
+        return { m_Sets.data() + entry.SetsFirst, entry.SetsCount };
+    }
+
+    std::optional<std::span<const VkDescriptorSet>> VulkanRdgPassSetMemo::Find( const Key& key ) const noexcept
+    {
+        if ( m_Entries.empty() )
+            return std::nullopt;
+        const uint64_t hash = HashOf( key );
+        // Consecutive draws of one block and material hit the entry the last lookup found.
+        if ( m_LastHit < m_Entries.size() && Matches( m_Entries[m_LastHit], hash, key ) )
+            return SetsOf( m_Entries[m_LastHit] );
+        const size_t mask = m_Slots.size() - 1;
+        for ( size_t index = static_cast<size_t>( hash ) & mask;; index = ( index + 1 ) & mask )
         {
-            if ( Matches( m_Entries[index], key ) )
+            const Slot& slot = m_Slots[index];
+            if ( slot.Generation != m_Generation )
+                return std::nullopt; // an empty slot ends the probe: at most half the table is live
+            if ( Matches( m_Entries[slot.Entry], hash, key ) )
             {
-                m_LastHit = index;
-                return &m_Entries[index].Sets;
+                m_LastHit = slot.Entry;
+                return SetsOf( m_Entries[slot.Entry] );
             }
         }
-        return nullptr;
     }
 
-    void VulkanRdgPassSetMemo::Keep( const Key& key, std::vector<VkDescriptorSet> sets )
+    void VulkanRdgPassSetMemo::Insert( uint32_t entry ) noexcept
     {
-        m_LastHit = m_Entries.size();
-        Entry entry{ .Block          = key.Block,
-                     .Shader         = key.Shader,
-                     .Layout         = key.Layout,
-                     .Material       = key.Material,
-                     .MaterialSet    = key.MaterialSet,
-                     .MaterialPush   = key.MaterialPush,
-                     .BlockPushBytes = key.BlockPushBytes,
-                     .Sets           = std::move( sets ) };
-        entry.MaterialBindings.assign( key.MaterialBindings.begin(), key.MaterialBindings.end() );
-        m_Entries.push_back( std::move( entry ) );
+        const size_t mask = m_Slots.size() - 1;
+        for ( size_t index = static_cast<size_t>( m_Entries[entry].Hash ) & mask;; index = ( index + 1 ) & mask )
+        {
+            Slot& slot = m_Slots[index];
+            if ( slot.Generation != m_Generation )
+            {
+                slot = Slot{ .Generation = m_Generation, .Entry = entry };
+                return;
+            }
+        }
     }
 
-    void VulkanRdgPassSetMemo::Clear()
+    void VulkanRdgPassSetMemo::Grow() noexcept
+    {
+        // A fresh table: every slot empty (generation 0), the live entries inserted again.
+        size_t size = 64;
+        if ( !m_Slots.empty() )
+            size = m_Slots.size() * 2;
+        m_Slots.assign( size, Slot{} );
+        m_Generation = 1;
+        for ( uint32_t entry = 0; entry < static_cast<uint32_t>( m_Entries.size() ); ++entry )
+            Insert( entry );
+    }
+
+    std::span<const VkDescriptorSet> VulkanRdgPassSetMemo::Keep( const Key&                       key,
+                                                                 std::span<const VkDescriptorSet> sets ) noexcept
+    {
+        const auto entry = static_cast<uint32_t>( m_Entries.size() );
+        m_Entries.push_back( Entry{ .Block          = key.Block,
+                                    .Shader         = key.Shader,
+                                    .Layout         = key.Layout,
+                                    .Material       = key.Material,
+                                    .MaterialSet    = key.MaterialSet,
+                                    .MaterialPush   = key.MaterialPush,
+                                    .BlockPushBytes = key.BlockPushBytes,
+                                    .Hash           = HashOf( key ),
+                                    .BindingsFirst  = static_cast<uint32_t>( m_Bindings.size() ),
+                                    .BindingsCount  = static_cast<uint32_t>( key.MaterialBindings.size() ),
+                                    .SetsFirst      = static_cast<uint32_t>( m_Sets.size() ),
+                                    .SetsCount      = static_cast<uint32_t>( sets.size() ) } );
+        m_Bindings.insert( m_Bindings.end(), key.MaterialBindings.begin(), key.MaterialBindings.end() );
+        m_Sets.insert( m_Sets.end(), sets.begin(), sets.end() );
+        // At most half the slots live; Grow inserts every entry, this one included.
+        if ( m_Entries.size() * 2 > m_Slots.size() )
+            Grow();
+        else
+            Insert( entry );
+        m_LastHit = entry;
+        return SetsOf( m_Entries[entry] );
+    }
+
+    void VulkanRdgPassSetMemo::Clear() noexcept
     {
         m_Entries.clear();
-        m_LastHit = 0;
+        m_Bindings.clear();
+        m_Sets.clear();
+        m_LastHit = ~0u;
+        // A new generation empties every slot without touching one; on wrap the table is wiped once.
+        if ( ++m_Generation == 0 )
+        {
+            std::ranges::fill( m_Slots, Slot{} );
+            m_Generation = 1;
+        }
     }
 
     Common::BoolResultStr VulkanRdgBackend::BeginFrame( uint32_t slot, const VulkanRdgQueueSet& queues,
@@ -1521,6 +1617,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( queues.GraphicsQueue == VK_NULL_HANDLE )
             return Common::MakeError( "BeginFrame: the queue set has no graphics queue" );
+        m_CompileCache.CountFrame();
         m_FrameSlot   = slot;
         m_Queues      = &queues;
         m_Transients  = &transients;
@@ -1648,6 +1745,22 @@ namespace Desert::Graphic::API::Vulkan
             if ( logged->second != structure )
             {
                 std::string line;
+                // GPU-ASYNC-WAIT: each join also names how many graphics passes the queue has between the fork and
+                // the join (the work that overlaps the segment) and the first graphics passes after the join (the
+                // work queued behind the wait), so an "RDG Wait" line reads against the order that caused it.
+                const auto onAsync = [&]( uint32_t position )
+                {
+                    for ( const RDG::PipeSegment& other : graph.Result->Segments )
+                    {
+                        if ( other.OnPipe == RDG::Pipe::AsyncCompute && position >= other.FirstPosition &&
+                             position <= other.LastPosition )
+                            return true;
+                    }
+                    return false;
+                };
+                const auto     positions       = static_cast<uint32_t>( graph.Result->Passes.size() );
+                uint32_t       windowStart     = 0; // one past the fork that orders the current segment
+                constexpr auto kNamedAfterJoin = 4u;
                 for ( const RDG::PipeSegment& segment : graph.Result->Segments )
                 {
                     if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
@@ -1665,9 +1778,15 @@ namespace Desert::Graphic::API::Vulkan
                             continue;
                         forked = true;
                         if ( forkSync.SignalPosition == RDG::CrossPipeSync::kForkAtGraphStart )
+                        {
                             line += ", forked at the graph start";
+                            windowStart = 0;
+                        }
                         else
+                        {
                             line += ", forked after '" + graph.Result->Passes[forkSync.SignalPosition].Name + "'";
+                            windowStart = forkSync.SignalPosition + 1;
+                        }
                         if ( !forkSync.Cause.empty() )
                             line += " by " + forkSync.Cause;
                     }
@@ -1686,6 +1805,28 @@ namespace Desert::Graphic::API::Vulkan
                             // What made it wait (RDGCompile CutRunsAtConsumers): the resource and the async pass.
                             if ( !sync.Cause.empty() )
                                 line += " by " + sync.Cause;
+                            uint32_t overlapping = 0;
+                            for ( uint32_t p = windowStart; p < sync.WaitPosition && p < positions; ++p )
+                            {
+                                if ( !onAsync( p ) )
+                                    ++overlapping;
+                            }
+                            line += ", " + std::to_string( overlapping ) + " graphics passes from its fork, then";
+                            uint32_t named = 0;
+                            for ( uint32_t p = sync.WaitPosition + 1; p < positions && named < kNamedAfterJoin;
+                                  ++p )
+                            {
+                                if ( onAsync( p ) )
+                                    continue;
+                                if ( named == 0 )
+                                    line += " '";
+                                else
+                                    line += "', '";
+                                line += graph.Result->Passes[p].Name;
+                                ++named;
+                            }
+                            if ( named > 0 )
+                                line += "'";
                         }
                     }
                     line += "]";
@@ -1912,10 +2053,16 @@ namespace Desert::Graphic::API::Vulkan
         // 04071), and an EXCLUSIVE one could not cover a read the graph never saw (a bindless upload).
         for ( const bool ownershipCall : { true, false } )
         {
-            VkPipelineStageFlags               srcStages = 0;
-            VkPipelineStageFlags               dstStages = 0;
-            std::vector<VkImageMemoryBarrier>  images;
-            std::vector<VkBufferMemoryBarrier> buffers;
+            // CPU-FRAME-ARENA (MEM-7): the batch lives in the recording thread's scratch, not on the heap.
+            Common::Memory::FrameArena&                        scratch = ScratchArena();
+            const Common::Memory::FrameArena::ScopedMark       scratchMark( scratch );
+            const Common::Memory::ArenaAllocator<std::byte>    scratchAlloc( scratch );
+            VkPipelineStageFlags                               srcStages = 0;
+            VkPipelineStageFlags                               dstStages = 0;
+            Common::Memory::ArenaVector<VkImageMemoryBarrier>  images( scratchAlloc );
+            Common::Memory::ArenaVector<VkBufferMemoryBarrier> buffers( scratchAlloc );
+            images.reserve( barriers.size() );
+            buffers.reserve( barriers.size() );
             for ( const RDG::Barrier& barrier : barriers )
             {
                 const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
@@ -1993,11 +2140,15 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::PrepareRecording( std::span<const RDG::CompiledPass> passes )
     {
-        m_PreparedRenderPasses.clear();
+        // CPU-FRAME-ARENA (MEM-7): the entries are kept across graphs, so each one's clear values keep their
+        // capacity; an entry with no Source is not prepared for this graph (BeginRenderPass resolves its pass).
         uint32_t count = 0;
         for ( const RDG::CompiledPass& pass : passes )
             count = std::max( count, pass.Pass + 1 );
-        m_PreparedRenderPasses.resize( count );
+        if ( m_PreparedRenderPasses.size() < count )
+            m_PreparedRenderPasses.resize( count );
+        for ( PreparedRenderPass& entry : m_PreparedRenderPasses )
+            entry.Source = nullptr;
         // Every pass that opens a render pass (a merged pass continues the one its first pass opened; a pass a
         // fault re-opens resolves in BeginRenderPass). Sequential, before any pass records: no lock.
         for ( const RDG::CompiledPass& pass : passes )
@@ -2052,15 +2203,23 @@ namespace Desert::Graphic::API::Vulkan
                                            []( const RDG::AttachmentDecision& a ) { return a.IsResolve; } );
         // Attachment order in the render pass: colour slots first (unused slots have no attachment), depth
         // last; views and clear values follow the same order.
+        // CPU-FRAME-ARENA (MEM-7): the per-pass lists live in the recording thread's scratch, not on the heap.
+        Common::Memory::FrameArena&                     scratch = ScratchArena();
+        const Common::Memory::FrameArena::ScopedMark    scratchMark( scratch );
+        const Common::Memory::ArenaAllocator<std::byte> scratchAlloc( scratch );
+        using ColourView = std::pair<VkImageView, VkClearValue>;
         RdgRenderPassKey key;
         key.Colours.resize( colourCount, RdgAttachmentKey{} );
-        std::vector<std::pair<VkImageView, VkClearValue>> colourViews( colourCount,
-                                                                       { VK_NULL_HANDLE, VkClearValue{} } );
-        std::pair<VkImageView, VkClearValue>              depthView{ VK_NULL_HANDLE, VkClearValue{} };
-        std::vector<VkImageView> resolveViews( resolves ? colourCount : 0u, VK_NULL_HANDLE );
+        const ColourView                        noView{ VK_NULL_HANDLE, VkClearValue{} };
+        Common::Memory::ArenaVector<ColourView> colourViews( colourCount, noView, scratchAlloc );
+        ColourView                              depthView    = noView;
+        uint32_t                                resolveCount = 0;
+        if ( resolves )
+            resolveCount = colourCount;
+        const VkImageView                        noImageView = VK_NULL_HANDLE;
+        Common::Memory::ArenaVector<VkImageView> resolveViews( resolveCount, noImageView, scratchAlloc );
         if ( resolves )
             key.Resolves.resize( colourCount, RdgAttachmentKey{} );
-        std::vector<std::weak_ptr<VulkanRdgTexture>> textures;
         VkExtent2D                                   extent{ 0, 0 };
         uint32_t                                     layers = 1;
         for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
@@ -2070,7 +2229,6 @@ namespace Desert::Graphic::API::Vulkan
                  texture->GetView( { attachment.Mip, 1, attachment.BaseLayer, attachment.LayerCount }, true );
             if ( !view )
                 return Common::MakeFormattedError( "attachment of '{}': {}", pass.Name, view.GetError() );
-            textures.push_back( texture );
             const RDG::TextureDesc& desc = texture->GetDesc();
             extent                       = { std::max( 1u, desc.Size.Width >> attachment.Mip ),
                                              std::max( 1u, desc.Size.Height >> attachment.Mip ) };
@@ -2122,8 +2280,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !renderPass )
             return Common::MakeFormattedError( "render pass of '{}': {}", pass.Name, renderPass.GetError() );
 
-        std::vector<VkImageView>  views;
-        std::vector<VkClearValue> clears;
+        // The clear values go straight into @p out (a kept entry keeps their capacity); a failure below leaves
+        // @p out without a Source, which every caller treats as not prepared.
+        Common::Memory::ArenaVector<VkImageView> views( scratchAlloc );
+        std::vector<VkClearValue>&               clears = out.Clears;
+        views.reserve( pass.Attachments.size() );
+        clears.clear();
         for ( const auto& [view, clear] : colourViews )
         {
             if ( view != VK_NULL_HANDLE )
@@ -2151,7 +2313,8 @@ namespace Desert::Graphic::API::Vulkan
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         for ( const FramebufferEntry& entry : m_Framebuffers )
         {
-            if ( entry.RenderPass == renderPass.GetValue() && entry.Views == views &&
+            if ( entry.RenderPass == renderPass.GetValue() &&
+                 std::equal( entry.Views.begin(), entry.Views.end(), views.begin(), views.end() ) &&
                  entry.Extent.width == extent.width && entry.Extent.height == extent.height &&
                  entry.Layers == layers )
             {
@@ -2174,14 +2337,19 @@ namespace Desert::Graphic::API::Vulkan
             if ( result != VK_SUCCESS )
                 return Common::MakeFormattedError( "framebuffer of '{}': vkCreateFramebuffer failed ({})",
                                                    pass.Name, static_cast<int>( result ) );
-            m_Framebuffers.push_back(
-                 { renderPass.GetValue(), views, std::move( textures ), extent, layers, framebuffer } );
+            // The attachments' textures, in attachment order: only a new entry keeps them (a found one had them).
+            std::vector<std::weak_ptr<VulkanRdgTexture>> textures;
+            textures.reserve( pass.Attachments.size() );
+            for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
+                textures.push_back( m_Textures[attachment.Resource] );
+            std::vector<VkImageView> kept( views.begin(), views.end() );
+            m_Framebuffers.push_back( { renderPass.GetValue(), std::move( kept ), std::move( textures ), extent,
+                                        layers, framebuffer } );
         }
 
         out.RenderPass    = renderPass.GetValue();
         out.Framebuffer   = framebuffer;
         out.Extent        = extent;
-        out.Clears        = std::move( clears );
         out.Compatibility = RdgCompatibilityKey( key );
         return Common::MakeSuccess( true );
     }
@@ -2218,7 +2386,8 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdSetLineWidth( commandBuffer, 1.0f );
     }
 
-    Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, std::span<const std::byte> bytes )
+    Common::BoolResultStr VulkanRdgBackend::UploadBuffer( uint32_t resource, const uint64_t at,
+                                                          std::span<const std::byte> bytes )
     {
         const VkCommandBuffer commandBuffer = RecordingBuffer();
         if ( commandBuffer == VK_NULL_HANDLE )
@@ -2234,9 +2403,38 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
         {
             const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
-            vkCmdUpdateBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + offset, size,
+            vkCmdUpdateBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + at + offset, size,
                                bytes.data() + offset );
         }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRdgBackend::CopyBuffer( const uint32_t source, const uint64_t sourceOffset,
+                                                        const uint32_t target, const uint64_t targetOffset,
+                                                        const uint64_t bytes )
+    {
+        const VkCommandBuffer commandBuffer = RecordingBuffer();
+        if ( commandBuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "graph '{}': buffer copy outside a recording pass", m_GraphName );
+        if ( OpenRenderPassState().has_value() )
+            return Common::MakeFormattedError( "graph '{}': buffer copy inside a render pass", m_GraphName );
+        const auto find = [this]( const uint32_t resource ) noexcept -> VulkanRdgBuffer*
+        {
+            if ( resource >= m_Buffers.size() )
+                return nullptr;
+            return m_Buffers[resource].get();
+        };
+        const VulkanRdgBuffer* const from = find( source );
+        const VulkanRdgBuffer* const into = find( target );
+        if ( from == nullptr || into == nullptr )
+            return Common::MakeFormattedError( "graph '{}': buffer copy {} -> {} names a resource with no Vulkan "
+                                               "buffer",
+                                               m_GraphName, source, target );
+        VkBufferCopy region{};
+        region.srcOffset = from->GetOffset() + sourceOffset;
+        region.dstOffset = into->GetOffset() + targetOffset;
+        region.size      = bytes;
+        vkCmdCopyBuffer( commandBuffer, from->GetBuffer(), into->GetBuffer(), 1, &region );
         return Common::MakeSuccess( true );
     }
 
@@ -2277,6 +2475,7 @@ namespace Desert::Graphic::API::Vulkan
             chunk.Labels.clear();
             chunk.CommandBuffer = VK_NULL_HANDLE;
             chunk.Failure.clear();
+            chunk.Scratch.Reset(); // CPU-FRAME-ARENA: no mark is live between graphs; folds its blocks into one
             const size_t pipe = chunk.Desc.OnPipe == RDG::Pipe::Graphics ? 0 : 1;
             perPipe[pipe]     = index + 1;
             // RDG-PARALLEL-1-1: the chunk records while this thread walks the graph (its scope stack and its
@@ -2454,6 +2653,13 @@ namespace Desert::Graphic::API::Vulkan
         return m_FaultReporter;
     }
 
+    RDG::CompileCache* VulkanRdgBackend::GetCompileCache()
+    {
+        if ( !::Desert::Graphic::RenderConfig::RdgCompileCache.load( std::memory_order_relaxed ) )
+            return nullptr;
+        return &m_CompileCache;
+    }
+
     Common::BoolResultStr VulkanRdgBackend::BeginPipeSegment( const RDG::PipeSegment& segment )
     {
         if ( m_Queues == nullptr )
@@ -2463,8 +2669,17 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
         // The graphics queue's boundary row ends at the head of its next command buffer (OpenQueueBoundaryScope).
+        // A join's semaphore holds only its wait stages (the consumer's indirect/vertex/compute stages), not
+        // the BOTTOM_OF_PIPE end stamp at the head of the buffer: unheld, the row closes at once and the wait
+        // lands in the joined pass's own row. While the row is timed, a barrier chained to the wait stages
+        // (the WSI acquire pattern) holds the end stamp and every stamp after it, so the wait is its own row
+        // and the joined pass reports its own work, as UE's async compute fences do.
         if ( segment.OnPipe == RDG::Pipe::Graphics )
+        {
+            if ( m_QueueBoundaryScope >= 0 && m_Result != nullptr && begun.GetValue() != VK_NULL_HANDLE )
+                RecordJoinWaitBarrier( segment, begun.GetValue() );
             CloseQueueBoundaryScope();
+        }
         // Every scope from here to EndPipeSegment is on this segment's queue: the profiler keeps one timeline
         // per queue, and an async pass tiled against the graphics bracket would hide the graphics remainder.
         if ( m_Device.Profiler != nullptr )
@@ -2537,6 +2752,24 @@ namespace Desert::Graphic::API::Vulkan
             m_QueueBoundaryScopeName =
                  std::format( "RDG Resubmit: graphics queue after '{}'", passName( ending.LastPosition ) );
         m_QueueBoundaryScope = m_Device.Profiler->BeginScope( m_QueueBoundaryScopeName.c_str() );
+    }
+
+    void VulkanRdgBackend::RecordJoinWaitBarrier( const RDG::PipeSegment& segment,
+                                                  VkCommandBuffer         commandBuffer ) noexcept
+    {
+        VkPipelineStageFlags waited = 0;
+        for ( const uint32_t sync : segment.WaitSyncs )
+        {
+            if ( sync >= m_Result->Syncs.size() )
+                continue;
+            const VkPipelineStageFlags stages = RdgVulkanStages( m_Result->Syncs[sync].WaitStages );
+            waited |= stages != 0 ? stages : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT; // the submit's own fallback
+        }
+        if ( waited == 0 )
+            return; // a resubmit, no join: nothing holds the next pass
+        // Execution only (no memory barrier): the joined pass's own acquire barriers carry the visibility.
+        vkCmdPipelineBarrier( commandBuffer, waited, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr,
+                              0, nullptr );
     }
 
     void VulkanRdgBackend::CloseQueueBoundaryScope()
@@ -2622,9 +2855,21 @@ namespace Desert::Graphic::API::Vulkan
         return resource < m_Buffers.size() ? m_Buffers[resource] : nullptr;
     }
 
+    RDG::IPhysicalTexture* VulkanRdgBackend::FindPhysicalTexture( uint32_t resource ) const
+    {
+        return resource < m_Textures.size() ? m_Textures[resource].get() : nullptr;
+    }
+
+    RDG::IPhysicalBuffer* VulkanRdgBackend::FindPhysicalBuffer( uint32_t resource ) const
+    {
+        return resource < m_Buffers.size() ? m_Buffers[resource].get() : nullptr;
+    }
+
     void VulkanRdgBackend::Release()
     {
-        m_PreparedRenderPasses.clear();
+        // CPU-FRAME-ARENA (MEM-7): kept with their capacity; no Source points into the ended graph.
+        for ( PreparedRenderPass& entry : m_PreparedRenderPasses )
+            entry.Source = nullptr;
         m_Textures.clear();
         m_Buffers.clear();
         // The allocator's open graph ends with the backend's hold (EndGraph, AbandonGraph, a new BeginGraph).

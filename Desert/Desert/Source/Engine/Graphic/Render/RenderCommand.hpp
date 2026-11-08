@@ -30,9 +30,22 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::Render
 {
+    // A RECORDED COMMAND HAS TWO HALVES, AND ONLY THE FIRST MAY WRITE WHAT THE COMMAND DOES NOT OWN (CPU-ONE-SYNC
+    // step 4; UE: a proxy's render resources are initialised before the rendering thread draws it, and the mesh
+    // draw command passes only read).
     struct RenderCommand
     {
-        virtual ~RenderCommand()                                 = default;
+        virtual ~RenderCommand() = default;
+        // THE INTAKE. GAME THREAD, ONCE PER RECORDING, at the update's fence (Scene::OnUpdate: no job in flight,
+        // before the first replay): what the replays need from an object the command only points at is made
+        // here - a mesh's device buffers from its CPU geometry (SceneRenderer::PrepareMesh). Default: nothing.
+        virtual void Prepare()
+        {
+        }
+        // THE REPLAY. Any number of times per recording - the capture faces at the fence, then every view on the
+        // render task - so it READS the command and what it points at and writes only @p renderer's per-frame
+        // lists. It never moves a member out (the next replay would get a moved-from value) and never writes a
+        // mesh, a material or the world.
         virtual void Execute( Graphic::SceneRenderer& renderer ) = 0;
     };
 

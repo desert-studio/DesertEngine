@@ -111,4 +111,34 @@ namespace Desert::Graphic
         const float last = ( bins > 1 ) ? static_cast<float>( bins - 1 ) : 1.0f;
         return std::exp2( window.MinLogLum + ( static_cast<float>( bin ) / last ) * window.Range() );
     }
+
+    // UE's Exposure Compensation Curve (PostProcessEyeAdaptation.usf, ExposureCompensationCurve sampled at the
+    // adapted average's EV100), evaluated piecewise linearly over the first keyCount keys (EV100 ascending) and
+    // flat past the ends; 0 keys = no curve. AEAverage.shader evaluates the same law on the GPU (CurveBias there).
+    inline float ExposureCompensationCurveBias( int keyCount, const float* ev100Keys, const float* biasKeys,
+                                                float ev100 )
+    {
+        if ( keyCount <= 0 )
+            return 0.0f;
+        const int count = std::min( keyCount, 4 );
+        if ( ev100 <= ev100Keys[0] )
+            return biasKeys[0];
+        for ( int i = 1; i < count; ++i )
+            if ( ev100 < ev100Keys[i] )
+            {
+                const float span = std::max( ev100Keys[i] - ev100Keys[i - 1], 1e-6f );
+                const float t    = ( ev100 - ev100Keys[i - 1] ) / span;
+                return biasKeys[i - 1] + ( biasKeys[i] - biasKeys[i - 1] ) * t;
+            }
+        return biasKeys[count - 1];
+    }
+
+    // The lowest bias the curve can add (0 without one): the sky's ceiling must hold under the darkest exposure.
+    inline float LowestExposureCompensationCurveBias( int keyCount, const float* biasKeys )
+    {
+        float lowest = 0.0f;
+        for ( int i = 0; i < std::min( keyCount, 4 ); ++i )
+            lowest = std::min( lowest, biasKeys[i] );
+        return lowest;
+    }
 } // namespace Desert::Graphic

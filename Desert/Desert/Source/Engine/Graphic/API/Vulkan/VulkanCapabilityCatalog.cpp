@@ -17,6 +17,24 @@ namespace Desert::Graphic::API::Vulkan
         constexpr uint32_t kVendorNvidia = 0x10DE;
         constexpr uint32_t kVendorApple  = 0x106B;
 
+        // NVIDIA's PCI device ids by die (the upper bits name the chip): TU10x / TU11x 0x1E00-0x21FF, except
+        // GA100 0x20B0-0x20FF; GA10x 0x2200-0x25FF, except GH100 0x2330-0x233F (Hopper: FP8 tensor cores, so
+        // costed as Ada); AD10x 0x2600-0x28FF; GB1xx / GB20x 0x2900 and up. Below 0x1E00 (Pascal and older, no
+        // tensor cores): Other. A GTX 16 (TU116 / TU117) is a Turing die without tensor cores; Streamline offers
+        // it no DLSS, so RecommendUpscaler stops at the offer before it reads the architecture.
+        GpuArchitecture NvidiaArchitecture( const uint32_t deviceId )
+        {
+            if ( deviceId >= 0x2900 )
+                return GpuArchitecture::Blackwell;
+            if ( deviceId >= 0x2600 || ( deviceId >= 0x2330 && deviceId < 0x2340 ) )
+                return GpuArchitecture::Ada;
+            if ( deviceId >= 0x2200 || ( deviceId >= 0x20B0 && deviceId < 0x2100 ) )
+                return GpuArchitecture::Ampere;
+            if ( deviceId >= 0x1E00 )
+                return GpuArchitecture::Turing;
+            return GpuArchitecture::Other;
+        }
+
         // The render-scale ceiling is stated against a 4K output: a supersampled 3840-wide frame at P % needs a
         // 3840 * P / 100 wide target, which the device must be able to create.
         constexpr uint32_t kReferenceOutputWidth = 3840;
@@ -122,14 +140,37 @@ namespace Desert::Graphic::API::Vulkan
                   probe.ExternalTimelineExportFd )
             catalog.Sharing = Common::Scalability::GpuSharing::Fd;
 
-        // Ray tracing: the pipeline is never offered through portability (MoltenVK has no SBT path even when a
-        // feature bit leaks through).
+        // Ray tracing, as UE keeps GRHISupportsRayTracing apart from GRHISupportsInlineRayTracing and offers
+        // Lumen HWRT only on hardware RT. Ray query and the pipeline are two facts, never one implied by the
+        // other; the pipeline is never offered through portability (MoltenVK has no SBT path even when a feature
+        // bit leaks through).
+        const bool accelerationStructures = probe.Caps.Has( Capability::AccelerationStructure );
+        const bool rayQuery               = accelerationStructures && probe.Caps.Has( Capability::RayQuery );
+        const bool rayTracingPipeline =
+             accelerationStructures && probe.Caps.Has( Capability::RayTracingPipeline ) && !probe.Portability;
+        // How the device executes those rays. A played device profile names it (the device it plays, not this
+        // one); else ray query is hardware RT: every hardware implementation exposes VK_KHR_ray_query (NVIDIA
+        // RTX, AMD RDNA 2+, Intel Arc, Apple7+ through MoltenVK), so the pipeline alone is the driver's
+        // shader-core path (GeForce GTX 10/16).
+        if ( !rayQuery && !rayTracingPipeline )
+            catalog.RayTracingAccel = RayTracingAcceleration::None;
+        else if ( probe.ProfileRayTracingAccel.has_value() )
+            catalog.RayTracingAccel = *probe.ProfileRayTracingAccel;
+        else if ( rayQuery )
+            catalog.RayTracingAccel = RayTracingAcceleration::Hardware;
+        else
+            catalog.RayTracingAccel = RayTracingAcceleration::Emulated;
+        // Render methods trace only on hardware RT: an emulated device lists None alone, so no traced method, no
+        // ray-query program and no BLAS (MeshGpuUploader) is ever asked of it. The pipeline stays the device's
+        // (DeviceCaps) for offline work.
         catalog.RayTracingModes.push_back( RayTracingMode::None );
-        if ( probe.Caps.Has( Capability::RayQuery ) && probe.Caps.Has( Capability::AccelerationStructure ) )
-            catalog.RayTracingModes.push_back( RayTracingMode::RayQuery );
-        if ( probe.Caps.Has( Capability::RayTracingPipeline ) &&
-             probe.Caps.Has( Capability::AccelerationStructure ) && !probe.Portability )
-            catalog.RayTracingModes.push_back( RayTracingMode::RayTracingPipeline );
+        if ( catalog.RayTracingAccel == RayTracingAcceleration::Hardware )
+        {
+            if ( rayQuery )
+                catalog.RayTracingModes.push_back( RayTracingMode::RayQuery );
+            if ( rayTracingPipeline )
+                catalog.RayTracingModes.push_back( RayTracingMode::RayTracingPipeline );
+        }
 
         // Anisotropy: the standard levels up to the device's limit.
         catalog.AnisotropyLevels.push_back( 1 );
@@ -177,6 +218,11 @@ namespace Desert::Graphic::API::Vulkan
         else
             catalog.Class = DeviceClass::Unknown;
         catalog.VideoMemory = probe.DeviceLocalBytes;
+        // A played profile is the card it names (an RTX 2060 is Turing on any host); else the die's.
+        if ( probe.ProfileArchitecture.has_value() )
+            catalog.Architecture = *probe.ProfileArchitecture;
+        else if ( probe.VendorId == kVendorNvidia )
+            catalog.Architecture = NvidiaArchitecture( probe.DeviceId );
 
         return catalog;
     }

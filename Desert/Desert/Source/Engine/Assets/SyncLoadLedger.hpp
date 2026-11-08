@@ -599,19 +599,11 @@ namespace Desert::Assets
             m_Parent->m_ChildNs += totalNs;
         }
 
-        // A DETECTOR MUST NEVER BE THE REASON THE PROGRAM DIES. `Record` builds strings — the path, the
-        // report line — so it can throw `std::bad_alloc`, and an exception leaving a destructor calls
-        // `std::terminate`. That would turn "the machine is short of memory", which is EXACTLY the
-        // condition this instrument exists to observe, into a crash with the measurement lost. The catch
-        // is deliberately empty because there is nothing safe left to do: logging allocates too.
-        try
-        {
-            SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ),
-                                    SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
-        }
-        catch ( ... ) // NOLINT(bugprone-empty-catch) -- see above: there is no safe action left
-        {
-        }
+        // No catch here (UE: destructors neither throw nor catch). `Record` builds strings - the path, the
+        // report line - so the one failure it has is out of memory, and that ends the process at this line
+        // (the destructor is noexcept): a crash at its site, never a measurement swallowed.
+        SyncLoadLedger::Record( m_Path, SyncLoadDetail::NowMs( totalNs ),
+                                SyncLoadDetail::NowMs( totalNs - m_ChildNs ), m_Outermost );
     }
 
     inline AsyncLoadMarker::AsyncLoadMarker()

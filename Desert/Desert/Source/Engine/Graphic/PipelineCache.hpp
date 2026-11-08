@@ -230,6 +230,16 @@ namespace Desert::Graphic
         void Clear()
         {
             m_Cache.clear();
+            ++m_Generation;
+        }
+
+        // Moves whenever an entry may have been dropped (Clear, InvalidateByShader); an insert never moves it,
+        // because it changes no answer already given. A caller that keeps an answer with its spec (the cached
+        // half of a draw command, CPU-FRAME-ARENA 13) asks again only when this differs from the generation it
+        // kept, so a frame neither re-checks nor re-hashes a spec it already holds the pipeline of.
+        NO_DISCARD uint64_t Generation() const noexcept
+        {
+            return m_Generation;
         }
 
         // How many distinct GPU pipelines this renderer is holding. Logged by SceneRenderer::Init so a run's
@@ -258,6 +268,7 @@ namespace Desert::Graphic
                 else
                     ++it;
             }
+            ++m_Generation;
         }
 
         // Whether these two specs would be served the SAME cached pipeline. This is the cache's entire
@@ -409,8 +420,15 @@ namespace Desert::Graphic
             k.Topology     = static_cast<int>( s.Topology );
             k.Polygon      = static_cast<int>( s.PolygonMode );
             k.PatchPoints  = s.PatchControlPoints;
-            k.BlendSrc     = s.BlendEnable ? static_cast<int>( s.SrcColorBlendFactor ) : 0;
-            k.BlendDst     = s.BlendEnable ? static_cast<int>( s.DstColorBlendFactor ) : 0;
+            // Colour factor in the low byte, the alpha factor
+            // (GraphicsPipelineSpecification::Src/DstAlphaBlendFactor) above it: two pipelines differing only in
+            // their alpha pair are two keys.
+            k.BlendSrc = s.BlendEnable ? static_cast<int>( s.SrcColorBlendFactor ) |
+                                              ( static_cast<int>( s.SrcAlphaBlendFactor ) << 8 )
+                                       : 0;
+            k.BlendDst = s.BlendEnable ? static_cast<int>( s.DstColorBlendFactor ) |
+                                              ( static_cast<int>( s.DstAlphaBlendFactor ) << 8 )
+                                       : 0;
             if ( s.StencilTestEnabled )
             {
                 const auto pack = []( const StencilOpState& f )
@@ -475,6 +493,7 @@ namespace Desert::Graphic
 
         // The OUTCOME per key, not the pipeline: see GetOrCreate for why a refusal is a row here too.
         std::unordered_map<Key, Common::ResultStr<std::shared_ptr<GraphicsPipeline>>, KeyHash> m_Cache;
+        uint64_t m_Generation = 1; // Generation(); 0 is never an answer's, so a fresh holder always asks
     };
 
 } // namespace Desert::Graphic

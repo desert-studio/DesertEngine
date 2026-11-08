@@ -7,6 +7,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -16,7 +17,7 @@ namespace Desert::Water
     WaterQuadTree::WaterQuadTree( const WaterQuadTreeDesc& desc, std::span<const WaterQuadTreeBody> bodies )
     {
         m_LeafSize     = std::max( desc.TileSize, 1.0f );
-        m_NumQuadsLOD0 = 1 << std::clamp( desc.TessellationFactor, 1, 12 );
+        m_NumQuadsLOD0 = 1 << std::clamp( desc.TessellationFactor, 1, kMaxDensityCount );
         m_LODScale     = m_LeafSize * std::max( desc.LODScale, 0.5f );
 
         const glm::vec2  extent = glm::max( desc.ZoneExtent, glm::vec2( m_LeafSize ) );
@@ -25,7 +26,7 @@ namespace Desert::Water
         const auto       rootTiles =
              std::bit_ceil( static_cast<uint32_t>( std::max( extentInTiles.x, extentInTiles.y ) ) );
         m_TreeDepth    = std::countr_zero( rootTiles ) + 1;
-        m_DensityCount = std::min( m_TreeDepth, std::clamp( desc.TessellationFactor, 1, 12 ) );
+        m_DensityCount = std::min( m_TreeDepth, std::clamp( desc.TessellationFactor, 1, kMaxDensityCount ) );
         m_RootMin      = desc.ZoneCenter - 0.5f * extent;
 
         // Each body rasterised into the zone's leaf tiles (UE FWaterQuadTree::AddWaterTilesInsideBounds): a tile
@@ -95,14 +96,17 @@ namespace Desert::Water
         return params;
     }
 
-    std::vector<WaterTileInstance> WaterQuadTree::Traverse( const glm::vec3&     observer,
-                                                            const float          viewDistanceScale,
-                                                            const Core::Frustum* frustum,
-                                                            const float          verticalExtent ) const
+    std::span<const WaterTileInstance> WaterQuadTree::Traverse( const glm::vec3&       observer,
+                                                                const float            viewDistanceScale,
+                                                                const Core::Frustum*   frustum,
+                                                                const float            verticalExtent,
+                                                                WaterTraversalBuffers& buffers ) const
     {
-        std::vector<WaterTileInstance> output;
+        std::vector<WaterTileInstance>& output = buffers.Staged;
+        output.clear();
+        buffers.Tiles.clear();
         if ( m_Bodies.empty() )
-            return output;
+            return buffers.Tiles;
 
         Traversal t;
         t.Observer       = glm::vec2( observer.x, observer.z );
@@ -111,13 +115,24 @@ namespace Desert::Water
         t.LODScale       = GetViewLODScale( viewDistanceScale );
         t.LOD            = GetWaterLODParams( observer, t.LODScale );
         t.Output         = &output;
-        SelectLOD( Node{ .Level = m_TreeDepth - 1, .Tile = glm::ivec2( 0 ) }, m_TreeDepth - 1, t );
+        // The walk tests a node's four children at once (VisibleChildren) before descending; the root alone
+        // is tested here.
+        const Node root{ .Level = m_TreeDepth - 1, .Tile = glm::ivec2( 0 ) };
+        if ( Visible( root, t ) )
+            SelectLOD( root, m_TreeDepth - 1, t );
 
-        // One draw per density (UE's buckets): the renderer draws each run with that density's grid.
-        std::stable_sort( output.begin(), output.end(),
-                          []( const WaterTileInstance& a, const WaterTileInstance& b )
-                          { return a.DensityIndex < b.DensityIndex; } );
-        return output;
+        // One draw per density (UE's buckets): the renderer draws each run with that density's grid. A stable
+        // counting pass over the m_DensityCount (<= 12) buckets into the caller's buffer - std::stable_sort would
+        // take a heap temporary every traversal.
+        std::array<uint32_t, kMaxDensityCount + 1> first{};
+        for ( const WaterTileInstance& tile : output )
+            ++first[static_cast<size_t>( tile.DensityIndex ) + 1u];
+        for ( size_t d = 1; d < first.size(); ++d )
+            first[d] += first[d - 1];
+        buffers.Tiles.resize( output.size() );
+        for ( const WaterTileInstance& tile : output )
+            buffers.Tiles[first[static_cast<size_t>( tile.DensityIndex )]++] = tile;
+        return buffers.Tiles;
     }
 
     WaterQuadTree::Coverage WaterQuadTree::Classify( const Node& node, float& surfaceY ) const
@@ -141,16 +156,33 @@ namespace Desert::Water
         return any ? Coverage::Partial : Coverage::Empty;
     }
 
-    bool WaterQuadTree::Visible( const Node& node, const Traversal& t ) const
+    Common::Math::AABB WaterQuadTree::NodeBox( const Node& node, const Traversal& t ) const
     {
-        if ( t.Frustum == nullptr )
-            return true;
         const glm::vec2    lo = m_RootMin + glm::vec2( node.Tile ) * m_LeafSize;
         const glm::vec2    hi = lo + glm::vec2( static_cast<float>( 1 << node.Level ) * m_LeafSize );
         Common::Math::AABB box;
         box.Min = glm::vec3( lo.x, m_MinSurfaceY - t.VerticalExtent, lo.y );
         box.Max = glm::vec3( hi.x, m_MaxSurfaceY + t.VerticalExtent, hi.y );
-        return t.Frustum->Intersects( box );
+        return box;
+    }
+
+    bool WaterQuadTree::Visible( const Node& node, const Traversal& t ) const
+    {
+        if ( t.Frustum == nullptr )
+            return true;
+        return t.Frustum->Intersects( NodeBox( node, t ) );
+    }
+
+    // UE FConvexVolume::IntersectBox4 over a quadtree node's children: the four boxes Visible builds, one
+    // Intersects4 (Intersects bit for bit), so bit i is Visible( Child( node, i ) ).
+    uint32_t WaterQuadTree::VisibleChildren( const Node& node, const Traversal& t ) const
+    {
+        if ( t.Frustum == nullptr )
+            return 0xFu;
+        Common::Math::AABBQuad quad;
+        for ( int32_t child = 0; child < 4; ++child )
+            quad.Set( static_cast<std::size_t>( child ), NodeBox( Child( node, child ), t ) );
+        return t.Frustum->Intersects4( quad );
     }
 
     float WaterQuadTree::DistanceToNode( const Node& node, const glm::vec2& point ) const
@@ -173,7 +205,7 @@ namespace Desert::Water
     {
         float          surfaceY = 0.0f;
         const Coverage coverage = Classify( node, surfaceY );
-        if ( coverage == Coverage::Empty || !Visible( node, t ) )
+        if ( coverage == Coverage::Empty ) // visibility: the caller's (the root's, or VisibleChildren)
             return;
 
         // Distance to the tile (0 inside it).
@@ -189,8 +221,10 @@ namespace Desert::Water
             }
             else
             {
+                const uint32_t visible = VisibleChildren( node, t );
                 for ( int32_t child = 0; child < 4; ++child )
-                    SelectLODRefinement( Child( node, child ), 2, lodLevel + 1, t );
+                    if ( ( visible >> child ) & 1u )
+                        SelectLODRefinement( Child( node, child ), 2, lodLevel + 1, t );
             }
             return;
         }
@@ -211,14 +245,18 @@ namespace Desert::Water
             }
             else
             {
+                const uint32_t visible = VisibleChildren( node, t );
                 for ( int32_t child = 0; child < 4; ++child )
-                    SelectLODRefinement( Child( node, child ), 1, lodLevel, t );
+                    if ( ( visible >> child ) & 1u )
+                        SelectLODRefinement( Child( node, child ), 1, lodLevel, t );
             }
             return;
         }
 
+        const uint32_t visible = VisibleChildren( node, t );
         for ( int32_t child = 0; child < 4; ++child )
-            SelectLOD( Child( node, child ), lodLevel - 1, t );
+            if ( ( visible >> child ) & 1u )
+                SelectLOD( Child( node, child ), lodLevel - 1, t );
     }
 
     // UE FNode::SelectLODRefinement (WaterQuadTree.cpp:141-176): the LOD is decided, the node is not whole; its
@@ -228,15 +266,17 @@ namespace Desert::Water
     {
         float          surfaceY = 0.0f;
         const Coverage coverage = Classify( node, surfaceY );
-        if ( coverage == Coverage::Empty || !Visible( node, t ) )
+        if ( coverage == Coverage::Empty ) // visibility: the caller's (the root's, or VisibleChildren)
             return;
         if ( coverage == Coverage::Complete || node.Level == 0 )
         {
             AddNodeForRender( node, surfaceY, densityLevel, lodLevel, t );
             return;
         }
+        const uint32_t visible = VisibleChildren( node, t );
         for ( int32_t child = 0; child < 4; ++child )
-            SelectLODRefinement( Child( node, child ), densityLevel + 1, lodLevel, t );
+            if ( ( visible >> child ) & 1u )
+                SelectLODRefinement( Child( node, child ), densityLevel + 1, lodLevel, t );
     }
 
     // UE FNode::AddNodeForRender (WaterQuadTree.cpp:11-100).

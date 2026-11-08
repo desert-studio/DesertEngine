@@ -4,12 +4,25 @@
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
+#include <shared_mutex>
 #include <unordered_set>
 
 namespace Desert::Runtime
 {
+    /**
+     * THREADS (CPU-IMAGE-RACE-2; UE: FShaderCompilingManager's maps under one FCriticalSection). The service is
+     * asked from the game thread (registration, hot reload, MaterialService under its own lock, the VFX presets),
+     * from MeshECSSystem's worker (through MaterialService) and from every render worker that records a view
+     * (GetByName, AcquireVariant: MeshRenderer, SSR, TAA, the surface cache, the screen probes). One shared_mutex
+     * guards every map below: a lookup takes it shared, a write exclusive. No compile, no GPU object's
+     * destruction and no log line runs under it - the programs are built before the lock, the ones a write
+     * replaces are released after it, and a variant compiles between BeginVariant and FinishVariant unlocked.
+     * The lock is a leaf: nothing under it calls another service. (One exception, named: BeginVariant re-reads
+     * a shader asset the eviction sweep emptied - a file read under the exclusive lock, rare by construction.)
+     */
     class ShaderService
     {
     public:
@@ -51,16 +64,17 @@ namespace Desert::Runtime
          * THE SAME QUESTION IN THREE STEPS, for a caller that must not stall a frame on a compile
          * (VFX-PRESETS2-4; UE FShaderCompilingManager: the job compiles, the game thread adopts the result).
          *
-         *  1. BeginVariant (the service's thread): every refusal AcquireVariant gives, then either the program
+         *  1. BeginVariant (any thread): every refusal AcquireVariant gives, then either the program
          *     (Ready: cached and alive) or a ticket (Compile) carrying a COPY of everything the compile reads.
          *  2. Core::BuildShaderMap( ticket.Request ) on any thread: it reads the ticket alone, never this service,
          *     its maps or the asset (ShaderMapBuild.hpp: device-free, safe on a worker).
-         *  3. FinishVariant (the service's thread again): the device half, the cache entry and the refusal record,
+         *  3. FinishVariant (any thread): the device half, the cache entry and the refusal record,
          *     exactly as AcquireVariant makes them. A ticket the service moved past while it was compiled (a
          *     ForgetRefusalsOf / ForgetRefusalsOfProgram / Clear since BeginVariant: the source may be another)
          *     is not adopted: the answer is BeginVariant's again, i.e. a fresh ticket or the program.
          *
-         * AcquireVariant is these three steps on one thread, so the two paths cannot disagree.
+         * AcquireVariant is these three steps, so the two paths cannot disagree. Any thread may take either path:
+         * steps 1 and 3 lock the service, step 2 runs with it unlocked.
          */
         struct VariantCompile
         {
@@ -151,7 +165,10 @@ namespace Desert::Runtime
          *         vector. The caller needs both: one means "the shipped medium", the other means "this
          *         medium, which has no parameters".
          */
-        const std::vector<Core::Formats::ShaderParam>* MediumSchemaOf( const Assets::AssetHandle& handle ) const;
+        /// CO-OWNED, NOT BORROWED: the cloud renderer asks from a render worker while the hot-reload poll may
+        /// replace the entry (RefreshMediumSource) - the schema a reader holds outlives that replacement.
+        std::shared_ptr<const std::vector<Core::Formats::ShaderParam>>
+        MediumSchemaOf( const Assets::AssetHandle& handle ) const;
 
         /// Re-read a medium's body after its file changed on disk. Called by the hot-reload poll, which
         /// is the only thing that knows a shader asset was re-read.
@@ -188,7 +205,7 @@ namespace Desert::Runtime
         /// unregister from the service.
         [[nodiscard]] std::uint64_t RecompileGeneration() const
         {
-            return m_RecompileGeneration;
+            return m_RecompileGeneration.load( std::memory_order_acquire );
         }
 
         /**
@@ -214,6 +231,19 @@ namespace Desert::Runtime
         std::vector<std::string> GetAllNames() const;
 
     private:
+        // The lock-held halves of the public calls of the same name (the caller holds m_Lock as stated).
+        std::shared_ptr<Graphic::Shader> GetLocked( const Assets::AssetHandle& handle ) const; // shared or more
+        void ForgetRefusalsOfLocked( const Assets::AssetHandle& handle );                     // exclusive
+        // The steady frame's answer under the SHARED lock: a live variant or a standing compile refusal, or
+        // nullopt when only BeginVariantLocked (exclusive) can answer.
+        std::optional<Common::ResultStr<VariantLookup>>
+        SettledVariantLocked( const Graphic::ShaderVariant& variant, const std::string& key ) const;
+        Common::ResultStr<VariantLookup> BeginVariantLocked( const std::string&           name,
+                                                             const Graphic::ShaderVariant& variant,
+                                                             const std::string&           key ); // exclusive
+
+        mutable std::shared_mutex m_Lock; // every member below (THREADS above)
+
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Graphic::Shader>> m_Shaders;
         std::unordered_map<std::string, Assets::AssetHandle>                      m_NameToHandleMap;
         // Named passes of multi-pass shaders, keyed "<Shader>/<Pass>". Kept separate from
@@ -247,15 +277,16 @@ namespace Desert::Runtime
         };
         std::unordered_map<std::string, Refusal> m_Refusals;
         /// RecompileGeneration: bumped by ForgetRefusalsOf, ForgetRefusalsOfProgram and Clear.
-        std::uint64_t m_RecompileGeneration = 0;
+        /// Atomic: RecompileGeneration is read unlocked, every frame; it is written under the exclusive lock.
+        std::atomic<std::uint64_t> m_RecompileGeneration{ 0 };
         /// ProgramGeneration: the RecompileGeneration each file's ForgetRefusalsOf, each program name's
         /// ForgetRefusalsOfProgram and the last Clear stamped.
         std::unordered_map<Assets::AssetHandle, std::uint64_t> m_FileGenerations;
         std::unordered_map<std::string, std::uint64_t>         m_ProgramNameGenerations;
         std::uint64_t                                          m_ClearGeneration = 0;
-        /// Record (or keep) the refusal of @p key and return it as AcquireVariant's error.
+        /// Record (or keep) the refusal of @p key and return it as AcquireVariant's error. Exclusive lock held.
         Common::ResultStr<std::shared_ptr<Graphic::Shader>> Refuse( const std::string& key, Refusal refusal );
-        /// Forget the refusals of names that resolve to @p program (Register of that name).
+        /// Forget the refusals of names that resolve to @p program (Register of that name). Exclusive lock held.
         void ForgetRefusalsOfProgram( const std::string& program );
         // The ShippedByCook census (ShippedByCookRequests), keyed as m_Variants is. Never pruned: a request is a
         // fact about what the runtime selects, not about what is live.
@@ -274,7 +305,8 @@ namespace Desert::Runtime
         struct MediumEntry
         {
             std::string                             Source;
-            std::vector<Core::Formats::ShaderParam> Properties;
+            // Shared and immutable: MediumSchemaOf hands it out, a refresh publishes a new one.
+            std::shared_ptr<const std::vector<Core::Formats::ShaderParam>> Properties;
         };
         std::unordered_map<Assets::AssetHandle, MediumEntry> m_Media;
 

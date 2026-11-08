@@ -136,11 +136,11 @@ TEST( SkyScattering, SkyViewUnitRoundTripsAcrossTheDomain )
 
                 EXPECT_GE( c.ViewZenithCos, -1.0f );
                 EXPECT_LE( c.ViewZenithCos, 1.0f );
-                EXPECT_GE( c.LightViewCos, -1.0f );
-                EXPECT_LE( c.LightViewCos, 1.0f );
+                EXPECT_GE( c.Azimuth, -3.1415927f );
+                EXPECT_LE( c.Azimuth, 3.1415927f );
 
                 const glm::vec2 back =
-                     Ref::SkyViewUnitFromParams( p.BottomRadiusKm, r, c.ViewZenithCos, c.LightViewCos );
+                     Ref::SkyViewUnitFromParams( p.BottomRadiusKm, r, c.ViewZenithCos, c.Azimuth );
 
                 // 2e-3 of the unit domain is about a fifth of a texel at 104 rows: acos/cos round
                 // trips through float, and the sqrt warp amplifies that near its flat ends.
@@ -166,10 +166,11 @@ TEST( SkyScattering, SkyViewParamsRoundTripThroughUnit )
             const float viewZenithCos = -1.0f + 2.0f * static_cast<float>( zi ) / 64.0f;
             for ( int li = 0; li <= 16; ++li )
             {
-                const float lightViewCos = -1.0f + 2.0f * static_cast<float>( li ) / 16.0f;
+                // The full turn of the 360-degree referential, [-pi, pi].
+                const float azimuth = 3.1415927f * ( -1.0f + 2.0f * static_cast<float>( li ) / 16.0f );
 
                 const glm::vec2 unit =
-                     Ref::SkyViewUnitFromParams( p.BottomRadiusKm, r, viewZenithCos, lightViewCos );
+                     Ref::SkyViewUnitFromParams( p.BottomRadiusKm, r, viewZenithCos, azimuth );
                 const Ref::SkyViewLutCoord c = Ref::SkyViewParamsFromUnit( p.BottomRadiusKm, r, unit );
 
                 // The warp compresses toward the horizon, so the honest bound is on the ANGLE the
@@ -177,7 +178,7 @@ TEST( SkyScattering, SkyViewParamsRoundTripThroughUnit )
                 EXPECT_NEAR( std::acos( glm::clamp( c.ViewZenithCos, -1.0f, 1.0f ) ),
                              std::acos( glm::clamp( viewZenithCos, -1.0f, 1.0f ) ), 3e-3f )
                      << "alt=" << altitude << " mu=" << viewZenithCos;
-                EXPECT_NEAR( c.LightViewCos, lightViewCos, 3e-3f ) << "alt=" << altitude << " lv=" << lightViewCos;
+                EXPECT_NEAR( c.Azimuth, azimuth, 3e-3f ) << "alt=" << altitude << " az=" << azimuth;
             }
         }
     }
@@ -261,28 +262,30 @@ TEST( SkyScattering, ViewHeightAndZenithRecoverTheCameraExactly )
     EXPECT_NEAR( zenithSideways.x, 30.0f / static_cast<float>( rd ), 1e-5f );
 }
 
-TEST( SkyScattering, LightViewCosAndRayDirectionAgree )
+TEST( SkyScattering, AzimuthAndRayDirectionAgree )
 {
-    // Build a ray FROM (viewZenithCos, lightViewCos), then measure its light-view cosine back with
-    // the world-frame helper — the fill writes through one function and the sky pass reads through
-    // the other, so they must be inverse views of the same geometry.
-    const glm::vec3 zenith( 0.0f, 1.0f, 0.0f );
+    // Build a ray FROM (viewZenithCos, azimuth) in the referential, put it in the world, then measure its
+    // azimuth back with the reader's helper — the fill writes through one function and the sky pass reads
+    // through the other, so they must be inverse views of the same geometry. A tilted zenith (a camera
+    // 30 km sideways) keeps the referential off the identity.
+    const glm::vec3               zenith      = glm::normalize( glm::vec3( 0.0047f, 1.0f, 0.0f ) );
+    const Ref::SkyViewReferential referential = Ref::SkyViewReferentialAt( zenith );
 
     for ( int zi = 1; zi < 16; ++zi )
     {
         const float viewZenithCos = -0.95f + 1.9f * static_cast<float>( zi ) / 16.0f;
         for ( int li = 0; li <= 8; ++li )
         {
-            const float lightViewCos = -1.0f + 2.0f * static_cast<float>( li ) / 8.0f;
+            const float azimuth = 3.1415927f * ( -0.9375f + 1.875f * static_cast<float>( li ) / 8.0f );
 
-            const glm::vec3 dir = Ref::SkyViewRayDirection( viewZenithCos, lightViewCos );
+            const glm::vec3 dir = Ref::SkyViewRayDirection( viewZenithCos, azimuth );
             EXPECT_NEAR( glm::length( dir ), 1.0f, 1e-5f );
             EXPECT_NEAR( dir.y, viewZenithCos, 1e-5f );
 
-            // The sun of the LUT's local frame lies toward +X.
-            const glm::vec3 sunDir    = glm::normalize( glm::vec3( 0.8f, 0.6f, 0.0f ) );
-            const float     roundTrip = Ref::SkyViewLightViewCos( zenith, dir, sunDir );
-            EXPECT_NEAR( roundTrip, lightViewCos, 1e-4f ) << "mu=" << viewZenithCos << " lv=" << lightViewCos;
+            const glm::vec3 world     = Ref::SkyViewReferentialToWorld( referential, dir );
+            const float     roundTrip = Ref::SkyViewAzimuth( referential, world );
+            EXPECT_NEAR( glm::dot( world, zenith ), viewZenithCos, 1e-5f );
+            EXPECT_NEAR( roundTrip, azimuth, 1e-3f ) << "mu=" << viewZenithCos << " az=" << azimuth;
         }
     }
 }

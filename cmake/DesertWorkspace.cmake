@@ -75,6 +75,44 @@ endif()
 foreach(kind EXE SHARED MODULE STATIC)
     set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING "${CMAKE_${kind}_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
 endforeach()
+# ── WHOLE-PROGRAM OPTIMISATION AND THE PROCESS ALLOCATOR (CPU-TOOLCHAIN-LTCG-PGO) ──
+# UE: bAllowLTCG for the shipped code, FMallocMimalloc / FMallocBinned as the process allocator. MSVC only; clang's
+# counterpart (ThinLTO, mimalloc's static override) is its own A/B later, not a value of these switches.
+#   DESERT_LTCG      /Gw /Ob3 in Release and Shipping, /GL + /LTCG in Shipping only (the 4 GB archive limit, see
+#                    _shipping_link), on the runtime libraries marked desert_ltcg (Common,
+#                    every engine module library -- one shared PCH, so all or none -- and Jolt); executables link
+#                    /LTCG:INCREMENTAL (Release) and /LTCG (Shipping). Editor-only libraries stay without /GL, so
+#                    link time and memory grow only with the code the game runs; at most two links run at once
+#                    under Ninja (the desert_link pool): each LTCG link holds the whole runtime's IL.
+#   DESERT_MIMALLOC  mimalloc.dll + mimalloc-redirect.dll as the process allocator of the executables marked
+#                    desert_link_mimalloc (Editor, Runtime, DesertCtl) in Release and Shipping. Debug keeps the
+#                    debug CRT heap: the redirect patches ucrtbase.dll, which a /MDd process does not allocate from.
+if(MSVC)
+    option(DESERT_LTCG "MSVC: /GL on the runtime libraries, /LTCG on the executables (Release, Shipping)" ON)
+    option(DESERT_MIMALLOC "MSVC: mimalloc + mimalloc-redirect as the process allocator (Release, Shipping)" ON)
+    if(DESERT_LTCG AND CMAKE_GENERATOR MATCHES "Ninja")
+        set_property(GLOBAL APPEND PROPERTY JOB_POOLS desert_link=2)
+        set(CMAKE_JOB_POOL_LINK desert_link)
+    endif()
+endif()
+
+# ── THE INSTRUCTION SET (CPU-SIMD) ─────────────────────────────────────────────
+# UE: one vector layer (VectorRegister: SSE/AVX behind one header) over the baseline ISA the binary is built for.
+#   DESERT_AVX2      MSVC x64: /arch:AVX2 on every target in EVERY configuration, so Debug compiles the same
+#                    code paths as Release and Shipping (Common/Core/Math/Simd.hpp picks them at compile time
+#                    from _M_X64 / __AVX2__) and a Debug test exercises what ships. The compiler autovectorises
+#                    with AVX2; the hot loops it cannot vectorise (frustum culling) are written by hand through
+#                    Simd.hpp. VS2022's /fp:precise does not contract a*b+c into an FMA (that is /fp:contract),
+#                    so a scalar and a SIMD path of the same arithmetic round alike. A vendored library with its
+#                    OWN instruction-set choice (desert_own_isa_dispatch: Embree's SSE2 ISA build, dav1d's and
+#                    meshoptimizer's cpuid dispatch, Compressonator's, mimalloc, which runs before main) keeps
+#                    its own flags. glm does not follow /arch: its SIMD types switch on only with
+#                    GLM_FORCE_INTRINSICS / GLM_FORCE_*, which nothing defines, so __AVX2__ changes no glm
+#                    layout. clang (macOS ARM64) takes the scalar path.
+if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+    option(DESERT_AVX2 "MSVC x64: /arch:AVX2 on every target without its own ISA dispatch" ON)
+endif()
+
 if(MSVC)
     # MSBuild's ClCompile defaults that differ from cl's own: ExceptionHandling Sync (/EHsc, passed to .c too),
     # RemoveUnreferencedCodeData (/Zc:inline), UseFullPaths (/FC). SupportJustMyCode (/JMC) under UseDebugLibraries
@@ -84,8 +122,16 @@ if(MSVC)
     # Debug and Release write a .pdb (DesertCrashReporter
     # symbolises with it); Shipping writes none. Optimised links fold and drop (/OPT:REF,ICF).
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG    "/DEBUG /INCREMENTAL" CACHE STRING "" FORCE)
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE  "/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "" FORCE)
-    set(CMAKE_EXE_LINKER_FLAGS_SHIPPING "/INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "" FORCE)
+    set(_release_link "/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF")
+    set(_shipping_link "/INCREMENTAL:NO /OPT:REF /OPT:ICF")
+    # Whole-program code generation in Shipping only (UE bAllowLTCG: Shipping, not Development). Release keeps
+    # /Z7 debug info, and /GL IL + /Z7 in every object put DesertRenderer.lib past the 4 GB archive limit
+    # (lib.exe hangs at 4294967295 bytes, 11-07).
+    if(DESERT_LTCG)
+        string(APPEND _shipping_link " /LTCG")
+    endif()
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE  "${_release_link}" CACHE STRING "" FORCE)
+    set(CMAKE_EXE_LINKER_FLAGS_SHIPPING "${_shipping_link}" CACHE STRING "" FORCE)
 endif()
 
 # MSBuild's SupportJustMyCode default under UseDebugLibraries (Debug): /JMC.
@@ -112,7 +158,18 @@ add_compile_definitions(
     $<$<CONFIG:Shipping>:DESERT_CONFIG_SHIPPING>
     # EnTT's type-index counter must be atomic in every target or none.
     ENTT_USE_ATOMIC
+    # spdlog is header-only here, so every target or none (one logger::log_it_): spdlog catches nothing, its
+    # own failure aborts with its message, and a sink's throw ends the process at the log call (Logger.hpp).
+    SPDLOG_NO_EXCEPTIONS
+    # Optick (the CPU profiler) in every target or none, with ONE value: Profiler.hpp's class layout depends on it,
+    # and optick.config.h turns an undefined USE_OPTICK on. Off in Shipping, where no target links the library
+    # either (DESERT_OPTICK), as Profiler.hpp promises. GPU and tracing off everywhere.
+    $<IF:$<CONFIG:Shipping>,USE_OPTICK=0,USE_OPTICK=1>
+    OPTICK_ENABLE_GPU=0
+    OPTICK_ENABLE_TRACING=0
 )
+# The Optick library as a link item: every configuration but Shipping.
+set(DESERT_OPTICK "$<$<NOT:$<CONFIG:Shipping>>:Optick>")
 
 # ── LANGUAGE ───────────────────────────────────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 20)
@@ -384,6 +441,24 @@ function(_desert_target_flags target warnings speed debug_opt)
     elseif(debug_opt)
         target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:Debug>,${_cc}>:-O2>")
     endif()
+    # DESERT_LTCG on a desert_ltcg target: whole-program code generation (/GL), global data in COMDATs the linker can
+    # fold and drop (/Gw), the aggressive inliner (/Ob3, which pays across modules only with /GL). Its archive is
+    # written by lib /LTCG, which otherwise restarts itself on the first /GL object.
+    # DESERT_AVX2: /arch:AVX2, every configuration, but not on a target with its own ISA dispatch.
+    get_target_property(_own_isa ${target} DESERT_OWN_ISA_DISPATCH)
+    if(MSVC AND DESERT_AVX2 AND NOT _own_isa)
+        target_compile_options(${target} PRIVATE "$<${_cc}:/arch:AVX2>")
+    endif()
+    get_target_property(_ltcg ${target} DESERT_LTCG)
+    if(MSVC AND DESERT_LTCG AND _ltcg)
+        # /Gw /Ob3 in Release and Shipping; /GL and lib /LTCG in Shipping only (see _shipping_link).
+        target_compile_options(${target} PRIVATE "$<$<AND:$<NOT:$<CONFIG:Debug>>,${_cc}>:/Gw;/Ob3>")
+        target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:Shipping>,${_cc}>:/GL>")
+        get_target_property(_type ${target} TYPE)
+        if(_type STREQUAL "STATIC_LIBRARY")
+            set_property(TARGET ${target} APPEND PROPERTY STATIC_LIBRARY_OPTIONS "$<$<CONFIG:Shipping>:/LTCG>")
+        endif()
+    endif()
 endfunction()
 
 # A shared precompiled header (UE's shared PCHs): every target of <group> compiles with the same flags, include
@@ -424,6 +499,16 @@ function(_desert_split_objects owner suffix pch_holder out)
     set_property(TARGET ${owner} PROPERTY SOURCES ${_keep})
 
     add_library(${_obj} OBJECT ${ARGN})
+    # The owner's whole-program mark (desert_ltcg): its split parts, the PCH holder included, compile like it.
+    get_target_property(_ltcg ${owner} DESERT_LTCG)
+    if(_ltcg)
+        set_property(TARGET ${_obj} PROPERTY DESERT_LTCG ON)
+    endif()
+    # The owner's instruction set (desert_own_isa_dispatch): its split parts keep the same flags.
+    get_target_property(_own_isa ${owner} DESERT_OWN_ISA_DISPATCH)
+    if(_own_isa)
+        set_property(TARGET ${_obj} PROPERTY DESERT_OWN_ISA_DISPATCH ON)
+    endif()
     # SYSTEM directories through target_include_directories(SYSTEM), from the owner's DESERT_SYSTEM_INCLUDES
     # (desert_external_includes). The owner's list is already ordinary-then-SYSTEM, so the order is kept.
     get_target_property(_incs ${owner} INCLUDE_DIRECTORIES)
@@ -700,6 +785,33 @@ endfunction()
 # desert_finalize_targets().
 function(desert_optimize_speed target)
     set_property(TARGET ${target} PROPERTY DESERT_OPTIMIZE_SPEED ON)
+endfunction()
+
+# A runtime library compiled for whole-program optimisation under DESERT_LTCG (/GL /Gw /Ob3, Release and Shipping).
+# Applied per target, with its split parts, by desert_finalize_targets().
+function(desert_ltcg target)
+    set_property(TARGET ${target} PROPERTY DESERT_LTCG ON)
+endfunction()
+
+# A vendored library that picks its instruction set itself (a cpuid dispatch, an ISA-specific build): no
+# /arch:AVX2 under DESERT_AVX2. Applied per target, with its split parts, by desert_finalize_targets().
+function(desert_own_isa_dispatch target)
+    set_property(TARGET ${target} PROPERTY DESERT_OWN_ISA_DISPATCH ON)
+endfunction()
+
+# DESERT_MIMALLOC: mimalloc.dll as the process allocator of the executable <target>, Release and Shipping
+# (cmake/ThirdParty/Mimalloc.cmake). It must be the executable's FIRST import, so the redirect is in place before
+# any other module allocates: its import library goes into LINK_OPTIONS, which the MSVC link rule writes before
+# every link library, and /INCLUDE:mi_version keeps the import although no source calls mimalloc. Nothing includes
+# mimalloc.h: Common::Utils::ReadProcessAllocator asks the running process which heap it has.
+function(desert_link_mimalloc target)
+    if(NOT DESERT_MIMALLOC)
+        return()
+    endif()
+    set(_on "$<NOT:$<CONFIG:Debug>>")
+    target_link_options(${target} PRIVATE "$<${_on}:$<TARGET_LINKER_FILE:Mimalloc>;/INCLUDE:mi_version>")
+    # The build order and the relink when mimalloc.lib changes; the same import library again in the link list.
+    target_link_libraries(${target} PRIVATE "$<${_on}:Mimalloc>")
 endfunction()
 
 # Warnings off for a whole target: /W0 (-w) for every source of the target, including the ones outside

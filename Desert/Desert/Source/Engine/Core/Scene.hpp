@@ -6,6 +6,7 @@
 #include <Engine/Graphic/ExtensionPass.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Profiler.hpp>
 #include <Common/Core/Core.hpp>
 #include <Engine/Core/Camera.hpp>
 
@@ -36,6 +37,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -50,6 +52,7 @@
 #include <string>
 #include <unordered_map>
 #include <array>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::RayTracing
@@ -338,14 +341,15 @@ namespace Desert::Core
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept ) const;
 
-        // The drawn landscape tiles a raycast tests. Gathering them walks every entity and checks each tile
-        // against its root: 96 of a 115 us ray on Terrain_Grass (FO-3b). A caller tracing many rays at one
-        // moment (a foliage dab traces hundreds) gathers once and passes the set; it borrows the tiles'
-        // heights, so it lives no longer than that moment (no tile added, removed or reloaded meanwhile).
+        // The drawn landscape tiles a raycast tests: a view of the shared landscape tile table
+        // (ECS::LandscapeTileTable, LandscapeRootOf.hpp), which keeps them beside the drawn tiles and rebuilds
+        // them only when a tile or a root changes. A caller tracing many rays at one moment (a foliage dab
+        // traces hundreds) gathers once and passes the set; it borrows the table, so it lives no longer than
+        // that moment (no tile added, removed or reloaded, no root moved meanwhile).
         struct RaycastLandscapeSet
         {
-            std::vector<Common::UUID>                       Entities;
-            std::vector<World::Landscape::LandscapeRayTile> Tiles;
+            std::span<const Common::UUID>                       Entities;
+            std::span<const World::Landscape::LandscapeRayTile> Tiles;
         };
         [[nodiscard]] RaycastLandscapeSet GatherRaycastLandscape() const;
         // The accept-filtered trace against a landscape set gathered earlier.
@@ -838,6 +842,10 @@ namespace Desert::Core
         // EnTT signal handlers feeding MarkRenderStateDirty: a transform dirties its subtree, the others the
         // entity alone.
         void OnTransformRenderStateChanged( entt::registry& registry, entt::entity entity );
+        // The world-transform cache's hooks: a constructed or replaced TransformComponent (root-only world) and a
+        // constructed RelationshipComponent (a parent stated at emplace) compose their subtree's world.
+        void OnTransformWorldPending( entt::registry& registry, entt::entity entity );
+        void OnRelationshipConstructed( entt::registry& registry, entt::entity entity );
         void OnRenderStateChanged( entt::registry& registry, entt::entity entity );
 
         // Creates every component pool a system may touch, serially, before any parallel group opens.
@@ -852,6 +860,9 @@ namespace Desert::Core
         void ExecuteSystems( const Common::Timestep& gameplayTs );
 
     private:
+        // The retained render cache's feed of the dirty set (ECS::RenderStateDelta; the registry context links
+        // it). Declared before the registry so it outlives every signal the registry's teardown may fire.
+        ECS::RenderStateDelta m_RenderStateDelta;
         entt::registry m_Registry;
 
         // See MarkRenderStateDirty.
@@ -860,11 +871,17 @@ namespace Desert::Core
         std::mutex                       m_RenderStateDirtyMutex;
 
         std::vector<std::unique_ptr<ECS::System>> m_Systems;
+        // Each system's profiler row (its type's name), interned once when ExecuteSystems first meets it
+        // (index-matched to m_Systems): no per-frame name lookup.
+        std::vector<::Common::Profiling::InternedScopeName> m_SystemScopeNames;
 
         // The last directional-light state this scene complained about (degenerate lights | lights that are
         // not the sun | whether there is a sun), kept so the per-frame collector reports each distinct state
         // ONCE instead of sixty times a second, and reports the return to a clean state too.
-        std::string m_DirLightsReported;
+        bool                      m_DirLightsLatched     = false;
+        bool                      m_DirLightsSunReported = false;
+        std::vector<entt::entity> m_DirLightsUnusedReported;
+        std::vector<entt::entity> m_DirLightsUnusedScratch; // this frame's, capacity reused (no per-frame heap)
 
         SceneEntityIndex m_Entities;
 
@@ -942,6 +959,14 @@ namespace Desert::Core
         using SystemCommandArena = std::vector<std::unique_ptr<Graphic::Render::RenderCommandBuffer>>;
         std::array<SystemCommandArena, 2> m_SystemCommandArenas;
         std::size_t                       m_RecordingArena = 0; // the arena this update's systems record into
+
+        // THE FRAME'S RENDERER INPUT (SceneRenderer::UpdateInfo), ONE PER ARENA, indexed like it: OnUpdate
+        // writes the slot of the arena it records into, and that update's view jobs and reflection captures read
+        // it BY REFERENCE (UE: the view family is handed to the rendering thread, not copied into every view's
+        // command). Its lifetime is the arena's: the update after next rewrites it, after every view of this one
+        // joined. The slot's DirLights keep their capacity (no per-frame heap). Defined in Scene.cpp.
+        struct FrameRendererInfos;
+        std::unique_ptr<FrameRendererInfos> m_FrameRendererInfos;
 
         SceneSettings m_Settings;
         std::string   m_SceneName;

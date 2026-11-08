@@ -290,7 +290,14 @@ namespace Desert::Editor
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        auto result = m_Importers[ext]->Import( path, *this, settings, pass );
+        // A source the importer refuses (unreadable, an unusable unit scale) is logged here, once.
+        const auto parsed = m_Importers[ext]->Import( path, *this, settings, pass );
+        if ( !parsed )
+        {
+            LOG_ERROR( "[Import] '{}' was not imported: {}", path.string(), parsed.GetError() );
+            return { CookVerdict::Failed, {}, {}, {} };
+        }
+        const ImportResult& result = parsed.GetValue();
         // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
         // further to go and that is deliberate rather than overlooked: this function is void because
         // both of its callers are fire-and-forget — the boot scan (ImportAllFromDirectory, on
@@ -526,6 +533,9 @@ namespace Desert::Editor
             const auto mesh         = SkinnedAssetPath( sourcePath, ".skmesh" );
             if ( const auto allowed = ContentWriteAllowed( pass, sourcePath, mesh, "skinned mesh" ); !allowed )
                 record( allowed );
+            else if ( const auto ordered = OptimizeSectionsForGpu( resolved.Mesh.value(), sourcePath.string() );
+                      !ordered )
+                record( ordered );
             else
             {
                 if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )

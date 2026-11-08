@@ -97,6 +97,16 @@ namespace Desert::Graphic
         // skipped (UE: instance data is re-uploaded on UpdateInstances, not compared every frame). Null: compared.
         std::shared_ptr<const std::vector<glm::mat4>> Snapshot;
     };
+
+    // One section of the RETAINED static scene (Render::StaticSceneSection) as the registry keys it: by the
+    // persistent primitive slot MeshECSSystem gave its entity (UE: FPrimitiveSceneInfo::PackedIndex), never by
+    // submission order. Every record of one slot is one entity with one world: one primitive, its sections'
+    // Content summed. Record.Part is unused (0).
+    struct StaticPrimitiveRecord
+    {
+        uint32_t     Primitive = 0;
+        MotionRecord Record;
+    };
 } // namespace Desert::Graphic
 
 // GPU-DRIVEN phase GPUSCENE: THE SCENE'S PRIMITIVES BY RENDERER KEY. Owns the scene's GpuScene (Scene::
@@ -119,7 +129,9 @@ namespace Desert::Graphic::GpuDriven
         std::vector<PrimitiveIndex> SkinnedPrimitives;
         std::vector<InstanceIndex>  SkinnedInstances;
         std::vector<InstanceIndex>  FieldInstances;
-        std::vector<PrimitiveIndex> FieldPrimitives; // each field's primitive, beside FieldInstances
+        std::vector<PrimitiveIndex> FieldPrimitives;  // each field's primitive, beside FieldInstances
+        std::vector<PrimitiveIndex> StaticPrimitives; // SyncStatic: per record, its slot's primitive
+        std::vector<InstanceIndex>  StaticInstances;
     };
 
     // A row's identity in the scene material table (GpuScene::AddMaterialRow): the template whose layout the row
@@ -196,6 +208,21 @@ namespace Desert::Graphic::GpuDriven
         void Sync( std::span<const MotionRecord> rigid, std::span<const MotionRecord> skinned,
                    std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out );
 
+        // THE RETAINED STATIC SCENE's records of one view (CPU-SCENE-DELTA 2; UE: FScene keeps the primitive by
+        // its PackedIndex, AddPrimitive / UpdatePrimitiveTransform / RemovePrimitive on change only). Keyed by
+        // StaticPrimitiveRecord::Primitive in a dense array (no hash, no per-entity scratch, no world compare to
+        // find the primitive). @p token names the list's contents (MeshRenderer: a new one per change of the
+        // list, of any record's world, mesh, flags or content; process-unique, 0 = none). Lifetime as Sync's: a
+        // slot no synced view of a frame queued is removed by the next BeginFrame; a slot given to another entity
+        // is removed and added afresh (no previous world of the old entity). Writes @p out.StaticPrimitives /
+        // StaticInstances, one per record. Call after BeginFrame, before or after Sync.
+        void SyncStatic( std::span<const StaticPrimitiveRecord> records, uint64_t token, GpuSceneRecordRows& out );
+        // The cheap frame of an unchanged static scene: true when the last SyncStatic was of @p token and no
+        // primitive of it was removed, discarded or rolled back since - then its primitives are queued for this
+        // frame and nothing else is read or written, O(1): one stamp for the whole list (the rows the caller
+        // kept from that SyncStatic still name them). false: call SyncStatic.
+        [[nodiscard]] bool KeepStatic( uint64_t token );
+
         // The scene material table row of @p key holding @p row: added the first time a frame asks, its slots
         // re-uploaded when the values differ from the ones it holds (a parameter changed), re-added at the new
         // stride when the template's layout changed (hot reload), removed by the first BeginFrame after a frame
@@ -221,7 +248,7 @@ namespace Desert::Graphic::GpuDriven
             uint64_t               PrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
             MaterialRowRevision    Revision;             // what Values were derived from ({} = unknown)
         };
-        void AskedThisFrame( MaterialEntry& entry ) const;
+        void AskedThisFrame( MaterialEntry& entry );
 
         struct Entry
         {
@@ -239,12 +266,16 @@ namespace Desert::Graphic::GpuDriven
             float                  BoundsPad = 0.0f;
             float                  CullStart = 0.0f;
             float                  CullEnd   = 0.0f;
-            uint64_t               BonesFrame = kNoFrame; // the frame Bones / BoneOffset were written for
-            uint64_t               PrevBonesFrame = kNoFrame; // the frame PrevBones were written for
-            uint32_t               BoneOffset = 0;
-            uint32_t               PrevOffset = 0;
-            std::vector<glm::mat4> Bones;
-            std::vector<glm::mat4> PrevBones; // the palette before Bones (DiscardFrame swaps it back)
+            // THE PALETTE LIVES IN THE FRAME BUFFERS, NOT HERE (UE: FSkeletalMeshObjectGPUSkin's double-buffered
+            // bone buffer). BoneOffset/BoneCount name this primitive's palette inside the frame palette of
+            // BonesFrame; the frame after reads its history straight out of m_PreviousPalettes there.
+            uint64_t BonesFrame     = kNoFrame; // the frame BoneOffset / BoneCount were written for
+            uint64_t PrevBonesFrame = kNoFrame; // the frame before it (DiscardFrame restores it)
+            uint32_t BoneOffset     = 0;
+            uint32_t BoneCount      = 0;
+            uint32_t PrevOffset     = 0;        // where the history copy sits in the frame palette
+            uint32_t PrevBoneOffset = 0;        // BoneOffset as of PrevBonesFrame (DiscardFrame restores it)
+            uint32_t PrevBoneCount  = 0;
             // The primitive's records' Content words as of the last Sync that queued it (an order-free sum of
             // their mixes: a merged record of the primitive adds its own), and the one Sync gathers now.
             uint64_t Content      = 0;
@@ -275,6 +306,8 @@ namespace Desert::Graphic::GpuDriven
         EntityScratch& ScratchOf( uint32_t entity );
 
         Entry& Touch( MotionKey key, const MotionRecord& record, bool& fresh );
+        // Touch's write of a primitive the current frame has not queued yet (@p inserted: no row yet).
+        void Write( Entry& entry, bool inserted, const MotionRecord& record );
         // The first record of the primitive this Sync (it was fresh: no earlier view of the frame synced it)
         // starts its FrameContent; every other record of it in the same Sync adds to it (AddContent). The end of
         // Sync publishes a Content change for each primitive whose sum moved (not for one added now).
@@ -288,7 +321,37 @@ namespace Desert::Graphic::GpuDriven
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
         std::unordered_map<uint32_t, EntityScratch>                           m_EntityScratch;
-        std::vector<glm::mat4>                              m_FramePalettes;
+        // The retained static scene's primitives by persistent slot (SyncStatic). Live: the slot holds a row.
+        // THE FRAME DOES NOT WALK THE SLOTS (UE FScene: only the added / updated / removed primitives are
+        // visited). The current list (m_StaticTokenSlots, its members' List == m_StaticListSerial) is queued as
+        // a whole by one stamp, m_StaticListFrame (KeepStatic writes nothing per slot); a member's Held.Frame is
+        // brought up to that stamp (FoldListFrame) only when it leaves the list. A live slot outside the list is
+        // an orphan (m_StaticOrphans): BeginFrame visits only the orphans, and the list's members only when the
+        // frame that ended did not queue the list.
+        struct StaticSlot
+        {
+            Entry    Held;
+            uint64_t List   = 0; // the list (m_StaticListSerial) that last named the slot
+            uint32_t Entity = 0;
+            bool     Live   = false;
+            bool     Orphan = false; // listed in m_StaticOrphans
+        };
+        void                    RemoveStatic( StaticSlot& slot );
+        void                    FoldListFrame( uint32_t index );
+        void                    OrphanStatic( uint32_t index );
+        void                    RetireStatic();
+        std::vector<StaticSlot> m_StaticSlots;
+        std::vector<uint32_t>   m_StaticTokenSlots; // the distinct slots of the last SyncStatic's list
+        uint64_t                m_StaticToken = 0;  // that list's token; 0 once any of its rows changed hands
+        uint64_t                m_StaticListSerial    = 0;        // names the current list (one per SyncStatic)
+        uint64_t                m_StaticListFrame     = kNoFrame; // the last frame that queued the current list
+        uint64_t                m_StaticListPrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
+        std::vector<uint32_t>   m_StaticOrphans;  // live slots outside the current list (may lapse)
+        std::vector<uint32_t>   m_StaticWritten;  // slots whose Held.Frame this frame set (DiscardFrame's undo)
+        // The palettes of the frame being synced and of the frame before it, swapped at BeginFrame (and back at
+        // DiscardFrame): the previous frame's bones are read from where they were written, never kept twice.
+        std::vector<glm::mat4> m_FramePalettes;
+        std::vector<glm::mat4> m_PreviousPalettes;
         uint64_t                                            m_SyncSerial = 0;
         std::vector<std::pair<Entry*, bool>>                m_ContentTouched; // entry, added this Sync
         uint64_t                                            m_Frame         = kNoFrame;
@@ -296,5 +359,14 @@ namespace Desert::Graphic::GpuDriven
         uint64_t                                            m_FrameBeforePrevious = kNoFrame;
         bool                                                m_Started       = false;
         bool                                                m_Committed     = false; // CommitFrame( m_Frame )
+        // THE RETIRE WALKS RUN ONLY WHEN SOMETHING LEFT (UE FScene: RemovedPrimitives is a list, not a sweep).
+        // How many m_Entries / m_MaterialRows / m_EntityScratch the frame being synced stamped with m_Frame
+        // (each counted on its first stamp of the frame). BeginFrame walks a map only when its count is below
+        // its size - an unchanged scene retires nothing and reads no entry. Exact from BeginFrame on; a
+        // DiscardFrame restores stamps of an older frame, so the next BeginFrame walks all (m_CountsExact).
+        size_t m_EntriesQueued = 0;
+        size_t m_MaterialsAsked = 0;
+        size_t m_ScratchNamed   = 0;
+        bool   m_CountsExact    = false;
     };
 } // namespace Desert::Graphic::GpuDriven

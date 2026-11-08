@@ -55,7 +55,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    uint64_t MeshRenderer::CardReadinessKey() const
+    uint64_t MeshRenderer::DrawReadinessKey() const
     {
         auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
         auto* const shaders   = Runtime::ResourceRegistry::GetShaderService();
@@ -65,7 +65,15 @@ namespace Desert::Graphic::System
         key = HashCombine( key, Graphic::PipelineReadinessGeneration() );
         if ( shaders != nullptr )
             key = HashCombine( key, static_cast<uint64_t>( shaders->RecompileGeneration() ) );
-        key = HashCombine( key, Assets::MeshCardsSlot::PublishGeneration() );
+        if ( m_SceneRenderer != nullptr )
+            key = HashCombine( key, m_SceneRenderer->GetPipelineCache().Generation() );
+        return key;
+    }
+
+    uint64_t MeshRenderer::CardReadinessKey() const
+    {
+        uint64_t key = DrawReadinessKey();
+        key          = HashCombine( key, Assets::MeshCardsSlot::PublishGeneration() );
         key = HashCombine( key, PointerBits( m_StaticGBufferPipeline.get() ) );
         key = HashCombine( key, PointerBits( m_InstancedGBufferPipeline.get() ) );
         key = HashCombine( key, PointerBits( m_SkinnedGBufferPipeline.get() ) );
@@ -199,13 +207,30 @@ namespace Desert::Graphic::System
                 // STATIC MESHES: an entry is one section (its SectionSlot's material by ShadingOf - the answer every
                 // other pass draws it with; HiddenSubmeshes masks the other sections'); the entries of one entity
                 // and part are one instance.
-                for ( const auto& data : m_StaticQueue )
+                // A synced entry's mesh and section surface come from the walk columns (ShadingOf's answer, made
+                // by this view's sync): a surfaceless or translucent section costs its column bytes, not a
+                // dynamic_cast and the template's path. An entry past them (queued after the sync) asks ShadingOf.
+                const StaticWalkColumns& columns = m_StaticColumns;
+                for ( std::size_t at = 0; at < m_StaticQueue.size(); ++at )
                 {
-                    if ( data.Mesh == nullptr )
-                        continue;
-                    const SectionShading shading = ShadingOf( data );
-                    if ( shading.Surface == nullptr || IsTranslucent( shading.Surface ) )
-                        continue;
+                    const StaticMeshRenderData& data = m_StaticQueue[at];
+                    SectionShading              shading;
+                    if ( StaticColumnsHave( at ) )
+                    {
+                        if ( columns.Meshes[at] == nullptr || columns.Surfaces[at] == nullptr ||
+                             ( columns.Flags[at] & StaticWalkColumns::kTranslucent ) != 0u )
+                            continue;
+                        shading.Instance = columns.Instances[at];
+                        shading.Surface  = columns.Surfaces[at];
+                    }
+                    else
+                    {
+                        if ( data.Mesh == nullptr )
+                            continue;
+                        shading = ShadingOf( data );
+                        if ( shading.Surface == nullptr || IsTranslucent( shading.Surface ) )
+                            continue;
+                    }
                     const auto cards = data.Mesh->GetCards();
                     if ( !cards || cards->Cards.empty() )
                         continue;
@@ -253,7 +278,7 @@ namespace Desert::Graphic::System
                     }
                     if ( shaders == nullptr || m_StaticGBufferPipeline == nullptr )
                         continue;
-                    const auto program = shaders->GetByName( g.ShaderName );
+                    const auto program = shaders->GetByName( g.ShaderName() );
                     // A program not registered yet: no recompile generation announces its arrival.
                     if ( !program )
                     {
@@ -262,11 +287,12 @@ namespace Desert::Graphic::System
                     }
                     if ( !program->IsCompiled() || !Core::Formats::DrawnByMeshPath( program->GetProgramMeta().Domain ) )
                         continue;
-                    const auto cell = TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer,
+                    const std::string& shaderName = g.ShaderName();
+                    const auto cell = TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer,
                                                           [shaders]( std::string_view name ) {
                                                               return shaders->GetByName( std::string( name ) ) != nullptr;
                                                           } );
-                    if ( !cell || *cell == g.ShaderName )
+                    if ( !cell || *cell == g.ShaderName() )
                         continue;
                     // The first material of its pool answers the cell's blend mode and readiness.
                     auto& pool = m_CardCaptureOverrides[*cell + GenericTextureKey( g )];
@@ -279,7 +305,7 @@ namespace Desert::Graphic::System
                     // Its identity: the cell, its textures and its values - an edited override recaptures its cards.
                     uint64_t surfaceKey = HashCombine( 0x9E3779B97F4A7C15ull, std::hash<std::string>{}( *cell ) );
                     surfaceKey          = HashCombine( surfaceKey, std::hash<std::string>{}( GenericTextureKey( g ) ) );
-                    for ( const auto& [name, value] : g.Overrides.Params )
+                    for ( const auto& [name, value] : g.Overrides().Params )
                     {
                         surfaceKey = HashCombine( surfaceKey, std::hash<std::string>{}( name ) );
                         for ( int lane = 0; lane < 4; ++lane )

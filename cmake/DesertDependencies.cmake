@@ -2,7 +2,7 @@
 # prebuilt libraries every engine-facing target shares, the Vulkan SDK lookup, and the Streamline runtime copy.
 #
 # The four dependency tables, as lists named after them, so a target script names the table it uses:
-#   deps.Common.IncludeDir / .Defines          DESERT_COMMON_INCLUDE_DIRS / DESERT_COMMON_DEFINES
+#   deps.Common.IncludeDir                     DESERT_COMMON_INCLUDE_DIRS (the Optick defines: DesertWorkspace.cmake)
 #   deps.CommonSpecific.Libraries              DESERT_COMMONSPECIFIC_LIBRARIES
 #   deps.DesertSpecific.IncludeDir             DESERT_DESERTSPECIFIC_INCLUDE_DIRS
 #   deps.DesertSpecific.Libraries.Debug/Release DESERT_VULKAN_LIBRARIES (one list, per-config generator expressions)
@@ -90,8 +90,6 @@ set(DESERT_COMMON_INCLUDE_DIRS
     "${_tp}/optick/src"
     "${_tp}/reflect-cpp/include"
     "${_tp}/spdlog/include")
-set(DESERT_COMMON_DEFINES USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0)
-
 set(DESERT_COMMONSPECIFIC_LIBRARIES ReflectCpp)
 
 # deps.DesertSpecific.IncludeDir, sorted by key (byte order: upper case before lower case).
@@ -142,6 +140,7 @@ set(DESERT_EDITORSPECIFIC_INCLUDE_DIRS
     "${DESERT_ROOT}/Editor/ThirdParty/assimp/include"
     "${DESERT_ROOT}/build/generated/assimp/include"
     "ThirdParty/ImGuizmo"
+    "${_tp}/meshoptimizer/src"
     "${_tp}/reflect-cpp/include"
     "${_tp}/stb/include")
 

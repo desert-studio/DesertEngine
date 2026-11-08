@@ -1,6 +1,8 @@
 #include "MeshService.hpp"
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -14,6 +16,37 @@
 
 namespace Desert::Runtime
 {
+    namespace
+    {
+        // GET'S RAW POINTER OUTLIVES EVERY FRAME THAT MAY HAVE READ IT. A rebuild over a built mesh replaces
+        // the pointer a render worker of frame N-1 may still be recording with; the outgoing mesh retires
+        // through the renderer's frame-retire queue (UE: deferred deletion) and dies at once only with no
+        // renderer. Eviction keeps its own FrameRetireQueue (m_Retiring), which `RetireEvicted` collects.
+        void RetireMesh( std::shared_ptr<Desert::Mesh>&& outgoing ) noexcept
+        {
+            if ( !outgoing )
+                return;
+            const auto ctx = EngineContext::GetInstance().GetRendererContext();
+            if ( !ctx )
+                return; // `outgoing` dies here
+            ctx->RetireAfterFramesInFlight( [held = std::move( outgoing )]() mutable { held.reset(); } );
+        }
+
+        using MeshTable = std::unordered_map<Assets::AssetHandle, std::shared_ptr<Desert::Mesh>>;
+
+        // Clear's table: every Mesh* it answered may still be recorded by a frame in flight, so the whole map
+        // retires as one unit (ImageService::Clear and AnimatedImageService::Clear do the same).
+        void RetireMeshTable( MeshTable&& table ) noexcept
+        {
+            if ( table.empty() )
+                return;
+            const auto ctx = EngineContext::GetInstance().GetRendererContext();
+            if ( !ctx )
+                return; // `table` dies here
+            ctx->RetireAfterFramesInFlight( [held = std::move( table )]() mutable { held.clear(); } );
+        }
+    } // namespace
+
     MeshService::MeshService( std::unique_ptr<IMeshUploader> uploader ) : m_Uploader( std::move( uploader ) )
     {
     }
@@ -34,6 +67,8 @@ namespace Desert::Runtime
         // THE SHELL BEFORE THE BUILD. Recorded first so that a build which fails (a skinned mesh whose rig
         // is not in the manager yet, a cooked file that will not parse) still leaves something `Get` can
         // retry from — and so BuildAndCache's own EnsureLoaded has the asset on record while it runs.
+        std::unique_lock lock( m_Lock );
+        DrainLateFailures();
         m_Entries[meshAsset->GetMetadata().Handle].Asset = meshAsset;
 
         return BuildAndCache( meshAsset );
@@ -51,6 +86,7 @@ namespace Desert::Runtime
 
         // Handle is path-derived in the ctor, so a not-yet-loaded shell is keyed correctly. The .stmesh parse
         // + GPU build are deferred to the first Get/GetAsset.
+        std::unique_lock lock( m_Lock );
         m_Entries[meshAsset->GetMetadata().Handle].Asset = meshAsset;
         m_AssetManager                                   = resolveAgainst;
         return BOOLSUCCESS;
@@ -114,13 +150,35 @@ namespace Desert::Runtime
                                                lodScreenSizes.GetError() );
         mesh->SetAuthoredLODScreenSizes( lodScreenSizes.GetValue() );
 
-        m_Meshes[handle] = std::move( mesh );
+        std::shared_ptr<Mesh>& slot = m_Meshes[handle];
+        std::shared_ptr<Mesh>  outgoing;
+        if ( slot ) // a rebuild over a built mesh: the pointer callers were answered is replaced
+        {
+            m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
+            outgoing = std::move( slot );
+        }
+        slot = std::move( mesh );
+        RetireMesh( std::move( outgoing ) );
         return BOOLSUCCESS;
     }
 
     void MeshService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
+        std::unique_lock lock( m_Lock );
         m_AssetManager = assets;
+    }
+
+    void MeshService::DrainLateFailures() const
+    {
+        std::vector<LateFailure> landed;
+        {
+            std::lock_guard failLock( m_LateFailLock );
+            if ( m_LateFailures.empty() )
+                return;
+            landed.swap( m_LateFailures );
+        }
+        for ( const auto& failure : landed )
+            Fail( failure.Owner, failure.Reason );
     }
 
     void MeshService::Fail( const Assets::AssetHandle& owner, const std::string& reason ) const
@@ -177,8 +235,12 @@ namespace Desert::Runtime
              [this, owner]( const Assets::Asset<Assets::AssetBase>& read, const Assets::LoadOutcome outcome,
                             const std::string& error )
              {
-                 if ( outcome == Assets::LoadOutcome::Failed )
-                     Fail( owner, "'" + read->GetMetadata().Filepath.string() + "' could not be read: " + error );
+                 if ( outcome != Assets::LoadOutcome::Failed )
+                     return;
+                 // Queued, not applied: see m_LateFailures (a delegate never takes m_Lock).
+                 std::lock_guard failLock( m_LateFailLock );
+                 m_LateFailures.push_back(
+                      { owner, "'" + read->GetMetadata().Filepath.string() + "' could not be read: " + error } );
              },
              [] {} );
     }
@@ -295,6 +357,16 @@ namespace Desert::Runtime
 
     Desert::Mesh* MeshService::Get( const Assets::AssetHandle& handle ) const
     {
+        {
+            std::shared_lock lock( m_Lock );
+            if ( auto it = m_Meshes.find( handle ); it != m_Meshes.end() )
+                return it->second.get();
+        }
+
+        // The miss: discovery, the read request and the build all write, so the lock is retaken exclusively
+        // and the hit re-checked (another thread may have built it between the two locks).
+        std::unique_lock lock( m_Lock );
+        DrainLateFailures();
         if ( auto it = m_Meshes.find( handle ); it != m_Meshes.end() )
             return it->second.get();
 
@@ -310,8 +382,30 @@ namespace Desert::Runtime
         return m_Meshes[handle].get();
     }
 
+    MeshService::State MeshService::StateOf( const Assets::AssetHandle& handle ) const noexcept
+    {
+        std::shared_lock lock( m_Lock );
+        {
+            // A read failure a delegate queued and no locked door has applied yet is already a failure.
+            std::lock_guard failLock( m_LateFailLock );
+            for ( const auto& failure : m_LateFailures )
+            {
+                if ( failure.Owner == handle )
+                    return State::Failed;
+            }
+        }
+        if ( m_Meshes.find( handle ) != m_Meshes.end() )
+            return State::Ready;
+        const auto it = m_Entries.find( handle );
+        if ( it == m_Entries.end() )
+            return State::Unknown;
+        return it->second.Failed ? State::Failed : State::Pending;
+    }
+
     Assets::MeshAsset* MeshService::GetAsset( const Assets::AssetHandle& handle ) const
     {
+        std::unique_lock lock( m_Lock );
+        DrainLateFailures();
         Entry* entry = FindOrDiscover( handle );
         if ( entry == nullptr || !Arrived( handle, *entry ) )
             return nullptr;
@@ -321,6 +415,8 @@ namespace Desert::Runtime
     void MeshService::StartRead( const Assets::AssetHandle&        handle,
                                  std::vector<Assets::AssetHandle>& awaited ) const
     {
+        std::unique_lock lock( m_Lock );
+        DrainLateFailures();
         Entry* entry = FindOrDiscover( handle );
         if ( entry == nullptr || Arrived( handle, *entry ) )
             return;
@@ -346,41 +442,65 @@ namespace Desert::Runtime
 
     Desert::Mesh* MeshService::LoadNow( const Assets::AssetHandle& handle )
     {
-        Entry* entry = FindOrDiscover( handle );
-        if ( entry == nullptr )
-            return nullptr;
-        (void)Arrived( handle, *entry );
-        if ( entry->Asset )
-            Assets::AsyncAssetLoader::Get().FlushOne( entry->Asset->GetMetadata().Handle );
-        if ( entry->Rig )
-            Assets::AsyncAssetLoader::Get().FlushOne( entry->Rig->GetMetadata().Handle );
+        // FlushOne runs loader delegates, so it is called with the lock released and with the handles copied
+        // out of the entry (the Entry* is not used past the lock: another door may rehash m_Entries).
+        std::optional<Assets::AssetHandle> meshFile;
+        std::optional<Assets::AssetHandle> rigFile;
+        {
+            std::unique_lock lock( m_Lock );
+            DrainLateFailures();
+            Entry* entry = FindOrDiscover( handle );
+            if ( entry == nullptr )
+                return nullptr;
+            (void)Arrived( handle, *entry );
+            if ( entry->Asset )
+                meshFile = entry->Asset->GetMetadata().Handle;
+            if ( entry->Rig )
+                rigFile = entry->Rig->GetMetadata().Handle;
+        }
+        if ( meshFile )
+            Assets::AsyncAssetLoader::Get().FlushOne( *meshFile );
+        if ( rigFile )
+            Assets::AsyncAssetLoader::Get().FlushOne( *rigFile );
         return Get( handle );
     }
 
     bool MeshService::EvictBuilt( const Assets::AssetHandle& handle )
     {
-        const auto built = m_Meshes.find( handle );
+        std::unique_lock lock( m_Lock );
+        const auto       built = m_Meshes.find( handle );
         if ( built == m_Meshes.end() )
             return false;
 
         // Parked, not destroyed: the frames recorded before this sweep may still be reading the buffers.
         m_Retiring.Park( std::move( built->second ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         m_Meshes.erase( built );
+        m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
         return true;
     }
 
     std::size_t MeshService::RetireEvicted()
     {
-        const auto& frames = Engine::FrameManager::GetInstance();
+        const auto&      frames = Engine::FrameManager::GetInstance();
+        std::unique_lock lock( m_Lock );
         return m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
     }
 
     void MeshService::Clear()
     {
-        m_Meshes.clear();
-        m_Retiring.Clear();
-        m_Entries.clear();
-        m_AssetManager.reset();
+        MeshTable outgoing;
+        {
+            std::unique_lock lock( m_Lock );
+            outgoing.swap( m_Meshes );
+            m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
+            m_Retiring.Clear();
+            m_Entries.clear();
+            m_AssetManager.reset();
+            std::lock_guard failLock( m_LateFailLock );
+            m_LateFailures.clear();
+        }
+        // Outside the lock: with no renderer the table is destroyed right here, and that runs no reader's wait.
+        RetireMeshTable( std::move( outgoing ) );
     }
 
     std::optional<bool> MeshService::IsSkinned( const Assets::AssetHandle& handle ) const
@@ -390,6 +510,7 @@ namespace Desert::Runtime
         // This must stay cheap: UI (e.g. the mesh selector popup) calls it for EVERY mesh asset every frame.
         // Building here would force a synchronous load+GPU-build of every mesh in the project → multi-second
         // freeze that looks like a hang.
+        std::shared_lock lock( m_Lock );
         if ( auto ait = m_Entries.find( handle ); ait != m_Entries.end() && ait->second.Asset )
             return std::make_optional( ait->second.Asset->IsSkinned() );
 

@@ -9,6 +9,9 @@
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshUploader.hpp>
 
+#include <atomic>
+#include <mutex>
+#include <shared_mutex>
 #include <span>
 
 namespace Desert::Runtime
@@ -81,6 +84,7 @@ namespace Desert::Runtime
         /// shell on discovery; reads nothing.
         bool Discover( const Assets::AssetHandle& handle ) const
         {
+            std::unique_lock lock( m_Lock );
             return FindOrDiscover( handle ) != nullptr;
         }
 
@@ -100,8 +104,28 @@ namespace Desert::Runtime
         // same reason, one axis over — see its comment.)
         [[nodiscard]] bool HasAsset( const Assets::AssetHandle& handle ) const
         {
+            std::shared_lock lock( m_Lock );
             return m_Entries.find( handle ) != m_Entries.end();
         }
+
+        // WHERE A MESH STANDS, ASKED WITHOUT ASKING FOR IT (UE: the async package's EAsyncLoadingResult::Failed
+        // kept on the request, so a caller does not re-request a package that will not load). Map lookups only:
+        // it neither discovers, requests nor builds — `Get` does those, and a caller asks this after `Get`
+        // answered nullptr to learn whether asking again next frame can change the answer.
+        //   Unknown — no shell on record (never asked, or no content-registry row names the handle);
+        //   Pending — on record, its read (or its rig's) has not landed or the build has not run yet;
+        //   Ready   — built, `Get` answers it;
+        //   Failed  — logged once and not retried. The one curable failure (a skinned mesh waiting on its rig's
+        //             Skeleton row) also reads Failed: what cures it is a content-registry write, so a caller
+        //             keyed on ContentRegistry::WriteSerial asks again exactly when it can succeed.
+        enum class State : uint8_t
+        {
+            Unknown,
+            Pending,
+            Ready,
+            Failed
+        };
+        [[nodiscard]] State StateOf( const Assets::AssetHandle& handle ) const noexcept;
 
         void                Clear();
         std::optional<bool> IsSkinned( const Assets::AssetHandle& handle ) const;
@@ -115,9 +139,19 @@ namespace Desert::Runtime
         // the service builds only from `m_Entries`.
         bool EvictBuilt( const Assets::AssetHandle& handle );
 
+        // Bumped whenever a mesh `Get` once answered may no longer be the one it answers now (an eviction, a
+        // rebuild over a built entry, Clear). A first build of a pending mesh does not bump it: a caller that was
+        // answered nullptr asks again. What a retained render cache (MeshECSSystem's static scene) keys its
+        // resolved Mesh pointers by, so a dropped mesh is never named past the frame that dropped it.
+        [[nodiscard]] uint64_t GetBuiltRevision() const noexcept
+        {
+            return m_BuiltRevision.load( std::memory_order_acquire );
+        }
+
         // The key of every mesh built right now (AssetEviction's census of what is still resident).
         [[nodiscard]] std::vector<Assets::AssetHandle> BuiltHandles() const
         {
+            std::shared_lock                 lock( m_Lock );
             std::vector<Assets::AssetHandle> handles;
             handles.reserve( m_Meshes.size() );
             for ( const auto& [handle, mesh] : m_Meshes )
@@ -134,6 +168,7 @@ namespace Desert::Runtime
         // Dropped meshes still waiting for their frames to finish — what the suite and the log read.
         [[nodiscard]] std::size_t RetiringCount() const noexcept
         {
+            std::shared_lock lock( m_Lock );
             return m_Retiring.Size();
         }
 
@@ -154,8 +189,30 @@ namespace Desert::Runtime
         // and never consults the asset again.
         Common::BoolResultStr BuildAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset ) const;
 
+        // ONE LOCK OVER BOTH MAPS (UE: the render thread reads a published resource; replacement is deferred
+        // deletion). Shared for the lookups (`Get`'s hit, HasAsset, StateOf, IsSkinned, BuiltHandles), exclusive
+        // for everything that inserts, builds, evicts or clears. Every private helper below runs with it held
+        // EXCLUSIVELY by the public door that called it; none takes it. A Mesh* answered under it stays valid
+        // for the frames in flight after a rebuild, an eviction or a Clear: each retires the outgoing mesh
+        // (RetireAfterFramesInFlight / m_Retiring) instead of destroying it.
+        mutable std::shared_mutex m_Lock;
+
+        // A LOADER DELEGATE NEVER TAKES m_Lock. AsyncAssetLoader runs delegates inside Pump/FlushOne/AwaitOne,
+        // and a synchronous load reached from under the lock (EnsureLoaded, ResolveDependencies) could flush one
+        // of ours — which would deadlock on a non-recursive lock. The delegate queues its failure here instead
+        // and the next locked door applies it (DrainLateFailures). Allocates only when a read failed.
+        struct LateFailure
+        {
+            Assets::AssetHandle Owner;
+            std::string         Reason;
+        };
+        mutable std::mutex               m_LateFailLock;
+        mutable std::vector<LateFailure> m_LateFailures;
+        void                             DrainLateFailures() const; // m_Lock held exclusively
+
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Mesh>>      m_Meshes;
         Assets::FrameRetireQueue<std::shared_ptr<Mesh>>                             m_Retiring;
+        mutable std::atomic<uint64_t>                                               m_BuiltRevision{ 0 };
         // One mesh the service knows: its shell, its rig (skinned only; found by the registry's Rig tag), the
         // loader requests that read them, and whether it failed — a failure is logged once and not retried,
         // EXCEPT the one a later write can cure: a skinned mesh whose rig had no Skeleton row waits for it.

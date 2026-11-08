@@ -38,6 +38,10 @@ namespace Common::Scalability
         std::string DeviceName;
         uint32_t    TableVersion = 0; // ScalabilityTable::Version — new thresholds re-map (no GPU re-run needed,
                                       // but the cache stores levels, so it is simplest and honest to re-run)
+        // The device-local MiB the levels were capped against (Catalog.VideoMemory, the VRAM cap's input). A
+        // device profile (--device-profile gtx1060) is the same GPU with less memory: without this the real
+        // card's cached levels would answer the profiled one, and its VRAM floors would never apply.
+        uint32_t VideoMemoryMiB = 0;
 
         bool operator==( const BenchmarkCacheKey& ) const = default;
     };
@@ -88,8 +92,10 @@ namespace Common::Scalability
         bool operator==( const RecommendedQuality& ) const = default;
     };
 
-    // PURE. Index -> level per group through the table thresholds, then the VRAM cap (Textures and Shadows never
-    // above the level whose budget fits VideoMemory — thresholds in the table, not in code), Cinematic never.
+    // PURE. Index -> level per group through the table thresholds, then the VRAM cap (Textures, Shadows,
+    // GlobalIllumination, Reflections and Foliage never above the level whose budget fits VideoMemory — the
+    // Recommend.MinVideoMemoryMiB rows of the table, not code; under a device profile VideoMemory is the
+    // profile's, DeviceCapsProbe ProfiledDeviceLocalBytes), Cinematic never.
     // When result.Timed is false the index is replaced by DeviceClassPerfIndex(Class, VideoMemory) — the
     // fallback is a named function, not a silent default.
     [[nodiscard]] std::array<Level, kGroupCount> RecommendLevels( const BenchmarkResult&  result,
@@ -99,6 +105,18 @@ namespace Common::Scalability
     // Values come from the table's Recommend.DeviceClass section; Unknown -> the Low boundary.
     [[nodiscard]] float DeviceClassPerfIndex( DeviceClass deviceClass, uint64_t videoMemory,
                                               const ScalabilityTable& table );
+
+    // The display target from which the upscaler is chosen for frame rate (RecommendUpscaler).
+    inline constexpr uint32_t kHighRefreshTargetHz = 120;
+
+    // PURE. The recommended temporal upscaler for this device at a display target of @p targetHz (the monitor's
+    // refresh rate; 0 = unknown, below every target). UE: the DLSS plugin keeps Ray Reconstruction a switch on
+    // top of Super Resolution and the recommendation picks per GPU architecture. Rule: DLSS offered on a pre-Ada
+    // RTX (Turing, Ampere) at >= kHighRefreshTargetHz -> AntiAliasing.Method DLSS (Super Resolution) and DLSS
+    // preset K for Performance and Ultra Performance (NVIDIA's M / L there are its heavier networks); Ray
+    // Reconstruction stays where the path tracer asks for it (PathTracing.Denoiser). Anything else: no override,
+    // the table's AntiAliasing level stands. The reason names the rule that decided, every time.
+    [[nodiscard]] UpscalerRecommendation RecommendUpscaler( const CapabilityCatalog& catalog, uint32_t targetHz );
 
     // PURE. Does `cached` answer for this device? Re-run when it does not, or when nothing is cached.
     [[nodiscard]] bool CacheValid( const std::optional<RecommendedQuality>& cached, const BenchmarkCacheKey& now );

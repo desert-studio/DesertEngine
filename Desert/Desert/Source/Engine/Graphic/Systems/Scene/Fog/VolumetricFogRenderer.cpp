@@ -64,6 +64,12 @@ namespace Desert::Graphic::System
              kVolumetricFogParamsBinding, /*persistent=*/false );
         if ( !m_ParamsBuffer )
             return Common::MakeError( "VolumetricFogRenderer: could not create the parameter buffer" );
+        m_LocalFogBuffer = ShaderResources::StorageBuffer::Create(
+             "VolumetricFog.LocalVolumes",
+             static_cast<uint32_t>( sizeof( LocalFogVolumeGpu ) * kVolumetricFogMaxLocalVolumes ),
+             kVolumetricFogLocalVolumesBinding, /*persistent=*/false );
+        if ( !m_LocalFogBuffer )
+            return Common::MakeError( "VolumetricFogRenderer: could not create the local fog volume buffer" );
         if ( const auto valid = m_ScatteringLayout.Validate( m_ScatteringPipeline->GetShader(),
                                                              VolumetricFogLightScatteringShaderParameters::kAll );
              !valid )
@@ -164,7 +170,7 @@ namespace Desert::Graphic::System
     bool VolumetricFogRenderer::IsActive() const
     {
         return m_Present && m_Data.Enabled && m_Data.VolumetricFog && m_Quality.Enabled && m_ScatteringPipeline &&
-               m_IntegrationPipeline && m_ParamsBuffer;
+               m_IntegrationPipeline && m_ParamsBuffer && m_LocalFogBuffer;
     }
 
     bool VolumetricFogRenderer::EnsureVolumes( const glm::uvec3& gridSize )
@@ -203,11 +209,13 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::vector<ComputeNodeDeclaration>
-    VolumetricFogRenderer::DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
-                                              const VolumetricFogSunInput& sun, const bool virtualLocalShadows )
+    ComputeNodeList
+    VolumetricFogRenderer::DeclareFrameNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
+                                              const ViewFrame& frame, const VolumetricFogSunInput& sun,
+                                              const bool                               virtualLocalShadows,
+                                              const std::span<const LocalFogVolumeGpu> localVolumes )
     {
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_Result = VolumetricFogFrameResult{};
         if ( !IsActive() )
             return nodes;
@@ -312,6 +320,28 @@ namespace Desert::Graphic::System
                                       0.0f );
         }
 
+        // The cloud layer's shadow on the sun term and what covers the sky from each froxel: the surfaces' values.
+        p.CloudShadowWorldToMap   = sun.CloudShadow.WorldToMap;
+        p.CloudShadowParams       = sun.CloudShadow.Params;
+        p.RainOcclusionWorldToMap = sun.SkyOcclusion.WorldToMap;
+        p.RainOcclusionParams     = t.RainOcclusionMap.IsValid() ? sun.SkyOcclusion.Params : glm::vec4( 0.0f );
+
+        // The frame's local fog volumes (UE 5.3, voxelised into the froxels): the count rides in the block, the
+        // volumes in the pass's own buffer. A frame without volumes uploads nothing and the loop runs zero times.
+        const uint32_t localCount =
+             static_cast<uint32_t>( std::min<size_t>( localVolumes.size(), kVolumetricFogMaxLocalVolumes ) );
+        if ( localCount > 0 )
+        {
+            const auto uploadedVolumes = m_LocalFogBuffer->SetData(
+                 localVolumes.data(), static_cast<uint32_t>( sizeof( LocalFogVolumeGpu ) * localCount ) );
+            if ( uploadedVolumes.IsSuccess() )
+                p.LocalFog = glm::uvec4( localCount, 0u, 0u, 0u );
+            else
+                LOG_ERROR( "[VolumetricFog] the {} local fog volumes are not drawn this frame, their buffer was "
+                           "not uploaded: {}",
+                           localCount, uploadedVolumes.GetError() );
+        }
+
         if ( const auto uploaded = m_ParamsBuffer->SetData( &p, static_cast<uint32_t>( sizeof( p ) ) );
              !uploaded.IsSuccess() )
         {
@@ -321,6 +351,7 @@ namespace Desert::Graphic::System
             return nodes;
         }
         scatteringPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
+        scatteringPipeline->SetStorageBuffer( kVolumetricFogLocalVolumesBinding, m_LocalFogBuffer.get() );
         m_IntegrationPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
 
         const std::shared_ptr<Image> distantSkyLight =
@@ -349,13 +380,17 @@ namespace Desert::Graphic::System
             historyImageName = historyName;
         }
 
+        // Named here, not as a conditional inside the by-value argument (MSVC 19.44 hangs on that shape).
+        RDG::TextureRef rainOcclusionMap = refs.System.White;
+        if ( t.RainOcclusionMap.IsValid() )
+            rainOcclusionMap = t.RainOcclusionMap;
+
         using Scattering = VolumetricFogLightScatteringShaderParameters;
-        ComputeNodeDeclaration scattering;
+        ComputeNodeDeclaration scattering( arena );
         scattering.Name = "VolumetricFog: LightScattering";
         auto block = scattering.Access.Bindings( scatteringLayout.Get( scatteringPipeline->GetShader() ),
                                                  Renderer::GetPipelineRouteFill( *scatteringPipeline ) );
-        block
-             .Storage( Scattering::LightScatteringTexture, std::shared_ptr<Image>( m_LightScattering[current] ),
+        block.Storage( Scattering::LightScatteringTexture, std::shared_ptr<Image>( m_LightScattering[current] ),
                        RDG::Access::StorageWrite, currentName )
              .Texture( Scattering::LightScatteringHistoryTexture, historyImage, RDG::Access::SampledCompute,
                        historyImageName )
@@ -370,7 +405,13 @@ namespace Desert::Graphic::System
              .Storage( Scattering::PointLightsUB, t.Lights.Point, RDG::Access::StorageRead )
              .Storage( Scattering::SpotLightsUB, t.Lights.Spot, RDG::Access::StorageRead )
              .Storage( Scattering::LightGridParamsUB, t.Lights.GridParams, RDG::Access::StorageRead )
-             .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead );
+             .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead )
+             // The cloud layer's map (white when none casts: CloudShadowParams.y = 0 and it is never fetched).
+             .Texture( Scattering::CloudShadowMapTexture, CloudShadowMapOrWhite( refs ),
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             // Read with textureGather (raw depths); white = depth 1, "nothing overhead", when the view has none.
+             .Texture( Scattering::RainOcclusionMapTexture, rainOcclusionMap,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         if ( virtualLocalShadows )
         {
             // The reader's tables (Common/VirtualShadowMap.glslh, DESERT_VSM_READ): this frame's map of the view.
@@ -409,7 +450,7 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( scattering ) );
 
-        ComputeNodeDeclaration integration;
+        ComputeNodeDeclaration integration( arena );
         integration.Name = "VolumetricFog: Integration";
         integration.Access
              .Bindings( m_IntegrationLayout.Get( m_IntegrationPipeline->GetShader() ),

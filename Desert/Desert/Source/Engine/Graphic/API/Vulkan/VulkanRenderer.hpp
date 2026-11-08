@@ -9,6 +9,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>    // m_FrameLoop is owned here
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -21,6 +22,8 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    struct VulkanBuiltPipeline; // VulkanPipeline.hpp: one published pipeline build
+
     class VulkanRendererAPI : public RendererAPI
     {
     public:
@@ -137,7 +140,8 @@ namespace Desert::Graphic::API::Vulkan
 
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context, RDG::TextureRef source,
-                                                     RDG::TextureRef target, uint32_t targetLayer ) override;
+                                                     RDG::TextureRef target, uint32_t targetLayer,
+                                                     std::span<const glm::uvec4> regions ) override;
         Common::BoolResultStr ScrollGraphDepthIntoLayer( const RDG::PassContext& context, RDG::TextureRef source,
                                                          RDG::TextureRef target, uint32_t targetLayer, int32_t shiftX,
                                                          int32_t shiftY, float clearDepth ) override;
@@ -193,7 +197,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings&   bindings,
                                                      const GraphicsPipeline&    pipeline,
                                                      const MaterialExecutor*    material,
-                                                     std::span<const std::byte> drawPush, PassStatePush pushMode );
+                                                     std::span<const std::byte> drawPush, PassStatePush pushMode,
+                                                     const VulkanBuiltPipeline* record = nullptr );
         // Binds @p geometry's vertex buffer (binding 0), its streams or the shared default (binding 1, when
         // @p pipeline's vertex input has it) and its index buffer, each at its byte offset, unless exactly those
         // are bound already for this pipeline on this command buffer (m_BoundGeometry); then the instance id
@@ -226,9 +231,13 @@ namespace Desert::Graphic::API::Vulkan
         // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
         // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
         // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.
+        // CPU-DRAW-BIND: a draw within the current capacity takes no lock and copies no shared_ptr - it reads
+        // m_VisibleRowIdentityRows (acquire), then the handle stored before it (release, under m_GrowLock); a
+        // buffer is only ever replaced by a larger one, so the handle read holds at least the rows read.
         VkBuffer                      VisibleRowIdentity( uint32_t rows );
-        std::shared_ptr<VertexBuffer> m_VisibleRowIdentity;
-        uint32_t                      m_VisibleRowIdentityRows = 0;
+        std::shared_ptr<VertexBuffer> m_VisibleRowIdentity; // under m_GrowLock
+        std::atomic<VkBuffer>         m_VisibleRowIdentityBuffer{ VK_NULL_HANDLE };
+        std::atomic<uint32_t>         m_VisibleRowIdentityRows{ 0 };
         // RENDER-JOB-CPU-1 (UE FMeshDrawCommand merging: draws of one pipeline, bindings and push are one
         // command): a run of drawn submeshes [First, First + Count) - adjacent in the mesh, none hidden between,
         // one submesh transform, so one push block serves every one of them. FirstDrawn is the first one's index
@@ -294,12 +303,15 @@ namespace Desert::Graphic::API::Vulkan
          * Latched by debug name because this is asked once per draw call: a broken shader would
          * otherwise write the same line thousands of times a second and the log would stop being read.
          */
-        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
+        // @p record: the pipeline's build the caller read once (VulkanPipeline::GetBuilt) and takes its layout and
+        // push range from; null = the one published now.
+        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline*    pipeline,
+                                              const VulkanBuiltPipeline* record = nullptr );
         // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
         // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
-        // RDG-PARALLEL-1: by value and under m_GrowLock - a chunk on another worker may grow it meanwhile (the
-        // replaced buffer stays alive through the allocator's per-frame deletion queue).
-        std::shared_ptr<VertexBuffer>        DefaultVertexStreams( uint32_t capacity );
+        // RDG-PARALLEL-1: its handle, read under m_GrowLock - a chunk on another worker may grow it meanwhile (the
+        // replaced VkBuffer stays alive through the allocator's per-frame deletion queue); no count per draw.
+        VkBuffer                             DefaultVertexStreams( uint32_t capacity );
         std::mutex                           m_GrowLock; // DefaultVertexStreams and VisibleRowIdentity
         std::shared_ptr<VertexBuffer>        m_DefaultVertexStreams;
         std::atomic<uint32_t>                m_DefaultVertexStreamsCapacity{ 0 }; // read unlocked by BindMeshBuffers

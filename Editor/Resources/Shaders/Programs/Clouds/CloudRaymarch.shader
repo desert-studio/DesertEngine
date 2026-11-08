@@ -96,6 +96,12 @@ Shader "CloudRaymarch"
 
     Compute
     {
+        // GPU-FARFIELD-4: the segment lanes of one ray compose their results through subgroupShuffle, and the
+        // march counters are summed per subgroup (subgroupAdd) before one atomic each.
+        #extension GL_KHR_shader_subgroup_basic : require
+        #extension GL_KHR_shader_subgroup_shuffle : require
+        #extension GL_KHR_shader_subgroup_arithmetic : require
+
         // The volumetric cloud march. Writes RGBA16F: .rgb = in-scattered radiance, PREMULTIPLIED, linear
         // HDR; .a = the transmittance of the cloud layer along that ray. The composite pass then needs no
         // more than `scene = rgb + scene * a`, which is the same premultiplied over-operator the height
@@ -369,6 +375,38 @@ Shader "CloudRaymarch"
             float CloudSelfShadowLocalSamples; // the short ray's sample count
         };
 
+        // GPU-FARFIELD-4: THE MARCH COUNTERS, zeroed per frame and read back into the profile dump
+        // (Graphic::System::CloudMarchCounters, "[Profiler] Clouds march"). One word each, in this order.
+        Buffer(21) CloudMarchCountersUB
+        {
+            uint cloudMarchCounters[];
+        };
+        #define CLOUD_MARCH_COUNT_RAYS            0u // rays that reached the loop
+        #define CLOUD_MARCH_COUNT_FIELD_SAMPLES   1u // view-ray field evaluations: the primary steps
+        #define CLOUD_MARCH_COUNT_LIT_SAMPLES     2u // samples with density, one shadow ray each
+        #define CLOUD_MARCH_COUNT_LIGHT_SAMPLES   3u // the light samples those scheduled
+        #define CLOUD_MARCH_COUNT_EARLY_EXIT      4u // rays whose composed transmittance fell under the stop
+        #define CLOUD_MARCH_COUNT_CEILING_LANES   5u // segment lanes that ran out of iterations
+        #define CLOUD_MARCH_COUNT_COLUMN_JUMPS    6u // column-probe jumps over empty columns
+        #define CLOUD_MARCH_COUNT_FULL_LIGHT_RAYS 7u // lit samples outside the shadow map (the full light ray)
+        void CloudMarchCount(uint word, uint value)
+        {
+            uint total = subgroupAdd(value);
+            if (subgroupElect() && total > 0u)
+                atomicAdd(cloudMarchCounters[word], total);
+        }
+
+        // GPU-FARFIELD-4: LANES PER VIEW RAY (VolumetricCloudRenderer.cpp kMarchSegmentLanes, the same number).
+        // The march traces 1.57 % of the screen's pixels a frame (one 2x2 phase of a quarter-resolution grid,
+        // about 8k rays at 1080p), a quarter of what Unreal's quarter-resolution trace dispatches, so the pass is
+        // too narrow to hide a fetch's latency: its time was the serial chain of the longest ray in a wave, not
+        // the ray count. Each of these lanes marches one contiguous stretch of the ray's segment with its own
+        // local transmittance; the lanes are then composed front to back, which is exact for an
+        // emission-absorption integral: L = sum_k P_k L_k, T = prod_k T_k, P_k = prod_{j<k} T_j (and the
+        // transmittance-weighted front the same way). The lanes of a ray sit side by side in x, so an 8-wide
+        // group row holds two rays and a ray's lanes are four consecutive subgroup lanes, aligned.
+        #define CLOUD_MARCH_SEGMENT_LANES 4u
+
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
@@ -394,6 +432,7 @@ Shader "CloudRaymarch"
             // y = this frame's 2x2 lattice phase of the trace grid, 0..3 (Graphic::CloudTraceGridPhase, encoded as
             //     Graphic::CloudTracePhase::Index): only the texels whose (x & 1) | (y & 1) << 1 equals it are
             //     marched (main).
+            // z = 1 when the lit step grows with the pixel footprint (CloudFootprintStepKm), 0 = fixed fine step.
             vec4 CloudVisualize;
         };
 
@@ -460,9 +499,14 @@ Shader "CloudRaymarch"
         // the environment bake marches. In the border band the two are blended by the same fade the ground
         // receiver uses, so the edge of the map is a gradient and not a ring in the sky; only the band's
         // pixels pay for both.
+        //
+        // @p lightCost is the march-cost census's (--cloud-visualize 4): x the light samples this call scheduled
+        // (the near march's, the full ray's, both in the border band), y 1 where the full ray ran.
         float CloudSelfShadowOpticalDepth(CloudLayer layer, CloudFieldParams params, vec3 samplePos, vec3 toSun,
-                                          float lightMarchKm, int lightSamples, float extinction)
+                                          float lightMarchKm, int lightSamples, float extinction,
+                                          out vec2 lightCost)
         {
+            lightCost      = vec2(0.0f, 0.0f);
             float coverage = 0.0f;
             float nearFar  = 0.0f;
             if (CloudSelfShadowMap.y > 0.5f)
@@ -488,6 +532,7 @@ Shader "CloudRaymarch"
                     int              local   = int(clamp(CloudSelfShadowLocalSamples, 1.0f, 16.0f));
                     nearFar = CloudLightOpticalDepth(layer, params, samplePos, toSun, localKm, local, extinction) +
                               CloudShadowFarOpticalDepth(texel, depthKm, localKm);
+                    lightCost.x = float(local);
                 }
             }
 
@@ -495,6 +540,7 @@ Shader "CloudRaymarch"
                 return nearFar;
 
             float full = CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
+            lightCost += vec2(float(lightSamples), 1.0f);
             return mix(full, nearFar, coverage);
         }
 
@@ -553,7 +599,12 @@ Shader "CloudRaymarch"
             ivec2 size      = imageSize(CloudScatterTexture);
             int   phaseBits = int(CloudVisualize.y + 0.5f) & 3;
             ivec2 gridPhase = ivec2(phaseBits & 1, phaseBits >> 1);
-            ivec2 coord     = ivec2(gl_GlobalInvocationID.xy) * 2 + gridPhase;
+            // GPU-FARFIELD-4: the ray this invocation is a segment lane of (CLOUD_MARCH_SEGMENT_LANES), and which.
+            uint  segmentLane   = gl_GlobalInvocationID.x % CLOUD_MARCH_SEGMENT_LANES;
+            uvec2 rayInvocation = uvec2(gl_GlobalInvocationID.x / CLOUD_MARCH_SEGMENT_LANES,
+                                        gl_GlobalInvocationID.y);
+            uint  laneBase      = gl_SubgroupInvocationID - segmentLane;
+            ivec2 coord         = ivec2(rayInvocation) * 2 + gridPhase;
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
@@ -578,6 +629,18 @@ Shader "CloudRaymarch"
             vec3 nearP = nearH.xyz / max(nearH.w, 1e-9f);
             vec3 farP  = farH.xyz / max(farH.w, 1e-9f);
             vec3 rayDir = normalize(farP - nearP);
+
+            // The angle one half-resolution pixel subtends along this ray, for the footprint step
+            // (CloudFootprintStepKm): the ray through the next pixel column, against this one. Zero when
+            // Scalability Effects.CloudFootprintSteps is off (CloudVisualize.z), which is the fixed fine step.
+            float pixelAngle = 0.0f;
+            if (CloudVisualize.z > 0.5f)
+            {
+                float ndcPixel  = 2.0f / float(halfSize.x);
+                vec4  farNextH  = InverseViewProjection * vec4(ndc.x + ndcPixel, ndc.y, 0.0f, 1.0f);
+                vec3  farNextP  = farNextH.xyz / max(farNextH.w, 1e-9f);
+                pixelAngle      = length(normalize(farNextP - nearP) - rayDir);
+            }
 
             CloudLayer layer = CloudUnpackLayer();
 
@@ -692,7 +755,7 @@ Shader "CloudRaymarch"
             // The offset moves from trace to trace, so the reconstruction integrates it; a still frame of
             // this pass is therefore NOT a valid check of it — it shows one realization of the dither, not
             // what the viewer sees. Spatio-temporal low-discrepancy, not white (CloudMarchStartOffset).
-            float jitter = CloudMarchStartOffset(ivec2(gl_GlobalInvocationID.xy), gridPhase, ivec2(CloudTraceParams.xy),
+            float jitter = CloudMarchStartOffset(ivec2(rayInvocation), gridPhase, ivec2(CloudTraceParams.xy),
                                                  uint(CameraPosition.w));
 
             CloudFieldParams params = CloudUnpackFieldParams();
@@ -708,8 +771,15 @@ Shader "CloudRaymarch"
             //      (CloudProceduralLevelOf): level 0 red, 1 green, 2 blue, and inside a blend band the
             //      coarser level's colour mixed in by the blend weight, so the bands read as gradients; past
             //      level 2's window the far path (CloudSampleProceduralFar) grey, level 2's band blue into it.
-            int visualize = int(CloudVisualize.x + 0.5f);
-            if (visualize != 0)
+            //   4: THE MARCH'S COST, per ray, from counters the ordinary march below keeps (GPU-CLOUD-MARCH-2) —
+            //      R the view ray's field evaluations / 256 (search and fine samples; a column-probe jump is not
+            //      one), G the lit samples / 64, B the light samples they scheduled / 512, so 8 B / G is the
+            //      light samples per lit sample (the near march's count inside the shadow map, the full ray's
+            //      outside it, both in its border band). Rays that march nothing (geometry in front of the
+            //      layer, past the cutoff, no entry) keep the ordinary output.
+            const int kCloudVisualizeMarchCost = 4;
+            int       visualize                = int(CloudVisualize.x + 0.5f);
+            if (visualize != 0 && visualize != kCloudVisualizeMarchCost)
             {
                 vec3 shown = vec3(0.0f);
                 if (visualize == 3)
@@ -815,7 +885,16 @@ Shader "CloudRaymarch"
 
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
             float transmittance = 1.0f;
-            float t             = segment.x + jitter * stepKm;
+
+            // GPU-FARFIELD-4: THIS LANE'S STRETCH of the segment (CLOUD_MARCH_SEGMENT_LANES), with the same start
+            // offset inside its first step as the whole ray had at its entry. Everything below that read the
+            // segment's ends as the march's own bounds reads these; the guide's "end of search" stays segment.y.
+            float laneLengthKm = (segment.y - segment.x) / float(CLOUD_MARCH_SEGMENT_LANES);
+            float laneStartKm  = segment.x + laneLengthKm * float(segmentLane);
+            float laneEndKm    = segment.y;
+            if (segmentLane + 1u < CLOUD_MARCH_SEGMENT_LANES)
+                laneEndKm = laneStartKm + laneLengthKm;
+            float t             = laneStartKm + jitter * stepKm;
 
             // Where along the ray this pixel's cloud effectively IS, weighted by how much of the ray's
             // light each sample still gets to contribute. A cloud is not at one distance, but the
@@ -864,10 +943,26 @@ Shader "CloudRaymarch"
             // heights the probe must bound ends one stride short of the landing point.
             float emptyColumnSkipKm  = emptyColumnAdvance - coarseStepKm;
 
+            // The cost census (--cloud-visualize 4): integer adds beside the fetches they count.
+            int   censusFieldEvaluations = 0;
+            int   censusLitSamples       = 0;
+            float censusLightSamples     = 0.0f;
+            int   censusColumnJumps      = 0;
+            int   censusFullLightRays    = 0;
+            // Left by the stretch's end or by the transmittance, not by the iteration ceiling.
+            bool  laneFinished           = false;
+
             for (int i = 0; i < iterationTotal; ++i)
             {
-                if (t >= segment.y)
+                if (t >= laneEndKm)
+                {
+                    laneFinished = true;
                     break;
+                }
+
+                // The step this sample is integrated over and advances by: the fine step, grown with the texel
+                // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
+                float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
 
                 vec3  samplePos      = originKm + rayDir * t;
 
@@ -885,6 +980,7 @@ Shader "CloudRaymarch"
                                                     skippedHeights.y))
                     {
                         t += emptyColumnAdvance;
+                        ++censusColumnJumps;
                         continue;
                     }
                 }
@@ -899,6 +995,7 @@ Shader "CloudRaymarch"
                 vec3 fieldPos = vec3(samplePos.x, length(samplePos) - layer.BottomRadiusKm, samplePos.z);
 
                 CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
+                ++censusFieldEvaluations;
 
                 if (!fine)
                 {
@@ -912,9 +1009,9 @@ Shader "CloudRaymarch"
                     {
                         fine     = true;
                         emptyRun = 0;
-                        if (coarseStepKm > stepKm)
+                        if (coarseStepKm > litStepKm)
                         {
-                            t = max(segment.x, t - coarseStepKm + stepKm);
+                            t = max(laneStartKm, t - coarseStepKm + litStepKm);
                             continue;
                         }
                     }
@@ -933,7 +1030,7 @@ Shader "CloudRaymarch"
                         fine     = false;
                         emptyRun = 0;
                     }
-                    t += stepKm;
+                    t += litStepKm;
                     continue;
                 }
 
@@ -961,8 +1058,13 @@ Shader "CloudRaymarch"
                         // octave approximation: the expensive part is finding how much material lies
                         // between this sample and the sun, and each order then reuses that number with its
                         // own extinction scale.
+                        vec2  lightCost;
                         float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
-                                                                         lightMarchKm, lightSamples, extinction);
+                                                                         lightMarchKm, lightSamples, extinction,
+                                                                         lightCost);
+                        ++censusLitSamples;
+                        censusLightSamples += lightCost.x;
+                        censusFullLightRays += int(lightCost.y > 0.5f);
 
                         // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
                         //
@@ -1035,7 +1137,7 @@ Shader "CloudRaymarch"
                         luminance += transmittance *
                                      CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
                                                            ambientRadiance * ambientOcclusion, opticalDepth,
-                                                           phase, sigmaT, sampleAlbedo, stepKm);
+                                                           phase, sigmaT, sampleAlbedo, litStepKm);
 
                         // EMISSION: radiance the medium ADDS, per kilometre of march, attenuated by the
                         // ray's own history and by nothing else. It is deliberately NOT multiplied by the
@@ -1044,7 +1146,7 @@ Shader "CloudRaymarch"
                         // however opaque the cloud happens to be there (VolumetricCloud.usf:1381-1384).
                         // The default medium returns a literal zero, so this line costs nothing until a
                         // graph writes the pin.
-                        luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * stepKm;
+                        luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * litStepKm;
 
                         // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
                         // able to contribute, not how much is left after it. Also the guide's front (above),
@@ -1054,15 +1156,76 @@ Shader "CloudRaymarch"
 
                         // The view ray is attenuated by the medium itself, once — the octaves are orders
                         // of scattering INTO this ray, not extra material along it.
-                        transmittance *= CloudBeerTransmittance(sigmaT, stepKm);
+                        transmittance *= CloudBeerTransmittance(sigmaT, litStepKm);
 
                         if (transmittance < stopT)
+                        {
+                            laneFinished = true;
                             break;
+                        }
                     }
                 }
 
-                t += stepKm;
+                t += litStepKm;
             }
+
+            // GPU-FARFIELD-4: THE LANES COMPOSED FRONT TO BACK (CLOUD_MARCH_SEGMENT_LANES). Every lane of the ray
+            // reaches this point (each one left the loop; nothing above returned for one lane and not another),
+            // so every shuffle below reads an active lane. Each lane's own sums are weighted by the transmittance
+            // of the lanes in front of it; afterwards every lane holds the whole ray's result.
+            {
+                vec3  composedLuminance = vec3(0.0f, 0.0f, 0.0f);
+                float composedWeightedT = 0.0f;
+                float composedWeightSum = 0.0f;
+                float composedT         = 1.0f;
+                for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                {
+                    uint  source = laneBase + lane;
+                    vec3  laneL  = subgroupShuffle(luminance, source);
+                    float laneW  = subgroupShuffle(aerialWeightedT, source);
+                    float laneS  = subgroupShuffle(aerialWeightSum, source);
+                    float laneT  = subgroupShuffle(transmittance, source);
+                    composedLuminance += composedT * laneL;
+                    composedWeightedT += composedT * laneW;
+                    composedWeightSum += composedT * laneS;
+                    composedT         *= laneT;
+                }
+                luminance       = composedLuminance;
+                aerialWeightedT = composedWeightedT;
+                aerialWeightSum = composedWeightSum;
+                transmittance   = composedT;
+            }
+
+            // The march counters: the per-lane ones from every lane, the per-ray ones from the first lane only.
+            bool firstLane = segmentLane == 0u;
+            CloudMarchCount(CLOUD_MARCH_COUNT_RAYS, uint(firstLane));
+            CloudMarchCount(CLOUD_MARCH_COUNT_FIELD_SAMPLES, uint(censusFieldEvaluations));
+            CloudMarchCount(CLOUD_MARCH_COUNT_LIT_SAMPLES, uint(censusLitSamples));
+            CloudMarchCount(CLOUD_MARCH_COUNT_LIGHT_SAMPLES, uint(censusLightSamples + 0.5f));
+            CloudMarchCount(CLOUD_MARCH_COUNT_EARLY_EXIT, uint(firstLane && transmittance < stopT));
+            CloudMarchCount(CLOUD_MARCH_COUNT_CEILING_LANES, uint(!laneFinished));
+            CloudMarchCount(CLOUD_MARCH_COUNT_COLUMN_JUMPS, uint(censusColumnJumps));
+            CloudMarchCount(CLOUD_MARCH_COUNT_FULL_LIGHT_RAYS, uint(censusFullLightRays));
+
+            // The census view shows the whole ray's cost: the lanes' counts summed into every lane.
+            {
+                int   rayFieldEvaluations = 0;
+                int   rayLitSamples       = 0;
+                float rayLightSamples     = 0.0f;
+                for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                {
+                    rayFieldEvaluations += subgroupShuffle(censusFieldEvaluations, laneBase + lane);
+                    rayLitSamples       += subgroupShuffle(censusLitSamples, laneBase + lane);
+                    rayLightSamples     += subgroupShuffle(censusLightSamples, laneBase + lane);
+                }
+                censusFieldEvaluations = rayFieldEvaluations;
+                censusLitSamples       = rayLitSamples;
+                censusLightSamples     = rayLightSamples;
+            }
+
+            // One lane stores the ray; the others have nothing of their own left to write.
+            if (!firstLane)
+                return;
 
             // AERIAL PERSPECTIVE. Sixty kilometres of air between the camera and a distant cloud is not
             // nothing: it scatters its own light in and attenuates what comes back, which is why a real
@@ -1092,6 +1255,16 @@ Shader "CloudRaymarch"
                 luminance = CloudApplyAerialPerspective(
                      luminance, transmittance, aerial.rgb, aerial.a,
                      CloudAerialAmount(meanDistanceKm, CloudFadeParams.x, CloudFadeParams.y));
+            }
+
+            if (visualize == kCloudVisualizeMarchCost)
+            {
+                vec3  cost         = vec3(float(censusFieldEvaluations) / 256.0f, float(censusLitSamples) / 64.0f,
+                                          censusLightSamples / 512.0f);
+                float sunLuminance = dot(CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+                imageStore(CloudScatterTexture, coord, vec4(min(cost, vec3(1.0f)) * sunLuminance * 0.03f, 0.0f));
+                imageStore(CloudGuideTexture, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
+                return;
             }
 
             imageStore(CloudScatterTexture, coord, vec4(luminance, clamp(transmittance, 0.0f, 1.0f)));

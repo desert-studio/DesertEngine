@@ -15,6 +15,7 @@
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,7 +35,9 @@ namespace Desert::Graphic
     {
     public:
         // Registers the engine's system textures in @p graph before any pass is added (System).
-        explicit FrameTextures( RDG::Builder& graph ) : m_Graph( graph )
+        explicit FrameTextures( RDG::Builder& graph )
+             : m_Graph( graph ),
+               m_StartedColors( Common::Memory::ArenaAllocator<uint32_t>( graph.GetFrameArena() ) )
         {
             ImportSystemTextures();
         }
@@ -217,9 +220,12 @@ namespace Desert::Graphic
 
         // The per-slot LoadOps of one raster node on @p targets (Graphic::ColorLoads): call in the order the nodes
         // are added (= the frame's order), so a slot's own clear lands on its first writer.
-        std::vector<RDG::LoadOp> ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass )
+        // CPU-RDG-ALLOC: the list in the frame graph's arena (alive until the graph resets), no heap per node.
+        Common::Memory::ArenaVector<RDG::LoadOp>
+        ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass )
         {
-            return Graphic::ColorLoads( targets, pass, m_StartedColors );
+            return Graphic::ColorLoads( targets, pass, m_StartedColors,
+                                        Common::Memory::ArenaAllocator<RDG::LoadOp>( m_Graph.GetFrameArena() ) );
         }
 
     private:
@@ -299,7 +305,7 @@ namespace Desert::Graphic
         std::map<const Image*, RDG::ExternalTexture*>      m_Externals; // Import's registrations, for Extract
         std::vector<std::pair<uint32_t, std::function<void()>>> m_Histories; // MarkHistory: external index, reset
         std::map<const Framebuffer*, std::vector<GraphColor>>   m_GraphColors; // AddGraphColor
-        std::set<uint32_t> m_StartedColors;                                    // ColorLoads: slots already written
+        StartedColorSet m_StartedColors; // ColorLoads: slots already written, in the graph's arena
     };
 
     // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
@@ -356,13 +362,22 @@ namespace Desert::Graphic
     // image or a buffer the graph does not know refuses the node: false, the error logged naming @p node, and the
     // caller adds nothing. A node is never added half-declared.
     inline bool ResolveDeclared( FrameTextures& textures, const RenderPassDeclaration& declared,
-                                 std::string_view node, std::vector<RDG::TextureRef>& images )
+                                 std::string_view node, Common::Memory::ArenaVector<RDG::TextureRef>& images )
     {
         images.clear();
+        // CPU-RDG-ALLOC: a declared name is viewed; a name is formed only for an entry that gives none, in
+        // @p images' arena (the frame graph's for AddComputeNodes), never a heap string. Import copies it.
+        Common::Memory::ArenaString formed( Common::Memory::ArenaAllocator<char>( images.get_allocator() ) );
+        std::string_view            name;
         for ( const RenderPassDeclaration::ImageUse& use : declared.Images() )
         {
-            const std::string name =
-                 use.Name.empty() ? std::format( "{}.Image{}", node, images.size() ) : use.Name;
+            name = use.Name;
+            if ( name.empty() )
+            {
+                formed.clear();
+                std::format_to( std::back_inserter( formed ), "{}.Image{}", node, images.size() );
+                name = formed;
+            }
             const RDG::TextureRef ref = textures.Import( use.Image, name );
             if ( !ref.IsValid() )
             {
@@ -374,20 +389,35 @@ namespace Desert::Graphic
             images.push_back( ref );
         }
         // The engine images the binding blocks name, after the ImageUses, through the same one import per image.
-        for ( const RenderPassDeclaration::BlockEntry* entry : BlockImageEntries( declared ) )
+        // In block and entry order (BlockImageEntries' order, without its list).
+        for ( const RenderPassDeclaration::BlockUse& block : declared.Blocks() )
         {
-            const std::string name =
-                 entry->ImportName.empty() ? std::format( "{}.{}", node, entry->ShaderName ) : entry->ImportName;
-            const RDG::TextureRef ref = textures.Import( entry->Image, name );
-            if ( !ref.IsValid() )
+            for ( const RenderPassDeclaration::BlockEntry& entry : block.Entries )
             {
-                LOG_ERROR(
-                     "[SceneRenderer] '{}' is not recorded: the frame graph cannot import the image '{}' its "
-                     "binding '{}' names",
-                     node, name, entry->ShaderName );
-                return false;
+                if ( !entry.Image )
+                    continue;
+                name = entry.ImportName();
+                if ( name.empty() )
+                {
+                    formed.clear();
+                    if ( entry.Element == RDG::TextureParameter::kWhole )
+                        std::format_to( std::back_inserter( formed ), "{}.{}", node, entry.ParameterName );
+                    else
+                        std::format_to( std::back_inserter( formed ), "{}.{}[{}]", node, entry.ParameterName,
+                                        entry.Element );
+                    name = formed;
+                }
+                const RDG::TextureRef ref = textures.Import( entry.Image, name );
+                if ( !ref.IsValid() )
+                {
+                    LOG_ERROR(
+                         "[SceneRenderer] '{}' is not recorded: the frame graph cannot import the image '{}' "
+                         "its binding '{}' (element {}) names",
+                         node, name, entry.ParameterName, entry.Element );
+                    return false;
+                }
+                images.push_back( ref );
             }
-            images.push_back( ref );
         }
         if ( const char* invalid = InvalidDeclaredRef( declared ) )
         {
@@ -399,10 +429,10 @@ namespace Desert::Graphic
 
     // Every entry of @p declared on @p pass; @p images are ResolveDeclared's graph textures of its images (the
     // ImageUses first, then the binding blocks' engine images).
-    inline void DeclareOn( RDG::PassBuilder& pass, const std::vector<RDG::TextureRef>& images,
+    inline void DeclareOn( RDG::PassBuilder& pass, const std::span<const RDG::TextureRef> images,
                            const RenderPassDeclaration& declared )
     {
-        const std::vector<RenderPassDeclaration::ImageUse>& uses = declared.Images();
+        const std::span<const RenderPassDeclaration::ImageUse> uses = declared.Images();
         for ( size_t i = 0; i < uses.size(); ++i )
         {
             if ( uses[i].Writes )
@@ -410,7 +440,7 @@ namespace Desert::Graphic
             else
                 pass.Read( images[i], uses[i].Access );
         }
-        DeclareRefsOn( pass, declared, std::span<const RDG::TextureRef>( images ).subspan( uses.size() ) );
+        DeclareRefsOn( pass, declared, images.subspan( uses.size() ) );
     }
 
     // A system's compute work of this frame, one Compute node per entry in the order given, each declaring exactly
@@ -421,12 +451,20 @@ namespace Desert::Graphic
     // Returns whether every node was added (true for none): the system's Settle*Nodes applies the per-frame state
     // the nodes stand for only then.
     inline bool AddComputeNodes( RDG::Builder& graph, FrameTextures& textures,
-                                 std::vector<ComputeNodeDeclaration> nodes )
+                                 ComputeNodeList nodes )
     {
-        std::vector<std::vector<RDG::TextureRef>> images( nodes.size() );
+        // CPU-RDG-ALLOC: each node's resolved images in the graph's arena (alive until the graph resets), no heap
+        // list per node.
+        Common::Memory::FrameArena&                                               arena = graph.GetFrameArena();
+        Common::Memory::ArenaVector<Common::Memory::ArenaVector<RDG::TextureRef>> images{
+             Common::Memory::ArenaAllocator<Common::Memory::ArenaVector<RDG::TextureRef>>( arena ) };
+        images.reserve( nodes.size() );
         for ( size_t i = 0; i < nodes.size(); ++i )
+        {
+            images.emplace_back( Common::Memory::ArenaAllocator<RDG::TextureRef>( arena ) );
             if ( !ResolveDeclared( textures, nodes[i].Access, nodes[i].Name, images[i] ) )
                 return false;
+        }
         for ( size_t i = 0; i < nodes.size(); ++i )
         {
             ComputeNodeDeclaration& node = nodes[i];

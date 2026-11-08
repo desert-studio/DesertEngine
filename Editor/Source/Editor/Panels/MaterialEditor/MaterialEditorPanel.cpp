@@ -1,4 +1,3 @@
-#include <Common/Core/DestructorGuard.hpp>
 #include "MaterialEditorPanel.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -108,6 +107,10 @@ namespace Desert::Editor
                     return "UI";
                 case D::Particle:
                     return "Particle";
+                case D::DeformStamp:
+                    return "Deform Stamp";
+                case D::DeferredDecal:
+                    return "Deferred Decal";
             }
             return "engine-internal";
         }
@@ -138,6 +141,14 @@ namespace Desert::Editor
                     return "is a VFX fragment — a stack module or a compiled emitter stack — compiled into "
                            "the particle simulation, not an object this pane could place. Look at the effect "
                            "that uses it in the viewport.";
+                case D::DeformStamp:
+                    return "is the shape of a surface-deformation stamp, compiled into the deformation "
+                           "field's stamp program, not an object this pane could place. Look at the field it "
+                           "deforms in the viewport.";
+                case D::DeferredDecal:
+                    return "projects onto the scene's surfaces from a Decal component's box, not an object "
+                           "this pane could place. Assign it to a Decal component and look at the surfaces "
+                           "the box covers in the viewport.";
                 case D::Unspecified:
                 case D::Surface:
                 case D::Skybox: // no longer a refusal: the pane wraps its cubemap onto a ball (see
@@ -188,7 +199,6 @@ namespace Desert::Editor
     // that depends on which line a member happens to be declared on is the shape of defect this engine has
     // paid for in Vulkan lifetimes more than once.
     MaterialEditorPanel::~MaterialEditorPanel()
-    try
     {
         // CLOSING WITH EDITS NOBODY ACCEPTED IS A LOSS, AND STAGING IS WHAT MADE IT POSSIBLE. Before this
         // window held three states, an unaccepted edit was already in the scene and could still be saved
@@ -198,9 +208,14 @@ namespace Desert::Editor
         // person who closed the wrong window can put them back by hand.
         if ( const MaterialEdit::DirtyState dirty = Dirty(); dirty.Unapplied || dirty.Unsaved )
         {
-            const auto        subject = ResolveSubject();
-            const std::string name =
-                 subject ? subject->GetMetadata().Filepath.generic_string() : std::string( "<unloaded>" );
+            const auto  subject = ResolveSubject();
+            std::string name    = "<unloaded>";
+            if ( subject )
+            {
+                // UTF-8: generic_string() converts to the ANSI code page and throws on a character it lacks.
+                const std::u8string path = subject->GetMetadata().Filepath.generic_u8string();
+                name.assign( reinterpret_cast<const char*>( path.data() ), path.size() );
+            }
 
             if ( dirty.Unapplied )
             {
@@ -238,7 +253,6 @@ namespace Desert::Editor
             m_WorkingCopy.reset();
         }
     }
-    DESERT_DESTRUCTOR_GUARD( "~MaterialEditorPanel" )
 
     std::shared_ptr<Assets::SurfaceMaterialAsset> MaterialEditorPanel::ResolveSubject() const
     {
@@ -2388,6 +2402,8 @@ namespace Desert::Editor
                 if ( auto* ddm = dynamic_cast<Graphic::DataDrivenMaterial*>( runtime ) )
                     Runtime::ApplySurfaceAsset( *ddm, asset );
             }
+            // The renderers that fold the values into a program of their own (the water) re-fold on this.
+            materialService->NoteValuesEdited();
         }
 
         // ONE BUMP SITE IN THE WHOLE WINDOW, and it is behind the rule. A second one would be a second
@@ -2484,9 +2500,9 @@ namespace Desert::Editor
             return &own;
 
         const uint64_t mediumHandle = drawn->Data().GetCloudAsset( Graphic::kCloudMediumSlotName );
-        const auto*    mediumSchema = mediumHandle != 0 && shaderService
-                                           ? shaderService->MediumSchemaOf( Assets::AssetHandle( mediumHandle ) )
-                                           : nullptr;
+        std::shared_ptr<const std::vector<::Desert::Core::Formats::ShaderParam>> mediumSchema;
+        if ( mediumHandle != 0 && shaderService )
+            mediumSchema = shaderService->MediumSchemaOf( Assets::AssetHandle( mediumHandle ) );
         if ( !mediumSchema || mediumSchema->empty() )
             return &own;
 

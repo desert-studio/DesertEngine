@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace Desert::ECS
 {
@@ -66,5 +67,7 @@ namespace Desert::ECS
         Physics::PhysicsWorld*                      m_World    = nullptr;
         entt::registry*                             m_Registry = nullptr;
         std::unordered_map<entt::entity, FieldBody> m_Bodies;
+        // Reused per Sync (CPU-TAILS G6): sorted once, searched by the sweep - no per-frame node allocations.
+        std::vector<entt::entity> m_Live;
     };
 } // namespace Desert::ECS

@@ -12,6 +12,9 @@
 
 #include "MaterialInstance.hpp"
 
+#include <atomic>
+#include <cstdint>
+#include <optional>
 #include <unordered_set>
 
 namespace Desert::Graphic
@@ -58,6 +61,8 @@ namespace Desert::Graphic
         return castContactShadow ? 0u : PrimitiveFlag::NoContactShadow;
     }
 
+    class DataDrivenMaterial;
+
     class Material : public IPropertyOwner
     {
     public:
@@ -72,6 +77,17 @@ namespace Desert::Graphic
                            const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
 
         virtual ~Material() = default;
+
+        /// The material as the data-driven class, or null: the per-draw question the mesh queues ask of a
+        /// slot's parent, answered by the type itself instead of a dynamic_cast per slot per frame.
+        [[nodiscard]] virtual DataDrivenMaterial* AsDataDriven() noexcept
+        {
+            return nullptr;
+        }
+        [[nodiscard]] virtual const DataDrivenMaterial* AsDataDriven() const noexcept
+        {
+            return nullptr;
+        }
 
         MaterialInstancePtr CreateInstance( const std::string& name = "" );
 
@@ -191,18 +207,30 @@ namespace Desert::Graphic
         // Get for a slot the shader MAY leave out (UE's FShaderParameter::IsBound probe): null, said nowhere, when
         // the shader declares no such property. Only for a program that legitimately lacks the slot (a shadow
         // variant without the surface's blocks); a slot the shader must have goes through Get.
+        // CPU-MAT-VIEW-UB: the executor's raw finders (no shared_ptr copy - the executor owns the property) over
+        // the parameter's own name view; an array element ("<Name>[<i>]") is spelled into a stack buffer, no heap.
         template <typename T>
         T* Find( RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
         {
-            const std::string name = parameter.SlotName();
-            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
-                return m_MaterialExecutor->GetUniformBufferProperty( name ).get();
-            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
-                return m_MaterialExecutor->GetStorageBufferProperty( name ).get();
-            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
-                return m_MaterialExecutor->GetTexture2DProperty( name ).get();
-            else
-                return m_MaterialExecutor->GetTextureCubeProperty( name ).get();
+            RDG::SlotNameBuffer slot;
+            return FindByName<T>( slot.Spell( parameter ) );
+        }
+
+        // DL-6: the scene frame's blocks of this material's shader, resolved once where its properties were built
+        // (MaterialExecutor::SceneBlocks) - the per-frame writers (SceneFrameBinding::ApplyTo) read these, no
+        // name.
+        [[nodiscard]] const MaterialExecutor::SceneBlocks& GetSceneBlocks() const noexcept
+        {
+            return m_MaterialExecutor->GetSceneBlocks();
+        }
+
+        // Get over a slot resolved in advance (GetSceneBlocks): the same named miss as Get, without the lookup.
+        template <typename T>
+        T* GetResolved( T* resolved, RDG::ShaderParameterOf<MaterialPropertyKind<T>> parameter ) const
+        {
+            if ( resolved == nullptr )
+                ReportMissingProperty( parameter.SlotName() );
+            return resolved;
         }
 
         // Logs once that @p name is not a property of this material's shader (Get's miss).
@@ -258,6 +286,14 @@ namespace Desert::Graphic
         void UploadRegisteredProperties();
         // True while a registered property was written and not uploaded yet.
         [[nodiscard]] bool HasPendingRegisteredProperties() const;
+        // CPU-BIND-PREPARE: how many writes the registered properties counted (TProperty::AttachWriteSink), or
+        // nullopt when one of them counts none - then only HasPendingRegisteredProperties answers.
+        [[nodiscard]] std::optional<uint64_t> RegisteredWrites() const noexcept
+        {
+            if ( !m_RegisteredWritesCounted )
+                return std::nullopt;
+            return m_RegisteredWrites.load( std::memory_order_relaxed );
+        }
 
         // Push every FIELD-FILLED uniform buffer that still owes a copy into that copy. The one
         // implementation of a loop that existed in four copies (here, tonemap, JFA composite, deferred
@@ -288,8 +324,26 @@ namespace Desert::Graphic
         mutable std::unordered_set<std::string> m_ReportedMissing;
         std::unique_ptr<MaterialExecutor> m_MaterialExecutor;
         std::vector<IProperty*>           m_RegisteredProperties;
+        // Bumped by every write of a registered property (RegisterProperty attaches it; the properties are the
+        // subclass's members, so this outlives them).
+        std::atomic<uint64_t> m_RegisteredWrites{ 0 };
+        bool                  m_RegisteredWritesCounted = true;
 
     private:
+        // Find's lookup by the slot name, a view the caller keeps alive for the call.
+        template <typename T>
+        T* FindByName( std::string_view name ) const
+        {
+            if constexpr ( std::is_same_v<T, UniformBufferProperty> )
+                return m_MaterialExecutor->FindUniformBufferProperty( name );
+            else if constexpr ( std::is_same_v<T, StorageBufferProperty> )
+                return m_MaterialExecutor->FindStorageBufferProperty( name );
+            else if constexpr ( std::is_same_v<T, Texture2DProperty> )
+                return m_MaterialExecutor->FindTexture2DProperty( name );
+            else
+                return m_MaterialExecutor->FindTextureCubeProperty( name );
+        }
+
         ResourceOwnership m_Accounting;
         bool              m_TwoSided = false;
     };

@@ -9,12 +9,7 @@
             "Id": 1,
             "Kind": "SurfaceLayerInput",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 0.0,
@@ -46,12 +41,7 @@
             "Id": 6,
             "Kind": "TileUV",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 0.0,
@@ -79,12 +69,7 @@
             "Id": 11,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.004,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.004, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 0.0,
@@ -101,12 +86,7 @@
             "Id": 14,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_Color_2k.detex",
             "X": 840.0,
             "Y": 0.0,
@@ -149,12 +129,7 @@
             "Id": 22,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_NormalGL_2k.detex",
             "X": 1120.0,
             "Y": 0.0,
@@ -197,12 +172,7 @@
             "Id": 30,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_arm_2k.detex",
             "X": 0.0,
             "Y": 160.0,
@@ -245,12 +215,7 @@
             "Id": 38,
             "Kind": "DecodeNormal",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 160.0,
@@ -273,12 +238,7 @@
             "Id": 42,
             "Kind": "WorldParameterScalar",
             "ParamName": "SnowCover",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 160.0,
@@ -295,12 +255,7 @@
             "Id": 44,
             "Kind": "LerpFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 160.0,
@@ -333,12 +288,7 @@
             "Id": 49,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 160.0,
@@ -355,12 +305,7 @@
             "Id": 52,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.4,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.4, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 320.0,
@@ -377,12 +322,7 @@
             "Id": 56,
             "Kind": "AddFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 320.0,
@@ -410,12 +350,7 @@
             "Id": 61,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.15,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.15, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 320.0,
@@ -432,12 +367,7 @@
             "Id": 64,
             "Kind": "MultiplyFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 320.0,
@@ -465,12 +395,7 @@
             "Id": 69,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.5,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.5, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 320.0,
@@ -487,12 +412,7 @@
             "Id": 72,
             "Kind": "AddFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 480.0,
@@ -520,12 +440,7 @@
             "Id": 77,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                -0.45,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [-0.45, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 480.0,
@@ -542,12 +457,7 @@
             "Id": 80,
             "Kind": "AddFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 480.0,
@@ -575,12 +485,7 @@
             "Id": 86,
             "Kind": "SmoothstepFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 480.0,
@@ -613,12 +518,7 @@
             "Id": 94,
             "Kind": "MultiplyFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 480.0,
@@ -646,12 +546,7 @@
             "Id": 99,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                1000000.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1000000.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 640.0,
@@ -668,12 +563,7 @@
             "Id": 102,
             "Kind": "SaturateFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 640.0,
@@ -696,12 +586,7 @@
             "Id": 106,
             "Kind": "MultiplyFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 640.0,
@@ -729,12 +614,7 @@
             "Id": 112,
             "Kind": "TileUV",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 640.0,
@@ -762,12 +642,7 @@
             "Id": 117,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.005,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.005, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 640.0,
@@ -784,12 +659,7 @@
             "Id": 120,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_Diffuse_2k.detex",
             "X": 0.0,
             "Y": 800.0,
@@ -832,12 +702,7 @@
             "Id": 128,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_nor_gl_2k.detex",
             "X": 280.0,
             "Y": 800.0,
@@ -880,12 +745,7 @@
             "Id": 136,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_arm_2k.detex",
             "X": 560.0,
             "Y": 800.0,
@@ -928,12 +788,7 @@
             "Id": 144,
             "Kind": "DecodeNormal",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 800.0,
@@ -956,12 +811,7 @@
             "Id": 148,
             "Kind": "TileUV",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 800.0,
@@ -989,12 +839,7 @@
             "Id": 153,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.0007692307692307692,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.0007692307692307692, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 960.0,
@@ -1011,12 +856,7 @@
             "Id": 156,
             "Kind": "LayerTexture",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_arm_2k.detex",
             "X": 280.0,
             "Y": 960.0,
@@ -1059,12 +899,7 @@
             "Id": 164,
             "Kind": "SmoothstepFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 960.0,
@@ -1097,12 +932,7 @@
             "Id": 169,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.935,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.935, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 960.0,
@@ -1119,12 +949,7 @@
             "Id": 172,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.955,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.955, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 960.0,
@@ -1141,12 +966,7 @@
             "Id": 176,
             "Kind": "LerpFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 1120.0,
@@ -1179,12 +999,7 @@
             "Id": 181,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 1120.0,
@@ -1201,12 +1016,7 @@
             "Id": 184,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 1120.0,
@@ -1223,12 +1033,7 @@
             "Id": 188,
             "Kind": "MultiplyFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 1120.0,
@@ -1256,12 +1061,7 @@
             "Id": 193,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                1.2,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.2, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 1120.0,
@@ -1278,12 +1078,7 @@
             "Id": 196,
             "Kind": "MultiplyFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 1280.0,
@@ -1311,12 +1106,7 @@
             "Id": 201,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.5,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.5, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 1280.0,
@@ -1333,12 +1123,7 @@
             "Id": 204,
             "Kind": "AddFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 1280.0,
@@ -1366,12 +1151,7 @@
             "Id": 210,
             "Kind": "SmoothstepFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 1280.0,
@@ -1404,12 +1184,7 @@
             "Id": 215,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.5,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.5, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 1280.0,
@@ -1426,12 +1201,7 @@
             "Id": 218,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.8,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.8, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 1440.0,
@@ -1448,12 +1218,7 @@
             "Id": 222,
             "Kind": "MultiplyFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 1440.0,
@@ -1481,12 +1246,7 @@
             "Id": 227,
             "Kind": "FloatConst",
             "ParamName": "",
-            "Value": [
-                0.9,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [0.9, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 1440.0,
@@ -1503,12 +1263,7 @@
             "Id": 230,
             "Kind": "SurfaceLayerOutput",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 840.0,
             "Y": 1440.0,
@@ -1550,12 +1305,7 @@
             "Id": 237,
             "Kind": "Lerp",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 1120.0,
             "Y": 1440.0,
@@ -1588,12 +1338,7 @@
             "Id": 246,
             "Kind": "LerpVec3",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 0.0,
             "Y": 1600.0,
@@ -1626,12 +1371,7 @@
             "Id": 255,
             "Kind": "LerpFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 280.0,
             "Y": 1600.0,
@@ -1664,12 +1404,7 @@
             "Id": 264,
             "Kind": "LerpFloat",
             "ParamName": "",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Value": [1.0, 1.0, 1.0, 1.0],
             "Asset": "",
             "X": 560.0,
             "Y": 1600.0,

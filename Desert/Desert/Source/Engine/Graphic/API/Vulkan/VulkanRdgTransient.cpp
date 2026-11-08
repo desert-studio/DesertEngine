@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <format>
 
 #include <algorithm>
@@ -146,11 +147,21 @@ namespace Desert::Graphic::API::Vulkan
         m_Begun       = true;
         m_Current     = -1;
         Slot& current = m_Slots[m_Slot];
-        // The caller waited for this slot's previous submission: what it retired is unused now.
-        DestroyRetired( current );
-        for ( const Heap& retired : current.RetiredHeaps )
-            vmaFreeMemory( m_Device.Allocator, retired.Memory ); // closes its row with it
-        current.RetiredHeaps.clear();
+        // The caller waited for this slot's previous submission: what it retired is unused now. DESTROYED ON THE
+        // SUBMIT THREAD (VK-SUBMIT-THREAD; UE: the RHI's deferred deletion queue): the render thread only moves
+        // the handles into one batch, and the vkDestroy* / vmaFreeMemory calls run there, after everything
+        // handed to that thread so far. Resources before memory, as FreePool. VMA and the ledgers lock
+        // themselves; nothing in the batch is reachable from the slot any more.
+        struct SlotGarbage
+        {
+            std::vector<std::shared_ptr<VulkanRdgTexture>> Textures;
+            std::vector<std::shared_ptr<VulkanRdgBuffer>>  Buffers;
+            std::vector<Heap>                              Heaps; // memory freed after the resources
+        };
+        SlotGarbage garbage;
+        garbage.Textures.swap( current.RetiredTextures );
+        garbage.Buffers.swap( current.RetiredBuffers );
+        garbage.Heaps.swap( current.RetiredHeaps );
         // A shared heap the previous frame's graphs wanted at most half of (or not at all) for
         // kGarbageCollectLatency frames is given up (the next want allocates one of its size).
         for ( uint32_t index = 0; index < m_Shared.size(); ++index )
@@ -168,7 +179,10 @@ namespace Desert::Graphic::API::Vulkan
         for ( PooledHeap& pooled : current.Pool )
         {
             if ( ++pooled.IdleFrames > kGarbageCollectLatency )
-                vmaFreeMemory( m_Device.Allocator, pooled.Pooled.Memory );
+            {
+                garbage.Heaps.push_back( std::move( pooled.Pooled ) );
+                pooled.Pooled.Memory = nullptr; // the entry goes below; its memory is the batch's now
+            }
         }
         std::erase_if( current.Pool,
                        []( const PooledHeap& pooled ) { return pooled.IdleFrames > kGarbageCollectLatency; } );
@@ -183,7 +197,18 @@ namespace Desert::Graphic::API::Vulkan
                        } );
         for ( GraphHeaps& graph : current.Graphs )
         {
-            // A placed resource the previous frame's plan did not use belongs to a changed plan.
+            // A placed resource the previous frame's plan did not use belongs to a changed plan: its handle goes
+            // to the batch, its entry goes.
+            for ( PlacedTexture& placed : graph.Textures )
+            {
+                if ( !placed.UsedThisFrame )
+                    garbage.Textures.push_back( std::move( placed.Resource ) );
+            }
+            for ( PlacedBuffer& placed : graph.Buffers )
+            {
+                if ( !placed.UsedThisFrame )
+                    garbage.Buffers.push_back( std::move( placed.Resource ) );
+            }
             std::erase_if( graph.Textures, []( const PlacedTexture& placed ) { return !placed.UsedThisFrame; } );
             std::erase_if( graph.Buffers, []( const PlacedBuffer& placed ) { return !placed.UsedThisFrame; } );
             for ( PlacedTexture& placed : graph.Textures )
@@ -195,6 +220,19 @@ namespace Desert::Graphic::API::Vulkan
         // Every heap in the pool now was last used by this slot's previous frame, which has completed.
         for ( PooledHeap& pooled : current.Pool )
             pooled.GivenUpThisFrame = false;
+
+        if ( garbage.Textures.empty() && garbage.Buffers.empty() && garbage.Heaps.empty() )
+            return; // a steady frame retires nothing and allocates nothing here
+        auto batch = std::make_shared<SlotGarbage>( std::move( garbage ) );
+        VulkanFrameLoop::DeferRelease(
+             [batch, allocator = m_Device.Allocator]()
+             {
+                 batch->Textures.clear();
+                 batch->Buffers.clear();
+                 for ( const Heap& heap : batch->Heaps )
+                     vmaFreeMemory( allocator, heap.Memory ); // its row closes as the heap goes, just below
+                 batch->Heaps.clear();
+             } );
     }
 
     Common::BoolResultStr VulkanRdgTransientAllocator::AllocateHeap( const RDG::TransientHeapDesc& desc,

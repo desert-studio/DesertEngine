@@ -521,7 +521,8 @@ namespace Desert::Scripting
         if ( found == m_Impl->Slots.end() )
             return;
         lua_State* thread = found->second.Thread;
-        lua_getglobal( thread, "Properties" );
+        // Into the values behind the write barrier, raw: the engine's write is no script write to read back.
+        LuauProperties::PushPropertyValues( thread );
         if ( !lua_istable( thread, -1 ) )
         {
             lua_pop( thread, 1 );
@@ -530,8 +531,27 @@ namespace Desert::Scripting
             lua_setglobal( thread, "Properties" );
         }
         LuauProperties::PushProperty( thread, property, world );
-        lua_setfield( thread, -2, property.Name.c_str() );
+        lua_rawsetfield( thread, -2, property.Name.c_str() );
         lua_pop( thread, 1 );
+    }
+
+    bool LuauRuntime::AnyPropertyWritten( LuauSlot slot ) const
+    {
+        auto found = m_Impl->Slots.find( slot );
+        return found != m_Impl->Slots.end() && LuauProperties::AnyPropertyWritten( found->second.Thread );
+    }
+
+    bool LuauRuntime::PropertyWritten( LuauSlot slot, const std::string& name ) const
+    {
+        auto found = m_Impl->Slots.find( slot );
+        return found != m_Impl->Slots.end() && LuauProperties::PropertyWritten( found->second.Thread, name );
+    }
+
+    void LuauRuntime::ClearPropertyWrites( LuauSlot slot )
+    {
+        auto found = m_Impl->Slots.find( slot );
+        if ( found != m_Impl->Slots.end() )
+            LuauProperties::ClearPropertyWrites( found->second.Thread );
     }
 
     bool LuauRuntime::ReadProperty( LuauSlot slot, const std::string& name, PropertyType type,

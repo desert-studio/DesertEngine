@@ -5,6 +5,11 @@
 // the visibility resolve (Pass_VisibilityResolve.glslh, GRASS-VIS), so a texel means the same whichever wrote it.
 // Needs SurfaceInput / SurfaceOutput (SurfaceTypes.glslh) and DESERT_SHADING_MODEL_INDEX (the parser).
 #include <Generated/ShadingModels.glslh>
+// The raster G-buffer cell receives the view's DBuffer (DECALS-DBUFFER, Pass_GBuffer.glslh defines it); the
+// visibility resolve does not: the grass it resolves is not in the prepass depth the decals project onto.
+#ifdef DESERT_SURFACE_DBUFFER_RECEIVE
+#include <Common/DBuffer.glslh>
+#endif
 
 layout( location = 0 ) out vec4 oGBufferA;            // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;            // world Normal.rgb, Roughness.a
@@ -54,11 +59,21 @@ void DesertSurfaceNormalFootprint( const SurfaceInput i, const SurfaceOutput s, 
 void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
                          const float objectMoved, const bool castsContactShadow )
 {
-    const vec3 N = DesertSurfaceWorldNormal( i, s );
-    vec3       dNdx, dNdy;
+    vec3  N         = DesertSurfaceWorldNormal( i, s );
+    vec3  baseColor = s.BaseColor;
+    float roughness = s.Roughness;
+    float metallic  = s.Metallic;
+    float ao        = s.AmbientOcclusion;
+#ifdef DESERT_SURFACE_DBUFFER_RECEIVE
+    // The frame's decals over this surface (UE ApplyDBufferData), before the specular AA widens the roughness.
+    // No DBuffer on this view (no decal pass, or the card capture): no fetch at all.
+    if ( DesertViewHasDBuffer() )
+        DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), baseColor, N, roughness, metallic, ao );
+#endif
+    vec3 dNdx, dNdy;
     DesertSurfaceNormalFootprint( i, s, N, dNdx, dNdy );
-    oGBufferA = vec4( s.BaseColor, s.Metallic );
-    oGBufferB = vec4( N, DesertSpecularAA( max( s.Roughness, kDesertMinRoughness ), dNdx, dNdy ) );
+    oGBufferA = vec4( baseColor, metallic );
+    oGBufferB = vec4( N, DesertSpecularAA( max( roughness, kDesertMinRoughness ), dNdx, dNdy ) );
     const uvec2 word =
          DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
@@ -66,7 +81,7 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     oGBufferShadingWord = DesertMarkContactShadowCast(
          DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
          castsContactShadow );
-    oGBufferEmissive      = vec4( s.Emissive, s.AmbientOcclusion );
+    oGBufferEmissive      = vec4( s.Emissive, ao );
     oVelocity             = DesertVelocity( clip, prevClip, objectMoved );
     oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
 }

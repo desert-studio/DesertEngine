@@ -57,6 +57,12 @@ namespace Desert::ShaderResources::API::Vulkan
         // persistent buffer answers with its one buffer for every frame and view.
         NO_DISCARD Common::BoolResultStr BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out );
 
+        // CPU-RDG-PREPARE (ViewCopiedBlock::GetCopyEpoch). A persistent buffer's one copy never changes: 0.
+        NO_DISCARD uint64_t GetCopyEpoch() const noexcept
+        {
+            return m_PerView ? m_PerView->GetCopyEpoch() : 0;
+        }
+
         NO_DISCARD const void* GetData() const override;
 
         NO_DISCARD Common::BoolResultStr ReadBack( void* destination, uint32_t size, uint32_t offset ) override;
@@ -85,7 +91,7 @@ namespace Desert::ShaderResources::API::Vulkan
         // One buffer shared by every frame and view (AcrossFrames or DeviceOnly).
         bool IsPersistent() const
         {
-            return m_Lifetime != Persistence::PerFrame;
+            return !IsPerFrameLifetime( m_Lifetime );
         }
         bool IsDeviceOnly() const
         {

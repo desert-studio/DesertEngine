@@ -79,17 +79,25 @@ namespace Desert::Graphic
     // ShadowQuality holds them (centimetres for the distance, like the table). `sunRayTraced` = the view's Shadows
     // method resolves to HardwareTraced: the sun's cascades are then only the low-detail ones the blended
     // programs sample (Shadows.RayTracedTranslucencyCascades / .RayTracedTranslucencyMapSize); the local lights'
-    // atlas keeps Shadows.MapSize either way.
+    // atlas keeps Shadows.MapSize either way. `sunDistanceField` = the view's sun reads a distance-field shadow
+    // past its last cascade (UE DistanceFieldShadowing: the CSM covers only the near range, r.Shadow.
+    // DistanceFieldShadowDistance takes the rest): the cascades then end at min(Shadows.Distance,
+    // Shadows.DistanceFieldCascadeDistance), the same cascade count and map size spent on the nearer range.
     [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality,
-                                                        const bool                                  sunRayTraced )
+                                                        const bool sunRayTraced, const bool sunDistanceField )
     {
         using Common::Scalability::Parameter;
-        const auto mapSize = quality.As<uint32_t>( Parameter::ShadowMapSize );
+        const auto  mapSize     = quality.As<uint32_t>( Parameter::ShadowMapSize );
+        const float csmDistance = quality.As<float>( Parameter::ShadowDistance );
+        const float dfDistance  = quality.As<float>( Parameter::ShadowDistanceFieldCascadeDistance );
+        float       maxDistance = csmDistance;
+        if ( sunDistanceField && dfDistance < csmDistance )
+            maxDistance = dfDistance;
         return ShadowQuality{ sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyCascades )
                                            : quality.As<uint32_t>( Parameter::ShadowCascades ),
                               sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyMapSize )
                                            : mapSize,
-                              quality.As<float>( Parameter::ShadowDistance ), mapSize };
+                              maxDistance, mapSize };
     }
 
     // THE RE-ALLOCATION RULE (UE re-creates its shadow depth targets when r.Shadow.* changes): the budget a
@@ -99,11 +107,11 @@ namespace Desert::Graphic
     // Pure, so the rule is tested without a device; SceneRenderer calls it when the quality generation moves.
     [[nodiscard]] inline std::optional<ShadowQuality>
     ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality,
-                        const bool sunRayTraced )
+                        const bool sunRayTraced, const bool sunDistanceField = false )
     {
         if ( !profile.ShadowsFollowQuality || quality.Generation == 0 )
             return std::nullopt;
-        const ShadowQuality wanted = ShadowQualityOf( quality, sunRayTraced );
+        const ShadowQuality wanted = ShadowQualityOf( quality, sunRayTraced, sunDistanceField );
         if ( wanted == profile.Shadows )
             return std::nullopt;
         return wanted;

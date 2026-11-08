@@ -132,7 +132,9 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     // ShaderService::AcquireVariant (NN-RUNTIME step 5). Caught here it is one more refusal, through the channel
     // every refused resource already takes: VulkanShader::Reflect names the shader and stage, the compile fails,
     // the variant is refused by name. `data` may hold part of this stage; the caller reflects into a scratch
-    // copy and drops it on any refusal, so nothing half-reflected survives.
+    // copy and drops it on any refusal, so nothing half-reflected survives. ONLY THE LIBRARY'S OWN ERROR TYPE
+    // is caught (a ThirdParty boundary is wrapped once): bad_alloc or a logic error is not a refusal of the
+    // module, and it ends the process with its message instead of becoming one more diagnostic.
     std::vector<std::string> ReflectStage( const std::vector<uint32_t>& spirv, Core::Formats::ShaderStage stage,
                                            ShaderResource::ReflectionData& data )
     try
@@ -207,6 +209,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                      "resource '{}' (set {}) is still on the shared-sampler marker binding {}: the SPIR-V did not "
                      "come through the program build that numbers `Uniform sampler` declarations (BuildShaderMap)",
                      resource.name, set, binding ) );
+                return;
+            }
+            // Likewise the unnumbered-resource marker (ShaderMapBuild.cpp AssignProgramBindings).
+            if ( binding == Core::kAutoResourceBinding )
+            {
+                diagnostics.push_back( std::format( "resource '{}' (set {}) is still on the unnumbered-resource "
+                                                    "marker binding {}: the SPIR-V did "
+                                                    "not come through the program build that numbers paren-less "
+                                                    "DSL declarations (BuildShaderMap)",
+                                                    resource.name, set, binding ) );
                 return;
             }
             const auto [it, inserted] = claimed.emplace( std::pair{ set, binding }, resource.name );
@@ -502,10 +514,6 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     {
         return { std::format( "SPIRV-Cross cannot reflect this stage's SPIR-V: {}", error.what() ) };
     }
-    catch ( const std::exception& error )
-    {
-        return { std::format( "reflecting this stage's SPIR-V failed: {}", error.what() ) };
-    }
 
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )
     {
@@ -662,7 +670,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     std::vector<VkPipelineColorBlendAttachmentState>
     BuildColorBlendAttachments( const std::vector<uint32_t>& writtenLocations,
                                 const std::vector<bool>& blendPerSlot, const VkBlendFactor srcColor,
-                                const VkBlendFactor dstColor )
+                                const VkBlendFactor dstColor, const VkBlendFactor srcAlpha,
+                                const VkBlendFactor dstAlpha )
     {
         const auto colorAttachmentCount = static_cast<uint32_t>( blendPerSlot.size() );
         std::vector<VkPipelineColorBlendAttachmentState> attachments( colorAttachmentCount );
@@ -673,8 +682,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                    .srcColorBlendFactor = srcColor,
                                    .dstColorBlendFactor = dstColor,
                                    .colorBlendOp        = VK_BLEND_OP_ADD,
-                                   .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-                                   .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                                   .srcAlphaBlendFactor = srcAlpha,
+                                   .dstAlphaBlendFactor = dstAlpha,
                                    .alphaBlendOp        = VK_BLEND_OP_ADD,
                                    .colorWriteMask      = written
                                                                ? ( VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |

@@ -1,5 +1,4 @@
 #include <Common/Core/EngineThread.hpp>
-#include <Common/Core/DestructorGuard.hpp>
 #include "PhotogrammetryPanel.hpp"
 
 #include <Editor/Platform/DesktopPlatform.hpp>
@@ -268,15 +267,17 @@ namespace Desert::Editor
     }
 
     PhotogrammetryPanel::~PhotogrammetryPanel()
-    try
     {
         StopCamera();
         CancelJob();
+        // A worker cannot join itself (join throws resource_deadlock_would_occur), and the panel it captures
+        // would die under it: closing the panel from its own worker is a broken invariant, said at its site.
+        DESERT_VERIFY( m_Worker.get_id() != std::this_thread::get_id(),
+                       "~PhotogrammetryPanel runs on its own worker thread" );
         if ( m_Worker.joinable() )
             m_Worker.join();
         ReleasePreview();
     }
-    DESERT_DESTRUCTOR_GUARD( "~PhotogrammetryPanel" )
 
     // ---------------------------------------------------------------------------------------------------
     // Camera
@@ -393,8 +394,8 @@ namespace Desert::Editor
         if ( m_Worker.joinable() )
             m_Worker.join();
 
-        m_Worker = Common::StartEngineThread(
-             [this, cmd]()
+        m_Worker = Common::StartEngineThread( "Photogrammetry", Common::ThreadPriority::Normal,
+             [this, cmd]() noexcept
              {
 #if defined( DE_POSIX_PROC )
                  int fds[2];

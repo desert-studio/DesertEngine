@@ -1,4 +1,5 @@
 #include "SceneMigration.hpp"
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -1302,6 +1303,210 @@ namespace Desert::Migration
                            DropKey( block, "Settings" );
                            block["Settings"] = rfl::Generic( std::move( settings ) );
                            ++report.Restated;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    TracedRequestReport MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities )
+    {
+        using Common::Scalability::GIRequest;
+        using Common::Scalability::ReflectionRequest;
+        TracedRequestReport report;
+
+        // The v64..v71 ladders by their numbers, as today's requests: both tracers are Traced.
+        constexpr std::array<int, 7> kGIFromOld{
+             static_cast<int>( GIRequest::Off ),         static_cast<int>( GIRequest::Lightmaps ),
+             static_cast<int>( GIRequest::ScreenSpace ), static_cast<int>( GIRequest::ProbeVolume ),
+             static_cast<int>( GIRequest::Traced ),      static_cast<int>( GIRequest::Traced ),
+             static_cast<int>( GIRequest::PathTraced ) };
+        constexpr std::array<int, 6> kReflectionsFromOld{
+             static_cast<int>( ReflectionRequest::Off ),         static_cast<int>( ReflectionRequest::Captures ),
+             static_cast<int>( ReflectionRequest::ScreenSpace ), static_cast<int>( ReflectionRequest::Traced ),
+             static_cast<int>( ReflectionRequest::Traced ),
+             static_cast<int>( ReflectionRequest::PathTraced ) };
+
+        // One key of one Settings object; false when it is absent or already on the new number.
+        const auto restateKey = [&]( rfl::Generic::Object& settings, const char* key, std::span<const int> table,
+                                     const std::string& who, bool& refused )
+        {
+            const auto stated = settings.get( key );
+            if ( !stated.has_value() )
+                return false;
+            const auto old = stated.value().to_int();
+            if ( !old.has_value() || old.value() < 0 || old.value() >= static_cast<int>( table.size() ) )
+            {
+                report.Refused.push_back( std::format(
+                     "{}: PostProcessVolume.Settings.{} {} is not on the v71 ladder (0 .. {} PathTraced)", who,
+                     key, rfl::json::write( stated.value() ), table.size() - 1 ) );
+                refused = true;
+                return false;
+            }
+            const int now = table[static_cast<std::size_t>( old.value() )];
+            if ( now == old.value() )
+                return false;
+            DropKey( settings, key );
+            settings[key] = rfl::Generic( now );
+            ++report.Restated;
+            return true;
+        };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 refused  = false;
+                           const bool           gi       = restateKey( settings, "GlobalIlluminationMethod",
+                                                                       std::span<const int>( kGIFromOld ), who,
+                                                                       refused );
+                           const bool reflections =
+                                restateKey( settings, "ReflectionsMethod",
+                                            std::span<const int>( kReflectionsFromOld ), who, refused );
+                           if ( refused || ( !gi && !reflections ) )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    ComposedGIReport MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities )
+    {
+        using Common::Scalability::GIRequest;
+        constexpr int    kScreenSpace = static_cast<int>( GIRequest::ScreenSpace );
+        constexpr int    kOff         = static_cast<int>( GIRequest::Off );
+        ComposedGIReport report;
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 changed  = false;
+                           if ( const auto gi = settings.get( "GlobalIlluminationMethod" ); gi.has_value() )
+                           {
+                               const auto number = gi.value().to_int();
+                               if ( number.has_value() && number.value() == kScreenSpace )
+                               {
+                                   DropKey( settings, "GlobalIlluminationMethod" );
+                                   settings["GlobalIlluminationMethod"] = rfl::Generic( kOff );
+                                   ++report.Restated;
+                                   changed = true;
+                               }
+                           }
+                           if ( settings.get( "GIIntensity" ).has_value() )
+                           {
+                               DropKey( settings, "GIIntensity" );
+                               ++report.Dropped;
+                               changed = true;
+                           }
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    FilmicDefaultReport MigrateFilmicDefaultV73ToV74( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr int       kACES   = static_cast<int>( Core::TonemapOperator::ACES );
+        constexpr int       kFilmic = static_cast<int>( Core::TonemapOperator::Filmic );
+        FilmicDefaultReport report;
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool changed = false;
+                           if ( const auto op = settings.get( "Tonemapper" ); op.has_value() )
+                           {
+                               const auto number = op.value().to_int();
+                               if ( number.has_value() && number.value() == kACES )
+                               {
+                                   DropKey( settings, "Tonemapper" );
+                                   settings["Tonemapper"] = rfl::Generic( kFilmic );
+                                   ++report.Restated;
+                                   changed = true;
+                               }
+                           }
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
                            return true;
                        } );
         };
@@ -4536,6 +4741,45 @@ namespace Desert::Migration
                 if ( !report.DisplayTransfer.Refused.empty() )
                 {
                     report.Refused = RefusedWhole( name, report.DisplayTransfer.Refused );
+                    return;
+                }
+            }
+
+            // A view asks for Traced, not for a tracer (TRACED-METHOD-AXIS). Out of the version order on purpose:
+            // it re-states the same PostProcessVolume keys the v64 step re-numbered, and no step between them
+            // (v66..v71: World Partition, landscape keys, asset keys, root order, fog) reads them.
+            if ( statedSceneVersion < kSceneVersionTracedRequest )
+            {
+                report.TracedRequestRaised = true;
+                report.TracedRequest       = MigrateTracedRequestV71ToV72( entities );
+                if ( !report.TracedRequest.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.TracedRequest.Refused );
+                    return;
+                }
+            }
+
+            // GI comes from the method alone (GTX-TIER-LADDER): the same PostProcessVolume keys, after the v72
+            // re-statement they follow.
+            if ( statedSceneVersion < kSceneVersionComposedGI )
+            {
+                report.ComposedGIRaised = true;
+                report.ComposedGI       = MigrateComposedGIV72ToV73( entities );
+                if ( !report.ComposedGI.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.ComposedGI.Refused );
+                    return;
+                }
+            }
+
+            // Filmic by default (POST-LOOK-LAND): the same PostProcessVolume keys, after the v73 step.
+            if ( statedSceneVersion < kSceneVersionFilmicDefault )
+            {
+                report.FilmicDefaultRaised = true;
+                report.FilmicDefault       = MigrateFilmicDefaultV73ToV74( entities );
+                if ( !report.FilmicDefault.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.FilmicDefault.Refused );
                     return;
                 }
             }

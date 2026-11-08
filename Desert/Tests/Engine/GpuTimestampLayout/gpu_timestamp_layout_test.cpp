@@ -254,7 +254,8 @@ TEST( GpuTimestampLayout, SelfTimesSumToTheRootInclusive )
     const std::vector<double>  inclusive{ 8.000, 7.900, 7.100, 0.700 };
     const std::vector<int32_t> parents{ kGpuNoParent, 0, 1, 1 };
 
-    const std::vector<double> self = GpuSelfTimes( inclusive, parents );
+    std::vector<double> self;
+    GpuSelfTimes( inclusive, parents, self );
 
     // NEAR, not DOUBLE_EQ, on the SUBTRACTIONS: 8.000 - 7.900 is 0.09999999999999964 in binary floating
     // point, and a breakdown in milliseconds has no interest in the sixteenth digit. The leaves below are
@@ -273,7 +274,8 @@ TEST( GpuTimestampLayout, IndependentRootsAreNotSubtractedFromEachOther )
     const std::vector<double>  inclusive{ 4.7, 7.1, 0.6 };
     const std::vector<int32_t> parents{ kGpuNoParent, kGpuNoParent, kGpuNoParent };
 
-    const std::vector<double> self = GpuSelfTimes( inclusive, parents );
+    std::vector<double> self;
+    GpuSelfTimes( inclusive, parents, self );
 
     EXPECT_DOUBLE_EQ( self[0], 4.7 );
     EXPECT_DOUBLE_EQ( self[1], 7.1 );
@@ -288,7 +290,8 @@ TEST( GpuTimestampLayout, UnresolvedScopesDoNotDisturbTheirParent )
     const std::vector<double>  inclusive{ 5.0, -1.0, 2.0 };
     const std::vector<int32_t> parents{ kGpuNoParent, 0, 0 };
 
-    const std::vector<double> self = GpuSelfTimes( inclusive, parents );
+    std::vector<double> self;
+    GpuSelfTimes( inclusive, parents, self );
 
     EXPECT_DOUBLE_EQ( self[0], 3.0 ); // 5.0 - 2.0, the -1 child ignored
     EXPECT_LT( self[1], 0.0 );        // stays marked unresolved
@@ -303,7 +306,8 @@ TEST( GpuTimestampLayout, SelfTimeNeverGoesNegative )
     const std::vector<double>  inclusive{ 1.000, 1.002 };
     const std::vector<int32_t> parents{ kGpuNoParent, 0 };
 
-    const std::vector<double> self = GpuSelfTimes( inclusive, parents );
+    std::vector<double> self;
+    GpuSelfTimes( inclusive, parents, self );
 
     EXPECT_DOUBLE_EQ( self[0], 0.0 );
     EXPECT_DOUBLE_EQ( self[1], 1.002 );
@@ -317,7 +321,8 @@ TEST( GpuTimestampLayout, OnlyDirectChildrenAreSubtracted )
     const std::vector<double>  inclusive{ 10.0, 9.0, 8.0, 7.0 };
     const std::vector<int32_t> parents{ kGpuNoParent, 0, 1, 2 };
 
-    const std::vector<double> self = GpuSelfTimes( inclusive, parents );
+    std::vector<double> self;
+    GpuSelfTimes( inclusive, parents, self );
 
     EXPECT_DOUBLE_EQ( self[0], 1.0 );
     EXPECT_DOUBLE_EQ( self[1], 1.0 );

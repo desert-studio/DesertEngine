@@ -1,0 +1,76 @@
+#ifndef DISTANCE_FIELD_SHADOW_GLSLH
+#define DISTANCE_FIELD_SHADOW_GLSLH
+
+// "SHADOWS: DISTANCE FIELD SUN" (UE FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection, r.DFShadow*;
+// DistanceFieldShadowing.usf, written from memory): the sun past the last cascade. The record every pass of it reads
+// (System::DistanceFieldShadowGpuParams, Systems/Scene/Shadows/DistanceFieldShadow.hpp) and the one statement of
+// THE BAND - how much of a receiver's sun visibility the distance fields own - which the trace (to skip the pixels
+// the cascades own whole) and the receivers (to cross-fade the two: Mesh/CascadedShadow.glslh
+// DistanceFieldShadowHandOver - deferred, forward and the surface-cache cards) all evaluate.
+//
+// LIGHT SPACE: x, y across the sun's rays (cm, from the camera), z toward the sun. A ray toward the sun keeps its
+// light-space x, y, so the objects a receiver's ray can meet are the ones whose light-space footprint covers the
+// receiver's: the TILE GRID (DistanceFieldShadowCull.shader) lists per tile every mesh object whose footprint,
+// grown by the penumbra its height above the receivers casts, overlaps the tile, and lies above the lowest receiver.
+// The tiles' headers are DistanceFieldShadowHeaderStride uints (the list's first index in the same buffer, its
+// length), the lists follow cell after cell; a frame whose lists need more than the room is refused on the GPU
+// (DistanceFieldShadowCullOffsets.shader: every list empty), never cut short.
+
+// std430 - System::DistanceFieldShadowGpuParams, 336 bytes.
+struct DistanceFieldShadowParams
+{
+    vec4  lightX;          // xyz = light-space x axis (unit), w = -dot(axis, camera)
+    vec4  lightY;          // the y axis
+    vec4  lightZ;          // the z axis: toward the sun
+    vec4  tiles;           // xy = the grid's light-space minimum corner (cm), zw = 1 / tile size (1/cm)
+    vec4  receivers;       // x = the lowest receiver's light-space z (cm), y = tan(sun angle / 2),
+                           // z = the mesh fields' receivers' farthest distance from the camera (cm; past it the
+                           // trace's far field, the global field alone), w = the band (UV width)
+    uvec4 counts;          // x = objects (the meshes, then the landscape tiles), y = tiles a side,
+                           // z = tiles in all, w = the list entries' room
+    mat4  invViewProjection; // the G-buffer's inverse jittered view-projection
+    mat4  lastCascade;     // the sun's last cascade's view-projection (receiver side)
+    vec4  camera;          // xyz = the camera (cm), w = 1 when the sun has a cascade (lastCascade valid)
+    vec4  gdfLevels[4];    // the global field's clipmaps (centre.xyz cm, voxel cm); voxel 0 = no field
+    vec4  extent;          // xy = the full-resolution extent (pixels), zw = the half-resolution trace's
+};
+
+const uint DistanceFieldShadowHeaderStride = 2u;
+
+// The band's width in the last cascade's UV: Mesh/CascadedShadow.glslh's cross-fade between cascades (kBand);
+// System::kDistanceFieldShadowBand packs the same value into receivers.w.
+const float kDistanceFieldShadowBand = 0.10;
+
+// The light-space position of world @p position.
+vec3 DistanceFieldShadowLight(DistanceFieldShadowParams p, vec3 position)
+{
+    const vec4 h = vec4(position, 1.0);
+    return vec3(dot(p.lightX, h), dot(p.lightY, h), dot(p.lightZ, h));
+}
+
+// The tile holding light-space @p light, or -1 off the grid.
+int DistanceFieldShadowTileAt(DistanceFieldShadowParams p, vec2 light)
+{
+    const vec2 cell = floor((light - p.tiles.xy) * p.tiles.zw);
+    const float side = float(p.counts.y);
+    if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(side))))
+        return -1;
+    return int(cell.y) * int(p.counts.y) + int(cell.x);
+}
+
+// THE BAND: 0 where the cascades own the sun's visibility, 1 where the distance fields do, between them across the
+// last cascade's border. @p lastCascade is the sun's last cascade (receiver side), @p band the width of the fade in
+// that cascade's UV (Mesh/CascadedShadow.glslh's cross-fade band). Outside the cascade - past its sides or its depth
+// range - the distance fields own it whole; inside, the weight rises as the receiver nears the cascade's side.
+float DistanceFieldShadowBandWeight(mat4 lastCascade, vec3 position, float band)
+{
+    const vec4 lc  = lastCascade * vec4(position, 1.0);
+    const vec3 ndc = lc.xyz / lc.w;
+    const vec2 uv  = ndc.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0)
+        return 1.0;
+    const float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    return 1.0 - clamp(edge / band, 0.0, 1.0);
+}
+
+#endif // DISTANCE_FIELD_SHADOW_GLSLH

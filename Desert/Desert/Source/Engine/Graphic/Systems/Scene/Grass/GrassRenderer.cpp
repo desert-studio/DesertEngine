@@ -6,9 +6,11 @@
 // the mesh renderer's instanced cells (GpuInstances.hpp) instead of a HISM component.
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Device.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
@@ -82,10 +84,35 @@ namespace Desert::Graphic::System
             return ( pages + kGrassTileSegmentPages - 1u ) / kGrassTileSegmentPages * kGrassTileSegmentPages;
         }
 
-        // A tile's key: its world tile index, x in the high half.
-        uint64_t TileKey( const int32_t x, const int32_t z )
+        // CPU-GRASS-POOL-2: tile (x, z)'s cell of a ring grid @p side cells wide (VarietyGpu::TileRing).
+        uint32_t RingCell( const int32_t x, const int32_t z, const uint32_t side )
         {
-            return ( static_cast<uint64_t>( static_cast<uint32_t>( x ) ) << 32u ) | static_cast<uint32_t>( z );
+            const auto wrap = [side]( const int32_t v )
+            {
+                const int32_t m = v % static_cast<int32_t>( side );
+                return static_cast<uint32_t>( m < 0 ? m + static_cast<int32_t>( side ) : m );
+            };
+            return wrap( z ) * side + wrap( x );
+        }
+        // CPU-GRASS-POOL-2: GrassGeneratePush::Base of a variety (GrassRenderer::VarietyGpu): its header entry in
+        // the shared tile table and its first word of the shared tile feedback; CPU-GRASS-POOL-3: z its first word
+        // of the shared tile pool words (GrassRenderer m_TileWordsPool).
+        // CPU-GRASS-POOL-7: GrassGeneratePush::Ranges of a variety: its params record, its first chunks word and
+        // its first segment table entry in the shared pools (GrassRenderer m_ParamsPool / m_ChunksPool /
+        // m_SegmentTablesPool).
+        template <typename Gpu>
+        glm::uvec4 TileRanges( const Gpu& gpu )
+        {
+            const uint64_t record = static_cast<uint64_t>( gpu.ParamsWords.size() ) * 4u;
+            return glm::uvec4( static_cast<uint32_t>( gpu.Params.Offset / record ),
+                               static_cast<uint32_t>( gpu.Chunks.Offset / 4u ),
+                               static_cast<uint32_t>( gpu.TilePool.Offset / sizeof( uint64_t ) ), 0u );
+        }
+        template <typename Gpu>
+        glm::uvec4 TileBase( const Gpu& gpu )
+        {
+            return glm::uvec4( gpu.TileTableBase, gpu.FeedbackSlot * kGrassTileFeedbackWords,
+                               static_cast<uint32_t>( gpu.TileWords.Offset / 4u ), 0u );
         }
         // GpuInstanceBucket: count, first, capacity, and a mesh level's half screen size (bit pattern; 0 for a blade).
         constexpr uint32_t kBucketWords = 4u;
@@ -152,14 +179,23 @@ namespace Desert::Graphic::System
             glm::uvec2 LawScales;
             uint32_t   LawGeneration = 0u;
             uint32_t   LawCapacity   = 0u;
-            glm::uvec2 Pad{ 0u };
+            // CPU-GRASS-POOL-5: the ranges' first row of Instances and first slot of each id list in their pools
+            // (GrassCull.shader adds them to the ids it writes and to the records' firstInstance).
+            uint32_t   InstancesBase  = 0u;
+            uint32_t   FullIdsBase    = 0u;
+            uint32_t   CameraIdsBase  = 0u;
+            uint32_t   CascadeIdsBase = 0u;
+            // CPU-GRASS-POOL-7: the mark FinalizeFull writes into Feedback (VarietyGpu::FeedbackMark).
+            uint32_t   FeedbackMark = 0u;
+            uint32_t   Pad          = 0u;
         };
         static_assert(
-             sizeof( GrassVarietyRowGpu ) == 240,
+             sizeof( GrassVarietyRowGpu ) == 256,
              "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
              "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
              "Params at 184, Field at 192, TilePool at 200, FullIds at 208, LawScales at 216, uint LawGeneration at "
-             "224, uint LawCapacity at 228, std430's 8 bytes of padding at 232" );
+             "224, uint LawCapacity at 228, uint InstancesBase at 232, FullIdsBase at 236, CameraIdsBase at 240, "
+             "CascadeIdsBase at 244, FeedbackMark at 248, std430's 4 bytes of padding at 252" );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
@@ -176,6 +212,9 @@ namespace Desert::Graphic::System
         // GrassVarietyRows.glslh kGrassRowCascadesHeld: the row's cascade lists hold from an earlier frame
         // (VarietyGpu::CascadeKey), GrassCull neither culls nor finalizes them.
         constexpr uint32_t kRowCascadesHeld = 2u;
+        // GrassVarietyRows.glslh kGrassRowCameraHeld: with its cascades, the row's camera list and candidates hold
+        // from an earlier frame (VarietyGpu::CameraKey); GrassCull gives the row no camera cull groups.
+        constexpr uint32_t kRowCameraHeld = 4u;
         // GrassVarietyRows.glslh kGrassChunkHeader / kGrassChunkWords (the chunk contract): Chunks' header (x = the
         // chunks, one per tile slot and cluster, y = the law's slots handed out, z = the room, w = their law
         // generation; GrassCull writes y and w) and the words of one chunk.
@@ -395,12 +434,11 @@ namespace Desert::Graphic::System
             glm::uvec4 Compact{ 0u }; // x entries, y the longest entry's Count, z bins, w 0 clear / 1 gather
         };
         static_assert( sizeof( GrassDrawCompactPush ) == 16 );
-        // The bins' table holds every blade level of the frame's varieties this many times over: the lists of a
-        // phase (the deferred early-Z pair and its G-buffer halves, the visibility raster, the forward pair) x the
-        // sections of a variety. A frame that passes it doubles the table (GpuDrawBinFrame::Overflow).
-        inline constexpr uint32_t kDrawBinSlotsPerLevel = 32u;
-        inline constexpr uint32_t kDrawBinMinSlots      = 1024u;
-        inline constexpr uint32_t kDrawBinMaxEntries    = 65535u; // the gather's dispatch y, a row per entry
+        // The bins' table: at least kDrawBinMinSlots, at most kDrawBinMaxEntries (the gather's dispatch y, a row
+        // per entry; a table holds no more slots than its entries can name). A frame a section did not fit
+        // doubles it up to that bound (GpuDrawBinFrame::Overflow).
+        inline constexpr uint32_t kDrawBinMinSlots   = 1024u;
+        inline constexpr uint32_t kDrawBinMaxEntries = 65535u;
 
         uint64_t BufferAddress( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
@@ -421,8 +459,15 @@ namespace Desert::Graphic::System
             // GRASS-VRAM-BUDGET-1: x = the free-page stack's room (VarietyGpu::TileRoom), y = the first page this
             // frame's growth adds, z = the pages it adds (Free), w = 0
             glm::uvec4 Pool{ 0u };
+            // CPU-GRASS-POOL-2: x = the variety's header entry in the shared tile table
+            // (VarietyGpu::TileTableBase; Mode.y counts from the table's start), y = its first word of the shared
+            // tile feedback, zw = 0
+            glm::uvec4 Base{ 0u };
+            // CPU-GRASS-POOL-7, the variety's ranges of the shared pools: x = its params record of the params
+            // pool, y = its first word of the chunks pool, z = its first entry of the segment tables pool, w = 0
+            glm::uvec4 Ranges{ 0u };
         };
-        static_assert( sizeof( GrassGeneratePush ) == 32 );
+        static_assert( sizeof( GrassGeneratePush ) == 64 );
 
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
 
@@ -603,10 +648,35 @@ namespace Desert::Graphic::System
         return strip.get();
     }
 
+    // RENDER-PARALLEL-SETUP: one variety's frame between its three steps (GrassRenderer.hpp, PrepareVariety).
+    struct GrassRenderer::VarietyPlan
+    {
+        // PrepareVariety's, serial: what the plan reads of the variety, its entry and the view.
+        const GrassVarietyDraw* Variety   = nullptr;
+        Desert::Mesh*           MeshAsset = nullptr; // only GetSubmeshes is read on the task
+        VarietyGpu*             Gpu       = nullptr;
+        const ViewFrame*        Frame     = nullptr;
+        const ViewVolumes*      Volumes   = nullptr;
+        const MeshRenderer*     Meshes    = nullptr;
+        GrassPlacement          Placement{};
+        GrassFieldLens          FieldLens{};
+        float                   Cell = 0.0f, Lens = 0.0f, Radius = 0.0f, KeepShare = 0.0f, LodDistance = 0.0f;
+        float                   FarLodDistance = 0.0f, BoundsRadius = 0.0f, BoundsHeight = 0.0f, SnowDepth = 0.0f;
+        double                  Moved    = 0.0;
+        uint32_t                Capacity = 0u, Buckets = 0u, Records = 0u;
+        uint64_t                FieldRevision = 0u;
+        // PlanVariety's, on a task: the params and the tile build's inputs (UpdateTiles).
+        GrassParamsGpu        Params{};
+        std::vector<uint32_t> TilePlacement;
+        std::vector<uint32_t> TileThin;
+        glm::vec3             Eye{ 0.0f };
+        float                 Stray = 0.0f;
+    };
+
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
                                                               const ViewFrame& frame, const ViewVolumes& volumes,
                                                               const MeshRenderer& meshes,
-                                                              const uint64_t      fieldRevision )
+                                                              const uint64_t fieldRevision, VarietyPlan& plan )
     {
         const GrassPlacement  p    = ScaledPlacement( variety.Placement, m_Quality );
         const float           cell = CellSizeCm( p );
@@ -732,16 +802,20 @@ namespace Desert::Graphic::System
         bool                  fedBack = false;
         gpu.Drawn                     = std::nullopt;
         gpu.DrawnCascades             = {};
-        if ( gpu.Feedback && gpu.Buckets == buckets )
+        // CPU-GRASS-POOL-7: the variety's range of the shared readback pool, its own counts only where they carry
+        // its mark (a range handed out anew, or a remade pool, holds none of its writes yet).
+        const std::shared_ptr<ShaderResources::StorageBuffer>& feedback = m_FeedbackPool.Buffer();
+        if ( feedback && gpu.Feedback.Bytes != 0u && gpu.Buckets == buckets )
         {
-            if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + kFeedbackTailWords ) * 4u );
+            if ( const auto read = feedback->ReadBack( counted.data(), ( buckets + kFeedbackTailWords ) * 4u,
+                                                       static_cast<uint32_t>( gpu.Feedback.Offset ) );
                  !read.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
             }
             else
             {
-                fedBack = counted[buckets] != 0u;
+                fedBack = counted[buckets] == gpu.FeedbackMark;
                 if ( fedBack )
                 {
                     gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
@@ -832,19 +906,16 @@ namespace Desert::Graphic::System
             }
             else if ( 2u * lawStep > gpu.LawCapacity )
                 gpu.LawLowFrames = 0u;
-            if ( !gpu.LawScales || lawNext != gpu.LawCapacity )
+            if ( gpu.LawScales.Bytes == 0u || lawNext != gpu.LawCapacity )
             {
                 const uint64_t lawBytes = static_cast<uint64_t>( lawNext ) * 3u * sizeof( float );
-                gpu.LawScales.reset();
-                gpu.LawCapacity = 0u;
-                if ( lawBytes <= UINT32_MAX )
-                    gpu.LawScales = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                         "GrassLawScales", static_cast<uint32_t>( lawBytes ), 2 );
-                if ( !gpu.LawScales )
+                gpu.LawCapacity         = 0u;
+                if ( !m_LawScalesPool.Allocate( gpu.LawScales, lawBytes ) )
                 {
-                    LOG_ERROR( "[Grass] variety {:016x}: the view law's slots ({} bytes, at most a storage buffer's "
-                               "4 GB) were not made; they are made anew next frame",
-                               variety.Key, lawBytes );
+                    LOG_ERROR(
+                         "[Grass] variety {:016x}: the view law's slots ({} bytes; the pool of every "
+                         "variety's at most a storage buffer's 4 GB) were not handed out; asked anew next frame",
+                         variety.Key, lawBytes );
                     return nullptr;
                 }
                 gpu.LawCapacity = lawNext;
@@ -882,7 +953,7 @@ namespace Desert::Graphic::System
         m_Settling = m_Settling || gpu.SettleReads > 0u;
 
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
-             gpu.BucketCapacities != capacities || !gpu.Args || gpu.List != volumes.List ||
+             gpu.BucketCapacities != capacities || gpu.Args.Bytes == 0u || gpu.List != volumes.List ||
              gpu.CascadeMask != volumes.CascadeMask )
         {
             gpu.List             = volumes.List;
@@ -898,13 +969,22 @@ namespace Desert::Graphic::System
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
-            gpu.Args                = ShaderResources::StorageBuffer::Create( "GrassArgs", argBytes, 3, true );
+            // CPU-GRASS-POOL-5: the lists are ranges of the shared pools; what a failure below leaves handed out
+            // is released by the next (re)build's Allocate, and Args stays empty so this block runs again.
+            ++gpu.Builds;
+            gpu.ArgsEpoch     = 0u;
+            const auto refuse = [this, &gpu]() noexcept -> VarietyGpu*
+            {
+                m_ArgsPool.Release( gpu.Args );
+                return nullptr;
+            };
             // The records' static half: record L x submeshCount + si draws submesh si at level L (a submesh with a
             // shorter chain its coarsest level, one without a chain its base range); a blade's record k x
             // submeshCount + s draws strip level max(s, k) for bucket s (set k, the shadow LOD). instanceCount and
             // firstInstance are GrassCull's (FinalizeFull, FinalizeCamera). The bucket table: each bucket's first instance, capacity and - a
             // mesh level - half its screen size.
-            std::vector<uint32_t> args( argBytes / 4u, 0u );
+            std::vector<uint32_t>& args = gpu.ArgsWords;
+            args.assign( argBytes / 4u, 0u );
             args[0] = buckets;
             args[1] = capacity;
             args[2] = records;
@@ -933,9 +1013,14 @@ namespace Desert::Graphic::System
                 if ( !variety.Blade )
                     args[tableWord + b * kBucketWords + 3u] = std::bit_cast<uint32_t>( 0.5f * screenSizes[b] );
             }
-            if ( const auto wrote = gpu.Args->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
+            // CPU-GRASS-POOL-5: device-local ranges of the args pool, written by one range upload each after the
+            // pool's Commit (CommitListPools), no longer host-visible buffers of their own.
+            if ( !m_ArgsPool.Allocate( gpu.Args, argBytes ) )
             {
-                LOG_ERROR( "[Grass] the argument records were not written: {}", wrote.GetError() );
+                LOG_ERROR(
+                     "[Grass] variety {:016x}: its argument records ({} bytes) were not handed out (the args "
+                     "pool is at a storage buffer's 4 GB)",
+                     variety.Key, argBytes );
                 return nullptr;
             }
             // The camera's list (GRASS-VIS): the same records and bucket table, its own counts; CameraArgs adds
@@ -943,11 +1028,10 @@ namespace Desert::Graphic::System
             // What this frame's list does not use is a one-word stand-in (the passes bind it, Hzb.w / Mode.y keep
             // it idle).
             {
-                gpu.CameraIds = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                     "GrassCameraIds", std::max( capacity, 1u ) * kGrassIdBytes, 5 );
+                const uint64_t idBytes = uint64_t{ std::max( capacity, 1u ) } * kGrassIdBytes;
+                bool           handed  = m_IdsPool.Allocate( gpu.CameraIds, idBytes );
                 // The full list (GrassCull.shader CullInstance): the records the views keep, in Args' buckets.
-                gpu.FullIds = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                     "GrassFullIds", std::max( capacity, 1u ) * kGrassIdBytes, 9 );
+                handed = handed && m_IdsPool.Allocate( gpu.FullIds, idBytes );
                 // REGRESS-CACHE-1, THE ROWS (UE: the culled instances' compacted buffer, sized by what the views
                 // keep, never by every built instance): the view law's mat4 of each KEPT instance, in three
                 // regions of the lists' layout - the full list's (row = its slot in FullIds), the camera's own and
@@ -958,44 +1042,52 @@ namespace Desert::Graphic::System
                 constexpr uint32_t kGrassRowRegions = 3u; // the full list's, the camera's own, its candidates'
                 const uint64_t     rowBytes =
                      static_cast<uint64_t>( kGrassRowRegions ) * std::max( capacity, 1u ) * sizeof( glm::mat4 );
-                gpu.Instances.reset();
-                if ( rowBytes <= UINT32_MAX )
-                    gpu.Instances = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                         "GrassInstances", static_cast<uint32_t>( rowBytes ), 2 );
-                if ( !gpu.CameraIds || !gpu.FullIds || !gpu.Instances )
+                // A row's index is its offset in 64-byte rows (InstancesBase): the pool's 256-byte alignment
+                // keeps every range on a whole row.
+                handed                            = handed && m_InstancesPool.Allocate( gpu.Instances, rowBytes );
+                std::vector<uint32_t>& cameraArgs = gpu.CameraArgsWords;
+                cameraArgs.assign( args.begin(), args.end() );
+                cameraArgs.resize( args.size() + static_cast<size_t>( buckets ) * kPhaseWords, 0u );
+                handed = handed && m_ArgsPool.Allocate( gpu.CameraArgs, cameraArgs.size() * 4u );
+                if ( !handed )
                 {
                     // No Args: this block runs again next frame, as a pool that was not made is (UpdateTiles).
-                    LOG_ERROR( "[Grass] variety {:016x}: its id lists or rows ({} bytes, at most a storage buffer's "
-                               "4 GB) were not made; they are made anew next frame",
+                    LOG_ERROR( "[Grass] variety {:016x}: its id lists, rows ({} bytes) or camera records were not "
+                               "handed out (a pool is at a storage buffer's 4 GB); they are handed out anew next "
+                               "frame",
                                variety.Key, rowBytes );
-                    gpu.Args.reset();
-                    return nullptr;
-                }
-                std::vector<uint32_t> cameraArgs = args;
-                cameraArgs.resize( args.size() + static_cast<size_t>( buckets ) * kPhaseWords, 0u );
-                const auto cameraBytes = static_cast<uint32_t>( cameraArgs.size() * 4u );
-                gpu.CameraArgs = ShaderResources::StorageBuffer::Create( "GrassCameraArgs", cameraBytes, 6, true );
-                if ( const auto wrote = gpu.CameraArgs->SetData( cameraArgs.data(), cameraBytes ); !wrote.IsSuccess() )
-                {
-                    LOG_ERROR( "[Grass] the camera list's records were not written: {}", wrote.GetError() );
-                    return nullptr;
+                    return refuse();
                 }
             }
             if ( volumes.List == CameraList::PlanesAndHzb )
             {
-                gpu.Candidates = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                     "GrassCandidates", std::max( capacity, 1u ) * kCandidateBytes, 7 );
-                gpu.PostArgs = ShaderResources::StorageBuffer::Create( "GrassPostArgs", argBytes, 3, true );
-                if ( const auto wrote = gpu.PostArgs->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
+                const uint64_t candidateBytes = uint64_t{ std::max( capacity, 1u ) } * kCandidateBytes;
+                if ( !m_CandidatesPool.Allocate( gpu.Candidates, candidateBytes ) )
                 {
-                    LOG_ERROR( "[Grass] the camera list's phase-2 records were not written: {}", wrote.GetError() );
-                    return nullptr;
+                    LOG_ERROR(
+                         "[Grass] the camera list's candidates ({} bytes; the pool of every variety's at most "
+                         "a storage buffer's 4 GB) were not handed out",
+                         candidateBytes );
+                    return refuse();
                 }
+                gpu.PostArgsWords.assign( args.begin(), args.end() );
             }
             else
             {
-                gpu.Candidates = ShaderResources::StorageBuffer::CreateDeviceLocal( "GrassCandidates", 16u, 7 );
-                gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
+                // A one-word stand-in the passes bind and never touch.
+                if ( !m_CandidatesPool.Allocate( gpu.Candidates, 16u ) )
+                {
+                    LOG_ERROR( "[Grass] the camera list's candidate stand-in was not handed out (the pool is at a "
+                               "storage buffer's 4 GB)" );
+                    return refuse();
+                }
+                gpu.PostArgsWords.assign( 4u, 0u );
+            }
+            if ( !m_ArgsPool.Allocate( gpu.PostArgs, gpu.PostArgsWords.size() * 4u ) )
+            {
+                LOG_ERROR( "[Grass] the camera list's phase-2 records were not handed out (the args pool is at a "
+                           "storage buffer's 4 GB)" );
+                return refuse();
             }
             // The cascades' lists (GPU-COST-21): per cascade view this frame draws a copy of the records and the
             // bucket table, list k's bucket firsts moved by k x capacity into CascadeIds; then its rest twin
@@ -1005,11 +1097,12 @@ namespace Desert::Graphic::System
             gpu.CascadeMask        = volumes.CascadeMask;
             gpu.CascadeArgWords    = static_cast<uint32_t>( args.size() ) + ( tableWord - recordsWord ) + buckets;
             gpu.CascadeRestShift   = argBytes - recordsWord * 4u;
+            std::vector<uint32_t>& cascadeArgs = gpu.CascadeArgsWords;
+            cascadeArgs.clear();
+            uint64_t cascadeIdBytes = 16u; // no live view: one-word stand-ins the passes bind
             if ( const auto lists = static_cast<uint32_t>( std::popcount( volumes.CascadeMask ) ); lists > 0u )
             {
-                gpu.CascadeIds = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                     "GrassCascadeIds", std::max( lists * capacity, 1u ) * kGrassIdBytes, 8 );
-                std::vector<uint32_t> cascadeArgs;
+                cascadeIdBytes = uint64_t{ std::max( lists * capacity, 1u ) } * kGrassIdBytes;
                 cascadeArgs.reserve( static_cast<size_t>( gpu.CascadeArgWords ) * lists );
                 for ( uint32_t k = 0; k < lists; ++k )
                 {
@@ -1020,25 +1113,39 @@ namespace Desert::Graphic::System
                     cascadeArgs.insert( cascadeArgs.end(), args.begin() + recordsWord, args.begin() + tableWord );
                     cascadeArgs.insert( cascadeArgs.end(), buckets, 0u );
                 }
-                const auto cascadeBytes = static_cast<uint32_t>( cascadeArgs.size() * 4u );
-                gpu.CascadeArgs =
-                     ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", cascadeBytes, 9, true );
-                if ( const auto wrote = gpu.CascadeArgs->SetData( cascadeArgs.data(), cascadeBytes );
-                     !wrote.IsSuccess() )
-                {
-                    LOG_ERROR( "[Grass] the cascade lists' records were not written: {}", wrote.GetError() );
-                    return nullptr;
-                }
             }
             else
+                cascadeArgs.assign( 4u, 0u );
+            if ( !m_IdsPool.Allocate( gpu.CascadeIds, cascadeIdBytes ) ||
+                 !m_ArgsPool.Allocate( gpu.CascadeArgs, cascadeArgs.size() * 4u ) )
             {
-                gpu.CascadeIds  = ShaderResources::StorageBuffer::CreateDeviceLocal( "GrassCascadeIds", 16u, 8 );
-                gpu.CascadeArgs = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", 16u, 9, true );
+                LOG_ERROR(
+                     "[Grass] variety {:016x}: the cascade lists ({} bytes of ids) were not handed out (a pool "
+                     "is at a storage buffer's 4 GB)",
+                     variety.Key, cascadeIdBytes );
+                return refuse();
             }
-            gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
-            if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
-                 !gpu.Feedback || gpu.Feedback->GetSize() != feedbackBytes )
-                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", feedbackBytes, 1 );
+            // CPU-GRASS-POOL-7: one params record of the params pool (kept over a rebuild) and the feedback's
+            // range of the shared readback pool (kept when it fits), and a new mark on every (re)build: the
+            // copies the frames in flight hold were written under the earlier layout.
+            if ( gpu.Params.Bytes == 0u && !m_ParamsPool.Allocate( gpu.Params, sizeof( GrassParamsGpu ) ) )
+            {
+                LOG_ERROR( "[Grass] variety {:016x}: its params record was not handed out (the pool is at a "
+                           "storage buffer's 4 GB)",
+                           variety.Key );
+                return refuse();
+            }
+            if ( const uint64_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
+                 ( gpu.Feedback.Bytes < feedbackBytes || gpu.Feedback.Bytes >= feedbackBytes + 16u ) &&
+                 !m_FeedbackPool.Allocate( gpu.Feedback, feedbackBytes ) )
+            {
+                LOG_ERROR( "[Grass] variety {:016x}: its feedback ({} bytes) was not handed out (the pool is at a "
+                           "storage buffer's 4 GB)",
+                           variety.Key, feedbackBytes );
+                return refuse();
+            }
+            m_FeedbackMarks  = m_FeedbackMarks + 1u == 0u ? 1u : m_FeedbackMarks + 1u;
+            gpu.FeedbackMark = m_FeedbackMarks;
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
@@ -1061,6 +1168,9 @@ namespace Desert::Graphic::System
             gpu.ShapeData.Visibility =
                  glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ),
                              std::max( capacity, 1u ) ); // w = the rows it owns (its resolve's bound)
+            // CPU-GRASS-POOL-5: the raster's instance index is a slot of the shared ids pool; less x, the variety's.
+            gpu.ShapeData.Lists =
+                 glm::uvec4( static_cast<uint32_t>( gpu.CameraIds.Offset / kGrassIdBytes ), 0u, 0u, 0u );
             for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
                   first += capacities[bucket], ++bucket )
                 gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;
@@ -1155,7 +1265,8 @@ namespace Desert::Graphic::System
                 }
                 rows.Visibility =
                      glm::uvec4( static_cast<uint32_t>( m_VisibilityRows ), perInstance, buckets, submeshCount );
-                rows.Slots = glm::uvec4( capacity, 0u, 0u, 0u );
+                const auto cameraFirst = static_cast<uint32_t>( gpu.CameraIds.Offset / kGrassIdBytes );
+                rows.Slots             = glm::uvec4( capacity, cameraFirst, 0u, 0u );
                 for ( uint32_t bucket = 0, first = 0; bucket < buckets; first += capacities[bucket], ++bucket )
                     rows.BucketFirst[bucket / 4u][bucket % 4u] = first;
                 const uint64_t vertexAt = vertexAddress + geometry.VertexByteOffset;
@@ -1188,7 +1299,63 @@ namespace Desert::Graphic::System
             }
         }
 
-        GrassParamsGpu params{};
+        // RENDER-PARALLEL-SETUP: the rest of the variety's frame is its plan's (PlanVariety, pure, on a task) and
+        // its apply's (ApplyVariety, serial); what they read of this half travels in @p plan.
+        plan.Variety        = &variety;
+        plan.MeshAsset      = &mesh;
+        plan.Gpu            = &gpu;
+        plan.Frame          = &frame;
+        plan.Volumes        = &volumes;
+        plan.Meshes         = &meshes;
+        plan.Placement      = p;
+        plan.FieldLens      = fieldLens;
+        plan.Cell           = cell;
+        plan.Lens           = lens;
+        plan.Radius         = radius;
+        plan.KeepShare      = keepShare;
+        plan.LodDistance    = lodDistance;
+        plan.FarLodDistance = farLodDistance;
+        plan.BoundsRadius   = boundsRadius;
+        plan.BoundsHeight   = boundsHeight;
+        plan.Moved          = moved;
+        plan.Capacity       = capacity;
+        plan.Buckets        = buckets;
+        plan.Records        = records;
+        plan.FieldRevision  = fieldRevision;
+        // The world's snow depth (below, params.Lean.z), read here: the scene renderer is not a task's to touch.
+        plan.SnowDepth = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
+        return &gpu;
+    }
+
+    void GrassRenderer::PlanVariety( VarietyPlan& plan ) const
+    {
+        // RENDER-PARALLEL-SETUP: on a TaskGroup task (AddFrame). It reads the plan, the view and the mesh renderer
+        // fitted cascades (const; MeshRenderer::UpdateCascades ran first); it writes the plan and its own
+        // VarietyGpu's ShadowLod and CascadeRings - a distinct entry per task (AddFrame starts a segment at a
+        // repeated key).
+        const GrassVarietyDraw& variety        = *plan.Variety;
+        VarietyGpu&             gpu            = *plan.Gpu;
+        const ViewFrame&        frame          = *plan.Frame;
+        const ViewVolumes&      volumes        = *plan.Volumes;
+        const MeshRenderer&     meshes         = *plan.Meshes;
+        const auto&             submeshes      = plan.MeshAsset->GetSubmeshes();
+        const GrassPlacement&   p              = plan.Placement;
+        const GrassFieldLens&   fieldLens      = plan.FieldLens;
+        const float             cell           = plan.Cell;
+        const float             lens           = plan.Lens;
+        const float             radius         = plan.Radius;
+        const float             keepShare      = plan.KeepShare;
+        const float             lodDistance    = plan.LodDistance;
+        const float             farLodDistance = plan.FarLodDistance;
+        const float             boundsRadius   = plan.BoundsRadius;
+        const float             boundsHeight   = plan.BoundsHeight;
+        const double            moved          = plan.Moved;
+        const uint32_t          capacity       = plan.Capacity;
+        const uint32_t          buckets        = plan.Buckets;
+        const uint32_t          records        = plan.Records;
+        const uint64_t          fieldRevision  = plan.FieldRevision;
+        GrassParamsGpu&         params         = plan.Params;
+        params                                 = GrassParamsGpu{};
         const float     tileSide = static_cast<float>( kGrassTileCells ) * cell;
         const glm::vec3 eye      = FieldEye( frame.CameraPosition, tileSide );
         params.Camera            = glm::vec4( eye, radius );
@@ -1263,7 +1430,7 @@ namespace Desert::Graphic::System
         }
         // The world's snow buries every instance's root by its depth (Common/WeatherSnow.glslh): a blade shows only
         // what stands above the snow, and one shorter than it is gone, in every pass that draws or shades it.
-        params.Lean.z = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
+        params.Lean.z = plan.SnowDepth;
         // The cascades' lists are GrassCull's (per frame, CascadeCull): each list's movers' ring for this
         // variety's reach (GRASS-SHADOW-1, MeshRenderer::ShadowWindInnerOf; x = inner, y = the wind distance, 0:
         // no mover).
@@ -1287,12 +1454,6 @@ namespace Desert::Graphic::System
         }
         else
             params.Lod = glm::vec4( 0.0f, 0.0f, farLodDistance, 0.0f );
-        if ( const auto wrote = gpu.Params->SetData( &params, sizeof( params ) ); !wrote.IsSuccess() )
-        {
-            LOG_ERROR( "[Grass] the variety's parameters were not written: {}", wrote.GetError() );
-            return nullptr;
-        }
-
         // GRASS-TILE-1, THE VARIETY'S TILES AROUND THE EYE (UpdateTiles). The build reads the placement's params
         // alone - the grid and its jitter, the layer and its seed, the density range and the scales, a blade's
         // clump, scatter, patchiness and lean, the patches - and the field (its revision); the share its tiles
@@ -1300,7 +1461,8 @@ namespace Desert::Graphic::System
         // RENDER-JOB-CPU-2: its 40 words (nine vec4, the layer, the seed, the field's revision) in one allocation,
         // not the ten regrowths of 40 push_backs, per variety per frame.
         constexpr std::size_t kPlacementWords = 9u * 4u + 4u;
-        std::vector<uint32_t> placement;
+        std::vector<uint32_t>& placement = plan.TilePlacement;
+        placement.clear();
         placement.reserve( kPlacementWords );
         for ( const glm::vec4& words :
               { params.Range, params.ScaleX, glm::vec4( glm::vec3( params.ScaleY ), 0.0f ),
@@ -1315,15 +1477,30 @@ namespace Desert::Graphic::System
         placement.push_back( params.Info.w );
         placement.push_back( static_cast<uint32_t>( fieldRevision ) );
         placement.push_back( static_cast<uint32_t>( fieldRevision >> 32u ) );
-        std::vector<uint32_t> thin{ std::bit_cast<uint32_t>( params.Cull.x ),
-                                    std::bit_cast<uint32_t>( params.Cull.y ),
-                                    std::bit_cast<uint32_t>( params.Spread.w ) };
+        plan.TileThin = { std::bit_cast<uint32_t>( params.Cull.x ), std::bit_cast<uint32_t>( params.Cull.y ),
+                          std::bit_cast<uint32_t>( params.Spread.w ) };
         // How far an instance can lie outside its cell: its jitter (Cull.w cells), a blade's scatter and clump
         // pull.
         const auto stray = static_cast<float>( static_cast<double>( params.Cull.w * cell ) + moved );
-        if ( !UpdateTiles( gpu, std::move( placement ), std::move( thin ), glm::vec2( eye.x, eye.z ), cell, radius,
-                           stray ) )
-            return nullptr;
+        plan.Stray = stray;
+        plan.Eye   = eye;
+    }
+
+    bool GrassRenderer::ApplyVariety( VarietyPlan& plan )
+    {
+        // RENDER-PARALLEL-SETUP: serial, in variety order (AddFrame). UpdateTiles weighs this variety's pool vs
+        // every other's (TilePoolBytes) and the frame's cap, so the order of the applies is the budget's.
+        const GrassVarietyDraw& variety = *plan.Variety;
+        VarietyGpu&             gpu     = *plan.Gpu;
+        const GrassParamsGpu&   params  = plan.Params;
+        // CPU-GRASS-POOL-7: uploaded into the variety's params record once every variety applied
+        // (CommitVarietyPools).
+        static_assert( sizeof( GrassParamsGpu ) == kParamsWords * sizeof( uint32_t ) );
+        std::memcpy( gpu.ParamsWords.data(), &params, sizeof( GrassParamsGpu ) );
+        const glm::vec2 eyeXZ( plan.Eye.x, plan.Eye.z );
+        if ( !UpdateTiles( gpu, std::move( plan.TilePlacement ), std::move( plan.TileThin ), eyeXZ, plan.Cell,
+                           plan.Radius, plan.Stray ) )
+            return false;
 
         // GRASS-CULL-2: what GrassCull reads of these params, through the variety table (GrassVarietyRowGpu).
         const float swayPad = variety.Blade ? 0.0f : static_cast<float>( WindBoundsPad( variety.Wind ) );
@@ -1337,12 +1514,12 @@ namespace Desert::Graphic::System
         gpu.FrameKey.push_back( gpu.Capacity );
         // The pool's identity: a new pool is a new generation (UpdateTiles).
         gpu.FrameKey.push_back( gpu.PoolGeneration );
-        for ( const void* buffer :
-              { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ) } )
+        // CPU-GRASS-POOL-5: the rows' and records' identity - the build and their ranges. CPU-GRASS-POOL-8: their
+        // pools' Epochs are committed after every apply; CommitListPools makes a remade pool a new generation.
+        for ( const uint64_t identity : { gpu.Builds, gpu.Instances.Offset, gpu.Args.Offset } )
         {
-            const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
-            gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
-            gpu.FrameKey.push_back( static_cast<uint32_t>( static_cast<uint64_t>( address ) >> 32u ) );
+            gpu.FrameKey.push_back( static_cast<uint32_t>( identity ) );
+            gpu.FrameKey.push_back( static_cast<uint32_t>( identity >> 32u ) );
         }
         // GRASS-CULL-COST-3: what the view law reads (VarietyGpu::LawKey) - the params (the field eye among them), the
         // pool's identity, Args (a mesh level's half screen size) and LawScales; AddFrame adds the field's revision. A
@@ -1351,25 +1528,275 @@ namespace Desert::Graphic::System
                            gpu.FrameKey.begin() +
                                 static_cast<std::ptrdiff_t>( sizeof( GrassParamsGpu ) / sizeof( uint32_t ) ) );
         gpu.LawKey.push_back( gpu.PoolGeneration );
-        // LawScales' room too: a remade LawScales may land on the freed one's address, and every remake changes it.
+        // LawScales' room too: a range handed out anew may land on the freed one's offset, and every new range
+        // changes the room. CPU-GRASS-POOL-1: and its offset in the pool; a remade pool, which moves every range
+        // after this key is taken, is a new generation by the pool's Epoch (WriteVarietyTable).
         gpu.LawKey.push_back( gpu.LawCapacity );
-        for ( const void* buffer :
-              { static_cast<const void*>( gpu.Args.get() ), static_cast<const void*>( gpu.LawScales.get() ) } )
+        gpu.LawKey.push_back( static_cast<uint32_t>( gpu.LawScales.Offset ) );
+        gpu.LawKey.push_back( static_cast<uint32_t>( gpu.LawScales.Offset >> 32u ) );
+        for ( const uint64_t identity : { gpu.Builds, gpu.Args.Offset } ) // the Epoch: CommitListPools
         {
-            const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
-            gpu.LawKey.push_back( static_cast<uint32_t>( address ) );
-            gpu.LawKey.push_back( static_cast<uint32_t>( static_cast<uint64_t>( address ) >> 32u ) );
+            gpu.LawKey.push_back( static_cast<uint32_t>( identity ) );
+            gpu.LawKey.push_back( static_cast<uint32_t>( identity >> 32u ) );
         }
-        return &gpu;
+        return true;
+    }
+
+    namespace
+    {
+        // CPU-GRASS-POOL-1: a range starts on this many bytes (any record a pooled kind holds is at most a uvec4,
+        // and the variety table's addresses are read as 16-byte aligned), and a pool is at most a storage buffer's
+        // 4 GB (StorageBuffer::CreateDeviceLocal's size), kept aligned.
+        constexpr uint64_t kPoolAlignment = 256u;
+        constexpr uint64_t kPoolMaxBytes  = uint64_t{ UINT32_MAX } & ~( kPoolAlignment - 1u );
+    } // namespace
+
+    bool GrassRenderer::BufferPool::Allocate( PoolRange& range, const uint64_t bytes )
+    {
+        Release( range );
+        const uint64_t size =
+             ( std::max( bytes, uint64_t{ 1u } ) + m_Alignment - 1u ) & ~( m_Alignment - 1u );
+        for ( auto run = m_Free.begin(); run != m_Free.end(); ++run )
+        {
+            if ( run->Bytes < size )
+                continue;
+            range = PoolRange{ run->Offset, size };
+            run->Offset += size;
+            run->Bytes -= size;
+            if ( run->Bytes == 0u )
+                m_Free.erase( run );
+            return true;
+        }
+        if ( size > kPoolMaxBytes - m_End )
+            return false;
+        range = PoolRange{ m_End, size };
+        m_End += size;
+        return true;
+    }
+
+    void GrassRenderer::BufferPool::Release( PoolRange& range )
+    {
+        if ( range.Bytes == 0u )
+            return;
+        auto run = std::lower_bound( m_Free.begin(), m_Free.end(), range.Offset,
+                                     []( const PoolRange& free, const uint64_t offset ) noexcept
+                                     { return free.Offset < offset; } );
+        run      = m_Free.insert( run, range );
+        range    = PoolRange{};
+        if ( const auto next = std::next( run ); next != m_Free.end() && run->Offset + run->Bytes == next->Offset )
+        {
+            run->Bytes += next->Bytes;
+            m_Free.erase( next );
+        }
+        if ( run != m_Free.begin() )
+        {
+            const auto previous = std::prev( run );
+            if ( previous->Offset + previous->Bytes == run->Offset )
+            {
+                previous->Bytes += run->Bytes;
+                run = std::prev( m_Free.erase( run ) );
+            }
+        }
+        if ( run->Offset + run->Bytes == m_End )
+        {
+            m_End = run->Offset;
+            m_Free.erase( run );
+        }
+    }
+
+    Common::BoolResultStr GrassRenderer::BufferPool::Commit( RDG::Builder& graph )
+    {
+        // CPU-GRASS-POOL-8: the buffer a growth replaces, which this frame's graph copies from; parked with this
+        // frame on every way out (FrameManager::RetireAfterFrames: it dies once no frame in flight names it).
+        std::shared_ptr<ShaderResources::StorageBuffer> previous;
+        struct RetireOnExit
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer>* Buffer;
+            ~RetireOnExit()
+            {
+                ::Desert::Engine::FrameManager::GetInstance().RetireAfterFrames( std::move( *Buffer ) );
+            }
+        } retire{ &previous };
+        const uint64_t need    = std::max( m_End, kPoolAlignment );
+        uint64_t       carried = 0u; // the predecessor's bytes this frame's graph copies into the new buffer
+        if ( !m_Buffer || m_Room < need )
+        {
+            // Half again over what is asked, so a variety's growth rarely remakes the pool. UE's GPU Scene
+            // (AddCopyBufferPass on resize): the old buffer's bytes are copied into the new one, so every range
+            // keeps its offset AND its contents; only its address moves.
+            const uint64_t room = std::min( need + need / 2u, kPoolMaxBytes );
+            // CPU-GRASS-POOL-7: a readback pool's copies are the frames in flight's GPU writes, which a copy
+            // of this frame's cannot carry: a remade one starts empty (Epoch).
+            const bool readback = m_Memory == PoolMemory::Readback;
+            previous            = std::move( m_Buffer );
+            if ( !readback && previous )
+                carried = m_Room;
+            m_Address  = 0u;
+            m_Room     = 0u;
+            const auto size = static_cast<uint32_t>( room );
+            if ( readback )
+                m_Buffer = ShaderResources::StorageBuffer::CreateReadback( m_Name, size, m_Binding );
+            else
+                m_Buffer = ShaderResources::StorageBuffer::CreateDeviceLocal( m_Name, size, m_Binding );
+            // Nothing to carry into on a refusal: what the ranges held is lost; the next Commit makes a pool.
+            if ( !m_Buffer )
+            {
+                ++m_Epoch;
+                return Common::MakeFormattedError( "the {} pool ({} bytes) was not made", m_Name, room );
+            }
+            const Common::ResultStr<uint64_t> address = m_Buffer->GetDeviceAddress();
+            if ( !address )
+            {
+                m_Buffer.reset(); // never imported: no graph names it
+                ++m_Epoch;
+                return Common::MakeFormattedError( "the {} pool has no device address: {}", m_Name,
+                                                   address.GetError() );
+            }
+            m_Address = address.GetValue();
+            m_Room    = room;
+            // REGR-CPU13: a growth moves the pool's address; every cache keyed on the Epoch (rows, args, the
+            // cull's keys) is a new generation, so nothing keeps the retired buffer's address.
+            ++m_Epoch;
+            if ( carried != 0u )
+                LOG_WARN( "[Grass] the {} pool grew to {} bytes (epoch {})", m_Name, room, m_Epoch );
+        }
+        if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( m_Buffer, m_Import ); !imported )
+        {
+            if ( carried != 0u )
+                ++m_Epoch; // the copy never runs: the new buffer's ranges start empty
+            return imported;
+        }
+        if ( m_Memory == PoolMemory::Readback )
+        {
+            // The frame in flight's copy (the one ImportBuffer imported): taken every frame, never kept.
+            const Common::ResultStr<uint64_t> address = m_Buffer->GetDeviceAddress();
+            if ( !address )
+                return Common::MakeFormattedError( "the {} pool's frame copy has no device address: {}", m_Name,
+                                                   address.GetError() );
+            m_Address = address.GetValue();
+        }
+        m_Ref = graph.RegisterExternal( m_Import, m_Name );
+        if ( carried != 0u )
+        {
+            if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( previous, m_PreviousImport );
+                 !imported )
+            {
+                ++m_Epoch; // the copy cannot run: the ranges start empty in the new buffer
+                return imported;
+            }
+            const RDG::BufferRef source = graph.RegisterExternal( m_PreviousImport, m_Name );
+            graph.AddCopyBufferPass( source, 0u, m_Ref, 0u, carried );
+        }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr GrassRenderer::CommitListPools( RDG::Builder& graph )
+    {
+        if ( m_Frame.empty() )
+            return BOOLSUCCESS; // nothing reads the pools this frame
+        for ( BufferPool* pool :
+              { &m_InstancesPool, &m_IdsPool, &m_ArgsPool, &m_CandidatesPool, &m_LawScalesPool } )
+            if ( const Common::BoolResultStr committed = pool->Commit( graph ); !committed )
+                return committed;
+        // GPU-COST-22: every list reads the one Instances through its ids (GpuInstanceRefs::Ids); the ids are
+        // absolute, so only Args' offset is the list's own.
+        const auto refsOf = [this]( GpuInstanceRefs& refs, const PoolRange& args ) noexcept
+        {
+            refs.Instances   = m_InstancesPool.Ref();
+            refs.Ids         = m_IdsPool.Ref();
+            refs.Args        = m_ArgsPool.Ref();
+            refs.ArgsOffset  = args.Offset;
+            refs.ArgsAddress = m_ArgsPool.Address( args ); // a compacted bin's gather reads them
+        };
+        // After the commit: its grow copy (a Copy pass of this graph) carries every range first, then each
+        // upload writes its own range, ordered after that copy by the graph.
+        const uint64_t instancesEpoch = m_InstancesPool.Epoch();
+        const uint64_t epoch          = m_ArgsPool.Epoch();
+        for ( VarietyGpu* const gpu : m_Frame )
+        {
+            // A remade pool's ranges hold nothing: the lists are culled anew (and lawed anew: Args holds a mesh
+            // level's half screen size the law reads).
+            if ( gpu->InstancesPoolEpoch != instancesEpoch || gpu->ArgsPoolEpoch != epoch )
+                ++gpu->Generation;
+            if ( gpu->ArgsPoolEpoch != epoch )
+                ++gpu->LawGeneration;
+            gpu->InstancesPoolEpoch = instancesEpoch;
+            gpu->ArgsPoolEpoch      = epoch;
+            refsOf( gpu->Refs, gpu->Args );
+            refsOf( gpu->CameraRefs, gpu->CameraArgs );
+            refsOf( gpu->PostRefs, gpu->PostArgs );
+            refsOf( gpu->CascadeRefs, gpu->CascadeArgs ); // the cascades' bins gather them
+            if ( gpu->ArgsEpoch == epoch || gpu->Args.Bytes == 0u )
+                continue;
+            for ( const auto& [range, words] : { std::pair{ &gpu->Args, &gpu->ArgsWords },
+                                                 std::pair{ &gpu->CameraArgs, &gpu->CameraArgsWords },
+                                                 std::pair{ &gpu->PostArgs, &gpu->PostArgsWords },
+                                                 std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsWords } } )
+                if ( range->Bytes != 0u && !words->empty() )
+                {
+                    const std::span<const uint32_t> view( words->data(), words->size() );
+                    graph.QueueBufferUpload( m_ArgsPool.Ref(), range->Offset, std::as_bytes( view ) );
+                }
+            gpu->ArgsEpoch = epoch;
+        }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr GrassRenderer::CommitVarietyPools( RDG::Builder& graph )
+    {
+        if ( m_Frame.empty() )
+            return BOOLSUCCESS; // nothing reads the pools this frame
+        for ( BufferPool* pool : { &m_ParamsPool, &m_ChunksPool, &m_SegmentTablesPool, &m_FeedbackPool } )
+            if ( const Common::BoolResultStr committed = pool->Commit( graph ); !committed )
+                return committed;
+        // After the commits: their grow copies run first, each upload writes its own range after them.
+        const uint64_t chunksEpoch = m_ChunksPool.Epoch();
+        const uint64_t tableEpoch  = m_SegmentTablesPool.Epoch();
+        for ( VarietyGpu* gpu : m_Frame )
+        {
+            const std::span<const uint32_t> params( gpu->ParamsWords.data(), gpu->ParamsWords.size() );
+            graph.QueueBufferUpload( m_ParamsPool.Ref(), gpu->Params.Offset, std::as_bytes( params ) );
+            if ( gpu->ChunksEpoch != 0u && gpu->ChunksEpoch != chunksEpoch && gpu->Chunks.Bytes != 0u )
+            {
+                // A remade chunks pool held none of the build's chunks: empty ones this frame, the tile pool
+                // made anew from the next (its tiles built again).
+                gpu->ChunkInit.assign( gpu->Chunks.Bytes / 4u, 0u );
+                if ( gpu->ChunkInit.size() > 2u )
+                {
+                    gpu->ChunkInit[0] = gpu->ChunkRoom;
+                    gpu->ChunkInit[2] = gpu->ChunkRoom;
+                }
+                gpu->TilePoolMade    = false;
+                gpu->TileWalkSettled = false;
+            }
+            if ( !gpu->ChunkInit.empty() )
+            {
+                const std::span<const uint32_t> words( gpu->ChunkInit.data(), gpu->ChunkInit.size() );
+                graph.QueueBufferUpload( m_ChunksPool.Ref(), gpu->Chunks.Offset, std::as_bytes( words ) );
+                gpu->ChunkInit.clear();
+                gpu->ChunkInit.shrink_to_fit(); // a pool's chunks are uploaded once, not kept on the host
+            }
+            gpu->ChunksEpoch = chunksEpoch;
+            if ( gpu->TilePoolEpoch != tableEpoch && !gpu->TileSegments.empty() )
+            {
+                m_SegmentTableScratch.clear();
+                for ( const uint32_t index : gpu->TileSegments )
+                    m_SegmentTableScratch.push_back( m_TileSegments[index].Address );
+                const std::span<const uint64_t> table( m_SegmentTableScratch.data(),
+                                                       m_SegmentTableScratch.size() );
+                graph.QueueBufferUpload( m_SegmentTablesPool.Ref(), gpu->TilePool.Offset, std::as_bytes( table ) );
+            }
+            gpu->TilePoolEpoch = tableEpoch;
+        }
+        return BOOLSUCCESS;
     }
 
     uint64_t GrassRenderer::TilePoolBytes( const VarietyGpu* const except ) const
     {
-        uint64_t bytes = 0u;
-        for ( const auto& entry : m_Varieties )
-            if ( &entry.second != except )
-                bytes += static_cast<uint64_t>( entry.second.TileSegments.size() ) * kGrassTileSegmentBytes;
-        return bytes;
+        uint64_t segments = m_TileSegmentCount;
+        if ( except != nullptr )
+            segments -= static_cast<uint64_t>( except->TileSegments.size() );
+        return segments * kGrassTileSegmentBytes;
     }
 
     uint64_t GrassRenderer::TilePoolCap()
@@ -1392,6 +1819,213 @@ namespace Desert::Graphic::System
         }
         m_FrameTilePoolCap = static_cast<uint64_t>( static_cast<double>( local ) * kGrassTilePoolBudgetShare );
         return *m_FrameTilePoolCap;
+    }
+
+    bool GrassRenderer::TakeTileSegment( uint32_t& index )
+    {
+        if ( m_FreeTileSegments.empty() )
+        {
+            m_TileSegments.emplace_back();
+            m_FreeTileSegments.push_back( static_cast<uint32_t>( m_TileSegments.size() - 1u ) );
+        }
+        const uint32_t taken   = m_FreeTileSegments.back();
+        TileSegment&   segment = m_TileSegments[taken];
+        if ( !segment.Buffer )
+        {
+            segment.Buffer = ShaderResources::StorageBuffer::CreateDeviceLocal(
+                 "GrassTilePool", static_cast<uint32_t>( kGrassTileSegmentBytes ), 14 );
+            if ( !segment.Buffer )
+            {
+                LOG_ERROR( "[Grass] a tile pool segment was not made; its pool is made anew next frame" );
+                return false;
+            }
+            const Common::ResultStr<uint64_t> address = segment.Buffer->GetDeviceAddress();
+            if ( !address )
+            {
+                LOG_ERROR( "[Grass] a tile pool segment has no device address; its pool is made anew next "
+                           "frame: {}",
+                           address.GetError() );
+                segment.Buffer.reset();
+                return false;
+            }
+            segment.Address = address.GetValue();
+        }
+        m_FreeTileSegments.pop_back();
+        segment.Held = true;
+        ++m_TileSegmentCount;
+        index = taken;
+        return true;
+    }
+
+    void GrassRenderer::ReleaseTileSegments( VarietyGpu& gpu )
+    {
+        for ( const uint32_t index : gpu.TileSegments )
+        {
+            m_TileSegments[index].Held = false;
+            m_TileSegments[index].Ref  = {};
+            m_FreeTileSegments.push_back( index );
+        }
+        m_TileSegmentCount -= static_cast<uint64_t>( gpu.TileSegments.size() );
+        gpu.TileSegments.clear();
+    }
+
+    void GrassRenderer::TrimTileSegments()
+    {
+        // As a pool's own segments were before CPU-GRASS-POOL-2: a released buffer is deleted once no frame in
+        // flight holds it. The index stays free and takes a new buffer when a pool grows.
+        for ( const uint32_t index : m_FreeTileSegments )
+        {
+            TileSegment& segment = m_TileSegments[index];
+            segment.Buffer.reset();
+            segment.Address = 0u;
+            segment.Import  = RDG::ExternalBuffer{};
+        }
+    }
+
+    bool GrassRenderer::ImportTileSegments( RDG::Builder& graph )
+    {
+        for ( TileSegment& segment : m_TileSegments )
+        {
+            segment.Ref = {};
+            if ( !segment.Held )
+                continue;
+            if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( segment.Buffer, segment.Import );
+                 !imported )
+            {
+                LOG_ERROR( "[Grass] a tile pool segment is not in the frame graph; no tile pass or cull runs this "
+                           "frame: {}",
+                           imported.GetError() );
+                return false;
+            }
+            segment.Ref = graph.RegisterExternal( segment.Import, "GrassTilePool" );
+        }
+        return true;
+    }
+
+    void GrassRenderer::DeclareTileSegments( RDG::PassBuilder& pass, const RDG::Access access ) const
+    {
+        for ( const TileSegment& segment : m_TileSegments )
+        {
+            if ( !segment.Held )
+                continue;
+            if ( access == RDG::Access::StorageWrite )
+                pass.Write( segment.Ref, access );
+            else
+                pass.Read( segment.Ref, access );
+        }
+    }
+
+    bool GrassRenderer::EnsureTileFeedback( VarietyGpu& gpu )
+    {
+        if ( gpu.FeedbackSlot == kNoFeedbackSlot )
+            gpu.FeedbackSlot = m_TileFeedbackSlots++;
+        if ( m_TileFeedback && gpu.FeedbackSlot < m_TileFeedbackRoom )
+            return true;
+        // Twice the slots handed out, so a scene's varieties arriving one by one remake it a few times at most.
+        constexpr uint32_t kLeastSlots = 64u;
+        const uint32_t     room        = std::max( kLeastSlots, m_TileFeedbackSlots * 2u );
+        m_TileFeedbackRoom             = 0u;
+        m_TileFeedback                 = ShaderResources::StorageBuffer::CreateReadback( "GrassTileFeedback",
+                                                                                         room * kGrassTileFeedbackWords * 4u, 13 );
+        if ( !m_TileFeedback )
+        {
+            LOG_ERROR( "[Grass] the tile feedback ({} varieties) was not made; no tile is built this frame",
+                       room );
+            return false;
+        }
+        m_TileFeedbackRoom = room;
+        // The frames in flight's reports were in the old buffer: a build that ran out of pages there would go
+        // unseen, its tile holding none, so every pool is made anew (its tiles built again).
+        for ( auto& [key, other] : m_Varieties )
+        {
+            other.TilePoolMade    = false;
+            other.TileWalkSettled = false;
+        }
+        return true;
+    }
+
+    void GrassRenderer::CommitTileWords( RDG::Builder& graph )
+    {
+        if ( m_FrameTileFree.empty() && m_FrameTileBuild.empty() )
+            return; // no tile pass reads or writes the words this frame
+        const Common::BoolResultStr committed = m_TileWordsPool.Commit( graph );
+        if ( committed && m_TileWordsPool.Epoch() == m_TileWordsEpoch )
+            return; // every held range kept its words (a grown pool's were copied over)
+        // The words held were not carried: only a pool Init writes this frame (in m_FrameTileFree, PoolFresh)
+        // has words; every other variety's pool is made anew next frame, and no tile pass of it runs on this one.
+        const auto initialising = [this]( const VarietyGpu& gpu ) noexcept
+        {
+            if ( !gpu.PoolFresh )
+                return false;
+            return std::find( m_FrameTileFree.begin(), m_FrameTileFree.end(), &gpu ) != m_FrameTileFree.end();
+        };
+        if ( !committed )
+        {
+            LOG_ERROR( "[Grass] the tile pool words are not in the frame graph; no tile pass runs this frame: {}",
+                       committed.GetError() );
+            for ( auto& [key, gpu] : m_Varieties )
+                gpu.TilePoolMade = false;
+            m_FrameTileFree.clear();
+            m_FrameTileBuild.clear();
+            return;
+        }
+        m_TileWordsEpoch = m_TileWordsPool.Epoch();
+        for ( auto& [key, gpu] : m_Varieties )
+            if ( !initialising( gpu ) )
+                gpu.TilePoolMade = false;
+        std::erase_if( m_FrameTileFree, [&]( const VarietyGpu* gpu ) { return !initialising( *gpu ); } );
+        std::erase_if( m_FrameTileBuild, [&]( const VarietyGpu* gpu ) { return !initialising( *gpu ); } );
+    }
+
+    void GrassRenderer::CommitTileTable( RDG::Builder& graph )
+    {
+        m_TileTableRef    = {};
+        m_TileFeedbackRef = {};
+        if ( m_FrameTileFree.empty() && m_FrameTileBuild.empty() )
+            return;
+        const auto            entries = static_cast<uint32_t>( m_TileTableImage.size() );
+        Common::BoolResultStr done    = BOOLSUCCESS;
+        if ( !m_TileFeedback )
+            done = Common::MakeError( "the tile feedback was not made" );
+        if ( done && ( !m_TileTable || m_TileTableRoom < entries ) )
+        {
+            // Half again over this frame's entries, so the table is rarely remade (per frame in flight, written
+            // whole every tile frame: nothing in it is kept).
+            const uint32_t room = std::max( entries + entries / 2u, 64u );
+            m_TileTable         = ShaderResources::StorageBuffer::Create(
+                 "GrassTileTable", room * static_cast<uint32_t>( sizeof( glm::uvec4 ) ), 12 );
+            m_TileTableRoom = 0u;
+            if ( !m_TileTable )
+                done = Common::MakeFormattedError( "the tile table ({} entries) was not made", room );
+            else
+                m_TileTableRoom = room;
+        }
+        if ( done )
+            done = m_TileTable->SetData( m_TileTableImage.data(),
+                                         entries * static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+        if ( done )
+            done = Renderer::ImportBuffer( m_TileTable, m_TileTableImport );
+        if ( done )
+            done = Renderer::ImportBuffer( m_TileFeedback, m_TileFeedbackImport );
+        if ( !done )
+        {
+            // No tile pass this frame; a new pool next frame builds the varieties' tiles again.
+            LOG_ERROR( "[Grass] the tile table is not in the frame graph; no tile is built this frame: {}",
+                       done.GetError() );
+            for ( VarietyGpu* gpu : m_FrameTileFree )
+                gpu->TilePoolMade = false;
+            for ( VarietyGpu* gpu : m_FrameTileBuild )
+                gpu->TilePoolMade = false;
+            m_FrameTileFree.clear();
+            m_FrameTileBuild.clear();
+            return;
+        }
+        m_TileTableRef    = graph.RegisterExternal( m_TileTableImport, "GrassTileTable" );
+        m_TileFeedbackRef = graph.RegisterExternal( m_TileFeedbackImport, "GrassTileFeedback" );
+        // A fresh pool's Init pass runs this frame (every fresh pool frees: m_FrameTileFree).
+        for ( VarietyGpu* gpu : m_FrameTileFree )
+            if ( gpu->PoolFresh )
+                gpu->TilePoolMade = true;
     }
 
     bool GrassRenderer::UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement, std::vector<uint32_t> thin,
@@ -1421,11 +2055,14 @@ namespace Desert::Graphic::System
         // THE POOL'S FEEDBACK (UE: a component's instance buffer holds what its builder produced): TileFeedback,
         // FramesInFlight frames old, says a build of this pool generation ran out of pages - its tile holds none.
         // A copy is cleared once read, so a frame that builds nothing leaves no stale word.
+        // CPU-GRASS-POOL-2: the variety's words of the shared feedback (EnsureTileFeedback handed them out).
         bool ranOut = false;
-        if ( gpu.TileFeedback )
+        if ( m_TileFeedback && gpu.FeedbackSlot < m_TileFeedbackRoom )
         {
+            constexpr uint32_t                            feedbackBytes = kGrassTileFeedbackWords * 4u;
+            const uint32_t                                at            = gpu.FeedbackSlot * feedbackBytes;
             std::array<uint32_t, kGrassTileFeedbackWords> read{};
-            if ( const auto got = gpu.TileFeedback->ReadBack( read.data(), sizeof( read ) ); !got.IsSuccess() )
+            if ( const auto got = m_TileFeedback->ReadBack( read.data(), feedbackBytes, at ); !got.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the tile pool's feedback was not read back: {}", got.GetError() );
             }
@@ -1433,7 +2070,7 @@ namespace Desert::Graphic::System
             {
                 ranOut = read[0] == gpu.PoolGeneration && read[1] != 0u;
                 const std::array<uint32_t, kGrassTileFeedbackWords> cleared{};
-                if ( const auto wrote = gpu.TileFeedback->SetData( cleared.data(), sizeof( cleared ) );
+                if ( const auto wrote = m_TileFeedback->SetData( cleared.data(), feedbackBytes, at );
                      !wrote.IsSuccess() )
                 {
                     LOG_ERROR( "[Grass] the tile pool's feedback was not cleared: {}", wrote.GetError() );
@@ -1534,7 +2171,8 @@ namespace Desert::Graphic::System
         if ( gpu.PoolFresh )
         {
             gpu.TileWalkSettled = false; // every tile is built again: no table is kept
-            gpu.Tiles.clear();
+            for ( VarietyGpu::ResidentTile& tile : gpu.TileRing )
+                tile.Held = false;
             gpu.FreeSlots.clear();
             gpu.TilePoolMade   = false; // this frame's Init pass writes the words first (AddFrame, TilePoolMade)
             gpu.PoolGeneration = gpu.PoolGeneration + 1u == 0u ? 1u : gpu.PoolGeneration + 1u;
@@ -1546,14 +2184,22 @@ namespace Desert::Graphic::System
             gpu.TileSide     = side;
             gpu.TilePages    = 0u;
             gpu.PlacementKey = std::move( placement );
-            // GRASS-TILE-3 / GRASS-VIEW-LAW-1: the segments and the pool's words live in video memory, device-local
-            // storage buffers the GPU alone writes (StorageBuffer::CreateDeviceLocal): kept across graphs and
-            // frames, read by address where a pass covers many varieties. The old ones are released once no frame
-            // in flight holds them.
-            gpu.TileSegments.clear();
-            gpu.TilePool.reset();
-            gpu.TileWords.reset();
-            gpu.Chunks.reset();
+            // CPU-GRASS-POOL-2: the ring holds the residents of a square of span tiles about the eye (the reach
+            // and the band a resident is kept in, see VarietyGpu::TileRing), plus a tile each side for the
+            // rounding of floor( eye / side ).
+            gpu.TileRingSide = span + 2u;
+            gpu.TileRing.assign( static_cast<std::size_t>( gpu.TileRingSide ) * gpu.TileRingSide,
+                                 VarietyGpu::ResidentTile{} );
+            // GRASS-TILE-3 / GRASS-VIEW-LAW-1: the segments and the pool's words live in video memory,
+            // device-local storage buffers the GPU alone writes (StorageBuffer::CreateDeviceLocal): kept across
+            // graphs and frames, read by address where a pass covers many varieties. The old words are released
+            // once no frame in flight holds them; the segments go back to the shared ones (CPU-GRASS-POOL-2), the
+            // words are a new range of the shared words pool (CPU-GRASS-POOL-3; this frame's Init writes them).
+            ReleaseTileSegments( gpu );
+            m_SegmentTablesPool.Release( gpu.TilePool );
+            m_TileWordsPool.Release( gpu.TileWords );
+            m_ChunksPool.Release( gpu.Chunks );
+            gpu.ChunkInit.clear();
             const uint64_t wordBytes =
                  ( 1u + static_cast<uint64_t>( room ) + static_cast<uint64_t>( slots ) * kGrassTileHeaderWords ) * 4u;
             if ( wordBytes > UINT32_MAX )
@@ -1563,11 +2209,19 @@ namespace Desert::Graphic::System
                            wordBytes );
                 return false;
             }
-            gpu.TilePool  = ShaderResources::StorageBuffer::Create(
-                 "GrassTileSegments",
-                 static_cast<uint32_t>( room / kGrassTileSegmentPages * sizeof( uint64_t ) ), 14, true );
-            gpu.TileWords = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                 "GrassTileWords", static_cast<uint32_t>( wordBytes ), 15 );
+            // CPU-GRASS-POOL-7: the segment table is a range of the shared tables pool, written whole by
+            // CommitVarietyPools (TilePoolEpoch 0: not yet).
+            const uint64_t tableBytes =
+                 std::max<uint64_t>( room / kGrassTileSegmentPages, 1u ) * sizeof( uint64_t );
+            gpu.TilePoolEpoch         = 0u;
+            if ( !m_SegmentTablesPool.Allocate( gpu.TilePool, tableBytes ) )
+                LOG_ERROR( "[Grass] the segment tables pool would pass a storage buffer's 4 GB; the variety's "
+                           "table ({} bytes) was not handed out",
+                           tableBytes );
+            if ( !m_TileWordsPool.Allocate( gpu.TileWords, wordBytes ) )
+                LOG_ERROR( "[Grass] the tile pool words pool would pass a storage buffer's 4 GB; the variety's "
+                           "words ({} bytes) were not handed out",
+                           wordBytes );
             // GRASS-VIEW-LAW-1, THE CHUNKS (Common/GrassVarietyRows.glslh, the chunk contract): the build's
             // chunks, one per tile slot and cluster - a fresh buffer's are empty, Free empties a freed slot's, Init
             // a reset pool's. The rows the view law writes are the lists' (REGRESS-CACHE-1: sized by the
@@ -1579,31 +2233,26 @@ namespace Desert::Graphic::System
                            chunkCount );
                 return false;
             }
-            std::vector<uint32_t> chunks( kChunkHeaderWords + static_cast<size_t>( chunkCount ) * kChunkWords, 0u );
-            gpu.ChunkRoom         = static_cast<uint32_t>( chunkCount );
-            chunks[0]             = gpu.ChunkRoom;
-            chunks[2]             = gpu.ChunkRoom;
-            const auto chunkBytes = static_cast<uint32_t>( chunks.size() * 4u );
-            gpu.Chunks            = ShaderResources::StorageBuffer::Create( "GrassChunks", chunkBytes, 8, true );
-            if ( gpu.Chunks )
+            // CPU-GRASS-POOL-7: a range of the shared chunks pool; its words (ChunkInit) are uploaded by
+            // CommitVarietyPools before any pass of the frame reads them.
+            std::vector<uint32_t>& chunks = gpu.ChunkInit;
+            chunks.assign( kChunkHeaderWords + static_cast<size_t>( chunkCount ) * kChunkWords, 0u );
+            gpu.ChunkRoom   = static_cast<uint32_t>( chunkCount );
+            chunks[0]       = gpu.ChunkRoom;
+            chunks[2]       = gpu.ChunkRoom;
+            gpu.ChunksEpoch = 0u;
+            if ( !m_ChunksPool.Allocate( gpu.Chunks, chunks.size() * 4u ) )
             {
-                if ( const auto wrote = gpu.Chunks->SetData( chunks.data(), chunkBytes ); !wrote.IsSuccess() )
-                {
-                    LOG_ERROR( "[Grass] the variety's chunks were not written: {}", wrote.GetError() );
-                    gpu.Chunks.reset();
-                }
+                LOG_ERROR( "[Grass] the chunks pool would pass a storage buffer's 4 GB; the variety's chunks ({}) "
+                           "were not handed out",
+                           chunkCount );
+                chunks.clear();
             }
-            // The table holds at most every held tile freed or culled, and a frame's builds freed and built.
-            gpu.TileTable = ShaderResources::StorageBuffer::Create(
-                 "GrassTileTable", ( 1u + 2u * ( slots + kGrassTileBuildsPerFrame ) ) * sizeof( glm::uvec4 ), 12 );
-            if ( !gpu.TileFeedback )
-                gpu.TileFeedback = ShaderResources::StorageBuffer::Create( "GrassTileFeedback",
-                                                                           kGrassTileFeedbackWords * 4u, 13 );
         }
-        if ( !gpu.TileTable || !gpu.TileFeedback || !gpu.TilePool || !gpu.TileWords || !gpu.Chunks )
+        if ( gpu.TilePool.Bytes == 0u || gpu.TileWords.Bytes == 0u || gpu.Chunks.Bytes == 0u )
         {
-            LOG_ERROR( "[Grass] a variety's tile table, feedback, pool, pool words or chunks were not made; its "
-                       "pool is made anew next frame" );
+            LOG_ERROR( "[Grass] a variety's tile pool, pool words or chunks were not made; its pool is made anew "
+                       "next frame" );
             gpu.TilePoolMade    = false;
             gpu.TileWalkSettled = false;
             return false;
@@ -1614,37 +2263,16 @@ namespace Desert::Graphic::System
         gpu.TileGrowFrom = held;
         for ( std::size_t s = gpu.TileSegments.size(); s < pages / kGrassTileSegmentPages; ++s )
         {
-            std::shared_ptr<ShaderResources::StorageBuffer> segment = ShaderResources::StorageBuffer::CreateDeviceLocal(
-                 "GrassTilePool", static_cast<uint32_t>( kGrassTileSegmentBytes ), 14 );
-            if ( !segment )
+            uint32_t index = 0u;
+            if ( !TakeTileSegment( index ) )
             {
-                LOG_ERROR( "[Grass] a variety's tile pool segment was not made; its pool is made anew next frame" );
                 gpu.TilePoolMade    = false;
                 gpu.TileWalkSettled = false;
                 return false;
             }
-            const Common::ResultStr<uint64_t> address = segment->GetDeviceAddress();
-            if ( !address )
-            {
-                LOG_ERROR( "[Grass] a tile pool segment has no device address; its pool is made anew next frame: {}",
-                           address.GetError() );
-                gpu.TilePoolMade    = false;
-                gpu.TileWalkSettled = false;
-                return false;
-            }
-            const uint64_t value = address.GetValue();
-            if ( const auto wrote = gpu.TilePool->SetData( &value, sizeof( value ),
-                                                           static_cast<uint32_t>( s * sizeof( uint64_t ) ) );
-                 !wrote.IsSuccess() )
-            {
-                LOG_ERROR( "[Grass] the tile pool's segment table was not written; its pool is made anew next frame: "
-                           "{}",
-                           wrote.GetError() );
-                gpu.TilePoolMade    = false;
-                gpu.TileWalkSettled = false;
-                return false;
-            }
-            gpu.TileSegments.push_back( std::move( segment ) );
+            // Held by the pool from here: a failed table write leaves it to the pool's next ReleaseTileSegments.
+            gpu.TileSegments.push_back( index );
+            gpu.TilePoolEpoch = 0u; // the table is written anew (CommitVarietyPools)
         }
         gpu.TilePages = static_cast<uint32_t>( gpu.TileSegments.size() ) * kGrassTileSegmentPages;
         if ( gpu.PoolFresh )
@@ -1657,8 +2285,8 @@ namespace Desert::Graphic::System
         // Another lens or Foliage quality thins by other distances: every tile keeps drawing until rebuilt.
         if ( gpu.ThinKey != thin )
         {
-            for ( auto& [key, tile] : gpu.Tiles )
-                tile.Stale = true;
+            for ( VarietyGpu::ResidentTile& tile : gpu.TileRing )
+                tile.Stale = tile.Stale || tile.Held;
             gpu.ThinKey = std::move( thin );
         }
         // TURN-CPU-SETUP-1: the same inputs as the last walk, which freed and built nothing in this pool - so the
@@ -1676,73 +2304,81 @@ namespace Desert::Graphic::System
 
         // The table: the header, the slots freed (the tiles past the radius by more than a tile - the band keeps
         // the eye's sway from freeing and rebuilding one - and the tiles rebuilt), the builds, the tiles culled.
+        // CPU-GRASS-POOL-2: the ring's cells are walked in place (a dense array, no hashing); a tile is found by
+        // its cell, which holds its coordinates.
         gpu.TileEntries.assign( 1u, glm::uvec4( gpu.PoolGeneration, 0u, 0u, 0u ) );
-        for ( auto it = gpu.Tiles.begin(); it != gpu.Tiles.end(); )
+        for ( VarietyGpu::ResidentTile& tile : gpu.TileRing )
         {
-            const auto x = static_cast<int32_t>( static_cast<uint32_t>( it->first >> 32u ) );
-            const auto z = static_cast<int32_t>( static_cast<uint32_t>( it->first ) );
-            if ( nearestOf( x, z ) <= radius + side )
-            {
-                ++it;
+            if ( !tile.Held || nearestOf( tile.X, tile.Z ) <= radius + side )
                 continue;
-            }
-            gpu.TileEntries.push_back( glm::uvec4( it->second.Slot, 0u, 0u, 0u ) );
-            gpu.FreeSlots.push_back( it->second.Slot );
-            it = gpu.Tiles.erase( it );
+            gpu.TileEntries.push_back( glm::uvec4( tile.Slot, 0u, 0u, 0u ) );
+            gpu.FreeSlots.push_back( tile.Slot );
+            tile.Held = false;
         }
+        const auto residentAt = [&gpu]( const int32_t x, const int32_t z ) -> VarietyGpu::ResidentTile*
+        {
+            VarietyGpu::ResidentTile& tile = gpu.TileRing[RingCell( x, z, gpu.TileRingSide )];
+            if ( tile.Held && tile.X == x && tile.Z == z )
+                return &tile;
+            return nullptr;
+        };
 
         // THE BUILDS (UE grass.MaxCreatePerFrame, nearest first): a tile within the radius that is missing, stale,
         // nearer than it was built for (its far draws were not kept), or past twice what it was built for (it
         // holds several times the instances it needs). A tile is built for builtFor( its nearest ).
-        struct Wanted
-        {
-            float   Nearest = 0.0f;
-            int32_t X = 0, Z = 0;
-        };
-        std::vector<Wanted> wanted;
+        std::vector<TileWant>& wanted = m_TileWants;
+        wanted.clear();
         for ( int32_t z = atZ - reach; z <= atZ + reach; ++z )
             for ( int32_t x = atX - reach; x <= atX + reach; ++x )
             {
                 const float nearest = nearestOf( x, z );
                 if ( nearest > radius )
                     continue;
-                const auto found = gpu.Tiles.find( TileKey( x, z ) );
-                if ( found == gpu.Tiles.end() || found->second.Stale || nearest < found->second.BuiltNear ||
-                     nearest > 2.0f * ( found->second.BuiltNear + side ) )
+                const VarietyGpu::ResidentTile* found = residentAt( x, z );
+                if ( found == nullptr || found->Stale || nearest < found->BuiltNear ||
+                     nearest > 2.0f * ( found->BuiltNear + side ) )
                     wanted.push_back( { nearest, x, z } );
             }
         std::sort( wanted.begin(), wanted.end(),
-                   []( const Wanted& a, const Wanted& b ) { return a.Nearest < b.Nearest; } );
+                   []( const TileWant& a, const TileWant& b ) { return a.Nearest < b.Nearest; } );
         // Tiles that draw short of what the view keeps (missing, stale, approached) until built:
         // InstancesSettling.
-        bool                    pending = false;
-        std::vector<glm::uvec4> builds;
-        for ( const Wanted& want : wanted )
+        bool                     pending = false;
+        std::vector<glm::uvec4>& builds  = m_TileBuildScratch;
+        builds.clear();
+        for ( const TileWant& want : wanted )
         {
-            auto       found = gpu.Tiles.find( TileKey( want.X, want.Z ) );
-            const bool drawsShort =
-                 found == gpu.Tiles.end() || found->second.Stale || want.Nearest < found->second.BuiltNear;
-            if ( builds.size() == kGrassTileBuildsPerFrame ||
-                 ( found == gpu.Tiles.end() && gpu.FreeSlots.empty() ) )
+            VarietyGpu::ResidentTile* found = residentAt( want.X, want.Z );
+            const bool drawsShort           = found == nullptr || found->Stale || want.Nearest < found->BuiltNear;
+            if ( builds.size() == kGrassTileBuildsPerFrame || ( found == nullptr && gpu.FreeSlots.empty() ) )
             {
                 pending = pending || drawsShort;
                 continue;
             }
-            if ( found == gpu.Tiles.end() )
+            if ( found == nullptr )
             {
-                found =
-                     gpu.Tiles
-                          .emplace( TileKey( want.X, want.Z ), VarietyGpu::ResidentTile{ gpu.FreeSlots.back() } )
-                          .first;
+                // The cell is empty: the residents left in the ring lie within its span of the eye (TileRing).
+                found = &gpu.TileRing[RingCell( want.X, want.Z, gpu.TileRingSide )];
+                if ( found->Held )
+                {
+                    // Never expected (span covers the kept band); should a resident still sit here, its slot is
+                    // freed rather than leaked with the tile it held.
+                    gpu.TileEntries.push_back( glm::uvec4( found->Slot, 0u, 0u, 0u ) );
+                    gpu.FreeSlots.push_back( found->Slot );
+                }
+                found->X    = want.X;
+                found->Z    = want.Z;
+                found->Slot = gpu.FreeSlots.back();
+                found->Held = true;
                 gpu.FreeSlots.pop_back();
             }
             else
-                gpu.TileEntries.push_back( glm::uvec4( found->second.Slot, 0u, 0u, 0u ) );
-            found->second.BuiltNear = builtFor( want.Nearest );
-            found->second.Stale     = false;
-            builds.push_back( glm::uvec4( found->second.Slot, static_cast<uint32_t>( want.X ),
+                gpu.TileEntries.push_back( glm::uvec4( found->Slot, 0u, 0u, 0u ) );
+            found->BuiltNear = builtFor( want.Nearest );
+            found->Stale     = false;
+            builds.push_back( glm::uvec4( found->Slot, static_cast<uint32_t>( want.X ),
                                           static_cast<uint32_t>( want.Z ),
-                                          std::bit_cast<uint32_t>( found->second.BuiltNear ) ) );
+                                          std::bit_cast<uint32_t>( found->BuiltNear ) ) );
         }
         gpu.TileFrees  = static_cast<uint32_t>( gpu.TileEntries.size() - 1u );
         gpu.TileBuilds = static_cast<uint32_t>( builds.size() );
@@ -1752,12 +2388,13 @@ namespace Desert::Graphic::System
         // and the GBuffer reject the far blades behind the near ones early. GRASS-TILE-4: not the band past the
         // radius the residents keep - none of a tile there lies within it (an instance's distance from the eye is
         // at least nearestOf), and the cull runs a group per cluster of every tile it is given.
-        std::vector<std::pair<float, uint32_t>> culled;
-        culled.reserve( gpu.Tiles.size() );
-        for ( const auto& [key, tile] : gpu.Tiles )
+        std::vector<std::pair<float, uint32_t>>& culled = m_TileCullScratch;
+        culled.clear();
+        for ( const VarietyGpu::ResidentTile& tile : gpu.TileRing )
         {
-            const float nearest = nearestOf( static_cast<int32_t>( static_cast<uint32_t>( key >> 32u ) ),
-                                             static_cast<int32_t>( static_cast<uint32_t>( key ) ) );
+            if ( !tile.Held )
+                continue;
+            const float nearest = nearestOf( tile.X, tile.Z );
             if ( nearest <= radius )
                 culled.emplace_back( nearest, tile.Slot );
         }
@@ -1776,7 +2413,8 @@ namespace Desert::Graphic::System
     }
 
     void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes,
-                                  const bool rayTracing, const GrassOcclusion& occlusion )
+                                  const bool rayTracing, const GrassOcclusion& occlusion,
+                                  const bool parallelSetup )
     {
         // TURN-CPU-SETUP-1: the frame's grass by stage, one profile row each (inside SceneRenderer's "Setup:
         // Grass").
@@ -1832,10 +2470,12 @@ namespace Desert::Graphic::System
                 m_CascadeGuards[list].View = kNoCascadeView;
         }
         m_Frame.clear();
+        m_FrameSubmits.clear();
         m_FrameCull.clear();
         m_FrameTileFree.clear();
         m_FrameTileBuild.clear();
         m_FrameTilePoolCap.reset();
+        m_TileTableImage.clear();
         m_Settling       = false;
         m_FrameTested    = testsHzb;
         m_FrameNeutral   = occlusion.Neutral;
@@ -1871,237 +2511,289 @@ namespace Desert::Graphic::System
             }
             fieldGpu.Ref = graph.RegisterExternal( fieldGpu.Import, "GrassField" );
 
-            for ( const GrassVarietyDraw& variety : field.Varieties )
+            // RENDER-PARALLEL-SETUP (UE RDG setup tasks): the field's varieties in three passes. The serial half
+            // in variety order (PrepareVariety: the entry, read-back counts, rebuilt buffers, visibility rows),
+            // the pure plans on TaskGroup tasks (PlanVariety: the params and the tile build's inputs, a task its
+            // own contiguous slice of plans and their entries), then the serial apply in variety order
+            // (ApplyVariety: the params' upload, the tiles, whose pool budget spans varieties; then the import,
+            // the graph and the sections below). Every shared write keeps the variety order whatever thread ran a
+            // plan: RenderPipeline.ParallelSetup 0, 1 make the same frame.
+            // RISK 8: a key is (root, layer, grass type, variety): one entry, so one plan of it at a time. The
+            // varieties run in contiguous SEGMENTS of unique keys, each prepared, planned and applied before the
+            // next one is prepared, and a repeated key starts the next segment - so the repeat is prepared after
+            // its first's Apply, as the sequential code ran it. With no repeat the field is one segment, as
+            // before.
+            std::vector<VarietyPlan> plans;
+            plans.reserve( field.Varieties.size() );
+            for ( std::size_t cursor = 0; cursor < field.Varieties.size(); )
             {
-                Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
-                if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
-                     mesh->GetGeometry().IndexCount == 0 )
-                    continue;
-                // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self on
-                // the turn, scn-1104-073309); each row sums every variety's step.
-                DESERT_PROFILE_PHASES( varietyPhases );
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Prepare" );
-                VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame, volumes, meshes,
-                                                  static_cast<uint64_t>( fieldGpu.Revision ) );
-                if ( gpu == nullptr )
-                    continue;
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Import + register buffers" );
-                Common::BoolResultStr imported = Renderer::ImportBuffer( gpu->Instances, gpu->InstancesImport );
-                if ( imported )
-                    imported = Renderer::ImportBuffer( gpu->Args, gpu->ArgsImport );
-                if ( imported )
-                    imported = Renderer::ImportBuffer( gpu->Params, gpu->ParamsImport );
-                if ( imported )
-                    imported = Renderer::ImportBuffer( gpu->Feedback, gpu->FeedbackImport );
-                for ( const auto& [buffer, into] : { std::pair{ &gpu->CameraIds, &gpu->CameraIdsImport },
-                                                     std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
-                                                     std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
-                                                     std::pair{ &gpu->Chunks, &gpu->ChunksImport },
-                                                     std::pair{ &gpu->LawScales, &gpu->LawScalesImport },
-                                                     std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
-                                                     std::pair{ &gpu->CascadeIds, &gpu->CascadeIdsImport },
-                                                     std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport },
-                                                     std::pair{ &gpu->TilePool, &gpu->TilePoolImport },
-                                                     std::pair{ &gpu->FullIds, &gpu->FullIdsImport } } )
-                    if ( imported )
-                        imported = Renderer::ImportBuffer( *buffer, *into );
-                // RENDER-JOB-CPU-2: the tile table, the pool's words and the tile feedback are read and written by
-                // the tile passes alone (bindGenerate), which run only for a variety that frees or builds tiles
-                // this frame - they are imported there (below), not on a frame that only turns the camera.
-                // GRASS-VRAM-BUDGET-1: the pool's segments, which the passes read and write by address.
-                gpu->TileSegmentImports.resize( gpu->TileSegments.size() );
-                for ( std::size_t s = 0; s < gpu->TileSegments.size() && imported; ++s )
-                    imported = Renderer::ImportBuffer( gpu->TileSegments[s], gpu->TileSegmentImports[s] );
-                if ( !imported )
+                plans.clear();
+                for ( ; cursor < field.Varieties.size(); ++cursor )
                 {
-                    LOG_ERROR( "[Grass] a variety's buffers are not in the frame graph: {}", imported.GetError() );
-                    continue;
-                }
-                gpu->Refs.Instances = graph.RegisterExternal( gpu->InstancesImport, "GrassInstances" );
-                gpu->Refs.Args      = graph.RegisterExternal( gpu->ArgsImport, "GrassArgs" );
-                gpu->Refs.ArgsAddress = BufferAddress( gpu->Args ); // a compacted bin's gather reads them
-                gpu->ParamsRef      = graph.RegisterExternal( gpu->ParamsImport, "GrassParams" );
-                gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
-                // GRASS-VIEW-LAW-1: the full list reads Instances' rows through FullIds too (RT, list-less cascades).
-                gpu->Refs.Ids = graph.RegisterExternal( gpu->FullIdsImport, "GrassFullIds" );
-                // GPU-COST-22: every list reads the one Instances through its ids (GpuInstanceRefs::Ids).
-                gpu->CameraRefs.Instances  = gpu->Refs.Instances;
-                gpu->CameraRefs.Ids        = graph.RegisterExternal( gpu->CameraIdsImport, "GrassCameraIds" );
-                gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
-                gpu->CameraRefs.ArgsAddress = BufferAddress( gpu->CameraArgs );
-                gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
-                gpu->ChunksRef            = graph.RegisterExternal( gpu->ChunksImport, "GrassChunks" );
-                gpu->LawScalesRef         = graph.RegisterExternal( gpu->LawScalesImport, "GrassLawScales" );
-                gpu->PostRefs.Instances    = gpu->Refs.Instances;
-                gpu->PostRefs.Ids          = gpu->CameraRefs.Ids;
-                gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
-                gpu->PostRefs.ArgsAddress = BufferAddress( gpu->PostArgs );
-                gpu->CascadeRefs.Instances = gpu->Refs.Instances;
-                gpu->CascadeRefs.Ids       = graph.RegisterExternal( gpu->CascadeIdsImport, "GrassCascadeIds" );
-                gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
-                gpu->CascadeRefs.ArgsAddress = BufferAddress( gpu->CascadeArgs ); // the cascades' bins gather them
-                gpu->FieldRef              = fieldGpu.Ref;
-                gpu->FieldBuffer           = fieldGpu.Buffer;
-                gpu->TilePoolRef           = graph.RegisterExternal( gpu->TilePoolImport, "GrassTileSegments" );
-                gpu->TileSegmentRefs.clear();
-                for ( RDG::ExternalBuffer& segment : gpu->TileSegmentImports )
-                    gpu->TileSegmentRefs.push_back( graph.RegisterExternal( segment, "GrassTilePool" ) );
-                // Last frame's handles name another graph's resources: invalid until the tile passes import them.
-                gpu->TileWordsRef    = {};
-                gpu->TileTableRef    = {};
-                gpu->TileFeedbackRef = {};
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
-                m_Frame.push_back( gpu );
-                if ( gpu->Drawn )
-                    DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades );
-                const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
-                gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
-                gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                if ( gpu->FrameKey != gpu->GenerateKey )
-                {
-                    gpu->GenerateKey       = gpu->FrameKey;
-                    ++gpu->Generation;
-                }
-                gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
-                gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                if ( gpu->LawKey != gpu->LawedKey )
-                {
-                    gpu->LawedKey = gpu->LawKey;
-                    ++gpu->LawGeneration;
-                }
-                // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over the
-                // build's chunks. The tile passes run on a frame that frees or builds tiles and read the table written
-                // then (a per-frame-in-flight copy); a fresh pool's Init pass writes its words first.
-                const bool grown = gpu->TileGrowFrom != gpu->TilePages; // GRASS-VRAM-BUDGET-1
-                bool       tiles = gpu->PoolFresh || grown || gpu->TileFrees != 0u || gpu->TileBuilds != 0u;
-                if ( tiles )
-                {
-                    const auto bytes = static_cast<uint32_t>( gpu->TileEntries.size() * sizeof( glm::uvec4 ) );
-                    if ( const auto wrote = gpu->TileTable->SetData( gpu->TileEntries.data(), bytes );
-                         !wrote.IsSuccess() )
+                    const GrassVarietyDraw& variety = field.Varieties[cursor];
+                    Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
+                    if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
+                         mesh->GetGeometry().IndexCount == 0 )
+                        continue;
+                    const bool repeated =
+                         std::any_of( plans.begin(), plans.end(), [&variety]( const VarietyPlan& plan )
+                                      { return plan.Variety->Key == variety.Key; } );
+                    if ( repeated )
                     {
-                        // No tile pass runs for it this frame; a new pool next frame builds its tiles again.
-                        LOG_ERROR( "[Grass] the variety's tile table was not written: {}", wrote.GetError() );
-                        gpu->TilePoolMade = false;
-                        tiles             = false;
+                        // A content fault (two layers resolving to one variety): drawn twice at two Prepares'
+                        // cost, as the sequential code drew it - said once per key, not once per frame.
+                        static std::unordered_set<uint64_t> s_WarnedRepeatedKey;
+                        if ( s_WarnedRepeatedKey.insert( variety.Key ).second )
+                            LOG_ERROR( "[Grass] a field queues variety key {:#x} more than once; each repeat is "
+                                       "prepared and drawn again (two layers resolve to one variety)",
+                                       variety.Key );
+                        break; // the next segment starts at the repeat, after this one's Apply
                     }
-                    else
-                    {
-                        // The tile passes' own buffers, imported after the table's write (the copy it wrote).
-                        Common::BoolResultStr tileImported =
-                             Renderer::ImportBuffer( gpu->TileTable, gpu->TileTableImport );
-                        if ( tileImported )
-                            tileImported = Renderer::ImportBuffer( gpu->TileWords, gpu->TileWordsImport );
-                        if ( tileImported )
-                            tileImported = Renderer::ImportBuffer( gpu->TileFeedback, gpu->TileFeedbackImport );
-                        if ( !tileImported )
-                        {
-                            // As an unwritten table: no tile pass this frame, a new pool next frame.
-                            LOG_ERROR( "[Grass] the variety's tile buffers are not in the frame graph: {}",
-                                       tileImported.GetError() );
-                            gpu->TilePoolMade = false;
-                            tiles             = false;
-                        }
-                        else
-                        {
-                            gpu->TileWordsRef = graph.RegisterExternal( gpu->TileWordsImport, "GrassTileWords" );
-                            gpu->TileTableRef = graph.RegisterExternal( gpu->TileTableImport, "GrassTileTable" );
-                            gpu->TileFeedbackRef =
-                                 graph.RegisterExternal( gpu->TileFeedbackImport, "GrassTileFeedback" );
-                            if ( gpu->PoolFresh )
-                                gpu->TilePoolMade = true;
-                        }
-                    }
+                    // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self
+                    // on the turn, scn-1104-073309); each row sums every variety's step.
+                    DESERT_PROFILE_PHASES( varietyPhases );
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Prepare" );
+                    plans.emplace_back();
+                    const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
+                    if ( PrepareVariety( variety, *mesh, frame, volumes, meshes, revision, plans.back() ) ==
+                         nullptr )
+                        plans.pop_back();
                 }
-                if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
-                    m_FrameTileFree.push_back( gpu );
-                if ( tiles && gpu->TileBuilds != 0u )
-                    m_FrameTileBuild.push_back( gpu );
-                // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
-                // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
-                // among them), so it is culled when the variety generates.
-                // Every frame: the camera's planes and the cascades' boxes are this frame's (GRASS-CULL-UNIFY-1).
-                m_FrameCull.push_back( gpu );
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
-                NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
-                                          ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
+                {
+                    DESERT_PROFILE_PHASES( planPhases );
+                    DESERT_PROFILE_PHASE( planPhases, "Grass: Plan varieties (tasks + join)" );
+                    // RISK 9 (UE FParallelMeshDrawCommandPass: the task count follows the workers, not the items):
+                    // the plans in about WorkerCount() + 1 contiguous slices - the joining thread runs one too -
+                    // one task each, so each plan is still written by exactly one task, in variety order within
+                    // it.
+                    const std::size_t participants = Common::JobSystem::Get().WorkerCount() + 1;
+                    const std::size_t slices       = std::min( plans.size(), participants );
+                    Common::TaskGroup tasks( parallelSetup );
+                    for ( std::size_t s = 0; s < slices; ++s )
+                    {
+                        const std::size_t first = plans.size() * s / slices;
+                        const std::size_t last  = plans.size() * ( s + 1 ) / slices;
+                        tasks.Launch( "Grass variety: Plan",
+                                      [this, &plans, first, last]() noexcept
+                                      {
+                                          for ( std::size_t i = first; i < last; ++i )
+                                              PlanVariety( plans[i] );
+                                      } );
+                    }
+                    tasks.Join();
+                }
+                // CPU-GRASS-POOL-2: every variety's words of the shared tile feedback, before any reads them
+                // (UpdateTiles) - a remade feedback makes every pool anew, so it is not remade between two
+                // varieties' tile updates.
+                for ( VarietyPlan& plan : plans )
+                    if ( !EnsureTileFeedback( *plan.Gpu ) )
+                        break;
+                for ( VarietyPlan& plan : plans )
+                {
+                    const GrassVarietyDraw& variety = *plan.Variety;
+                    Desert::Mesh* const     mesh    = plan.MeshAsset;
+                    DESERT_PROFILE_PHASES( varietyPhases );
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Apply params + tiles" );
+                    if ( !ApplyVariety( plan ) )
+                        continue;
+                    VarietyGpu* const gpu = plan.Gpu;
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Register refs" );
+                    // CPU-GRASS-POOL-7: no buffer of the variety's own is imported - its params, chunks, segment
+                    // table and feedback are ranges of the shared pools CommitVarietyPools commits once after each
+                    // variety; CPU-GRASS-POOL-8: its rows, ids, records, candidates and law scales are ranges
+                    // of the pools CommitListPools commits once after the field loop, which sets the list refs.
+                    gpu->FieldRef    = fieldGpu.Ref;
+                    gpu->FieldBuffer = fieldGpu.Buffer;
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
+                    m_Frame.push_back( gpu );
+                    if ( gpu->Drawn )
+                        DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z,
+                                                  gpu->DrawnCascades );
+                    const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
+                    gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
+                    gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                    if ( gpu->FrameKey != gpu->GenerateKey )
+                    {
+                        gpu->GenerateKey = gpu->FrameKey;
+                        ++gpu->Generation;
+                    }
+                    gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
+                    gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                    if ( gpu->LawKey != gpu->LawedKey )
+                    {
+                        gpu->LawedKey = gpu->LawKey;
+                        ++gpu->LawGeneration;
+                    }
+                    // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over
+                    // the build's chunks. The tile passes run on a frame that frees or builds tiles and read the
+                    // table written then (a per-frame-in-flight copy); a fresh pool's Init pass writes its words
+                    // first.
+                    const bool grown = gpu->TileGrowFrom != gpu->TilePages; // GRASS-VRAM-BUDGET-1
+                    bool       tiles = gpu->PoolFresh || grown || gpu->TileFrees != 0u || gpu->TileBuilds != 0u;
+                    if ( tiles )
+                    {
+                        // CPU-GRASS-POOL-2: the variety's run of the shared tile table, written once for every
+                        // variety (CommitTileTable, which marks a fresh pool made). CPU-GRASS-POOL-3: its words
+                        // are a range of the shared words pool, imported once after every variety
+                        // (CommitTileWords).
+                        gpu->TileTableBase = static_cast<uint32_t>( m_TileTableImage.size() );
+                        m_TileTableImage.insert( m_TileTableImage.end(), gpu->TileEntries.begin(),
+                                                 gpu->TileEntries.end() );
+                    }
+                    if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
+                        m_FrameTileFree.push_back( gpu );
+                    if ( tiles && gpu->TileBuilds != 0u )
+                        m_FrameTileBuild.push_back( gpu );
+                    // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
+                    // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
+                    // among them), so it is culled when the variety generates.
+                    // Every frame: the camera's planes and the cascades' boxes are this frame's
+                    // (GRASS-CULL-UNIFY-1).
+                    m_FrameCull.push_back( gpu );
+                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
+                    NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
+                                              ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
-                DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
-                // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no allocation
-                // once grown) and handed to the mesh renderer by move, so no buffer handle is copied twice.
-                thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
-                std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
-                sections.clear();
-                sections.reserve( variety.Sections.size() );
-                // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
-                // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are 0,
-                // 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw the
-                // grass mesh's own first triangle, not the screen.
-                Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
-                if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
-                    resolveMesh = nullptr;
-                for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
-                {
-                    std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
-                    if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
-                        meshRows = gpu->MeshVisibility[s];
-                    sections.push_back(
-                         { .Mesh     = mesh,
-                           .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
-                           .Material = variety.Sections[s].Material,
-                           .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
-                           .CastShadows      = variety.Placement.CastDynamicShadow,
-                           .Wind             = variety.Wind,
-                           .Instances        = gpu->Instances,
-                           .CameraIds        = gpu->CameraIds,
-                           .BladeShape       = gpu->Shape,
-                           .MeshVisibility   = meshRows,
-                           .ResolveMesh      = resolveMesh,
-                           .Refs             = &gpu->Refs,
-                           .CameraRefs       = &gpu->CameraRefs,
-                           .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
-                           .CascadeIds       = gpu->CascadeIds,
-                           .FullIds          = gpu->FullIds,
-                           .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
-                           .CascadeMask      = gpu->CascadeMask,
-                           .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
-                           .CascadeRestShift = gpu->CascadeRestShift,
-                           .Capacity         = gpu->Capacity,
-                           .BucketCapacities = gpu->BucketCapacities,
-                           .Levels           = variety.Blade ? 1u : gpu->Buckets,
-                           .PrepassBuckets   = gpu->PrepassBuckets,
-                           .ShadowLod        = gpu->ShadowLod,
-                           .Key              = gpu->Index * 64u + s,
-                           // The grass stands still but for the wind: a cached cascade keeps its rest pose.
-                           .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
-                                .Generation = gpu->Generation, .Reach = gpu->Reach } } );
-                    // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
-                    sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
+                    // CPU-GRASS-POOL-8: the sections name the list pools' buffers and refs, so they are built
+                    // after CommitListPools (below the field loop).
+                    m_FrameSubmits.push_back( FrameSubmit{ .Variety = &variety, .MeshAsset = mesh, .Gpu = gpu } );
                 }
-                // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
-                // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
-                // for a mesh (RayTracingGather.cpp).
-                if ( variety.Blade && m_BladeRayTracing.IsRequired() )
-                {
-                    uint64_t nonOpaque = 0;
-                    for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
-                        if ( MeshRenderer::ShadingOf( section ).Masked )
-                            nonOpaque |= ~section.HiddenSubmeshes;
-                    const auto blas =
-                         m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh, gpu->ShapeData, nonOpaque );
-                    if ( blas )
-                        for ( MeshRenderer::GpuInstancedRenderData& section : sections )
-                            section.BladeGeometry = blas.GetValue();
-                    else
-                        LOG_ERROR(
-                             "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
-                             blas.GetError() );
-                }
-                for ( MeshRenderer::GpuInstancedRenderData& section : sections )
-                    meshes.SubmitGpuInstanced( std::move( section ) );
-                sections.clear();
             }
         }
+        // CPU-GRASS-POOL-8 (UE GPUScene: each pool committed and registered once a frame, after every upload was
+        // gathered): every field's varieties applied, so every Allocate of the frame ran - the list, candidate
+        // and law pools are committed once, the (re)built records uploaded and the list refs set, before any
+        // section or pass names them.
+        if ( const Common::BoolResultStr committed = CommitListPools( graph ); !committed )
+        {
+            LOG_ERROR( "[Grass] the varieties' rows, lists and records are not in the frame graph; no grass is "
+                       "generated, culled or drawn this frame: {}",
+                       committed.GetError() );
+            for ( VarietyGpu* gpu : m_Frame )
+                gpu->TilePoolMade = false; // a pool the skipped Init pass was to write is made anew
+            m_Frame.clear();
+            m_FrameSubmits.clear();
+            m_FrameCull.clear();
+            m_FrameTileFree.clear();
+            m_FrameTileBuild.clear();
+        }
+        for ( const FrameSubmit& submit : m_FrameSubmits )
+        {
+            const GrassVarietyDraw& variety = *submit.Variety;
+            Desert::Mesh* const     mesh    = submit.MeshAsset;
+            VarietyGpu* const       gpu     = submit.Gpu;
+            DESERT_PROFILE_PHASES( varietyPhases );
+            DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Sections" );
+            // RENDER-CPU-COST-2: the rows are built into scratch kept across varieties and frames (no
+            // allocation once grown) and handed to the mesh renderer by move, so no buffer handle is
+            // copied twice.
+            thread_local std::vector<MeshRenderer::GpuInstancedRenderData> t_Sections;
+            std::vector<MeshRenderer::GpuInstancedRenderData>&             sections = t_Sections;
+            sections.clear();
+            sections.reserve( variety.Sections.size() );
+            // GRASS-VIS-MESH-1: a mesh section's rows (null: the prepass pair this frame) and the mesh its
+            // visibility resolve's full-screen triangle draws (a blade strip: its first three indices are
+            // 0, 1, 2). Without a resident strip no mesh section leaves the pair: the resolve would draw
+            // the grass mesh's own first triangle, not the screen.
+            Desert::Mesh* resolveMesh = variety.Blade ? nullptr : BladeStrip( 1u );
+            if ( resolveMesh != nullptr && !resolveMesh->GetGeometry().IsResident() )
+                resolveMesh = nullptr;
+            gpu->BinSlots     = 0u;
+            gpu->BinCastSlots = 0u;
+            for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
+            {
+                std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
+                if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
+                    meshRows = gpu->MeshVisibility[s];
+                sections.push_back(
+                     { .Mesh     = mesh,
+                       .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
+                       .Material = variety.Sections[s].Material,
+                       .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
+                       .CastShadows      = variety.Placement.CastDynamicShadow,
+                       .Wind             = variety.Wind,
+                       .Instances        = m_InstancesPool.Buffer(),
+                       .CameraIds        = m_IdsPool.Buffer(),
+                       .BladeShape       = gpu->Shape,
+                       .MeshVisibility   = meshRows,
+                       .ResolveMesh      = resolveMesh,
+                       .Refs             = &gpu->Refs,
+                       .CameraRefs       = &gpu->CameraRefs,
+                       .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
+                       .CascadeIds       = m_IdsPool.Buffer(),
+                       .FullIds          = m_IdsPool.Buffer(),
+                       .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
+                       .CascadeMask      = gpu->CascadeMask,
+                       .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
+                       .CascadeRestShift = gpu->CascadeRestShift,
+                       .Capacity         = gpu->Capacity,
+                       .BucketCapacities = gpu->BucketCapacities,
+                       .Levels           = variety.Blade ? 1u : gpu->Buckets,
+                       .PrepassBuckets   = gpu->PrepassBuckets,
+                       .ShadowLod        = gpu->ShadowLod,
+                       .Key              = gpu->Index * 64u + s,
+                       // The grass stands still but for the wind: a cached cascade keeps its rest pose.
+                       .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
+                            .Generation = gpu->Generation, .Reach = gpu->Reach } } );
+                // RENDER-JOB-CPU-4, GRASS-SHADOW-BINS-1
+                sections.back().DrawBins = { &m_DrawBins[0], &m_DrawBins[1], &m_DrawBins[2] };
+                // The section's slots of one bin list: what AddDrawGather sizes the tables by.
+                const uint32_t binSlots = MeshRenderer::DrawBinSlots( sections.back() );
+                gpu->BinSlots += binSlots;
+                if ( sections.back().CastShadows )
+                    gpu->BinCastSlots += binSlots;
+            }
+            // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
+            // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf
+            // rules for a mesh (RayTracingGather.cpp).
+            if ( variety.Blade && m_BladeRayTracing.IsRequired() )
+            {
+                uint64_t nonOpaque = 0;
+                for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                    if ( MeshRenderer::ShadingOf( section ).Masked )
+                        nonOpaque |= ~section.HiddenSubmeshes;
+                const auto blas = m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh,
+                                                                    gpu->ShapeData, nonOpaque );
+                if ( blas )
+                    for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                        section.BladeGeometry = blas.GetValue();
+                else
+                    LOG_ERROR(
+                         "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
+                         blas.GetError() );
+            }
+            for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                meshes.SubmitGpuInstanced( std::move( section ) );
+            sections.clear();
+        }
+        m_FrameSubmits.clear();
+        // CPU-GRASS-POOL-2: the shared tile buffers, once for every variety: the segments no pool took back this
+        // frame released, the held ones imported (every cull reads them), the tile table written and imported.
+        TrimTileSegments();
+        if ( !m_Frame.empty() && !ImportTileSegments( graph ) )
+        {
+            for ( VarietyGpu* gpu : m_FrameTileFree )
+                gpu->TilePoolMade = false;
+            for ( VarietyGpu* gpu : m_FrameTileBuild )
+                gpu->TilePoolMade = false;
+            m_FrameTileFree.clear();
+            m_FrameTileBuild.clear();
+            m_FrameCull.clear();
+        }
+        // CPU-GRASS-POOL-7: every variety applied - the params, chunks, segment tables and feedback pools, once.
+        if ( const Common::BoolResultStr committed = CommitVarietyPools( graph ); !committed )
+        {
+            LOG_ERROR( "[Grass] the varieties' params, chunks, segment tables or feedback are not in the frame "
+                       "graph; no grass is generated or culled this frame: {}",
+                       committed.GetError() );
+            m_FrameCull.clear();
+            m_FrameTileFree.clear();
+            m_FrameTileBuild.clear();
+            for ( VarietyGpu* gpu : m_Frame )
+                gpu->TilePoolMade = false; // a pool the skipped Init pass was to write is made anew
+        }
+        CommitTileWords( graph ); // a failure is logged and runs no tile pass (both tile lists emptied)
+        CommitTileTable( graph ); // a failure is logged and runs no tile pass (m_FrameTileBuild empty)
         // GRASS-TILE-1: the varieties that built tiles (a turning camera builds none; it only re-culls).
         DrawCounter::RecordGrassGenerated( static_cast<uint32_t>( m_FrameTileBuild.size() ) );
         if ( m_Frame.empty() )
@@ -2118,7 +2810,7 @@ namespace Desert::Graphic::System
         const auto cullRows = static_cast<uint32_t>( m_FrameCull.size() );
         if ( cullRows != 0u )
         {
-            if ( const Common::BoolResultStr table = WriteVarietyTable( graph, volumes ); !table )
+            if ( const Common::BoolResultStr table = WriteVarietyTable( graph, volumes, occlusion ); !table )
             {
                 LOG_ERROR( "[Grass] the variety table was not written; no grass is generated or culled this frame: {}",
                            table.GetError() );
@@ -2138,16 +2830,14 @@ namespace Desert::Graphic::System
             pass.Bindings( m_GenerateLayout.Get( m_Generate->GetSpecification().Shader ),
                            Renderer::GetPipelineRouteFill( *m_Generate ) )
                  .Storage( GrassGenerateShaderParameters::Field, gpu.FieldRef, RDG::Access::StorageRead )
-                 .Storage( GrassGenerateShaderParameters::Params, gpu.ParamsRef, RDG::Access::StorageRead )
-                 .Storage( GrassGenerateShaderParameters::TilePool, gpu.TilePoolRef, RDG::Access::StorageRead )
-                 .Storage( GrassGenerateShaderParameters::TileWords, gpu.TileWordsRef, pool )
-                 .Storage( GrassGenerateShaderParameters::Tiles, gpu.TileTableRef, RDG::Access::StorageRead )
-                 .Storage( GrassGenerateShaderParameters::TileFeedback, gpu.TileFeedbackRef, pool )
-                 .Storage( GrassGenerateShaderParameters::Chunks, gpu.ChunksRef, pool )
+                 .Storage( GrassGenerateShaderParameters::Params, m_ParamsPool.Ref(), RDG::Access::StorageRead )
+                 .Storage( GrassGenerateShaderParameters::TilePool, m_SegmentTablesPool.Ref(),
+                           RDG::Access::StorageRead )
+                 .Storage( GrassGenerateShaderParameters::TileWords, m_TileWordsPool.Ref(), pool )
+                 .Storage( GrassGenerateShaderParameters::Tiles, m_TileTableRef, RDG::Access::StorageRead )
+                 .Storage( GrassGenerateShaderParameters::TileFeedback, m_TileFeedbackRef, pool )
+                 .Storage( GrassGenerateShaderParameters::Chunks, m_ChunksPool.Ref(), pool )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
-            // GRASS-VRAM-BUDGET-1: the builds write the records through the segment table.
-            for ( const RDG::BufferRef& segment : gpu.TileSegmentRefs )
-                pass.Write( segment, RDG::Access::StorageWrite );
         };
         // One dispatch per variety of @p list, with the push and the groups @p shape gives it (no groups: none).
         const auto dispatchTiles = [this]( RDG::PassContext& context, const std::vector<VarietyGpu*>& list,
@@ -2178,15 +2868,17 @@ namespace Desert::Graphic::System
                 if ( gpu.PoolFresh )
                 {
                     const uint32_t threads = std::max( gpu.TilePages, gpu.TileSlots * kGrassTileHeaderWords );
-                    return std::pair{
-                         GrassGeneratePush{ glm::uvec4( kGrassTileModeInit, 0u, gpu.TileSlots, gpu.TilePages ),
-                                            glm::uvec4( gpu.TileRoom, 0u, 0u, 0u ) },
-                         glm::uvec3( ( threads + 63u ) / 64u, 1u, 1u ) };
+                    return std::pair{ GrassGeneratePush{ glm::uvec4( kGrassTileModeInit, gpu.TileTableBase,
+                                                                     gpu.TileSlots, gpu.TilePages ),
+                                                         glm::uvec4( gpu.TileRoom, 0u, 0u, 0u ), TileBase( gpu ),
+                                                         TileRanges( gpu ) },
+                                      glm::uvec3( ( threads + 63u ) / 64u, 1u, 1u ) };
                 }
                 // GRASS-VRAM-BUDGET-1: the Free pass also pushes a grown pool's new pages on the stack.
                 const uint32_t          grown = gpu.TilePages - gpu.TileGrowFrom;
-                const GrassGeneratePush push{ glm::uvec4( kGrassTileModeFree, 1u, gpu.TileFrees, gpu.TilePages ),
-                                              glm::uvec4( gpu.TileRoom, gpu.TileGrowFrom, grown, 0u ) };
+                const GrassGeneratePush push{
+                     glm::uvec4( kGrassTileModeFree, gpu.TileTableBase + 1u, gpu.TileFrees, gpu.TilePages ),
+                     glm::uvec4( gpu.TileRoom, gpu.TileGrowFrom, grown, 0u ), TileBase( gpu ), TileRanges( gpu ) };
                 const uint32_t          threads = std::max( gpu.TileFrees, grown );
                 return std::pair{ push, glm::uvec3( ( threads + 63u ) / 64u, 1u, 1u ) };
             };
@@ -2196,6 +2888,8 @@ namespace Desert::Graphic::System
                  {
                      for ( const VarietyGpu* gpu : m_FrameTileFree )
                          bindGenerate( pass, *gpu );
+                     // GRASS-VRAM-BUDGET-1: the builds write the records through the segment tables.
+                     DeclareTileSegments( pass, RDG::Access::StorageWrite );
                  },
                  [this, dispatchTiles, freeShape]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return dispatchTiles( context, m_FrameTileFree, freeShape ); } );
@@ -2209,9 +2903,10 @@ namespace Desert::Graphic::System
                 const uint32_t tileMode   = mode;
                 const auto     buildShape = [tileMode]( const VarietyGpu& gpu )
                 {
-                    const GrassGeneratePush push{
-                         glm::uvec4( tileMode, 1u + gpu.TileFrees, gpu.TileBuilds, gpu.TilePages ),
-                         glm::uvec4( gpu.TileRoom, 0u, 0u, 0u ) };
+                    const GrassGeneratePush push{ glm::uvec4( tileMode, gpu.TileTableBase + 1u + gpu.TileFrees,
+                                                              gpu.TileBuilds, gpu.TilePages ),
+                                                  glm::uvec4( gpu.TileRoom, 0u, 0u, 0u ), TileBase( gpu ),
+                                                  TileRanges( gpu ) };
                     if ( tileMode == kGrassTileModeAllocate )
                         return std::pair{ push, glm::uvec3( ( gpu.TileBuilds + 63u ) / 64u, 1u, 1u ) };
                     // One thread per cell: a tile's cells in thread groups, one tile per z.
@@ -2224,6 +2919,7 @@ namespace Desert::Graphic::System
                      {
                          for ( const VarietyGpu* gpu : m_FrameTileBuild )
                              bindGenerate( pass, *gpu );
+                         DeclareTileSegments( pass, RDG::Access::StorageWrite );
                      },
                      [this, dispatchTiles, buildShape]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return dispatchTiles( context, m_FrameTileBuild, buildShape ); } );
@@ -2253,15 +2949,19 @@ namespace Desert::Graphic::System
             cull.Hzb.w             = kCullModeCameraCull;
             GrassCullPush finalize = layOut;
             finalize.Hzb.w         = kCullModeCameraFinalize;
+            // GPU-HZB-SPD (UE InstanceCulling on the async pipe): the dispatch, the cull, the finalize and the
+            // gathers below request async compute; the graph forks after the tile builds' last write and joins
+            // before the first pass that reads the lists (CullPassFlags).
+            const RDG::PassFlags cullFlags = CullPassFlags();
             graph.AddPass(
-                 "Grass: Cull Dispatch", RDG::PassFlags::Compute,
+                 "Grass: Cull Dispatch", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageWrite );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
                          // The law's slots restarted (Chunks' header).
-                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );
+                         pass.Write( m_ChunksPool.Ref(), RDG::Access::StorageWrite );
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's counts reset
                      }
                  },
@@ -2269,26 +2969,27 @@ namespace Desert::Graphic::System
                  { return DispatchOneGroup( context, *m_Cull, &layOut, sizeof( layOut ) ); } );
 
             graph.AddPass(
-                 "Grass: Camera Cull", RDG::PassFlags::Compute,
+                 "Grass: Camera Cull", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageRead );
                      pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
+                     // CPU-GRASS-POOL-1: every variety's law slots and candidates, one pool each.
+                     pass.Write( m_LawScalesPool.Ref(), RDG::Access::StorageWrite );
+                     pass.Write( m_CandidatesPool.Ref(), RDG::Access::StorageWrite );
+                     // The view law's records: every held segment, declared once (CPU-GRASS-POOL-2).
+                     DeclareTileSegments( pass, RDG::Access::StorageRead );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
-                         pass.Write( gpu->ChunksRef, RDG::Access::StorageWrite );    // the law words (LawChunk)
-                         pass.Write( gpu->LawScalesRef, RDG::Access::StorageWrite ); // the law's slots
-                         pass.Read( gpu->TilePoolRef, RDG::Access::StorageRead );
-                         for ( const RDG::BufferRef& segment : gpu->TileSegmentRefs )
-                             pass.Read( segment, RDG::Access::StorageRead ); // the view law's records
-                         pass.Read( gpu->ParamsRef, RDG::Access::StorageRead );
+                         pass.Write( m_ChunksPool.Ref(), RDG::Access::StorageWrite ); // the law words (LawChunk)
+                         pass.Read( m_SegmentTablesPool.Ref(), RDG::Access::StorageRead );
+                         pass.Read( m_ParamsPool.Ref(), RDG::Access::StorageRead );
                          pass.Read( gpu->FieldRef, RDG::Access::StorageRead );
                          pass.Write( gpu->Refs.Instances, RDG::Access::StorageWrite ); // the lists' rows
                          pass.Write( gpu->Refs.Ids, RDG::Access::StorageWrite );       // the full list
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
-                         pass.Write( gpu->CandidatesRef, RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Ids, RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
                      }
@@ -2302,7 +3003,7 @@ namespace Desert::Graphic::System
                  } );
 
             graph.AddPass(
-                 "Grass: Camera Cull Finalize", RDG::PassFlags::Compute,
+                 "Grass: Camera Cull Finalize", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      BindCull( pass, hzb, RDG::Access::StorageWrite );
@@ -2310,9 +3011,9 @@ namespace Desert::Graphic::System
                      {
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's records
-                         pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
+                         pass.Write( m_FeedbackPool.Ref(), RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
-                         pass.Read( gpu->ChunksRef, RDG::Access::StorageRead ); // the law's slots handed out
+                         pass.Read( m_ChunksPool.Ref(), RDG::Access::StorageRead ); // the law's slots handed out
                      }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -2335,44 +3036,68 @@ namespace Desert::Graphic::System
                        blades.GetError() );
     }
 
-    Common::BoolResultStr GrassRenderer::WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes )
+    Common::BoolResultStr GrassRenderer::WriteVarietyTable( RDG::Builder& graph, const ViewVolumes& volumes,
+                                                            const GrassOcclusion& occlusion )
     {
+        // CPU-GRASS-POOL-1/8: the candidates and law scales pools were committed once this frame, after every
+        // Allocate of it (CommitListPools), before their addresses go into the rows.
+        const auto split = []( const uint64_t value ) noexcept
+        { return glm::uvec2( static_cast<uint32_t>( value ), static_cast<uint32_t>( value >> 32u ) ); };
         GrassVarietyTableGpu header{};
         std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( header.CameraPlanes ) );
         std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
                    std::begin( header.CascadePlanes ) );
         header.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
-        std::vector<uint8_t> image( sizeof( GrassVarietyTableGpu ) );
+        std::vector<uint8_t>& image = m_TableImage;
+        image.reserve( sizeof( GrassVarietyTableGpu ) + m_FrameCull.size() * sizeof( GrassVarietyRowGpu ) );
+        image.resize( sizeof( GrassVarietyTableGpu ) );
         std::memcpy( image.data(), &header, sizeof( header ) );
         for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull } )
         {
             for ( VarietyGpu* gpu : *list )
             {
                 GrassVarietyRowGpu row{};
-                for ( const auto& [into, buffer] :
-                      { std::pair{ &row.Instances, gpu->Instances.get() }, std::pair{ &row.Args, gpu->Args.get() },
-                        std::pair{ &row.CameraIds, gpu->CameraIds.get() },
-                        std::pair{ &row.CameraArgs, gpu->CameraArgs.get() },
-                        std::pair{ &row.Candidates, gpu->Candidates.get() },
-                        std::pair{ &row.PostArgs, gpu->PostArgs.get() },
-                        std::pair{ &row.Feedback, gpu->Feedback.get() },
-                        std::pair{ &row.CascadeArgs, gpu->CascadeArgs.get() },
-                        std::pair{ &row.CascadeIds, gpu->CascadeIds.get() },
-                        std::pair{ &row.Chunks, gpu->Chunks.get() },
-                        std::pair{ &row.Params, gpu->Params.get() },
-                        std::pair{ &row.Field, gpu->FieldBuffer.get() },
-                        std::pair{ &row.TilePool, gpu->TilePool.get() },
-                        std::pair{ &row.FullIds, gpu->FullIds.get() },
-                        std::pair{ &row.LawScales, gpu->LawScales.get() } } )
+                // CPU-GRASS-POOL-7: the field is the one buffer of its own; params, chunks, segment table and
+                // feedback are the variety's ranges of their pools (CommitVarietyPools).
+                if ( gpu->FieldBuffer == nullptr )
+                    return Common::MakeError( "a variety's field buffer was not made" );
+                if ( const Common::ResultStr<uint64_t> address = gpu->FieldBuffer->GetDeviceAddress(); !address )
+                    return Common::MakeFormattedError( "a variety's field buffer has no device address: {}",
+                                                       address.GetError() );
+                else
+                    row.Field = split( address.GetValue() );
+                if ( gpu->Params.Bytes == 0u || gpu->Chunks.Bytes == 0u || gpu->TilePool.Bytes == 0u ||
+                     gpu->Feedback.Bytes == 0u )
+                    return Common::MakeError( "a variety's params, chunks, table or feedback range is empty" );
+                row.Params       = split( m_ParamsPool.Address( gpu->Params ) );
+                row.Chunks       = split( m_ChunksPool.Address( gpu->Chunks ) );
+                row.TilePool     = split( m_SegmentTablesPool.Address( gpu->TilePool ) );
+                row.Feedback     = split( m_FeedbackPool.Address( gpu->Feedback ) );
+                row.FeedbackMark = gpu->FeedbackMark;
+                // CPU-GRASS-POOL-1: the pooled kinds, at the variety's range of their pool.
+                if ( gpu->Candidates.Bytes == 0u || gpu->LawScales.Bytes == 0u || gpu->Args.Bytes == 0u )
+                    return Common::MakeError( "a variety's pool range was not handed out" );
+                // CPU-GRASS-POOL-5: the rows, ids and records at their ranges; the bases make the ids GrassCull
+                // writes and the records' firstInstance absolute in the pools (GrassVarietyRowGpu).
+                row.Instances      = split( m_InstancesPool.Address( gpu->Instances ) );
+                row.Args           = split( m_ArgsPool.Address( gpu->Args ) );
+                row.CameraIds      = split( m_IdsPool.Address( gpu->CameraIds ) );
+                row.CameraArgs     = split( m_ArgsPool.Address( gpu->CameraArgs ) );
+                row.PostArgs       = split( m_ArgsPool.Address( gpu->PostArgs ) );
+                row.CascadeArgs    = split( m_ArgsPool.Address( gpu->CascadeArgs ) );
+                row.CascadeIds     = split( m_IdsPool.Address( gpu->CascadeIds ) );
+                row.FullIds        = split( m_IdsPool.Address( gpu->FullIds ) );
+                row.InstancesBase  = static_cast<uint32_t>( gpu->Instances.Offset / sizeof( glm::mat4 ) );
+                row.FullIdsBase    = static_cast<uint32_t>( gpu->FullIds.Offset / kGrassIdBytes );
+                row.CameraIdsBase  = static_cast<uint32_t>( gpu->CameraIds.Offset / kGrassIdBytes );
+                row.CascadeIdsBase = static_cast<uint32_t>( gpu->CascadeIds.Offset / kGrassIdBytes );
+                row.Candidates = split( m_CandidatesPool.Address( gpu->Candidates ) );
+                row.LawScales  = split( m_LawScalesPool.Address( gpu->LawScales ) );
+                // A remade pool moved the law's slots (what they held is gone): every chunk is lawed anew.
+                if ( gpu->LawPoolEpoch != m_LawScalesPool.Epoch() )
                 {
-                    if ( buffer == nullptr )
-                        return Common::MakeError( "a variety's buffer was not made" );
-                    const Common::ResultStr<uint64_t> address = buffer->GetDeviceAddress();
-                    if ( !address )
-                        return Common::MakeFormattedError( "a variety's buffer has no device address: {}",
-                                                           address.GetError() );
-                    const uint64_t value = address.GetValue();
-                    *into = glm::uvec2( static_cast<uint32_t>( value ), static_cast<uint32_t>( value >> 32u ) );
+                    gpu->LawPoolEpoch = m_LawScalesPool.Epoch();
+                    ++gpu->LawGeneration;
                 }
                 uint32_t flags = 0u;
                 if ( gpu->Shape )
@@ -2394,8 +3119,9 @@ namespace Desert::Graphic::System
                 // caster boxes are the guard boxes (kCascadeGuardTurn): a still or turning camera culls no cascade.
                 if ( list == &m_FrameCull )
                 {
-                    std::vector<uint32_t> key;
-                    const auto            append = [&key]( const auto& value )
+                    std::vector<uint32_t>& key = m_CascadeKeyScratch;
+                    key.clear();
+                    const auto append = [&key]( const auto& value )
                     {
                         static_assert( sizeof( std::remove_cvref_t<decltype( value )> ) % sizeof( uint32_t ) == 0u );
                         const size_t at = key.size();
@@ -2422,12 +3148,44 @@ namespace Desert::Graphic::System
                     append( row.LawGeneration );
                     if ( key != gpu->CascadeKey )
                     {
-                        gpu->CascadeKey     = std::move( key );
+                        gpu->CascadeKey.swap( key ); // the old key's storage is the next row's scratch
                         gpu->CascadesCulled = false;
                     }
                     if ( gpu->CascadesCulled )
                         row.Info.z |= kRowCascadesHeld;
                     gpu->CascadesCulled = true;
+                    // GPU-GRASS-CULL-1, THE CAMERA'S LISTS FOLLOW CHANGE TOO (UE grass / instanced foliage: a
+                    // cluster's cull results stand until the cluster or the view changes): a frame whose cascades
+                    // hold (the instances, the law, the rows' region 0 unchanged) and whose camera planes, HZB
+                    // matrix and camera buffers equal the frame that last culled the camera holds that frame's
+                    // phase-1 list and candidates - no camera cull runs for the row. Phase 2 still retests the
+                    // held candidates against this frame's HZB, so grass an occluder uncovers is drawn; grass one
+                    // covers is drawn until the view changes (depth-tested, never lost).
+                    CameraCullKey camera{};
+                    std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ),
+                               std::begin( camera.Planes ) );
+                    const bool testsHzb = occlusion.Hzb.IsValid();
+                    if ( testsHzb )
+                    {
+                        camera.HzbViewProjection = occlusion.PrevViewProjection;
+                        camera.Hzb               = glm::uvec4( occlusion.Extent, 1u );
+                    }
+                    camera.CameraIds     = row.CameraIds;
+                    camera.CameraArgs    = row.CameraArgs;
+                    camera.PostArgs      = row.PostArgs;
+                    camera.Candidates    = row.Candidates;
+                    camera.LawScales     = row.LawScales;
+                    camera.CameraIdsBase = row.CameraIdsBase;
+                    camera.InstancesBase = row.InstancesBase;
+                    camera.Builds        = gpu->Builds;
+                    if ( !( camera == gpu->CameraKey ) )
+                    {
+                        gpu->CameraKey    = camera;
+                        gpu->CameraCulled = false;
+                    }
+                    if ( gpu->CameraCulled && ( row.Info.z & kRowCascadesHeld ) != 0u )
+                        row.Info.z |= kRowCameraHeld;
+                    gpu->CameraCulled = true;
                 }
                 const size_t at = image.size();
                 image.resize( at + sizeof( GrassVarietyRowGpu ) );
@@ -2479,12 +3237,14 @@ namespace Desert::Graphic::System
              {
                  BindCull( pass, bound, RDG::Access::StorageRead );
                  pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
-                 for ( const VarietyGpu* gpu : m_FrameCull )
+                 pass.Read( m_CandidatesPool.Ref(),
+                            RDG::Access::StorageRead ); // every variety's (CPU-GRASS-POOL-1)
+                 // Every list's ids and records are ranges of one pool each (CPU-GRASS-POOL-5): the full
+                 // list's counts are read and the camera list's written in the same buffer, one access.
+                 if ( !m_FrameCull.empty() )
                  {
-                     pass.Read( gpu->Refs.Args, RDG::Access::StorageRead );
-                     pass.Read( gpu->CandidatesRef, RDG::Access::StorageRead );
-                     pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
-                     pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
+                     pass.Write( m_IdsPool.Ref(), RDG::Access::StorageWrite );
+                     pass.Write( m_ArgsPool.Ref(), RDG::Access::StorageWrite );
                  }
              },
              [this, post, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -2500,11 +3260,10 @@ namespace Desert::Graphic::System
              [this, bound]( RDG::PassBuilder& pass )
              {
                  BindCull( pass, bound, RDG::Access::StorageRead );
-                 for ( const VarietyGpu* gpu : m_FrameCull )
+                 if ( !m_FrameCull.empty() )
                  {
-                     pass.Read( gpu->CameraRefs.Args, RDG::Access::StorageRead );
-                     pass.Write( gpu->PostRefs.Args, RDG::Access::StorageWrite );
-                     pass.Write( gpu->FeedbackRef, RDG::Access::StorageWrite );
+                     pass.Write( m_ArgsPool.Ref(), RDG::Access::StorageWrite ); // camera -> post records
+                     pass.Write( m_FeedbackPool.Ref(), RDG::Access::StorageWrite );
                  }
              },
              [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -2523,12 +3282,21 @@ namespace Desert::Graphic::System
             m_DrawBins[1].Open = false; // a frame without the post-occlusion gather draws its phase per variety
         if ( m_DrawCompact == nullptr || m_FrameCull.empty() )
             return BOOLSUCCESS;
-        uint32_t levels = 0u;
+        // THE TABLE FROM WHAT THE PHASE ADMITS (UE InstanceCulling): each section's slots of one list
+        // (MeshRenderer::DrawBinSlots: a mesh's drawn submeshes x its levels, a blade's strip levels; summed per
+        // variety where its sections are built) x the lists of the phase - what DrawBinsOf reserves by.
+        uint64_t slots = 0u;
         for ( const VarietyGpu* gpu : m_FrameCull )
-            levels += std::max<uint32_t>( gpu->Buckets, 1u );
-        uint32_t need = std::max( kDrawBinMinSlots, levels * kDrawBinSlotsPerLevel );
+        {
+            if ( phase == kGpuDrawBinCascadesPhase )
+                slots += uint64_t{ gpu->BinCastSlots } * MeshRenderer::kDrawBinCascadeLists;
+            else
+                slots += uint64_t{ gpu->BinSlots } * MeshRenderer::kDrawBinCameraLists;
+        }
+        const uint64_t bounded = std::clamp<uint64_t>( slots, kDrawBinMinSlots, kDrawBinMaxEntries );
+        uint32_t       need    = static_cast<uint32_t>( bounded );
         if ( table.Overflow )
-            need = std::max( need, table.SlotCapacity * 2u );
+            need = std::min( std::max( need, table.SlotCapacity * 2u ), kDrawBinMaxEntries );
         table.Overflow = false;
         if ( need > table.SlotCapacity || buffers.Commands == nullptr )
         {
@@ -2570,6 +3338,8 @@ namespace Desert::Graphic::System
         table.Bins  = 0u;
         table.BinReads.clear();
         table.BinReads.reserve( table.BinCapacity );
+        table.Verdicts.clear();
+        table.Reserved = 0u;
         table.Open = true;
 
         // The two runs (Compact.w): the clear of every bin's count, then the gather, its own pass so the graph
@@ -2606,6 +3376,11 @@ namespace Desert::Graphic::System
                     pass.Read( gpu->PostRefs.Args, RDG::Access::StorageRead );
             }
         };
+        // The camera's and cascades' gathers close the camera cull's async segment (CullPassFlags); the
+        // post-occlusion one follows its graphics-queue cull.
+        RDG::PassFlags flags = RDG::PassFlags::Compute;
+        if ( phase != kGpuDrawBinPostPhase )
+            flags = CullPassFlags();
         std::string clearName  = "Grass: Draw Gather Clear";
         std::string gatherName = "Grass: Draw Gather";
         if ( phase == kGpuDrawBinPostPhase )
@@ -2618,7 +3393,7 @@ namespace Desert::Graphic::System
             clearName += " Cascades";
             gatherName += " Cascades";
         }
-        graph.AddPass( clearName, RDG::PassFlags::Compute, declare,
+        graph.AddPass( clearName, flags, declare,
                        [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
                        {
                            GpuDrawBinFrame& bins    = m_DrawBins[phase];
@@ -2640,7 +3415,7 @@ namespace Desert::Graphic::System
                            const uint32_t groups = ( bins.Bins + 63u ) / 64u;
                            return Renderer::DispatchCompute( bindings, *m_DrawCompact, groups, 1, 1 );
                        } );
-        graph.AddPass( gatherName, RDG::PassFlags::Compute, declare,
+        graph.AddPass( gatherName, flags, declare,
                        [this, phase]( RDG::PassContext& context ) -> Common::BoolResultStr
                        {
                            const GpuDrawBinFrame& bins = m_DrawBins[phase];

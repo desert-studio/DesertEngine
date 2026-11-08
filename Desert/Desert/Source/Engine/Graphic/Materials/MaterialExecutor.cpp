@@ -1,8 +1,12 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
@@ -150,6 +154,29 @@ namespace Desert::Graphic
                  std::make_shared<Texture2DProperty>( nullptr, param.DefaultTexture ) );
             m_Texture2DPropertiesLookup[param.Name] = m_Texture2DPropertiesStorage.size() - 1;
         }
+        ResolveSceneBlocks();
+    }
+
+    void MaterialExecutor::ResolveSceneBlocks() noexcept
+    {
+        // The names are the writers' own parameters (SceneLightingBinding, SceneFrameBinding, CloudShadowBinding),
+        // looked up once here instead of once per material per frame.
+        namespace SR = SceneResources;
+        namespace SP = ShaderProtocols;
+        m_SceneBlocks = SceneBlocks{
+             .Camera             = FindUniformBufferProperty( SP::Camera::Parameter.Name ),
+             .Time               = FindUniformBufferProperty( SR::kTimeBlock.Name ),
+             .PointLights        = FindStorageBufferProperty( SP::PointLight::Parameter.Name ),
+             .SpotLights         = FindStorageBufferProperty( SP::SpotLight::Parameter.Name ),
+             .DirectionLights    = FindUniformBufferProperty( SP::DirectionLight::Parameter.Name ),
+             .LightsMetadata     = FindUniformBufferProperty( SP::LightsMetadata::Parameter.Name ),
+             .Shadow             = FindUniformBufferProperty( SR::kShadowBlock.Name ),
+             .SkyLook            = FindUniformBufferProperty( kSkyLookBlock.Name ),
+             .CloudShadow        = FindUniformBufferProperty( SR::kCloudShadowBlock.Name ),
+             .RainOcclusion      = FindUniformBufferProperty( SR::kRainOcclusionBlock.Name ),
+             .GpuScenePrimitives = FindStorageBufferProperty( SR::kGpuScenePrimitives.Name ),
+             .ObjectBones        = FindStorageBufferProperty( SR::kObjectBones.Name ),
+             .WorldParameters    = FindStorageBufferProperty( SR::kWorldParameters.Name ) };
     }
 
     void MaterialExecutor::RouteFillInputs( std::vector<uint8_t>& inputs ) const
@@ -256,6 +283,31 @@ namespace Desert::Graphic
         backend->FlushUpdates();
     }
 
+    std::shared_ptr<const std::vector<Common::AssetHandle>> MaterialExecutor::GetStreamedTextureAssets() const
+    {
+        uint64_t newest = 0;
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+            newest = std::max( newest, prop->GetVersion() );
+        std::lock_guard<std::mutex> lock( m_StreamedTexturesLock );
+        if ( newest == m_StreamedTexturesVersion )
+            return m_StreamedTextures;
+        auto assets = std::make_shared<std::vector<Common::AssetHandle>>();
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+        {
+            const Image2D* image = prop->GetImage();
+            if ( image == nullptr )
+                continue;
+            const Common::AssetHandle asset = image->GetOwningAsset();
+            if ( static_cast<uint64_t>( asset ) != 0 )
+                assets->push_back( asset );
+        }
+        m_StreamedTexturesVersion = newest;
+        m_StreamedTextures.reset();
+        if ( !assets->empty() )
+            m_StreamedTextures = std::move( assets );
+        return m_StreamedTextures;
+    }
+
     uint64_t MaterialExecutor::NewestPropertyWrite() const
     {
         uint64_t newest = 0;
@@ -274,6 +326,22 @@ namespace Desert::Graphic
     {
         if ( !m_MaterialBackend )
             return Common::MakeFormattedError( "material '{}' has no backend", m_DebugName );
+        // CPU-RDG-PREPARE (UE FMaterialRenderProxy::CacheUniformExpressions: rewritten only when invalidated).
+        // A prepare that would write nothing into the ACTIVE (view, frame in flight) sets is skipped: their
+        // revision equals the inputs' (PreparedRevision). Each frame-in-flight copy records its own, so an edit
+        // reaches every slot. Never skipped: pending registered values (the upload would write them), and a cube
+        // property (its image has no resource generation to compare; the producer restates it every frame).
+        const bool skippable = ( m_Owner == nullptr || !m_Owner->HasPendingRegisteredProperties() ) &&
+                               m_TextureCubePropertiesStorage.empty();
+        if ( skippable && m_MaterialBackend->IsPreparedAt( CurrentRevision() ) )
+        {
+            m_MaterialBackend->FlushUpdates(); // as the whole prepare: a later rewrite this frame is swallowed
+            m_PreparedFrame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            m_PreparedVersion = NewestPropertyWrite();
+            NoteRecordable( HasPendingFields() );
+            m_MaterialBackend->NotePreparedSets();
+            return Common::MakeSuccess( true );
+        }
         const Common::BoolResultStr prepared = m_MaterialBackend->PrepareViewResources( *this );
         if ( !prepared )
             return Common::MakeFormattedError( "material '{}': {}", m_DebugName, prepared.GetError() );
@@ -282,19 +350,107 @@ namespace Desert::Graphic
         ApplyForRecording();
         m_PreparedFrame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         m_PreparedVersion = NewestPropertyWrite();
+        // The revision AFTER the apply (its own writes - the registered upload, UpdateFields - included). A field
+        // still pending for this copy (an upload that failed) is owed, so nothing is recorded.
+        const bool fieldsPending = HasPendingFields();
+        if ( skippable && !fieldsPending )
+            m_MaterialBackend->NotePreparedAt( CurrentRevision() );
+        NoteRecordable( fieldsPending );
+        m_MaterialBackend->NotePreparedSets();
         return prepared;
+    }
+
+    bool MaterialExecutor::HasPendingFields() const
+    {
+        return std::any_of( m_UniformBufferPropertiesStorage.begin(), m_UniformBufferPropertiesStorage.end(),
+                            []( const auto& prop ) {
+                                return prop->GetFillKind() == ShaderResources::FillKind::Fields &&
+                                       prop->HasDirtyFields();
+                            } );
+    }
+
+    void MaterialExecutor::NoteRecordable( const bool fieldsPending ) const noexcept
+    {
+        // Every property counts its writes into m_Writes from its first prepare on (they are made in
+        // InitializeProperties; one a subclass adds later is attached here before any check relies on it).
+        const auto attach = [this]( const auto& storage ) noexcept
+        {
+            for ( const auto& prop : storage )
+                if ( prop != nullptr && !prop->AttachWriteSink( m_Writes ) )
+                    m_WritesCounted = false;
+        };
+        attach( m_UniformBufferPropertiesStorage );
+        attach( m_StorageBufferPropertiesStorage );
+        attach( m_Texture2DPropertiesStorage );
+        attach( m_TextureCubePropertiesStorage );
+
+        const uint64_t          frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t          writes = m_Writes->load( std::memory_order_relaxed );
+        std::optional<uint64_t> owner  = uint64_t{ 0 };
+        if ( m_Owner != nullptr )
+            owner = m_Owner->RegisteredWrites();
+        // A new frame, or a write since the frame's last prepare (it may have left an earlier copy behind): the
+        // copies recorded so far are dropped and checked whole.
+        if ( m_RecordableFrame != frame || m_RecordableWrites != writes || m_RecordableOwnerWrites != owner )
+        {
+            m_RecordableFrame       = frame;
+            m_RecordableWrites      = writes;
+            m_RecordableOwnerWrites = owner;
+            m_RecordableCount       = 0;
+        }
+        const bool ownerPending = m_Owner != nullptr && m_Owner->HasPendingRegisteredProperties();
+        if ( fieldsPending || ownerPending || !m_WritesCounted || !owner.has_value() )
+            return;
+        const RecordableCopy copy{ .View = &ViewResourceRegistry::Active(),
+                                   .Slot = EngineContext::GetInstance().GetCurrentFrameIndex() };
+        for ( size_t index = 0; index < m_RecordableCount; ++index )
+            if ( m_RecordableCopies[index].View == copy.View && m_RecordableCopies[index].Slot == copy.Slot )
+                return;
+        if ( m_RecordableCount < m_RecordableCopies.size() )
+            m_RecordableCopies[m_RecordableCount++] = copy; // more copies than that are checked whole
+    }
+
+    bool MaterialExecutor::IsRecordableAsPrepared() const noexcept
+    {
+        if ( m_RecordableCount == 0 ||
+             m_RecordableFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() ||
+             m_Writes->load( std::memory_order_relaxed ) != m_RecordableWrites )
+            return false;
+        if ( m_Owner != nullptr && m_Owner->RegisteredWrites() != m_RecordableOwnerWrites )
+            return false;
+        const ViewResources* view = &ViewResourceRegistry::Active();
+        const uint32_t       slot = EngineContext::GetInstance().GetCurrentFrameIndex();
+        for ( size_t index = 0; index < m_RecordableCount; ++index )
+            if ( m_RecordableCopies[index].View == view && m_RecordableCopies[index].Slot == slot )
+                return true;
+        return false;
+    }
+
+    PreparedRevision MaterialExecutor::CurrentRevision() const
+    {
+        PreparedRevision revision;
+        revision.Properties = NewestPropertyWrite();
+        for ( const auto& prop : m_UniformBufferPropertiesStorage )
+            revision.Properties = std::max( revision.Properties, prop->NewestFieldVersion() );
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+        {
+            if ( const auto* image = prop->GetImage() )
+                revision.Images = std::max( revision.Images, image->GetResourceGeneration() );
+        }
+        revision.Copies = m_MaterialBackend->NewestCopyEpoch( *this );
+        return revision;
     }
 
     Common::BoolResultStr MaterialExecutor::CheckRecordable() const
     {
+        // CPU-BIND-PREPARE: the answer the prepare recorded, while nothing was written since (NoteRecordable).
+        if ( IsRecordableAsPrepared() )
+            return Common::MakeSuccess( true );
         if ( m_PreparedFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
             return Common::MakeFormattedError( "material '{}' was not prepared this frame: the pass that draws it "
                                                "declares it in its setup (PassBuilder::Prepares)",
                                                m_DebugName );
-        const bool fieldsPending = std::any_of(
-             m_UniformBufferPropertiesStorage.begin(), m_UniformBufferPropertiesStorage.end(),
-             []( const auto& prop )
-             { return prop->GetFillKind() == ShaderResources::FillKind::Fields && prop->HasDirtyFields(); } );
+        const bool fieldsPending = HasPendingFields();
         if ( NewestPropertyWrite() > m_PreparedVersion || fieldsPending ||
              ( m_Owner != nullptr && m_Owner->HasPendingRegisteredProperties() ) )
             return Common::MakeFormattedError( "material '{}' was written after its prepare and a recording pass "
@@ -393,5 +549,40 @@ namespace Desert::Graphic
             return m_TextureCubePropertiesStorage[it->second];
         }
         return nullptr;
+    }
+
+    namespace
+    {
+        // One body for the four raw finders: the lookup hashes the view in place (PropertyNameHash) and the
+        // storage keeps the property alive, so the caller holds a plain pointer.
+        template <typename T, typename Lookup, typename Storage>
+        T* FindInLookup( const Lookup& lookup, const Storage& storage, const std::string_view name )
+        {
+            const auto it = lookup.find( name );
+            return it != lookup.end() ? storage[it->second].get() : nullptr;
+        }
+    } // namespace
+
+    UniformBufferProperty* MaterialExecutor::FindUniformBufferProperty( const std::string_view name ) const
+    {
+        return FindInLookup<UniformBufferProperty>( m_UniformBufferPropertiesLookup,
+                                                    m_UniformBufferPropertiesStorage, name );
+    }
+
+    StorageBufferProperty* MaterialExecutor::FindStorageBufferProperty( const std::string_view name ) const
+    {
+        return FindInLookup<StorageBufferProperty>( m_StorageBufferPropertiesLookup,
+                                                    m_StorageBufferPropertiesStorage, name );
+    }
+
+    Texture2DProperty* MaterialExecutor::FindTexture2DProperty( const std::string_view name ) const
+    {
+        return FindInLookup<Texture2DProperty>( m_Texture2DPropertiesLookup, m_Texture2DPropertiesStorage, name );
+    }
+
+    TextureCubeProperty* MaterialExecutor::FindTextureCubeProperty( const std::string_view name ) const
+    {
+        return FindInLookup<TextureCubeProperty>( m_TextureCubePropertiesLookup, m_TextureCubePropertiesStorage,
+                                                  name );
     }
 } // namespace Desert::Graphic

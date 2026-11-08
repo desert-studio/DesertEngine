@@ -41,6 +41,13 @@ namespace Desert::Assets
             return m_Data;
         }
 
+        /// Grows by one on every successful read (a hot reload, a Save's re-read) and on Unload, so a reader that
+        /// caches what it derived from the data (the landscape system's grass draws) knows the layer changed.
+        [[nodiscard]] uint64_t Revision() const
+        {
+            return m_Revision;
+        }
+
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::LandscapeLayerInfo;
@@ -54,5 +61,6 @@ namespace Desert::Assets
         Common::Content::AssetGuid            m_Guid;
         Serialization::LandscapeLayerInfoData m_Data;
         bool                                  m_Ready = false;
+        uint64_t                              m_Revision = 0;
     };
 } // namespace Desert::Assets

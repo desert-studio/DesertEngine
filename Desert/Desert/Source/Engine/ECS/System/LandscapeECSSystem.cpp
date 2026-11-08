@@ -29,8 +29,6 @@
 #include <bit>
 #include <cstring>
 #include <format>
-#include <map>
-#include <tuple>
 #include <optional>
 #include <string>
 #include <vector>
@@ -111,22 +109,13 @@ namespace Desert::ECS
                                      Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                                      const Common::Timestep&               ts )
     {
-        // Pass 1: every drawable tile, by (root, tile x, tile z) — a tile's heightmap carries a ring row from
-        // each loaded neighbour, so it cannot be built before its neighbours are known.
-        struct Drawable
-        {
-            entt::entity             Entity = entt::null;
-            Landscape::LandscapeRoot Root;
-            bool                     Dirty        = false;
-            bool                     WeightsDirty = false;
-            bool                     GrassDirty   = false;
-        };
-        using Coord = std::tuple<uint64_t, int32_t, int32_t>;
-        std::vector<Drawable>   drawables;
-        std::map<Coord, size_t> byCoord;
-
+        // Pass 1: every drawable tile's dirty flags — a tile's heightmap carries a ring row from each loaded
+        // neighbour, so a neighbour's flags must be known before the tile is built. The tiles, their roots
+        // and their neighbours are the shared table's retained rows (UE: the proxy's component list), rebuilt
+        // only on a tile or root change; this frame only takes the dirty rectangles.
         // Unloaded tiles are in neither list (the loader said why; the sweep below frees them).
-        const DrawableLandscape landscape = DrawableLandscapeTiles( registry );
+        const DrawableLandscape& landscape = DrawableLandscapeTiles( registry );
+        m_TileDirty.resize( landscape.Tiles.size() );
         for ( const RefusedLandscapeTile& refused : landscape.Refused )
         {
             if ( !m_Warned.insert( refused.Entity ).second )
@@ -135,60 +124,30 @@ namespace Desert::ECS
             LOG_WARN( "[Landscape] tile ({}, {}) is not drawn: {}", tileComp.TileX, tileComp.TileZ,
                       refused.Reason );
         }
-        for ( const LandscapeTileRef& tile : landscape.Tiles )
+        for ( size_t i = 0; i < landscape.Tiles.size(); ++i )
         {
-            const entt::entity            entity   = tile.Entity;
-            const LandscapeTileComponent& tileComp = *tile.Component;
-            Landscape::LandscapeTileData& heights  = *tile.Component->Heights;
-            m_Warned.erase( entity );
+            Landscape::LandscapeTileData& heights = *landscape.Tiles[i].Component->Heights;
+            m_Warned.erase( landscape.Tiles[i].Entity );
 
             // ALWAYS taken, drawn or hidden: the list is "what the GPU copy does not have yet", and a hidden
             // tile's copy is refreshed like any other so showing it again shows the current heights.
-            Drawable d;
-            d.Entity = entity;
-            d.Root   = tile.Root;
-            d.Dirty  = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
+            TileDirty& dirty = m_TileDirty[i];
+            dirty.Heights    = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
             // Same rule for the weightmap copy: taken always, so a hidden tile shows its current paint.
-            d.WeightsDirty = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Weights ).empty();
-            d.GrassDirty   = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Grass ).empty();
-            byCoord.emplace( Coord{ static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) ), tileComp.TileX,
-                                    tileComp.TileZ },
-                             drawables.size() );
-            drawables.push_back( d );
+            dirty.Weights = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Weights ).empty();
+            dirty.Grass   = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Grass ).empty();
         }
 
-        const auto neighbourAt = [&]( const LandscapeTileComponent& c, int32_t dx, int32_t dz ) -> const Drawable*
-        {
-            const auto it = byCoord.find(
-                 Coord{ static_cast<uint64_t>( Common::UUID( c.Landscape ) ), c.TileX + dx, c.TileZ + dz } );
-            return it == byCoord.end() ? nullptr : &drawables[it->second];
-        };
-
-        // Each root's look, resolved once per frame and shared by all its tiles. The material is a `.demat`
-        // like every other: its values (Tint) arrive as named overrides that TerrainRenderer applies on top
-        // of the shader's schema defaults. A root without a LandscapeMaterial draws with those defaults.
-        struct Surface
-        {
-            // Never null: the root's overrides of this material revision (m_RootOverrides), empty for no material.
-            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
-            // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
-            // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
-            // not reported as unknown.
-            std::vector<Assets::Serialization::LandscapeLayerInfoData> Layers;
-            bool                                                       LayersPending = false;
-            // The root's FIRST layer's colour with a = 1 (UE shows its first layer where nothing is
-            // painted); a = 0 while the root names none or that layer is not loaded: white ground.
-            glm::vec4 Ground = glm::vec4( 0.0f );
-            // That first layer's LayerName: the material input the ground draws with is matched by it.
-            std::string GroundLayer;
-        };
-        std::map<uint64_t, Surface> surfaces;
+        // Each root's look (Surface), filled once per frame on first ask and shared by all its tiles.
+        ++m_Frame;
 
         // The root's overrides, resolved again only when their revision moved (ResolvedOverrides): the handle, the
         // material service's invalidation version, the content registry's write serial.
         auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
         const uint32_t materialVersion =
              materialService != nullptr ? materialService->GetInvalidationVersion() : 0u;
+        const uint32_t valuesSerial =
+             materialService != nullptr ? materialService->GetValuesEditSerial() : 0u;
         const uint64_t contentSerial = Assets::ContentRegistry::WriteSerial();
         const auto     overridesOf   = [&]( const uint64_t                rootKey,
                                         const LandscapeMaterialData* look ) -> std::shared_ptr<const Graphic::MaterialOverrides>
@@ -196,7 +155,8 @@ namespace Desert::ECS
             const uint64_t     raw    = look != nullptr ? static_cast<uint64_t>( look->Material ) : 0u;
             ResolvedOverrides& cached = m_RootOverrides[rootKey];
             if ( cached.Overrides != nullptr && cached.Material == raw && cached.Service == materialService &&
-                 cached.InvalidationVersion == materialVersion && cached.ContentSerial == contentSerial )
+                 cached.InvalidationVersion == materialVersion && cached.ContentSerial == contentSerial &&
+                 cached.ValuesEditSerial == valuesSerial )
                 return cached.Overrides;
             auto resolved = std::make_shared<Graphic::MaterialOverrides>();
             if ( raw != 0u &&
@@ -213,79 +173,89 @@ namespace Desert::ECS
             cached.Service             = materialService;
             cached.InvalidationVersion = materialVersion;
             cached.ContentSerial       = contentSerial;
+            cached.ValuesEditSerial    = valuesSerial;
             cached.Overrides           = std::move( resolved );
             return cached.Overrides;
         };
-        const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
+        const auto surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
         {
-            const auto [it, inserted] = surfaces.try_emplace( static_cast<uint64_t>( rootId ) );
-            if ( !inserted )
-                return it->second;
-            const entt::entity rootEntity = FindLandscapeRootEntity( registry, rootId );
+            Surface& surface = m_Surfaces[static_cast<uint64_t>( rootId )];
+            if ( surface.Frame == m_Frame )
+                return surface;
+            surface.Frame = m_Frame;
+            surface.Layers.clear();
+            surface.LayerSignature = 1469598103934665603ull;
+            surface.LayersPending  = false;
+            surface.Ground         = glm::vec4( 0.0f );
+            surface.GroundLayer.clear();
+            const auto mix = [&]( const uint64_t v )
+            { surface.LayerSignature = ( surface.LayerSignature ^ v ) * 1099511628211ull; };
+            const entt::entity           rootEntity = FindLandscapeRootEntity( registry, rootId );
+            const LandscapeMaterialData* look       = nullptr;
             if ( rootEntity != entt::null && registry.has<LandscapeComponent>( rootEntity ) )
             {
                 // The service logs a failed layer once; a failed layer is simply absent here, and the tile's
-                // channels of it are reported below as layers the landscape does not list.
-                auto& service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                // channels of it are reported below as layers the landscape does not list. Listed by address:
+                // the service holds the data (UE: a proxy's layer infos are object references, never copies).
+                auto&       service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
                 const auto& handles = registry.get<LandscapeComponent>( rootEntity ).Layers;
                 for ( const Assets::AssetHandle& handle : handles )
                 {
-                    if ( const auto* info = service.Get( handle ) )
+                    if ( const auto asset = service.AssetOf( handle ) )
                     {
+                        const Assets::Serialization::LandscapeLayerInfoData& info = asset->GetData();
                         if ( handle == handles.front() )
                         {
-                            it->second.Ground      = glm::vec4( info->LayerUsageDebugColor, 1.0f );
-                            it->second.GroundLayer = info->LayerName;
+                            surface.Ground      = glm::vec4( info.LayerUsageDebugColor, 1.0f );
+                            surface.GroundLayer = info.LayerName;
                         }
-                        it->second.Layers.push_back( *info );
+                        surface.Layers.push_back( &info );
+                        mix( static_cast<uint64_t>( reinterpret_cast<uintptr_t>( &info ) ) );
+                        mix( asset->Revision() );
                     }
                     else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
-                        it->second.LayersPending = true;
+                        surface.LayersPending = true;
                 }
+                // The root's own material component: the root entity is the one carrying its UUID.
+                if ( const auto* material = registry.try_get<LandscapeMaterialComponent>( rootEntity ) )
+                    look = &material->Data;
             }
-            const LandscapeMaterialData* look = nullptr;
-            for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
-            {
-                if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
-                    continue;
-                look = &registry.get<LandscapeMaterialComponent>( entity ).Data;
-                break;
-            }
-            it->second.Overrides = overridesOf( static_cast<uint64_t>( rootId ), look );
-            return it->second;
+            surface.Overrides = overridesOf( static_cast<uint64_t>( rootId ), look );
+            return surface;
         };
 
         // Pass 2: upload what changed, draw what is shown.
-        for ( const Drawable& d : drawables )
+        for ( size_t i = 0; i < landscape.Tiles.size(); ++i )
         {
-            const auto&                         tileComp = registry.get<LandscapeTileComponent>( d.Entity );
+            const LandscapeTileRef&             tile     = landscape.Tiles[i];
+            const TileDirty&                    dirty    = m_TileDirty[i];
+            const LandscapeTileComponent&       tileComp = *tile.Component;
             const Landscape::LandscapeTileData& heights  = *tileComp.Heights;
 
-            const Drawable* west  = neighbourAt( tileComp, -1, 0 );
-            const Drawable* east  = neighbourAt( tileComp, 1, 0 );
-            const Drawable* south = neighbourAt( tileComp, 0, -1 );
-            const Drawable* north = neighbourAt( tileComp, 0, 1 );
-
-            const auto heightsOf = [&]( const Drawable* n ) -> const Landscape::LandscapeTileData*
-            { return ( n != nullptr ) ? &*registry.get<LandscapeTileComponent>( n->Entity ).Heights : nullptr; };
+            const auto heightsOf = [&]( const uint32_t n ) -> const Landscape::LandscapeTileData*
+            {
+                if ( n == NoLandscapeNeighbour )
+                    return nullptr;
+                return &*landscape.Tiles[n].Component->Heights;
+            };
             Landscape::LandscapeTileNeighbours neighbours;
-            neighbours.West     = heightsOf( west );
-            neighbours.East     = heightsOf( east );
-            neighbours.South    = heightsOf( south );
-            neighbours.North    = heightsOf( north );
+            neighbours.West     = heightsOf( tile.West );
+            neighbours.East     = heightsOf( tile.East );
+            neighbours.South    = heightsOf( tile.South );
+            neighbours.North    = heightsOf( tile.North );
             const uint32_t mask = Landscape::LandscapeNeighbourMask( neighbours );
 
             // The ring is a copy of the neighbours' rows, so a neighbour's edit, arrival or departure makes
             // this tile's copy stale as surely as its own edit does.
             bool neighbourDirty = false;
-            for ( const Drawable* n : { west, east, south, north } )
-                neighbourDirty = neighbourDirty || ( ( n != nullptr ) && n->Dirty );
+            for ( const uint32_t n : { tile.West, tile.East, tile.South, tile.North } )
+                neighbourDirty = neighbourDirty || ( n != NoLandscapeNeighbour && m_TileDirty[n].Heights );
 
-            TileGpu& gpu = m_Tiles[d.Entity];
+            TileGpu& gpu = m_Tiles[tile.Entity];
             // In place while the sample count holds (LandscapeTileImage.hpp): the image's address keys the tile's
             // terrain material, so sculpting must not replace it.
             const Graphic::Image2D* previousHeightmap = gpu.Heightmap.get();
-            const bool              heightsDirty      = d.Dirty || neighbourDirty || gpu.NeighbourMask != mask;
+            const bool              heightsDirty = dirty.Heights || neighbourDirty || gpu.NeighbourMask != mask;
             const auto              heightmap         = RefreshLandscapeTileImage(
                  gpu.Heightmap, gpu.SamplesX, gpu.SamplesZ, heights.SamplesX(), heights.SamplesZ(), heightsDirty,
                  [&] { return HeightmapTexels( heights, neighbours ); },
@@ -300,23 +270,23 @@ namespace Desert::ECS
                      "the tile is not drawn",
                      tileComp.TileX, tileComp.TileZ, heights.SamplesX(), heights.SamplesZ(),
                      heightmap.GetError() );
-                m_Tiles.erase( d.Entity );
+                m_Tiles.erase( tile.Entity );
                 continue;
             }
             gpu.NeighbourMask = mask;
             if ( heightsDirty || gpu.Heightmap.get() != previousHeightmap )
                 gpu.HeightRevision = ++m_Revision;
 
-            if ( d.WeightsDirty )
+            if ( dirty.Weights )
             {
-                m_WarnedWeights.erase( d.Entity );
+                m_WarnedWeights.erase( tile.Entity );
             }
-            UpdateWeightmap( gpu, heights, d.Entity, tileComp, d.WeightsDirty );
+            UpdateWeightmap( gpu, heights, tile.Entity, tileComp, dirty.Weights );
 
-            if ( ECS::IsHidden( registry, d.Entity ) )
+            if ( ECS::IsHidden( registry, tile.Entity ) )
                 continue;
 
-            const Landscape::LandscapeRoot&    root = d.Root;
+            const Landscape::LandscapeRoot&    root = tile.Root;
             Graphic::System::LandscapeTileDraw draw;
             draw.OriginX       = root.Origin.x;
             draw.OriginZ       = root.Origin.z;
@@ -329,7 +299,7 @@ namespace Desert::ECS
             draw.MinY = root.Origin.y + Landscape::LandscapeHeightCm( heights.LowestSample(), root.ZScale );
             draw.MaxY = root.Origin.y + Landscape::LandscapeHeightCm( heights.HighestSample(), root.ZScale );
             draw.NeighbourMask = mask;
-            draw.Entity            = static_cast<uint32_t>( d.Entity );
+            draw.Entity        = static_cast<uint32_t>( tile.Entity );
             draw.HeightRevision    = gpu.HeightRevision;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
@@ -343,6 +313,7 @@ namespace Desert::ECS
                 weights.Weightmap       = gpu.Weightmap;
                 weights.Revision        = gpu.WeightRevision;
                 weights.LayerCount = channels.Count;
+                weights.EmptyLayers     = gpu.EmptyLayers;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
                 weights.LayerNames      = channels.Names;
@@ -362,7 +333,7 @@ namespace Desert::ECS
                         }
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
-                     m_WarnedWeights.insert( d.Entity ).second )
+                     m_WarnedWeights.insert( tile.Entity ).second )
                 {
                     // Not dropped silently: the tile keeps the layer's weights (renaming it back on the root
                     // restores it), it is just not drawn while the root does not name it.
@@ -381,18 +352,29 @@ namespace Desert::ECS
         // Pass 3 (GRASS-GPU): every root whose layers grow grass hands the grass renderer its field and varieties.
         m_PrevWindSeconds = m_WindSeconds;
         m_WindSeconds += static_cast<double>( ts.GetSeconds() );
-        std::map<uint64_t, std::vector<GrassTile>>   grassRoots;
-        std::map<uint64_t, Landscape::LandscapeRoot> grassFrames;
-        for ( const Drawable& d : drawables )
+        m_GrassRootOrder.clear();
+        for ( size_t i = 0; i < landscape.Tiles.size(); ++i )
         {
-            const auto& tileComp = registry.get<LandscapeTileComponent>( d.Entity );
-            const auto  rootId   = static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) );
-            grassRoots[rootId].push_back( { &tileComp, d.GrassDirty } );
-            grassFrames[rootId] = d.Root;
+            const LandscapeTileRef&       tile     = landscape.Tiles[i];
+            const LandscapeTileComponent& tileComp = *tile.Component;
+            const auto      rootId   = static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) );
+            GrassRootTiles& group    = m_GrassTiles[rootId];
+            if ( group.Frame != m_Frame )
+            {
+                group.Frame = m_Frame;
+                group.Tiles.clear();
+                m_GrassRootOrder.push_back( rootId );
+            }
+            group.Tiles.push_back( { &tileComp, m_TileDirty[i].Grass } );
+            group.Root = tile.Root;
         }
-        for ( const auto& [rootId, tiles] : grassRoots )
-            EmitGrass( registry, renderCommandBuffer, rootId, grassFrames[rootId],
-                       surfaceOf( Common::UUID( rootId ) ).Layers, tiles );
+        std::sort( m_GrassRootOrder.begin(), m_GrassRootOrder.end() ); // the order the per-frame std::map gave
+        for ( const uint64_t rootId : m_GrassRootOrder )
+        {
+            const GrassRootTiles& group = m_GrassTiles[rootId];
+            EmitGrass( registry, renderCommandBuffer, rootId, group.Root, surfaceOf( Common::UUID( rootId ) ),
+                       group.Tiles );
+        }
 
         // Release: the entity is gone, lost its tile component, or its heights were unloaded.
         for ( auto it = m_Tiles.begin(); it != m_Tiles.end(); )
@@ -429,7 +411,17 @@ namespace Desert::ECS
         if ( weightmap.IsSuccess() )
         {
             if ( weightsDirty || gpu.Weightmap.get() != previousWeightmap )
+            {
                 gpu.WeightRevision = ++m_Revision;
+                // The layer allocation of the pixels just written (LandscapeWeightmapTexels: channel i is layer
+                // i's weights, a channel past the tile's layers zero).
+                const std::vector<Landscape::LandscapeWeightLayer>& layers = heights.WeightLayers();
+                gpu.EmptyLayers                                            = 0u;
+                for ( size_t i = 0; i < Landscape::kLandscapeMaxWeightLayers; ++i )
+                    if ( i >= layers.size() || std::all_of( layers[i].Weights.begin(), layers[i].Weights.end(),
+                                                            []( const uint8_t w ) { return w == 0u; } ) )
+                        gpu.EmptyLayers |= 1u << i;
+            }
             return;
         }
         gpu.Weightmap.reset();
@@ -440,36 +432,19 @@ namespace Desert::ECS
     void LandscapeECSSystem::EmitGrass( entt::registry&                       registry,
                                         Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                                         const uint64_t rootId, const World::Landscape::LandscapeRoot& root,
-                                        const std::vector<Assets::Serialization::LandscapeLayerInfoData>& layers,
-                                        const std::vector<GrassTile>&                                     tiles )
+                                        const Surface& surface, const std::vector<GrassTile>& tiles )
     {
-        std::vector<const Assets::Serialization::LandscapeLayerInfoData*> grassLayers;
-        for ( const auto& layer : layers )
-            if ( !layer.GrassTypes.empty() )
-                grassLayers.push_back( &layer );
-        auto& covers = m_GrassCover[rootId];
-        covers.clear();
+        m_GrassLayers.clear();
+        for ( const auto* layer : surface.Layers )
+            if ( !layer->GrassTypes.empty() )
+                m_GrassLayers.push_back( layer );
+        const auto& grassLayers = m_GrassLayers;
         if ( grassLayers.empty() || tiles.empty() )
-            return;
-
-        // GRASS-FIELD: what each grass layer's varieties add up to as a cover, once the blades are thinned out
-        // with distance - the leaf area they stand for per m2 of ground (a variety's Density per 100 m2 times one
-        // instance's leaf area), and the look of that leaf area from the assets: the blade shape's colours and
-        // its material's tint, subsurface colour and roughness. Weighted by leaf area across the varieties.
-        struct CoverSum
         {
-            float     Lai = 0.0f, ColourLai = 0.0f, Start = 0.0f, End = 0.0f, Roughness = 0.0f, Opacity = 0.0f,
-                      MinWeight = 1.0f;
-            // GRASS-VIS-16: the leaf area of the varieties with a screen-width floor, and its weighted sum of
-            // their mean blade width per MinScreenWidth pixel.
-            float     FloorLai = 0.0f, FloorWidth = 0.0f;
-            // GPU-COST-29: the leaf area of the blade varieties, whose survivors widen (GrassFieldShare.glslh).
-            float     WidenLai = 0.0f;
-            // GRASS-SHADOW-1: the mesh varieties' leaf area-weighted sum of their far LOD radius.
-            float     FarLodRadius = 0.0f;
-            glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
-        };
-        std::vector<CoverSum> coverSums( grassLayers.size() );
+            m_GrassCover[rootId].clear();
+            m_GrassDraws.erase( rootId );
+            return;
+        }
 
         // The field: rebuilt when a tile's heights or weights changed, or the tile set or the grass layers did.
         const uint32_t quads     = root.QuadsPerTile;
@@ -547,277 +522,395 @@ namespace Desert::ECS
             cache.Signature = signature;
         }
 
-        // The varieties: mesh, its sections' own materials (UE: the mesh's materials), placement and wind.
-        auto*                           meshes    = Runtime::ResourceRegistry::GetMeshService();
-        auto*                           materials = Runtime::ResourceRegistry::GetMaterialService();
-        const glm::vec3                 air       = ECS::WindAt( registry, root.Origin ).Velocity;
-        auto*                           types     = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
-        Graphic::System::GrassFieldDraw draw;
-        draw.Root  = rootId;
-        draw.Field = cache.Field;
-        for ( uint32_t k = 0; k < grassLayers.size(); ++k )
-            for ( const Assets::AssetGuidRef& typeRef : grassLayers[k]->GrassTypes )
-            {
-                const auto typeGuid = Common::Content::AssetGuidFromText( typeRef.Guid );
-                if ( !typeGuid )
-                    continue; // the layer info's validation refused it on load
-                const Assets::AssetHandle typeHandle = Common::Content::HandleForGuid( typeGuid.GetValue() );
-                const auto                type       = types->AssetOf( typeHandle );
-                if ( !type )
-                    continue; // still loading, or the service said once why it failed
-                const auto& varieties = type->GetData().GrassVarieties;
-                for ( uint32_t vi = 0; vi < varieties.size(); ++vi )
+        // The varieties (GRASS-EMIT, UE ALandscapeProxy::UpdateGrass): built again only when their key moved - the
+        // root's layers (address + asset Revision), the content registry, a grass type's Revision, the mesh
+        // service's built revision, the material service's invalidation version - or while one was pending.
+        auto*           meshes        = Runtime::ResourceRegistry::GetMeshService();
+        auto*           materials     = Runtime::ResourceRegistry::GetMaterialService();
+        auto*           types         = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
+        GrassDrawCache& draws         = m_GrassDraws[rootId];
+        const uint64_t  contentSerial = Assets::ContentRegistry::WriteSerial();
+        bool            stale         = draws.Generation == 0u || !draws.Complete ||
+                     draws.MeshRevision != meshes->GetBuiltRevision() ||
+                     draws.MaterialVersion != materials->GetInvalidationVersion();
+        if ( !draws.TypesResolved || draws.LayerSignature != surface.LayerSignature ||
+             draws.ContentSerial != contentSerial )
+        {
+            // Each grass layer's types by handle: the GUID text is parsed once per key, not once per frame.
+            draws.Types.clear();
+            for ( uint32_t k = 0; k < grassLayers.size(); ++k )
+                for ( const Assets::AssetGuidRef& typeRef : grassLayers[k]->GrassTypes )
                 {
-                    const auto& v = varieties[vi];
-                    // Stable per (root, layer, type, variety): it seeds the placement, so the same grass grows at
-                    // the same spot every session; the type's revision decides when its derived sections are
-                    // stale.
-                    uint64_t key = 1469598103934665603ull;
-                    for ( const uint64_t part :
-                          { rootId, static_cast<uint64_t>( k ), static_cast<uint64_t>( typeHandle ),
-                            static_cast<uint64_t>( vi ) } )
-                        key = ( key ^ part ) * 1099511628211ull;
-                    GrassSections&              sections = m_GrassSections[key];
-                    const bool                  blade = v.Kind == Assets::Serialization::GrassVarietyKind::Blade;
-                    const Assets::AssetGuidRef& ref   = blade ? *v.Material : *v.Mesh;
-                    const auto                  guid  = Common::Content::AssetGuidFromText( ref.Guid );
-                    if ( !guid )
-                        continue; // the type's validation refused it on load
-                    const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
-                    Desert::Mesh*             mesh   = nullptr;
-                    const Assets::MeshAsset*  asset  = nullptr;
-                    if ( !blade )
+                    const auto typeGuid = Common::Content::AssetGuidFromText( typeRef.Guid );
+                    if ( !typeGuid )
+                        continue; // the layer info's validation refused it on load
+                    const Assets::AssetHandle typeHandle = Common::Content::HandleForGuid( typeGuid.GetValue() );
+                    draws.Types.push_back( { k, static_cast<uint64_t>( typeHandle ), 0u } );
+                }
+            draws.TypesResolved  = true;
+            draws.LayerSignature = surface.LayerSignature;
+            draws.ContentSerial  = contentSerial;
+            stale                = true;
+        }
+        for ( size_t t = 0; t < draws.Types.size() && !stale; ++t )
+        {
+            const auto type = types->AssetOf( Assets::AssetHandle( draws.Types[t].Handle ) );
+            stale           = ( type ? type->Revision() : 0u ) != draws.Types[t].Revision;
+        }
+        if ( stale )
+            BuildGrassVarieties( rootId, draws );
+        if ( draws.Built.Varieties.empty() )
+            return;
+
+        // Each frame: the field (a sculpt rebuilds it, not the varieties) and the wind, nothing else, written into
+        // the ring slot no frame in flight holds (GrassDrawSlot). The slots are made on a root's first frames
+        // and refilled (copy assignment over their storage) only after a build.
+        if ( draws.Ring.empty() )
+            draws.Ring.resize( kGrassDrawRing );
+        const size_t   ringSize = draws.Ring.size();
+        GrassDrawSlot* slot     = nullptr;
+        for ( size_t s = 0; s < ringSize && slot == nullptr; ++s )
+        {
+            GrassDrawSlot& candidate = draws.Ring[( m_Frame + s ) % ringSize];
+            if ( !candidate.Draw || candidate.Draw.use_count() == 1 )
+                slot = &candidate;
+        }
+        if ( slot == nullptr )
+            slot = &draws.Ring.emplace_back(); // every slot is in flight: the pipeline is deeper than the ring
+        if ( !slot->Draw )
+            slot->Draw = std::make_shared<Graphic::System::GrassFieldDraw>();
+        Graphic::System::GrassFieldDraw& draw = *slot->Draw;
+        if ( slot->Generation != draws.Generation )
+        {
+            draw             = draws.Built;
+            slot->Generation = draws.Generation;
+        }
+        if ( draw.Field != cache.Field )
+            draw.Field = cache.Field;
+        const glm::vec3 air = ECS::WindAt( registry, root.Origin ).Velocity;
+        for ( size_t i = 0; i < draw.Varieties.size(); ++i )
+        {
+            const glm::vec3& response = draws.WindResponse[i];
+            draw.Varieties[i].Wind    = Graphic::MakeInstanceWind( response.x, response.y, response.z,
+                                                                   glm::vec2( air.x, air.z ), m_WindSeconds,
+                                                                   m_PrevWindSeconds );
+        }
+        std::shared_ptr<const Graphic::System::GrassFieldDraw> frozen = slot->Draw;
+        renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( frozen ) );
+    }
+
+    void LandscapeECSSystem::BuildGrassVarieties( const uint64_t rootId, GrassDrawCache& cache )
+    {
+        const auto& grassLayers = m_GrassLayers;
+        auto*       meshes      = Runtime::ResourceRegistry::GetMeshService();
+        auto*       materials   = Runtime::ResourceRegistry::GetMaterialService();
+        auto*       types       = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
+
+        // GRASS-FIELD: what each grass layer's varieties add up to as a cover, once the blades are thinned out
+        // with distance - the leaf area they stand for per m2 of ground (a variety's Density per 100 m2 times one
+        // instance's leaf area), and the look of that leaf area from the assets: the blade shape's colours and
+        // its material's tint, subsurface colour and roughness. Weighted by leaf area across the varieties.
+        struct CoverSum
+        {
+            float     Lai = 0.0f, ColourLai = 0.0f, Start = 0.0f, End = 0.0f, Roughness = 0.0f, Opacity = 0.0f,
+                      MinWeight = 1.0f;
+            // GRASS-VIS-16: the leaf area of the varieties with a screen-width floor, and its weighted sum of
+            // their mean blade width per MinScreenWidth pixel.
+            float     FloorLai = 0.0f, FloorWidth = 0.0f;
+            // GPU-COST-29: the leaf area of the blade varieties, whose survivors widen (GrassFieldShare.glslh).
+            float     WidenLai = 0.0f;
+            // GRASS-SHADOW-1: the mesh varieties' leaf area-weighted sum of their far LOD radius.
+            float     FarLodRadius = 0.0f;
+            glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
+        };
+        std::vector<CoverSum> coverSums( grassLayers.size() );
+
+        // Built is never handed to a frame (the ring slots are, EmitGrass): it is refilled in place, and the new
+        // Generation tells each slot to take it before its next frame.
+        Graphic::System::GrassFieldDraw& draw = cache.Built;
+        ++cache.Generation;
+        draw.Root                             = rootId;
+        draw.Field                            = m_Grass[rootId].Field;
+        draw.Varieties.clear();
+        cache.WindResponse.clear();
+        cache.MeshRevision    = meshes->GetBuiltRevision();
+        cache.MaterialVersion = materials->GetInvalidationVersion();
+        bool complete         = true;
+        for ( GrassTypeSlot& slot : cache.Types )
+        {
+            const uint32_t            k = slot.Layer;
+            const Assets::AssetHandle typeHandle( slot.Handle );
+            const auto                type = types->AssetOf( typeHandle );
+            slot.Revision                  = type ? type->Revision() : 0u;
+            if ( !type )
+            {
+                // Pending: asked again next frame. Failed: the service said once why; a later good read gives the
+                // type a Revision, which moves the key.
+                if ( types->StateOf( typeHandle ) == Runtime::LandscapeGrassTypeService::State::Pending )
+                    complete = false;
+                continue;
+            }
+            const auto& varieties = type->GetData().GrassVarieties;
+            for ( uint32_t vi = 0; vi < varieties.size(); ++vi )
+            {
+                const auto& v = varieties[vi];
+                // Stable per (root, layer, type, variety): it seeds the placement, so the same grass grows at
+                // the same spot every session; the type's revision decides when its derived sections are
+                // stale.
+                uint64_t key = 1469598103934665603ull;
+                for ( const uint64_t part :
+                      { rootId, static_cast<uint64_t>( k ), static_cast<uint64_t>( typeHandle ),
+                        static_cast<uint64_t>( vi ) } )
+                    key = ( key ^ part ) * 1099511628211ull;
+                GrassSections&              sections = m_GrassSections[key];
+                const bool                  blade = v.Kind == Assets::Serialization::GrassVarietyKind::Blade;
+                const Assets::AssetGuidRef& ref   = blade ? *v.Material : *v.Mesh;
+                const auto                  guid  = Common::Content::AssetGuidFromText( ref.Guid );
+                if ( !guid )
+                    continue; // the type's validation refused it on load
+                const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
+                Desert::Mesh*             mesh   = nullptr;
+                const Assets::MeshAsset*  asset  = nullptr;
+                if ( !blade )
+                {
+                    mesh  = meshes->Get( handle );
+                    asset = meshes->GetAsset( handle );
+                    if ( mesh == nullptr || asset == nullptr )
                     {
-                        mesh  = meshes->Get( handle );
-                        asset = meshes->GetAsset( handle );
-                        if ( mesh == nullptr || asset == nullptr )
-                            continue; // still loading, or MeshService said why it failed
+                        // Still loading: asked again next frame. Failed (MeshService said why, once) or no row
+                        // names it: not asked again until the content registry or the mesh revision moves the key.
+                        if ( meshes->StateOf( handle ) == Runtime::MeshService::State::Pending )
+                            complete = false;
+                        continue;
                     }
-                    const void* source = blade ? static_cast<const void*>( &ref ) : mesh;
-                    if ( sections.Mesh != source || sections.Version != materials->GetInvalidationVersion() ||
-                         sections.TypeRevision != type->Revision() )
-                    {
-                        sections.Mesh         = source;
-                        sections.Version      = materials->GetInvalidationVersion();
-                        sections.TypeRevision = type->Revision();
-                        sections.Sections.clear();
-                        std::vector<uint64_t> sectionMaterials; // each section's material handle
-                        if ( blade )
-                        {
-                            // The blade's one material, drawn through its template's GrassBlade cells.
-                            if ( auto instance = materials->CreateRuntimeInstance(
-                                      materials->GetAssetHandleByExternal( handle ) ) )
-                            {
-                                sections.Sections.push_back( { std::move( instance ), 0 } );
-                                sectionMaterials.push_back( static_cast<uint64_t>( handle ) );
-                            }
-                            else if ( m_WarnedGrass.insert( ref.Path ).second )
-                                LOG_WARN(
-                                     "[Landscape] grass blade material '{}' does not resolve; the variety does "
-                                     "not grow",
-                                     ref.Path );
-                        }
-                        else
-                        {
-                            const auto&    slots     = asset->GetMaterialHandles();
-                            const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
-                            const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
-                            for ( size_t slot = 0; slot < slots.size(); ++slot )
-                            {
-                                uint64_t hidden = 0;
-                                for ( size_t si = 0; si < submeshes; ++si )
-                                    if ( SectionMaterialSlot( si, slots.size() ) != slot )
-                                        hidden |= 1ull << si;
-                                if ( hidden == all )
-                                    continue;
-                                auto instance = materials->CreateRuntimeInstance(
-                                     materials->GetAssetHandleByExternal( slots[slot] ) );
-                                if ( !instance )
-                                {
-                                    if ( m_WarnedGrass.insert( ref.Path ).second )
-                                        LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not "
-                                                  "resolve; those sections do not grow",
-                                                  ref.Path, slot );
-                                    continue;
-                                }
-                                sections.Sections.push_back( { std::move( instance ), hidden } );
-                                sectionMaterials.push_back( static_cast<uint64_t>( slots[slot] ) );
-                            }
-                        }
-                        // The cover's look, from the same section materials the blades or meshes draw with.
-                        sections.Cover.reset();
-                        if ( const auto manager = materials->LockAssetManager() )
-                        {
-                            std::vector<glm::vec4> rects;
-                            if ( blade )
-                                for ( const auto& c : v.Blade->Cards )
-                                    rects.emplace_back( c[0], c[1], c[2], c[3] );
-                            GrassSections::CoverLook sum;
-                            sum.Coverage = 0.0f;
-                            float count  = 0.0f;
-                            for ( size_t si = 0; si < sections.Sections.size(); ++si )
-                            {
-                                const std::optional<Common::Content::AssetGuid> material =
-                                     Assets::ContentRegistry::GuidForHandle( sectionMaterials[si] );
-                                if ( !material )
-                                    continue;
-                                auto input = Assets::ResolveGrassCoverLookInput( *manager, *material, rects );
-                                if ( input.IsSuccess() && !input.GetValue() )
-                                    continue; // no albedo map: the section has no texture look to carry on
-                                auto look = input.IsSuccess()
-                                                 ? Assets::LoadGrassCoverLook( *input.GetValue() )
-                                                 : Common::MakeError<Assets::GrassCoverLook>( input.GetError() );
-                                if ( !look.IsSuccess() )
-                                {
-                                    if ( m_WarnedGrass.insert( ref.Path + "#cover" ).second )
-                                        LOG_ERROR( "[Landscape] grass '{}': its cover look is not derived ({}); "
-                                                   "the far cover does not carry this variety's colour",
-                                                   ref.Path, look.GetError() );
-                                    continue;
-                                }
-                                // Tinted as the surface tints the map: AlbedoColor, and a blade's clump tint mean.
-                                const auto& m = *sections.Sections[si].Material;
-                                sum.Albedo += look.GetValue().Albedo *
-                                              glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) ) * 0.5f *
-                                              ( glm::vec3( m.GetVec4( "ClumpTintCool", glm::vec4( 1.0f ) ) ) +
-                                                glm::vec3( m.GetVec4( "ClumpTintWarm", glm::vec4( 1.0f ) ) ) );
-                                sum.Subsurface += glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
-                                sum.Roughness += m.GetFloat( "RoughnessFactor", 1.0f );
-                                sum.Opacity += m.GetFloat( "SubsurfaceOpacity", 1.0f );
-                                sum.Coverage += look.GetValue().Coverage;
-                                count += 1.0f;
-                            }
-                            if ( count > 0.0f )
-                                sections.Cover = GrassSections::CoverLook{
-                                     sum.Albedo / count, sum.Subsurface / count, sum.Roughness / count,
-                                     sum.Opacity / count, sum.Coverage / count };
-                        }
-                    }
-                    Graphic::System::GrassVarietyDraw variety;
-                    variety.Key      = key;
-                    variety.Layer    = k;
-                    variety.Mesh     = mesh;
-                    variety.Sections = sections.Sections;
+                }
+                const void* source = blade ? static_cast<const void*>( &ref ) : mesh;
+                if ( sections.Mesh != source || sections.Version != materials->GetInvalidationVersion() ||
+                     sections.TypeRevision != type->Revision() )
+                {
+                    sections.Mesh         = source;
+                    sections.Version      = materials->GetInvalidationVersion();
+                    sections.TypeRevision = type->Revision();
+                    sections.Sections.clear();
+                    std::vector<uint64_t> sectionMaterials; // each section's material handle
                     if ( blade )
                     {
-                        const auto&            b = *v.Blade;
-                        std::vector<glm::vec4> cards;
-                        float                  maxWidth = 0.0f;
-                        for ( const auto& c : b.Cards )
+                        // The blade's one material, drawn through its template's GrassBlade cells.
+                        if ( auto instance = materials->CreateRuntimeInstance(
+                                  materials->GetAssetHandleByExternal( handle ) ) )
                         {
-                            cards.emplace_back( c[0], c[1], c[2], c[3] );
-                            maxWidth = std::max( maxWidth,
-                                                 b.Height * ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f ) );
+                            sections.Sections.push_back( { std::move( instance ), 0 } );
+                            sectionMaterials.push_back( static_cast<uint64_t>( handle ) );
                         }
-                        variety.Blade = Graphic::System::GrassBladeDraw{ .Height          = b.Height,
-                                                                         .Curvature       = b.Curvature,
-                                                                         .CurvatureSpread = b.CurvatureSpread,
-                                                                         .BendSpread      = b.BendSpread,
-                                                                         .Tilt            = b.Tilt,
-                                                                         .FacingJitter    = b.FacingJitter,
-                                                                         .Stiffness       = b.Stiffness,
-                                                                         .Cards           = std::move( cards ),
-                                                                         .MaxWidth        = maxWidth,
-                                                                         .Clumping        = b.Clumping,
-                                                                         .ClumpSize       = b.ClumpSize,
-                                                                         .ClumpPull       = b.ClumpPull,
-                                                                         .Scatter         = b.Scatter,
-                                                                         .Patchiness      = b.Patchiness,
-                                                                         .PatchSize       = b.PatchSize,
-                                                                         .Segments        = b.Segments,
-                                                                         .LodDistance     = b.LodDistance,
-                                                                         .MinScreenWidth  = b.MinScreenWidth };
+                        else if ( m_WarnedGrass.insert( ref.Path ).second )
+                            LOG_WARN(
+                                 "[Landscape] grass blade material '{}' does not resolve; the variety does "
+                                 "not grow",
+                                 ref.Path );
                     }
-                    auto& p                     = variety.Placement;
-                    p.Density                   = v.Density;
-                    p.PlacementJitter           = v.PlacementJitter;
-                    p.StartCullDistance         = v.StartCullDistance;
-                    p.EndCullDistance           = v.EndCullDistance;
-                    p.AllowedDensityRange       = { v.AllowedDensityRange.Min, v.AllowedDensityRange.Max };
-                    p.PatchCoverage             = v.Patches.Coverage;
-                    p.PatchSize                 = v.Patches.Size;
-                    p.PatchSoftness             = v.Patches.Softness;
-                    p.PatchGroup                = v.Patches.Group;
-                    p.Scaling                   = static_cast<uint32_t>( v.Scaling );
-                    p.ScaleX                    = { v.ScaleX.Min, v.ScaleX.Max };
-                    p.ScaleY                    = { v.ScaleY.Min, v.ScaleY.Max };
-                    p.ScaleZ                    = { v.ScaleZ.Min, v.ScaleZ.Max };
-                    p.WeightAttenuatesMaxScale  = v.WeightAttenuatesMaxScale;
-                    p.MaxScaleWeightAttenuation = v.MaxScaleWeightAttenuation;
-                    p.RandomRotation            = v.RandomRotation;
-                    p.AlignToSurface            = v.AlignToSurface;
-                    p.CastDynamicShadow         = v.CastDynamicShadow;
+                    else
                     {
-                        // One instance's leaf area (cm2): a blade's card (its mean card's rectangle), a
-                        // mesh's footprint (a tuft covers the ground under it once), at the variety's mean scale.
-                        // The mean instance's scale by the rule the foliage brush shares (UE GetRandomScale
-                        // at the draws' middle): a locked axis takes its pair's range.
-                        const auto mean = Assets::Serialization::FoliageScaleFromDraws(
-                             Assets::Serialization::ToFoliageScaling( v.Scaling ), v.ScaleX, v.ScaleY, v.ScaleZ,
-                             0.5f, 0.5f, 0.5f );
-                        const float meanX   = mean.X;
-                        const float meanUp  = mean.Z;
-                        float       area    = 0.0f;
-                        float       radius  = 0.0f;
-                        if ( blade )
+                        const auto&    slots     = asset->GetMaterialHandles();
+                        const size_t   submeshes = std::min<size_t>( mesh->GetSubmeshes().size(), 64 );
+                        const uint64_t all       = submeshes >= 64 ? ~0ull : ( 1ull << submeshes ) - 1ull;
+                        for ( size_t slot = 0; slot < slots.size(); ++slot )
                         {
-                            float aspect = 0.0f;
-                            for ( const auto& c : v.Blade->Cards )
-                                aspect += ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f );
-                            aspect /= static_cast<float>( std::max<size_t>( v.Blade->Cards.size(), 1u ) );
-                            // Only the share of the strip its mask keeps is leaf (GrassCoverLook::Coverage, from
-                            // the atlas): the rest is the soil the near field shows between its blades.
-                            const float leaf = sections.Cover ? sections.Cover->Coverage : 1.0f;
-                            area             = v.Blade->Height * v.Blade->Height * aspect * leaf * meanX * meanUp *
-                                   ( 1.0f - 0.5f * v.Blade->Patchiness );
-                        }
-                        else
-                        {
-                            const Common::Math::AABB bounds = Geometry::LocalBounds( mesh->GetSubmeshes() );
-                            area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) * meanX *
-                                   mean.Y;
-                            // The far LOD's measure of the mean instance (GrassGenerate: the radius at scale 1 x
-                            // the largest of its scales).
-                            radius = Graphic::System::GrassFarLodRadius( bounds ) * mean.Largest();
-                        }
-                        // Only the share of the ground its patches hold grows it.
-                        area *= v.Patches.Coverage;
-                        const float lai = std::max( v.Density, 0.0f ) * std::max( area, 0.0f ) * 1.0e-6f;
-                        CoverSum&   sum = coverSums[k];
-                        sum.Lai += lai;
-                        sum.Start += lai * v.StartCullDistance;
-                        sum.End += lai * v.EndCullDistance;
-                        sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
-                        if ( blade )
-                            sum.WidenLai += lai;
-                        else
-                            sum.FarLodRadius += lai * radius;
-                        // The screen-width floor's view-independent half (GrassRenderer measures the same mean
-                        // blade, GrassBladeMeanWidth, and the view's pixels per unit, GrassFloorDistance).
-                        if ( variety.Blade && variety.Blade->MinScreenWidth > 0.0f )
-                            if ( const float width =
-                                      Graphic::System::GrassBladeMeanWidth( *variety.Blade, p.ScaleX );
-                                 width > 0.0f )
+                            uint64_t hidden = 0;
+                            for ( size_t si = 0; si < submeshes; ++si )
+                                if ( SectionMaterialSlot( si, slots.size() ) != slot )
+                                    hidden |= 1ull << si;
+                            if ( hidden == all )
+                                continue;
+                            auto instance = materials->CreateRuntimeInstance(
+                                 materials->GetAssetHandleByExternal( slots[slot] ) );
+                            if ( !instance )
                             {
-                                sum.FloorLai += lai;
-                                sum.FloorWidth += lai * width / variety.Blade->MinScreenWidth;
+                                if ( m_WarnedGrass.insert( ref.Path ).second )
+                                    LOG_WARN( "[Landscape] grass mesh '{}': section material {} does not "
+                                              "resolve; those sections do not grow",
+                                              ref.Path, slot );
+                                continue;
                             }
-                        if ( sections.Cover )
-                        {
-                            // Blades and meshes alike: the look their assets derive (GrassSections::Cover).
-                            sum.ColourLai += lai;
-                            sum.Albedo += lai * sections.Cover->Albedo;
-                            sum.Subsurface += lai * sections.Cover->Subsurface;
-                            sum.Roughness += lai * sections.Cover->Roughness;
-                            sum.Opacity += lai * sections.Cover->Opacity;
+                            sections.Sections.push_back( { std::move( instance ), hidden } );
+                            sectionMaterials.push_back( static_cast<uint64_t>( slots[slot] ) );
                         }
                     }
-                    variety.Wind =
-                         Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
-                                                    glm::vec2( air.x, air.z ), m_WindSeconds, m_PrevWindSeconds );
-                    draw.Varieties.push_back( std::move( variety ) );
+                    // The cover's look, from the same section materials the blades or meshes draw with.
+                    sections.Cover.reset();
+                    if ( const auto manager = materials->LockAssetManager() )
+                    {
+                        std::vector<glm::vec4> rects;
+                        if ( blade )
+                            for ( const auto& c : v.Blade->Cards )
+                                rects.emplace_back( c[0], c[1], c[2], c[3] );
+                        GrassSections::CoverLook sum;
+                        sum.Coverage = 0.0f;
+                        float count  = 0.0f;
+                        for ( size_t si = 0; si < sections.Sections.size(); ++si )
+                        {
+                            const std::optional<Common::Content::AssetGuid> material =
+                                 Assets::ContentRegistry::GuidForHandle( sectionMaterials[si] );
+                            if ( !material )
+                                continue;
+                            auto input = Assets::ResolveGrassCoverLookInput( *manager, *material, rects );
+                            if ( input.IsSuccess() && !input.GetValue() )
+                                continue; // no albedo map: the section has no texture look to carry on
+                            auto look = input.IsSuccess()
+                                             ? Assets::LoadGrassCoverLook( *input.GetValue() )
+                                             : Common::MakeError<Assets::GrassCoverLook>( input.GetError() );
+                            if ( !look.IsSuccess() )
+                            {
+                                if ( m_WarnedGrass.insert( ref.Path + "#cover" ).second )
+                                    LOG_ERROR( "[Landscape] grass '{}': its cover look is not derived ({}); "
+                                               "the far cover does not carry this variety's colour",
+                                               ref.Path, look.GetError() );
+                                continue;
+                            }
+                            // Tinted as the surface tints the map: AlbedoColor, and a blade's clump tint mean.
+                            const auto& m = *sections.Sections[si].Material;
+                            sum.Albedo += look.GetValue().Albedo *
+                                          glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) ) * 0.5f *
+                                          ( glm::vec3( m.GetVec4( "ClumpTintCool", glm::vec4( 1.0f ) ) ) +
+                                            glm::vec3( m.GetVec4( "ClumpTintWarm", glm::vec4( 1.0f ) ) ) );
+                            sum.Subsurface += glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
+                            sum.Roughness += m.GetFloat( "RoughnessFactor", 1.0f );
+                            sum.Opacity += m.GetFloat( "SubsurfaceOpacity", 1.0f );
+                            sum.Coverage += look.GetValue().Coverage;
+                            count += 1.0f;
+                        }
+                        if ( count > 0.0f )
+                            sections.Cover = GrassSections::CoverLook{
+                                 sum.Albedo / count, sum.Subsurface / count, sum.Roughness / count,
+                                 sum.Opacity / count, sum.Coverage / count };
+                    }
                 }
+                Graphic::System::GrassVarietyDraw variety;
+                variety.Key      = key;
+                variety.Layer    = k;
+                variety.Mesh     = mesh;
+                variety.Sections = sections.Sections;
+                if ( blade )
+                {
+                    const auto&            b = *v.Blade;
+                    std::vector<glm::vec4> cards;
+                    float                  maxWidth = 0.0f;
+                    for ( const auto& c : b.Cards )
+                    {
+                        cards.emplace_back( c[0], c[1], c[2], c[3] );
+                        maxWidth = std::max( maxWidth,
+                                             b.Height * ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f ) );
+                    }
+                    variety.Blade = Graphic::System::GrassBladeDraw{ .Height          = b.Height,
+                                                                     .Curvature       = b.Curvature,
+                                                                     .CurvatureSpread = b.CurvatureSpread,
+                                                                     .BendSpread      = b.BendSpread,
+                                                                     .Tilt            = b.Tilt,
+                                                                     .FacingJitter    = b.FacingJitter,
+                                                                     .Stiffness       = b.Stiffness,
+                                                                     .Cards           = std::move( cards ),
+                                                                     .MaxWidth        = maxWidth,
+                                                                     .Clumping        = b.Clumping,
+                                                                     .ClumpSize       = b.ClumpSize,
+                                                                     .ClumpPull       = b.ClumpPull,
+                                                                     .Scatter         = b.Scatter,
+                                                                     .Patchiness      = b.Patchiness,
+                                                                     .PatchSize       = b.PatchSize,
+                                                                     .Segments        = b.Segments,
+                                                                     .LodDistance     = b.LodDistance,
+                                                                     .MinScreenWidth  = b.MinScreenWidth };
+                }
+                auto& p                     = variety.Placement;
+                p.Density                   = v.Density;
+                p.PlacementJitter           = v.PlacementJitter;
+                p.StartCullDistance         = v.StartCullDistance;
+                p.EndCullDistance           = v.EndCullDistance;
+                p.AllowedDensityRange       = { v.AllowedDensityRange.Min, v.AllowedDensityRange.Max };
+                p.PatchCoverage             = v.Patches.Coverage;
+                p.PatchSize                 = v.Patches.Size;
+                p.PatchSoftness             = v.Patches.Softness;
+                p.PatchGroup                = v.Patches.Group;
+                p.Scaling                   = static_cast<uint32_t>( v.Scaling );
+                p.ScaleX                    = { v.ScaleX.Min, v.ScaleX.Max };
+                p.ScaleY                    = { v.ScaleY.Min, v.ScaleY.Max };
+                p.ScaleZ                    = { v.ScaleZ.Min, v.ScaleZ.Max };
+                p.WeightAttenuatesMaxScale  = v.WeightAttenuatesMaxScale;
+                p.MaxScaleWeightAttenuation = v.MaxScaleWeightAttenuation;
+                p.RandomRotation            = v.RandomRotation;
+                p.AlignToSurface            = v.AlignToSurface;
+                p.CastDynamicShadow         = v.CastDynamicShadow;
+                {
+                    // One instance's leaf area (cm2): a blade's card (its mean card's rectangle), a
+                    // mesh's footprint (a tuft covers the ground under it once), at the variety's mean scale.
+                    // The mean instance's scale by the rule the foliage brush shares (UE GetRandomScale
+                    // at the draws' middle): a locked axis takes its pair's range.
+                    const auto mean = Assets::Serialization::FoliageScaleFromDraws(
+                         Assets::Serialization::ToFoliageScaling( v.Scaling ), v.ScaleX, v.ScaleY, v.ScaleZ, 0.5f,
+                         0.5f, 0.5f );
+                    const float meanX  = mean.X;
+                    const float meanUp = mean.Z;
+                    float       area   = 0.0f;
+                    float       radius = 0.0f;
+                    if ( blade )
+                    {
+                        float aspect = 0.0f;
+                        for ( const auto& c : v.Blade->Cards )
+                            aspect += ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f );
+                        aspect /= static_cast<float>( std::max<size_t>( v.Blade->Cards.size(), 1u ) );
+                        // Only the share of the strip its mask keeps is leaf (GrassCoverLook::Coverage, from
+                        // the atlas): the rest is the soil the near field shows between its blades.
+                        const float leaf = sections.Cover ? sections.Cover->Coverage : 1.0f;
+                        area             = v.Blade->Height * v.Blade->Height * aspect * leaf * meanX * meanUp *
+                               ( 1.0f - 0.5f * v.Blade->Patchiness );
+                    }
+                    else
+                    {
+                        const Common::Math::AABB bounds = Geometry::LocalBounds( mesh->GetSubmeshes() );
+                        area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) * meanX * mean.Y;
+                        // The far LOD's measure of the mean instance (GrassGenerate: the radius at scale 1 x
+                        // the largest of its scales).
+                        radius = Graphic::System::GrassFarLodRadius( bounds ) * mean.Largest();
+                    }
+                    // Only the share of the ground its patches hold grows it.
+                    area *= v.Patches.Coverage;
+                    const float lai = std::max( v.Density, 0.0f ) * std::max( area, 0.0f ) * 1.0e-6f;
+                    CoverSum&   sum = coverSums[k];
+                    sum.Lai += lai;
+                    sum.Start += lai * v.StartCullDistance;
+                    sum.End += lai * v.EndCullDistance;
+                    sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
+                    if ( blade )
+                        sum.WidenLai += lai;
+                    else
+                        sum.FarLodRadius += lai * radius;
+                    // The screen-width floor's view-independent half (GrassRenderer measures the same mean
+                    // blade, GrassBladeMeanWidth, and the view's pixels per unit, GrassFloorDistance).
+                    if ( variety.Blade && variety.Blade->MinScreenWidth > 0.0f )
+                        if ( const float width =
+                                  Graphic::System::GrassBladeMeanWidth( *variety.Blade, p.ScaleX );
+                             width > 0.0f )
+                        {
+                            sum.FloorLai += lai;
+                            sum.FloorWidth += lai * width / variety.Blade->MinScreenWidth;
+                        }
+                    if ( sections.Cover )
+                    {
+                        // Blades and meshes alike: the look their assets derive (GrassSections::Cover).
+                        sum.ColourLai += lai;
+                        sum.Albedo += lai * sections.Cover->Albedo;
+                        sum.Subsurface += lai * sections.Cover->Subsurface;
+                        sum.Roughness += lai * sections.Cover->Roughness;
+                        sum.Opacity += lai * sections.Cover->Opacity;
+                    }
+                }
+                // The wind is the frame's (EmitGrass): the variety keeps its response to it.
+                draw.Varieties.push_back( std::move( variety ) );
+                cache.WindResponse.emplace_back( v.Wind.Strength, v.Wind.Speed, v.Wind.Height );
             }
+        }
+        cache.Complete = complete;
+
+        auto& covers = m_GrassCover[rootId];
+        covers.clear();
         for ( size_t k = 0; k < grassLayers.size(); ++k )
         {
             const CoverSum& sum = coverSums[k];
@@ -834,7 +927,5 @@ namespace Desert::ECS
             c.WidenShare        = sum.WidenLai / sum.Lai;
             c.FarLodRadius      = sum.Lai > sum.WidenLai ? sum.FarLodRadius / ( sum.Lai - sum.WidenLai ) : 0.0f;
         }
-        if ( !draw.Varieties.empty() )
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );
     }
 } // namespace Desert::ECS

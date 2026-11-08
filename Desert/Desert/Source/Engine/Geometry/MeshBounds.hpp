@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Common/Core/Math/Simd.hpp>
 
 #include <Engine/Geometry/MeshTypes.hpp>
 
@@ -52,16 +53,39 @@ namespace Desert::Geometry
             return local;
         }
 
-        Common::Math::AABB out{ glm::vec3( kNoBoundsSentinel ), glm::vec3( -kNoBoundsSentinel ) };
+        // THE EIGHT CORNERS IN FOUR-LANE REGISTERS (Common/Core/Math/Simd.hpp; UE FBox::TransformBy's
+        // VectorRegister form), bit for bit the plain loop it replaced: corner k (bit 0 = x, bit 1 = y, bit 2 = z
+        // at Max) through glm's mat4 * vec4, ((c0 * x + c1 * y) + (c2 * z + c3 * 1)) per lane - the product c3 * 1
+        // is c3 exactly - and folded into the box in corner order with glm::min / glm::max's operand order
+        // (Simd::Min( corner, acc ) == glm::min( acc, corner )), so NaN and signed-zero ties land as before. The
+        // per-axis products and the x + y sums are shared by the corners that use them instead of recomputed: the
+        // same operations on the same values. Lane 3 (w) is computed and ignored. Not Arvo's min/max of the
+        // products: that sums in another order and starts from no sentinel, so it is not this function's box.
+        namespace S          = Common::Math::Simd;
+        const float*    m    = &transform[0][0];
+        const S::Float4 c0   = S::Load4( m );
+        const S::Float4 c1   = S::Load4( m + 4 );
+        const S::Float4 c2   = S::Load4( m + 8 );
+        const S::Float4 c3   = S::Load4( m + 12 );
+        const S::Float4 x[2] = { S::Mul( c0, S::Splat( local.Min.x ) ), S::Mul( c0, S::Splat( local.Max.x ) ) };
+        const S::Float4 y[2] = { S::Mul( c1, S::Splat( local.Min.y ) ), S::Mul( c1, S::Splat( local.Max.y ) ) };
+        const S::Float4 z[2] = { S::Add( S::Mul( c2, S::Splat( local.Min.z ) ), c3 ),
+                                 S::Add( S::Mul( c2, S::Splat( local.Max.z ) ), c3 ) };
+        const S::Float4 xy[4] = { S::Add( x[0], y[0] ), S::Add( x[1], y[0] ), S::Add( x[0], y[1] ),
+                                  S::Add( x[1], y[1] ) };
+        S::Float4       lo    = S::Splat( kNoBoundsSentinel );
+        S::Float4       hi    = S::Splat( -kNoBoundsSentinel );
         for ( int corner = 0; corner < 8; ++corner )
         {
-            const glm::vec3 localCorner( ( corner & 1 ) != 0 ? local.Max.x : local.Min.x,
-                                         ( corner & 2 ) != 0 ? local.Max.y : local.Min.y,
-                                         ( corner & 4 ) != 0 ? local.Max.z : local.Min.z );
-            const glm::vec3 worldCorner = glm::vec3( transform * glm::vec4( localCorner, 1.0f ) );
-            out.Min                     = glm::min( out.Min, worldCorner );
-            out.Max                     = glm::max( out.Max, worldCorner );
+            const S::Float4 world = S::Add( xy[corner & 3], z[corner >> 2] );
+            lo                    = S::Min( world, lo );
+            hi                    = S::Max( world, hi );
         }
-        return out;
+        float minLanes[4];
+        float maxLanes[4];
+        S::Store4( minLanes, lo );
+        S::Store4( maxLanes, hi );
+        return Common::Math::AABB{ glm::vec3( minLanes[0], minLanes[1], minLanes[2] ),
+                                   glm::vec3( maxLanes[0], maxLanes[1], maxLanes[2] ) };
     }
 } // namespace Desert::Geometry

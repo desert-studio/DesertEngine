@@ -189,6 +189,27 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "Image2D::RecordSetData not supported by this backend" );
         }
 
+        // ONE STEP OF A RECORDED UPLOAD (Image2DSpecification::Upload = Recorded; CPU-STREAM-UPLOAD-RING, UE
+        // FRHIResourceUpdateBatcher): the copies of the next levels whose bytes fit @p budgetBytes -- one level at
+        // least -- are recorded into @p batch out of the upload-ring slice the creation wrote them to, and the
+        // batch keeps that slice until the GPU has read it. The first step moves the image to a transfer layout;
+        // the step that records the last level moves it to its sampled layout and gives it its bindless slot, and
+        // answers Complete: until then nothing may read the image. A step whose levels were never staged (the ring
+        // was full when the image was made) stages them now, or answers 0 bytes when the ring is still full, to be
+        // retried next frame. Main thread (the frame's upload batch). Refused for an image with nothing left to
+        // record.
+        struct RecordedUploadStep
+        {
+            uint64_t Bytes    = 0;
+            bool     Complete = false;
+        };
+        NO_DISCARD virtual Common::ResultStr<RecordedUploadStep> RecordUploadStep( GpuBatch& /*batch*/,
+                                                                                   uint64_t /*budgetBytes*/ )
+        {
+            return Common::MakeError<RecordedUploadStep>(
+                 "Image2D::RecordUploadStep not supported by this backend" );
+        }
+
         // FILLS A 2D ARRAY (Image2DSpecification::ArrayLayers) FROM 2D IMAGES: layer i is @p sources[i], every
         // mip level, copied on the GPU (block-compressed formats included: a copy needs no blit support). The
         // sources must all be plain 2D images of this array's format and colour space, each holding a level of

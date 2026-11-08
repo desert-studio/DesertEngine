@@ -3,7 +3,8 @@
 #include <Jolt/Jolt.h>
 
 #include <Jolt/Core/Factory.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/FixedSizeFreeList.h>
+#include <Jolt/Core/JobSystemWithBarrier.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -35,8 +36,12 @@
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/RagdollDesc.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -682,6 +687,112 @@ namespace Desert::Physics
                 Contacts.push_back( contact );
             }
         };
+        // JOLT ON THE ENGINE'S JOB POOL (UE: Chaos runs its solver on the task graph, not on threads of its own).
+        // Jolt's sample JobSystemThreadPool was a second pool of hardware_concurrency - 1 threads on the cores
+        // Common::JobSystem's workers already own. JobSystemWithBarrier keeps Jolt's barrier: the thread in
+        // PhysicsSystem::Update waits there and runs every job of its step no worker has taken yet, so a step
+        // completes even with every worker busy (the ParallelRanges argument). A job is a Normal job of the pool:
+        // its caller waits for it this frame, as a parallel loop's caller does (JobPriority).
+        class EngineJobSystem final : public JPH::JobSystemWithBarrier
+        {
+        public:
+            EngineJobSystem( const JPH::uint maxJobs, const JPH::uint maxBarriers )
+                 : JPH::JobSystemWithBarrier( maxBarriers ), m_Pool( Common::JobSystem::Get() )
+            {
+                m_Jobs.Init( maxJobs, maxJobs );
+            }
+
+            // DRAINED BEFORE IT IS GONE (Jolt's JobSystemThreadPool::StopThreads, UE FTaskGraph's shutdown):
+            // intake stops, then the destructor waits for every closure the engine pool still holds. Update's
+            // waiter runs a job no worker took, which leaves that job's closure queued, still to Release it into
+            // m_Jobs, so the step's end is not the closures' end. Each one does end: the pool's workers run every
+            // queued job, at the pool's own shutdown too, and a job the pool refused is never counted.
+            ~EngineJobSystem() noexcept override
+            {
+                std::unique_lock<std::mutex> lock( m_InFlightMutex );
+                m_Closed = true;
+                m_Drained.wait( lock, [this] { return m_InFlight == 0; } );
+            }
+
+            EngineJobSystem( const EngineJobSystem& )            = delete;
+            EngineJobSystem& operator=( const EngineJobSystem& ) = delete;
+
+            int GetMaxConcurrency() const override
+            {
+                return static_cast<int>( m_Pool.WorkerCount() ) + 1; // the workers and the thread in Update
+            }
+
+            JobHandle CreateJob( const char* name, JPH::ColorArg color, const JobFunction& function,
+                                 const JPH::uint32 dependencies ) override
+            {
+                JPH::uint32 index = m_Jobs.ConstructObject( name, color, this, function, dependencies );
+                while ( index == AvailableJobs::cInvalidObjectIndex )
+                {
+                    // cMaxPhysicsJobs in flight, as Jolt's own pool: wait for one to end and try again.
+                    JPH_ASSERT( false, "No jobs available!" );
+                    std::this_thread::sleep_for( std::chrono::microseconds( 100 ) );
+                    index = m_Jobs.ConstructObject( name, color, this, function, dependencies );
+                }
+                Job* const job = &m_Jobs.Get( index );
+                JobHandle  handle( job ); // a reference before the job is queued: it may end at once
+                if ( dependencies == 0 )
+                    QueueJob( job );
+                return handle;
+            }
+
+        protected:
+            void QueueJob( Job* job ) override
+            {
+                {
+                    const std::lock_guard<std::mutex> lock( m_InFlightMutex );
+                    if ( m_Closed )
+                        return; // draining: no intake, the barrier's waiter runs the job itself
+                    ++m_InFlight;
+                }
+                job->AddRef(); // the pool's reference, dropped when the job has run
+                const auto run = [this, job]() noexcept
+                {
+                    job->Execute(); // a job the barrier's waiter already ran returns at once
+                    job->Release();
+                    Landed();
+                };
+                if ( !m_Pool.Submit( run, Common::JobPriority::Normal ) )
+                {
+                    job->Release(); // the pool is shutting down: the barrier's waiter runs the job itself
+                    Landed();
+                }
+            }
+
+            void QueueJobs( Job** jobs, const JPH::uint count ) override
+            {
+                for ( JPH::uint i = 0; i < count; ++i )
+                    QueueJob( jobs[i] );
+            }
+
+            void FreeJob( Job* job ) override
+            {
+                m_Jobs.DestructObject( job );
+            }
+
+        private:
+            using AvailableJobs = JPH::FixedSizeFreeList<Job>;
+
+            // A closure's last touch of this object. The count and the wake share one lock, so the destructor
+            // cannot see zero, return and free the lock between the two (RangeShare::Finish's argument).
+            void Landed() noexcept
+            {
+                const std::lock_guard<std::mutex> lock( m_InFlightMutex );
+                if ( --m_InFlight == 0 )
+                    m_Drained.notify_all();
+            }
+
+            Common::JobSystem&      m_Pool;
+            AvailableJobs           m_Jobs;
+            std::mutex              m_InFlightMutex;
+            std::condition_variable m_Drained;
+            JPH::uint               m_InFlight = 0;     // closures in the pool's queues or running, under the lock
+            bool                    m_Closed   = false; // the destructor runs: QueueJob takes nothing more
+        };
     } // namespace
 
     struct PhysicsWorld::Impl
@@ -694,7 +805,7 @@ namespace Desert::Physics
         JPH::PhysicsSystem                  System;
         CollisionProfiles                          Profiles; // before the filters that read it
         std::unique_ptr<JPH::TempAllocatorImpl>    TempAllocator;
-        std::unique_ptr<JPH::JobSystemThreadPool>  JobSystem;
+        std::unique_ptr<EngineJobSystem>           JobSystem; // destroyed first, by Shutdown (drains its jobs)
         BPLayerInterfaceImpl                BroadPhaseLayerInterface;
         ObjectVsBroadPhaseLayerFilterImpl   ObjectVsBroadPhaseFilter;
         ObjectLayerPairFilterImpl           ObjectLayerPairFilter;
@@ -814,12 +925,15 @@ namespace Desert::Physics
 
         void KeepPoses()
         {
-            JPH::BodyIDVector active;
-            System.GetActiveBodies( JPH::EBodyType::RigidBody, active );
+            // Between Jolt updates on the stepping thread, so the active list is stable: read it in place
+            // rather than copied into a new vector every fixed step.
+            const JPH::BodyID* active = System.GetActiveBodiesUnsafe( JPH::EBodyType::RigidBody );
+            const uint32_t     count  = System.GetNumActiveBodies( JPH::EBodyType::RigidBody );
             PreviousPoses.clear();
-            for ( const JPH::BodyID id : active )
+            for ( uint32_t i = 0; i < count; ++i )
             {
-                JPH::RVec3 position;
+                const JPH::BodyID id = active[i];
+                JPH::RVec3        position;
                 JPH::Quat  rotation{};
                 Bodies->GetPositionAndRotation( id, position, rotation );
                 PreviousPoses[id.GetIndexAndSequenceNumber()] = { ToGlm( position ), ToGlm( rotation ) };
@@ -985,9 +1099,7 @@ namespace Desert::Physics
         m_Impl                = std::make_unique<Impl>( std::move( profiles ) );
         m_Impl->TempAllocator = std::make_unique<JPH::TempAllocatorImpl>( 16 * 1024 * 1024 );
 
-        const int threads = std::max( 1u, std::thread::hardware_concurrency() - 1u );
-        m_Impl->JobSystem =
-             std::make_unique<JPH::JobSystemThreadPool>( JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, threads );
+        m_Impl->JobSystem = std::make_unique<EngineJobSystem>( JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers );
 
         constexpr JPH::uint kMaxBodies            = 65536;
         constexpr JPH::uint kNumBodyMutexes       = 0;
@@ -1027,6 +1139,11 @@ namespace Desert::Physics
     {
         if ( !m_Impl )
             return;
+        // THE JOB SYSTEM GOES FIRST, before the temp allocator, the bodies and the listeners its jobs touch:
+        // ~EngineJobSystem waits for every closure the engine pool still holds, so no job of this world runs
+        // after any part of it is gone. Impl's member order would destroy it after the members declared below
+        // it (the filters, the characters, the ragdolls); the order is said here, once, and not left to that.
+        m_Impl->JobSystem.reset();
         m_Impl.reset();
 
         if ( --s_GlobalRefCount == 0 )
@@ -1642,8 +1759,8 @@ namespace Desert::Physics
         if ( !m_Impl )
             return current;
         const auto previous = m_Impl->PreviousPoses.find( handle );
-        if ( previous == m_Impl->PreviousPoses.end() )
-            return current;
+        if ( previous == m_Impl->PreviousPoses.end() || previous->second.Position == current )
+            return current; // unmoved: exact, so an unchanged pose is no transform write
         return glm::mix( previous->second.Position, current, GetInterpolationAlpha() );
     }
 
@@ -1653,8 +1770,8 @@ namespace Desert::Physics
         if ( !m_Impl )
             return current;
         const auto previous = m_Impl->PreviousPoses.find( handle );
-        if ( previous == m_Impl->PreviousPoses.end() )
-            return current;
+        if ( previous == m_Impl->PreviousPoses.end() || previous->second.Rotation == current )
+            return current; // unmoved: exact, as GetInterpolatedPosition
         return glm::slerp( previous->second.Rotation, current, GetInterpolationAlpha() );
     }
 
@@ -1745,6 +1862,21 @@ namespace Desert::Physics
         if ( !m_Impl || handle == kInvalidBody )
             return false;
         return m_Impl->Bodies->IsActive( JPH::BodyID( handle ) );
+    }
+
+    void PhysicsWorld::CollectMovingBodies( std::vector<BodyHandle>& out ) const
+    {
+        out.clear();
+        if ( !m_Impl )
+            return;
+        // Outside Step (the game thread between frames' steps), so the active list is not being changed.
+        const JPH::BodyID* active = m_Impl->System.GetActiveBodiesUnsafe( JPH::EBodyType::RigidBody );
+        const uint32_t     count  = m_Impl->System.GetNumActiveBodies( JPH::EBodyType::RigidBody );
+        out.reserve( static_cast<size_t>( count ) + m_Impl->PreviousPoses.size() );
+        for ( uint32_t i = 0; i < count; ++i )
+            out.push_back( active[i].GetIndexAndSequenceNumber() );
+        for ( const auto& [handle, pose] : m_Impl->PreviousPoses )
+            out.push_back( handle );
     }
 
     uint32_t PhysicsWorld::GetBodyCount() const
@@ -1858,7 +1990,12 @@ namespace Desert::Physics
         const glm::vec3 current = GetCharacterPosition( handle );
         if ( !m_Impl || handle >= m_Impl->PreviousCharacterPositions.size() || m_Impl->StepCount == 0 )
             return current;
-        return glm::mix( m_Impl->PreviousCharacterPositions[handle], current, GetInterpolationAlpha() );
+        // A character that stood still in the last step answers its position EXACTLY (mix(p, p, a) is not p
+        // to the last bit): an unchanged pose is then no transform write (SetLocalTransform's early-out).
+        const glm::vec3& previous = m_Impl->PreviousCharacterPositions[handle];
+        if ( previous == current )
+            return current;
+        return glm::mix( previous, current, GetInterpolationAlpha() );
     }
 
     bool PhysicsWorld::IsCharacterOnGround( CharacterHandle handle ) const

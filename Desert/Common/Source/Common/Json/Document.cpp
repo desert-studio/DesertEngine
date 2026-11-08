@@ -283,7 +283,7 @@ namespace Common::Json
         return MakeSuccess( UUID( value ) );
     }
 
-    ResultStr<Value> Parse( std::string_view json )
+    ResultStr<Value> Parse( std::string_view json ) noexcept
     {
         // yyjson_read_opts takes a mutable buffer (it writes into it only in insitu mode, which is off here);
         // a private copy gives it one without casting const away from the caller's text.
@@ -293,19 +293,12 @@ namespace Common::Json
         if ( doc == nullptr )
             return MakeError<Value>( std::format( "document: not JSON at byte {}: {}", error.pos,
                                                   error.msg != nullptr ? error.msg : "unknown error" ) );
-        try
-        {
-            auto parsed = rfl::json::read<Value>( rfl::json::InputVarType( yyjson_doc_get_root( doc ) ) );
-            yyjson_doc_free( doc );
-            if ( !parsed )
-                return MakeError<Value>( Detail::DescribeReadError( parsed.error().what() ) );
-            return MakeSuccess( std::move( parsed.value() ) );
-        }
-        catch ( const std::exception& e )
-        {
-            yyjson_doc_free( doc );
-            return MakeError<Value>( Detail::DescribeReadError( e.what() ) );
-        }
+        // No catch: rfl's Parser::read is noexcept and answers with an rfl::Error (Json::Read's comment).
+        auto parsed = rfl::json::read<Value>( rfl::json::InputVarType( yyjson_doc_get_root( doc ) ) );
+        yyjson_doc_free( doc );
+        if ( !parsed )
+            return MakeError<Value>( Detail::DescribeReadError( parsed.error().what() ) );
+        return MakeSuccess( std::move( parsed.value() ) );
     }
 
     bool Same( const Value& a, const Value& b )

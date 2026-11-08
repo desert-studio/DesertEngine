@@ -134,7 +134,8 @@ namespace Desert::Graphic::RayTracing
                                                           const bool                               required,
                                                           std::span<const LandscapeRayTracingTile> tiles )
     {
-        m_Frame = {};
+        m_Frame        = {};
+        m_Frame.Serial = ++m_Serial;
         if ( !required || tiles.empty() )
         {
             m_Tiles.clear();
@@ -176,7 +177,11 @@ namespace Desert::Graphic::RayTracing
             TileState& state = m_Tiles[tile.Entity];
             if ( !state.Target )
                 state.Target = CreateRayTracingDynamicMeshGeometry( "Landscape" );
-            const bool sameBuild = state.Valid && state.Key == key;
+            // The BLAS holds state.Key / Instance only once the graph that built them ended (IsBuilt): a build
+            // still pending (its graph abandoned, or never recorded after an error) is BUILT again and stays in
+            // Changed, never refit from or read as storage no submitted build wrote.
+            const bool committed = state.Valid && state.Target->IsBuilt();
+            const bool sameBuild = committed && state.Key == key;
             const bool sameRow =
                  sameBuild && std::memcmp( &state.Instance, &instance, sizeof( System::TerrainInstance ) ) == 0;
 
@@ -205,9 +210,12 @@ namespace Desert::Graphic::RayTracing
                           : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
                 rows.push_back( instance );
                 work.push_back( std::move( job ) );
+                // Pending: Prepare cleared the target's IsBuilt; it commits these when this graph ends.
                 state.Key      = key;
                 state.Instance = instance;
                 state.Valid    = true;
+                // Its BLAS storage and layout may move: the RT scene encodes this tile's rows again.
+                m_Frame.Changed.push_back( static_cast<uint32_t>( m_Frame.Primitives.size() ) );
                 if ( job.Plan.Update )
                     ++m_Frame.Refit;
                 else
@@ -258,8 +266,8 @@ namespace Desert::Graphic::RayTracing
 
         // ── "Landscape: Ray Tracing Vertices": one binding block and one dispatch per tile that changed
         // ──────────
-        ComputeNodeDeclaration vertices;
-        vertices.Name      = std::string( kLandscapeRayTracingVerticesPass );
+        ComputeNodeDeclaration vertices( graph.GetFrameArena() );
+        vertices.Name      = kLandscapeRayTracingVerticesPass;
         const auto& layout = m_Layout.Get( m_Pipeline->GetSpecification().Shader );
         for ( TileWork& job : work )
         {
@@ -309,7 +317,7 @@ namespace Desert::Graphic::RayTracing
             }
             return BOOLSUCCESS;
         };
-        std::vector<ComputeNodeDeclaration> nodes;
+        ComputeNodeList nodes = MakeComputeNodeList( graph.GetFrameArena() );
         nodes.push_back( std::move( vertices ) );
         if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
             return Common::MakeFormattedError<bool>( "{}: the node could not be declared",

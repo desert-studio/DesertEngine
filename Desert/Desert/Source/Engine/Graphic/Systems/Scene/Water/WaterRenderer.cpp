@@ -9,6 +9,7 @@
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/DrawPushFields.hpp>
@@ -109,25 +110,56 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void WaterRenderer::WarnOnce( const Assets::AssetHandle& material, const std::string& why )
+    bool WaterRenderer::FirstWarning( const Assets::AssetHandle& material, const WaterWarning cause )
     {
-        if ( m_Warned.insert( static_cast<uint64_t>( material ) ).second )
-            LOG_WARN( "[Water] water material {}: {}", static_cast<uint64_t>( material ), why );
+        // One key per (material, cause): the handle spread by the golden ratio, the cause in its low bits. Asked
+        // before the insert, so a cause said already costs a lookup and no node.
+        const uint64_t key =
+             ( static_cast<uint64_t>( material ) * 0x9E3779B97F4A7C15ull ) ^ static_cast<uint64_t>( cause );
+        if ( m_Warned.contains( key ) )
+            return false;
+        m_Warned.insert( key );
+        return true;
     }
 
-    WaterRenderer::WaterProgram* WaterRenderer::ProgramFor( const Assets::AssetHandle& material )
+    void WaterRenderer::WarnOnce( const Assets::AssetHandle& material, const WaterWarning cause,
+                                  const std::string_view why )
     {
+        if ( FirstWarning( material, cause ) )
+            Warn( material, why );
+    }
+
+    void WaterRenderer::Warn( const Assets::AssetHandle& material, const std::string_view why )
+    {
+        LOG_WARN( "[Water] water material {}: {}", static_cast<uint64_t>( material ), why );
+    }
+
+    WaterRenderer::WaterProgram* WaterRenderer::ProgramFor( const Assets::AssetHandle& material,
+                                                            const MaterialStamp&       stamp )
+    {
+        // The last answer while the material and every stamp a resolution reads stand: a steady frame walks no
+        // instance chain and copies no template name.
+        if ( m_Resolved.Program != nullptr && m_Resolved.Material == static_cast<uint64_t>( material ) &&
+             m_Resolved.Stamp == stamp )
+            return m_Resolved.Program;
+        m_Resolved      = ResolvedProgram{};
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return nullptr;
         const auto templ = materials->ShaderHandleOf( material );
         if ( static_cast<uint64_t>( templ.Shader ) == 0 || templ.CompileName.empty() )
         {
-            WarnOnce( material, "names no material with a loaded template - the body draws no water" );
+            WarnOnce( material, WaterWarning::NoTemplate,
+                      "names no material with a loaded template - the body draws no water" );
             return nullptr;
         }
         if ( auto it = m_Programs.find( templ.CompileName ); it != m_Programs.end() )
-            return it->second.Pipeline ? &it->second : nullptr;
+        {
+            if ( !it->second.Pipeline )
+                return nullptr; // a refusal, said once when it was built
+            m_Resolved = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &it->second };
+            return &it->second;
+        }
 
         WaterProgram&     program  = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
         const std::string cellName =
@@ -135,7 +167,8 @@ namespace Desert::Graphic::System
         const auto        shader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
         if ( !shader )
         {
-            WarnOnce( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
+            if ( FirstWarning( material, WaterWarning::NoWaterCell ) )
+                Warn( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
                                              "ShadingModel SingleLayerWater with Usage WaterMesh",
                                              templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell ) );
             return nullptr;
@@ -143,11 +176,13 @@ namespace Desert::Graphic::System
 
         if ( auto built = BuildProgram( shader, "WaterSurfacePipeline:" + templ.CompileName, program ); !built )
         {
-            WarnOnce( material,
+            if ( FirstWarning( material, WaterWarning::TemplateDoesNotBuild ) )
+                Warn( material,
                       std::format( "its template '{}' does not build: {}", templ.CompileName, built.GetError() ) );
             return nullptr;
         }
         program.Material = std::make_unique<DataDrivenMaterial>( cellName );
+        m_Resolved       = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &program };
         return &program;
     }
 
@@ -185,7 +220,8 @@ namespace Desert::Graphic::System
              Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shader->GetName(), permutation );
         if ( !acquired )
         {
-            WarnOnce( material,
+            if ( FirstWarning( material, WaterWarning::NoVirtualLocalPermutation ) )
+                Warn( material,
                       std::format( "its cell has no DESERT_LOCAL_SHADOW_VSM permutation ({}) - the water "
                                    "is not drawn under Shadows.Method VirtualMaps",
                                    acquired.GetError() ) );
@@ -196,7 +232,8 @@ namespace Desert::Graphic::System
                   BuildProgram( acquired.GetValue(), "WaterSurfacePipelineVsm:" + shader->GetName(), *twin );
              !built )
         {
-            WarnOnce( material,
+            if ( FirstWarning( material, WaterWarning::VirtualLocalDoesNotBuild ) )
+                Warn( material,
                       std::format( "its DESERT_LOCAL_SHADOW_VSM permutation does not build: {} - the water "
                                    "is not drawn under Shadows.Method VirtualMaps",
                                    built.GetError() ) );
@@ -214,18 +251,28 @@ namespace Desert::Graphic::System
                m_Frame->Pipeline->GetSpecification().Shader->SamplesTexture( textureName );
     }
 
-    void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program )
+    void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                       WaterProgram& program )
     {
         // The body's `.demat` folded over the template's schema into the cell's material row (UE: the material's
-        // uniform expressions), its textures into the bindless slots the row names.
-        DataDrivenMaterial& cell = *program.Material;
-        cell.ApplyDefaults();
-        MaterialOverrides overrides;
-        if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
-            (void)materials->ResolveOverrides( material, overrides );
-        for ( const auto& [name, value] : overrides.Params )
-            (void)cell.SetParam( name, value );
-        for ( const auto& [name, handle] : overrides.Textures )
+        // uniform expressions, cached by the render proxy until the material changes), its textures into the
+        // bindless slots the row names. Re-resolved only when another material is drawn with this program or a
+        // stamp moved; the row is written every frame (each frame and view has its own copy of the block).
+        DataDrivenMaterial& cell   = *program.Material;
+        FoldedValues&       folded = program.Folded;
+        if ( folded.Material != static_cast<uint64_t>( material ) || folded.Stamp != stamp )
+        {
+            folded.Material = static_cast<uint64_t>( material );
+            folded.Stamp    = stamp;
+            folded.Overrides.Params.clear();
+            folded.Overrides.Textures.clear();
+            if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
+                (void)materials->ResolveOverrides( material, folded.Overrides );
+            cell.ApplyDefaults();
+            for ( const auto& [name, value] : folded.Overrides.Params )
+                (void)cell.SetParam( name, value );
+        }
+        for ( const auto& [name, handle] : folded.Overrides.Textures )
         {
             if ( handle == 0 )
                 continue;
@@ -247,6 +294,8 @@ namespace Desert::Graphic::System
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
         m_Frame            = nullptr;
+        if ( m_Queue.empty() )
+            m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
             return;
 
@@ -262,24 +311,33 @@ namespace Desert::Graphic::System
             if ( ground == nullptr )
                 ground = zone.Ground;
         for ( const WaterZoneDraw& zone : m_Queue )
-            for ( size_t b = 0; b < zone.BodyMaterials.size(); ++b )
+            for ( size_t b = 0; b < zone.Bodies->Materials.size(); ++b )
             {
-                const Assets::AssetHandle& body = zone.BodyMaterials[b];
+                const Assets::AssetHandle& body = zone.Bodies->Materials[b];
                 if ( static_cast<uint64_t>( body ) == 0 )
                     continue;
                 if ( static_cast<uint64_t>( material ) == 0 )
                 {
                     material   = body;
-                    wavesAsset = zone.BodyWaves[b];
-                    waveOrigin = zone.BodyWaveOrigins[b];
-                    waveMaskDepth = zone.BodyWaveMaskDepths[b];
+                    wavesAsset = zone.Bodies->Waves[b];
+                    waveOrigin = zone.Bodies->WaveOrigins[b];
+                    waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
                 }
                 else if ( body != material )
-                    WarnOnce( body, "differs from another body's in the same frame - drawn with the first one" );
+                    WarnOnce( body, WaterWarning::MixedMaterials,
+                              "differs from another body's in the same frame - drawn with the first one" );
             }
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
-        WaterProgram* program = ProgramFor( material );
+        MaterialStamp stamp;
+        if ( auto* const materials = Runtime::ResourceRegistry::GetMaterialService() )
+        {
+            stamp.Service             = materials;
+            stamp.InvalidationVersion = materials->GetInvalidationVersion();
+            stamp.ValuesEditSerial    = materials->GetValuesEditSerial();
+        }
+        stamp.ContentSerial   = Assets::ContentRegistry::WriteSerial();
+        WaterProgram* program = ProgramFor( material, stamp );
         // Under Shadows.Method VirtualMaps no atlas is drawn: the cell's virtual-map permutation draws, as every
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
         if ( program != nullptr && m_SceneRenderer->LocalShadowsAreVirtual() )
@@ -301,16 +359,20 @@ namespace Desert::Graphic::System
             if ( service != nullptr )
                 got = service->Get( wavesAsset );
             if ( service == nullptr )
-                WarnOnce( material, "its body's waves cannot be read: no WaterWavesService" );
+                WarnOnce( material, WaterWarning::NoWavesService,
+                          "its body's waves cannot be read: no WaterWavesService" );
             else if ( !got )
-                WarnOnce( material, std::format( "its body's waves are refused: {}", got.GetError() ) );
+            {
+                if ( FirstWarning( material, WaterWarning::WavesRefused ) )
+                    Warn( material, std::format( "its body's waves are refused: {}", got.GetError() ) );
+            }
             else if ( got.GetValue() )
             {
                 const std::vector<Water::GerstnerWave>& set = *got.GetValue();
-                if ( set.size() > kMaxWaves )
-                    WarnOnce( material, std::format( "its body's wave set has {} waves - the water mesh draws the "
-                                                     "first {} (WATER_MAX_WAVES)",
-                                                     set.size(), kMaxWaves ) );
+                if ( set.size() > kMaxWaves && FirstWarning( material, WaterWarning::TooManyWaves ) )
+                    Warn( material, std::format( "its body's wave set has {} waves - the water mesh draws the "
+                                                 "first {} (WATER_MAX_WAVES)",
+                                                 set.size(), kMaxWaves ) );
                 const size_t count = std::min<size_t>( set.size(), kMaxWaves );
                 for ( size_t k = 0; k < count; ++k )
                 {
@@ -332,13 +394,24 @@ namespace Desert::Graphic::System
         const float lensScale = DrawDistanceScale( Geometry::LODView{ .Origin = observer, .Projection = proj } );
 
         // Every zone's tiles in its density order: one instanced draw per run of one grid density (a row carries
-        // its own zone, so a run may span two zones).
-        std::vector<WaterTileRow> rows;
-        for ( const WaterZoneDraw& zone : m_Queue )
+        // its own zone, so a run may span two zones). The rows go straight into the upload, after its waves block
+        // (written last: its WaterInfo lane needs the ground).
+        m_Upload.resize( sizeof( WaterWavesBlock ) );
+        uint32_t rowCount = 0;
+        m_ZoneTrees.resize( m_Queue.size() );
+        for ( size_t z = 0; z < m_Queue.size(); ++z )
         {
-            const Water::WaterQuadTree                  tree( zone.Zone, zone.Bodies );
-            const std::vector<Water::WaterTileInstance> tiles =
-                 tree.Traverse( observer, lensScale, &frustum, verticalExtent );
+            const WaterZoneDraw& zone   = m_Queue[z].get();
+            ZoneTree&            cached = m_ZoneTrees[z];
+            if ( !cached.Tree.has_value() || cached.Bodies != zone.Bodies || cached.Zone != zone.Zone )
+            {
+                cached.Tree.emplace( zone.Zone, zone.Bodies->Footprints );
+                cached.Zone   = zone.Zone;
+                cached.Bodies = zone.Bodies;
+            }
+            const Water::WaterQuadTree&                     tree = *cached.Tree;
+            const std::span<const Water::WaterTileInstance> tiles =
+                 tree.Traverse( observer, lensScale, &frustum, verticalExtent, m_Traversal );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
             for ( const Water::WaterTileInstance& tile : tiles )
@@ -346,9 +419,7 @@ namespace Desert::Graphic::System
                 const uint32_t quads = tree.QuadsPerSide( tile.DensityIndex );
                 if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != quads )
                 {
-                    m_FrameDraws.push_back( { .FirstRow     = static_cast<uint32_t>( rows.size() ),
-                                              .RowCount     = 0,
-                                              .QuadsPerSide = quads } );
+                    m_FrameDraws.push_back( { .FirstRow = rowCount, .RowCount = 0, .QuadsPerSide = quads } );
                 }
                 ++m_FrameDraws.back().RowCount;
 
@@ -357,13 +428,16 @@ namespace Desert::Graphic::System
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
                 row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
-                rows.push_back( row );
+                const size_t at = m_Upload.size();
+                m_Upload.resize( at + sizeof( WaterTileRow ) );
+                std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
+                ++rowCount;
             }
         }
-        if ( rows.empty() )
+        if ( rowCount == 0u )
             return;
 
-        ApplyMaterial( material, *program );
+        ApplyMaterial( material, stamp, *program );
 
         // THE WATER INFO GROUND (UE WaterInfo): re-uploaded only when the collector baked a new one. Over no
         // landscape the texture is one texel of kWaterInfoNoGroundCm - a bottom no wave reaches.
@@ -378,11 +452,8 @@ namespace Desert::Graphic::System
             waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
         {
-            std::vector<std::byte> bytes( sizeof( WaterWavesBlock ) + rows.size() * sizeof( WaterTileRow ) );
-            std::memcpy( bytes.data(), &waves, sizeof( WaterWavesBlock ) );
-            std::memcpy( bytes.data() + sizeof( WaterWavesBlock ), rows.data(),
-                         rows.size() * sizeof( WaterTileRow ) );
-            tiles->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
+            std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
+            tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
         }
         m_Frame = program;
     }
@@ -399,9 +470,10 @@ namespace Desert::Graphic::System
         // RENDER-THREADS M1: the one material RenderManual applies - its view sets and block copies exist before
         // the graph records (after the frame binding above, which writes its blocks).
         pass.Prepares( *m_Frame->Material->GetMaterialExecutor() );
-        const auto layout = m_Layout.Get( m_Frame->Pipeline->GetSpecification().Shader );
-        auto       block  = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
-        BindSceneViewInputs( block, view, *layout );
+        const SlottedLayout& slotted = m_Layout.GetSlotted( m_Frame->Pipeline->GetSpecification().Shader );
+        const auto&          layout  = slotted.Layout;
+        auto block = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
+        BindSceneViewInputs( block, view, slotted.Slots );
         constexpr RDG::TextureParameter kSceneColor{ "SceneColorTexture" };
         constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
         // The WaterInfo ground (UE: the water info texture a view's water pass reads): a pass input like the scene
@@ -427,7 +499,7 @@ namespace Desert::Graphic::System
         const RDG::PassBindings       block( context, context.GetBindingBlock( 0 ) );
         const MaterialExecutor*       executor = material.GetMaterialExecutor();
         const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
-        std::vector<std::byte>        push;
+        std::vector<std::byte>&       push     = m_Push;
         for ( const FrameDraw& draw : m_FrameDraws )
         {
             push.assign( pushed.Size, std::byte{ 0 } );

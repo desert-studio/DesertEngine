@@ -8,11 +8,17 @@
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGScratch.hpp>
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <bit>
+#include <functional>
+#include <iterator>
+#include <memory>
 #include <set>
 #include <tuple>
 
@@ -200,9 +206,9 @@ namespace Desert::Graphic::RDG
         // Merges one resource's per-subresource transitions into rectangles: runs of mips inside a layer,
         // then identical runs on consecutive layers. A bloom chain's "mip i-1 to read, mip i to write"
         // stays two barriers; a cascade map's four layers entering the same state become one.
-        void RdgAppendMergedBarriers( std::vector<RdgRawTransition>& raws, const TextureDesc* desc,
+        void RdgAppendMergedBarriers( ScratchVector<RdgRawTransition>& raws, const TextureDesc* desc,
                                       ResourceKind kind, std::vector<Barrier>& out,
-                                      std::vector<uint32_t>& partners )
+                                      ScratchVector<uint32_t>& partners )
         {
             if ( kind == ResourceKind::Buffer )
             {
@@ -219,7 +225,7 @@ namespace Desert::Graphic::RDG
             const size_t first = out.size();
             // The raw each rectangle was made from: rectangles extend by the FULL transition, so the release
             // and the acquire half of one transfer merge into the same rectangles.
-            std::vector<size_t> sourceOf;
+            ScratchVector<size_t> sourceOf;
             for ( size_t i = 0; i < raws.size(); )
             {
                 const uint32_t layer   = raws[i].Sub / desc->Mips;
@@ -303,6 +309,17 @@ namespace Desert::Graphic::RDG
         void                                FilterStagesPerPipe();
         void                                BuildPipeSegments();
 
+        // RDG-RECORD-COMPILE-CACHE (Builder::CompileThroughCache). The key of @p builder's declaration; the
+        // objects its key hashes by address; a stored plan's per-frame fields rebound to @p builder; the
+        // ExternalQueue points of @p result's segments (BuildPipeSegments, Rebind); a sync's Cause.
+        [[nodiscard]] static uint64_t HashDeclaration( const Builder& builder, const PipeCapabilities& pipes );
+        [[nodiscard]] static std::vector<std::shared_ptr<const void>> PinnedObjects( const Builder& builder );
+        static void Rebind( const Builder& builder, CompileResult& plan );
+        static void AssignExternalPoints( CompileResult& result );
+        // Writes @p sync's Cause in place (a rebound plan reuses the string's storage every frame).
+        static void WriteSyncCause( const std::vector<PassRecord>&     passes,
+                                    const std::vector<ResourceRecord>& resources, CrossPipeSync& sync );
+
         // Set by AddTransfers when a transfer's acquire would record before the join ordering it.
         const std::string& SyncError() const
         {
@@ -318,18 +335,18 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] std::string DescribeSub( uint32_t sub ) const;
         void Fault( uint32_t p, PassFaultStage stage, std::string reason, std::optional<uint32_t> root );
         [[nodiscard]] bool        LoadsAttachment( uint32_t p, uint32_t resource ) const;
-        void                  FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
-                                       std::vector<RdgSubUse>& uses, std::string& error ) const;
-        Common::BoolResultStr CollectAliasCandidates( std::vector<RdgAliasCandidate>& candidates ) const;
-        void                  PlaceAliasCandidates( std::vector<RdgAliasCandidate>& candidates );
+        void FoldUse( const PassRecord& pass, const ResourceUse& use, ScratchVector<int32_t>& slot,
+                      ScratchVector<RdgSubUse>& uses, std::string& error ) const;
+        Common::BoolResultStr     CollectAliasCandidates( ScratchVector<RdgAliasCandidate>& candidates ) const;
+        void                      PlaceAliasCandidates( ScratchVector<RdgAliasCandidate>& candidates );
         [[nodiscard]] bool    IsAliased( uint32_t resource ) const;
         [[nodiscard]] AccessState InitialState( uint32_t resource, uint32_t local ) const;
         void TrackUse( uint32_t position, const RdgSubUse& use, bool sharedRead, bool opensHeldGroup,
                        bool opensAsyncHeldGroup );
         void                      CompilePassOps( uint32_t position );
-        void                      EmitBarriers( std::vector<RdgRawTransition>& list, std::vector<Barrier>& out,
-                                                std::vector<uint32_t>& partners ) const;
-        void AddTransfers( const std::vector<Barrier>& barriers, const std::vector<uint32_t>& partners,
+        void                      EmitBarriers( ScratchVector<RdgRawTransition>& list, std::vector<Barrier>& out,
+                                                ScratchVector<uint32_t>& partners ) const;
+        void AddTransfers( const std::vector<Barrier>& barriers, const ScratchVector<uint32_t>& partners,
                            uint32_t acquirePosition );
 
         const std::vector<PassRecord>&     m_Passes;
@@ -344,69 +361,69 @@ namespace Desert::Graphic::RDG
         uint32_t m_PassCount     = 0;
         uint32_t m_ResourceCount = 0;
         // Global subresource numbering: resource r owns [m_SubBase[r], m_SubBase[r + 1]).
-        std::vector<uint32_t>               m_SubBase;
+        ScratchVector<uint32_t>                 m_SubBase;
         uint32_t                            m_SubCount = 0;
-        std::vector<std::vector<RdgSubUse>> m_PassUses;
+        ScratchVector<ScratchVector<RdgSubUse>> m_PassUses;
 
         // RDG-FAULT1. m_RootOf[p]: the pass faulted pass p's removal starts at (p itself for a root fault), -1
         // while p survives. m_ClearedAttachments: (pass, resource) whose Load from a transient that lost its
         // producer becomes the FaultDefault's clear.
-        std::vector<int32_t>                       m_RootOf;
-        std::vector<std::pair<uint32_t, uint32_t>> m_ClearedAttachments;
+        ScratchVector<int32_t>                       m_RootOf;
+        ScratchVector<std::pair<uint32_t, uint32_t>> m_ClearedAttachments;
 
         CompileResult         m_Result;
-        std::vector<uint32_t> m_Executed;
+        ScratchVector<uint32_t> m_Executed;
         uint32_t              m_ExecutedCount = 0;
 
-        std::vector<Pipe>                  m_PipeAt;
-        std::vector<uint32_t>              m_PositionOf;
+        ScratchVector<Pipe>     m_PipeAt;
+        ScratchVector<uint32_t> m_PositionOf;
         // Positions [0, m_UploadHead) are the queued uploads HoistQueuedUploads moved to the graph head.
         uint32_t                           m_UploadHead = 0;
-        std::vector<RdgAsyncRun>           m_Runs;
-        std::vector<int32_t>               m_RunAt;
+        ScratchVector<RdgAsyncRun>         m_Runs;
+        ScratchVector<int32_t>             m_RunAt;
         // By async position (UE FRDGPass::CrossPipelineConsumer): the earliest graphics position that may not
         // start before the pass at that position completed; kJoinAtGraphEnd: only the graph end needs it.
-        std::vector<uint32_t>              m_ConsumerAt;
+        ScratchVector<uint32_t> m_ConsumerAt;
         // By async position: the resource whose use set m_ConsumerAt there (the join's cause in the log).
-        std::vector<uint32_t> m_ConsumerCause;
+        ScratchVector<uint32_t> m_ConsumerCause;
         // By async position (UE FRDGPass::CrossPipelineProducer): the latest graphics position the pass may not
         // start before (-1: none), whether it consumes an external this graph had not touched, and the resource
         // that set the producer (the fork's cause in the log). CutRunsAtConsumers forks a piece of a run anew
         // where a pass's producer is later than the fork of the passes before it (UE bAsyncComputeBegin).
-        std::vector<int32_t>  m_ForkAt;
-        std::vector<bool>     m_NeedsForkAt;
-        std::vector<uint32_t> m_ForkCause;
+        ScratchVector<int32_t>  m_ForkAt;
+        ScratchVector<bool>     m_NeedsForkAt;
+        ScratchVector<uint32_t> m_ForkCause;
         // A transfer whose acquire would record before the join that orders it (AddTransfers): Compile fails.
         std::string                        m_SyncError;
-        std::vector<std::vector<uint32_t>> m_WaitAt;
-        std::vector<std::vector<uint32_t>> m_SignalAt;
+        ScratchVector<ScratchVector<uint32_t>> m_WaitAt;
+        ScratchVector<ScratchVector<uint32_t>> m_SignalAt;
         // SHARED READ GROUPS (FindAsyncRuns). m_GroupOfUse[position][i]: the read group use i of the pass at
         // that position belongs to, -1 for a use that writes. By group: whether it is shared across the pipes,
         // and the position and pipe of its first use (the one whose barrier opened it).
-        std::vector<std::vector<int32_t>> m_GroupOfUse;
-        std::vector<bool>                 m_GroupShared;
-        std::vector<uint32_t>             m_GroupOpener;
-        std::vector<Pipe>                 m_GroupOpenerPipe;
+        ScratchVector<ScratchVector<int32_t>> m_GroupOfUse;
+        ScratchVector<bool>                   m_GroupShared;
+        ScratchVector<uint32_t>               m_GroupOpener;
+        ScratchVector<Pipe>                   m_GroupOpenerPipe;
         // By group: an AsyncCompute opener with a Graphics reader after it in the group; and HELD - such a shared
         // group over contents Graphics holds, opened on Graphics before the fork (FindAsyncRuns, TrackUse).
-        std::vector<bool> m_GroupGraphicsReader;
-        std::vector<bool> m_GroupHeld;
+        ScratchVector<bool> m_GroupGraphicsReader;
+        ScratchVector<bool> m_GroupHeld;
         // By group: HELD ON ASYNC - such a shared group over contents AsyncCompute holds (an async pass wrote or
         // read them last), opened on AsyncCompute right after that last use; its graphics readers join that use.
-        std::vector<bool> m_GroupHeldOnAsync;
+        ScratchVector<bool> m_GroupHeldOnAsync;
         // By held group: the position of the last use before it (its transition records after it) - on Graphics
         // for a HELD group, on AsyncCompute for one HELD ON ASYNC; -1: an external the graph had not touched (a
         // HELD group's transition records after the run's fork).
-        std::vector<int32_t> m_GroupHeldAfter;
+        ScratchVector<int32_t> m_GroupHeldAfter;
 
-        std::vector<int32_t> m_LifetimeOf;
+        ScratchVector<int32_t> m_LifetimeOf;
 
-        std::vector<RdgSubTrack>                   m_Track;
-        std::vector<std::vector<RdgRawTransition>> m_Raws;
+        ScratchVector<RdgSubTrack>                     m_Track;
+        ScratchVector<ScratchVector<RdgRawTransition>> m_Raws;
         // Ownership releases after each position; [m_ExecutedCount]: the prologue's (amendment B).
-        std::vector<std::vector<RdgRawTransition>> m_EpilogueRaws;
-        std::vector<bool>                          m_WrittenSoFar;
-        std::vector<RdgRawTransition>              m_FinalRaws;
+        ScratchVector<ScratchVector<RdgRawTransition>> m_EpilogueRaws;
+        ScratchVector<bool>                            m_WrittenSoFar;
+        ScratchVector<RdgRawTransition>                m_FinalRaws;
     };
 
     Builder::Compiler::Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
@@ -428,7 +445,7 @@ namespace Desert::Graphic::RDG
                                    std::optional<uint32_t> root )
     {
         m_RootOf[p] = static_cast<int32_t>( root.value_or( p ) );
-        m_Result.Faults.push_back( { p, m_Passes[p].Name, stage, std::move( reason ), root } );
+        m_Result.Faults.push_back( { p, std::string( m_Passes[p].Name ), stage, std::move( reason ), root } );
     }
 
     bool Builder::Compiler::LoadsAttachment( uint32_t p, uint32_t resource ) const
@@ -495,8 +512,8 @@ namespace Desert::Graphic::RDG
     }
 
     // ── 0. Fold each pass's declarations into one use per subresource ─────────────────────────────────
-    void Builder::Compiler::FoldUse( const PassRecord& pass, const ResourceUse& use, std::vector<int32_t>& slot,
-                                     std::vector<RdgSubUse>& uses, std::string& error ) const
+    void Builder::Compiler::FoldUse( const PassRecord& pass, const ResourceUse& use, ScratchVector<int32_t>& slot,
+                                     ScratchVector<RdgSubUse>& uses, std::string& error ) const
     {
         const ResourceRecord& record = m_Resources[use.Resource];
         // A texture an earlier graph created and extracted takes only the accesses it was created for (its usage
@@ -572,12 +589,12 @@ namespace Desert::Graphic::RDG
     void Builder::Compiler::FoldPassUses()
     {
         m_PassUses.assign( m_PassCount, {} );
-        std::vector<int32_t> slot( m_SubCount, -1 );
+        ScratchVector<int32_t> slot( m_SubCount, -1 );
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
             if ( m_RootOf[p] >= 0 )
                 continue;
-            std::vector<RdgSubUse>& uses = m_PassUses[p];
+            ScratchVector<RdgSubUse>& uses = m_PassUses[p];
             std::string             conflict;
             for ( const ResourceUse& use : m_Passes[p].Uses )
             {
@@ -606,12 +623,12 @@ namespace Desert::Graphic::RDG
     {
         constexpr uint32_t kSampledMask = ( 1u << static_cast<uint32_t>( Access::SampledGraphics ) ) |
                                           ( 1u << static_cast<uint32_t>( Access::SampledCompute ) );
-        std::vector<bool>    written( m_SubCount, false );
-        std::vector<int32_t> removedWriterRoot( m_SubCount, -1 );
+        ScratchVector<bool>    written( m_SubCount, false );
+        ScratchVector<int32_t> removedWriterRoot( m_SubCount, -1 );
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
-            std::vector<std::pair<uint32_t, FaultDefault>> substitute; // (lost resource, its default)
-            std::vector<std::pair<uint32_t, FaultDefault>> clear;
+            ScratchVector<std::pair<uint32_t, FaultDefault>> substitute; // (lost resource, its default)
+            ScratchVector<std::pair<uint32_t, FaultDefault>> clear;
             for ( const RdgSubUse& use : m_PassUses[p] )
             {
                 if ( m_RootOf[p] >= 0 )
@@ -669,7 +686,7 @@ namespace Desert::Graphic::RDG
                 continue;
             }
 
-            std::vector<RdgSubUse>& uses = m_PassUses[p];
+            ScratchVector<RdgSubUse>& uses = m_PassUses[p];
             for ( const auto& [resource, value] : clear )
             {
                 const std::pair<uint32_t, uint32_t> key{ p, resource };
@@ -717,8 +734,8 @@ namespace Desert::Graphic::RDG
     // ── 0c. Externals that lost every writer (RDG-FAULT1): their owner's ExternalFaultPolicy decides ────────
     void Builder::Compiler::ApplyExternalFaultPolicies()
     {
-        std::vector<bool>                  survivingWrite( m_ResourceCount, false );
-        std::vector<std::vector<uint32_t>> removedRoots( m_ResourceCount );
+        ScratchVector<bool>                    survivingWrite( m_ResourceCount, false );
+        ScratchVector<ScratchVector<uint32_t>> removedRoots( m_ResourceCount );
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
             for ( const ResourceUse& use : m_Passes[p].Uses )
@@ -735,7 +752,7 @@ namespace Desert::Graphic::RDG
                 }
             }
         }
-        std::vector<uint32_t> fatal;
+        ScratchVector<uint32_t> fatal;
         std::vector<uint32_t> fatalRoots;
         for ( uint32_t r = 0; r < m_ResourceCount; ++r )
         {
@@ -772,10 +789,10 @@ namespace Desert::Graphic::RDG
     // it was the last to write before that consumer. The full definition is at Builder::Compile.
     void Builder::Compiler::CullPasses()
     {
-        std::vector<bool>                  alive( m_PassCount, false );
-        std::vector<std::vector<uint32_t>> producers( m_PassCount );
-        std::vector<int32_t>               lastWriter( m_SubCount, -1 );
-        std::vector<uint32_t>              stack;
+        ScratchVector<bool>                    alive( m_PassCount, false );
+        ScratchVector<ScratchVector<uint32_t>> producers( m_PassCount );
+        ScratchVector<int32_t>                 lastWriter( m_SubCount, -1 );
+        ScratchVector<uint32_t>                stack;
         for ( uint32_t p = 0; p < m_PassCount; ++p )
         {
             if ( m_RootOf[p] >= 0 )
@@ -830,7 +847,7 @@ namespace Desert::Graphic::RDG
                 continue;
             }
             m_Result.CulledPasses.push_back( p );
-            m_Result.CulledPassNames.push_back( m_Passes[p].Name );
+            m_Result.CulledPassNames.emplace_back( m_Passes[p].Name );
         }
         m_ExecutedCount = static_cast<uint32_t>( m_Executed.size() );
     }
@@ -842,10 +859,10 @@ namespace Desert::Graphic::RDG
         // repeat inside p's own run at the back of Edges (one attempt per subresource of a resource): that run is
         // searched instead of a set of every edge of the graph - the same edges in the same order. The readers
         // since each subresource's last write are one list per subresource in a shared pool, in reader order.
-        std::vector<int32_t>                      lastWriter( m_SubCount, -1 );
-        std::vector<int32_t>                      readersHead( m_SubCount, -1 );
-        std::vector<int32_t>                      readersTail( m_SubCount, -1 );
-        std::vector<std::pair<uint32_t, int32_t>> readerPool; // (reader pass, next node or -1)
+        ScratchVector<int32_t>                      lastWriter( m_SubCount, -1 );
+        ScratchVector<int32_t>                      readersHead( m_SubCount, -1 );
+        ScratchVector<int32_t>                      readersTail( m_SubCount, -1 );
+        ScratchVector<std::pair<uint32_t, int32_t>> readerPool;    // (reader pass, next node or -1)
         size_t                                    passEdges = 0; // the first edge that ends at the walked pass
         auto addEdge = [&]( uint32_t from, uint32_t to, DependencyKind kind, uint32_t resource )
         {
@@ -920,26 +937,41 @@ namespace Desert::Graphic::RDG
     // dependency edge (no earlier pass touched its buffer, so nothing it writes can be seen earlier) moves, in its
     // order, to the head. Every edge keeps its direction - an upload has no predecessor, and its readers stay
     // after it - so the graph's result is the same. An upload's exec reads only its own copied bytes, so it
-    // crosses a NeverParallel or ExternalQueue pass freely. An upload with an earlier user of its buffer stays in
-    // place.
+    // crosses a NeverParallel or ExternalQueue pass freely. An upload whose every predecessor is itself a hoisted
+    // upload moves too (GPU-ASYNC-WAIT: the 46 "Upload: GrassParams" ranges of one pooled buffer, each ordered
+    // after the one before by its write; only the first moved, the rest kept the grass cull's fork mid-frame and
+    // the graphics queue waited 0.25 ms before "Deferred: Masked Depth Prepass"): the hoisted keep their order, so
+    // those edges keep their direction. An upload with any other earlier user of its buffer stays in place.
     void Builder::Compiler::HoistQueuedUploads()
     {
-        std::vector<bool> hasPredecessor( m_ExecutedCount, false );
+        // Direct predecessors of each position, from the dependency edges (CSR); an edge runs forward in the
+        // executed order, so a position's predecessors are decided before it.
+        ScratchVector<uint32_t> predBegin( m_ExecutedCount + 1, 0 );
         for ( const DependencyEdge& edge : m_Result.Edges )
-            hasPredecessor[m_PositionOf[edge.To]] = true;
-        std::vector<bool> hoisted( m_ExecutedCount, false );
+            ++predBegin[m_PositionOf[edge.To] + 1];
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+            predBegin[position + 1] += predBegin[position];
+        ScratchVector<uint32_t> preds( m_Result.Edges.size() );
+        {
+            ScratchVector<uint32_t> fill( predBegin.begin(), predBegin.end() - 1 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+                preds[fill[m_PositionOf[edge.To]]++] = m_PositionOf[edge.From];
+        }
+        ScratchVector<bool> hoisted( m_ExecutedCount, false );
         uint32_t          count = 0;
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
-            hoisted[position] = m_Passes[m_Executed[position]].QueuedUpload && !hasPredecessor[position] &&
-                                m_PipeAt[position] == Pipe::Graphics;
+            bool movable = m_Passes[m_Executed[position]].QueuedUpload && m_PipeAt[position] == Pipe::Graphics;
+            for ( uint32_t k = predBegin[position]; movable && k < predBegin[position + 1]; ++k )
+                movable = preds[k] < position && hoisted[preds[k]];
+            hoisted[position] = movable;
             if ( hoisted[position] )
                 ++count;
         }
         m_UploadHead = count;
         if ( count == 0 )
             return;
-        std::vector<uint32_t> order; // new position -> old position
+        ScratchVector<uint32_t> order; // new position -> old position
         order.reserve( m_ExecutedCount );
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
@@ -951,8 +983,8 @@ namespace Desert::Graphic::RDG
             if ( !hoisted[position] )
                 order.push_back( position );
         }
-        std::vector<uint32_t> executed( m_ExecutedCount );
-        std::vector<Pipe>     pipes( m_ExecutedCount );
+        ScratchVector<uint32_t> executed( m_ExecutedCount );
+        ScratchVector<Pipe>     pipes( m_ExecutedCount );
         for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
         {
             executed[at]               = m_Executed[order[at]];
@@ -980,14 +1012,14 @@ namespace Desert::Graphic::RDG
         if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
             return;
         // Direct predecessors of each position, from the dependency edges (CSR).
-        std::vector<uint32_t> predBegin( m_ExecutedCount + 1, 0 );
+        ScratchVector<uint32_t> predBegin( m_ExecutedCount + 1, 0 );
         for ( const DependencyEdge& edge : m_Result.Edges )
             ++predBegin[m_PositionOf[edge.To] + 1];
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
             predBegin[position + 1] += predBegin[position];
-        std::vector<uint32_t> preds( m_Result.Edges.size() );
+        ScratchVector<uint32_t> preds( m_Result.Edges.size() );
         {
-            std::vector<uint32_t> fill( predBegin.begin(), predBegin.end() - 1 );
+            ScratchVector<uint32_t> fill( predBegin.begin(), predBegin.end() - 1 );
             for ( const DependencyEdge& edge : m_Result.Edges )
                 preds[fill[m_PositionOf[edge.To]]++] = m_PositionOf[edge.From];
         }
@@ -1004,8 +1036,8 @@ namespace Desert::Graphic::RDG
                    preds.begin() + predBegin[position + 1];
         };
 
-        std::vector<bool>     moved( m_ExecutedCount, false );
-        std::vector<uint32_t> order; // new position -> old position
+        ScratchVector<bool>     moved( m_ExecutedCount, false );
+        ScratchVector<uint32_t> order; // new position -> old position
         uint32_t              emitted  = 0;
         uint32_t              position = 0;
         while ( position < m_ExecutedCount )
@@ -1073,8 +1105,8 @@ namespace Desert::Graphic::RDG
             return;
         for ( ; emitted < m_ExecutedCount; ++emitted )
             order.push_back( emitted );
-        std::vector<uint32_t> executed( m_ExecutedCount );
-        std::vector<Pipe>     pipes( m_ExecutedCount );
+        ScratchVector<uint32_t> executed( m_ExecutedCount );
+        ScratchVector<Pipe>     pipes( m_ExecutedCount );
         for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
         {
             executed[at]               = m_Executed[order[at]];
@@ -1107,10 +1139,10 @@ namespace Desert::Graphic::RDG
         if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
             return;
         // Direct predecessors and successors of each position (CSR), rebuilt after each move.
-        std::vector<uint32_t> predBegin;
-        std::vector<uint32_t> preds( m_Result.Edges.size() );
-        std::vector<uint32_t> succBegin;
-        std::vector<uint32_t> succs( m_Result.Edges.size() );
+        ScratchVector<uint32_t> predBegin;
+        ScratchVector<uint32_t> preds( m_Result.Edges.size() );
+        ScratchVector<uint32_t> succBegin;
+        ScratchVector<uint32_t> succs( m_Result.Edges.size() );
         const auto buildAdjacency = [&]()
         {
             predBegin.assign( m_ExecutedCount + 1, 0 );
@@ -1125,8 +1157,8 @@ namespace Desert::Graphic::RDG
                 predBegin[position + 1] += predBegin[position];
                 succBegin[position + 1] += succBegin[position];
             }
-            std::vector<uint32_t> predFill( predBegin.begin(), predBegin.end() - 1 );
-            std::vector<uint32_t> succFill( succBegin.begin(), succBegin.end() - 1 );
+            ScratchVector<uint32_t> predFill( predBegin.begin(), predBegin.end() - 1 );
+            ScratchVector<uint32_t> succFill( succBegin.begin(), succBegin.end() - 1 );
             for ( const DependencyEdge& edge : m_Result.Edges )
             {
                 const uint32_t from     = m_PositionOf[edge.From];
@@ -1149,8 +1181,8 @@ namespace Desert::Graphic::RDG
         };
 
         buildAdjacency();
-        std::vector<bool>     sunk( m_ExecutedCount, false );
-        std::vector<uint32_t> order;
+        ScratchVector<bool>     sunk( m_ExecutedCount, false );
+        ScratchVector<uint32_t> order;
         uint32_t              settled  = 0;
         uint32_t              position = 0;
         while ( position < m_ExecutedCount )
@@ -1235,8 +1267,8 @@ namespace Desert::Graphic::RDG
             }
             for ( uint32_t q = insertAt; q < m_ExecutedCount; ++q )
                 order.push_back( q );
-            std::vector<uint32_t> executed( m_ExecutedCount );
-            std::vector<Pipe>     pipes( m_ExecutedCount );
+            ScratchVector<uint32_t> executed( m_ExecutedCount );
+            ScratchVector<Pipe>     pipes( m_ExecutedCount );
             for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
             {
                 executed[at]               = m_Executed[order[at]];
@@ -1333,11 +1365,11 @@ namespace Desert::Graphic::RDG
         // (RDG-ASYNC-JOIN-2).
         m_GroupOfUse.assign( m_ExecutedCount, {} );
         {
-            std::vector<int32_t>     open( m_SubCount, -1 ); // the group of each subresource's last use
-            std::vector<AccessState> openState( m_SubCount );
+            ScratchVector<int32_t>     open( m_SubCount, -1 ); // the group of each subresource's last use
+            ScratchVector<AccessState> openState( m_SubCount );
             for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
             {
-                const std::vector<RdgSubUse>& uses = m_PassUses[m_Executed[position]];
+                const ScratchVector<RdgSubUse>& uses = m_PassUses[m_Executed[position]];
                 m_GroupOfUse[position].assign( uses.size(), -1 );
                 for ( size_t i = 0; i < uses.size(); ++i )
                 {
@@ -1376,12 +1408,12 @@ namespace Desert::Graphic::RDG
         // pipe before the sync and acquire on the new one after it. The same walk the barrier tracker
         // makes in CollectPassBarriers: externals start the graph owned by Graphics, transients by no pipe.
         // A shared group's reads on the other pipe follow TrackUse's shared branch instead (see above).
-        std::vector<int32_t> lastTouch( m_SubCount, -1 );
-        std::vector<Pipe>    owner( m_SubCount, Pipe::Graphics );
-        std::vector<bool>    owned( m_SubCount, false );
+        ScratchVector<int32_t> lastTouch( m_SubCount, -1 );
+        ScratchVector<Pipe>    owner( m_SubCount, Pipe::Graphics );
+        ScratchVector<bool>    owned( m_SubCount, false );
         // The last AsyncCompute reader of the shared group each subresource is in (-1: none): the use that ends
         // the group (on Graphics, by the group's definition) joins its run, and with it every earlier run.
-        std::vector<int32_t> sharedAsync( m_SubCount, -1 );
+        ScratchVector<int32_t> sharedAsync( m_SubCount, -1 );
         for ( uint32_t r = 0; r < m_ResourceCount; ++r )
         {
             for ( uint32_t sub = m_SubBase[r]; sub < m_SubBase[r + 1]; ++sub )
@@ -1390,7 +1422,7 @@ namespace Desert::Graphic::RDG
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
             const Pipe                    pipe = m_PipeAt[position];
-            const std::vector<RdgSubUse>& uses = m_PassUses[m_Executed[position]];
+            const ScratchVector<RdgSubUse>& uses = m_PassUses[m_Executed[position]];
             for ( size_t i = 0; i < uses.size(); ++i )
             {
                 const RdgSubUse& use    = uses[i];
@@ -1496,7 +1528,7 @@ namespace Desert::Graphic::RDG
     void Builder::Compiler::CutRunsAtConsumers()
     {
         // laterJoin[p]: the earliest consumer of the run's passes from p to its end (slot Last + 1: none).
-        std::vector<uint32_t> laterJoin( m_ExecutedCount + 1, CrossPipeSync::kJoinAtGraphEnd );
+        ScratchVector<uint32_t> laterJoin( m_ExecutedCount + 1, CrossPipeSync::kJoinAtGraphEnd );
         // LATER PRODUCERS (UE FRDGBuilder::Compile: CrossPipelineProducer, bAsyncComputeBegin / bGraphicsFork). A
         // run's single fork at the latest graphics producer of any of its passes held its first passes back until
         // the producer of its last ones: the radiance cache, whose inputs are the G-buffer, forked after the HZB
@@ -1508,11 +1540,11 @@ namespace Desert::Graphic::RDG
         // piece with no fork would start on the compute queue ordered after no graphics work of this frame at all
         // (UE forks every async pass at the prologue pass at the earliest).
         // By the first position of each fork's pieces: the fork, NeedsFork, the async position that set the fork.
-        std::vector<int32_t>     forkOf( m_ExecutedCount, -1 );
-        std::vector<bool>        needsOf( m_ExecutedCount, false );
-        std::vector<int32_t>     forkCauseOf( m_ExecutedCount, -1 );
-        std::vector<bool>        forksAt( m_ExecutedCount, false );
-        std::vector<RdgAsyncRun> pieces;
+        ScratchVector<int32_t>     forkOf( m_ExecutedCount, -1 );
+        ScratchVector<bool>        needsOf( m_ExecutedCount, false );
+        ScratchVector<int32_t>     forkCauseOf( m_ExecutedCount, -1 );
+        ScratchVector<bool>        forksAt( m_ExecutedCount, false );
+        ScratchVector<RdgAsyncRun> pieces;
         pieces.reserve( m_Runs.size() );
         for ( const RdgAsyncRun& run : m_Runs )
         {
@@ -1611,7 +1643,7 @@ namespace Desert::Graphic::RDG
     // ── S2 (cont.). Each run's fork and join become CrossPipeSyncs ───────────────────────────────────────
     void Builder::Compiler::CreateAsyncSyncs()
     {
-        std::vector<bool> touched( m_ResourceCount, false );
+        ScratchVector<bool> touched( m_ResourceCount, false );
         // THE NEWEST FORK (RDG-ASYNC-2; UE: a run forks only where a graphics producer of it is, and the async
         // pipe's later runs follow the earlier ones). The compute queue runs the runs in order, and a semaphore
         // wait's second scope holds every later command on that queue: a run whose graphics producers all come
@@ -1695,9 +1727,10 @@ namespace Desert::Graphic::RDG
                     if ( run.ForkCausePosition != CrossPipeSync::kJoinAtGraphEnd &&
                          run.ForkCauseResource < m_ResourceCount )
                     {
-                        m_Result.Syncs.back().Cause =
-                             fmt::format( "'{}' of '{}'", m_Resources[run.ForkCauseResource].Name,
-                                          m_Passes[m_Executed[run.ForkCausePosition]].Name );
+                        CrossPipeSync& sync = m_Result.Syncs.back();
+                        sync.CausePass      = m_Executed[run.ForkCausePosition];
+                        sync.CauseResource  = run.ForkCauseResource;
+                        WriteSyncCause( m_Passes, m_Resources, sync );
                     }
                     else if ( run.NeedsFork )
                         m_Result.Syncs.back().Cause = "an external no earlier pass touched";
@@ -1731,13 +1764,11 @@ namespace Desert::Graphic::RDG
             if ( run.JoinPosition != CrossPipeSync::kJoinAtGraphEnd &&
                  run.JoinCausePosition != CrossPipeSync::kJoinAtGraphEnd )
             {
-                const std::string_view pass = m_Passes[m_Executed[run.JoinCausePosition]].Name;
-                std::string            cause;
+                CrossPipeSync& sync = m_Result.Syncs.back();
+                sync.CausePass      = m_Executed[run.JoinCausePosition];
                 if ( run.JoinCauseResource < m_ResourceCount )
-                    cause = fmt::format( "'{}' of '{}'", m_Resources[run.JoinCauseResource].Name, pass );
-                else
-                    cause = fmt::format( "'{}'", pass );
-                m_Result.Syncs.back().Cause = std::move( cause );
+                    sync.CauseResource = run.JoinCauseResource;
+                WriteSyncCause( m_Passes, m_Resources, sync );
             }
             else if ( run.JoinsWithNext )
                 m_Result.Syncs.back().Cause = "the next piece (cut for its later fork)";
@@ -1807,7 +1838,7 @@ namespace Desert::Graphic::RDG
     // ── 6. Aliasing plan: interval packing per memory class (UE AllocateTransientResources) ───────────
     // Extracted transients outlive the graph and so never share memory.
     Common::BoolResultStr
-    Builder::Compiler::CollectAliasCandidates( std::vector<RdgAliasCandidate>& candidates ) const
+    Builder::Compiler::CollectAliasCandidates( ScratchVector<RdgAliasCandidate>& candidates ) const
     {
         for ( uint32_t l = 0; l < m_Result.Lifetimes.size(); ++l )
         {
@@ -1837,7 +1868,7 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( true );
     }
 
-    void Builder::Compiler::PlaceAliasCandidates( std::vector<RdgAliasCandidate>& candidates )
+    void Builder::Compiler::PlaceAliasCandidates( ScratchVector<RdgAliasCandidate>& candidates )
     {
         AliasingPlan& plan = m_Result.Aliasing;
         plan.AllocationOf.assign( m_ResourceCount, -1 );
@@ -1854,8 +1885,8 @@ namespace Desert::Graphic::RDG
                        return la.Resource < lb.Resource;
                    } );
 
-        std::vector<uint32_t>          placedLifetime;
-        std::vector<const Allocation*> conflicts; // of the candidate being placed; one buffer for all
+        ScratchVector<uint32_t>          placedLifetime;
+        ScratchVector<const Allocation*> conflicts; // of the candidate being placed; one buffer for all
         for ( const RdgAliasCandidate& candidate : candidates )
         {
             const ResourceLifetime&  lifetime = m_Result.Lifetimes[candidate.Lifetime];
@@ -1928,7 +1959,7 @@ namespace Desert::Graphic::RDG
 
     Common::BoolResultStr Builder::Compiler::PlanAliasing()
     {
-        std::vector<RdgAliasCandidate> candidates;
+        ScratchVector<RdgAliasCandidate> candidates;
         Common::BoolResultStr          collected = CollectAliasCandidates( candidates );
         if ( !collected )
             return collected;
@@ -2005,7 +2036,7 @@ namespace Desert::Graphic::RDG
         };
 
         // The barrier list the group's transition is in (a held group's: the epilogue of its position).
-        const auto groupRaws = [&]() -> std::vector<RdgRawTransition>&
+        const auto groupRaws = [&]() -> ScratchVector<RdgRawTransition>&
         { return sub.GroupRawInEpilogue ? m_EpilogueRaws[sub.GroupPosition] : m_Raws[sub.GroupPosition]; };
 
         if ( opensHeldGroup )
@@ -2215,8 +2246,8 @@ namespace Desert::Graphic::RDG
         compiled.AreaHeight  = pass.AreaHeight;
         compiled.External    = pass.External;
         compiled.OnPipe      = m_PipeAt[position];
-        compiled.WaitSyncs   = m_WaitAt[position];
-        compiled.SignalSyncs = m_SignalAt[position];
+        compiled.WaitSyncs.assign( m_WaitAt[position].begin(), m_WaitAt[position].end() );
+        compiled.SignalSyncs.assign( m_SignalAt[position].begin(), m_SignalAt[position].end() );
         for ( const AttachmentRecord& attachment : pass.Attachments )
         {
             const ResourceRecord& record     = m_Resources[attachment.Resource];
@@ -2267,7 +2298,7 @@ namespace Desert::Graphic::RDG
         m_WrittenSoFar.assign( m_SubCount, false );
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
-            const std::vector<RdgSubUse>& uses = m_PassUses[m_Executed[position]];
+            const ScratchVector<RdgSubUse>& uses = m_PassUses[m_Executed[position]];
             for ( size_t i = 0; i < uses.size(); ++i )
             {
                 // A single-pipe compile finds no runs and groups nothing (FindAsyncRuns returns before them).
@@ -2287,7 +2318,7 @@ namespace Desert::Graphic::RDG
     // will see them. Walked backwards so "needed later" is known when each pass is reached.
     void Builder::Compiler::DecideStoreActions()
     {
-        std::vector<bool> neededLater( m_SubCount, false );
+        ScratchVector<bool> neededLater( m_SubCount, false );
         for ( uint32_t position = m_ExecutedCount; position-- > 0; )
         {
             const uint32_t p = m_Executed[position];
@@ -2451,8 +2482,8 @@ namespace Desert::Graphic::RDG
 
     // Ranges: one barrier per rectangle of subresources sharing a transition, grouped by resource.
     // @p partners receives, per barrier, the position of the other half of an ownership transfer.
-    void Builder::Compiler::EmitBarriers( std::vector<RdgRawTransition>& list, std::vector<Barrier>& out,
-                                          std::vector<uint32_t>& partners ) const
+    void Builder::Compiler::EmitBarriers( ScratchVector<RdgRawTransition>& list, std::vector<Barrier>& out,
+                                          ScratchVector<uint32_t>& partners ) const
     {
         std::stable_sort( list.begin(), list.end(), []( const RdgRawTransition& a, const RdgRawTransition& b )
                           { return a.Resource < b.Resource; } );
@@ -2461,8 +2492,8 @@ namespace Desert::Graphic::RDG
             size_t end = i;
             while ( end < list.size() && list[end].Resource == list[i].Resource )
                 ++end;
-            std::vector<RdgRawTransition> group( list.begin() + static_cast<std::ptrdiff_t>( i ),
-                                                 list.begin() + static_cast<std::ptrdiff_t>( end ) );
+            ScratchVector<RdgRawTransition> group( list.begin() + static_cast<std::ptrdiff_t>( i ),
+                                                   list.begin() + static_cast<std::ptrdiff_t>( end ) );
             const ResourceRecord&         record = m_Resources[list[i].Resource];
             for ( RdgRawTransition& raw : group )
                 raw.Sub -= m_SubBase[raw.Resource];
@@ -2473,8 +2504,8 @@ namespace Desert::Graphic::RDG
 
     // One QueueOwnershipTransfer per acquire rectangle; its release has the same rectangle (the two
     // halves carry the same full transition, so they merge alike).
-    void Builder::Compiler::AddTransfers( const std::vector<Barrier>&  barriers,
-                                          const std::vector<uint32_t>& partners, uint32_t acquirePosition )
+    void Builder::Compiler::AddTransfers( const std::vector<Barrier>&    barriers,
+                                          const ScratchVector<uint32_t>& partners, uint32_t acquirePosition )
     {
         for ( size_t b = 0; b < barriers.size(); ++b )
         {
@@ -2520,17 +2551,17 @@ namespace Desert::Graphic::RDG
     {
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
-            std::vector<uint32_t> partners;
+            ScratchVector<uint32_t> partners;
             EmitBarriers( m_Raws[position], m_Result.Passes[position].Barriers, partners );
             AddTransfers( m_Result.Passes[position].Barriers, partners, position );
-            std::vector<uint32_t> releasePartners;
+            ScratchVector<uint32_t> releasePartners;
             EmitBarriers( m_EpilogueRaws[position], m_Result.Passes[position].EpilogueBarriers, releasePartners );
         }
         {
-            std::vector<uint32_t> releasePartners;
+            ScratchVector<uint32_t> releasePartners;
             EmitBarriers( m_EpilogueRaws[m_ExecutedCount], m_Result.PrologueBarriers, releasePartners );
         }
-        std::vector<uint32_t> partners;
+        ScratchVector<uint32_t> partners;
         EmitBarriers( m_FinalRaws, m_Result.FinalBarriers, partners );
         AddTransfers( m_Result.FinalBarriers, partners, CrossPipeSync::kJoinAtGraphEnd );
     }
@@ -2574,15 +2605,10 @@ namespace Desert::Graphic::RDG
         }
         if ( !prologue.SignalSyncs.empty() )
             m_Result.Segments.push_back( std::move( prologue ) );
-        // RDG-EXTERNAL: Wait points of ExternalQueue passes the next segment of each pipe has to wait.
-        std::array<std::vector<ExternalTimelinePoint>, kPipeCount> pendingExternalWaits;
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
             const CompiledPass& pass = m_Result.Passes[position];
-            // RDG-EXTERNAL: a segment ends with an ExternalQueue pass (it signals the pass's Signal point), and
-            // the FIRST segment of EACH pipe begun after it waits the pass's Wait point - an async run forked
-            // after the pass may read what the other API wrote, and the fork's binary semaphore is signalled
-            // before that work ran. A timeline wait consumes nothing, so both pipes wait the same value.
+            // RDG-EXTERNAL: a segment ends with an ExternalQueue pass; its points: AssignExternalPoints.
             const bool afterExternal = position > 0 && m_Result.Passes[position - 1].External.has_value();
             // A signal ends a submission on either pipe: a graphics fork, or the join of an async run's piece
             // (CutRunsAtConsumers) - the next piece of the run is the next AsyncCompute submission.
@@ -2591,23 +2617,14 @@ namespace Desert::Graphic::RDG
                                !m_Result.Passes[position - 1].SignalSyncs.empty() ||
                                ( pass.OnPipe == Pipe::Graphics && !pass.WaitSyncs.empty() );
             if ( split )
-            {
                 m_Result.Segments.push_back( { pass.OnPipe, position, position, {}, {} } );
-                auto& pending                         = pendingExternalWaits[static_cast<uint32_t>( pass.OnPipe )];
-                m_Result.Segments.back().WaitExternal = std::exchange( pending, {} );
-            }
             PipeSegment& segment = m_Result.Segments.back();
-            if ( pass.External.has_value() )
-            {
-                segment.SignalExternal = pass.External->Signal;
-                for ( auto& pending : pendingExternalWaits )
-                    pending.push_back( pass.External->Wait );
-            }
             segment.LastPosition = position;
             segment.WaitSyncs.insert( segment.WaitSyncs.end(), pass.WaitSyncs.begin(), pass.WaitSyncs.end() );
             segment.SignalSyncs.insert( segment.SignalSyncs.end(), pass.SignalSyncs.begin(),
                                         pass.SignalSyncs.end() );
         }
+        AssignExternalPoints( m_Result );
     }
 
     Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory ) const
@@ -2629,7 +2646,10 @@ namespace Desert::Graphic::RDG
         // CPU-FRAME-5: one row per stage under "RDG: Compile" (PhaseTimer), so the compile's cost reads per stage.
         DESERT_PROFILE_PHASES( stages );
         DESERT_PROFILE_PHASE( stages, "RDG Compile: setup" );
-        Compiler compiler( *this, memory, pipes );
+        // CPU-RDG-ALLOC: every working table of the compiler is a ScratchVector of this scope (declared before
+        // the compiler, so the compiler dies first); the plan it returns is heap (it outlives the graph).
+        const ScratchScope scratch( m_Scratch );
+        Compiler           compiler( *this, memory, pipes );
         if ( const Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
             return Common::MakeError<CompileResult>( defaults.GetError() );
         DESERT_PROFILE_PHASE( stages, "RDG Compile: validate blocks" );
@@ -2669,5 +2689,471 @@ namespace Desert::Graphic::RDG
         compiler.BuildPipeSegments();
         DESERT_PROFILE_PHASE_END( stages );
         return Common::MakeSuccess( compiler.TakeResult() );
+    }
+
+    // RDG-RECORD-COMPILE-CACHE ─────────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        // The declaration key: an xxHash64 round per 64-bit word, its avalanche at the end.
+        class DeclarationHasher
+        {
+        public:
+            void Add( uint64_t value )
+            {
+                m_Hash ^= Round( value );
+                m_Hash = std::rotl( m_Hash, 27 ) * kPrime1 + kPrime4;
+            }
+            void AddFloat( float value )
+            {
+                Add( std::bit_cast<uint32_t>( value ) );
+            }
+            void AddText( std::string_view text )
+            {
+                Add( std::hash<std::string_view>{}( text ) );
+                Add( text.size() );
+            }
+            void AddRange( const SubresourceRange& range )
+            {
+                Add( ( static_cast<uint64_t>( range.BaseMip ) << 32 ) | range.MipCount );
+                Add( ( static_cast<uint64_t>( range.BaseLayer ) << 32 ) | range.LayerCount );
+            }
+            void AddState( const AccessState& state )
+            {
+                Add( static_cast<uint64_t>( state.Stages ) );
+                Add( static_cast<uint64_t>( state.Memory ) );
+                Add( static_cast<uint64_t>( state.Layout ) );
+            }
+            [[nodiscard]] uint64_t Finish() const
+            {
+                uint64_t hash = m_Hash;
+                hash ^= hash >> 33;
+                hash *= kPrime2;
+                hash ^= hash >> 29;
+                hash *= kPrime3;
+                hash ^= hash >> 32;
+                return hash;
+            }
+
+        private:
+            static constexpr uint64_t kPrime1 = 0x9E3779B185EBCA87ull;
+            static constexpr uint64_t kPrime2 = 0xC2B2AE3D27D4EB4Full;
+            static constexpr uint64_t kPrime3 = 0x165667B19E3779F9ull;
+            static constexpr uint64_t kPrime4 = 0x85EBCA77C2B2AE63ull;
+            static constexpr uint64_t kPrime5 = 0x27D4EB2F165667C5ull;
+
+            static uint64_t Round( uint64_t value )
+            {
+                return std::rotl( value * kPrime2, 31 ) * kPrime1;
+            }
+
+            uint64_t m_Hash = kPrime5;
+        };
+    } // namespace
+
+    // Everything Compile reads that is not a name: the graph switches, the fault defaults, every resource's
+    // kind, descriptors, external / extraction role, final access and the externals' states and created usage
+    // (InitialState, FoldUse), every pass's flags, uses, attachments (load op with its clear value, store),
+    // render area, ExternalQueue presence (its timeline values are rebound, not keyed), declaration error and
+    // binding blocks (ValidatePassBindings: the layout and other-route fill by address - PinnedObjects keeps them
+    // alive while the plan is stored - the entries' slot names and kinds, the push-constant size). Not keyed:
+    // names (messages only, rebound), prerequisites and exec lambdas (Execute's), the external objects' addresses
+    // (a plan names resources by graph index; Execute writes final states back through this graph's records).
+    uint64_t Builder::Compiler::HashDeclaration( const Builder& builder, const PipeCapabilities& pipes )
+    {
+        DeclarationHasher hash;
+        hash.Add( ( builder.m_PassCulling ? 1u : 0u ) | ( pipes.SeparateComputeFamily ? 2u : 0u ) );
+        for ( const FaultDefault value : { FaultDefault::Black, FaultDefault::White, FaultDefault::BlackCube } )
+            hash.Add( builder.m_FaultDefaults.GetSource( value ) );
+        hash.Add( builder.m_Resources.size() );
+        for ( const ResourceRecord& record : builder.m_Resources )
+        {
+            const TextureDesc& texture = record.Texture;
+            hash.Add( static_cast<uint64_t>( record.Kind ) );
+            hash.Add( ( static_cast<uint64_t>( texture.Size.Width ) << 32 ) | texture.Size.Height );
+            hash.Add( texture.Size.Depth );
+            hash.Add( static_cast<uint64_t>( texture.Format ) );
+            hash.Add( ( static_cast<uint64_t>( texture.Mips ) << 32 ) | texture.Layers );
+            hash.Add( ( static_cast<uint64_t>( texture.Dim ) << 32 ) | texture.Samples );
+            hash.Add( record.Buffer.Bytes );
+            uint64_t roles = record.HasFinalAccess ? 16u : 0u;
+            roles |= record.ExternalTex != nullptr ? 1u : 0u;
+            roles |= record.ExternalBuf != nullptr ? 2u : 0u;
+            roles |= record.ExtractTex != nullptr ? 4u : 0u;
+            roles |= record.ExtractBuf != nullptr ? 8u : 0u;
+            roles |= static_cast<uint64_t>( record.FinalAccess ) << 8;
+            roles |= static_cast<uint64_t>( record.Default ) << 16;
+            roles |= static_cast<uint64_t>( record.Policy ) << 24;
+            roles |= static_cast<uint64_t>( record.LaterAccessMask ) << 32;
+            hash.Add( roles );
+            if ( record.ExternalTex != nullptr )
+            {
+                hash.Add( ( static_cast<uint64_t>( record.ExternalTex->CreatedAccessMask ) << 32 ) |
+                          record.ExternalTex->SubresourceStates.size() );
+                for ( const AccessState& state : record.ExternalTex->SubresourceStates )
+                    hash.AddState( state );
+            }
+            if ( record.ExternalBuf != nullptr )
+                hash.AddState( record.ExternalBuf->State );
+        }
+        hash.Add( builder.m_Passes.size() );
+        for ( const PassRecord& pass : builder.m_Passes )
+        {
+            uint64_t marks = static_cast<uint64_t>( pass.Flags ) << 8;
+            marks |= pass.QueuedUpload ? 1u : 0u;
+            marks |= pass.External.has_value() ? 2u : 0u;
+            marks |= pass.DeclarationError.empty() ? 0u : 4u;
+            hash.Add( marks );
+            hash.Add( ( static_cast<uint64_t>( pass.AreaWidth ) << 32 ) | pass.AreaHeight );
+            hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
+            for ( const ResourceUse& use : pass.Uses )
+            {
+                hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) );
+                hash.AddRange( use.Range );
+                hash.Add( static_cast<uint32_t>( use.Attachment ) );
+            }
+            for ( const AttachmentRecord& attachment : pass.Attachments )
+            {
+                const uint64_t kind = ( attachment.IsDepth ? 1u : 0u ) | ( attachment.IsResolve ? 2u : 0u ) |
+                                      ( static_cast<uint64_t>( attachment.Load.Action ) << 8 ) |
+                                      ( static_cast<uint64_t>( attachment.Store ) << 16 );
+                hash.Add( ( static_cast<uint64_t>( attachment.Slot ) << 32 ) | kind );
+                hash.Add( ( static_cast<uint64_t>( attachment.Resource ) << 32 ) | attachment.Mip );
+                hash.Add( ( static_cast<uint64_t>( attachment.BaseLayer ) << 32 ) | attachment.LayerCount );
+                for ( const float channel : attachment.Load.Value.Color )
+                    hash.AddFloat( channel );
+                hash.AddFloat( attachment.Load.Value.Depth );
+                hash.Add( attachment.Load.Value.Stencil );
+            }
+            hash.Add( pass.Blocks.size() );
+            for ( const DeclaredBindingBlock& block : pass.Blocks )
+            {
+                hash.Add( reinterpret_cast<uintptr_t>( block.Layout.get() ) );
+                hash.Add( reinterpret_cast<uintptr_t>( block.Other.get() ) );
+                hash.Add( ( static_cast<uint64_t>( block.PushConstantBytes ) << 32 ) | block.Entries.size() );
+                for ( const DeclaredBindingEntry& entry : block.Entries )
+                {
+                    hash.AddText( entry.ShaderName );
+                    uint64_t shape = static_cast<uint64_t>( entry.Kind );
+                    shape |= static_cast<uint64_t>( entry.Resource ) << 8;
+                    shape |= static_cast<uint64_t>( entry.Declared ) << 16;
+                    shape |= static_cast<uint64_t>( entry.Index ) << 32;
+                    hash.Add( shape );
+                    hash.AddRange( entry.Range );
+                }
+            }
+        }
+        return hash.Finish();
+    }
+
+    std::vector<std::shared_ptr<const void>> Builder::Compiler::PinnedObjects( const Builder& builder )
+    {
+        std::vector<std::shared_ptr<const void>> pinned;
+        for ( const PassRecord& pass : builder.m_Passes )
+        {
+            for ( const DeclaredBindingBlock& block : pass.Blocks )
+            {
+                pinned.push_back( block.Layout );
+                pinned.push_back( block.Other );
+            }
+        }
+        std::sort( pinned.begin(), pinned.end(),
+                   []( const auto& a, const auto& b ) { return a.get() < b.get(); } );
+        pinned.erase( std::unique( pinned.begin(), pinned.end(),
+                                   []( const auto& a, const auto& b ) { return a.get() == b.get(); } ),
+                      pinned.end() );
+        return pinned;
+    }
+
+    void Builder::Compiler::WriteSyncCause( const std::vector<PassRecord>&     passes,
+                                            const std::vector<ResourceRecord>& resources, CrossPipeSync& sync )
+    {
+        const std::string_view pass = passes[sync.CausePass].Name;
+        sync.Cause.clear();
+        if ( sync.CauseResource < resources.size() )
+        {
+            const std::string_view resource = resources[sync.CauseResource].Name;
+            fmt::format_to( std::back_inserter( sync.Cause ), "'{}' of '{}'", resource, pass );
+            return;
+        }
+        fmt::format_to( std::back_inserter( sync.Cause ), "'{}'", pass );
+    }
+
+    // RDG-EXTERNAL: a segment ends with an ExternalQueue pass (it signals the pass's Signal point), and the
+    // FIRST segment of EACH pipe begun after it waits the pass's Wait point - an async run forked after the pass
+    // may read what the other API wrote, and the fork's binary semaphore is signalled before that work ran. A timeline wait
+    // consumes nothing, so both pipes wait the same value. The segments are in position order and partition the
+    // positions (BuildPipeSegments). The values are the frame's, so a cached plan assigns them again (Rebind).
+    void Builder::Compiler::AssignExternalPoints( CompileResult& result )
+    {
+        std::array<std::vector<ExternalTimelinePoint>, kPipeCount> pending;
+        for ( PipeSegment& segment : result.Segments )
+        {
+            segment.SignalExternal.reset();
+            segment.WaitExternal.clear();
+            if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart )
+                continue; // the prologue records no pass
+            // Copied, not moved: the plan's own storage is reused by every rebind of a stored plan.
+            std::vector<ExternalTimelinePoint>& waiting = pending[static_cast<uint32_t>( segment.OnPipe )];
+            segment.WaitExternal.assign( waiting.begin(), waiting.end() );
+            waiting.clear();
+            for ( uint32_t position = segment.FirstPosition; position <= segment.LastPosition; ++position )
+            {
+                const CompiledPass& pass = result.Passes[position];
+                if ( !pass.External.has_value() )
+                    continue;
+                segment.SignalExternal = pass.External->Signal;
+                for ( std::vector<ExternalTimelinePoint>& waits : pending )
+                    waits.push_back( pass.External->Wait );
+            }
+        }
+    }
+
+    // The per-frame fields of a stored plan, from the graph that asked: its pass names (they carry counters), the
+    // culled names, the sync causes built from them, the ExternalQueue timeline points.
+    void Builder::Compiler::Rebind( const Builder& builder, CompileResult& plan )
+    {
+        for ( CompiledPass& pass : plan.Passes )
+        {
+            const PassRecord& record = builder.m_Passes[pass.Pass];
+            pass.Name                = record.Name;
+            pass.External            = record.External;
+        }
+        for ( size_t i = 0; i < plan.CulledPassNames.size(); ++i )
+            plan.CulledPassNames[i] = builder.m_Passes[plan.CulledPasses[i]].Name;
+        for ( CrossPipeSync& sync : plan.Syncs )
+        {
+            if ( sync.CausePass != kInvalidResource )
+                WriteSyncCause( builder.m_Passes, builder.m_Resources, sync );
+        }
+        AssignExternalPoints( plan );
+    }
+
+    Common::ResultStr<std::shared_ptr<CompileResult>> Builder::CompileThroughCache( IBackend& backend ) const
+    {
+        using Plan                                = std::shared_ptr<CompileResult>;
+        const IMemoryRequirementsProvider& memory = backend.GetMemoryRequirements();
+        const PipeCapabilities             pipes  = backend.GetPipeCapabilities();
+        CompileCache* const                cache  = backend.GetCompileCache();
+        // No cache, or a graph Compile refuses before reading anything: compiled as before the cache existed.
+        if ( cache == nullptr || !m_DeclarationError.empty() )
+        {
+            Common::ResultStr<CompileResult> compiled = Compile( memory, pipes );
+            if ( !compiled )
+                return Common::MakeError<Plan>( compiled.GetError() );
+            return Common::MakeSuccess( std::make_shared<CompileResult>( compiled.ExtractValue() ) );
+        }
+        uint64_t key = 0;
+        {
+            DESERT_PROFILE_SCOPE( "RDG Compile: cache key" );
+            key = Compiler::HashDeclaration( *this, pipes );
+        }
+        bool check = false;
+        Plan plan  = cache->Find( key, check );
+        if ( plan )
+        {
+            DESERT_PROFILE_SCOPE( "RDG Compile: cache rebind" );
+            Compiler::Rebind( *this, *plan );
+#if DESERT_DEV_INSTRUMENTS
+            // Every kCheckEvery-th hit against a fresh compile: a key that misses an input the plan depends on
+            // shows here as a logged difference, and this frame records the fresh plan.
+            if ( check )
+            {
+                Common::ResultStr<CompileResult> fresh = Compile( memory, pipes );
+                std::string_view                 difference = "the fresh compile failed";
+                if ( fresh )
+                    difference = FirstPlanDifference( *plan, fresh.GetValue() );
+                cache->Checked( m_Name, key, difference );
+                if ( !difference.empty() )
+                {
+                    if ( !fresh )
+                        return Common::MakeError<Plan>( fresh.GetError() );
+                    plan = std::make_shared<CompileResult>( fresh.ExtractValue() );
+                }
+            }
+#endif
+            return Common::MakeSuccess( std::move( plan ) );
+        }
+        Common::ResultStr<CompileResult> compiled = Compile( memory, pipes );
+        if ( !compiled )
+            return Common::MakeError<Plan>( compiled.GetError() );
+        plan = std::make_shared<CompileResult>( compiled.ExtractValue() );
+        // A plan with a fault carries this frame's messages and substitutions: compiled again next frame.
+        const bool faulted = !plan->Faults.empty() || !plan->FaultCulledPasses.empty() ||
+                             !plan->Substitutions.empty() || !plan->InvalidatedExternals.empty() ||
+                             plan->Frame.has_value();
+        if ( !faulted )
+            cache->Store( key, plan, Compiler::PinnedObjects( *this ) );
+        return Common::MakeSuccess( std::move( plan ) );
+    }
+
+    std::string_view FirstPlanDifference( const CompileResult& a, const CompileResult& b )
+    {
+        if ( a.Passes != b.Passes )
+            return "Passes";
+        if ( a.CulledPasses != b.CulledPasses || a.CulledPassNames != b.CulledPassNames )
+            return "CulledPasses";
+        if ( a.PassCulling != b.PassCulling )
+            return "PassCulling";
+        if ( a.Edges != b.Edges )
+            return "Edges";
+        if ( a.FinalBarriers != b.FinalBarriers )
+            return "FinalBarriers";
+        if ( a.PrologueBarriers != b.PrologueBarriers )
+            return "PrologueBarriers";
+        if ( a.Lifetimes != b.Lifetimes )
+            return "Lifetimes";
+        if ( a.Usages != b.Usages )
+            return "Usages";
+        if ( a.ExternalFinalStates != b.ExternalFinalStates )
+            return "ExternalFinalStates";
+        if ( a.Aliasing != b.Aliasing )
+            return "Aliasing";
+        if ( a.Pipes != b.Pipes )
+            return "Pipes";
+        if ( a.Syncs != b.Syncs )
+            return "Syncs";
+        if ( a.OwnershipTransfers != b.OwnershipTransfers )
+            return "OwnershipTransfers";
+        if ( a.Segments != b.Segments )
+            return "Segments";
+        if ( a.DemotedAsyncPasses != b.DemotedAsyncPasses )
+            return "DemotedAsyncPasses";
+        if ( a.Faults.size() != b.Faults.size() || a.FaultCulledPasses != b.FaultCulledPasses ||
+             a.Substitutions.size() != b.Substitutions.size() ||
+             a.InvalidatedExternals != b.InvalidatedExternals || a.Frame.has_value() != b.Frame.has_value() )
+            return "Faults";
+        return {};
+    }
+
+    CompileCache::CompileCache( Sink sink ) : m_Sink( std::move( sink ) )
+    {
+    }
+
+    std::shared_ptr<CompileResult> CompileCache::Find( uint64_t key, bool& check )
+    {
+        const std::lock_guard lock( m_Mutex );
+        check = false;
+        for ( Entry& entry : m_Entries )
+        {
+            if ( entry.Key != key )
+                continue;
+            // Only the cache holds it: no Execute is recording it (the count only falls outside the lock).
+            if ( entry.Plan.use_count() != 1 )
+                break;
+            entry.LastUse = ++m_Clock;
+            ++m_Hits;
+            check = ++m_HitsSinceCheck >= kCheckEvery;
+            if ( check )
+                m_HitsSinceCheck = 0;
+            return entry.Plan;
+        }
+        ++m_Misses;
+        return nullptr;
+    }
+
+    void CompileCache::Store( uint64_t key, std::shared_ptr<CompileResult> plan,
+                              std::vector<std::shared_ptr<const void>> pinned )
+    {
+        const std::lock_guard lock( m_Mutex );
+        Entry*                slot = nullptr;
+        for ( Entry& entry : m_Entries )
+        {
+            if ( entry.Key == key )
+            {
+                slot = &entry;
+                break;
+            }
+        }
+        if ( slot == nullptr && m_Entries.size() >= kCapacity )
+        {
+            slot = &*std::min_element( m_Entries.begin(), m_Entries.end(),
+                                       []( const Entry& a, const Entry& b ) { return a.LastUse < b.LastUse; } );
+        }
+        if ( slot == nullptr )
+            slot = &m_Entries.emplace_back();
+        slot->Key     = key;
+        slot->LastUse = ++m_Clock;
+        slot->Plan    = std::move( plan );
+        slot->Pinned  = std::move( pinned );
+    }
+
+    void CompileCache::Checked( std::string_view graph, uint64_t key, std::string_view difference )
+    {
+        {
+            const std::lock_guard lock( m_Mutex );
+            ++m_Checks;
+            if ( difference.empty() )
+                return;
+            ++m_Mismatches;
+            const auto stored = std::find_if( m_Entries.begin(), m_Entries.end(),
+                                              [&]( const Entry& entry ) { return entry.Key == key; } );
+            if ( stored != m_Entries.end() )
+                m_Entries.erase( stored );
+        }
+        if ( m_Sink )
+        {
+            m_Sink( true, fmt::format( "compile cache: graph '{}' plan {:016x} differs from a fresh compile "
+                                       "in {}; the fresh plan records this frame and the stored one is dropped",
+                                       graph, key, difference ) );
+        }
+    }
+
+    void CompileCache::CountRecordChunks( uint32_t chunks, bool byCost, float maxChunkMicros )
+    {
+        const std::lock_guard lock( m_Mutex );
+        m_Chunks += chunks;
+        if ( byCost )
+            ++m_GraphsByCost;
+        else
+            ++m_GraphsByCount;
+        m_MaxChunkMicros      = std::max( m_MaxChunkMicros, maxChunkMicros );
+        m_FrameMaxChunkMicros = std::max( m_FrameMaxChunkMicros, maxChunkMicros );
+    }
+
+    void CompileCache::CountFrame()
+    {
+        std::string line;
+        std::string chunkLine;
+        {
+            const std::lock_guard lock( m_Mutex );
+            m_FrameMaxSumMicros += m_FrameMaxChunkMicros;
+            m_FrameMaxChunkMicros = 0.0f;
+            if ( ++m_Frames < kReportEvery )
+                return;
+            // No graph recorded in chunks over the window (parallel recording off): no chunk line.
+            const double frames = static_cast<double>( m_Frames );
+            if ( m_GraphsByCost + m_GraphsByCount != 0 )
+            {
+                chunkLine =
+                     fmt::format( "record chunks: {:.1f} per frame ({} graphs cut by last frame's cost, {} by "
+                                  "pass count), max chunk {:.3f} ms (frames' mean max {:.3f} ms) over {} frames",
+                                  static_cast<double>( m_Chunks ) / frames, m_GraphsByCost, m_GraphsByCount,
+                                  m_MaxChunkMicros / 1000.0f, m_FrameMaxSumMicros / frames / 1000.0, m_Frames );
+            }
+            m_Chunks               = 0;
+            m_GraphsByCost         = 0;
+            m_GraphsByCount        = 0;
+            m_MaxChunkMicros       = 0.0f;
+            m_FrameMaxSumMicros    = 0.0;
+            const uint64_t lookups = m_Hits + m_Misses;
+            double         share   = 0.0;
+            if ( lookups != 0 )
+                share = 100.0 * static_cast<double>( m_Hits ) / static_cast<double>( lookups );
+            line = fmt::format( "compile cache: {} hits, {} misses ({:.1f} % hits) over {} frames; {} plans "
+                                "stored; {} hits checked against a fresh compile, {} differed",
+                                m_Hits, m_Misses, share, m_Frames, m_Entries.size(), m_Checks, m_Mismatches );
+            m_Frames     = 0;
+            m_Hits       = 0;
+            m_Misses     = 0;
+            m_Checks     = 0;
+            m_Mismatches = 0;
+        }
+        if ( m_Sink )
+        {
+            m_Sink( false, line );
+            if ( !chunkLine.empty() )
+                m_Sink( false, chunkLine );
+        }
     }
 } // namespace Desert::Graphic::RDG

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/Memory/ArenaFunction.hpp>
+#include <Common/Core/Memory/FrameArena.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
@@ -29,6 +31,8 @@
 namespace Desert::Graphic::RDG
 {
     class Builder;
+    // RDGBuilder.cpp: the record phase's chunk tasks, kept by the builder across frames (Builder::m_ChunkTasks).
+    class ChunkTasks;
     // RDGPassBindings.hpp: the setup-time parameter block of one draw / dispatch (RDG-FAULT1).
     class BindingBlockBuilder;
     struct ShaderBindingLayout;
@@ -199,7 +203,11 @@ namespace Desert::Graphic::RDG
     class Builder
     {
     public:
-        using ExecFunction = std::function<Common::BoolResultStr( PassContext& )>;
+        // A pass exec built away from its AddPass call (a helper that returns it). CPU-RDG-ALLOC (UE: the pass
+        // lambda in FRDGAllocator): move-only, constructed over GetFrameArena() so captures beyond the inline
+        // buffer land in the graph's arena; AddPass places it there too, and Reset destroys it before it rewinds
+        // the arena.
+        using ExecFunction = Common::Memory::ArenaFunction<Common::BoolResultStr( PassContext& )>;
 
         explicit Builder( std::string name ) : m_Name( std::move( name ) )
         {
@@ -258,6 +266,22 @@ namespace Desert::Graphic::RDG
         // for a handle that is not a buffer of this graph, an empty payload, a payload larger than the buffer,
         // or a size that is not a multiple of 4 bytes (the transfer granularity every GPU API shares).
         void QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+        // CPU-GRASS-POOL-4 (UE: a GPU Scene range upload): QueueBufferUpload of @p bytes into the buffer at
+        // @p offset - one range of a pooled buffer, the rest of it untouched. Refused as QueueBufferUpload is, and
+        // for an offset that is not a multiple of 4 or a range past the buffer's end.
+        void QueueBufferUpload( BufferRef buffer, uint64_t offset, std::span<const std::byte> bytes );
+        // QueueBufferUpload of bytes in STATIC storage (a constexpr table: a per-frame reset of counters or
+        // indirect arguments), which are not copied: the upload takes no heap block for its payload. @p bytes must
+        // outlive the graph's Execute; refused as QueueBufferUpload is.
+        void QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+        // CPU-GRASS-POOL-3 (UE: AddCopyBufferPass). A Copy pass "Copy: <source> -> <target>" added HERE that
+        // copies @p bytes of @p source from @p sourceOffset into @p target at @p targetOffset (Access::CopySrc /
+        // CopyDst), ordered against the buffers' other passes by the graph like any pass: what a pooled buffer
+        // held moves into the one replacing it when the pool grows. Refused by name - a Declaration fault of the
+        // pass - for a handle that is not a buffer of this graph, the same buffer on both sides, an empty copy,
+        // a range past either buffer's end, or an offset or size that is not a multiple of 4 bytes.
+        void AddCopyBufferPass( BufferRef source, uint64_t sourceOffset, BufferRef target, uint64_t targetOffset,
+                                uint64_t bytes );
 
         // The AddPass index the next AddPass gets: the index ExecuteReport::FaultCulled names that pass by, for an
         // owner that must know after Execute whether its writer survived (a history it extracts).
@@ -274,7 +298,37 @@ namespace Desert::Graphic::RDG
                            "exec lambda takes PassContext& and returns Common::BoolResultStr" );
             PassBuilder passBuilder = BeginPass( name, flags );
             std::forward<Setup>( setup )( passBuilder );
-            m_Passes.back().Exec = ExecFunction( std::forward<Exec>( exec ) );
+            // CPU-FRAME-ARENA (UE: the pass lambda FRDGBuilder::AddPass places in FRDGAllocator): the exec is
+            // constructed in the graph's arena, with no heap block of its own, and destroyed by Reset (or the
+            // builder's end) - after Execute, which joins every chunk that runs it. A pass whose exec could not
+            // be placed is a Declaration fault and never runs.
+            using Callable           = std::decay_t<Exec>;
+            Callable* const callable = m_Arena.New<Callable>( std::forward<Exec>( exec ) );
+            if ( callable == nullptr )
+            {
+                RecordPassError( GetPassCount() - 1u, "the graph's frame arena could not grow for the exec" );
+                return;
+            }
+            m_Passes.back().Exec = ExecClosure{ callable, &InvokeExec<Callable> };
+        }
+
+        // CPU-FRAME-ARENA (UE: the FRDGAllocator reset after a graph). Empties the builder for its owner's next
+        // graph (a view keeps ONE builder): every record is destroyed, the arena holding their names, uses and
+        // execs is reset (running the execs' destructors), and the settings return to a new builder's. The
+        // record arrays keep their capacity, so a steady frame builds its graph without the heap. Every handle,
+        // name view and the ExecuteReport of the previous graph end here.
+        void Reset() noexcept;
+
+        // What the graph's arena holds now (the '[Memory] frame arena' line of the owner).
+        [[nodiscard]] Common::Memory::FrameArena::Stats GetArenaStats() const noexcept
+        {
+            return m_Arena.GetStats();
+        }
+        // CPU-RDG-ALLOC: the graph's arena for what a caller builds while it declares this graph's passes (a
+        // RenderPassDeclaration's blocks): it lives until Reset. Only the thread that declares the graph uses it.
+        [[nodiscard]] Common::Memory::FrameArena& GetFrameArena() noexcept
+        {
+            return m_Arena;
         }
 
         // Pure: reads the declarations, touches nothing, may be called any number of times. @p memory
@@ -409,7 +463,34 @@ namespace Desert::Graphic::RDG
         // Compile's working state and its phases (RDGCompile.cpp; UE FRDGBuilder::Compile).
         class Compiler;
 
+        // CPU-FRAME-ARENA: a pass's exec as the arena holds it - the closure AddPass constructed there and the
+        // one function that calls it (what std::function kept on the heap, without the heap).
+        struct ExecClosure
+        {
+            void* Callable = nullptr;
+            Common::BoolResultStr ( *Invoke )( void*, PassContext& ) noexcept = nullptr;
+
+            // A pass body is noexcept (a throw in it is a bug and ends the process at the throw); a record whose
+            // exec was never placed answers an error value instead of calling through null.
+            Common::BoolResultStr operator()( PassContext& context ) const noexcept
+            {
+                if ( Invoke == nullptr )
+                    return Common::MakeError( "the pass has no exec (its frame arena could not grow)" );
+                return Invoke( Callable, context );
+            }
+        };
+        template <class Callable>
+        static Common::BoolResultStr InvokeExec( void* callable, PassContext& context ) noexcept
+        {
+            return ( *static_cast<Callable*>( callable ) )( context );
+        }
+
         Common::BoolResultStr RecordExternalStates( std::span<const Barrier> barriers );
+        // RDG-RECORD-COMPILE-CACHE (RDGCompile.cpp). Execute's compile: the plan @p backend's CompileCache stored
+        // for this declaration, rebound to this graph, or Compile( memory, pipes ) - stored when it has no fault.
+        // Without a cache (IBackend::GetCompileCache nullptr) exactly Compile( memory, pipes ).
+        [[nodiscard]] Common::ResultStr<std::shared_ptr<CompileResult>>
+        CompileThroughCache( IBackend& backend ) const;
 
         struct ResourceUse
         {
@@ -432,24 +513,35 @@ namespace Desert::Graphic::RDG
             StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 
+        // CPU-FRAME-ARENA: a record's name (beyond the string's inline buffer), uses, attachments, blocks and
+        // prerequisites live in the graph's arena (UE: FRDGPass in FRDGAllocator); Reset releases them at once.
         struct PassRecord
         {
-            std::string                   Name;
+            explicit PassRecord( Common::Memory::FrameArena& arena ) noexcept
+                 : Name( Common::Memory::ArenaAllocator<char>( arena ) ),
+                   Uses( Common::Memory::ArenaAllocator<ResourceUse>( arena ) ),
+                   Attachments( Common::Memory::ArenaAllocator<AttachmentRecord>( arena ) ),
+                   Blocks( Common::Memory::ArenaAllocator<DeclaredBindingBlock>( arena ) ),
+                   Prerequisites( Common::Memory::ArenaAllocator<uint32_t>( arena ) )
+            {
+            }
+
+            Common::Memory::ArenaString   Name;
             PassFlags                     Flags = PassFlags::None;
-            std::vector<ResourceUse>      Uses;
-            std::vector<AttachmentRecord> Attachments;
+            Common::Memory::ArenaVector<ResourceUse>      Uses;
+            Common::Memory::ArenaVector<AttachmentRecord> Attachments;
             // PassBuilder::RenderArea; zero when the render area is the attachments' size.
             uint32_t                      AreaWidth  = 0;
             uint32_t                      AreaHeight = 0;
             // PassBuilder::ExternalQueue.
             std::optional<ExternalQueueSync> External;
-            ExecFunction                  Exec;
+            ExecClosure                   Exec;
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
-            std::vector<DeclaredBindingBlock> Blocks;
+            Common::Memory::ArenaVector<DeclaredBindingBlock> Blocks;
             // PassBuilder::Prepares, in declaration order: indices into Builder::m_Prerequisites (one entry per
             // distinct object of the graph), so Execute prepares each object once, by index.
-            std::vector<uint32_t>             Prerequisites;
+            Common::Memory::ArenaVector<uint32_t> Prerequisites;
             std::string                       DeclarationError;
             // The copy QueueBufferUpload added. Compile moves it to the graph head when no earlier pass touches
             // its buffer (Compiler::HoistQueuedUploads).
@@ -458,7 +550,12 @@ namespace Desert::Graphic::RDG
 
         struct ResourceRecord
         {
-            std::string      Name;
+            explicit ResourceRecord( Common::Memory::FrameArena& arena ) noexcept
+                 : Name( Common::Memory::ArenaAllocator<char>( arena ) )
+            {
+            }
+
+            Common::Memory::ArenaString Name; // CPU-FRAME-ARENA: beyond the inline buffer, in the graph's arena
             ResourceKind     Kind = ResourceKind::Texture;
             TextureDesc      Texture;
             BufferDesc       Buffer;
@@ -490,6 +587,10 @@ namespace Desert::Graphic::RDG
         };
 
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
+        // The uploads' one pass: @p bytes are what it writes at @p offset, @p owned their copy (null: static
+        // storage).
+        void AddUploadPass( BufferRef buffer, uint64_t offset, std::span<const std::byte> bytes,
+                            std::shared_ptr<const std::vector<std::byte>> owned );
         // Keeps the FIRST declaration error: later ones are usually its consequences.
         void                                RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
@@ -498,13 +599,31 @@ namespace Desert::Graphic::RDG
         // RDG-FAULT1: FrameFatal external @p resource as a FrameFault lists it (with its Extract's final access).
         [[nodiscard]] FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
 
+        // CPU-FRAME-ARENA: first, so it outlives every record that points into it; Reset() resets it.
+        Common::Memory::FrameArena  m_Arena;
+        // CPU-RDG-ALLOC (UE: the FMemStack a FRDGBuilder compiles and executes on): the working arrays of one
+        // Compile or Execute (RDGScratch.hpp), rewound when that call ends; its blocks are kept across graphs, so
+        // a steady frame takes nothing from the heap for them. Mutable: Compile is const. One builder compiles
+        // and executes on one thread at a time (its scopes rewind in stack order).
+        mutable Common::Memory::FrameArena m_Scratch;
+        // CPU-RDG-ALLOC: the record phase's chunk tasks, reset in place by every Execute that records chunks.
+        // Shared: a JobSystem helper holds a copy until it runs, possibly after Execute returned (RDGBuilder.cpp).
+        std::shared_ptr<ChunkTasks> m_ChunkTasks;
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
         // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
         // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
-        std::vector<const IRecordPrerequisite*>                  m_Prerequisites;
-        std::unordered_map<const IRecordPrerequisite*, uint32_t> m_PrerequisiteIndex;
+        // CPU-RDG-ALLOC: the index is an open-addressed table (a power-of-two size, at most half full) that Reset
+        // empties in place, so a steady frame declares its prerequisites without a heap node per object.
+        struct PrerequisiteSlot
+        {
+            const IRecordPrerequisite* Key   = nullptr;
+            uint32_t                   Index = 0;
+        };
+        [[nodiscard]] uint32_t                  IndexPrerequisite( const IRecordPrerequisite& prerequisite );
+        std::vector<const IRecordPrerequisite*> m_Prerequisites;
+        std::vector<PrerequisiteSlot>           m_PrerequisiteSlots;
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;

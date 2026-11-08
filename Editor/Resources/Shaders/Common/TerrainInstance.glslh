@@ -24,7 +24,8 @@ struct TerrainInstance
     vec4 LayerAlphaBlend[2]; // per page, 1 per channel whose layer is NoWeightBlend (laid over the weight blend)
     vec4 LayerInput[2];      // per page, per channel: the material input naming the layer's LayerName (-1 none)
     vec4 InputSlices[8];     // per material input: its slice in the albedo / normal / ARM / height arrays (-1 none)
-    vec4 GroundInput;        // x = the ground's material input (the root's first layer; -1 none)
+    vec4 GroundInput;        // x = the ground's material input (the root's first layer; -1 none), y = the tile's
+                             // empty weightmap channels (bit i: zero at every sample; LandscapeTileEmptyPage)
     // The grass FIELD's far cover per tile layer (GRASS-FIELD, Common/LandscapeGrassCover.glslh), from the layer's
     // grass types: rgb = the blades' mean albedo, a = leaf area index at full weight (m2 of blade per m2 of ground)
     vec4 GrassCover[8];

@@ -27,7 +27,7 @@ namespace
 TEST( RayTracingScene, NoRayTracedMethodMeansNoTlas )
 {
     RenderMethods methods; // Off / Off / CascadedMaps
-    methods.GlobalIllumination.Effective = GIMethod::ScreenSpace;
+    methods.GlobalIllumination.Effective = GIMethod::ProbeVolume;
     methods.Reflections.Effective        = ReflectionMethod::ScreenSpace;
     EXPECT_FALSE( RayTracingSceneRequired( methods ) );
 

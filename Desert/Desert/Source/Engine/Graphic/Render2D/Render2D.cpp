@@ -223,29 +223,33 @@ namespace Desert::Graphic::Render2D
         }
     }
 
-    MaterialExecutor* Render2D::ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
-                                             RDG::TextureParameter property, const void* texture, Image2D* image )
+    Render2D::BoundExecutor Render2D::ExecutorFor( ExecutorCache& cache, const std::shared_ptr<Shader>& shader,
+                                                   RDG::TextureParameter property, const void* texture,
+                                                   Image2D* image )
     {
         const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
 
-        auto              it = cache.find( texture );
-        MaterialExecutor* exec;
+        auto it = cache.find( texture );
         if ( it != cache.end() )
         {
-            exec                     = it->second.Executor.get();
             it->second.LastUsedFrame = frame;
         }
         else
         {
             const ResourceAttributionScope ledger = OpenLedgerScope();
             auto                           owned  = MaterialExecutor::Create( "Render2D", shader );
-            exec       = owned.get();
-            cache.emplace( texture, CachedExecutor{ std::move( owned ), frame } );
+            // The slot is resolved here, once per executor; every later draw through it reuses the pointer.
+            RDG::SlotNameBuffer slot;
+            Texture2DProperty*  bound = nullptr;
+            if ( owned )
+                bound = owned->FindTexture2DProperty( slot.Spell( property ) );
+            it = cache.emplace( texture, CachedExecutor{ std::move( owned ), frame, bound } ).first;
         }
 
-        if ( auto texProp = exec->GetTexture2DProperty( property.SlotName() ) )
-            texProp->SetImage( image, RDG::Access::SampledGraphics );
-        return exec;
+        const BoundExecutor result{ it->second.Executor.get(), it->second.Texture };
+        if ( result.Texture != nullptr )
+            result.Texture->SetImage( image, RDG::Access::SampledGraphics );
+        return result;
     }
 
     namespace
@@ -325,7 +329,8 @@ namespace Desert::Graphic::Render2D
                 // which then carries the push block; a slot is never bound by both routes.
                 MaterialExecutor* rexec =
                      ExecutorFor( m_RetainerExecutors, m_RetainerShader,
-                                  Render2DMaterialShaderParameters::MaskLayerTexture, nullptr, m_WhiteImage );
+                                  Render2DMaterialShaderParameters::MaskLayerTexture, nullptr, m_WhiteImage )
+                          .Executor;
                 if ( rexec == nullptr )
                 {
                     LOG_ERROR( "[Render2D] a retained UI layer's composite is not drawn: no UIRetainer executor" );
@@ -366,21 +371,21 @@ namespace Desert::Graphic::Render2D
         {
             // Text always carries a valid font-atlas texture; route it to the SDF pipeline.
             exec = ExecutorFor( m_TextExecutors, m_TextShader, Render2DMaterialShaderParameters::SdfAtlasTexture,
-                                cmd.Texture, ImageOfTextureId( cmd.Texture ) );
+                                cmd.Texture, ImageOfTextureId( cmd.Texture ) )
+                        .Executor;
             resolved.Pipeline = m_TextPipeline.get();
             resolved.Layout   = &m_TextLayout;
         }
         else
         {
             Image2D* img      = cmd.Texture != nullptr ? ImageOfTextureId( cmd.Texture ) : m_WhiteImage;
-            exec = ExecutorFor( m_Executors, m_Shader, Render2DMaterialShaderParameters::ElementTexture,
-                                cmd.Texture, img );
+            const BoundExecutor bound    = ExecutorFor(
+                 m_Executors, m_Shader, Render2DMaterialShaderParameters::ElementTexture, cmd.Texture, img );
+            exec = bound.Executor;
             // The UI layer is RGBA8 holding display-encoded values: an sRGB texture is drawn from its
             // stored bytes (TEX-SRGB), as before the colour space existed, not from its linear decode.
-            if ( exec != nullptr )
-                if ( auto texProp = exec->GetTexture2DProperty(
-                          Render2DMaterialShaderParameters::ElementTexture.SlotName() ) )
-                    texProp->SetSamplesEncoded( true );
+            if ( bound.Texture != nullptr )
+                bound.Texture->SetSamplesEncoded( true );
             resolved.Pipeline = m_Pipeline.get();
             resolved.Layout   = &m_PlainLayout;
         }

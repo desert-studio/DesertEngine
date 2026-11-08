@@ -20,7 +20,8 @@ namespace Desert::Scripting::LuauProperties
     /// Installs the global `Property` module (Float, Int, Bool, String, Color, Vector, Asset, Entity, Enum,
     /// Array) on the main state, before luaL_sandbox. Each constructor validates its arguments where the script
     /// calls it — a wrong option is an error naming the script's line — and returns a DECLARATION, which only
-    /// means something as an entry of the script's `Properties` table.
+    /// means something as an entry of the script's `Properties` table. Also replaces the global `pairs` with one
+    /// that walks a `Properties` proxy's values (Luau's pairs ignores __iter); every other table as before.
     void Install( lua_State* L );
 
     /// Before a slot's top level runs: the sandbox's globals remember the line `Properties` is assigned on, so
@@ -34,6 +35,26 @@ namespace Desert::Scripting::LuauProperties
     /// the line of the `Properties` table, saying which declaration it wants.
     [[nodiscard]] Common::ResultStr<std::vector<ScriptPropertyDecl>> Settle( lua_State*       thread,
                                                                              std::string_view script );
+
+    /// THE WRITE BARRIER Settle installs: after it, the global `Properties` is a proxy that reads through to the
+    /// values and marks every name the SCRIPT assigns. The engine's own writes go to PushPropertyValues' table
+    /// raw, so they are no marks. What a SaveGame read-back reads instead of every property every frame.
+
+    /// Pushes what the table at `index` iterates as: the values of a `Properties` proxy, the table itself else
+    /// (the debugger's view of a table).
+    void PushValues( lua_State* L, int index );
+
+    /// Pushes the values behind the slot's `Properties` (nil when the global is nil).
+    void PushPropertyValues( lua_State* thread );
+
+    /// Whether the script assigned any `Properties.<name>` since the last ClearPropertyWrites.
+    [[nodiscard]] bool AnyPropertyWritten( lua_State* thread );
+
+    /// Whether the script assigned `Properties.<name>` since the last ClearPropertyWrites.
+    [[nodiscard]] bool PropertyWritten( lua_State* thread, const std::string& name );
+
+    /// Forgets every mark (after a read-back took what it needs).
+    void ClearPropertyWrites( lua_State* thread );
 
     /// What a value needs from the world it is pushed into: the entity a UUID names.
     using World = LuauPropertyWorld;

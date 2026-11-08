@@ -13,7 +13,10 @@ namespace Desert
     // that changes the vertex or index count (the sculpt resize).
     Common::BoolResultWithCodes<Desert::MeshError> DynamicMesh::Invalidate()
     {
-        m_GpuStale = false; // this IS the upload; a direct call (a caller with a renderer) settles the flag
+        // This IS the upload, and the fence's (Mesh::EnsureGpuResources, SceneRenderer::PrepareMesh): a fresh mesh
+        // too (TextECSSystem's glyph quads, PrimitiveMeshFactory's shared shapes) waits for it. It settles the
+        // flag.
+        m_GpuStale = false;
         if ( m_Vertices.empty() )
         {
             ReleaseGeometry(); // nothing to draw: no allocation, IsResident() false
@@ -65,61 +68,16 @@ namespace Desert
             return;
         }
 
+        // THE EDIT'S HALF, NOTHING A REPLAY READS (CPU-ONE-SYNC step 5; UE: the game thread builds the new data,
+        // the render side swaps it in). The CPU arrays are the game side's: no render code reads a DynamicMesh's
+        // m_Vertices / m_Indices (a replay reads the device geometry, the submeshes, the revision and the BLAS),
+        // so they are written here even while a view job replays this mesh. The re-upload, the revision bump and
+        // the BLAS release are the fence's, once however many edits landed in between (Mesh::EnsureGpuResources
+        // from SceneRenderer::PrepareMesh); a failed upload is reported there, once. Not drawn this frame: the
+        // edit waits for the first submit, as a mesh that was never drawn always did.
         m_Vertices = vertices;
         m_Indices  = indices;
-        // New content under the same address: every cache keyed by the mesh's render identity redraws it.
-        m_RenderRevision.Bump();
-
-        // NOT YET ON THE GPU (never drawn, or no renderer in this process): the edit is CPU data only and the
-        // whole mesh goes up in one Invalidate when the renderer first submits it (Mesh::EnsureGpuResources).
-        if ( m_GpuStale || !GetGeometry().IsResident() )
-        {
-            MarkGpuStale();
-            return;
-        }
-
-        // LOGGED RATHER THAN RETURNED: Update is called once per mouse-move while a vertex is dragged
-        // (PolyEditTool), inside an ImGui interaction that can neither undo the edit nor stop the drag; a
-        // failed upload leaves the mesh drawing its previous contents, so it is reported here.
-        if ( const auto uploaded = Invalidate(); !uploaded.IsSuccess() )
-            LOG_ERROR( "[DynamicMesh] re-upload failed, the edit is not on the GPU: {}", uploaded.GetError() );
-    }
-
-    void DynamicMesh::Flatten()
-    {
-        if ( m_Indices.empty() )
-            return;
-
-        std::vector<Vertex> newVertices;
-        newVertices.reserve( m_Indices.size() * 3 );
-
-        for ( const auto& index : m_Indices )
-        {
-            newVertices.push_back( m_Vertices[index.V1] );
-            newVertices.push_back( m_Vertices[index.V2] );
-            newVertices.push_back( m_Vertices[index.V3] );
-        }
-
-        m_Vertices = std::move( newVertices );
-        m_Indices.clear();
-
-        // Update submeshes to reflect new vertex counts and lack of indices
-        uint32_t vertexOffset = 0;
-        for ( auto& submesh : m_Submeshes )
-        {
-            // This is a bit naive as it assumes submeshes were partitioning the indices
-            // In a real scenario, we might need to track which submesh each index belonged to.
-            // For now, let's assume one submesh or simple linear split.
-            uint32_t triangleCount = submesh.IndexCount / 3;
-            submesh.VertexCount    = triangleCount * 3;
-            submesh.VertexOffset   = vertexOffset;
-            submesh.IndexCount     = 0;
-            submesh.IndexOffset    = 0;
-
-            vertexOffset += submesh.VertexCount;
-        }
-
-        Invalidate();
+        MarkGpuStale();
     }
 
 } // namespace Desert

@@ -30,6 +30,7 @@ namespace Desert::Graphic::System
                  cooked != nullptr && cooked->IsBakedDisplaced() )
                 if ( const std::shared_ptr<StaticMesh> baked = cooked->GetBakedDisplaced() )
                 {
+                    NoteStaticRewritten( static_cast<std::size_t>( &data - m_StaticQueue.data() ) );
                     data.Mesh = baked.get(); // held by the base mesh while its surface is the same
                     if ( data.MaterialSlots && data.MaterialSlots->Displaced )
                         data.MaterialSlots = data.MaterialSlots->Displaced;
@@ -189,9 +190,9 @@ namespace Desert::Graphic::System
                     break;
                 }
                 MaterialInstance* const   inst    = displaced[static_cast<size_t>( it - slots.begin() )];
-                DataDrivenMaterial* const surface =
-                     inst != nullptr ? dynamic_cast<DataDrivenMaterial*>( inst->GetParentMaterial() ) : nullptr;
-                if ( surface == nullptr || MeshCellPath( surface->GetShaderName() ) != MeshVertexPath::Skinned )
+                Material* const           parent  = inst != nullptr ? inst->GetParentMaterial() : nullptr;
+                DataDrivenMaterial* const surface = parent != nullptr ? parent->AsDataDriven() : nullptr;
+                if ( surface == nullptr || surface->GetVertexPath() != MeshVertexPath::Skinned )
                 {
                     complete = false;
                     break;
@@ -215,6 +216,7 @@ namespace Desert::Graphic::System
         for ( StaticMeshRenderData& data : m_StaticQueue )
             if ( const std::shared_ptr<StaticMesh> twin = cache.Find( data.Entity, data.MotionPart ) )
             {
+                NoteStaticRewritten( static_cast<std::size_t>( &data - m_StaticQueue.data() ) );
                 data.Mesh = twin.get(); // the cache holds the twin past this frame's draws (EndFrame of the next)
                 // No double relief: the displaced slots draw base cells (MaterialSlotBinding::Displaced).
                 if ( data.MaterialSlots && data.MaterialSlots->Displaced )

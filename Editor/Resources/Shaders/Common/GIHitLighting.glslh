@@ -16,6 +16,9 @@
 //              (Mesh/LightGrid.glslh LightGridWorldLightsAt), each with a visibility ray (GITraceVisibility, the
 //              permutation's tracer) leaving the hit by the tracer's GIRayBias; Lambert for a guessed material,
 //              the full Cook-Torrance term (diffuse + specular, GIHitLightResponse) for a closest-hit material;
+//     global   a global-field hit (GIHit.globalField: the software far field's coarse surface) only by the sun and
+//              the moon, one global-field visibility test each (GIHitRadianceGlobalField) - no local light, no
+//              per-light ray from a far hit, as UE's TraceVoxels fires no shadow ray from a global-SDF hit;
 //     bounce   the radiance cache's irradiance at the hit from the previous update (RadianceCacheIrradianceAt):
 //              every frame adds a bounce, as UE's radiance cache feedback does;
 //     material the hit's albedo and emissive from the G-buffer when the hit is the surface the view sees at its
@@ -90,23 +93,88 @@ struct GIHitSurface
 };
 
 vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface );
+vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surface );
+vec3 GIHitLightResponse( GIHitSurface surface, vec3 N, vec3 V, vec3 L, vec3 radiance );
 
-vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
+// GIHitRadiance in two halves, for a consumer that lights the global-field hits no card holds in a pass of its
+// own (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING; UE runs hit lighting as its own compacted pass): false with
+// @p radiance when the cards answer the hit or the full in-place path lit it; true, @p radiance unset, for a
+// global-field hit no card holds - GIHitRadianceGlobalFieldInPlace lights it, here or in that pass.
+bool GIHitRadianceNeedsGlobalFieldInPlace( GIHit hit, vec3 rayDirection, out vec3 radiance )
 {
+    radiance = vec3( 0.0 );
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
     {
-        vec3       cardLighting;
-        const uint cards = SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), cardLighting );
+        const uint cards = SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), radiance );
         // The back of one-sided geometry: an occluder that sends nothing back (UE: a surface-cache miss there has
         // no weight and no radiance). Lighting it in place would light the room from an underside nobody modelled.
         if ( cards != SURFACE_CACHE_HIT_UNCOVERED )
-            return cardLighting;
+            return false;
     }
 #endif
+    // A global-field hit no card holds (terrain, far meshes without cards): UE's TraceVoxels never fires a shadow
+    // ray from a global-SDF hit. It is lit from the directional lights, one coarse visibility test each.
+    if ( hit.globalField )
+        return true;
     vec3 albedo;
     vec3 emissive;
     GIHitMaterial( hit, rayDirection, albedo, emissive );
-    return GIHitRadianceLit( hit, rayDirection, GIHitSurface( albedo, 0.0, 1.0, emissive, false ) );
+    radiance = GIHitRadianceLit( hit, rayDirection, GIHitSurface( albedo, 0.0, 1.0, emissive, false ) );
+    return false;
+}
+
+// The in-place lighting of a global-field hit no card holds (GIHitRadianceNeedsGlobalFieldInPlace said so).
+vec3 GIHitRadianceGlobalFieldInPlace( GIHit hit, vec3 rayDirection )
+{
+    vec3 albedo;
+    vec3 emissive;
+    GIHitMaterial( hit, rayDirection, albedo, emissive );
+    return GIHitRadianceGlobalField( hit, rayDirection, GIHitSurface( albedo, 0.0, 1.0, emissive, false ) );
+}
+
+vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
+{
+    vec3 radiance;
+    if ( !GIHitRadianceNeedsGlobalFieldInPlace( hit, rayDirection, radiance ) )
+        return radiance;
+    return GIHitRadianceGlobalFieldInPlace( hit, rayDirection );
+}
+
+// The response of the directional light of travel @p travel (w > 0.5: on) and radiance @p radiance (w > 0.5: casts
+// shadows) at a hit, the shadow from ONE visibility test through the global field (GITraceVisibilityGlobalField).
+vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 origin, GITraceBias bias, vec4 travel,
+                                  vec4 radiance )
+{
+    if ( travel.w <= 0.5 )
+        return vec3( 0.0 );
+    const vec3 L = -travel.xyz;
+    if ( dot( N, L ) <= 0.0 )
+        return vec3( 0.0 );
+    float visibility = 1.0;
+    if ( radiance.w > 0.5 )
+        visibility = GITraceVisibilityGlobalField( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 );
+    return GIHitLightResponse( surface, N, V, L, radiance.rgb * visibility );
+}
+
+// The in-place lighting of a global-field hit no card holds (GIHit.globalField): the coarse field's surface, with
+// no material but GIHitMaterial's guess. UE lights such a hit only from what the cards already hold; here the
+// directional lights (the sun and the moon) light it, each shadowed by one global-field test, plus the radiance
+// cache's bounce and the emissive - and NO local light, NO near-field ray: a per-light secondary ray from every
+// far hit (GIHitRadianceLit) is the cost UE's design never pays (GPU-FARFIELD-2). Local lights reach such a hit
+// through the radiance cache's bounce only.
+vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surface )
+{
+    const vec3        N      = hit.normal;
+    const vec3        V      = -rayDirection;
+    const GITraceBias bias   = GIRayBias( hit.position, N, rayDirection );
+    const vec3        origin = hit.position + N * bias.nearOffset;
+    vec3 direct =
+         GIHitDirectionalGlobalField( surface, N, V, origin, bias, giFrame.sunTravel, giFrame.sunRadiance );
+    direct +=
+         GIHitDirectionalGlobalField( surface, N, V, origin, bias, giFrame.light1Travel, giFrame.light1Radiance );
+    const vec3 diffuseAlbedo = surface.BaseColor * ( 1.0 - surface.Metallic );
+    const vec4 bounce        = RadianceCacheIrradianceAt( hit.position, N, -rayDirection, 0.5 );
+    return direct + diffuseAlbedo * max( bounce.rgb, vec3( 0.0 ) ) + surface.Emissive;
 }
 
 // The response of @p surface to ONE analytic light of incident radiance @p radiance (shadow already applied) from

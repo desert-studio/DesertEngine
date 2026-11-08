@@ -15,6 +15,9 @@
 #include <optional>
 #include <string_view>
 #include <future>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 
 namespace Desert::Graphic::API::Vulkan
@@ -29,9 +32,64 @@ namespace Desert::Graphic::API::Vulkan
     // recording context hands GetVkPipelineFor for a framebuffer-opened pass.
     RdgRenderPassKey CompatibleRenderPassKeyOf( const FramebufferSpecification& spec, uint32_t samples );
 
+    // EVERYTHING ONE BUILD PRODUCED, AS ONE IMMUTABLE RECORD (UE: a PSO rebuilt after a shader change is a
+    // new pipeline object; the old one is released by deferred deletion after the frames in flight). A
+    // render worker of frame N-1 binds this pipeline - and creates its pass variants from the create-info
+    // below - while the game thread of frame N rebuilds it after a shader reload; nothing it reads is ever
+    // written again once published. A rebuild builds a NEW record and publishes it; the replaced one is
+    // destroyed through the allocator's deletion queue (RT_DestroyLater), never in place. A draw reads the
+    // record ONCE (VulkanPipeline::GetBuilt) and takes pipeline, layout, layouts and push range from it.
+    struct VulkanBuiltPipeline
+    {
+        // The shader record the stages came from, co-owned: PipelineInfo.pStages points into it, and a
+        // pass variant is created from PipelineInfo frames after the shader may have been reloaded.
+        std::shared_ptr<const VulkanShader::CompiledProgram> Program;
+
+        VkPipelineLayout PipelineLayout = VK_NULL_HANDLE;
+        VkPipeline       Pipeline       = VK_NULL_HANDLE;
+        // Set with PipelineLayout, from the same SetUpPushConstantRange call (GetPushConstantRange).
+        std::optional<VkPushConstantRange> PushConstantRange;
+        // The descriptor set layouts PipelineLayout was built from, held so they outlive it.
+        std::vector<DescriptorSetLayoutRef> Layouts;
+
+        VkPipelineVertexInputStateCreateInfo   VertexInputInfo{};
+        VkPipelineInputAssemblyStateCreateInfo InputAssembly{};
+        VkPipelineDynamicStateCreateInfo       DynamicStateInfo{};
+        VkPipelineViewportStateCreateInfo      ViewportState{};
+        VkPipelineRasterizationStateCreateInfo Rasterizer{};
+        VkPipelineMultisampleStateCreateInfo   Multisampling{};
+        VkPipelineDepthStencilStateCreateInfo  DepthStencil{};
+        VkPipelineColorBlendStateCreateInfo    ColorBlending{};
+        // Layout ∩ vertex-stage inputs; VertexInputInfo points into it.
+        ShaderReflection::VertexInputState VertexInput;
+
+        std::vector<VkDynamicState>                      DynamicStates;
+        std::vector<VkPipelineColorBlendAttachmentState> ColorBlendAttachments;
+
+        VkPipelineTessellationStateCreateInfo Tessellation{};
+        VkGraphicsPipelineCreateInfo          PipelineInfo{};
+        // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
+        // is built against; compatible with every render pass the graph builds for those formats.
+        VkRenderPass CompatibleRenderPass = VK_NULL_HANDLE;
+        // The sample count Pipeline was built at, and the variants for every render pass at another count
+        // it was bound in, by that pass's compatibility key. The variants are the one part made after
+        // publication (on first use, by a render worker), so they sit under their own lock and die with
+        // the record they were made from.
+        uint32_t                                       BuiltSamples = 1;
+        mutable std::map<RdgRenderPassKey, VkPipeline> PassVariants;
+        mutable std::mutex                             PassVariantsLock;
+
+        VulkanBuiltPipeline()                                        = default;
+        VulkanBuiltPipeline( const VulkanBuiltPipeline& )            = delete; // create-info points into itself
+        VulkanBuiltPipeline& operator=( const VulkanBuiltPipeline& ) = delete;
+        ~VulkanBuiltPipeline(); // destroys the variants, the pipeline, its layout and the compatible pass
+    };
+
     class VulkanPipeline final : public GraphicsPipeline
     {
     public:
+        using BuiltPipeline = VulkanBuiltPipeline; // one build's product, published whole (above)
+
         VulkanPipeline( const GraphicsPipelineSpecification& specification );
         ~VulkanPipeline() override;
 
@@ -82,20 +140,20 @@ namespace Desert::Graphic::API::Vulkan
         // Null until the compile has landed: a pipeline still in the driver is not drawn through.
         VkPipeline GetVkPipeline() const
         {
-            return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
+            return GetBuildState() == BuildState::Built ? Current().Pipeline : VK_NULL_HANDLE;
         }
         // The pipeline's vertex input describes the optional streams binding (binding 1) — the layout has
         // streams AND the vertex stage reads one of them (ShaderReflection::BuildVertexInput): the draw
         // must bind a buffer there, and must not otherwise.
         [[nodiscard]] bool HasVertexStreams() const
         {
-            return m_VertexInput.HasBinding( 1 );
+            return Current().VertexInput.HasBinding( 1 );
         }
         // The vertex stage reads the binned draw's instance id (a_VisibleRow, binding 2 at instance rate):
         // every draw with this pipeline binds the id stream there (VulkanRendererAPI::BindMeshBuffers).
         [[nodiscard]] bool ReadsVisibleRow() const
         {
-            return m_VertexInput.HasBinding( GpuDriven::kVisibleRowVertexBinding );
+            return Current().VertexInput.HasBinding( GpuDriven::kVisibleRowVertexBinding );
         }
 
         // THE PIPELINE FOR THE RENDER PASS THE DRAW IS RECORDED IN, passed by the caller as that pass's
@@ -105,24 +163,33 @@ namespace Desert::Graphic::API::Vulkan
         // pipeline is rebuilt or released -- switching back costs nothing. Null while the base is not built or
         // when the variant could not be created (logged once per key).
         VkPipeline GetVkPipelineFor( const RdgRenderPassKey& openPass );
+        // The same, from @p record (a GetBuilt() the caller read once): its layout and push range are then the
+        // ones of the pipeline bound, even when a rebuild publishes a new record in between.
+        VkPipeline GetVkPipelineFor( const BuiltPipeline& record, const RdgRenderPassKey& openPass );
+        // THE PUBLISHED RECORD, read once (one atomic load). Valid for the frames in flight after a rebuild
+        // replaces it (deferred deletion), so a draw takes every handle it records from this one read.
+        [[nodiscard]] const BuiltPipeline& GetBuilt() const noexcept
+        {
+            return Current();
+        }
 
-        // The descriptor set layouts m_PipelineLayout was built from, one per set.
+        // The descriptor set layouts the published pipeline layout was built from, one per set.
         const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
         {
-            return m_Layouts;
+            return Current().Layouts;
         }
         VkPipelineLayout GetVkPipelineLayout() const
         {
-            return m_PipelineLayout;
+            return Current().PipelineLayout;
         }
-        // The push range m_PipelineLayout was built with, and so the one a push into this pipeline must name
+        // The push range the pipeline layout was built with, and so the one a push into this pipeline must name
         // (stages, size). The shader's reflection is not that: the shader object outlives a recompile that
         // re-reflects it, while this pipeline keeps the layout it was built with until it is rebuilt, and a push
         // that named the shader's current stages named a stage this layout lacks
         // (VUID-vkCmdPushConstants-offset-01795). Empty when the layout declares no push range.
         const std::optional<VkPushConstantRange>& GetPushConstantRange() const
         {
-            return m_PushConstantRange;
+            return Current().PushConstantRange;
         }
 
     private:
@@ -147,8 +214,8 @@ namespace Desert::Graphic::API::Vulkan
             Worker,
         };
         void Build( CompileOn where );
-        void CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader, CompileOn where );
-        void Compile( VkDevice device, VkPipelineCache pipelineCache );
+        void CreateGraphicsPipeline( VkDevice device, CompileOn where );
+        void Compile( VkDevice device, VkPipelineCache pipelineCache, std::shared_ptr<BuiltPipeline> next );
 
     private:
         std::pair<uint32_t, VkPushConstantRange> SetUpPushConstantRange() const;
@@ -156,40 +223,26 @@ namespace Desert::Graphic::API::Vulkan
     private:
         GraphicsPipelineSpecification m_Specification;
 
-        VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-        VkPipeline       m_Pipeline       = VK_NULL_HANDLE;
-        // Set with m_PipelineLayout, from the same SetUpPushConstantRange call (GetPushConstantRange).
-        std::optional<VkPushConstantRange> m_PushConstantRange;
+        [[nodiscard]] const BuiltPipeline& Current() const noexcept
+        {
+            return *m_Current.load( std::memory_order_acquire );
+        }
+        // Swap @p next in for readers; the record it replaces is destroyed after the frames in flight
+        // (@p deferred) or at once (the destructor: the last owner has no frame recording with it).
+        void Publish( std::shared_ptr<const BuiltPipeline> next, bool deferred ) noexcept;
+        [[nodiscard]] static const std::shared_ptr<const BuiltPipeline>& NeverBuilt() noexcept;
+        // Waits for a compile on a worker, marks the pipeline unbuilt and unpublishes its record.
+        void Unbuild( bool deferred ) noexcept;
 
-        // The descriptor set layouts m_PipelineLayout was built from, held so they outlive it. A shader
-        // recompile replaces the shader's references; this pipeline keeps its own until it is rebuilt.
-        std::vector<DescriptorSetLayoutRef> m_Layouts;
+        // The record a build in progress writes (the calling thread, then the compile worker); published when
+        // its compile lands. Never read by a reader.
+        std::shared_ptr<BuiltPipeline> m_Building;
+        // The published record: m_Owned is touched by the building thread only (Build/Release/the destructor,
+        // after waiting for m_Compile, or the compile worker publishing); readers go through m_Current, never
+        // null (the shared empty record while unbuilt).
+        std::shared_ptr<const BuiltPipeline> m_Owned;
+        std::atomic<const BuiltPipeline*>    m_Current{ nullptr };
 
-        VkPipelineVertexInputStateCreateInfo   m_VertexInputInfo{};
-        VkPipelineInputAssemblyStateCreateInfo m_InputAssembly{};
-        VkPipelineDynamicStateCreateInfo       m_DynamicStateInfo{};
-        VkPipelineViewportStateCreateInfo      m_ViewportState{};
-        VkPipelineRasterizationStateCreateInfo m_Rasterizer{};
-        VkPipelineMultisampleStateCreateInfo   m_Multisampling{};
-        VkPipelineDepthStencilStateCreateInfo  m_DepthStencil{};
-        VkPipelineColorBlendStateCreateInfo            m_ColorBlending{};
-        // Layout ∩ vertex-stage inputs; m_VertexInputInfo points into it.
-        ShaderReflection::VertexInputState m_VertexInput;
-
-        std::vector<VkDynamicState>                      m_DynamicStates;
-        std::vector<VkPipelineColorBlendAttachmentState> m_ColorBlendAttachments;
-
-        VkPipelineTessellationStateCreateInfo m_Tessellation{};
-        VkGraphicsPipelineCreateInfo          m_PipelineInfo{};
-        // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
-        // is built against; compatible with every render pass the graph builds for those formats.
-        VkRenderPass m_CompatibleRenderPass = VK_NULL_HANDLE;
-        // The sample count m_Pipeline was built at, and the variants for every render pass at another count it
-        // was bound in, by that pass's compatibility key.
-        uint32_t                               m_BuiltSamples = 1;
-        std::map<RdgRenderPassKey, VkPipeline> m_PassVariants;
-        // RDG-PARALLEL-1: graph chunks bind pipelines on task workers; a variant is looked up and made under it.
-        std::mutex m_PassVariantsLock;
         std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
         PipelineRole                          m_Role = PipelineRole::Engine;
         std::future<void>                     m_Compile;

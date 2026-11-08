@@ -7,4 +7,5 @@ foreach(name GLFW ImGui ImGuiNodeEditor Jolt Lua Luau Optick MeshOptimizer Voro 
 endforeach()
 if(DESERT_IS_WINDOWS)
     include("${DESERT_ROOT}/cmake/ThirdParty/GoogleTest.cmake")
+    include("${DESERT_ROOT}/cmake/ThirdParty/Mimalloc.cmake")
 endif()

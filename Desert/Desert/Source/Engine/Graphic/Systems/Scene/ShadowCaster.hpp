@@ -10,7 +10,9 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <span>
 #include <functional>
@@ -19,6 +21,7 @@
 namespace Desert::Graphic
 {
     class RenderPassDeclaration;
+    struct SlottedLayout;
 }
 
 namespace Desert::Graphic::RDG
@@ -55,9 +58,9 @@ namespace Desert::Graphic::System
     };
 
     // The virtual shadow map's pass parameters, added to every binding block a caster declares on a "VSM: Raster"
-    // node (the frame data, the page table, the physical pool and the level), handed the block's layout.
-    using VirtualShadowBlockParameters =
-         std::function<void( RDG::BindingBlockBuilder&, const RDG::ShaderBindingLayout& )>;
+    // node (the frame data, the page table, the physical pool and the level), handed the block's kept layout and
+    // its slot mask (a slot the pass binds only where the cell declares it is tested by bit).
+    using VirtualShadowBlockParameters = std::function<void( RDG::BindingBlockBuilder&, const SlottedLayout& )>;
 
     /**
      * @brief A renderer whose geometry casts into the MeshRenderer's shadow views: the sun's cascades and the
@@ -84,26 +87,60 @@ namespace Desert::Graphic::System
      * (Common/ShadowCasterBias.glslh: the mesh cells' vertex headers, Programs/Terrain/TerrainVertex.glslh for the
      * terrain).
      */
-    // FNV-1a over raw bytes: a shadow cache key (local views, the cascades' static layer) only has to change when
+    // A hash over raw bytes: a shadow cache key (local views, the cascades' static layer) only has to change when
     // what was drawn changes. One hash for the mesh casters and the non-mesh ones (LocalShadowSignature), so a
-    // light's key is one value however many renderers fed it.
+    // light's key is one value however many renderers fed it. Runtime only - never stored, never compared across
+    // processes - so its function is free to change.
+    // DL-5: WORD-WISE, one XXH64 round per 8 bytes (was byte FNV-1a: one multiply per byte, 64 for a matrix, the
+    // bone palettes and the terrain tiles' records hashed every frame). The round is a bijection of the state for
+    // a fixed word and of the word for a fixed state, so two inputs differing in one word never collide; a tail
+    // shorter than a word carries its length in the free top byte. Add( v ) == Bytes( &v, sizeof v ).
     struct ShadowSignatureHash
     {
-        uint64_t Value = 1469598103934665603ull;
+        uint64_t Value = 1469598103934665603ull; // the hash of nothing (the running state, read as the key)
 
-        void Bytes( const void* data, const std::size_t size )
+        void Bytes( const void* data, const std::size_t size ) noexcept
         {
             const auto* bytes = static_cast<const unsigned char*>( data );
-            for ( std::size_t i = 0; i < size; ++i )
+            std::size_t at    = 0;
+            for ( ; at + sizeof( uint64_t ) <= size; at += sizeof( uint64_t ) )
             {
-                Value ^= bytes[i];
-                Value *= 1099511628211ull;
+                uint64_t word = 0;
+                std::memcpy( &word, bytes + at, sizeof( word ) );
+                Mix( word );
             }
+            if ( at < size )
+                MixTail( bytes + at, size - at );
         }
         template <typename T>
-        void Add( const T& value )
+        void Add( const T& value ) noexcept
         {
-            Bytes( &value, sizeof( T ) );
+            if constexpr ( sizeof( T ) == sizeof( uint64_t ) )
+            {
+                uint64_t word = 0;
+                std::memcpy( &word, &value, sizeof( word ) );
+                Mix( word );
+            }
+            else if constexpr ( sizeof( T ) < sizeof( uint64_t ) )
+                MixTail( &value, sizeof( T ) );
+            else
+                Bytes( &value, sizeof( T ) );
+        }
+
+    private:
+        static constexpr uint64_t kPrime1 = 0x9E3779B185EBCA87ull; // XXH64's PRIME64_1 / PRIME64_2
+        static constexpr uint64_t kPrime2 = 0xC2B2AE3D27D4EB4Full;
+
+        void Mix( const uint64_t word ) noexcept
+        {
+            Value = std::rotl( Value + word * kPrime2, 31 ) * kPrime1;
+        }
+        // 1..7 bytes, zero-extended, their count in the top byte (a word never has fewer than 8).
+        void MixTail( const void* data, const std::size_t size ) noexcept
+        {
+            uint64_t word = 0;
+            std::memcpy( &word, data, size );
+            Mix( word | ( static_cast<uint64_t>( size ) << 56 ) );
         }
     };
 

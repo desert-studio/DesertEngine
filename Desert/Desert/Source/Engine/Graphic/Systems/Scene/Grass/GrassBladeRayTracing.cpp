@@ -108,7 +108,6 @@ namespace Desert::Graphic::System
                                            .NonOpaque = nonOpaque };
         VarietyState&               state = m_Varieties[key];
         state.Seen                        = true;
-        const bool same                   = state.Valid && state.Key == blade;
         if ( state.Targets.size() != levels.size() )
         {
             state.Targets.resize( levels.size() );
@@ -120,6 +119,12 @@ namespace Desert::Graphic::System
                 state.Geometry[b] = state.Targets[b].get();
             }
         }
+        // The levels hold state.Key only once the graph that built them ended (IsBuilt): a build still pending
+        // (its graph abandoned, or never recorded after an error) is built again, never read as storage no
+        // submitted build wrote.
+        bool same = state.Valid && state.Key == blade;
+        for ( const auto& target : state.Targets )
+            same = same && target->IsBuilt();
 
         RDG::BufferRef shapeRef;
         if ( !same )

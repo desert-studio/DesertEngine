@@ -7,9 +7,16 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
+#include <iterator>
 #include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Common::Logger
 {
@@ -38,14 +45,60 @@ namespace Common::Logger
     // frame (a TURN frame waited 0.9 s inside a LOG_INFO in RDG BeginGraph while a build loaded the disk). An
     // error or critical line waits until it is written (what an abort follows is on disk); the queue holds at
     // most kWriterQueueBytes of lines, past that a caller waits for the writer (bounded, never dropped).
+    // @p target must report its failures as values (the log file's sink does): the writer catches nothing.
     std::shared_ptr<spdlog::sinks::sink> MakeAsyncWriterSink( std::shared_ptr<spdlog::sinks::sink> target );
 
     // Blocks until every line logged before the call is written and flushed by every writer of the default
     // logger (RelocateLogFile before it reads the file it moves; a host before it hands its log to a reader).
     void DrainLog();
 
+    // THE LEVEL GATE (UE: a log category's verbosity, checked before the message is built). A line below the
+    // process' level is dropped at the call: no format, no lock, no queue. Default info outside Debug (a
+    // trace line per frame per view - [PreExposure] - cost the Release editor a formatted, queued and written
+    // line each), trace in Debug; `--log-level <trace|debug|info|warn|error|critical>` moves it at start.
+    void SetLevel( spdlog::level::level_enum level );
+    [[nodiscard]] spdlog::level::level_enum Level();
+    // The level named @p name (spdlog's names: trace, debug, info, warning or warn, error, critical), or none.
+    [[nodiscard]] std::optional<spdlog::level::level_enum> LevelFromName( std::string_view name );
+
+    // THE PARSED LINE RING. The log file's writer thread hands every line it writes, formatted as the file
+    // holds it and with its own level, to a bounded ring; a reader (the editor's Logs panel) takes the lines
+    // numbered @p next and later, and never re-reads or re-parses the file. Lines are numbered from 0 in the
+    // order the writer wrote them; a reader that fell more than kLineRingCapacity behind skips the oldest.
+    struct LogLine
+    {
+        std::string               Text;
+        spdlog::level::level_enum Level = spdlog::level::info;
+    };
+    // Appends the lines numbered >= @p next to @p out; returns the number after the last one there is. No
+    // lock when nothing is new.
+    std::uint64_t TakeLogLines( std::uint64_t next, std::vector<LogLine>& out );
+
     namespace Detail
     {
+        // The ring's size in lines (TakeLogLines): a few seconds of the busiest startup.
+        inline constexpr std::size_t kLineRingCapacity = 16384;
+        // The level gate's threshold as an int (Logger.cpp owns the one instance).
+        [[nodiscard]] std::atomic<int>& LevelThreshold() noexcept;
+
+        // One gated line: dropped below the threshold before anything is formatted; formatted into a stack
+        // buffer otherwise and handed to the logger as a view, so no std::string is built per line.
+        // noexcept: a log call never throws to its caller (a destructor logs). The format is checked by the
+        // compiler. spdlog is built with SPDLOG_NO_EXCEPTIONS in every target (DesertWorkspace.cmake), so it
+        // catches nothing: its own failure aborts with its message, and a sink's throw (an allocation in the
+        // writer's queue) reaches this noexcept function and ends the process here, at its site.
+        template <typename... Args>
+        void Write( spdlog::level::level_enum level, fmt::format_string<Args...> message, Args&&... args ) noexcept
+        {
+            if ( static_cast<int>( level ) < LevelThreshold().load( std::memory_order_relaxed ) )
+                return;
+            spdlog::logger* const logger = spdlog::default_logger_raw();
+            if ( logger == nullptr )
+                return;
+            fmt::memory_buffer text;
+            fmt::format_to( std::back_inserter( text ), message, std::forward<Args>( args )... );
+            logger->log( spdlog::source_loc{}, level, spdlog::string_view_t( text.data(), text.size() ) );
+        }
         // Holds the startup lines until the log file has a directory; generous, since a startup that
         // logs more than this before finding its own directory is itself the defect.
         inline constexpr std::size_t kEarlyLineCapacity = 16384;
@@ -90,50 +143,42 @@ namespace Common::Logger
     // string is still possible and still allowed — it just has to say so, by wrapping itself in
     // `fmt::runtime(...)`, which is exactly the visibility that was missing.
     //
-    // KNOWN AND DELIBERATELY NOT CHANGED HERE: every one of these calls `spdlog::set_level` to its OWN
-    // level before logging, so the global level is whatever the last message happened to be and filtering
-    // can never do anything. That is a separate defect with a visible consequence (fixing it starts
-    // suppressing output that is printed today), so it is named rather than smuggled into this change.
+    // The level is the gate's (SetLevel, Detail::Write): info outside Debug, so a LOG_DEBUG / LOG_TRACE line of a
+    // Release build is dropped unless the host was started with `--log-level debug` (or trace).
     template <typename... Args>
     void LogDebug( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
-        spdlog::set_level( spdlog::level::debug );
-        spdlog::debug( fmt::format( inMessage, std::forward<Args>( InArgs )... ) );
+        Detail::Write( spdlog::level::debug, inMessage, std::forward<Args>( InArgs )... );
     }
 
     template <typename... Args>
     void LogInfo( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
-        spdlog::set_level( spdlog::level::info );
-        spdlog::info( fmt::format( inMessage, std::forward<Args>( InArgs )... ) );
+        Detail::Write( spdlog::level::info, inMessage, std::forward<Args>( InArgs )... );
     }
 
     template <typename... Args>
     void LogWarn( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
-        spdlog::set_level( spdlog::level::warn );
-        spdlog::warn( fmt::format( inMessage, std::forward<Args>( InArgs )... ) );
+        Detail::Write( spdlog::level::warn, inMessage, std::forward<Args>( InArgs )... );
     }
 
     template <typename... Args>
     void LogError( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
-        spdlog::set_level( spdlog::level::err );
-        spdlog::error( fmt::format( inMessage, std::forward<Args>( InArgs )... ) );
+        Detail::Write( spdlog::level::err, inMessage, std::forward<Args>( InArgs )... );
     }
 
     template <typename... Args>
     void LogCritical( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
-        spdlog::set_level( spdlog::level::critical );
-        spdlog::critical( fmt::format( inMessage, std::forward<Args>( InArgs )... ) );
+        Detail::Write( spdlog::level::critical, inMessage, std::forward<Args>( InArgs )... );
     }
 
     template <typename... Args>
     void LogTrace( fmt::format_string<Args...> inMessage, Args&&... InArgs )
     {
-        spdlog::set_level( spdlog::level::trace );
-        spdlog::trace( fmt::format( inMessage, std::forward<Args>( InArgs )... ) );
+        Detail::Write( spdlog::level::trace, inMessage, std::forward<Args>( InArgs )... );
     }
 
     // The runtime door, named so it cannot be walked through by accident. A message assembled at runtime —

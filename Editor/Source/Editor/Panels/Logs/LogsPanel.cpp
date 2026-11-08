@@ -64,77 +64,31 @@ namespace Desert::Editor
         Refresh();
     }
 
-    void LogsPanel::ResetParsed()
-    {
-        m_Entries.clear();
-        m_PendingLine.clear();
-        m_ReadOffset = 0;
-        m_CountInfo = m_CountWarning = m_CountError = 0;
-        s_SessionTail.clear();
-    }
 
     void LogsPanel::Refresh()
     {
         DESERT_PROFILE_SCOPE( "Logs: Refresh" );
-        // The file the logger placed (Common::Logger::LogFilePath) — never a bare name, which would be read
-        // from whatever directory the editor was started in.
-        const std::filesystem::path logFile = Common::Logger::LogFilePath();
-        if ( logFile.empty() )
+        // TAKEN, not read: the log writer's thread hands every line it writes to the file, formatted and with its
+        // level, to a bounded ring (Common::Logger::TakeLogLines), and this takes the ones numbered from
+        // m_NextLine. No file is opened, seeked or parsed on the UI thread: tailing the file here cost a seek, a
+        // read and a parse of every new line each frame, up to 1.9 ms in a burst of log lines (CPU-PLAN C3).
+        m_Taken.clear();
+        m_NextLine = Common::Logger::TakeLogLines( m_NextLine, m_Taken );
+        if ( m_Taken.empty() )
             return;
 
-        // TAILED, not re-read: only the bytes written since the last call are parsed. Re-reading the whole
-        // file on every change made this panel O(log size) per frame - the logger writes every frame, so a
-        // 28k-line Bistro session spent 110 ms of a 233 ms frame here. The file stays OPEN between frames:
-        // opening it (plus exists/file_size) twice a frame cost 8.9 ms of a 28 ms Bistro frame on Windows,
-        // where every open is scanned. A file shorter than what was already read was truncated (Clear, or a
-        // new session reusing the name): start over from its first byte.
-        if ( !m_File.is_open() || m_FilePath != logFile )
-        {
-            m_File.close();
-            m_File.open( logFile, std::ios::binary );
-            m_FilePath = logFile;
-            ResetParsed();
-            if ( !m_File.is_open() )
-                return;
-        }
-        m_File.clear();
-        m_File.seekg( 0, std::ios::end );
-        const std::streamoff end = m_File.tellg();
-        if ( end < 0 || static_cast<std::uintmax_t>( end ) == m_ReadOffset )
-            return;
-        const auto size = static_cast<std::uintmax_t>( end );
-        if ( size < m_ReadOffset )
-            ResetParsed();
-
-        m_File.seekg( static_cast<std::streamoff>( m_ReadOffset ) );
-        std::string chunk( static_cast<std::size_t>( size - m_ReadOffset ), '\0' );
-        m_File.read( chunk.data(), static_cast<std::streamsize>( chunk.size() ) );
-        chunk.resize( static_cast<std::size_t>( m_File.gcount() ) );
-        m_ReadOffset += chunk.size();
-
-        // A line the logger is still writing has no '\n' yet; it waits in m_PendingLine for the rest.
         const std::size_t firstNew = m_Entries.size();
-        std::size_t       begin    = 0;
-        for ( std::size_t end = chunk.find( '\n' ); end != std::string::npos; end = chunk.find( '\n', begin ) )
+        for ( Common::Logger::LogLine& line : m_Taken )
         {
-            std::string line = std::move( m_PendingLine );
-            m_PendingLine.clear();
-            line.append( chunk, begin, end - begin );
-            begin = end + 1;
-            if ( !line.empty() && line.back() == '\r' )
-                line.pop_back();
-            if ( line.empty() )
-                continue;
+            // The severity is the line's OWN level, as the logger knew it - never a search of the text for
+            // "[warning]" / "[error]", which painted any message QUOTING those words in a fault's colour.
+            LogSeverity severity = LogSeverity::Info;
+            if ( line.Level == spdlog::level::warn )
+                severity = LogSeverity::Warning;
+            else if ( line.Level >= spdlog::level::err && line.Level < spdlog::level::off )
+                severity = LogSeverity::Error;
 
-            // The severity comes from the line's OWN level field, via the shared parser. It used to come
-            // from searching the whole line for "[warning]" / "[error]", which painted any message that
-            // QUOTED those words — a shader diagnostic, a validation-layer string, this very comment
-            // echoed back — in the colour of a fault it did not have. A log that miscolours its own rows
-            // costs more than a plain one, because the colour is the part people trust at a glance.
-            const LogLineParts parts = ParseLogLine( line );
-            const int          level = static_cast<int>( parts.Severity );
-
-            switch ( parts.Severity )
+            switch ( severity )
             {
                 case LogSeverity::Warning:
                     ++m_CountWarning;
@@ -147,11 +101,8 @@ namespace Desert::Editor
                     break;
             }
 
-            m_Entries.push_back( { std::move( line ), level } );
+            m_Entries.push_back( { std::move( line.Text ), static_cast<int>( severity ) } );
         }
-        m_PendingLine.append( chunk, begin, std::string::npos );
-        if ( m_Entries.size() == firstNew )
-            return;
 
         s_SessionWarnings = m_CountWarning;
         s_SessionErrors   = m_CountError;
@@ -231,13 +182,11 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_DELETE_SWEEP_OUTLINE ) )
         {
             m_Entries.clear();
-            m_PendingLine.clear();
             m_CountInfo = m_CountWarning = m_CountError = 0;
             s_SessionWarnings = s_SessionErrors = 0;
             s_SessionTail.clear();
             if ( const std::filesystem::path logFile = Common::Logger::LogFilePath(); !logFile.empty() )
                 std::ofstream( logFile, std::ios::trunc ).close();
-            m_ReadOffset = 0;
         }
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( "Clear the log" );

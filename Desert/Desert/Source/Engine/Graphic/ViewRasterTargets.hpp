@@ -1,10 +1,12 @@
 #pragma once
 
+#include <Common/Core/Memory/FrameArena.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <optional>
@@ -113,14 +115,40 @@ namespace Desert::Graphic
         }
     }
 
+    // The graph textures (TextureRef::Index) of the colour slots already written in one graph (ColorLoads).
+    // CPU-RDG-ALLOC: a flat sorted list in @p allocator's arena (the frame graph's, FrameTextures), not a heap
+    // node per first clear; default: the heap. A frame starts a handful of slots: the sorted insert moves a few.
+    class StartedColorSet
+    {
+    public:
+        explicit StartedColorSet( const Common::Memory::ArenaAllocator<uint32_t>& allocator = {} ) noexcept
+             : m_Indices( allocator )
+        {
+        }
+
+        // Whether @p index was not in the set yet; it is now.
+        bool Insert( uint32_t index ) noexcept
+        {
+            const auto at = std::lower_bound( m_Indices.begin(), m_Indices.end(), index );
+            if ( at != m_Indices.end() && *at == index )
+                return false;
+            m_Indices.insert( at, index );
+            return true;
+        }
+
+    private:
+        Common::Memory::ArenaVector<uint32_t> m_Indices;
+    };
+
     // The LoadOp of every colour slot of one raster node: a slot with its own clear value CLEARS to it on its
     // first declared writer of the graph (@p started records the slots' textures already written) and LOADS after;
     // every other slot takes @p pass. Per slot, so one node clears scene colour to the sky grey and velocity to
-    // zero.
-    inline std::vector<RDG::LoadOp> ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass,
-                                                std::set<uint32_t>& started )
+    // zero. The list is in @p allocator's arena (the frame graph's, FrameTextures::ColorLoads); default: the heap.
+    inline Common::Memory::ArenaVector<RDG::LoadOp>
+    ColorLoads( const RasterTargets& targets, const RDG::LoadOp& pass, StartedColorSet& started,
+                const Common::Memory::ArenaAllocator<RDG::LoadOp>& allocator = {} )
     {
-        std::vector<RDG::LoadOp> loads( targets.Colors.size(), pass );
+        Common::Memory::ArenaVector<RDG::LoadOp> loads( targets.Colors.size(), pass, allocator );
         for ( std::size_t slot = 0; slot < targets.Colors.size(); ++slot )
         {
             if ( slot >= targets.OwnClears.size() )
@@ -128,7 +156,7 @@ namespace Desert::Graphic
             const auto clear = targets.OwnClears[slot];
             if ( !clear.has_value() )
                 continue;
-            if ( started.insert( targets.Colors[slot].Index ).second )
+            if ( started.Insert( targets.Colors[slot].Index ) )
             {
                 loads[slot].Action = RDG::LoadAction::Clear;
                 loads[slot].Value  = *clear;

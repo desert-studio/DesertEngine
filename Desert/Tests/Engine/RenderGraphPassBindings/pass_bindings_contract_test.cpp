@@ -165,7 +165,11 @@ namespace
         void AbandonGraph() override
         {
         }
-        Common::BoolResultStr UploadBuffer( uint32_t, std::span<const std::byte> ) override
+        Common::BoolResultStr UploadBuffer( uint32_t, uint64_t, std::span<const std::byte> ) override
+        {
+            return Common::MakeSuccess( true );
+        }
+        Common::BoolResultStr CopyBuffer( uint32_t, uint64_t, uint32_t, uint64_t, uint64_t ) override
         {
             return Common::MakeSuccess( true );
         }
@@ -174,6 +178,14 @@ namespace
             return nullptr;
         }
         std::shared_ptr<IPhysicalBuffer> GetPhysicalBuffer( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        IPhysicalTexture* FindPhysicalTexture( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        IPhysicalBuffer* FindPhysicalBuffer( uint32_t ) const override
         {
             return nullptr;
         }

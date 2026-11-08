@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/IndexBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -13,6 +14,8 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Common/Settings/CapabilityCatalog.hpp>
 
 #include <glm/glm.hpp>
 #include <memory>
@@ -27,6 +30,7 @@ namespace Desert::Graphic
 {
     struct ViewFrame;
     class FrameTextures;
+    struct SceneViewInputs;
 }
 
 namespace Desert::Graphic::System
@@ -74,9 +78,12 @@ namespace Desert::Graphic::System
         // The forward terrain program's DESERT_LOCAL_SHADOW_VSM permutation (Shadows.Method VirtualMaps on the
         // Forward path), ShippedByCook - the one statement EnsureForwardVsmPipeline acquires and the cook lists.
         [[nodiscard]] static Core::ShaderVariant ForwardVsmVariant();
+        // TerrainDepth.shader's DESERT_TERRAIN_NO_HOLES permutation (early fragment tests, nothing discards): the
+        // view depth prepass of a frame whose tiles have no visibility layer (EnsureDepthNoHolesPipelines).
+        [[nodiscard]] static Core::ShaderVariant                     DepthNoHolesVariant();
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
-            return { { "Terrain", ForwardVsmVariant() } };
+            return { { "Terrain", ForwardVsmVariant() }, { "TerrainDepth", DepthNoHolesVariant() } };
         }
 
         // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
@@ -103,7 +110,7 @@ namespace Desert::Graphic::System
         // @p cascadeWorldPerTexel, MeshRenderer::GetCascadeWorldPerTexel; 0 = no cascade) the camera's tiles diced
         // to the cascade's own texels; then the instance rows of every group are uploaded.
         void PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,
-                                      const std::vector<float>&                  cascadeWorldPerTexel );
+                                      std::span<const float>                     cascadeWorldPerTexel );
 
         // After PrepareLocalShadowViews and SceneRenderer::AssignLocalShadowMaskSlots (every point/spot light has
         // its final ShadowView / ShadowMaskSlot): @p scene's lights, shadow block and cloud shadow onto the
@@ -118,18 +125,68 @@ namespace Desert::Graphic::System
         // the pool is one zero vertex, still bound (the vertex stage declares it).
         [[nodiscard]] Common::BoolResultStr AddDicePoolPass( RDG::Builder& graph, FrameTextures& textures );
 
+        // Last frame's furthest HZB of the main view for the dice cull (SceneRenderer::FramePrevHzb): invalid =
+        // the frustum alone (no history, a camera cut, the forward path, a scene capture).
+        struct DiceOcclusion
+        {
+            RDG::TextureRef Hzb{};
+            RDG::TextureRef Neutral{};                  // bound when Hzb is invalid (System.Black)
+            glm::mat4       PrevViewProjection{ 1.0f }; // what Hzb was built through, unjittered
+            glm::uvec3      Extent{ 0u };               // Hzb's mip-0 size and mip count
+        };
+        // TERRAIN-DICE-CULL (UE Nanite cluster culling: frustum + last frame's HZB into a compact list), after
+        // AddDicePoolPass and before the camera's terrain rasters are declared: "Landscape: Dice Cull"
+        // (LandscapeDiceCull.shader) keeps the cells of every diced camera row's rings that the camera's
+        // (jittered) frustum and, while the eye has not moved since the HZB's frame, @p occlusion's HZB do not
+        // reject, into one indirect draw per ring level that the camera's rasters (TerrainGBuffer, the depth
+        // prepass, the forward pass) draw instead of the rings' procedural decode. The casters keep the decode.
+        // Also reads back the census of the frame the slot held ("[Terrain] triangles in view").
+        [[nodiscard]] Common::BoolResultStr AddDiceCullPass( RDG::Builder& graph, FrameTextures& textures,
+                                                             const ViewFrame&     frame,
+                                                             const DiceOcclusion& occlusion );
+
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
-        // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
-        // no scene/view input); the exec records through them.
-        void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
+        // that node: one binding block per G-buffer material of the frame's groups, each binding the one
+        // scene/view input the G-buffer shader samples - the view's DBuffer (DECALS-DBUFFER,
+        // Common/DBuffer.glslh); the exec records through them.
+        void DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
-        // Forward path: the frame's terrain into the scene DEPTH alone, before the base pass (UE: the DepthPass;
-        // SceneRenderer::AddFrameForwardDepthPrepass), through TerrainDepth.shader - the base pass's vertex stage,
-        // the hole discard, no shading. SETUP: one binding block per Depth material of the frame's groups (no
-        // scene/view input); the exec records through them. "TerrainPass" then tests CloserOrEqual, writes none.
+        // THE VIEW'S DEPTH PREPASS of the ground (UE: the DepthPass draws the landscape, an opaque occluder, under
+        // every r.EarlyZPass mode that runs one): the frame's terrain into the view's DEPTH alone, through
+        // TerrainDepth.shader - the surface's vertex stage, the hole discard, no shading. Forward: into the scene
+        // depth before the base pass (SceneRenderer::AddFrameForwardDepthPrepass); "TerrainPass" then tests
+        // CloserOrEqual and writes none. Deferred: into the G-buffer depth BEFORE the meshes' masked prepass,
+        // which their alpha-tested draws then test against ("Deferred: Terrain Depth Prepass", clearing the depth;
+        // SceneRenderer::AddFrameGBuffer, GPU-MASKED-PREPASS) whenever the frame runs an early-Z
+        // pass (SetEarlyZPass); "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground the grass
+        // and the meshes cover is rejected before it is shaded. SETUP: one binding block per Depth material of the
+        // frame's groups (no scene/view input); the exec records through them. Both are no-ops on a frame whose
+        // path does not prepass the ground (ViewDepthPipeline).
         void                                DeclareDepthDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderDepthManual( const RDG::PassContext& context );
+
+        // THE DEFERRED EARLY-Z PASS (UE r.EarlyZPass; Scalability EarlyZPass, MeshRenderer::SetEarlyZPass): set
+        // per frame by SceneRenderer before "Deferred: Masked Depth Prepass", the mode the meshes get. The ground
+        // is a masked surface (its visibility layer clips), so it joins the prepass under Masked and All; Off
+        // leaves "TerrainGBuffer" writing its own depth.
+        void SetEarlyZPass( const ::Common::Scalability::EarlyZPassMode mode )
+        {
+            m_EarlyZPass = mode;
+        }
+        // Whether this frame's deferred G-buffer draws the ground over its own depth prepass: the early-Z pass
+        // runs and both prepassed pipelines exist. "Deferred: Terrain Depth Prepass" is added exactly then.
+        [[nodiscard]] bool PrepassesGBuffer() const;
+
+        // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB), set per frame by SceneRenderer::OnUpdate: true
+        // = the dice pool is kept across frames and re-evaluated only when its jobs' keys change; false = a
+        // transient evaluated every frame (the old path, the A/B). Turning it off drops the kept pool.
+        void SetDicePoolCache( const bool cache ) noexcept
+        {
+            if ( !cache )
+                m_DicePoolKeysValid = false;
+            m_DicePoolCache = cache;
+        }
 
         // THE WIREFRAME VIEW (DebugViewState::WireframeMode, as MeshRenderer::SetWireframe): the forward base pass
         // draws through the line-polygon twin of its pipeline, writing its own depth, and the depth prepass draws
@@ -315,7 +372,18 @@ namespace Desert::Graphic::System
             // What RecordDraws draws instead (TERRAIN-GPU-2): the dice rings procedurally, the other cells through
             // the grid's shared index buffer (m_GridIndices[Split.Cells]).
             LandscapeDrawSplit Split;
+            // TERRAIN-DICE-CULL: a camera draw's first indirect record of m_DiceCullArgs (kLandscapeDiceLevels of
+            // them, one a ring level) when its rings are culled (QueueDiceCull); kNoDiceCull = the decode.
+            uint32_t DiceCull = ~0u;
         };
+        static constexpr uint32_t kNoDiceCull = ~0u;
+        // TERRAIN-DICE-CULL: @p view (a camera draw of diced row @p row, whose corner nodes start at @p
+        // firstCorner in the pool) gets its cull job: the row's list range (DicePool.z) and its records.
+        void QueueDiceCull( FrameDraw& view, TerrainInstance& row, uint32_t firstCorner );
+        // The camera rasters' indirect records, when this frame's cull ran (else none: the procedural rings).
+        [[nodiscard]] RDG::BufferRef CameraDiceCullArgs() const;
+        // Reads the census slot @p frameIndex comes back to and logs "[Terrain] triangles in view" when it moved.
+        void ReportDiceCullCensus( uint64_t frameIndex );
         // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile, the grid's
         // index buffer made first if this is the first draw at that grid (EnsureGridIndices).
         void SplitDraw( FrameDraw& draw, uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row );
@@ -349,15 +417,64 @@ namespace Desert::Graphic::System
             uint32_t       FirstRecord = 0;
         };
 
-        [[nodiscard]] std::vector<const MaterialExecutor*>
+        // CPU-FRAME-ARENA 3: a view over m_FrameGroups yielding each group's executor of one program - no vector
+        // per node setup. Valid until the frame's groups change (ClearQueue / PrepareFrame); a setup uses it at
+        // once.
+        class GroupExecutorRange
+        {
+        public:
+            using Program = std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*;
+            class Iterator
+            {
+            public:
+                Iterator( const FrameGroup* group, const Program program ) noexcept
+                     : m_Group( group ), m_Program( program )
+                {
+                }
+                [[nodiscard]] const MaterialExecutor* operator*() const; // TerrainRenderer.cpp
+                Iterator&                             operator++() noexcept
+                {
+                    ++m_Group;
+                    return *this;
+                }
+                [[nodiscard]] bool operator!=( const Iterator& other ) const noexcept
+                {
+                    return m_Group != other.m_Group;
+                }
+
+            private:
+                const FrameGroup* m_Group;
+                Program           m_Program;
+            };
+            GroupExecutorRange( const std::vector<FrameGroup>& groups, const Program program ) noexcept
+                 : m_Groups( &groups ), m_Program( program )
+            {
+            }
+            [[nodiscard]] Iterator begin() const noexcept
+            {
+                return Iterator( m_Groups->data(), m_Program );
+            }
+            [[nodiscard]] Iterator end() const noexcept
+            {
+                return Iterator( m_Groups->data() + m_Groups->size(), m_Program );
+            }
+            [[nodiscard]] size_t size() const noexcept
+            {
+                return m_Groups->size();
+            }
+
+        private:
+            const std::vector<FrameGroup>* m_Groups;
+            Program                        m_Program;
+        };
+        [[nodiscard]] GroupExecutorRange
         GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
 
-        [[nodiscard]] Common::BoolResultStr
-        RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
-                     std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                     const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
-                     const std::optional<glm::vec2>&             shadowSlope = std::nullopt,
-                     const std::optional<VirtualShadowIndirect>& indirect    = std::nullopt );
+        [[nodiscard]] Common::BoolResultStr RecordDraws(
+             const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
+             std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
+             const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope = std::nullopt,
+             const std::optional<VirtualShadowIndirect>& indirect = std::nullopt, RDG::BufferRef diceCull = {} );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         // The forward program's DESERT_LOCAL_SHADOW_VSM permutation, built on the first frame whose local shadows
@@ -387,8 +504,28 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_WireframeVsmPipeline; // twin of m_PipelineVsm
         bool                              m_WireframeRefused = false;
 #endif
-        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
+        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline; // writes its own depth (EarlyZPass Off)
+        // The G-buffer program over the ground's own depth prepass: CloserOrEqual, no depth write
+        // (PrepassesGBuffer).
+        std::shared_ptr<GraphicsPipeline> m_GBufferPrepassedPipeline;
         std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
+        // The deferred depth prepass's (GBufferDepthLayout): TerrainDepth.shader into the G-buffer depth.
+        std::shared_ptr<GraphicsPipeline>     m_GBufferDepthPipeline;
+        // The no-holes twins of m_DepthPipeline / m_GBufferDepthPipeline (DepthNoHolesVariant): the same layouts
+        // and declarations, the depth test before the fragment stage. Built on the first frame without holes; a
+        // refused permutation is logged once and the frame keeps the discarding program (still exact).
+        std::shared_ptr<GraphicsPipeline> m_DepthNoHolesPipeline;
+        std::shared_ptr<GraphicsPipeline> m_GBufferDepthNoHolesPipeline;
+        bool                              m_DepthNoHolesRefused = false;
+        // Whether a tile of this frame's m_Queue has a visibility layer (PrepareFrame): the discarding prepass.
+        bool                                  m_FrameHasHoles = true;
+        void                                  EnsureDepthNoHolesPipelines();
+        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::Off;
+        // The pipeline the view's depth prepass records with this frame: the forward one, the deferred one under
+        // PrepassesGBuffer, or nullptr when the frame's path does not prepass the ground.
+        [[nodiscard]] const GraphicsPipeline* ViewDepthPipeline() const;
+        // The pipeline "TerrainGBuffer" records with this frame: the prepassed twin under PrepassesGBuffer.
+        [[nodiscard]] const GraphicsPipeline* GBufferPassPipeline() const;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         // m_ShadowPipeline with depth clamp: a sun cascade's terrain, pancaked (EnsureShadowPipeline,
         // RecordShadowView).
@@ -469,8 +606,47 @@ namespace Desert::Graphic::System
             // buffer (AddDicePoolPass).
             uint32_t Corners     = 0;
             uint32_t FirstCorner = 0;
+            // The maps' texel revisions (sculpting and painting edit them in place): part of the pool's key.
+            uint64_t HeightRevision = 0u;
+            uint64_t WeightRevision = 0u;
         };
         std::vector<DicePoolJob>         m_DicePoolJobs;
+        // GPU-TERRAIN-HZB, THE PERSISTENT DICE POOL (UE Landscape: displaced geometry kept until its inputs
+        // change): everything one job's dispatch reads - its row, counts, ranges and maps (pointer, device
+        // generation, texel revision). AddDicePoolPass evaluates the pool and its corner nodes into buffers that
+        // outlive the graph and dispatches nothing on a frame whose keys equal the ones they were evaluated for.
+        struct DicePoolKey
+        {
+            TerrainInstance Row;
+            const void*     Heightmap        = nullptr;
+            const void*     Weightmap        = nullptr;
+            const void*     LayerHeights     = nullptr;
+            uint64_t        HeightGeneration = 0u;
+            uint64_t        WeightGeneration = 0u;
+            uint64_t        LayerGeneration  = 0u;
+            uint64_t        HeightRevision   = 0u;
+            uint64_t        WeightRevision   = 0u;
+            uint32_t        Vertices         = 0;
+            uint32_t        Corners          = 0;
+            uint32_t        FirstCorner      = 0;
+        };
+        [[nodiscard]] static bool SameDicePoolKey( const DicePoolKey& a, const DicePoolKey& b ) noexcept;
+        // RenderPipeline.LandscapeDicePoolCache (SceneRenderer::OnUpdate): false = the old path, the pool a
+        // transient evaluated every frame (the A/B and the rollback).
+        bool                                            m_DicePoolCache = true;
+        std::vector<DicePoolKey>                        m_DicePoolKeys;      // what the persistent pool holds
+        std::vector<DicePoolKey>                        m_DicePoolFrameKeys; // this frame's (capacity reused)
+        bool                                            m_DicePoolKeysValid = false;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_DicePoolBuffer;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_DicePoolCornerBuffer;
+        RDG::ExternalBuffer                             m_DicePoolImport;
+        RDG::ExternalBuffer                             m_DicePoolCornerImport;
+        uint64_t                                        m_DicePoolBytes       = 0u; // m_DicePoolBuffer's size
+        uint64_t                                        m_DicePoolCornerBytes = 0u;
+        // The persistent pool and corner nodes in @p graph, (re)made when they are smaller than @p poolBytes /
+        // @p cornerBytes (which drops the keys); sets m_DicePool and m_DicePoolCornerNodes.
+        Common::BoolResultStr            ImportPersistentDicePool( RDG::Builder& graph, uint64_t poolBytes,
+                                                                   uint64_t cornerBytes );
         uint32_t                         m_DicePoolVertices = 0;
         uint32_t                         m_DicePoolCorners  = 0;
         // Puts @p row's pooled vertices (@p pooled > 0, LandscapeDicePoolVertexCount) at the pool's end: sets its
@@ -482,7 +658,38 @@ namespace Desert::Graphic::System
         // only in PrepareFrame / PrepareLocalShadowViews, read by RecordDraws.
         std::unordered_map<uint32_t, std::shared_ptr<IndexBuffer>> m_GridIndices;
         RDG::BufferRef                   m_DicePool;
+        RDG::BufferRef                   m_DicePoolCornerNodes; // this frame's corner nodes (AddDicePoolPass)
         std::shared_ptr<ComputePipeline> m_DicePoolPipeline;
         ShaderBindingLayoutCache         m_DicePoolLayout;
+
+        // THE DICE CULL (AddDiceCullPass): per culled camera draw its row (DicePool.z = its first list entry),
+        // the fade square's cells it tests and its corner nodes; m_DiceCullCells = the list's length (each job
+        // kLandscapeDiceLevels x Cells), m_DiceCells / m_DiceCullArgs this frame's list and records (the list
+        // bound by every terrain draw), m_DiceCulled = the cull ran (the camera's rasters draw the records).
+        struct DiceCullJob
+        {
+            TerrainInstance Row;
+            uint32_t        Cells       = 0;
+            uint32_t        FirstCorner = 0;
+            float           Reach       = 0.0f;
+        };
+        std::vector<DiceCullJob>         m_DiceCullJobs;
+        uint32_t                         m_DiceCullCells = 0;
+        RDG::BufferRef                   m_DiceCells;
+        RDG::BufferRef                   m_DiceCullArgs;
+        bool                             m_DiceCulled = false;
+        std::shared_ptr<ComputePipeline> m_DiceCullPipeline;
+        ShaderBindingLayoutCache         m_DiceCullLayout;
+        // The census: per frame in flight the records read back and what the CPU knew of that frame.
+        struct DiceCullCensus
+        {
+            RDG::ExternalBuffer Args;
+            uint32_t            Jobs          = 0;
+            uint64_t            Tested        = 0; // cells tested (every culled row's fade square)
+            uint64_t            GridTriangles = 0; // the camera's undiced grid cells' (not culled here)
+        };
+        std::vector<DiceCullCensus> m_DiceCullCensus;
+        uint64_t                    m_DiceCullGridTriangles = 0;
+        uint64_t                    m_LoggedCulledTriangles = 0;
     };
 } // namespace Desert::Graphic::System

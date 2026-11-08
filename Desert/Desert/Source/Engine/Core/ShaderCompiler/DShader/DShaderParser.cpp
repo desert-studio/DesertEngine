@@ -1,6 +1,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Common/Core/NumberText.hpp>
 #include <Engine/Assets/Serialization/WorldParameters.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
@@ -163,15 +164,14 @@ namespace Desert::Core::Preprocess
             while ( !c.AtEnd() && ( std::isdigit( static_cast<unsigned char>( c.Peek() ) ) || c.Peek() == '.' ||
                                     c.Peek() == '-' || c.Peek() == '+' ) )
                 tok.push_back( c.Advance() );
-            try
-            {
-                out = std::stof( tok );
-            }
-            catch ( ... )
+            // std::stof's reading, as a value (Common::FloatFromText): a leading number is taken, as before.
+            const std::optional<float> number = Common::FloatFromText( tok );
+            if ( !number )
             {
                 err = { c.Line, "expected a number, got '" + tok + "'" };
                 return false;
             }
+            out = *number;
             return true;
         }
 
@@ -1261,29 +1261,19 @@ namespace Desert::Core::Preprocess
         //   LocalSize(x, y, z)  -> layout(local_size_x = x, local_size_y = y, local_size_z = z) in
         //   PushConstant ...    -> layout(push_constant) uniform ...          (block name + instance kept)
         //
-        // AUTO NUMBERS (drop the parentheses): `In T x;` / `Out T x;` / `Uniform Name {}` / `Buffer Name {}`
-        // / `ReadBuffer`/`WriteBuffer` with NO (n) auto-allocate the lowest free slot, in declaration order.
-        // Three independent spaces: `in` locations, `out` locations, and descriptor bindings; auto slots skip
-        // any EXPLICIT number already present so the two can be mixed.
+        // AUTO NUMBERS (drop the parentheses). `In T x;` / `Out T x;` take the lowest free location of this
+        // text, in declaration order, skipping any EXPLICIT location already present. `Uniform Name {}` /
+        // `Buffer Name {}` / `ReadBuffer` / `WriteBuffer` with NO (n) take NO number here: they are written on
+        // kAutoResourceBinding, and the program build (ShaderMapBuild.cpp AssignProgramBindings) gives each such
+        // name one slot for every stage once all stages are compiled, where a number is a number whatever spelled
+        // it (a macro, an include, another stage). Explicit numbers never move.
         //
-        // THE SCOPE IS ONE CALL OF THIS FUNCTION, WHICH IS NARROWER THAN A STAGE — this paragraph said "per
-        // STAGE" until 2026-09-08 and the code has never done that. AssembleStage translates the DSL `Include`
-        // block and the stage body in TWO separate calls, and ShaderIncluder hands every `#include`d `.glslh`
-        // its own call as well. So each of those texts starts counting from zero, and two auto declarations in
-        // two of them collide. Nothing in the tree does it today (measured 2026-09-08: NO shipped `.shader` or
-        // `.glslh` uses ANY paren-less form, for a location or for a binding), which is why it has never been
-        // seen — but the guarantee the old wording offered was not one this function can make. Anything SHARED —
-        // a resource an include declares, one a second stage also names, or one a C++ site binds by a fixed
-        // number — must keep its EXPLICIT (n).
-        //
-        // AND THE SEED IS DIGITS, SO A MACRO IS INVISIBLE TOO. The occupancy scan below reads `binding = (\d+)`,
-        // and three shipped headers spell the number as a macro instead — Common/CloudAuthored.glslh,
-        // Common/CloudParams.glslh, Common/FogParams.glslh. An auto declaration added to one of those files
-        // would be handed a number that file has already spent. Widening the pattern does not fix it: the
-        // file-scope blindness above defeats any pattern, because the number an auto form collides with usually
-        // lives in a text this call never sees. It is caught after compilation instead, where a number is a
-        // number whatever spelled it — ShaderReflection::ReflectStage refuses a descriptor slot claimed twice
-        // and names both resources, and Tests/Engine/ShaderCacheKey asserts it over every shipped shader.
+        // THE LOCATION SCOPE IS ONE CALL OF THIS FUNCTION, WHICH IS NARROWER THAN A STAGE. AssembleStage
+        // translates the DSL `Include` block and the stage body in TWO separate calls, and ShaderIncluder hands
+        // every `#include`d `.glslh` its own call as well, so two auto locations in two of those texts collide;
+        // and the seed reads digits, so a macro-spelled location is invisible. A varying declared in an include
+        // or matched across stages keeps its EXPLICIT (n). A binding has neither problem: it is numbered by the
+        // program, and a resource a C++ site binds BY NUMBER is the one binding that must stay explicit.
         //
         // Storage-image format qualifiers (`layout(binding=n, rgba32f) uniform imageCube`) and tessellation
         // layout (`layout(vertices=n) out`, `layout(quads,...) in`) are inherently GLSL-structural and stay
@@ -1470,15 +1460,14 @@ namespace Desert::Core::Preprocess
 
             // The keywords that SURVIVED the explicit pass are the paren-less ones — `Uniform(0)` has
             // become `layout(binding = 0) uniform` and no longer reads as a keyword at all. A text with
-            // none left needs neither the occupancy scan nor the allocation pass, which is every shipped
-            // shader today: not one uses an automatic form.
+            // none left needs neither the location scan nor the marker pass, which is most shipped texts.
             const KeywordSet autoForms = PresentSugarKeywords( runs );
             const bool       autoIn    = autoForms[KwIn];
             const bool       autoOut   = autoForms[KwOut];
             const bool autoBind = autoForms[KwUniform] || autoForms[KwReadBuffer] || autoForms[KwWriteBuffer] ||
                                   autoForms[KwBuffer];
 
-            // (2) Seed each auto-allocator with the EXPLICIT numbers already present so auto never collides.
+            // (2) Seed each location allocator with the EXPLICIT locations already present so auto never collides.
             // Over the CODE runs only: a number quoted in a comment is documentation, not an occupancy.
             const auto collect = [&]( const std::regex& re, std::set<int>& used )
             {
@@ -1487,16 +1476,19 @@ namespace Desert::Core::Preprocess
                     if ( !run.IsCode )
                         continue;
                     for ( std::sregex_iterator it( run.Text.begin(), run.Text.end(), re ), end; it != end; ++it )
-                        used.insert( std::stoi( ( *it )[1].str() ) );
+                    {
+                        // Digits were matched, so a refusal is a number past int: no slot auto-allocation
+                        // could reach, so it occupies none.
+                        if ( const auto number = Common::WholeIntegerFromText<int>( ( *it )[1].str() ) )
+                            used.insert( *number );
+                    }
                 }
             };
-            std::set<int> usedIn, usedOut, usedBind;
+            std::set<int> usedIn, usedOut;
             if ( autoIn )
                 collect( std::regex( R"(location\s*=\s*(\d+)\s*\)\s*in\b)" ), usedIn );
             if ( autoOut )
                 collect( std::regex( R"(location\s*=\s*(\d+)\s*\)\s*out\b)" ), usedOut );
-            if ( autoBind )
-                collect( std::regex( R"(binding\s*=\s*(\d+))" ), usedBind );
 
             const auto alloc = []( std::set<int>& used )
             {
@@ -1524,7 +1516,8 @@ namespace Desert::Core::Preprocess
 
             static const std::regex kAutoIn( R"(\bIn\b(?!\s*\())" );
             static const std::regex kAutoOut( R"(\bOut\b(?!\s*\())" );
-            // One combined pattern over the four binding keywords so they share ONE binding space in text order.
+            // One combined pattern over the four binding keywords. None takes a number from this text: every one
+            // takes a marker the program build numbers once all stages are compiled (SharedSamplerBinding.hpp).
             static const std::regex kAutoBinding( R"(\b(Uniform|ReadBuffer|WriteBuffer|Buffer)\b(?!\s*\())" );
             // `Uniform sampler <name>;` is a SHARED SAMPLER STATE: it takes no number from this text (which is
             // blind to the other stages, the included headers and every macro-spelled binding) but the marker the
@@ -1552,7 +1545,7 @@ namespace Desert::Core::Preprocess
                                                                   kSharedSampler ) )
                                               return std::format( "layout(binding = {}) uniform",
                                                                   kAutoSamplerBinding );
-                                          const int n = alloc( usedBind );
+                                          const uint32_t n = kAutoResourceBinding;
                                           if ( kw == "Uniform" )
                                               return std::format( "layout(binding = {}) uniform", n );
                                           if ( kw == "ReadBuffer" )
@@ -2242,11 +2235,52 @@ namespace Desert::Core::Preprocess
                     result.Meta.Domain = ShaderDomain::Particle;
                 else if ( v == "deformstamp" )
                     result.Meta.Domain = ShaderDomain::DeformStamp;
+                else if ( v == "deferreddecal" )
+                {
+                    result.Meta.Domain = ShaderDomain::DeferredDecal;
+                    // A decal material that names no channels writes all three (UE: DBuffer A, B and C).
+                    if ( result.Meta.DecalChannelMask == 0u )
+                        result.Meta.DecalChannelMask = kDecalChannelAll;
+                }
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };
                     return fail();
                 }
+            }
+            // `DecalChannels BaseColor Normal Roughness`: the DBuffer targets a DeferredDecal shader writes
+            // (ShaderProgramMeta DecalChannel). Read to the end of the line; an unknown word fails the compile.
+            else if ( lower == "decalchannels" )
+            {
+                uint32_t mask = 0u;
+                // The channels are the words on the `DecalChannels` line itself: a probe that lands on a later
+                // line has read the next section's keyword, which stays unread.
+                for ( ;; )
+                {
+                    Cursor            probe = c;
+                    const std::string word  = Lower( ReadIdent( probe ) );
+                    if ( word.empty() || probe.Line != line )
+                        break;
+                    c.Pos  = probe.Pos;
+                    c.Line = probe.Line;
+                    if ( word == "basecolor" )
+                        mask |= kDecalChannelBaseColor;
+                    else if ( word == "normal" )
+                        mask |= kDecalChannelNormal;
+                    else if ( word == "roughness" )
+                        mask |= kDecalChannelRoughnessMetalAO;
+                    else
+                    {
+                        err = { line, "unknown DecalChannels channel '" + word + "'" };
+                        return fail();
+                    }
+                }
+                if ( mask == 0u )
+                {
+                    err = { line, "DecalChannels names no channel" };
+                    return fail();
+                }
+                result.Meta.DecalChannelMask = mask;
             }
             // The template MANIFEST (`Role <Name>`, `Default Surface`) is not program schema: its one reader is
             // Common::Content::ReadShaderManifest (ShaderAsset, the asset registry's Role tag). The compiler

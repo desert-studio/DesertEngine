@@ -1,5 +1,7 @@
 #include "Template.hpp"
 
+#include <Common/Core/NumberText.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -595,9 +597,14 @@ namespace Common::Text
                         return MakeSuccess( std::move( e ) );
                     }
                     case TokenKind::Real:
+                    {
                         Next();
-                        e->Literal = Json::Value( std::stod( token.Text ) );
+                        const std::optional<double> real = Common::DoubleFromText( token.Text );
+                        if ( !real )
+                            return MakeError<ExprPtr>( ErrorAt( token, "real literal out of range" ) );
+                        e->Literal = Json::Value( *real );
                         return MakeSuccess( std::move( e ) );
+                    }
                     case TokenKind::Identifier:
                         if ( token.Text == "true" || token.Text == "false" )
                         {

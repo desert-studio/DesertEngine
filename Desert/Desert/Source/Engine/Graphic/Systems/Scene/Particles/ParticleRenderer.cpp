@@ -146,6 +146,11 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
     };
+    // The declare tests these slots by SceneViewSlot bit: the bit's table name is the parameter's name.
+    static_assert( ParticleSpriteShaderParameters::RibbonOrder.Name ==
+                   ::Desert::Graphic::kPassParticleRibbonOrderName );
+    static_assert( ParticleSpriteShaderParameters::SceneDepthTexture.Name ==
+                   ::Desert::Graphic::kSceneViewSceneDepthName );
 } // namespace
 
 namespace Desert::Graphic::System
@@ -305,12 +310,21 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         const std::optional<Core::Frustum> frustum =
              camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
-        for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
+        // Four emitters' boxes per test (Frustum::IntersectsEach4, Intersects bit for bit), asked at every
+        // i % 4 == 0; emitter i reads bit i % 4. No frustum: nothing is in view, as before.
+        const std::vector<ParticleFrameEmitter>& emitters = world.FrameEmitters();
+        const auto boundsOf = [&emitters]( const std::size_t k ) -> const Common::Math::AABB*
+        { return &emitters[k].WorldBounds; };
+        uint32_t inView4 = 0u;
+        for ( std::size_t emitterIndex = 0; emitterIndex < emitters.size(); ++emitterIndex )
         {
+            const ParticleFrameEmitter& fe = emitters[emitterIndex];
+            if ( frustum && ( emitterIndex & 3u ) == 0u )
+                inView4 = frustum->IntersectsEach4( emitterIndex, emitters.size(), boundsOf );
             EmitterMaterials& materials = m_Materials[fe.EntityId];
             ViewEmitter       ve;
             ve.Frame  = &fe;
-            ve.InView = frustum && frustum->Intersects( fe.WorldBounds );
+            ve.InView = ( ( inView4 >> ( emitterIndex & 3u ) ) & 1u ) != 0u;
             m_ViewCulls.push_back( { fe.EntityId, fe.Emitter, !ve.InView } );
             // One draw per enabled renderer row, in `.dfx` order (UE: every renderer of the emitter draws), each
             // with its own material instance keyed by (emitter, row).
@@ -1346,20 +1360,24 @@ namespace Desert::Graphic::System
                 // The cell RecordSpriteDraws binds: its camera block, defaults, view sets and block copies are
                 // written before the graph records (SpriteDraw::PrepareForRecording).
                 declared.Prepares( sprite );
-                const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
+                // DECALS-DBUFFER: the layout's and the route's slot masks are resolved when they change (shader
+                // reload, material edit); every test below is a bit test, no slot name is compared per draw.
+                const SlottedLayout& slotted =
+                     sprite.Layout.GetSlotted( sprite.Pipeline->GetSpecification().Shader );
+                const SceneViewSlots slots   = slotted.Slots;
+                const std::shared_ptr<const RDG::OtherRouteFill>& fill =
+                     sprite.Material->GetMaterialExecutor()->GetRouteFill();
                 // A translucent / additive emitter reads its alive half back to front from this view's
                 // SortedAlive (AddSortPasses), at the same offset; an opaque / masked one reads AliveList
                 // unsorted.
-                auto block = declared.Bindings( layout, sprite.Material->GetMaterialExecutor()->GetRouteFill() )
+                auto block = declared.Bindings( slotted.Layout, fill )
                                   .Storage( ParticleSpriteShaderParameters::AttributeFloats, ve.FloatsRef,
                                             RDG::Access::StorageRead )
                                   .Storage( ParticleSpriteShaderParameters::DrawLayout, ve.DrawLayoutRef,
                                             RDG::Access::StorageRead );
                 // A sprite cell reads the alive list; a ribbon cell reads the emitter's link order instead
                 // (Vertex_ParticleRibbon.glslh RibbonOrder, AddSortPasses), at the same offsets.
-                const bool links =
-                     std::any_of( layout->Slots.begin(), layout->Slots.end(),
-                                  []( const RDG::ShaderSlot& slot ) { return slot.Name == "RibbonOrder"; } );
+                const bool   links = slots.Has( SceneViewSlot::ParticleRibbonOrder );
                 const size_t phase = static_cast<size_t>( DrawSortPhase( ve, draw.GBuffer ) );
                 if ( links && ve.Ribboned[phase] )
                     block.Storage( ParticleSpriteShaderParameters::RibbonOrder, m_Sort[phase].Ribbon,
@@ -1368,25 +1386,18 @@ namespace Desert::Graphic::System
                     block.Storage( ParticleSpriteShaderParameters::AliveList,
                                    ve.Sorted[phase] ? m_Sort[phase].Sorted : m_Pool.AliveRef,
                                    RDG::Access::StorageRead );
-                const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
+                const bool fades = slots.Has( SceneViewSlot::SceneDepth );
                 if ( fades && depth )
                     block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
                                    "SceneDepth.Compute" )
                          .Sampler( ParticleSpriteShaderParameters::PointClampSampler,
                                    RDG::SamplerDesc::PointClamp() );
                 // The rest of the list, minus the depth above and minus what the material route already fills
-                // (a slot filled by both faults the node as surely as one filled by neither).
-                const std::shared_ptr<const RDG::OtherRouteFill> fill =
-                     sprite.Material->GetMaterialExecutor()->GetRouteFill();
-                const RDG::OtherRouteFill& route  = *fill;
-                RDG::ShaderBindingLayout   others = *layout;
-                std::erase_if( others.Slots,
-                               [&route]( const RDG::ShaderSlot& slot )
-                               {
-                                   return slot.Name == kSceneViewSceneDepthName || slot.Name == "RibbonOrder" ||
-                                          std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
-                                               route.Slots.end();
-                               } );
+                // (a slot filled by both faults the node as surely as one filled by neither): a mask, not a copy.
+                SceneViewSlots others = slots;
+                others.Clear( SceneViewSlot::SceneDepth );
+                others.Clear( SceneViewSlot::ParticleRibbonOrder );
+                others.Bits &= ~sprite.RouteSlots.Get( fill ).Bits;
                 BindSceneViewInputs( block, inputs, others );
             }
             if ( drawn )

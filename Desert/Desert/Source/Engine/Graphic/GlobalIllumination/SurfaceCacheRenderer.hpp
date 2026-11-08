@@ -89,6 +89,11 @@ namespace Desert::Graphic::SurfaceCache
             RDG::BufferRef MeshCards;
             RDG::BufferRef InstanceRows;  // contract B3: the instance table
             RDG::BufferRef LightingPages; // the pages relit this frame (SceneFrame::LightingPages)
+            // The lighting tiles of those pages (AddLightingTilesPass, the async compute path only): the
+            // consumers' indirect dispatch + the tile count, and the tile words
+            // (Common/SurfaceCacheLightingTiles.glslh). Invalid on the raster path.
+            RDG::BufferRef LightingTileArgs;
+            RDG::BufferRef LightingTiles;
         };
         // What the card lighting is lit by: THE SAME inputs the deferred composite reads this frame (its scene
         // view inputs - cascades, cloud map, local shadow atlas -, the view's light buffers, the composite's
@@ -119,6 +124,11 @@ namespace Desert::Graphic::SurfaceCache
             // lights read View.Vsm through the DESERT_LOCAL_SHADOW_VSM program, false = the atlas's view table
             // (Lights.ShadowViews).
             bool VirtualLocalShadows = false;
+            // GPU-GI-CRITPATH (Scalability GlobalIllumination.SurfaceCacheAsyncRadiosity): true = the pass is
+            // compute on the async compute queue over the frame's lighting tiles (FrameBuffers::LightingTiles,
+            // UE LumenSceneDirectLighting on async compute), the first of the radiance cache -> surface cache ->
+            // screen probes segment; false = the raster pass on the graphics queue (the A/B's old path).
+            bool Async = true;
         };
         // What the radiosity (UE LumenRadiosity) is traced and integrated with: the frame's tracer and the GI ray
         // contract's reads - the same a radiance cache probe traces with (WorldRadianceCache::
@@ -144,6 +154,12 @@ namespace Desert::Graphic::SurfaceCache
             RDG::TextureRef                       GBufferDepth;
             RDG::TextureRef                       GBufferA;
             RDG::TextureRef                       GBufferEmissive;
+            // GPU-GI-CRITPATH (Scalability GlobalIllumination.SurfaceCacheAsyncRadiosity): true = the radiosity
+            // trace and the integration run as compute on the async compute queue, in the segment of the radiance
+            // cache's update they read and the screen probes' trace that reads their FinalLighting (UE: Lumen
+            // scene lighting on async compute), so the graphics queue neither waits on the cache before them nor
+            // the async queue on them; false = the raster passes on the graphics queue (the A/B's old path).
+            bool Async = true;
         };
 
         // Shaders, the copy pipeline and the capture framebuffer. A renderer may be made before it is initialised
@@ -173,11 +189,15 @@ namespace Desert::Graphic::SurfaceCache
             GlobalIllumination::Pipeline Tracer;
         };
         // States @p origins of engine frame @p engineFrame and resolves the budget and the card tracer from the
-        // scene: @p registry's unbound post-process volumes (ResolveViewSettings without a view position) and
-        // @p deferred (the scene's rendering path) under the machine's quality and the device catalogue, minus the
-        // tracers whose lighting program did not build here (RefuseLightingTracer).
-        void BeginFrame( uint64_t engineFrame, std::vector<glm::vec3> origins, const entt::registry& registry,
-                         bool deferred );
+        // scene: @p scenePost, its unbound post-process volumes (ResolveViewSettings without a view position, read
+        // off the registry by the caller on the game thread), and @p deferred (the scene's rendering path) under
+        // the machine's quality and the device catalogue, minus the tracers whose lighting program did not build
+        // here (RefuseLightingTracer). RENDER-OWNED (CPU-ONE-SYNC): the views in flight read m_FrameViews and
+        // m_Refusals, so Scene::OnUpdate runs this as a render command (RenderTask::Enqueue), in order behind
+        // them; a capture face calls it with nothing in flight (RenderTask::CheckRenderStateWrite names any other
+        // call).
+        void BeginFrame( uint64_t engineFrame, std::vector<glm::vec3> origins,
+                         const Core::PostProcessSettings& scenePost, bool deferred );
         // The views stated for @p engineFrame; null when BeginFrame did not run in it.
         [[nodiscard]] const FrameViews* ViewsOf( uint64_t engineFrame ) const
         {
@@ -253,6 +273,12 @@ namespace Desert::Graphic::SurfaceCache
         // What a traced hit reads of this frame's cache (GIHitRadiance): @p buffers and the atlas layers.
         [[nodiscard]] GlobalIllumination::SurfaceCacheFrame HitReads( const ImportImage&  import,
                                                                       const FrameBuffers& buffers ) const;
+        // UE LumenSceneDirectLighting's card tiles (SpliceCardPagesIntoTiles): the 8x8 tiles of the frame's
+        // LightingPages that hold a captured texel, listed on the async compute queue into @p buffers'
+        // LightingTileArgs / LightingTiles, which the three async lighting passes dispatch over. The async path
+        // only (Scalability GlobalIllumination.SurfaceCacheAsyncRadiosity); nothing to list, nothing is added.
+        [[nodiscard]] Common::BoolResultStr AddLightingTilesPass( RDG::Builder& graph, const ImportImage& import,
+                                                                  const SceneFrame& frame, FrameBuffers& buffers );
         // UE LumenSceneDirectLighting: the frame's LightingPages relit into DirectLighting and FinalLighting.
         [[nodiscard]] Common::BoolResultStr AddDirectLightingPass( RDG::Builder& graph, const ImportImage& import,
                                                                    const SceneFrame&           frame,
@@ -281,13 +307,18 @@ namespace Desert::Graphic::SurfaceCache
         // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
         // @p virtualLocalShadows: Shadows.Method VirtualMaps - the DESERT_LOCAL_SHADOW_VSM permutation, whose
         // point/spot lights read the view's virtual shadow map (SceneViewInputs::Vsm) in place of the atlas.
+        // @p async: the compute program of the async path (SurfaceCacheDirectLightingAsync.shader, Scalability
+        // GlobalIllumination.SurfaceCacheAsyncRadiosity), else the raster one.
         [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
-                                                                   bool virtualLocalShadows );
-        // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it.
-        [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer );
+                                                                   bool virtualLocalShadows, bool async );
+        // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it:
+        // the raster one, or with @p async the compute one (SurfaceCacheRadiosityTraceAsync.shader).
+        [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                    bool                                async );
         // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
-        // TracerProgramVariants of SurfaceCacheDirectLighting and SurfaceCacheRadiosityTrace), cooked by the
-        // package (PackageCook CookShaderVariants).
+        // TracerProgramVariants of SurfaceCacheDirectLighting, SurfaceCacheDirectLightingAsync,
+        // SurfaceCacheRadiosityTrace and SurfaceCacheRadiosityTraceAsync), cooked by the package (PackageCook
+        // CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
@@ -350,6 +381,16 @@ namespace Desert::Graphic::SurfaceCache
         std::shared_ptr<GraphicsPipeline>                                     m_LightingPipeline;
         GlobalIllumination::Pipeline                                          m_LightingProgramFor{};
         bool                                                                  m_LightingProgramVsm = false;
+        // The async compute path's direct lighting (EnsureLightingProgram with async) and its tile list
+        // (SurfaceCacheLightingTiles.shader, built by Initialize).
+        std::shared_ptr<Shader>                                               m_LightingAsyncShader;
+        mutable ShaderBindingLayoutCache                                      m_LightingAsyncLayout;
+        std::shared_ptr<ComputePipeline>                                      m_LightingAsyncPipeline;
+        GlobalIllumination::Pipeline                                          m_LightingAsyncProgramFor{};
+        bool                                                                  m_LightingAsyncProgramVsm = false;
+        std::shared_ptr<Shader>                                               m_TilesShader;
+        mutable ShaderBindingLayoutCache                                      m_TilesLayout;
+        std::shared_ptr<ComputePipeline>                                      m_TilesPipeline;
         std::shared_ptr<Shader>                                               m_IndirectShader;
         mutable ShaderBindingLayoutCache                                      m_IndirectLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_IndirectPipeline;
@@ -357,6 +398,15 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_RadiosityLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_RadiosityPipeline;
         GlobalIllumination::Pipeline                                          m_RadiosityProgramFor{};
+        // The async compute path (IndirectLightingInputs::Async): the integration, built by Initialize, and the
+        // radiosity trace per tracer, by EnsureRadiosityProgram.
+        std::shared_ptr<Shader>                                               m_IndirectAsyncShader;
+        mutable ShaderBindingLayoutCache                                      m_IndirectAsyncLayout;
+        std::shared_ptr<ComputePipeline>                                      m_IndirectAsyncPipeline;
+        std::shared_ptr<Shader>                                               m_RadiosityAsyncShader;
+        mutable ShaderBindingLayoutCache                                      m_RadiosityAsyncLayout;
+        std::shared_ptr<ComputePipeline>                                      m_RadiosityAsyncPipeline;
+        GlobalIllumination::Pipeline                                          m_RadiosityAsyncProgramFor{};
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_AtlasViewPipelines;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_SceneViewPipelines;
     };

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <memory>
 #include <functional>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
@@ -113,7 +115,7 @@ namespace Desert::Graphic::API::Vulkan
         // RDG-PARALLEL-1-1: on the dispatching thread, as the graph begins its chunks (before any records): where
         // the chunks' scopes hang - the active view's stack on @p queue (the chunks' pipe) and the scope open on
         // it now. The chunks record while the dispatching thread walks the graph, so they never read its stack.
-        [[nodiscard]] GpuScopeRecorder::ChunkRootScope ChunkRoot( Common::Profiling::GpuQueue queue );
+        [[nodiscard]] GpuChunkRootScope ChunkRoot( Common::Profiling::GpuQueue queue );
 
         int32_t BeginDrawScope( std::string_view pass, std::string_view mesh, std::string_view material ) override;
         void    EndDrawScope( int32_t handle, const Common::Profiling::DrawSplitCounts& counts ) override;
@@ -134,7 +136,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             VkQueryPool      Pool       = VK_NULL_HANDLE;
             uint32_t         QueryCount = 0;
-            GpuScopeRecorder Recorder;
+            // Keyed by the profiler row id (Profiler::LocalScopeName): no string per scope.
+            GpuScopeRecorder<uint32_t> Recorder;
             bool             FrameTotalWritten = false; // queries 0/1 were written and not yet resolved
 
             // THE MESH DRAW SPLIT's own pool (Profiler::MeshDrawSplit): group i = queries 2i / 2i+1. Created
@@ -150,12 +153,22 @@ namespace Desert::Graphic::API::Vulkan
         // Replaces @p frame's pool when the high-water mark no longer fits it. Only called where nothing
         // is recording into that pool and its previous contents have been resolved.
         void GrowIfNeeded( FrameQueries& frame );
+        // Takes @p frame's results and scopes (the caller's thread; the pool and the recorder are reused right
+        // after), then hands ResolveTimes to a worker (JobSystem), inline when Submit refuses.
         void Resolve( FrameQueries& frame );
+        // THE RESOLVE'S HALF OFF THE CRITICAL PATH (CPU-ONE-SYNC; UE: the GPU profiler's results are processed
+        // off the rendering thread). Reads only the copies Resolve took (m_ResolveWords, m_ResolveScopes,
+        // m_Parents) and writes the profiler's samples (AddGpuSample: per-thread, any thread). Not reentrant:
+        // Resolve and Shutdown wait for the one in flight - or claim and run it (m_ResolveState) - first.
+        void ResolveTimes() noexcept;
+        void WaitResolve() noexcept;
         void PrepareDrawPool( FrameQueries& frame, VkCommandBuffer commandBuffer );
         void ResolveDraws( FrameQueries& frame );
         // The Unaccounted rows (Profiler.hpp, kGpuUnaccountedGraphicsScope): what of each queue's timeline no
-        // scope covered, and the named gaps of the graphics one. Reads m_ResultScratch as Resolve left it.
-        void PublishUnaccounted( const std::vector<GpuScopeRecorder::Scope>& scopes );
+        // scope covered, and the named gaps of the graphics one. Reads m_ResolveWords as Resolve left it.
+        void PublishUnaccounted( std::span<const GpuScopeRecorder<uint32_t>::Scope> scopes );
+        // Whether row @p nameId is an async segment's (GpuAsyncSegmentLabelStart), decided once per id.
+        [[nodiscard]] bool IsSegmentRow( uint32_t nameId );
 
         VkDevice m_Device = VK_NULL_HANDLE;
 
@@ -177,7 +190,9 @@ namespace Desert::Graphic::API::Vulkan
         std::function<VkCommandBuffer()> m_RecordingTarget;
         // RDG-PARALLEL-1: a scope's timestamp goes into the command buffer of the graph chunk bound to the calling
         // thread (VulkanRecordContext), else into the renderer's target; the scope tree and the frame's queries are
-        // shared by every recording thread, so every scope entry point holds m_Lock.
+        // shared by every recording thread. CPU-ONE-SYNC: a chunk's scope (BeginUnder / EndUnder on a task
+        // worker) takes NO lock - it claims its slot atomically and touches only its chunk's list; m_Lock is held
+        // by the shared-stack path (one dispatching thread, so uncontended) and the draw split.
         // The renderer's target belongs to the render task while the views record on it (RenderTask, the same rule
         // VulkanRendererAPI::IsRecording follows): a thread with no chunk of its own then gets VK_NULL_HANDLE, the
         // "nothing records" answer every scope entry point already honours. vkCmd* on a buffer another thread is
@@ -198,8 +213,22 @@ namespace Desert::Graphic::API::Vulkan
 
         /// Scratch for vkGetQueryPoolResults: {value, availability} per query, reused every frame.
         std::vector<uint64_t> m_ResultScratch;
+        // THE RESOLVE JOB'S INPUT (Resolve -> ResolveTimes): the frame's query words, its scopes and their live
+        // parents, copied on the caller's thread so the job outlives the frame's recorder and pool reuse.
+        // ResolveDraws keeps m_ResultScratch for itself.
+        std::vector<uint64_t>                        m_ResolveWords;
+        std::vector<GpuScopeRecorder<uint32_t>::Scope> m_ResolveScopes;
+        // THE RESOLVE JOB'S CLAIM (WaitResolve): (generation << 2) | idle/queued/running, shared with the job so a
+        // job that lost the claim may outlive the profiler. m_ResolveGeneration: the last submitted job's.
+        std::shared_ptr<std::atomic<uint64_t>> m_ResolveState = std::make_shared<std::atomic<uint64_t>>( 0 );
+        uint64_t                               m_ResolveGeneration = 0;
         // The last pass-order trace Resolve logged (see there); a new line only when the order changes.
         std::string m_LastLoggedOrder;
+        // [GpuOrder] (CPU-ONE-SYNC): the order is compared by a hash of (depth, row id) per scope, built with no
+        // string; the text is built and logged only under Profiler::GpuOrderTrace (--gpu-order-trace).
+        uint64_t m_LastOrderHash = 0;
+        // Per row id: 0 unknown, 1 an async segment's row, 2 not (IsSegmentRow).
+        std::vector<uint8_t> m_SegmentById;
         /// Per-scope working values during Resolve. Members rather than locals so their capacity survives
         /// between frames instead of being rebuilt from nothing every time. -1 in m_Inclusive marks a
         /// scope whose two queries did not both land.
@@ -207,6 +236,12 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<double>  m_Self;
         std::vector<int32_t> m_Parents;
         std::vector<GpuInterval> m_Intervals;
+        // PublishUnaccounted's scratch (CPU-ONE-SYNC): cleared each frame, never reallocated once grown.
+        std::vector<int32_t> m_GraphicsScopes;
+        std::vector<int32_t> m_AsyncPasses;
+        std::vector<int32_t> m_AsyncSegments;
+        GpuCoverage          m_Coverage;
+        std::string          m_GapName;
     };
 } // namespace Desert::Graphic::API::Vulkan
 

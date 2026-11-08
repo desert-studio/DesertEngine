@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps Caps;
 
         uint32_t             VendorId         = 0; // 0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel, 0x106B Apple
+        uint32_t             DeviceId         = 0; // PCI device id (NVIDIA: the die, GpuArchitecture)
         VkPhysicalDeviceType Type             = VK_PHYSICAL_DEVICE_TYPE_OTHER;
         uint64_t             DeviceLocalBytes = 0; // Mac: Metal recommendedMaxWorkingSetSize
 
@@ -69,6 +71,13 @@ namespace Desert::Graphic::API::Vulkan
         bool XessAvailable    = false;
         bool MetalFxAvailable = false;
 
+        // The played device profile's RayTracingAccel (DeviceProfile, DeviceCapsProbe.hpp) when one is played
+        // (non-empty Name); empty = no profile. The host copies DeviceRestrictions::Profile here beside
+        // ProbeCatalog: no query of this device can report the acceleration of the device it plays.
+        std::optional<Common::Scalability::RayTracingAcceleration> ProfileRayTracingAccel;
+        // The played device profile's GpuArchitecture, under a profile only (as ProfileRayTracingAccel).
+        std::optional<Common::Scalability::GpuArchitecture> ProfileArchitecture;
+
         std::vector<VkSurfaceFormatKHR> SurfaceFormats; // vkGetPhysicalDeviceSurfaceFormatsKHR
         std::vector<VkPresentModeKHR>   PresentModes;   // vkGetPhysicalDeviceSurfacePresentModesKHR
     };
@@ -78,8 +87,12 @@ namespace Desert::Graphic::API::Vulkan
     //   AntiAliasing      = None, FXAA, SMAA, TAA, TSR always; MSAA iff a count > 1; FSR, DLSS (NVIDIA only),
     //                       DLSSRayReconstruction (with DLSS), XeSS, MetalFX (Portability only) each iff
     //                       available; in enum order.
-    //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
-    //                       present and not Portability.
+    //   RayTracingAccel   = None without ray query and without the pipeline (below); else the profile's
+    //                       (ProfileRayTracingAccel); else Hardware with ray query, Emulated with the pipeline
+    //                       alone (every hardware RT device exposes VK_KHR_ray_query).
+    //   RayTracingModes   = None; only when RayTracingAccel is Hardware: RayQuery iff RayQuery +
+    //                       AccelerationStructure present; RayTracingPipeline iff both present and not
+    //                       Portability.
     //   FragmentStores    = FragmentStoresAndAtomics present.
     //   AnisotropyLevels  = 1,2,4,8,16 up to MaxSamplerAnisotropy; {1} without SamplerAnisotropy.
     //   DisplayOutputs    = SDR_sRGB; HDR10_PQ / scRGB_Linear iff the surface lists their (format, colour space).

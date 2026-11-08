@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 #include <Engine/Graphic/RendererTypes.hpp>
 #include <Engine/Core/Formats/Shader.hpp>
@@ -62,6 +63,14 @@ namespace Desert::Graphic
         {
             return m_CodeGeneration.load( std::memory_order_acquire );
         }
+        // THIS OBJECT'S IDENTITY FOR THE PROCESS'S LIFE (CPU-FRAME-ARENA 4): unique per Shader ever made, never
+        // reused, unlike its address. With GetCodeGeneration it names one MaterialLayout (the layout is replaced
+        // only by a build that bumps the generation), so a cache of what is derived from the layout
+        // (DrawPushFields::ShaderPlacements) is keyed by the pair and never by a pointer that may come back.
+        [[nodiscard]] uint64_t GetSerial() const noexcept
+        {
+            return m_Serial;
+        }
         virtual const std::string     GetName() const                                                          = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::UniformBuffer> GetUniformBufferModels() const = 0;
         virtual const std::vector<ShaderResources::ShaderLayout::StorageBuffer> GetStorageBufferModels() const = 0;
@@ -99,7 +108,7 @@ namespace Desert::Graphic
         // lacks (inline ray tracing on a device without ray query, MoltenVK) is not built there at all: no module
         // and no set layout is created, IsCompiled() is false, and this names the feature and the device. It is a
         // refusal for the device, not a compile error: the same source builds on a device that has the feature.
-        [[nodiscard]] virtual std::string_view GetDeviceRefusal() const
+        [[nodiscard]] virtual std::string GetDeviceRefusal() const
         {
             return {};
         }
@@ -107,7 +116,7 @@ namespace Desert::Graphic
         // (a preprocess, compile, binding, reflection or set-layout refusal, naming the program). Kept on the
         // object because the constructor cannot return it, and a shader whose first build failed is still
         // registered and handed out by name: whoever registers it says WHY it will not draw (ShaderService).
-        [[nodiscard]] virtual std::string_view GetCompileError() const
+        [[nodiscard]] virtual std::string GetCompileError() const
         {
             return {};
         }
@@ -168,8 +177,15 @@ namespace Desert::Graphic
         }
 
     private:
+        [[nodiscard]] static uint64_t NextSerial() noexcept
+        {
+            static std::atomic<uint64_t> s_Next{ 0 };
+            return s_Next.fetch_add( 1, std::memory_order_relaxed ) + 1u;
+        }
+
         ResourceOwnership     m_Accounting;
         std::atomic<uint64_t> m_CodeGeneration{ 0 };
+        const uint64_t        m_Serial = NextSerial();
     };
 
 } // namespace Desert::Graphic

@@ -7,6 +7,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -17,6 +18,15 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    // The record every shader publishes before its first successful compile: no module, no stage, no layout
+    // (IsCompiled false). One for the process, so a shader that never compiles costs no record of its own and
+    // its first successful Reload has nothing to retire.
+    const std::shared_ptr<const VulkanShader::CompiledProgram>& VulkanShader::NeverCompiled() noexcept
+    {
+        static const std::shared_ptr<const CompiledProgram> s_Empty = std::make_shared<const CompiledProgram>();
+        return s_Empty;
+    }
+
     namespace
     {
         // SPIR-V OpCapability (opcode 17) and the capability a ray-query stage declares (SPIR-V spec,
@@ -59,8 +69,10 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanShader::VulkanShader( const Assets::Asset<Assets::ShaderAsset>& asset, const ShaderVariant& variant,
                                 const std::string& passName )
-         : m_ShaderAsset( asset ), m_PassName( passName ), m_Variant( variant )
+         : m_ShaderAsset( asset ), m_PassName( passName ), m_Variant( variant ),
+           m_Owned( NeverCompiled() )
     {
+        m_Current.store( m_Owned.get(), std::memory_order_release );
         m_ShaderPath = asset->GetMetadata().Filepath;
         m_ShaderName = m_ShaderPath.stem().string();
         if ( !m_PassName.empty() )
@@ -71,8 +83,10 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanShader::VulkanShader( const Assets::Asset<Assets::ShaderAsset>& asset, const ShaderVariant& variant,
                                 const std::string& passName, const Core::ShaderMap& built )
-         : m_ShaderAsset( asset ), m_PassName( passName ), m_Variant( variant )
+         : m_ShaderAsset( asset ), m_PassName( passName ), m_Variant( variant ),
+           m_Owned( NeverCompiled() )
     {
+        m_Current.store( m_Owned.get(), std::memory_order_release );
         m_ShaderPath = asset->GetMetadata().Filepath;
         m_ShaderName = m_ShaderPath.stem().string();
         if ( !m_PassName.empty() )
@@ -81,14 +95,63 @@ namespace Desert::Graphic::API::Vulkan
         (void)AdoptShaderMap( built ); // a refusal is kept in m_CompileError (IsCompiled / GetCompileError)
     }
 
-    VulkanShader::~VulkanShader()
+    VulkanShader::CompiledProgram::~CompiledProgram()
     {
-        auto device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        for ( auto module : m_ShaderModules ) vkDestroyShaderModule( device, module, nullptr );
-        // The layouts are NOT destroyed here: dropping this shader's references is all this object may
-        // do to them. A pipeline that outlives the shader it was built from keeps its own reference and
-        // its own valid contract, which is the difference between a stale pipeline and a corrupt one.
-        m_DescriptorSetLayouts.clear();
+        if ( !Modules.empty() )
+        {
+            auto device =
+                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+            for ( auto module : Modules )
+                vkDestroyShaderModule( device, module, nullptr );
+        }
+        // The layouts are NOT destroyed here: dropping this record's references is all it may do to them. A
+        // pipeline that outlives the program it was built from keeps its own reference and its own valid
+        // contract, which is the difference between a stale pipeline and a corrupt one.
+    }
+
+    // The record dies with the shader: whoever drops the last owner of a Shader has no frame recording with it
+    // (every recorder holds the Shader strongly), so only a REPLACED record needs the deferred path below.
+    VulkanShader::~VulkanShader() = default;
+
+    std::shared_ptr<const VulkanShader::CompiledProgram> VulkanShader::ShareProgram() const noexcept
+    {
+        const std::lock_guard lock( m_OwnedLock );
+        return m_Owned;
+    }
+
+    void VulkanShader::Publish( std::shared_ptr<const CompiledProgram> next ) noexcept
+    {
+        std::shared_ptr<const CompiledProgram> replaced;
+        {
+            const std::lock_guard lock( m_OwnedLock );
+            replaced = std::move( m_Owned );
+            m_Owned  = std::move( next );
+            m_Current.store( m_Owned.get(), std::memory_order_release );
+        }
+
+        // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT. A render worker of frame N-1 may hold a
+        // reference into it (stage infos being turned into a pipeline, the reflection being bound against) while
+        // this reload runs in frame N; it is released with the frame ring's deletion queue (UE: deferred
+        // deletion of the shader map a hot reload replaced), and only immediately when there is no renderer.
+        if ( replaced == NeverCompiled() )
+            return; // the shared empty record lives for the process; nothing to retire
+
+        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
+        auto*      allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+        if ( allocator != nullptr )
+            allocator->RT_DestroyLater( [held = std::move( replaced )]() mutable { held.reset(); } );
+    }
+
+    void VulkanShader::SetDeviceRefusal( std::string refusal ) noexcept
+    {
+        std::lock_guard lock( m_ErrorLock );
+        m_DeviceRefusal = std::move( refusal );
+    }
+
+    void VulkanShader::SetCompileError( std::string error ) noexcept
+    {
+        std::lock_guard lock( m_ErrorLock );
+        m_CompileError = std::move( error );
     }
 
     Common::BoolResultStr VulkanShader::Reload()
@@ -102,7 +165,7 @@ namespace Desert::Graphic::API::Vulkan
              { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
         if ( !built.IsSuccess() )
         {
-            m_CompileError = built.GetError();
+            SetCompileError( built.GetError() );
             return Common::MakeError( built.GetError() );
         }
         return AdoptShaderMap( built.GetValue() );
@@ -114,22 +177,23 @@ namespace Desert::Graphic::API::Vulkan
         // ever draw or dispatch through it. Refused by name here, so the reason is not an empty stage list.
         if ( built.Stages.empty() )
         {
-            m_CompileError = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
-            return Common::MakeError( m_CompileError );
+            std::string error = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
+            SetCompileError( error );
+            return Common::MakeError( std::move( error ) );
         }
-        m_ProgramMeta = built.Meta;
-        auto rebuilt  = BuildFromSpirv( built.Stages );
+        auto rebuilt = BuildFromSpirv( built.Stages, built.Meta );
         if ( rebuilt )
         {
-            m_CompileError.clear();
+            SetCompileError( std::string() );
             BumpCodeGeneration(); // the pipelines built from the previous modules are now behind
         }
         else
-            m_CompileError = rebuilt.GetError();
+            SetCompileError( rebuilt.GetError() );
         return rebuilt;
     }
 
-    Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages )
+    Common::BoolResultStr VulkanShader::BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages,
+                                                        const Core::Formats::ShaderProgramMeta&  meta )
     {
         const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
         auto       device  = logical->GetVulkanLogicalDevice();
@@ -146,11 +210,12 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( !SpirvDeclaresCapability( spirv, kSpirvCapabilityRayQuery ) )
                     continue;
-                m_DeviceRefusal =
+                std::string refusal =
                      std::format( "its {} stage uses inline ray tracing (SPIR-V RayQueryKHR) and device "
                                   "'{}' has no ray query; no module or set layout is created on it",
                                   GetStringShaderStage( stage ), caps.DeviceName );
-                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
+                SetDeviceRefusal( refusal );
+                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
             }
         }
         // The same for the ray tracing PIPELINE's stages (RayGen, Miss, ClosestHit, AnyHit): a named pass of them
@@ -163,14 +228,15 @@ namespace Desert::Graphic::API::Vulkan
             {
                 if ( !Core::Formats::IsRayTracingStage( stage ) )
                     continue;
-                m_DeviceRefusal =
+                std::string refusal =
                      std::format( "its {} stage is a ray tracing pipeline stage and device '{}' has no "
                                   "ray tracing pipeline; no module or set layout is created on it",
                                   GetStringShaderStage( stage ), caps.DeviceName );
-                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, m_DeviceRefusal );
+                SetDeviceRefusal( refusal );
+                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
             }
         }
-        m_DeviceRefusal.clear();
+        SetDeviceRefusal( std::string() );
 
         // TRANSACTIONAL. Everything is built into locals first, and the shader's own state is only
         // replaced once every stage has compiled and reflected. Tearing the old state down up front
@@ -229,7 +295,7 @@ namespace Desert::Graphic::API::Vulkan
         // The cell's material layout: the template's row/textures and the push block every stage declares,
         // held to each other. A disagreement is a load failure naming the template and the cell — the
         // pipeline would otherwise be built with one stage reading bytes another stage does not lay out.
-        auto cell = ShaderReflection::ReconcileCellLayout( m_ProgramMeta, stages, m_ShaderPath.stem().string(),
+        auto cell = ShaderReflection::ReconcileCellLayout( meta, stages, m_ShaderPath.stem().string(),
                                                            m_PassName );
         if ( !cell.Errors.empty() )
         {
@@ -256,21 +322,21 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        // Past this line the compile has succeeded, so the old state may go. The modules are ours alone
-        // (a pipeline copies what it needs at creation) and are destroyed; the layouts are only
-        // RELEASED, because a pipeline layout, a descriptor pool or an allocated set built from one is
-        // still using it and keeps it alive until it is itself rebuilt. Destroying them here is what
-        // produced "VkDescriptorSetLayout ... has been destroyed" and a pipeline layout with a different
-        // descriptor count from the set bound to it.
-        for ( auto module : m_ShaderModules )
-            vkDestroyShaderModule( device, module, nullptr );
-
-        m_ShaderModules                  = std::move( modules );
-        m_PipelineShaderStageCreateInfos = std::move( stageInfos );
-        m_ReflectionData                 = std::move( reflection );
-        m_RdgSlots                       = MakeRdgSlotTable( m_ReflectionData );
-        m_MaterialLayout                 = std::move( cell.Layout );
-        m_DescriptorSetLayouts           = std::move( layouts );
+        // Past this line the compile has succeeded: the whole program becomes ONE new record and is published.
+        // The previous record is not written to and not destroyed here - its modules may still be turned into a
+        // pipeline on a build worker, its reflection read by a render worker of the frame in flight (Publish).
+        // The layouts it holds are only RELEASED with it, because a pipeline layout, a descriptor pool or an
+        // allocated set built from one keeps it alive until it is itself rebuilt (destroying them here once
+        // produced "VkDescriptorSetLayout ... has been destroyed").
+        auto program            = std::make_shared<CompiledProgram>();
+        program->Modules        = std::move( modules );
+        program->StageInfos     = std::move( stageInfos );
+        program->Meta           = meta;
+        program->MaterialLayout = std::move( cell.Layout );
+        program->Reflection     = std::move( reflection );
+        program->RdgSlots       = MakeRdgSlotTable( program->Reflection );
+        program->SetLayouts     = std::move( layouts );
+        Publish( std::move( program ) );
         return BOOLSUCCESS;
     }
 
@@ -392,7 +458,7 @@ namespace Desert::Graphic::API::Vulkan
     const std::vector<ShaderResources::ShaderLayout::UniformBuffer> VulkanShader::GetUniformBufferModels() const 
     { 
         std::vector<ShaderResources::ShaderLayout::UniformBuffer> res;
-        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
+        for ( const auto& [set, dSet] : Current().Reflection.ShaderDescriptorSets )
             for ( const auto& [b, ub] : dSet.UniformBuffers ) res.push_back( ub );
         return res;
     }
@@ -400,7 +466,7 @@ namespace Desert::Graphic::API::Vulkan
     const std::vector<ShaderResources::ShaderLayout::StorageBuffer> VulkanShader::GetStorageBufferModels() const 
     { 
         std::vector<ShaderResources::ShaderLayout::StorageBuffer> res;
-        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
+        for ( const auto& [set, dSet] : Current().Reflection.ShaderDescriptorSets )
             for ( const auto& [b, sb] : dSet.StorageBuffers ) res.push_back( sb );
         return res;
     }
@@ -446,12 +512,12 @@ namespace Desert::Graphic::API::Vulkan
     VulkanShader::GetUniformImageCubeModels() const
     {
         return TextureModels<ShaderResources::ShaderLayout::ImageCubeSampler>(
-             m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Cube );
+             Current().Reflection, ShaderResources::ShaderLayout::SampledImageDimension::Cube );
     }
 
     bool VulkanShader::SamplesTexture( const std::string_view name ) const
     {
-        for ( const auto& [set, dSet] : m_ReflectionData.ShaderDescriptorSets )
+        for ( const auto& [set, dSet] : Current().Reflection.ShaderDescriptorSets )
             for ( const auto& [binding, image] : dSet.SampledImages )
                 if ( image.Name == name )
                     return true;
@@ -461,7 +527,7 @@ namespace Desert::Graphic::API::Vulkan
     const std::vector<ShaderResources::ShaderLayout::Image2DSampler> VulkanShader::GetUniformImage2DModels() const
     {
         return TextureModels<ShaderResources::ShaderLayout::Image2DSampler>(
-             m_ReflectionData, ShaderResources::ShaderLayout::SampledImageDimension::Texture2D );
+             Current().Reflection, ShaderResources::ShaderLayout::SampledImageDimension::Texture2D );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

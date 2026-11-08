@@ -343,7 +343,9 @@ namespace Desert::Graphic
         glm::vec4 Frame;
         // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y = this frame's phase
         // of the trace grid (CloudTraceGridPhase, as CloudTracePhase::Index): the march traces only the texels
-        // whose (x & 1) | (y & 1) << 1 is y; z, w unused.
+        // whose (x & 1) | (y & 1) << 1 is y; z = 1 when the lit step grows with the trace texel's footprint
+        // (Scalability Effects.CloudFootprintSteps; CloudFootprintStepKm in Common/CloudGeometry.glslh), 0 = the
+        // fixed fine step; w unused. Here and not in a lane of its own: the push constant is at its 128 bytes.
         glm::vec4 Visualize;
     };
 

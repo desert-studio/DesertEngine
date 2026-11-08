@@ -7,6 +7,5 @@ desert_add_executable(CloudVolumeBaker FOLDER Tools SOURCES ${_sources}
 target_include_directories(CloudVolumeBaker PRIVATE "${DESERT_ROOT}/Tools/Shared")
 desert_engine_includes(CloudVolumeBaker)
 desert_external_includes(CloudVolumeBaker ${DESERT_COMMON_INCLUDE_DIRS})
-target_compile_definitions(CloudVolumeBaker PRIVATE ${DESERT_COMMON_DEFINES})
-target_link_libraries(CloudVolumeBaker PRIVATE Common Optick ReflectCpp)
+target_link_libraries(CloudVolumeBaker PRIVATE Common ${DESERT_OPTICK} ReflectCpp)
 desert_platform_defines(CloudVolumeBaker)

@@ -41,8 +41,11 @@ namespace Desert::Editor
         // @p settings are the source's import options (its import record); an importer reads the ones that
         // shape what it parses (the file unit) - the rest are applied to its result by ImportManager. @p pass
         // says whether this is the first import or a self-cook re-run (SELF-COOK).
-        virtual ImportResult Import( const std::filesystem::path& path, ImportManager& manager,
-                                     const Assets::SourceImportSettings& settings, ImportPass pass ) = 0;
+        // A file that cannot be imported is an error naming it and the reason, never a throw; the caller
+        // (ImportManager::ImportParsed) logs it once as the cook's verdict.
+        virtual Common::ResultStr<ImportResult> Import( const std::filesystem::path& path, ImportManager& manager,
+                                                        const Assets::SourceImportSettings& settings,
+                                                        ImportPass                          pass ) = 0;
         // What @p path holds, read without building anything; an error naming the file when it does not parse.
         virtual Common::ResultStr<ImportContentKind> Probe( const std::filesystem::path& path ) = 0;
     };

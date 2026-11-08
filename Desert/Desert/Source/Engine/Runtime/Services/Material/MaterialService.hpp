@@ -12,6 +12,7 @@
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <span>
 #include <vector>
@@ -86,10 +87,7 @@ namespace Desert::Runtime
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
         /// That manager, for a CPU reader of a material's chain (Assets::ResolveGrassCoverLookInput); null when
         /// none is bound or it is gone.
-        [[nodiscard]] std::shared_ptr<Assets::AssetManager> LockAssetManager() const
-        {
-            return m_Assets.lock();
-        }
+        [[nodiscard]] std::shared_ptr<Assets::AssetManager> LockAssetManager() const;
 
         /// THE TEMPLATE THE RENDERER'S OWN DRAWS USE, found BY ROLE and never by a name: the project's `.deproj`
         /// DefaultSurfaceTemplate when it states one, else the one loaded shader declaring `Default Surface`
@@ -350,10 +348,7 @@ namespace Desert::Runtime
         /// the day a material type declares one, and whoever declares it must give this service a manager.
         Common::BoolResultStr EnsureLoaded( const std::shared_ptr<Assets::MaterialAsset>& asset ) const;
 
-        [[nodiscard]] bool HasBuiltMaterial( const Assets::AssetHandle& handle ) const
-        {
-            return m_Materials.find( handle ) != m_Materials.end();
-        }
+        [[nodiscard]] bool HasBuiltMaterial( const Assets::AssetHandle& handle ) const;
 
         // IS AN ASSET SHELL ON RECORD FOR @p handle? The other half of the question above, and the two are
         // NOT interchangeable: a registered shell that nothing has drawn yet has no built material, and a
@@ -363,19 +358,13 @@ namespace Desert::Runtime
         // service a registration. It cannot ask through `Get`, which builds the runtime material on a miss
         // — the guard would then do the work it exists to avoid, which is what the resolver used to do:
         // every material a scene named was built during parsing because `!Get(handle)` was the test.
-        [[nodiscard]] bool HasAsset( const Assets::AssetHandle& handle ) const
-        {
-            return m_MaterialAssets.find( handle ) != m_MaterialAssets.end();
-        }
+        [[nodiscard]] bool HasAsset( const Assets::AssetHandle& handle ) const;
 
         // IS @p handle's READ STILL IN FLIGHT? Get() answers null both for "pending" and for "resolves to
         // nothing"; a caller that reports the second (a renderer falling back to its engine default) asks this
         // first, so a material that simply has not arrived yet is not logged as missing (UE: a material still
         // compiling draws with the default material, silently, until it is ready).
-        [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const
-        {
-            return m_Requests.contains( handle );
-        }
+        [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const;
 
         // FORGET a material asset entirely — its runtime materials, its shell, and its entry in the
         // external -> internal map.
@@ -399,18 +388,31 @@ namespace Desert::Runtime
         void CollectGarbage();
 
         // Invalidated materials still waiting for their frames to finish.
-        [[nodiscard]] std::size_t GraveyardCount() const noexcept
-        {
-            return m_Graveyard.Size();
-        }
+        [[nodiscard]] std::size_t GraveyardCount() const noexcept;
 
         // Monotonic stamp, bumped on every Invalidate(). Consumers that cache raw Material* /
         // instances (the mesh components' RuntimeMaterialInstances) compare their stored stamp
         // and rebuild when it moved — dangling parent pointers become impossible without any
         // "remember to clear the instances" discipline at the Invalidate call sites.
+        // Atomic: every mesh entity reads it on the Mesh worker while a load completion or an edit bumps it.
         uint32_t GetInvalidationVersion() const
         {
-            return m_InvalidationVersion;
+            return m_InvalidationVersion.load();
+        }
+
+        // Monotonic stamp of IN-PLACE VALUE EDITS (UE: PostEditChange ->
+        // FMaterialRenderProxy::CacheUniformExpressions): the material editor re-values a base material's built
+        // variants without rebuilding anything, so GetInvalidationVersion does not move. A renderer that folds a
+        // material's values into a program of its own (WaterRenderer::ApplyMaterial, via ResolveOverrides) keys
+        // its cache by both stamps. One counter and not one per handle: an edit of a base reaches every instance
+        // chain over it.
+        uint32_t GetValuesEditSerial() const noexcept
+        {
+            return m_ValuesEditSerial.load();
+        }
+        void NoteValuesEdited() noexcept
+        {
+            ++m_ValuesEditSerial;
         }
 
     private:
@@ -436,7 +438,8 @@ namespace Desert::Runtime
                    static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
         }
 
-        mutable uint32_t                                              m_InvalidationVersion = 0;
+        mutable std::atomic<uint32_t> m_InvalidationVersion{ 0 };
+        std::atomic<uint32_t>         m_ValuesEditSerial{ 0 }; // GetValuesEditSerial
         // Per asset: bumped by every Invalidate of it (BuildRevision).
         std::unordered_map<Assets::AssetHandle, uint32_t>             m_BuildRevisions;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
@@ -477,8 +480,38 @@ namespace Desert::Runtime
         /// from the registry row now, or `end()`.
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator
         FindOrDiscover( const Assets::AssetHandle& handle ) const;
-        // The instance chain walked to its base (depth-capped against cycles); null when a link is missing.
-        const Assets::SurfaceMaterialAsset* BaseOf( const Assets::AssetHandle& handle ) const;
+        // The instance chain walked to its base (depth-capped against cycles); null when a link is missing. A
+        // strong reference: the walk reads each link with the service UNLOCKED (EnsureLoaded), so a raw pointer
+        // into m_MaterialAssets could be released under it.
+        std::shared_ptr<const Assets::SurfaceMaterialAsset> BaseOf( const Assets::AssetHandle& handle ) const;
+
+        // THE SHARED-LOCK READERS (CPU-ONE-SYNC R10). They insert nothing, so any number of threads run them at
+        // once; a miss returns to its caller, which re-asks under the exclusive lock. The .cpp's ReadGuard /
+        // WriteGuard hold the lock; these assume it held and never take it.
+        //
+        // The read-only half of Get: the built cell when every link of the chain and the cell already exist;
+        // `Settled` when the answer is null with nothing to insert (a read in flight, a broken shell, a handle
+        // the registry has no row for, a chain that loops); neither = the exclusive path decides.
+        struct CellLookup
+        {
+            Graphic::Material* Material = nullptr;
+            bool               Settled  = false;
+        };
+        CellLookup FindCell( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
+                             Graphic::MeshPass pass, bool displaced ) const;
+        // GetAssetHandleByExternal without discovery: Null when only a discovery could answer.
+        Assets::AssetHandle FindHandleByExternal( const Common::UUID& uuid ) const;
+        // FindOrDiscover would answer `end()` without inserting: a null handle, no manager, or a handle already
+        // reported missing while the registry wrote nothing since.
+        bool IsKnownMissing( const Assets::AssetHandle& handle ) const;
+        // The view or permutation copy SiblingOf built before, or null.
+        Graphic::DataDrivenMaterial* FindSibling( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                  Graphic::MeshPass pass, uint32_t view,
+                                                  const Core::ShaderVariant& permutation,
+                                                  const void*                owner ) const;
+        // The shell behind @p handle (discovered when unregistered) as a strong reference, for a walk that must
+        // LOAD it: it is looked up under the lock and read after the lock is gone.
+        std::shared_ptr<Assets::MaterialAsset> ShellOf( const Assets::AssetHandle& handle ) const;
         /// True when @p asset is read; otherwise starts its read once (AsyncAssetLoader) and answers false.
         bool RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const;
 

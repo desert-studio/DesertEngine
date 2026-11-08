@@ -16,9 +16,12 @@ namespace Desert::ShaderResources::API::Vulkan
         // ParticleRenderer::DrawPass reads it through Renderer::DrawProceduralIndirect); TRANSFER_DST because a
         // persistent buffer imported into a graph is filled by the graph's upload
         // (RDG::Builder::QueueBufferUpload, a copy) when its content changes, so a frame in flight never reads a
-        // buffer the CPU is writing (GlobalDistanceField's mesh SDF records).
+        // buffer the CPU is writing (GlobalDistanceField's mesh SDF records); TRANSFER_SRC because a pooled buffer
+        // that grows is copied into its successor by the graph (RDG::Builder::AddCopyBufferPass, GrassRenderer
+        // BufferPool::Commit), so the ranges it held keep their contents.
         constexpr VkBufferUsageFlags kUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                               VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                              VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                               VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
         // GRASS-CULL-2: a storage buffer is also READ BY ADDRESS where the device has bufferDeviceAddress (its own
@@ -115,9 +118,12 @@ namespace Desert::ShaderResources::API::Vulkan
                                                          std::unique_ptr<IBlockCopy>& out ) const
     {
         std::unique_ptr<MappedBufferCopy> copy;
-        const auto                        made = MakeMappedBufferCopy(
-             std::format( "{}-StorageBuffer-{}-Frame{}", m_BufferName, viewName, frameIndex ), StorageUsage(), GetSize(),
-             copy );
+        // MEM-3: a read-back buffer's copies are host-cached (Persistence::PerFrameReadback).
+        const MappedCopyMemory memory =
+             m_Lifetime == Persistence::PerFrameReadback ? MappedCopyMemory::Readback : MappedCopyMemory::Upload;
+        const auto made = MakeMappedBufferCopy(
+             std::format( "{}-StorageBuffer-{}-Frame{}", m_BufferName, viewName, frameIndex ), StorageUsage(),
+             GetSize(), copy, memory );
         if ( !made.IsSuccess() )
             return Common::MakeFormattedError<bool>( "storage buffer '{}' copy for view '{}', frame {}: {}",
                                                      m_BufferName, viewName, frameIndex, made.GetError() );
@@ -302,14 +308,18 @@ namespace Desert::ShaderResources::API::Vulkan
     }
     Common::ResultStr<uint64_t> VulkanStorageBuffer::GetDeviceAddress()
     {
-        if ( !HasDeviceAddress() )
-            return Common::MakeFormattedError<uint64_t>(
-                 "storage buffer '{}' has no device address: the device has no bufferDeviceAddress", m_BufferName );
+        // CPU-GRASS-VARIETY-1: the copy's address, read once when the copy was made (MappedBufferCopy::
+        // DeviceAddress): no driver call and no device cast per question. The device's row is asked only on
+        // the refusal, to name why.
         MappedBufferCopy* copy     = nullptr;
         const auto        resolved = ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
         if ( !resolved.IsSuccess() )
             return Common::MakeFormattedError<uint64_t>( "{}", resolved.GetError() );
-        const uint64_t address = Desert::Graphic::API::Vulkan::CurrentBufferAddress( copy->Binding().Info.buffer );
+        const uint64_t address = copy->DeviceAddress();
+        if ( address == 0 && !HasDeviceAddress() )
+            return Common::MakeFormattedError<uint64_t>(
+                 "storage buffer '{}' has no device address: the device has no bufferDeviceAddress",
+                 m_BufferName );
         if ( address == 0 )
             return Common::MakeFormattedError<uint64_t>( "storage buffer '{}': its buffer has no device address",
                                                          m_BufferName );

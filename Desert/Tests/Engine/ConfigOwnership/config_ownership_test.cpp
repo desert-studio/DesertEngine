@@ -1379,7 +1379,7 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
 TEST( ConfigOwnership, AMachineWithNoSavedQualityStartsOnAValidRecommendationAndASavedOneWins )
 {
     using Common::Settings::MachineSettings;
-    const Common::Scalability::BenchmarkCacheKey device{ 0x10DE, 0x2684, 42, "Test GPU", 1 };
+    const Common::Scalability::BenchmarkCacheKey device{ 0x10DE, 0x2684, 42, "Test GPU", 1, 8192 };
     Common::Scalability::RecommendedQuality      recommended;
     recommended.Key = device;
     recommended.Levels.fill( Common::Scalability::Level::Medium );

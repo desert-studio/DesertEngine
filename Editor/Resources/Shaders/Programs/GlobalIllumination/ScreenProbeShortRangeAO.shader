@@ -1,6 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"caf401dbfb1d48ae9af1b59df379273d","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCREEN PROBE GATHER — SHORT-RANGE AO (UE LumenScreenSpaceBentNormal.usf ScreenSpaceShortRangeAOCS, the pass
-// r.Lumen.ScreenProbeGather.ShortRangeAO adds in front of the integrate): one thread per G-buffer pixel.
+// r.Lumen.ScreenProbeGather.ShortRangeAO adds in front of the integrate): one thread per texel of a half-size
+// target (UE r.Lumen.ScreenProbeGather.ShortRangeAO.Downsample), each tracing one G-buffer pixel of its 2x2 quad,
+// the quad's pixel cycling over four frames (Common/ScreenProbes.glslh SPShortRangeAOOffset); the integrate
+// upsamples it by depth.
 //   rays      SR_AO_RAYS cosine-distributed directions around the pixel's normal, rotated per pixel and frame;
 //   trace     each one marched through the scene depth in SR_AO_STEPS linear steps, out to SR_AO_MAX_SCREEN_FRACTION
 //             of the screen (UE r.Lumen.ScreenProbeGather.ShortRangeAO.MaxScreenTraceFraction): the occluders
@@ -9,8 +12,10 @@
 //             the shaded point (UE's foreground sample rejection: a surface nearer the camera than the AO radius is
 //             IN FRONT of the ray, not around it — a cypress a metre before a wall is not a contact occluder of the
 //             wall, and counting it drew a speckled dark ring along every crown, BISTRO-FOLIAGE-HALO);
-//   output    xyz = the bent normal (the mean of the unoccluded directions, normalised; the normal when none is),
-//             w = the unoccluded share (cosine-weighted by the sampling).
+//   output    xy = the bent normal (the mean of the unoccluded directions, normalised; the normal when none is) in
+//             world space, octahedral (SPOctEncode), z = the unoccluded share (cosine-weighted by the sampling),
+//             w = 1 (0 = sky); the integrate's upsample reads the traced pixel's normal and depth from the
+//             G-buffer, once a texel for its whole 8x8 tile (ScreenProbeIntegrate SPShortRangeAOLoadTile).
 // The integrate reads it as UE's ScreenProbeIntegrateCS does with SHORT_RANGE_AO: the diffuse irradiance is the
 // probes' SH at the bent normal times the AO, and every rough-specular sample is weighted by its visibility in the
 // bent cone (UE CalculateSpecularOcclusion). This is what occludes thin leaf cards: the scalar SSAO samples a
@@ -60,24 +65,30 @@ Shader "ScreenProbeShortRangeAO"
             return vec2( h.xy & 0xFFFFu ) / 65536.0;
         }
 
-        // The screen texture coordinate of a world point (Common/ScreenUV.glslh's convention: (0,0) top-left).
-        vec3 ProjectToScreen( vec3 world )
+        // The screen texture coordinate of a clip-space point (Common/ScreenUV.glslh's convention: (0,0) top-left).
+        // A ray's points are projected as clip(origin) + clip(direction) * t: the projection is linear in
+        // homogeneous coordinates, so one matrix product a ray replaces one a step.
+        vec3 ClipToScreen( vec4 clip )
         {
-            const vec4 clip = giFrame.viewProjection * vec4( world, 1.0 );
-            const vec2 ndc  = clip.xy / max( clip.w, 1e-6 );
+            const vec2 ndc = clip.xy / max( clip.w, 1e-6 );
             return vec3( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, clip.w );
         }
 
         void main()
         {
-            const ivec2 pixel  = ivec2( gl_GlobalInvocationID.xy );
-            const vec2  extent = giFrame.screen.xy;
-            if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
+            // One thread per half-resolution texel, tracing the full-resolution pixel of its quad this frame
+            // selects (SPShortRangeAOOffset; the last row and column clamp to the G-buffer).
+            const ivec2 aoTexel  = ivec2( gl_GlobalInvocationID.xy );
+            const vec2  extent   = giFrame.screen.xy;
+            const ivec2 aoExtent = ( ivec2( extent ) + 1 ) / 2;
+            if ( any( greaterThanEqual( aoTexel, aoExtent ) ) )
                 return;
+            const ivec2 pixel = min( aoTexel * 2 + SPShortRangeAOOffset( screenProbeParams.atlas.y ),
+                                     ivec2( extent ) - 1 );
             const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( ShortRangeAoOutTexture, pixel, vec4( 0.0, 0.0, 1.0, 1.0 ) );
+                imageStore( ShortRangeAoOutTexture, aoTexel, vec4( 0.0, 0.0, 1.0, 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -94,7 +105,8 @@ Shader "ScreenProbeShortRangeAO"
 
             // The world length of SR_AO_MAX_SCREEN_FRACTION of the screen's width at the pixel's distance: one probe
             // of a known world length projected, then scaled.
-            const vec3  uvP      = ProjectToScreen( origin );
+            const vec4  clipO    = giFrame.viewProjection * vec4( origin, 1.0 );
+            const vec3  uvP      = ClipToScreen( clipO );
             const float probeLen = 0.05 * distance;
 
             vec3  unoccludedSum = vec3( 0.0 );
@@ -111,7 +123,8 @@ Shader "ScreenProbeShortRangeAO"
                 const vec3  lt  = vec3( r * cos( phi ), r * sin( phi ), sqrt( max( 0.0, 1.0 - e.y ) ) );
                 const vec3  l   = frame * lt;
 
-                const vec3  uvQ        = ProjectToScreen( origin + l * probeLen );
+                const vec4  clipL      = giFrame.viewProjection * vec4( l, 0.0 );
+                const vec3  uvQ        = ClipToScreen( clipO + clipL * probeLen );
                 const float screenLen  = length( ( uvQ.xy - uvP.xy ) * vec2( 1.0, extent.y * giFrame.screen.z ) );
                 const float rayLength  = min( probeLen * SR_AO_MAX_SCREEN_FRACTION / max( screenLen, 1e-5 ),
                                               0.5 * distance );
@@ -120,8 +133,9 @@ Shader "ScreenProbeShortRangeAO"
                 bool occluded = false;
                 for ( int s = 0; s < SR_AO_STEPS && !occluded; ++s )
                 {
-                    const vec3 q   = origin + l * ( rayLength * ( float( s ) + stepJitter ) / float( SR_AO_STEPS ) );
-                    const vec3 uvS = ProjectToScreen( q );
+                    const float t   = rayLength * ( float( s ) + stepJitter ) / float( SR_AO_STEPS );
+                    const vec3  q   = origin + l * t;
+                    const vec3  uvS = ClipToScreen( clipO + clipL * t );
                     if ( uvS.z <= 0.0 || any( lessThan( uvS.xy, vec2( 0.0 ) ) ) ||
                          any( greaterThanEqual( uvS.xy, vec2( 1.0 ) ) ) )
                         break;
@@ -148,7 +162,8 @@ Shader "ScreenProbeShortRangeAO"
             }
             const float ao   = unoccluded / float( SR_AO_RAYS );
             const vec3  bent = dot( unoccludedSum, unoccludedSum ) > 1e-6 ? normalize( unoccludedSum ) : n;
-            imageStore( ShortRangeAoOutTexture, pixel, vec4( bent, ao ) );
+            // In world space (Common/ScreenProbes.glslh: no tangent frame is continuous over the sphere).
+            imageStore( ShortRangeAoOutTexture, aoTexel, vec4( SPOctEncode( bent ), ao, 1.0 ) );
         }
     }
 }

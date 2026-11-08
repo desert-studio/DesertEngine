@@ -425,7 +425,32 @@ namespace Desert::Migration
     //       with the declared defaults and the migrator's save states them. Scenes and prefabs alike.
     inline constexpr int kSceneVersionVolumetricFog = 71;
 
-    static_assert( kSceneVersionVolumetricFog == kSceneVersion,
+    //  72 - A VIEW ASKS FOR "TRACED", NOT FOR A TRACER (TRACED-METHOD-AXIS; UE: the volume picks Lumen,
+    //       r.Lumen.HardwareRayTracing the tracer). PostProcessSettings.GlobalIlluminationMethod is a
+    //       Common::Scalability::GIRequest (Off 0, Lightmaps 1, ScreenSpace 2, ProbeVolume 3, Traced 4,
+    //       PathTraced 5) and ReflectionsMethod a ReflectionRequest (Off 0, Captures 1, ScreenSpace 2, Traced 3,
+    //       PathTraced 4). A v64..v71 file stated the rendered ladders: GI SoftwareTraced 4 / HardwareTraced 5 /
+    //       PathTraced 6, reflections SoftwareTraced 3 / HardwareTraced 4 / PathTraced 5. Both traced numbers
+    //       become Traced (GI 4, reflections 3) and PathTraced moves down one; the rest keep their number. A value
+    //       outside the old ladder is refused, naming the entity (MigrateTracedRequestV71ToV72). Scenes and
+    //       prefabs alike, the record and every prefab override.
+    inline constexpr int kSceneVersionTracedRequest = 72;
+
+    //  73 - GI COMES FROM THE METHOD ALONE (GTX-TIER-LADDER). The deferred composite's screen-space gather (a
+    //       sun-only bounce of the on-screen G-buffer neighbours, scaled by PostProcessSettings.GIIntensity) is
+    //       gone, and GIRequest ScreenSpace (2) is declared but not implemented. A volume that stated it asks for
+    //       Off (0) - the GI it rendered in effect: the gather measured mean 0.11/255 on CornellDemo - and
+    //       GIIntensity, read by nothing now, is dropped (MigrateComposedGIV72ToV73). Scenes and prefabs alike,
+    //       the record and every prefab override.
+    inline constexpr int kSceneVersionComposedGI = 73;
+
+    //  74 - FILMIC BY DEFAULT (POST-LOOK-LAND, UE parity). The tonemapper a volume states when it states the
+    //       former default ACES (0) is Filmic (2), UE's default; Reinhard stays. The grade fields added with it
+    //       (film curve, white balance, colour grading, exposure compensation) are additive, identity by
+    //       default (MigrateFilmicDefaultV73ToV74). Scenes and prefabs alike, the record and every override.
+    inline constexpr int kSceneVersionFilmicDefault = 74;
+
+    static_assert( kSceneVersionFilmicDefault == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -827,6 +852,40 @@ namespace Desert::Migration
     // Drops every PostProcessVolume.Settings.Gamma kSceneVersionDisplayTransfer names, in the record and in every
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateTracedRequestV71ToV72 did to one file.
+    struct TracedRequestReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod / ReflectionsMethod numbers changed
+        std::vector<std::string> Refused;      // a Settings block or a value that is not on the old ladder
+    };
+
+    // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod and ReflectionsMethod by the old ->
+    // new tables kSceneVersionTracedRequest states, in the record and in every prefab override. PURE.
+    TracedRequestReport MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateComposedGIV72ToV73 did to one file.
+    struct ComposedGIReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod ScreenSpace re-stated as Off
+        std::size_t              Dropped  = 0; // GIIntensity keys removed
+        std::vector<std::string> Refused;      // a Settings block that is not an object
+    };
+
+    // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod ScreenSpace (2) as Off (0) and drops
+    // its GIIntensity, in the record and in every prefab override (kSceneVersionComposedGI). PURE.
+    ComposedGIReport MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateFilmicDefaultV73ToV74 did to one file.
+    struct FilmicDefaultReport
+    {
+        std::size_t              Restated = 0; // Tonemapper ACES re-stated as Filmic
+        std::vector<std::string> Refused;      // a Settings block that is not an object
+    };
+
+    // Re-states every PostProcessVolume.Settings Tonemapper ACES (0) as Filmic (2), in the record and in every
+    // prefab override (kSceneVersionFilmicDefault). PURE.
+    FilmicDefaultReport MigrateFilmicDefaultV73ToV74( std::vector<Assets::EntityData>& entities );
 
     // What MigrateLightRotationV0ToV1 did to one file.
     struct SunRotationReport
@@ -1259,6 +1318,13 @@ namespace Desert::Migration
         bool                  DisplayTransferRaised = false; // below kSceneVersionDisplayTransfer
         DisplayTransferReport DisplayTransfer;
 
+        bool                TracedRequestRaised = false; // below kSceneVersionTracedRequest
+        TracedRequestReport TracedRequest;
+        bool                ComposedGIRaised = false; // below kSceneVersionComposedGI
+        ComposedGIReport    ComposedGI;
+        bool                FilmicDefaultRaised = false; // below kSceneVersionFilmicDefault
+        FilmicDefaultReport FilmicDefault;
+
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
         UIAnimationTimelinesReport UIAnimationTimelines;
@@ -1276,7 +1342,8 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised;
+                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
+                   FilmicDefaultRaised;
         }
     };
 

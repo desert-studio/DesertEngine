@@ -39,6 +39,23 @@ namespace Desert::Core
     Common::BoolResultStr AssignSharedSamplerBindings( std::vector<ShaderMapStage>& stages,
                                                        std::string_view             shaderName );
 
+    // THE PROGRAM NUMBERS THE UNNUMBERED (SharedSamplerBinding.hpp kAutoResourceBinding), in place, after
+    // CheckProgramSlots and before AssignSharedSamplerBindings: every resource the DSL marked takes, for all
+    // stages, the slot an explicit declaration of its name holds in another stage, else per descriptor set the
+    // bindings after the last explicit one, in name order. Explicit numbers never move. Refuses, naming
+    // @p shaderName: one marked name in two sets, a marked name whose explicit slot is in another set, a number
+    // that would reach the marker. Device-free: it reads and patches the SPIR-V words.
+    Common::BoolResultStr AssignProgramBindings( std::vector<ShaderMapStage>& stages,
+                                                 std::string_view             shaderName );
+
+    // ONE PROGRAM, ONE NUMBERING (GPU-SHADER-AUTOBIND). Each stage is compiled alone, and a resource or varying
+    // declared without a number takes the lowest free one of ITS stage (ShaderCompiler.cpp), so the stages of
+    // one program can disagree. Refuses, naming @p shaderName and both stages: one resource name on two slots,
+    // two resource names on one slot (a binding collision), and one varying name at two locations across a
+    // graphics stage boundary. Device-free: it reads the SPIR-V words; both markers are skipped.
+    Common::BoolResultStr CheckProgramSlots( const std::vector<ShaderMapStage>& stages,
+                                             std::string_view                   shaderName );
+
     // Reads the shader map cache first; on a miss preprocesses, compiles every stage (through the SPIR-V
     // cache) and stores the map. Safe to call from a worker thread.
     Common::ResultStr<ShaderMap> BuildShaderMap( const ShaderMapRequest& request );

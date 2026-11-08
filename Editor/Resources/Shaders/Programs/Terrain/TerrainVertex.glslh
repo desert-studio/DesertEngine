@@ -66,6 +66,14 @@
             vec4 DicePoolVertices[];
         };
         #define LANDSCAPE_DICE_POOL_READ
+        // The camera's kept ring cells (TERRAIN-DICE-CULL, LandscapeDiceCull.shader): its rasters draw a diced
+        // tile's rings over them (LandscapeDisplacement.glslh LandscapeDecodeCulledVertex); every other draw is
+        // bound to them and never reads them.
+        ReadBuffer(24) LandscapeDiceCells
+        {
+            uint DiceCells[];
+        };
+        #define LANDSCAPE_DICE_CELLS_READ
 
         #include <Common/LandscapeWeights.glslh>
         #include <Programs/Terrain/LandscapeDisplacement.glslh>

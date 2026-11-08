@@ -123,6 +123,9 @@ namespace Desert::Graphic::GlobalIllumination
         // device's image limit (AtlasProbesRow).
         static constexpr uint32_t kMinAtlasProbesRow = 128;
         static constexpr uint32_t kSHCoefficients  = 9;
+        // The coefficients' rgb packed as 27 floats in this many vec4 per probe (ScreenProbes.glslh
+        // SP_SH_PACKED_VEC4).
+        static constexpr uint32_t kSHPackedVec4    = ( kSHCoefficients * 3 + 3 ) / 4;
         static constexpr uint32_t kMaxLevels       = 5; // 64 px: uniform + adaptive 32, 16, 8, 4
 
         // UE r.Lumen.ScreenProbeGather.DownsampleFactor (Scalability GlobalIllumination.ScreenProbeDownsample):
@@ -289,11 +292,19 @@ namespace Desert::Graphic::GlobalIllumination
     struct ScreenProbeMissReasons
     {
         static constexpr uint32_t kReasons = 6; // RADIANCE_CACHE_READ_REASONS
+        // GPU-FARFIELD-1: then the far-field leg's own rays (ScreenProbeTrace.shader SP_FAR_FIELD_RAYS_*): [6]
+        // every ray listed, [7] the rays the global field hit (lit by GIHitRadiance), [8] the rays outside the
+        // cache's coverage (marched to the full trace distance). GPU-FARFIELD-3: [9] the global field's
+        // sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the hits no
+        // card holds, handed to the hit-lighting leg, [11] that leg's steps (its shadow marches: a hit = [11] /
+        // [10]).
+        static constexpr uint32_t kFarFieldClasses = 6;
+        static constexpr uint32_t kWords           = kReasons + kFarFieldClasses;
         // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected
         // (every traced probe's visibility 0), nan (a NaN weight), coarser (the coverage's clipmap had no traced
         // probe, a coarser clipmap answered: not a miss). Empty and untraced count the reads no clipmap answered.
         // Covered rays only: the read takes the coverage's clipmap, so none is past the coarsest one. Rays.
-        std::array<uint32_t, kReasons> Rays{};
+        std::array<uint32_t, kWords>   Rays{};
         bool                           Valid = false; // a frame's words have come back
     };
 
@@ -372,13 +383,16 @@ namespace Desert::Graphic::GlobalIllumination
             ShortRangeAO,
             TraceScreen,
             CompactTraces,
-            TraceNearField, // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
-            TraceFarField,  // the same program's far-field leg
-            TraceCacheMiss, // the same program's leg past the radiance cache, for the rays it did not answer
+            TraceNearField,   // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
+            TraceFarField,    // the same program's far-field leg
+            TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer
+            TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
             Disocclusion,
             SpatialFilter,
             Filter,
-            Integrate,
+            IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
+            IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
+            Integrate,              // the full permutation: the tiles that evaluate GGX samples
             Temporal,
             ProgramCount
         };
@@ -391,12 +405,14 @@ namespace Desert::Graphic::GlobalIllumination
             uint32_t    Downsample   = 0;
             uint32_t    TracedTexels = 0;
             std::string Program;   // the refused program; empty: the layout itself was refused
+            std::string_view Permutation; // its kScreenProbeProgramDefines entry (static storage)
             bool Service  = false; // AcquireVariant refused Program (the service's memory answers the report)
             bool Reported = false; // a refusal that is not the service's was reported
         };
         // Record the refusal of (@p downsample, @p tracedTexels) and return @p error as EnsureLayoutPrograms'.
         [[nodiscard]] Common::BoolResultStr RefuseLayout( uint32_t downsample, uint32_t tracedTexels,
-                                                          std::string program, bool service, std::string error );
+                                                          std::string program, std::string_view permutation,
+                                                          bool service, std::string error );
 
         std::array<std::shared_ptr<Shader>, ProgramCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, ProgramCount> m_Pipelines;
@@ -410,7 +426,7 @@ namespace Desert::Graphic::GlobalIllumination
 
         std::shared_ptr<Image2D>                m_Traced;   // SP_RES² texels per probe
         std::shared_ptr<Image2D>                m_Filtered; // (SP_RES + 2)² per probe
-        std::shared_ptr<Image2D>                m_ShortRangeAO; // xyz = bent normal, w = AO, the G-buffer's extent
+        std::shared_ptr<Image2D>                m_ShortRangeAO; // half the G-buffer's extent
         glm::uvec2                              m_Extent{ 0u };
         uint32_t                                m_AtlasRows  = 0;
         uint32_t                                m_AtlasProbesRow    = 0;

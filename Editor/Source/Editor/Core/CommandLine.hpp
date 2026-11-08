@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/CrashHandler.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
@@ -97,9 +98,14 @@ namespace Desert::Editor
          { "--language", true, "ru" },
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
+         { "--device-profile", true, "gtx1660" },
+         { "--log-level", true, "debug" },
+         { "--rdg-compile-cache", true, "0" },
+         { "--parallel-setup", true, "0" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
+         { "--gpu-order-trace", false, nullptr },
          { "--play", false, nullptr },
          { "--console", false, nullptr }, // Windows: opens a console window (Engine/EntryPoint.hpp)
          { "--crash-test", true, "segv" },
@@ -158,6 +164,24 @@ namespace Desert::Editor
         /// `--cloud-visualize <N>`: the cloud march draws a diagnostic instead of the sky
         /// (Graphic::RenderConfig::CloudVisualize, which names the modes). 0 is the ordinary picture.
         int CloudVisualize = 0;
+
+        /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the Vulkan DeviceProfile
+        /// table in DeviceCapsProbe.cpp): its ray tracing rows, vendor upscalers and memory are withheld before the
+        /// device is created. Empty, the default, means this device as it is. The name is checked against the
+        /// table where it is published (Sandbox.hpp, RequestDeviceProfile), which refuses an unknown one with the
+        /// list, so the parse stays free of the graphics backend.
+        std::string DeviceProfile;
+        /// `--log-level <trace|debug|info|warn|error|critical|off>`: the log's level gate
+        /// (Common::Logger::SetLevel), set by the host at start. Unset keeps the build's default:
+        /// info outside Debug, trace in Debug.
+        std::optional<spdlog::level::level_enum> LogLevel;
+        /// `--rdg-compile-cache <0|1>`: the render graph's compiled-plan cache (RDG::CompileCache, switched by
+        /// Graphic::RenderConfig::RdgCompileCache). 0 compiles every graph every frame, as before the cache.
+        bool RdgCompileCache = true;
+
+        /// `--parallel-setup <0|1>`: RenderPipeline.ParallelSetup for this session (Graphic::RenderConfig::
+        /// ParallelSetupOverride), no machine.json written. 0 runs every setup task inline (the A/B). -1: unset.
+        int ParallelSetup = -1;
 
         /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
         /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
@@ -329,6 +353,8 @@ namespace Desert::Editor
                     options.Shot.GpuTiming = false;
                 else if ( arg == "--gpu-profile-frame-only" )
                     options.Shot.GpuFrameOnly = true;
+                else if ( arg == "--gpu-order-trace" )
+                    options.Shot.GpuOrderTrace = true;
                 else if ( arg == "--play" )
                     options.Shot.Play = true;
                 // `--console` is acted on in main(), before the application exists; nothing to record here.
@@ -359,6 +385,19 @@ namespace Desert::Editor
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
                 options.ControlSocket = value;
+            else if ( arg == "--device-profile" )
+                options.DeviceProfile = value;
+            else if ( arg == "--log-level" )
+            {
+                options.LogLevel = Common::Logger::LevelFromName( value );
+                if ( !options.LogLevel )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--log-level '{}' names no level; the names are trace, debug, info, warn (or warning), "
+                         "error, critical, off.",
+                         value );
+                }
+            }
             else if ( arg == "--crash-test" )
             {
                 // Named here rather than accepted and interpreted later: an unrecognised word would
@@ -507,15 +546,36 @@ namespace Desert::Editor
             {
                 char*               end  = nullptr;
                 const unsigned long mode = std::strtoul( value.c_str(), &end, 10 );
-                if ( value.empty() || end != value.c_str() + value.size() || mode > 3ul )
+                if ( value.empty() || end != value.c_str() + value.size() || mode > 4ul )
                 {
                     return Common::MakeFormattedError<CommandLineOptions>(
                          "--cloud-visualize '{}' is not a mode (0 off, 1 the column cut, 2 the ray's kept share, "
-                         "3 the clip "
-                         "level).",
+                         "3 the clip level, 4 the march's cost per ray).",
                          value );
                 }
                 options.CloudVisualize = static_cast<int>( mode );
+            }
+            else if ( arg == "--rdg-compile-cache" )
+            {
+                if ( value != "0" && value != "1" )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--rdg-compile-cache '{}' is neither 0 (every graph compiled every frame) nor 1 (the "
+                         "compiled-plan cache, the default).",
+                         value );
+                }
+                options.RdgCompileCache = value == "1";
+            }
+            else if ( arg == "--parallel-setup" )
+            {
+                if ( value != "0" && value != "1" )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--parallel-setup '{}' is neither 0 (every setup task inline, in launch order) nor 1 "
+                         "(setup tasks on the workers).",
+                         value );
+                }
+                options.ParallelSetup = value == "1" ? 1 : 0;
             }
             else if ( arg == "--stream-delay-ticks" )
             {

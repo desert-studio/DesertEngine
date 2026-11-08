@@ -18,6 +18,11 @@ namespace Desert
     [[nodiscard]] Common::BoolResultStr ApplyGlfwWindowMode( GLFWwindow* window, WindowMode mode, uint32_t width,
                                                              uint32_t height, bool requestedFrame );
 
+    // The refresh rate, in Hz, of the monitor showing @p nativeWindow (Window::GetNativeWindow, a GLFWwindow):
+    // its fullscreen monitor, else the primary one. 0 = no monitor online (headless, a dropped RDP console).
+    // Reader: QualityBoot (the recommended upscaler's display target, RecommendUpscaler).
+    [[nodiscard]] uint32_t GlfwDisplayRefreshHz( const void* nativeWindow );
+
     // The frame the window has in @p mode when the application asked for @p requestedFrame.
     [[nodiscard]] constexpr bool WindowModeHasFrame( WindowMode mode, bool requestedFrame )
     {

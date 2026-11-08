@@ -17,6 +17,8 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -613,13 +615,20 @@ namespace Desert::Graphic::System
         // VsmRasterLevel of the levels drawn this frame: the sun's (its still casters' node and its movers'), and
         // the local mips (LocalRasters: every caster by the static layer's rule, both layers written).
         frame.RasterLevel.resize( levelCount );
-        const auto rasterLevel = [&graph]( const uint32_t level, const VsmCasterLayer layer )
+        const auto rasterLevel = [&graph, this]( const uint32_t level, const VsmCasterLayer layer )
         {
-            const glm::uvec4     value( level, static_cast<uint32_t>( layer ), 0u, 0u );
-            const RDG::BufferRef buffer = graph.CreateBuffer(
-                 RDG::BufferDesc{ .Bytes = sizeof( value ) },
-                 layer == VsmCasterLayer::Movable ? std::format( "VSM.RasterLevelMovable{}", level )
-                                                  : std::format( "VSM.RasterLevel{}", level ) );
+            const glm::uvec4       value( level, static_cast<uint32_t>( layer ), 0u, 0u );
+            const bool             movable = layer == VsmCasterLayer::Movable;
+            const std::string_view name    = m_RasterLevelNames[movable ? 1u : 0u].Get(
+                 level, 0u,
+                 [movable, level]( std::string& out )
+                 {
+                     if ( movable )
+                         std::format_to( std::back_inserter( out ), "VSM.RasterLevelMovable{}", level );
+                     else
+                         std::format_to( std::back_inserter( out ), "VSM.RasterLevel{}", level );
+                 } );
+            const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( value ) }, name );
             graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const glm::uvec4>( &value, 1 ) ) );
             return buffer;
         };
@@ -862,7 +871,18 @@ namespace Desert::Graphic::System
             return Common::MakeError<VsmCulledCasters>(
                  "Shadows: Virtual Shadow Map: the pipelines are not initialised" );
         const bool        movable = layer == VsmCasterLayer::Movable;
-        const std::string kind    = movable ? "Movable" : "";
+        const std::size_t layerRow = movable ? 1u : 0u;
+        const char* const kind     = movable ? "Movable" : "";
+        const char* const spaced   = movable ? "Movable " : "";
+        // The names of this level's nodes, made once per (layer, level) (PassNameTable).
+        const auto named = [kind, level]( PassNameTable& table, const char* const prefix )
+        {
+            return table.Get( level, 0u,
+                              [kind, level, prefix]( std::string& out )
+                              { std::format_to( std::back_inserter( out ), "{}{}{}", prefix, kind, level ); } );
+        };
+        const auto cullPassName = [spaced, level]( std::string& out )
+        { std::format_to( std::back_inserter( out ), "VSM: Cull {}Casters L{}", spaced, level ); };
         if ( cull.Instances.empty() || cull.Draws.empty() || cull.Arguments.empty() || cull.RemapSize == 0 )
             return Common::MakeError<VsmCulledCasters>( std::format(
                  "VSM: Cull {}Casters L{}: nothing to cull ({} instances, {} draws, {} argument words)",
@@ -878,25 +898,25 @@ namespace Desert::Graphic::System
         VsmCulledCasters culled;
         culled.Arguments =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Arguments.size() * sizeof( uint32_t ) },
-                                 std::format( "VSM.CasterArguments{}{}", kind, level ) );
+                                 named( m_CasterArgumentNames[layerRow], "VSM.CasterArguments" ) );
         graph.QueueBufferUpload( culled.Arguments, Bytes( cull.Arguments ) );
         culled.InstanceRemap =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ cull.RemapSize } * sizeof( uint32_t ) },
-                                 std::format( "VSM.InstanceRemap{}{}", kind, level ) );
+                                 named( m_InstanceRemapNames[layerRow], "VSM.InstanceRemap" ) );
         const RDG::BufferRef draws =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Draws.size() * sizeof( VsmCullDrawGpu ) },
-                                 std::format( "VSM.CullDraws{}{}", kind, level ) );
+                                 named( m_CullDrawNames[layerRow], "VSM.CullDraws" ) );
         graph.QueueBufferUpload( draws, Bytes( cull.Draws ) );
         const RDG::BufferRef boxes =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Instances.size() * sizeof( VsmCullInstanceGpu ) },
-                                 std::format( "VSM.CullInstances{}{}", kind, level ) );
+                                 named( m_CullInstanceNames[layerRow], "VSM.CullInstances" ) );
         graph.QueueBufferUpload( boxes, Bytes( cull.Instances ) );
 
         // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index), w =
         // the mask's first level (0: the static mask, LevelCount: the drawn mask).
         const glm::uvec4 push( level, instances, grid.x * kGroup64, movable ? frame.LevelCount : 0u );
         graph.AddPass(
-             std::format( "VSM: Cull {}Casters L{}", movable ? "Movable " : "", level ), RDG::PassFlags::Compute,
+             m_CullPassNames[layerRow].Get( level, 0u, cullPassName ), RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( kernel.Layout.Get( kernel.Program ),

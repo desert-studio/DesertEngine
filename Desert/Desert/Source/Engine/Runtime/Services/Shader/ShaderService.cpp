@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <format>
+#include <mutex>
+#include <shared_mutex>
 #include <utility>
 
 namespace
@@ -68,17 +70,18 @@ namespace
     {
         if ( shader.IsCompiled() )
             return;
-        if ( !shader.GetDeviceRefusal().empty() )
+        if ( const std::string refusal = shader.GetDeviceRefusal(); !refusal.empty() )
         {
-            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader.GetName(),
-                      shader.GetDeviceRefusal(), file.string() );
+            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader.GetName(), refusal,
+                      file.string() );
             return;
         }
+        std::string why = shader.GetCompileError();
+        if ( why.empty() )
+            why = "the build gave no reason";
         LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using it will not "
                    "draw until it compiles ({}): {}",
-                   shader.GetName(), file.string(),
-                   shader.GetCompileError().empty() ? std::string_view( "the build gave no reason" )
-                                                    : shader.GetCompileError() );
+                   shader.GetName(), file.string(), why );
     }
 } // namespace
 
@@ -92,9 +95,15 @@ namespace Desert::Runtime
             return Common::MakeError( "Shader asset is invalid" );
         }
         // A (re-)registered file answers afresh: a refusal that named it, or named its name before it existed,
-        // is no longer the service's answer.
-        ForgetRefusalsOf( shaderAsset->GetMetadata().Handle );
-        ForgetRefusalsOfProgram( shaderAsset->GetMetadata().Filepath.stem().string() );
+        // is no longer the service's answer. Done under the same exclusive hold as the write it belongs to.
+        const Assets::AssetHandle handle = shaderAsset->GetMetadata().Handle;
+        const std::string         stem   = shaderAsset->GetMetadata().Filepath.stem().string();
+        const auto                adopt  = [this, &handle, &stem]()
+        {
+            ForgetRefusalsOfLocked( handle );
+            ForgetRefusalsOfProgram( stem );
+            m_NameToHandleMap[stem] = handle;
+        };
 
         // A MEDIUM PROGRAM IS SOURCE, NOT A PROGRAM. It declares no stages because it is compiled INTO
         // four other programs as the substitution for one of their includes; building a Shader object for
@@ -113,11 +122,13 @@ namespace Desert::Runtime
         // never built as a program — the "no compiled stages" complaint below would be a lie about it.
         if ( IsParticleFragment( shaderAsset->GetShaderContent() ) )
         {
-            const auto name         = shaderAsset->GetMetadata().Filepath.stem().string();
-            m_NameToHandleMap[name] = shaderAsset->GetMetadata().Handle;
+            {
+                const std::unique_lock write( m_Lock );
+                adopt();
+            }
             LOG_INFO( "[ShaderService] '{}' is a Particle fragment; it compiles into the particle simulation "
                       "rather than into a program of its own.",
-                      name );
+                      stem );
             return BOOLSUCCESS;
         }
 
@@ -126,37 +137,41 @@ namespace Desert::Runtime
         // names its stamp), never built as a program of its own.
         if ( std::string stamp = StampOf( shaderAsset->GetShaderContent() ); !stamp.empty() )
         {
-            const auto name         = shaderAsset->GetMetadata().Filepath.stem().string();
-            m_NameToHandleMap[name] = shaderAsset->GetMetadata().Handle;
+            const std::size_t bytes = stamp.size();
+            {
+                const std::unique_lock write( m_Lock );
+                adopt();
+                m_Stamps[stem] = std::move( stamp );
+            }
             LOG_INFO( "[ShaderService] '{}' is a DeformStamp ({} bytes of authored source); it compiles into "
                       "the deformation field's stamp program rather than into one of its own.",
-                      name, stamp.size() );
-            m_Stamps[name] = std::move( stamp );
+                      stem, bytes );
             return BOOLSUCCESS;
         }
 
         if ( ParsedMedium medium = MediumOf( shaderAsset->GetShaderContent() ); !medium.Body.empty() )
         {
-            const auto name         = shaderAsset->GetMetadata().Filepath.stem().string();
-            m_NameToHandleMap[name] = shaderAsset->GetMetadata().Handle;
+            const std::size_t bytes      = medium.Body.size();
+            const std::size_t properties = medium.Properties.size();
+            auto              schema =
+                 std::make_shared<const std::vector<Core::Formats::ShaderParam>>( std::move( medium.Properties ) );
+            {
+                const std::unique_lock write( m_Lock );
+                adopt();
+                m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( schema ) };
+            }
             LOG_INFO( "[ShaderService] '{}' is a Volume medium ({} bytes of authored source, {} own "
                       "propert(ies)); it compiles into the programs that sample the cloud field rather "
                       "than into one of its own.",
-                      name, medium.Body.size(), medium.Properties.size() );
-            m_Media[shaderAsset->GetMetadata().Handle] =
-                 MediumEntry{ std::move( medium.Body ), std::move( medium.Properties ) };
+                      stem, bytes, properties );
             return BOOLSUCCESS;
         }
 
-        const auto shader                            = Graphic::Shader::Create( shaderAsset );
-        m_Shaders[shaderAsset->GetMetadata().Handle] = shader;
-        m_NameToHandleMap[shader->GetName()]         = shaderAsset->GetMetadata().Handle;
-        ForgetRefusalsOfProgram( shader->GetName() );
-        // Kept so AcquireVariant can compile the SAME source under a substitution later. Weak: the
-        // asset manager owns the asset, and this service must not extend its life.
-        m_ShaderAssets[shaderAsset->GetMetadata().Handle] = shaderAsset;
+        // EVERY PROGRAM OF THE FILE IS COMPILED BEFORE THE LOCK (THREADS): a compile reads the asset alone, and a
+        // render worker asking GetByName meanwhile is answered by the programs registered before this one.
+        const auto shader = Graphic::Shader::Create( shaderAsset );
         // Whose the shader is, in the ledger — see Engine/Graphic/ResourceLedger.hpp.
-        shader->ClaimOwnership( Graphic::ResourceOwner::AssetService, shaderAsset->GetMetadata().Handle );
+        shader->ClaimOwnership( Graphic::ResourceOwner::AssetService, handle );
 
         // Registered either way, deliberately: a shader that fails to compile must keep its NAME, or the
         // material referencing it silently falls back to the standard one and the artist is told nothing.
@@ -186,39 +201,64 @@ namespace Desert::Runtime
         // of it: that copy is empty until QualityBoot::Start, and a Register before it would drop every ray
         // tracing pass in silence. The device exists whenever a shader compiles (VulkanShader reads it).
         const auto device = EngineContext::GetInstance().GetDevice();
+        std::vector<std::pair<std::string, std::shared_ptr<Graphic::Shader>>> passes;
+        if ( device )
+        {
+            const bool rayTracingPipeline = Common::Scalability::CapabilityCatalog::Offers(
+                 device->GetCapabilities().Catalog.RayTracingModes,
+                 Common::Scalability::RayTracingMode::RayTracingPipeline );
+            const auto& rayTracingPasses = shader->GetProgramMeta().RayTracingPassNames;
+            for ( const auto& passName : shader->GetProgramMeta().PassNames )
+            {
+                if ( !rayTracingPipeline && std::find( rayTracingPasses.begin(), rayTracingPasses.end(),
+                                                       passName ) != rayTracingPasses.end() )
+                    continue;
+                if ( Core::Preprocess::IsDefaultProgramPass( shader->GetProgramMeta(), passName ) )
+                {
+                    passes.emplace_back( std::format( "{}/{}", shader->GetName(), passName ), shader );
+                    continue;
+                }
+                auto passShader = Graphic::Shader::Create( shaderAsset, {}, passName );
+                passShader->ClaimOwnership( Graphic::ResourceOwner::AssetService, handle );
+                // Registered either way, for the default program's reason above, and complained about the same
+                // way.
+                ReportUnbuiltProgram( *passShader, shaderAsset->GetMetadata().Filepath );
+                std::string passKey = passShader->GetName();
+                passes.emplace_back( std::move( passKey ), std::move( passShader ) );
+            }
+        }
+
+        // THE ADOPTION, EXCLUSIVE. The programs a re-registration replaces leave the maps under the lock and are
+        // released after it (declared before it): a render worker holding one keeps its own reference.
+        std::vector<std::shared_ptr<Graphic::Shader>> replaced;
+        {
+            const std::unique_lock write( m_Lock );
+            ForgetRefusalsOfLocked( handle );
+            ForgetRefusalsOfProgram( stem );
+            if ( auto& slot = m_Shaders[handle]; slot != shader )
+                replaced.push_back( std::exchange( slot, shader ) );
+            m_NameToHandleMap[shader->GetName()] = handle;
+            ForgetRefusalsOfProgram( shader->GetName() );
+            // Kept so AcquireVariant can compile the SAME source under a substitution later. Weak: the
+            // asset manager owns the asset, and this service must not extend its life.
+            m_ShaderAssets[handle] = shaderAsset;
+            for ( auto& [passKey, passShader] : passes )
+                replaced.push_back( std::exchange( m_PassShaders[passKey], std::move( passShader ) ) );
+        }
+
         if ( !device )
             return Common::MakeFormattedError( "ShaderService: '{}' registered before the device exists",
                                                shader->GetName() );
-        const bool rayTracingPipeline = Common::Scalability::CapabilityCatalog::Offers(
-             device->GetCapabilities().Catalog.RayTracingModes,
-             Common::Scalability::RayTracingMode::RayTracingPipeline );
-        const auto& rayTracingPasses = shader->GetProgramMeta().RayTracingPassNames;
-        for ( const auto& passName : shader->GetProgramMeta().PassNames )
-        {
-            if ( !rayTracingPipeline && std::find( rayTracingPasses.begin(), rayTracingPasses.end(), passName ) !=
-                                             rayTracingPasses.end() )
-                continue;
-            if ( Core::Preprocess::IsDefaultProgramPass( shader->GetProgramMeta(), passName ) )
-            {
-                m_PassShaders[std::format( "{}/{}", shader->GetName(), passName )] = shader;
-                continue;
-            }
-            auto passShader                      = Graphic::Shader::Create( shaderAsset, {}, passName );
-            m_PassShaders[passShader->GetName()] = passShader;
-            passShader->ClaimOwnership( Graphic::ResourceOwner::AssetService, shaderAsset->GetMetadata().Handle );
-            // Registered either way, for the default program's reason above, and complained about the same way.
-            ReportUnbuiltProgram( *passShader, shaderAsset->GetMetadata().Filepath );
-        }
-
         return BOOLSUCCESS;
     }
 
     std::shared_ptr<Graphic::Shader> ShaderService::GetByName( const std::string& name ) const
     {
-        auto handleIt = m_NameToHandleMap.find( name );
+        const std::shared_lock read( m_Lock );
+        auto                   handleIt = m_NameToHandleMap.find( name );
         if ( handleIt != m_NameToHandleMap.end() )
         {
-            return Get( handleIt->second );
+            return GetLocked( handleIt->second );
         }
 
         auto passIt = m_PassShaders.find( name );
@@ -231,6 +271,12 @@ namespace Desert::Runtime
 
     std::shared_ptr<Desert::Graphic::Shader> ShaderService::Get( const Assets::AssetHandle& handle ) const
     {
+        const std::shared_lock read( m_Lock );
+        return GetLocked( handle );
+    }
+
+    std::shared_ptr<Graphic::Shader> ShaderService::GetLocked( const Assets::AssetHandle& handle ) const
+    {
         auto it = m_Shaders.find( handle );
         return ( it != m_Shaders.end() ) ? it->second : nullptr;
     }
@@ -239,8 +285,8 @@ namespace Desert::Runtime
     ShaderService::AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant )
     {
         auto lookup = BeginVariant( name, variant );
-        // One thread: nothing can move the service between the steps, so this runs once; it is a loop only
-        // because FinishVariant's answer has BeginVariant's shape.
+        // The compile runs unlocked, so another thread may move the service between the steps (a recompile, a
+        // finish for the same key): FinishVariant then answers BeginVariant's way, and this asks again.
         while ( lookup.IsSuccess() && lookup.GetValue().Compile )
         {
             const VariantCompile ticket = *lookup.GetValue().Compile;
@@ -254,12 +300,42 @@ namespace Desert::Runtime
     Common::ResultStr<ShaderService::VariantLookup>
     ShaderService::BeginVariant( const std::string& name, const Graphic::ShaderVariant& variant )
     {
-        const auto refused = [this]( const std::string& key, Refusal refusal )
-        {
-            return Common::MakeError<VariantLookup>( Refuse( key, std::move( refusal ) ).GetError() );
-        };
         const std::string key =
              std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
+        // THE STEADY FRAME READS (THREADS): a live variant or a standing refusal under the shared lock, so the
+        // render workers asking every frame do not queue behind one another.
+        {
+            const std::shared_lock read( m_Lock );
+            if ( auto settled = SettledVariantLocked( variant, key ) )
+                return std::move( *settled );
+        }
+        const std::unique_lock write( m_Lock );
+        return BeginVariantLocked( name, variant, key );
+    }
+
+    std::optional<Common::ResultStr<ShaderService::VariantLookup>>
+    ShaderService::SettledVariantLocked( const Graphic::ShaderVariant& variant, const std::string& key ) const
+    {
+        // Each step is BeginVariantLocked's, in its order; whatever writes (the default refusal, the cook census'
+        // first record, an expired entry) is left to it.
+        if ( variant.IsDefault() || ( variant.ShippedByCook && !m_ShippedByCookRequests.contains( key ) ) )
+            return std::nullopt;
+        const auto standing = m_Refusals.find( key );
+        if ( standing != m_Refusals.end() && standing->second.Compile )
+            return Common::MakeError<VariantLookup>( standing->second.Reason );
+        if ( const auto it = m_Variants.find( key ); it != m_Variants.end() )
+            if ( auto live = it->second.Program.lock() )
+                return Common::MakeSuccess( VariantLookup{ .Ready = std::move( live ) } );
+        return std::nullopt;
+    }
+
+    Common::ResultStr<ShaderService::VariantLookup> ShaderService::BeginVariantLocked(
+         const std::string& name, const Graphic::ShaderVariant& variant, const std::string& key )
+    {
+        const auto refused = [this]( const std::string& refusedKey, Refusal refusal )
+        {
+            return Common::MakeError<VariantLookup>( Refuse( refusedKey, std::move( refusal ) ).GetError() );
+        };
 
         // The default variant is GetByName's question, and answering it here would build an unregistered
         // second copy of a program that already exists — two objects, two sets of modules, and a
@@ -289,7 +365,7 @@ namespace Desert::Runtime
                 programName                = name.substr( 0, slash );
                 const auto programHandleIt = m_NameToHandleMap.find( programName );
                 if ( programHandleIt != m_NameToHandleMap.end() &&
-                     Get( programHandleIt->second ) != passIt->second )
+                     GetLocked( programHandleIt->second ) != passIt->second )
                     passName = name.substr( slash + 1 );
             }
         }
@@ -360,18 +436,50 @@ namespace Desert::Runtime
                                         .Program    = programName,
                                         .Handle     = handleIt->second,
                                         .Request    = { asset->GetShaderContent(), path, passName, variant, shown },
-                                        .Generation = m_RecompileGeneration } } );
+                                        .Generation = m_RecompileGeneration.load() } } );
     }
 
     Common::ResultStr<ShaderService::VariantLookup>
     ShaderService::FinishVariant( const VariantCompile& ticket, const Common::ResultStr<Core::ShaderMap>& built )
     {
+        // Declared first, released last: a program built here that is not adopted (a refusal, or another finish
+        // for the same key landed first) is destroyed with the lock released (THREADS).
+        std::shared_ptr<Graphic::Shader>     program;
+        std::shared_ptr<Assets::ShaderAsset> asset;
         // Moved past while it compiled: the file or the program may have been re-read since the copy was taken,
         // and adopting the old text's map would be the stale program the refusal reset was there to drop.
-        if ( ticket.Generation != m_RecompileGeneration )
+        const auto moved = [this, &ticket]() { return ticket.Generation != m_RecompileGeneration.load(); };
+        {
+            const std::shared_lock read( m_Lock );
+            if ( !moved() )
+            {
+                // A finish for the same key may have landed first (two callers, one key): its program is the
+                // answer.
+                if ( const auto it = m_Variants.find( ticket.Key ); it != m_Variants.end() )
+                    if ( auto live = it->second.Program.lock() )
+                        return Common::MakeSuccess( VariantLookup{ .Ready = std::move( live ) } );
+                if ( const auto assetIt = m_ShaderAssets.find( ticket.Handle ); assetIt != m_ShaderAssets.end() )
+                    asset = assetIt->second.lock();
+            }
+        }
+        if ( moved() )
             return BeginVariant( ticket.Name, ticket.Request.Variant );
 
-        // A finish for the same key may have landed first (two callers, one key): its program is the answer.
+        // The device half, unlocked: it reads the ticket's map and the asset alone.
+        if ( asset && built.IsSuccess() )
+        {
+            program = Graphic::Shader::CreateFromShaderMap( asset, ticket.Request.Variant, ticket.Request.PassName,
+                                                            built.GetValue() );
+            program->ClaimOwnership( Graphic::ResourceOwner::AssetService, ticket.Handle );
+        }
+
+        std::unique_lock write( m_Lock );
+        // Moved while the device half ran: the same answer as above.
+        if ( moved() )
+        {
+            write.unlock();
+            return BeginVariant( ticket.Name, ticket.Request.Variant );
+        }
         if ( const auto it = m_Variants.find( ticket.Key ); it != m_Variants.end() )
             if ( auto live = it->second.Program.lock() )
                 return Common::MakeSuccess( VariantLookup{ .Ready = std::move( live ) } );
@@ -383,19 +491,10 @@ namespace Desert::Runtime
                          { .Handle = ticket.Handle, .Program = ticket.Program, .Reason = reason, .Compile = compile } )
                       .GetError() );
         };
-        const auto assetIt = m_ShaderAssets.find( ticket.Handle );
-        auto       asset   = assetIt != m_ShaderAssets.end() ? assetIt->second.lock() : nullptr;
         if ( !asset )
             return refused( std::format( "AcquireVariant('{}'): the shader asset behind that name is gone.", ticket.Name ),
                             false );
 
-        std::shared_ptr<Graphic::Shader> program;
-        if ( built.IsSuccess() )
-        {
-            program = Graphic::Shader::CreateFromShaderMap( asset, ticket.Request.Variant, ticket.Request.PassName,
-                                                            built.GetValue() );
-            program->ClaimOwnership( Graphic::ResourceOwner::AssetService, ticket.Handle );
-        }
         if ( !program || !program->IsCompiled() )
         {
             // A REFUSAL, NOT A RESULT — and it used to be handed back with a comment saying "the caller
@@ -415,7 +514,7 @@ namespace Desert::Runtime
             // nothing the header did not already say: the doc lists the refusals and the error names which
             // one this is, and since NN-RUNTIME-6 the reason travels in the Result, so the caller that marks
             // a path refused or falls back says WHY in its own log or report instead of a line nobody pairs.
-            const std::string why = program ? std::string( program->GetCompileError() ) : built.GetError();
+            const std::string why = program ? program->GetCompileError() : built.GetError();
             return refused(
                  std::format( "Variant {} of '{}' has no compiled stages - the source did not compile or "
                               "reflect: {}",
@@ -425,7 +524,7 @@ namespace Desert::Runtime
 
         m_Refusals.erase( ticket.Key ); // it compiles now: a later refusal is a new one, and is reported
         m_Variants[ticket.Key] = VariantEntry{ ticket.Handle, program };
-        return Common::MakeSuccess( VariantLookup{ .Ready = std::move( program ) } );
+        return Common::MakeSuccess( VariantLookup{ .Ready = program } );
     }
 
     Common::ResultStr<std::shared_ptr<Graphic::Shader>> ShaderService::Refuse( const std::string& key,
@@ -441,13 +540,20 @@ namespace Desert::Runtime
     {
         const std::string key =
              std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
-        const auto it = m_Refusals.find( key );
+        const std::unique_lock write( m_Lock );
+        const auto             it = m_Refusals.find( key );
         if ( it == m_Refusals.end() )
             return true;
         return !std::exchange( it->second.Reported, true );
     }
 
     void ShaderService::ForgetRefusalsOf( const Assets::AssetHandle& handle )
+    {
+        const std::unique_lock write( m_Lock );
+        ForgetRefusalsOfLocked( handle );
+    }
+
+    void ShaderService::ForgetRefusalsOfLocked( const Assets::AssetHandle& handle )
     {
         std::erase_if( m_Refusals, [&handle]( const auto& entry ) { return entry.second.Handle == handle; } );
         m_FileGenerations[handle] = ++m_RecompileGeneration;
@@ -462,8 +568,9 @@ namespace Desert::Runtime
     std::uint64_t ShaderService::ProgramGeneration( const std::string& name ) const
     {
         // A pass "<Shader>/<Pass>" is its file's program <Shader>.
-        const std::string program    = name.substr( 0, name.find( '/' ) );
-        std::uint64_t     generation = m_ClearGeneration;
+        const std::string      program = name.substr( 0, name.find( '/' ) );
+        const std::shared_lock read( m_Lock );
+        std::uint64_t          generation = m_ClearGeneration;
         if ( const auto stamped = m_ProgramNameGenerations.find( program );
              stamped != m_ProgramNameGenerations.end() )
             generation = std::max( generation, stamped->second );
@@ -475,6 +582,7 @@ namespace Desert::Runtime
 
     std::vector<Core::CookedProgramVariant> ShaderService::ShippedByCookRequests() const
     {
+        const std::shared_lock                  read( m_Lock );
         std::vector<Core::CookedProgramVariant> requests;
         requests.reserve( m_ShippedByCookRequests.size() );
         for ( const auto& [key, request] : m_ShippedByCookRequests )
@@ -487,14 +595,25 @@ namespace Desert::Runtime
         if ( handle.IsNull() )
             return {};
 
-        if ( const auto it = m_Media.find( handle ); it != m_Media.end() )
-            return it->second.Source;
+        {
+            const std::shared_lock read( m_Lock );
+            if ( const auto it = m_Media.find( handle ); it != m_Media.end() )
+                return it->second.Source;
+        }
 
         // A HANDLE THAT IS NOT A MEDIUM, and the two ways to get there are an unregistered shader and a
         // Medium slot pointed at an ordinary one. Both draw the shipped medium, which is a picture that
         // looks exactly like "I forgot to set it" — so it is said, once per handle, with the handle in
         // it. Once, because this is asked every frame.
-        if ( m_WarnedNotAMedium.insert( static_cast<uint64_t>( handle ) ).second )
+        bool first = false;
+        {
+            const std::unique_lock write( m_Lock );
+            // Registered since the shared look: a medium after all.
+            if ( const auto it = m_Media.find( handle ); it != m_Media.end() )
+                return it->second.Source;
+            first = m_WarnedNotAMedium.insert( static_cast<uint64_t>( handle ) ).second;
+        }
+        if ( first )
         {
             LOG_ERROR( "[ShaderService] a cloud material's Medium slot names shader {}, which is not a "
                        "registered Volume medium (no `Medium {{ ... }}` block, or not loaded). The layer "
@@ -506,12 +625,14 @@ namespace Desert::Runtime
 
     std::string ShaderService::StampSourceOf( const std::string& name ) const
     {
-        const auto it = m_Stamps.find( name );
+        const std::shared_lock read( m_Lock );
+        const auto             it = m_Stamps.find( name );
         return it != m_Stamps.end() ? it->second : std::string{};
     }
 
     std::vector<std::string> ShaderService::MediumSources() const
     {
+        const std::shared_lock   read( m_Lock );
         std::vector<std::string> sources;
         sources.reserve( m_Media.size() );
         for ( const auto& [handle, medium] : m_Media )
@@ -519,7 +640,7 @@ namespace Desert::Runtime
         return sources;
     }
 
-    const std::vector<Core::Formats::ShaderParam>*
+    std::shared_ptr<const std::vector<Core::Formats::ShaderParam>>
     ShaderService::MediumSchemaOf( const Assets::AssetHandle& handle ) const
     {
         if ( handle.IsNull() )
@@ -528,8 +649,11 @@ namespace Desert::Runtime
         // NO WARNING HERE, and that is deliberate rather than an omission: MediumSourceOf is asked the same
         // question about the same handle in the same frame and latches the one message. Two refusals for
         // one mistake is how a log stops being read.
-        const auto it = m_Media.find( handle );
-        return it != m_Media.end() ? &it->second.Properties : nullptr;
+        const std::shared_lock read( m_Lock );
+        const auto             it = m_Media.find( handle );
+        if ( it == m_Media.end() )
+            return nullptr;
+        return it->second.Properties;
     }
 
     bool ShaderService::RefreshMediumSource( const Assets::AssetHandle& handle, const std::string& content )
@@ -543,35 +667,49 @@ namespace Desert::Runtime
         // back to the default every time they saved would be worse than one frame of stale text. The
         // empty case above is therefore "not a medium", not "an empty medium" — the parser refuses an
         // empty Medium block outright, for the same reason.
-        m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( medium.Properties ) };
+        //
+        // A NEW schema object, never an overwrite of the old one: a render worker may hold that one
+        // (MediumSchemaOf co-owns it), and it dies with its last holder.
+        auto schema =
+             std::make_shared<const std::vector<Core::Formats::ShaderParam>>( std::move( medium.Properties ) );
+        const std::unique_lock write( m_Lock );
+        m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( schema ) };
         m_WarnedNotAMedium.erase( static_cast<uint64_t>( handle ) );
         return true;
     }
 
     int ShaderService::ReloadVariantsOf( const Assets::AssetHandle& handle )
     {
-        int reloaded = 0;
-        for ( auto it = m_Variants.begin(); it != m_Variants.end(); )
+        // The live variants of @p handle by strong reference, the expired entries pruned - under the lock; the
+        // recompiles (device objects rebuilt, a log line per failure) after it.
+        std::vector<std::pair<std::string, std::shared_ptr<Graphic::Shader>>> live;
         {
-            auto program = it->second.Handle == handle ? it->second.Program.lock() : nullptr;
-            if ( it->second.Program.expired() )
+            const std::unique_lock write( m_Lock );
+            for ( auto it = m_Variants.begin(); it != m_Variants.end(); )
             {
-                it = m_Variants.erase( it );
-                continue;
+                auto program = it->second.Handle == handle ? it->second.Program.lock() : nullptr;
+                if ( it->second.Program.expired() )
+                {
+                    it = m_Variants.erase( it );
+                    continue;
+                }
+                if ( program )
+                    live.emplace_back( it->first, std::move( program ) );
+                ++it;
             }
-            if ( program )
+        }
+        int reloaded = 0;
+        for ( const auto& [key, program] : live )
+        {
+            const auto res = program->Reload();
+            if ( !res )
             {
-                const auto res = program->Reload();
-                if ( !res )
-                {
-                    LOG_ERROR( "[ShaderService] Variant {} failed to recompile: {}", it->first, res.GetError() );
-                }
-                else
-                {
-                    ++reloaded;
-                }
+                LOG_ERROR( "[ShaderService] Variant {} failed to recompile: {}", key, res.GetError() );
             }
-            ++it;
+            else
+            {
+                ++reloaded;
+            }
         }
         return reloaded;
     }
@@ -591,25 +729,32 @@ namespace Desert::Runtime
 
     void ShaderService::Clear()
     {
-        // Was an empty body. Shaders own VkShaderModules and the pipeline layouts built from them.
-        m_Shaders.clear();
-        m_PassShaders.clear();
-        m_NameToHandleMap.clear();
-        m_ShaderAssets.clear();
-        m_Media.clear();
-        m_Stamps.clear();
-        m_WarnedNotAMedium.clear();
-        m_Refusals.clear();
-        m_FileGenerations.clear();
-        m_ProgramNameGenerations.clear();
-        m_ClearGeneration = ++m_RecompileGeneration;
-        // Only the weak bookkeeping — a variant's modules belong to whoever still holds it, and freeing
-        // them from here would leave that holder with a program made of destroyed modules.
-        m_Variants.clear();
+        // Was an empty body. Shaders own VkShaderModules and the pipeline layouts built from them: they leave
+        // the maps under the lock and are released after it (declared before it, THREADS).
+        decltype( m_Shaders )     shaders;
+        decltype( m_PassShaders ) passShaders;
+        {
+            const std::unique_lock write( m_Lock );
+            shaders.swap( m_Shaders );
+            passShaders.swap( m_PassShaders );
+            m_NameToHandleMap.clear();
+            m_ShaderAssets.clear();
+            m_Media.clear();
+            m_Stamps.clear();
+            m_WarnedNotAMedium.clear();
+            m_Refusals.clear();
+            m_FileGenerations.clear();
+            m_ProgramNameGenerations.clear();
+            m_ClearGeneration = ++m_RecompileGeneration;
+            // Only the weak bookkeeping — a variant's modules belong to whoever still holds it, and freeing
+            // them from here would leave that holder with a program made of destroyed modules.
+            m_Variants.clear();
+        }
     }
 
     std::vector<std::string> ShaderService::GetAllNames() const
     {
+        const std::shared_lock   read( m_Lock );
         std::vector<std::string> names;
         names.reserve( m_NameToHandleMap.size() );
         for ( const auto& [name, handle] : m_NameToHandleMap )

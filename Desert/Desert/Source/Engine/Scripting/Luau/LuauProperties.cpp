@@ -355,6 +355,84 @@ namespace Desert::Scripting::LuauProperties
                             : std::format( "{}: {}", script, message );
         }
 
+        // THE WRITE BARRIER (UE: a property change notification, never a per-tick copy). Settle leaves the
+        // script a PROXY as `Properties`: an empty table whose metatable reads through to the values (__index),
+        // and whose __newindex stores the value there AND marks the name written. A key the proxy never holds
+        // always reaches __newindex, so every script write is seen; the engine's own writes (SetProperty) go to
+        // the values raw and are not marks. ScriptSystem's SaveGame read-back reads only marked names.
+        constexpr const char* kValuesKey  = "__index";
+        constexpr const char* kWrittenKey = "__written";
+
+        int WriteBarrier( lua_State* L )
+        {
+            // 1 proxy, 2 key, 3 value
+            lua_getmetatable( L, 1 );            // 4: the proxy's metatable
+            lua_rawgetfield( L, 4, kValuesKey ); // 5: the values
+            lua_pushvalue( L, 2 );
+            lua_pushvalue( L, 3 );
+            lua_rawset( L, 5 );
+            if ( lua_type( L, 2 ) == LUA_TSTRING )
+            {
+                lua_rawgetfield( L, 4, kWrittenKey ); // 6: the written names
+                lua_pushvalue( L, 2 );
+                lua_pushboolean( L, 1 );
+                lua_rawset( L, 6 );
+            }
+            return 0;
+        }
+
+        /// `for name, value in Properties do`: the generalized iteration walks the values, not the empty proxy.
+        int IterateValues( lua_State* L )
+        {
+            lua_getglobal( L, "next" );
+            lua_getmetatable( L, 1 );
+            lua_rawgetfield( L, -1, kValuesKey );
+            lua_remove( L, -2 );
+            return 2;
+        }
+
+        /// Pushes the metatable of the proxy at `index` and answers true when it is one; else pushes nothing.
+        bool PushProxyMeta( lua_State* L, int index )
+        {
+            if ( !lua_istable( L, index ) || lua_getmetatable( L, index ) == 0 )
+                return false;
+            if ( lua_rawgetfield( L, -1, kWrittenKey ) == LUA_TTABLE )
+            {
+                lua_pop( L, 1 );
+                return true;
+            }
+            lua_pop( L, 2 );
+            return false;
+        }
+
+        /// Pushes the written-names table of the slot's `Properties` proxy; false (nothing pushed) without one.
+        bool PushWritten( lua_State* thread )
+        {
+            lua_getglobal( thread, "Properties" );
+            if ( !PushProxyMeta( thread, -1 ) )
+            {
+                lua_pop( thread, 1 );
+                return false;
+            }
+            lua_rawgetfield( thread, -1, kWrittenKey );
+            lua_remove( thread, -2 );
+            lua_remove( thread, -2 );
+            return true;
+        }
+
+        /// `pairs(Properties)` walks the values exactly like `for name, value in Properties do`: Luau's pairs
+        /// ignores __iter, so Install replaces the shared `pairs` with this one before luaL_sandbox (every
+        /// slot's imports resolve to it). Any other table iterates as itself, as with luaB_pairs. Upvalue 1 is
+        /// the built-in `next`, so the VM's FORGPREP_NEXT fast path still applies.
+        int PairsThroughProxy( lua_State* L )
+        {
+            luaL_checktype( L, 1, LUA_TTABLE );
+            lua_pushvalue( L, lua_upvalueindex( 1 ) );
+            PushValues( L, 1 );
+            lua_pushnil( L );
+            return 3;
+        }
+
         const luaL_Reg kModule[] = {
              { "Float", &Scalar<PropertyType::Number> },
              { "Int", &Scalar<PropertyType::Int> },
@@ -381,6 +459,10 @@ namespace Desert::Scripting::LuauProperties
             lua_setfield( L, -2, entry->name );
         }
         lua_setglobal( L, "Property" );
+
+        lua_getglobal( L, "next" );
+        lua_pushcclosure( L, &PairsThroughProxy, "pairs", 1 );
+        lua_setglobal( L, "pairs" );
     }
 
     void WatchPropertiesLine( lua_State* thread )
@@ -488,8 +570,73 @@ namespace Desert::Scripting::LuauProperties
             PushProperty( thread, decl.Default, World{} );
             lua_setfield( thread, -2, decl.Name.c_str() );
         }
+
+        // The table becomes the values behind the write barrier's proxy (kWrittenKey above).
+        const int values = lua_gettop( thread );
+        lua_newtable( thread ); // the proxy
+        lua_newtable( thread ); // its metatable
+        lua_pushvalue( thread, values );
+        lua_rawsetfield( thread, -2, kValuesKey );
+        lua_pushcfunction( thread, &WriteBarrier, "Properties write" );
+        lua_rawsetfield( thread, -2, "__newindex" );
+        lua_pushcfunction( thread, &IterateValues, "Properties iteration" );
+        lua_rawsetfield( thread, -2, "__iter" );
+        lua_newtable( thread );
+        lua_rawsetfield( thread, -2, kWrittenKey );
+        lua_setmetatable( thread, -2 );
+        lua_rawsetfield( thread, LUA_GLOBALSINDEX, "Properties" );
         lua_pop( thread, 1 );
         return Common::MakeSuccess( std::move( decls ) );
+    }
+
+    void PushValues( lua_State* L, int index )
+    {
+        const int at = lua_absindex( L, index );
+        if ( PushProxyMeta( L, at ) )
+        {
+            lua_rawgetfield( L, -1, kValuesKey );
+            lua_remove( L, -2 );
+            return;
+        }
+        lua_pushvalue( L, at );
+    }
+
+    void PushPropertyValues( lua_State* thread )
+    {
+        lua_getglobal( thread, "Properties" );
+        PushValues( thread, -1 );
+        lua_remove( thread, -2 );
+    }
+
+    bool AnyPropertyWritten( lua_State* thread )
+    {
+        if ( !PushWritten( thread ) )
+            return false;
+        lua_pushnil( thread );
+        if ( lua_next( thread, -2 ) == 0 )
+        {
+            lua_pop( thread, 1 ); // the written names
+            return false;
+        }
+        lua_pop( thread, 3 ); // a name, its mark, the written names
+        return true;
+    }
+
+    bool PropertyWritten( lua_State* thread, const std::string& name )
+    {
+        if ( !PushWritten( thread ) )
+            return false;
+        const bool written = lua_rawgetfield( thread, -1, name.c_str() ) != LUA_TNIL;
+        lua_pop( thread, 2 );
+        return written;
+    }
+
+    void ClearPropertyWrites( lua_State* thread )
+    {
+        if ( !PushWritten( thread ) )
+            return;
+        lua_cleartable( thread, -1 );
+        lua_pop( thread, 1 );
     }
 
     void PushValue( lua_State* L, const ScriptValue& value, const World& world )
