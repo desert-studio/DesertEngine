@@ -956,6 +956,8 @@ namespace Desert::Graphic::RDG
     // after the one before by its write; only the first moved, the rest kept the grass cull's fork mid-frame and
     // the graphics queue waited 0.25 ms before "Deferred: Masked Depth Prepass"): the hoisted keep their order, so
     // those edges keep their direction. An upload with any other earlier user of its buffer stays in place.
+    // (GPU-ASYNC-WAIT-2: disjoint ranges queued back to back now join one upload pass, Builder::AddUploadPass;
+    // the chain rule still covers uploads of one buffer that overlap or that a pass other than an upload parts.)
     void Builder::Compiler::HoistQueuedUploads()
     {
         // Direct predecessors of each position, from the dependency edges (CSR); an edge runs forward in the
