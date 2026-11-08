@@ -126,8 +126,12 @@ Shader "SSAO"
         }
 
         // UE ComputeInnerIntegral: the cosine-weighted visible arc of the slice between the two horizons, with the
-        // normal projected onto the slice plane.
-        float ComputeInnerIntegral(vec2 angles, vec2 screenDir, vec3 viewDir, vec3 viewSpaceNormal)
+        // normal projected onto the slice plane. @p bent accumulates the slice's BENT NORMAL (UE view space): the
+        // cosine-weighted mean direction of the visible arc between the two horizons (Jimenez et al. 2016,
+        // Algorithm 2 - XeGTAO XeGTAO_MainPass's t0 / t1). An angle theta of the slice is the direction
+        // cos(theta) * viewDir + sin(theta) * S with S = -perp, the side gamma measures toward (sin(gamma) is
+        // -dot(projNormal, perp) / |projNormal|), so t0 is the arc's share along S and t1 along the view direction.
+        float ComputeInnerIntegral(vec2 angles, vec2 screenDir, vec3 viewDir, vec3 viewSpaceNormal, inout vec3 bent)
         {
         	const vec3 planeNormal = normalize(cross(vec3(screenDir.xy, 0.0), viewDir));
         	const vec3 perp        = cross(viewDir, planeNormal);
@@ -144,6 +148,16 @@ Shader "SSAO"
         	// Clamp to the normal's hemisphere.
         	angles.x = gamma + max(-angles.x - gamma, -kPiHalf);
         	angles.y = gamma + min(angles.y - gamma, kPiHalf);
+
+        	const float h0 = angles.x;
+        	const float h1 = angles.y;
+        	const float t0 = (6.0 * sin(h0 - gamma) - sin(3.0 * h0 - gamma) + 6.0 * sin(h1 - gamma) -
+        	                  sin(3.0 * h1 - gamma) + 16.0 * sin(gamma) - 3.0 * (sin(h0 + gamma) + sin(h1 + gamma))) /
+        	                 12.0;
+        	const float t1 = (-cos(3.0 * h0 - gamma) - cos(3.0 * h1 - gamma) + 8.0 * cos(gamma) -
+        	                  3.0 * (cos(h0 + gamma) + cos(h1 + gamma))) /
+        	                 12.0;
+        	bent += (t0 * -perp + t1 * viewDir) * lenProjNormal;
 
         	return lenProjNormal * 0.25 *
         	       ((angles.x * sinGamma + cosGamma - cos((2.0 * angles.x) - gamma)) +
@@ -215,12 +229,13 @@ Shader "SSAO"
         	const float sinDeltaAngle = sin(kPi / float(numAngles));
         	const float cosDeltaAngle = cos(kPi / float(numAngles));
 
-        	float sum = 0.0;
+        	float sum  = 0.0;
+        	vec3  bent = vec3(0.0); // UE view space, summed over the slices
         	for (uint a = 0u; a < numAngles; a++)
         	{
         		const vec2 angles = SearchForLargestAngleDual(numTaps, texCoord, screenDir * Target.zw, stepRadius, offset,
         		                                              viewSpacePos, viewDir, attenFactor);
-        		sum += ComputeInnerIntegral(angles, screenDir, viewDir, viewSpaceNormal);
+        		sum += ComputeInnerIntegral(angles, screenDir, viewDir, viewSpaceNormal, bent);
 
         		// Rotate for the next angle.
         		const vec2 previous = screenDir;
@@ -229,7 +244,12 @@ Shader "SSAO"
         		offset              = fract(offset + 0.617);
         	}
 
-        	imageStore(SsaoOutputTexture, store, vec4(vec3(clamp(sum / float(numAngles), 0.0, 1.0)), 1.0));
+        	// The bent normal back to world space (UE view -> the View matrix's space -> world: the View matrix is
+        	// rigid, its transpose its inverse); a degenerate sum (every arc closed) keeps the surface normal.
+        	const vec3 bentWorld = transpose(mat3(WorldToView)) * vec3(bent.x, bent.y, -bent.z);
+        	const vec3 bentN     = dot(bentWorld, bentWorld) > 1e-8 ? normalize(bentWorld) : normalize(worldNormal);
+        	// rgb = the bent normal encoded 0.5 + 0.5 n, a = the visibility (1 = unoccluded).
+        	imageStore(SsaoOutputTexture, store, vec4(bentN * 0.5 + 0.5, clamp(sum / float(numAngles), 0.0, 1.0)));
         }
     }
 }

@@ -645,8 +645,12 @@ Shader "DeferredLighting"
         	// Fetched, not filtered: the AO target is the G-buffer's extent (AddFrameSSAO), and a bilinear tap a hair
         	// off the texel centre (the tiled vertex stage's interpolated v_TexCoord) would weigh in a neighbour
         	// texel - in a sky tile the tiled SSAO never writes (GPU-TILE-CLASSIFY), so any value, NaN included.
-        	const float ssao = (Params.z > 0.5) ? texelFetch(SsaoTexture, ivec2(gl_FragCoord.xy), 0).r : 1.0;
-        	float       ao   = ge.a * ssao;
+        	// GTAO's texel (SSAO.shader): rgb = the bent normal encoded 0.5 + 0.5 n, a = the visibility. z is 1 only
+        	// when this frame's GTAO wrote the target, so its bent normal is never a neutral texture's.
+        	const bool  gtao     = Params.z > 0.5;
+        	const vec4  ssaoTexel = gtao ? texelFetch(SsaoTexture, ivec2(gl_FragCoord.xy), 0) : vec4(0.5, 0.5, 0.5, 1.0);
+        	const float ssao     = ssaoTexel.a;
+        	float       ao       = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
         	// Each is stored pre-exposed like the lit result (x CompositeView.y = PreExposure): the tonemap's
@@ -694,13 +698,14 @@ Shader "DeferredLighting"
         	vec3 specular = scatters ? texelFetch(DeferredDirectSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb
         	                         : vec3(0.0);
 
-        	// The GI method's final gather (Params.w): 0 none (the sky's two cubes), 2 the traced gather, 3 the
-        	// same gather with its own short-range AO. GI comes from the method alone: the composite adds no
-        	// bounce of its own (its sun-only screen-space neighbour gather is gone, GTX-TIER-LADDER).
+        	// The GI method's final gather (Params.w): 0 none (the sky's two cubes), 1 the screen-space diffuse
+        	// indirect (GIMethod::ScreenSpace: Programs/Deferred/SSGI.shader through the diffuse-indirect denoiser,
+        	// in GiDiffuseTexture) over the sky's cubes, 2 the traced gather, 3 the same gather with its own
+        	// short-range AO. GI comes from the method alone: the composite gathers no bounce of its own.
         	const int giMode = int(Params.w + 0.5);
-        	// Indirect GI only (UE: the Lumen Global Illumination view): the traced gather is the ambient's diffuse
-        	// below, where it replaced the sky terms; a view without one has no indirect GI to show.
-        	if (dbg == 6 && giMode < 2) { oColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        	// Indirect GI only (UE: the Lumen Global Illumination view): the ambient's diffuse below; a view
+        	// without a GI method has no indirect GI to show.
+        	if (dbg == 6 && giMode < 1) { oColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
         	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular),
         	// attenuated by SSAO — assembled by the SAME shared function the forward mesh shaders call, so a
@@ -715,11 +720,27 @@ Shader "DeferredLighting"
         	// its diffuse irradiance and specular radiance replace both sky terms, so a closed room neither glows nor
         	// mirrors the sky. The captures compose over its specular and are normalised by its diffuse (the radiance
         	// cache measured their capture points: ReflectionCaptureRenderer AddCaptureUpdate).
+        	// GI modes 0 and 1: the sky's irradiance along GTAO's BENT NORMAL - the mean unoccluded direction - not
+        	// the surface normal (Jimenez et al. 2016 §5, UE GTAO bent normals): a crease is lit by the sky it sees,
+        	// not by the sky its normal points at. Mode 1 adds the screen-space bounce as the ambient's `indirect`
+        	// (Mesh/AmbientIBL.glslh ComposeAmbient: albedo * ao * indirect), occluded by the same AO.
+        	vec3 skyIrradianceDirection = surface.N;
+        	if (gtao)
+        	{
+        		const vec3 bentNormal = ssaoTexel.rgb * 2.0 - 1.0;
+        		if (dot(bentNormal, bentNormal) > 1e-4)
+        			skyIrradianceDirection = normalize(bentNormal);
+        	}
+        	const vec3 screenIndirect =
+        	     giMode == 1 ? texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb : vec3(0.0);
         	DesertAmbient sampled = giMode >= 2
         	                             ? DesertSampleAmbient(surface, texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   texelFetch(GiSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   vec3(0.0), ao)
-        	                             : DesertSampleAmbient(surface, vec3(0.0), ao);
+        	                             : DesertSampleAmbient(surface, DesertAmbientIrradiance(skyIrradianceDirection),
+        	                                                   DesertAmbientSpecular(reflect(-surface.V, surface.N),
+        	                                                                         surface.Roughness),
+        	                                                   screenIndirect, ao);
         	// The reflection environment along the lobe: what a traced ray's miss sees (the captures, over the traced
         	// gather's specular in GI modes 2 and 3, else over the sky).
         	const vec3 environment     = sampled.Prefiltered;
