@@ -50,7 +50,7 @@ Shader "ScreenProbeFilter"
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D ScreenProbeFilteredTexture;
         WriteBuffer(6) ScreenProbeSHUB
         {
-            vec4 screenProbeSH[];
+            float screenProbeSH[]; // SP_SH_PACKED_VEC4 * 4 floats per probe, coefficient k's rgb at 3k (glslh)
         };
         ReadBuffer(7) RadianceCacheParamsUB
         {
@@ -162,7 +162,11 @@ Shader "ScreenProbeFilter"
                 }
                 // The texels cover the hemisphere: their solid angles sum to 2 pi up to the corner chords.
                 c *= 6.28318531 / max( total, 1e-4 );
-                screenProbeSH[probe * 9u + texel] = vec4( c * SPSHCosineBand( texel ), 0.0 );
+                const vec3 sh     = c * SPSHCosineBand( texel );
+                const uint packed = probe * ( SP_SH_PACKED_VEC4 * 4u ) + texel * 3u;
+                screenProbeSH[packed]      = sh.r;
+                screenProbeSH[packed + 1u] = sh.g;
+                screenProbeSH[packed + 2u] = sh.b;
             }
             // ---- Backface irradiance: one thread.
             else if ( texel == 9u )

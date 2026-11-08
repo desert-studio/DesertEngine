@@ -16,7 +16,9 @@
 // The constants are for every pass of the gather's denoiser; the functions need SCREEN_PROBE_HISTORY_DECLARED,
 // defined by ScreenProbeDisocclusion and ScreenProbeTemporal after they declare screenProbeParams, giFrame,
 // Velocity, GBufferShadingWord, PointClampSampler and the bare texture2D DiffuseIndirectHistory and HistoryGuide
-// (read through SPHistoryAverage) and include Generated/ShadingModels.glslh.
+// (read through SPHistoryAverage) and include Generated/ShadingModels.glslh. SPHistoryReproject also needs
+// SCREEN_PROBE_HISTORY_REPROJECT: only the history classification (ScreenProbeDisocclusion) reprojects; the
+// temporal filter reads its packed taps (SPUnpackHistoryTaps) and binds no velocity.
 
 // UE r.Lumen.ScreenProbeGather.Temporal.MaxFramesAccumulated.
 #define SP_TEMPORAL_MAX_FRAMES_ACCUMULATED 10.0
@@ -84,14 +86,60 @@ bool SPPixelIsFoliage( ivec2 pixel )
     return DesertHasBackfaceDiffuse( DesertShadingModelIndex( texelFetch( GBufferShadingWord, pixel, 0 ).rg ) );
 }
 
+// THE PACKED TAPS (UE StochasticLightingTileClassification's PackedPixelData): the history classification
+// (ScreenProbeDisocclusion) tests a pixel's taps once a frame and stores them in an RG32UI texel, which the temporal
+// filter reads instead of reprojecting again. x = origin + 1 in 16 + 16 bits (the footprint's top-left may be -1);
+// y = the kept-tap mask in bits 0-3, the bilinear fraction in 14 + 14 bits (1/16383: the weights differ from the
+// float ones by under 1e-4, invisible after the blend's normalisation). No kept tap: 0, 0.
+#define SP_TAPS_FRACTION_SCALE 16383.0
+uvec2 SPPackHistoryTaps( SPHistoryTaps taps, vec2 fraction )
+{
+    uint mask = 0u;
+    for ( int k = 0; k < 4; ++k )
+        if ( taps.weights[k] > 0.0 )
+            mask |= 1u << uint( k );
+    if ( mask == 0u )
+        return uvec2( 0u );
+    const uvec2 origin = uvec2( clamp( taps.origin + 1, ivec2( 0 ), ivec2( 0xFFFF ) ) );
+    const uvec2 f      = uvec2( round( clamp( fraction, 0.0, 1.0 ) * SP_TAPS_FRACTION_SCALE ) );
+    return uvec2( origin.x | ( origin.y << 16u ), mask | ( f.x << 4u ) | ( f.y << 18u ) );
+}
+
+SPHistoryTaps SPUnpackHistoryTaps( uvec2 packed )
+{
+    SPHistoryTaps taps;
+    taps.origin         = ivec2( packed.x & 0xFFFFu, packed.x >> 16u ) - 1;
+    const vec2  f       = vec2( ( packed.y >> 4u ) & 0x3FFFu, packed.y >> 18u ) / SP_TAPS_FRACTION_SCALE;
+    const vec4  bilinear =
+         vec4( ( 1.0 - f.x ) * ( 1.0 - f.y ), f.x * ( 1.0 - f.y ), ( 1.0 - f.x ) * f.y, f.x * f.y );
+    for ( int k = 0; k < 4; ++k )
+        taps.weights[k] = ( packed.y & ( 1u << uint( k ) ) ) != 0u ? bilinear[k] : 0.0;
+    return taps;
+}
+
+// The temporal filter's per-pixel dither of the depth threshold (UE BlueNoiseScalar; the same hash as
+// ScreenProbeIntegrate's SPPixelNoise, another stream).
+float SPTemporalNoise( uvec2 pixel, uint frame )
+{
+    uvec3 h = uvec3( pixel.x, pixel.y * 4u + 3u, frame ) * 1664525u + 1013904223u;
+    h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
+    h ^= h >> 16u;
+    h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
+    return float( h.x & 0xFFFFu ) / 65536.0;
+}
+
+#ifdef SCREEN_PROBE_HISTORY_REPROJECT
 // @p deviceDepth / @p p / @p n: the pixel's G-buffer depth, world position and normal; @p foliage:
 // SPPixelIsFoliage; @p noise: a [0, 1) value of the pixel (UE RandomScalar). No tap is kept when the history is
-// not this view's previous frame (SP_FLAG_HISTORY_VALID).
-SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n, bool foliage, float noise )
+// not this view's previous frame (SP_FLAG_HISTORY_VALID). @p fraction: the footprint's bilinear fraction (what
+// SPPackHistoryTaps stores with the kept-tap mask).
+SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n, bool foliage, float noise,
+                                  out vec2 fraction )
 {
     SPHistoryTaps taps;
     taps.origin  = ivec2( 0 );
     taps.weights = vec4( 0.0 );
+    fraction     = vec2( 0.0 );
     if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) == 0u )
         return taps;
     // The surface at the pixel's centre sits at its unjittered NDC (ndc - jitter); last frame it sat at that minus
@@ -105,7 +153,8 @@ SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n
     const vec2 prevPixel   = vec2( prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5 ) * extent - 0.5;
     taps.origin            = ivec2( floor( prevPixel ) );
     const vec2 f           = prevPixel - vec2( taps.origin );
-    const vec4 bilinear    = vec4( ( 1.0 - f.x ) * ( 1.0 - f.y ), f.x * ( 1.0 - f.y ), ( 1.0 - f.x ) * f.y, f.x * f.y );
+    fraction               = f;
+    const vec4 bilinear   = vec4( ( 1.0 - f.x ) * ( 1.0 - f.y ), f.x * ( 1.0 - f.y ), ( 1.0 - f.x ) * f.y, f.x * f.y );
 
     // UE ReprojectedSceneDepth: where the surface was last frame, as last frame's camera saw it - the value the
     // history holds for it when it is the same surface, moving or not.
@@ -129,6 +178,7 @@ SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n
     }
     return taps;
 }
+#endif // SCREEN_PROBE_HISTORY_REPROJECT
 
 bool SPHistoryAnyValid( SPHistoryTaps taps )
 {

@@ -123,6 +123,9 @@ namespace Desert::Graphic::GlobalIllumination
         // device's image limit (AtlasProbesRow).
         static constexpr uint32_t kMinAtlasProbesRow = 128;
         static constexpr uint32_t kSHCoefficients  = 9;
+        // The coefficients' rgb packed as 27 floats in this many vec4 per probe (ScreenProbes.glslh
+        // SP_SH_PACKED_VEC4).
+        static constexpr uint32_t kSHPackedVec4    = ( kSHCoefficients * 3 + 3 ) / 4;
         static constexpr uint32_t kMaxLevels       = 5; // 64 px: uniform + adaptive 32, 16, 8, 4
 
         // UE r.Lumen.ScreenProbeGather.DownsampleFactor (Scalability GlobalIllumination.ScreenProbeDownsample):

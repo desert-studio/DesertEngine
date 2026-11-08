@@ -70,9 +70,12 @@ Shader "ScreenProbeSpatialFilter"
             const vec3  dir         = frame * SPHemiOctDecode( ( vec2( t ) + 0.5 ) / float( SP_RES ) * 2.0 - 1.0 );
             const vec4  own         = texelFetch( ScreenProbeRadiance, at, 0 );
             const float hitDistance = own.a;
-            const bool  relaxAngle  = screenProbeDisocclusion[probe] > SP_DISOCCLUSION_FRACTION;
             const vec3  p           = state.position.xyz;
             const ivec2 tile        = SPUniformTileOf( SPProbePixelOf( state ) );
+            // The disoccluded share of the probe's uniform tile (ScreenProbeDisocclusion measures each tile once;
+            // an adaptive probe takes its tile's); a probe off the grid counts as disoccluded.
+            const bool relaxAngle = !SPUniformTileInside( tile ) ||
+                                    screenProbeDisocclusion[SPUniformTileIndex( tile )] > SP_DISOCCLUSION_FRACTION;
 
             vec3  sum    = own.rgb;
             float weight = 1.0;
