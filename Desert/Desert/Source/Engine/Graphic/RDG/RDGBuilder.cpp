@@ -458,6 +458,33 @@ namespace Desert::Graphic::RDG
                  "graph '{}': upload of {} bytes at {} into buffer '{}' is not a multiple of 4 bytes", m_Name,
                  bytes.size(), offset, name );
 
+        // GPU-ASYNC-WAIT-2 (UE: SubmitBufferUploads records every queued upload in one batch). One pass per
+        // upload ordered each range of a pooled buffer after the one before by its write (WAW), so the graph head
+        // ran 46 "Upload: GrassParams" copies with a transfer barrier between each - 0.385 ms of graphics work
+        // before the grass cull's fork, on the frame's critical path (FPS-FIELD-BARN-TURN scn-1108-112716). A
+        // range joins the buffer's last upload pass instead when no other pass was added since that pass (only
+        // uploads, which touch other buffers or join their own) and it overlaps none of that pass's ranges: the
+        // copies of one pass are unordered against each other, and disjoint ranges need no order. Every reader
+        // still sees what it saw - a pass between two uploads closes the run - and a faulted upload never joins.
+        if ( m_Passes.empty() || !m_Passes.back().QueuedUpload )
+            m_UploadRunStart = static_cast<uint32_t>( m_Passes.size() );
+        if ( record != nullptr && error.empty() && record->OpenUpload != ResourceRecord::kNoUpload &&
+             record->OpenUpload >= m_UploadRunStart )
+        {
+            PassRecord& open     = m_Passes[record->OpenUpload];
+            bool        disjoint = open.DeclarationError.empty();
+            for ( const UploadRange& range : open.Uploads )
+            {
+                if ( offset < range.Offset + range.Bytes.size() && range.Offset < offset + bytes.size() )
+                    disjoint = false;
+            }
+            if ( disjoint )
+            {
+                open.Uploads.push_back( UploadRange{ offset, bytes, std::move( owned ) } );
+                return;
+            }
+        }
+
         AddPass(
              std::format( "Upload: {}", name ), PassFlags::Copy,
              [&]( PassBuilder& pass )
@@ -467,14 +494,24 @@ namespace Desert::Graphic::RDG
                  if ( record != nullptr )
                      pass.Write( buffer, Access::CopyDst );
              },
-             [buffer, offset, bytes, owned = std::move( owned )]( PassContext& context ) -> Common::BoolResultStr
+             [buffer]( PassContext& context ) -> Common::BoolResultStr
              {
                  const Common::ResultStr<BufferBinding> target = context.GetBuffer( buffer, Access::CopyDst );
                  if ( !target )
                      return Common::MakeFormattedError( "{}", target.GetError() );
-                 return context.GetBackend().UploadBuffer( target.GetValue().Resource, offset, bytes );
+                 for ( const UploadRange& range : context.m_Builder.m_Passes[context.m_Pass].Uploads )
+                 {
+                     Common::BoolResultStr written = context.GetBackend().UploadBuffer(
+                          target.GetValue().Resource, range.Offset, range.Bytes );
+                     if ( !written )
+                         return written;
+                 }
+                 return Common::MakeSuccess( true );
              } );
         m_Passes.back().QueuedUpload = true;
+        m_Passes.back().Uploads.push_back( UploadRange{ offset, bytes, std::move( owned ) } );
+        if ( record != nullptr )
+            m_Resources[buffer.Index].OpenUpload = static_cast<uint32_t>( m_Passes.size() - 1 );
         if ( !error.empty() )
             RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
     }
@@ -656,6 +693,7 @@ namespace Desert::Graphic::RDG
         // is set back to that value here; m_Name and the arena's blocks are what the owner keeps.
         m_Passes.clear();
         m_Resources.clear();
+        m_UploadRunStart = 0;
         m_Prerequisites.clear();
         std::fill( m_PrerequisiteSlots.begin(), m_PrerequisiteSlots.end(), PrerequisiteSlot{} );
         m_DeclarationError.clear();

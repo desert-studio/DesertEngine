@@ -513,6 +513,15 @@ namespace Desert::Graphic::RDG
             StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 
+        // One range a queued upload writes: @p Bytes at @p Offset of its buffer, @p Owned their copy (null:
+        // static storage).
+        struct UploadRange
+        {
+            uint64_t                                      Offset = 0;
+            std::span<const std::byte>                    Bytes;
+            std::shared_ptr<const std::vector<std::byte>> Owned;
+        };
+
         // CPU-FRAME-ARENA: a record's name (beyond the string's inline buffer), uses, attachments, blocks and
         // prerequisites live in the graph's arena (UE: FRDGPass in FRDGAllocator); Reset releases them at once.
         struct PassRecord
@@ -522,7 +531,8 @@ namespace Desert::Graphic::RDG
                    Uses( Common::Memory::ArenaAllocator<ResourceUse>( arena ) ),
                    Attachments( Common::Memory::ArenaAllocator<AttachmentRecord>( arena ) ),
                    Blocks( Common::Memory::ArenaAllocator<DeclaredBindingBlock>( arena ) ),
-                   Prerequisites( Common::Memory::ArenaAllocator<uint32_t>( arena ) )
+                   Prerequisites( Common::Memory::ArenaAllocator<uint32_t>( arena ) ),
+                   Uploads( Common::Memory::ArenaAllocator<UploadRange>( arena ) )
             {
             }
 
@@ -546,6 +556,10 @@ namespace Desert::Graphic::RDG
             // The copy QueueBufferUpload added. Compile moves it to the graph head when no earlier pass touches
             // its buffer (Compiler::HoistQueuedUploads).
             bool QueuedUpload = false;
+            // GPU-ASYNC-WAIT-2 (UE: FRDGBuilder::SubmitBufferUploads, one batch): the disjoint ranges this upload
+            // pass writes, in call order - every QueueBufferUpload of one buffer from a run of uploads with no
+            // other pass between them (AddUploadPass).
+            Common::Memory::ArenaVector<UploadRange> Uploads;
         };
 
         struct ResourceRecord
@@ -571,6 +585,10 @@ namespace Desert::Graphic::RDG
             uint32_t            LaterAccessMask = 0;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
             ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
+            // GPU-ASYNC-WAIT-2: the last upload pass into this buffer (kNoUpload: none); later uploads join it
+            // while it is in the current run of uploads (Builder::m_UploadRunStart).
+            static constexpr uint32_t kNoUpload  = UINT32_MAX;
+            uint32_t                  OpenUpload = kNoUpload;
 
             [[nodiscard]] bool IsExternal() const
             {
@@ -612,6 +630,9 @@ namespace Desert::Graphic::RDG
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
+        // GPU-ASYNC-WAIT-2: the first pass of the current run of upload passes (every pass from it on is a
+        // queued upload); an upload pass before it is closed to new ranges.
+        uint32_t m_UploadRunStart = 0;
         // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
         // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
         // CPU-RDG-ALLOC: the index is an open-addressed table (a power-of-two size, at most half full) that Reset
