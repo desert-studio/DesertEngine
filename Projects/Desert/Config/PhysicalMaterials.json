@@ -1,0 +1,16 @@
+{
+    "DefaultMaterialGuid": "99107ea2d0ce48cc8ebeaca27e23c5c0",
+    "DefaultMaterialPath": "assets:PhysicalMaterials/PM_Default.dphysmat",
+    "SurfaceTypes": [
+        "Snow",
+        "Sand",
+        "Mud",
+        "Grass",
+        "Dirt",
+        "Rock",
+        "Wood",
+        "Metal",
+        "Glass",
+        "Water"
+    ]
+}
