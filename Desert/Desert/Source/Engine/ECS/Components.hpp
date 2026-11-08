@@ -2138,6 +2138,20 @@ namespace Desert::ECS
                   Tooltip( "An IES light profile (.dies, imported from a .ies) from the project content; "
                            "None = unshaped." ) )
         Assets::AssetHandle IesProfile;
+
+        // UE ULocalLightComponent::bUseIESBrightness / IESBrightnessScale: the profile's own peak candela
+        // (Assets::IesProfileAsset::PeakCandela, the photometric file's brightness) times the scale replaces
+        // Intensity and its units; the light then emits what the luminaire's file states. Off, or no profile =
+        // Intensity as authored.
+        PROPERTY( DisplayName( "Use IES Brightness" ), Category( "Light Profiles" ), Advanced,
+                  Tooltip( "Take the brightness from the IES profile (its peak candela x IES Brightness Scale) "
+                           "instead of Intensity." ) )
+        bool UseIesBrightness = false;
+
+        PROPERTY( DisplayName( "IES Brightness Scale" ), Category( "Light Profiles" ), Range( 0.0f, 10.0f ),
+                  Units( "x" ), Advanced, EditCondition( "UseIesBrightness" ),
+                  Tooltip( "Scales the profile's peak candela when Use IES Brightness is on." ) )
+        float IesBrightnessScale = 1.0f;
     };
 
     struct PointLightComponent
@@ -2273,6 +2287,20 @@ namespace Desert::ECS
                   Tooltip( "An IES light profile (.dies, imported from a .ies) from the project content; "
                            "None = unshaped." ) )
         Assets::AssetHandle IesProfile;
+
+        // UE ULocalLightComponent::bUseIESBrightness / IESBrightnessScale: the profile's own peak candela
+        // (Assets::IesProfileAsset::PeakCandela, the photometric file's brightness) times the scale replaces
+        // Intensity and its units; the light then emits what the luminaire's file states. Off, or no profile =
+        // Intensity as authored.
+        PROPERTY( DisplayName( "Use IES Brightness" ), Category( "Light Profiles" ), Advanced,
+                  Tooltip( "Take the brightness from the IES profile (its peak candela x IES Brightness Scale) "
+                           "instead of Intensity." ) )
+        bool UseIesBrightness = false;
+
+        PROPERTY( DisplayName( "IES Brightness Scale" ), Category( "Light Profiles" ), Range( 0.0f, 10.0f ),
+                  Units( "x" ), Advanced, EditCondition( "UseIesBrightness" ),
+                  Tooltip( "Scales the profile's peak candela when Use IES Brightness is on." ) )
+        float IesBrightnessScale = 1.0f;
     };
 
     struct SpotLightComponent
@@ -2392,6 +2420,20 @@ namespace Desert::ECS
                   Tooltip( "An IES light profile (.dies, imported from a .ies) from the project content; "
                            "None = unshaped." ) )
         Assets::AssetHandle IesProfile;
+
+        // UE ULocalLightComponent::bUseIESBrightness / IESBrightnessScale: the profile's own peak candela
+        // (Assets::IesProfileAsset::PeakCandela, the photometric file's brightness) times the scale replaces
+        // Intensity and its units; the light then emits what the luminaire's file states. Off, or no profile =
+        // Intensity as authored.
+        PROPERTY( DisplayName( "Use IES Brightness" ), Category( "Light Profiles" ), Advanced,
+                  Tooltip( "Take the brightness from the IES profile (its peak candela x IES Brightness Scale) "
+                           "instead of Intensity." ) )
+        bool UseIesBrightness = false;
+
+        PROPERTY( DisplayName( "IES Brightness Scale" ), Category( "Light Profiles" ), Range( 0.0f, 10.0f ),
+                  Units( "x" ), Advanced, EditCondition( "UseIesBrightness" ),
+                  Tooltip( "Scales the profile's peak candela when Use IES Brightness is on." ) )
+        float IesBrightnessScale = 1.0f;
     };
 
     struct RectLightComponent

@@ -1,8 +1,10 @@
 #include "IesProfileImporter.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/IesProfile.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Graphic/IesProfile.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -69,6 +71,14 @@ namespace Desert::Editor
             LOG_ERROR( "[Import] IES profile '{}' was not written: {}", dies.string(), saved.GetError() );
             return CookVerdict::Failed;
         }
+        // UE: an imported asset is in the asset registry at once. The registry row makes the `.dies` listed by the
+        // light's profile picker now (not after the next scan), and the atlas re-reads a profile lights already
+        // hold, so a re-import shows without a restart.
+        Assets::ContentRegistry::NoteFile( dies );
+        if ( const Assets::TextAssetIdentity written = Assets::ReadTextAssetIdentity( dies );
+             !written.Guid.IsNull() )
+            Runtime::ResourceRegistry::GetIesProfileService()->Reimported(
+                 Assets::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( written.Guid ) ) ) );
         LOG_INFO( "[Import] IES profile '{}' -> '{}' ({} vertical x {} horizontal angles).", ies.string(),
                   dies.filename().string(), data.VerticalAngles.size(), data.HorizontalAngles.size() );
         return CookVerdict::Cooked;

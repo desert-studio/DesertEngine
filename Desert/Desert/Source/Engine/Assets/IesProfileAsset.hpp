@@ -37,6 +37,12 @@ namespace Desert::Assets
             return m_Data;
         }
 
+        // The profile's brightness (UE UTextureLightProfile::Brightness): its peak candela.
+        [[nodiscard]] float PeakCandela() const
+        {
+            return Serialization::IesProfilePeakCandela( m_Data );
+        }
+
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::IesProfile;

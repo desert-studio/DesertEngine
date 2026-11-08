@@ -6,6 +6,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -47,6 +48,13 @@ namespace Desert::Assets::Serialization
         // Candela[horizontal * VerticalAngles.size() + vertical], the source's multiplier applied.
         std::vector<float> Candela;
     };
+
+    // UE UTextureLightProfile::Brightness: the profile's peak candela (the multiplier applied), the light's
+    // brightness under Use IES Brightness (ECS::*LightData::UseIesBrightness). 0 for a profile with no candela.
+    [[nodiscard]] inline float IesProfilePeakCandela( const IesProfileData& data )
+    {
+        return data.Candela.empty() ? 0.0f : *std::max_element( data.Candela.begin(), data.Candela.end() );
+    }
 
     [[nodiscard]] IesProfileData IesProfileFromPhotometry( const Graphic::IesPhotometricData& photometry );
 

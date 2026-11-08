@@ -68,10 +68,18 @@ namespace Desert::ECS
                      light.Color     = spotlight.Data.Color;
                      // The authored value in its units (UE USpotLightComponent: lumens spread over the OUTER
                      // cone). The spot's falloff has no Min Radius (LightSources.glslh passes 0), so its reference
-                     // distance is the shader's floor - the same 0 handed to the one conversion here.
-                     light.Intensity = ECS::LightPhotometry::ShaderIntensity(
-                          spotlight.Data.Intensity, spotlight.Data.IntensityUnits, spotlight.Data.Falloff, 0.0f,
-                          glm::cos( outer ) );
+                     // distance is the shader's floor - the same 0 handed to the one conversion here. Under Use
+                     // IES Brightness the profile's peak candela x scale stands for Intensity.
+                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
+                     const Runtime::IesProfileService::Slot profile = ies->Acquire( spotlight.Data.IesProfile );
+                     const ECS::LightPhotometry::LightBrightness brightness =
+                          ECS::LightPhotometry::EffectiveBrightness(
+                               spotlight.Data.Intensity, spotlight.Data.IntensityUnits,
+                               spotlight.Data.UseIesBrightness, spotlight.Data.IesBrightnessScale,
+                               profile.PeakCandela );
+                     light.Intensity =
+                          ECS::LightPhotometry::ShaderIntensity( brightness.Intensity, brightness.Units,
+                                                                 spotlight.Data.Falloff, 0.0f, glm::cos( outer ) );
                      light.Position  = glm::vec3( worldTransform[3] );
                      light.Range     = spotlight.Data.Range;
                      light.SourceRadius = spotlight.Data.SourceRadius;
@@ -88,9 +96,8 @@ namespace Desert::ECS
                      light.ContactShadowNonCastingIntensity = spotlight.Data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = spotlight.Data.VolumetricScatteringIntensity;
                      // The IES frame: Direction and the entity's X (SceneRenderer::AddSpotLight stamps the slot).
-                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
-                     light.Tangent                         = glm::normalize( glm::vec3( worldTransform[0] ) );
-                     light.IesProfileRow                   = ies->AcquireRow( spotlight.Data.IesProfile );
+                     light.Tangent       = glm::normalize( glm::vec3( worldTransform[0] ) );
+                     light.IesProfileRow = profile.Row;
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).

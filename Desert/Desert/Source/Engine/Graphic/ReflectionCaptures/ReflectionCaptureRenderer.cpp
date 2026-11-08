@@ -166,11 +166,13 @@ namespace Desert::Graphic
                 HashBytes( hash, &transform.GetRotation(), sizeof( transform.GetRotation() ) );
             };
             // The profile's identity (a handle, so a re-import keeping the GUID is not seen; the profile's data
-            // is a scene-load fact, as a mesh's is).
-            const auto hashProfile = [&hash]( const Assets::AssetHandle& profile )
+            // is a scene-load fact, as a mesh's is), and whether its peak candela stands for Intensity.
+            const auto hashProfile = [&hash]( const auto& data )
             {
-                const uint64_t value = profile;
+                const uint64_t value = static_cast<uint64_t>( data.IesProfile );
                 HashBytes( hash, &value, sizeof( value ) );
+                HashBytes( hash, &data.UseIesBrightness, sizeof( data.UseIesBrightness ) );
+                HashBytes( hash, &data.IesBrightnessScale, sizeof( data.IesBrightnessScale ) );
             };
             const auto points = registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>();
             for ( const entt::entity entity : points )
@@ -188,7 +190,7 @@ namespace Desert::Graphic
                 HashBytes( hash, &d.MinRadius, sizeof( d.MinRadius ) );
                 HashBytes( hash, &d.Falloff, sizeof( d.Falloff ) );
                 HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
-                hashProfile( d.IesProfile );
+                hashProfile( d );
                 hashTransform( transform );
             }
             const auto spots = registry.view<const ECS::SpotLightComponent, const ECS::TransformComponent>();
@@ -208,7 +210,7 @@ namespace Desert::Graphic
                 HashBytes( hash, &d.OuterConeAngle, sizeof( d.OuterConeAngle ) );
                 HashBytes( hash, &d.Falloff, sizeof( d.Falloff ) );
                 HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
-                hashProfile( d.IesProfile );
+                hashProfile( d );
                 hashTransform( transform );
             }
             // Rect lights light the captures as the point list they ride (RectLightSystem): the rect and its barn
@@ -231,7 +233,7 @@ namespace Desert::Graphic
                 HashBytes( hash, &d.BarnDoorAngle, sizeof( d.BarnDoorAngle ) );
                 HashBytes( hash, &d.BarnDoorLength, sizeof( d.BarnDoorLength ) );
                 HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
-                hashProfile( d.IesProfile );
+                hashProfile( d );
                 hashTransform( transform );
             }
             return hash;

@@ -128,6 +128,23 @@ namespace Desert::ECS
                    ( reference * reference );
         }
 
+        // A local light's brightness before ShaderIntensity / RectShaderLuminance: the authored Intensity in its
+        // units, or under UE bUseIESBrightness the profile's peak candela x IESBrightnessScale, in candelas (UE
+        // ULocalLightComponent::ComputeLightBrightness). A light with no usable profile (peak 0) keeps Intensity.
+        struct LightBrightness
+        {
+            float      Intensity = 0.0f;
+            LightUnits Units     = LightUnits::Candelas;
+        };
+
+        inline LightBrightness EffectiveBrightness( float intensity, LightUnits units, bool useIesBrightness,
+                                                    float iesBrightnessScale, float iesPeakCandela )
+        {
+            if ( useIesBrightness && iesPeakCandela > 0.0f )
+                return { iesPeakCandela * iesBrightnessScale, LightUnits::Candelas };
+            return { intensity, units };
+        }
+
         // A RECT light's authored Intensity as the payload's emitted LUMINANCE (Mesh/LightSources.glslh
         // DesertRectLightAt: irradiance = luminance x the rect's vector irradiance, a solid angle). A rect of area
         // A radiating I candelas along its normal has luminance I / A; in the point lights' scale (E = cd x 1e4 /

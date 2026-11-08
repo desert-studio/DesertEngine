@@ -72,8 +72,15 @@ namespace Desert::ECS
 
                      Graphic::ShaderProtocols::PointLightPayload light{};
                      light.Color     = data.Color;
+                     // Under Use IES Brightness the profile's peak candela x scale stands for Intensity.
+                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
+                     const Runtime::IesProfileService::Slot      profile = ies->Acquire( data.IesProfile );
+                     const ECS::LightPhotometry::LightBrightness brightness =
+                          ECS::LightPhotometry::EffectiveBrightness(
+                               data.Intensity, data.IntensityUnits, data.UseIesBrightness, data.IesBrightnessScale,
+                               profile.PeakCandela );
                      light.Intensity = ECS::LightPhotometry::RectShaderLuminance(
-                          data.Intensity, data.IntensityUnits, width, height );
+                          brightness.Intensity, brightness.Units, width, height );
                      light.Position  = rect.Centre;
                      light.Radius    = data.Range;
                      light.MinRadius = 0.0f;
@@ -92,8 +99,7 @@ namespace Desert::ECS
                      light.ContactShadowCastingIntensity    = data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = data.VolumetricScatteringIntensity;
-                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
-                     light.IesProfileRow                   = ies->AcquireRow( data.IesProfile );
+                     light.IesProfileRow                    = profile.Row;
 
                      const Graphic::LocalLightShadowSettings shadow{
                           .CastShadows     = data.CastShadows,
