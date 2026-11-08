@@ -1307,6 +1307,11 @@ namespace Desert::Player
                  // Block 0: the scene blit, with the sampler it sampled the final image with before.
                  if ( sceneRef.IsValid() )
                  {
+                     // SDR-10BIT-DITHER: the blit writes the back buffer, so it dithers to one code of its depth
+                     // (0 on a float surface: no dither). Written in setup, before the prepare.
+                     const Graphic::DisplayEncodePush push{
+                          .OutputQuantizationStep = Graphic::CurrentDisplayOutput().QuantizationStep() };
+                     m_BlitExecutor->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      // RENDER-THREADS M1: the blit executor's view sets exist before the graph records.
                      pass.Prepares( *m_BlitExecutor );
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),

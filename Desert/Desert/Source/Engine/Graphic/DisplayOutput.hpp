@@ -48,15 +48,34 @@ namespace Desert::Graphic
         float PaperWhiteNits = 0.0f;
         float PeakNits       = 0.0f;
         // The bits per colour channel the back buffer's final write quantises to (SDR-10BIT-DITHER): 8 on BGRA8,
-        // 10 on the 10-bit SDR surface, 0 on the half-float scRGB surface (nothing to quantise). The tonemap sizes
-        // its dither to one code of this depth (TonemapRenderer, SceneComposite OutputQuantizationStep).
+        // 10 on the 10-bit SDR surface, 0 on the half-float scRGB surface (nothing to quantise). The display
+        // encode (SwapchainBlit.shader, the pass that writes the back buffer) sizes its dither to one code of this
+        // depth.
         uint32_t QuantizationBits = 8;
 
         [[nodiscard]] bool IsHDR() const
         {
             return Output != Common::Scalability::DisplayOutput::SDR_sRGB;
         }
+
+        // One code of the back buffer, 1 / (2^bits - 1); 0 when there is nothing to quantise (a float surface).
+        [[nodiscard]] float QuantizationStep() const noexcept
+        {
+            if ( QuantizationBits == 0u || QuantizationBits >= 32u )
+                return 0.0f;
+            return 1.0f / static_cast<float>( ( 1u << QuantizationBits ) - 1u );
+        }
     };
+
+    // SwapchainBlit.shader's push constants: the display encode's dither width (DisplayOutputState::
+    // QuantizationStep), pushed by each writer of the back buffer through it (RuntimeLayer RuntimePresent, the
+    // editor's VulkanImGui DisplayEncode). The scRGB encode (DisplayEncodeScRGB.shader) writes floats and has
+    // none.
+    struct DisplayEncodePush
+    {
+        float OutputQuantizationStep = 0.0f;
+    };
+    static_assert( sizeof( DisplayEncodePush ) == 4 );
 
     // Render thread. The swapchain's last (re)build; SDR until one published.
     [[nodiscard]] const DisplayOutputState& CurrentDisplayOutput();

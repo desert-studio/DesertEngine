@@ -51,7 +51,6 @@ Shader "SceneComposite"
             vec4  LocalExposureUV;         // grid UV scale xy, blurred UV scale xy
             vec4  LocalExposureSlice;      // log2 middle grey (exposed), slice log min, 1 / EV per slice, mode
             float LocalExposureMethod;     // 1: Fusion (ExposureFusionTexture), 0: Bilateral (grid + blur)
-            float OutputQuantizationStep;  // one back-buffer code, 1/(2^bits-1); 0 = float output, no dither
         };
 
         #include <Common/FilmToneMap.glslh>
@@ -68,37 +67,6 @@ Shader "SceneComposite"
         {
             const vec3 c = clamp(linearColor, 0.0, 1.0);
             return min(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055);
-        }
-
-        // THE QUANTISATION DITHER (SDR-10BIT-DITHER). UE PostProcessTonemap.usf dithers the device colour with
-        // interleaved gradient noise before the 8/10-bit write; the noise is made triangular after Gjoel, "Banding
-        // in Games" (INSIDE, GDC 2016): a TPDF dither of +-1 code makes the quantisation error's variance
-        // independent of the signal, where the rectangular +-0.5 code this replaced still let the error follow the
-        // gradient (visible as noise modulation along the sky's bands).
-        // Interleaved gradient noise (Jimenez 2014, the noise UE dithers with): high-frequency and stationary on
-        // screen; a per-channel offset decorrelates R, G and B so the dither is not a grey grain.
-        float DitherUniform(vec2 pixel, float channel)
-        {
-            const vec2 p = pixel + channel * vec2(47.0, 17.0);
-            return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
-        }
-
-        // Uniform [0,1) -> triangular (-1,1) by the inverse CDF: the remapped noise keeps its spectrum.
-        float TriangularFromUniform(float u)
-        {
-            const float n = u * 2.0 - 1.0;
-            return sign(n) * (1.0 - sqrt(1.0 - abs(n)));
-        }
-
-        // +-1 code of triangular noise, narrowed within one code of black and white so the extremes stay exact
-        // (a dither that lifts pure black to code 1 greys every shadow).
-        vec3 DitherQuantization(vec3 encoded, vec2 pixel, float codeStep)
-        {
-            const vec3 noise = vec3(TriangularFromUniform(DitherUniform(pixel, 0.0)),
-                                    TriangularFromUniform(DitherUniform(pixel, 1.0)),
-                                    TriangularFromUniform(DitherUniform(pixel, 2.0)));
-            const vec3 room  = clamp(min(encoded, 1.0 - encoded) / codeStep, 0.0, 1.0);
-            return encoded + noise * room * codeStep;
         }
 
         void main()
@@ -203,13 +171,8 @@ Shader "SceneComposite"
                 mapped     = mix(vec3(grey), tint, abs(t) * 0.8);
             }
 
-            // The dither before the back buffer's quantisation: one code of ITS depth (8 or 10 bits), none on a
-            // float output. Keyed on gl_FragCoord, so the pattern is stationary on screen and never crawls.
-            if (OutputQuantizationStep > 0.0)
-            {
-                mapped = DitherQuantization(mapped, gl_FragCoord.xy, OutputQuantizationStep);
-            }
-
+            // No dither here: FXAA / SMAA and the UI composite still change this colour, so the quantisation
+            // dither is the display encode's, the pass that writes the back buffer (SwapchainBlit.shader).
             oColor = vec4(mapped, 1.0);
         }
     }

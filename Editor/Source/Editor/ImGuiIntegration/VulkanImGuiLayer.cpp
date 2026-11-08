@@ -26,6 +26,7 @@
 #include <format>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 
 #include <ImGui/backends/imgui_impl_glfw.h>
 #include <ImGui/backends/imgui_impl_vulkan.h>
@@ -957,6 +958,15 @@ namespace Desert::Graphic::API::Vulkan
              [&]( Graphic::RDG::PassBuilder& pass )
              {
                  pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::DontCare() );
+                 // SDR-10BIT-DITHER: this pass writes the back buffer, so it is the one that dithers (one code of
+                 // its depth); the UI composite it reads is the last colour change. Written in setup, before the
+                 // prepare. The scRGB encode writes floats and declares no push block.
+                 if ( m_EncodeOutput != Common::Scalability::DisplayOutput::scRGB_Linear )
+                 {
+                     const Graphic::DisplayEncodePush push{
+                          .OutputQuantizationStep = Graphic::CurrentDisplayOutput().QuantizationStep() };
+                     m_EncodeExecutor->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 }
                  // RENDER-THREADS M1: the encode executor's view sets exist before the graph records.
                  pass.Prepares( *m_EncodeExecutor );
                  pass.Bindings( m_EncodeLayout.Get( m_EncodePipeline->GetSpecification().Shader ),
