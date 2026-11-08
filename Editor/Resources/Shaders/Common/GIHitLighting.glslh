@@ -96,27 +96,48 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface );
 vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surface );
 vec3 GIHitLightResponse( GIHitSurface surface, vec3 N, vec3 V, vec3 L, vec3 radiance );
 
-vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
+// GIHitRadiance in two halves, for a consumer that lights the global-field hits no card holds in a pass of its
+// own (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING; UE runs hit lighting as its own compacted pass): false with
+// @p radiance when the cards answer the hit or the full in-place path lit it; true, @p radiance unset, for a
+// global-field hit no card holds - GIHitRadianceGlobalFieldInPlace lights it, here or in that pass.
+bool GIHitRadianceNeedsGlobalFieldInPlace( GIHit hit, vec3 rayDirection, out vec3 radiance )
 {
+    radiance = vec3( 0.0 );
 #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
     {
-        vec3       cardLighting;
-        const uint cards = SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), cardLighting );
+        const uint cards = SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), radiance );
         // The back of one-sided geometry: an occluder that sends nothing back (UE: a surface-cache miss there has
         // no weight and no radiance). Lighting it in place would light the room from an underside nobody modelled.
         if ( cards != SURFACE_CACHE_HIT_UNCOVERED )
-            return cardLighting;
+            return false;
     }
 #endif
-    vec3 albedo;
-    vec3 emissive;
-    GIHitMaterial( hit, rayDirection, albedo, emissive );
-    const GIHitSurface surface = GIHitSurface( albedo, 0.0, 1.0, emissive, false );
     // A global-field hit no card holds (terrain, far meshes without cards): UE's TraceVoxels never fires a shadow
     // ray from a global-SDF hit. It is lit from the directional lights, one coarse visibility test each.
     if ( hit.globalField )
-        return GIHitRadianceGlobalField( hit, rayDirection, surface );
-    return GIHitRadianceLit( hit, rayDirection, surface );
+        return true;
+    vec3 albedo;
+    vec3 emissive;
+    GIHitMaterial( hit, rayDirection, albedo, emissive );
+    radiance = GIHitRadianceLit( hit, rayDirection, GIHitSurface( albedo, 0.0, 1.0, emissive, false ) );
+    return false;
+}
+
+// The in-place lighting of a global-field hit no card holds (GIHitRadianceNeedsGlobalFieldInPlace said so).
+vec3 GIHitRadianceGlobalFieldInPlace( GIHit hit, vec3 rayDirection )
+{
+    vec3 albedo;
+    vec3 emissive;
+    GIHitMaterial( hit, rayDirection, albedo, emissive );
+    return GIHitRadianceGlobalField( hit, rayDirection, GIHitSurface( albedo, 0.0, 1.0, emissive, false ) );
+}
+
+vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
+{
+    vec3 radiance;
+    if ( !GIHitRadianceNeedsGlobalFieldInPlace( hit, rayDirection, radiance ) )
+        return radiance;
+    return GIHitRadianceGlobalFieldInPlace( hit, rayDirection );
 }
 
 // The response of the directional light of travel @p travel (w > 0.5: on) and radiance @p radiance (w > 0.5: casts

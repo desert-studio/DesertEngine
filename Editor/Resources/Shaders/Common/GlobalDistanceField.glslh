@@ -202,6 +202,10 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         const float distance = field.x;
         const float coverage = field.y;
         result.Steps = step + 1;
+#if defined(GDF_COUNT_STEPS)
+        // A dev counter's includer (ScreenProbeTrace.shader SP_TRACE_MISS_REASONS) declares the private total.
+        ++gdfCountedSteps;
+#endif
         const bool inBand = distance < GlobalDistanceFieldExpand(t, voxel, coverage);
         if (inBand && (!ditheredTransparency ||
                        GlobalDistanceFieldStepNoise(seed, step) * (1.0 - coverage) <=
