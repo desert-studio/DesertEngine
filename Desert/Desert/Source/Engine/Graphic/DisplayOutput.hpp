@@ -39,6 +39,15 @@ namespace Desert::Graphic
     // implemented on this platform): the caller then refuses the HDR output, it does not invent a headroom.
     [[nodiscard]] Common::ResultStr<DisplayLuminance> QueryDisplayLuminance( void* nativeWindow );
 
+    // One code of a UNORM target of @p bits per channel, 1 / (2^bits - 1); 0 when there is nothing to quantise
+    // (0 bits: a float target). The one formula for every dithered display encode (back buffer, movie frame).
+    [[nodiscard]] constexpr float QuantizationStepForBits( const uint32_t bits ) noexcept
+    {
+        if ( bits == 0u || bits >= 32u )
+            return 0.0f;
+        return 1.0f / static_cast<float>( ( 1u << bits ) - 1u );
+    }
+
     // What the swapchain presents with this frame.
     struct DisplayOutputState
     {
@@ -61,9 +70,7 @@ namespace Desert::Graphic
         // One code of the back buffer, 1 / (2^bits - 1); 0 when there is nothing to quantise (a float surface).
         [[nodiscard]] float QuantizationStep() const noexcept
         {
-            if ( QuantizationBits == 0u || QuantizationBits >= 32u )
-                return 0.0f;
-            return 1.0f / static_cast<float>( ( 1u << QuantizationBits ) - 1u );
+            return QuantizationStepForBits( QuantizationBits );
         }
     };
 
