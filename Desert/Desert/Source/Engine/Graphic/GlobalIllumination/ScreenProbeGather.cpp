@@ -618,7 +618,7 @@ namespace Desert::Graphic::GlobalIllumination
              RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( ScreenProbePayload ) ) },
              "ScreenProbes.Probes" );
         const RDG::BufferRef sh = graph.CreateBuffer(
-             RDG::BufferDesc{ layout.Probes() * ScreenProbeLayout::kSHCoefficients * 16ull }, "ScreenProbes.SH" );
+             RDG::BufferDesc{ layout.Probes() * ScreenProbeLayout::kSHPackedVec4 * 16ull }, "ScreenProbes.SH" );
         const RDG::BufferRef backfaceIrradiance =
              graph.CreateBuffer( RDG::BufferDesc{ layout.Probes() * 16ull }, "ScreenProbes.BackfaceIrradiance" );
         // The fast update's chain (UE ScreenProbeWorldSpeed -> the trace hit's moving bit -> ScreenProbeMoving ->

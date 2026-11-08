@@ -187,7 +187,9 @@ ivec2 SPProbeTexel( mat3 frame, vec3 direction )
 }
 
 // ---- Irradiance: second-order spherical harmonics, already convolved with the clamped cosine and / pi (the
-// baked irradiance cube's convention: a white sky reads 1). Nine vec4 per probe (rgb used).
+// baked irradiance cube's convention: a white sky reads 1). Packed as 27 floats in SP_SH_PACKED_VEC4 vec4 a
+// probe (coefficient k's rgb at floats 3k..3k+2, the 28th unused): the integrate loads seven a probe, not nine.
+#define SP_SH_PACKED_VEC4 7u
 float SPSHBasis( uint k, vec3 d )
 {
     switch ( k )
@@ -202,6 +204,15 @@ float SPSHBasis( uint k, vec3 d )
         case 7u: return 1.092548 * d.x * d.z;
         default: return 0.546274 * ( d.x * d.x - d.y * d.y );
     }
+}
+
+// All nine basis values of direction @p d at once (SPSHBasis k = 0..8): the integrate evaluates them once a pixel
+// and dots every probe's coefficients with them (UE ScreenProbeIntegrate's SHBasisFunction of the pixel normal).
+void SPSHBasisAll( vec3 d, out float basis[9] )
+{
+    // A constant-count loop over SPSHBasis, its constants the one definition: unrolled, every switch folds.
+    for ( uint k = 0u; k < 9u; ++k )
+        basis[k] = SPSHBasis( k, d );
 }
 
 // Ramamoorthi & Hanrahan's cosine-lobe band factors A_l / pi.

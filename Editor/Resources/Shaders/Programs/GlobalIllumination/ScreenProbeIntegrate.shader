@@ -136,7 +136,7 @@ Shader "ScreenProbeIntegrate"
         };
         ReadBuffer(4) ScreenProbeSHUB
         {
-            vec4 screenProbeSH[];
+            vec4 screenProbeSH[]; // SP_SH_PACKED_VEC4 per probe (ScreenProbes.glslh)
         };
         Uniform sampler LinearClampSampler;
 #if !defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
@@ -206,7 +206,13 @@ Shader "ScreenProbeIntegrate"
         // AO; the frame that traces the pixel itself always matches (its own texel, weight 1), and the temporal
         // filter holds it.
         #define SP_SHORT_RANGE_AO_PLANE_TOLERANCE 0.03 // the plane distance, relative, that halves a weight
-        #define SP_SHORT_RANGE_AO_NORMAL_POWER 8.0     // the normal weight: max(dot(n_traced, n), 0) ^ this
+        // The normal weight: max(dot(n_traced, n), 0) ^ 8, as three squarings (a pow is an exp2 of a log2).
+        float SPShortRangeAONormalWeight( float facing )
+        {
+            const float f2 = facing * facing;
+            const float f4 = f2 * f2;
+            return f4 * f4;
+        }
         void SPShortRangeAOAt( ivec2 pixel, vec3 p, float distance, vec3 n, out vec3 bent, out float ao )
         {
             const ivec2 extent    = ivec2( giFrame.screen.xy );
@@ -236,7 +242,7 @@ Shader "ScreenProbeIntegrate"
                                                               giFrame.invViewProjection );
                 const float plane = abs( dot( pt - p, n ) ) / tolerance;
                 const float w     = bilinear.x * bilinear.y * exp2( -plane * plane ) *
-                                    pow( facing, SP_SHORT_RANGE_AO_NORMAL_POWER );
+                                    SPShortRangeAONormalWeight( facing );
                 // Rodrigues' rotation by the shortest arc nt -> n (axis nt x n, cosine facing > 0).
                 const vec3 bt   = SPOctDecode( s.xy );
                 const vec3 axis = cross( nt, n );
@@ -299,11 +305,30 @@ Shader "ScreenProbeIntegrate"
         // The probes a pixel interpolates: four per level.
         #define SP_PIXEL_PROBES ( 4u * SP_LEVELS )
 
-        vec3 ProbeIrradiance( uint probe, vec3 n )
+        // The irradiance of @p probe at the direction whose SH basis is @p basis (SPSHBasisAll, once per pixel):
+        // seven vec4 loads of the packed coefficients (SP_SH_PACKED_VEC4) and one dot, the same sum in the same
+        // order as nine per-coefficient evaluations. Each probe's irradiance is clamped before the blend, as before:
+        // UE blends the coefficients and clamps once, the same multiply-adds for 27 more live registers, and a
+        // probe ringing below zero would then pull its neighbours down.
+        vec3 ProbeIrradiance( uint probe, float basis[9] )
         {
-            vec3 e = vec3( 0.0 );
-            for ( uint k = 0u; k < 9u; ++k )
-                e += screenProbeSH[probe * 9u + k].rgb * SPSHBasis( k, n );
+            const uint base = probe * SP_SH_PACKED_VEC4;
+            const vec4 s0   = screenProbeSH[base];
+            const vec4 s1   = screenProbeSH[base + 1u];
+            const vec4 s2   = screenProbeSH[base + 2u];
+            const vec4 s3   = screenProbeSH[base + 3u];
+            const vec4 s4   = screenProbeSH[base + 4u];
+            const vec4 s5   = screenProbeSH[base + 5u];
+            const vec4 s6   = screenProbeSH[base + 6u];
+            vec3       e    = s0.xyz * basis[0];
+            e += vec3( s0.w, s1.xy ) * basis[1];
+            e += vec3( s1.zw, s2.x ) * basis[2];
+            e += s2.yzw * basis[3];
+            e += s3.xyz * basis[4];
+            e += vec3( s3.w, s4.xy ) * basis[5];
+            e += vec3( s4.zw, s5.x ) * basis[6];
+            e += s5.yzw * basis[7];
+            e += s6.xyz * basis[8];
             return max( e, vec3( 0.0 ) );
         }
 
@@ -375,9 +400,11 @@ Shader "ScreenProbeIntegrate"
             const float total = dot( heldW, vec4( 1.0 ) );
             if ( total >= SP_ADAPTIVE_EPSILON )
             {
+                float basis[9];
+                SPSHBasisAll( bent, basis );
                 for ( int i = 0; i < 4; ++i )
                     if ( heldW[i] > 0.0 )
-                        diffuse += heldW[i] * ProbeIrradiance( heldId[i], bent );
+                        diffuse += heldW[i] * ProbeIrradiance( heldId[i], basis );
                 diffuse *= ao / total;
                 for ( int i = 0; i < 4; ++i )
                     if ( heldW[i] > 0.0 )
