@@ -1,17 +1,21 @@
 #include "AudioEngine.hpp"
 #include "AudioMix.hpp"
 
-#include <algorithm>
-
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <miniaudio/miniaudio.h>
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstring>
 #include <filesystem>
-#include <unordered_map>
+#include <limits>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Audio
@@ -19,10 +23,10 @@ namespace Desert::Audio
     namespace
     {
         // The file a clip reference names: a content key ("assets:Audio/Hit.wav") expanded under its root, or
-        // an absolute path (what SoundAsset::ResolveSourceFile hands over). A bare relative spelling is
-        // refused by name inside PathForStableKey rather than tried against the working directory and then
-        // against the assets root (PATH1: one reader, no guessed root). Exists is the VFS-aware one, so a
-        // packaged game resolves into the mounted .dpak.
+        // an absolute path (what SoundAsset::Resolve hands over). A bare relative spelling is refused by name
+        // inside PathForStableKey rather than tried against the working directory and then against the assets
+        // root (PATH1: one reader, no guessed root). Exists is the VFS-aware one, so a packaged game resolves
+        // into the mounted .dpak.
         std::filesystem::path ResolveClipPath( const std::string& clipPath )
         {
             const std::filesystem::path file = Common::AssetHandle::PathForStableKey( clipPath );
@@ -30,35 +34,166 @@ namespace Desert::Audio
                 return {};
             return file;
         }
+
+        // ---- THE CONTENT VFS: miniaudio's resource manager reads every clip through FileSystem ----------------
+        // UE reads a wave's bulk data through the package file system (IFileHandle over the pak); ours is
+        // FileSystem, which serves loose files and mounted .dpak entries alike. It reads a file whole, so an open
+        // file is its bytes plus a cursor. The resource manager calls these on ITS job thread
+        // (MA_SOUND_FLAG_ASYNC), which is the point: the read and the decode leave the game thread. Each open file
+        // is its own object; nothing here is shared between two opens.
+        struct ContentFile
+        {
+            std::vector<uint8_t> Bytes;
+            std::size_t          Cursor = 0;
+        };
+
+        ContentFile* FileOf( ma_vfs_file file )
+        {
+            return static_cast<ContentFile*>( file );
+        }
+
+        // miniaudio hands the path over as the UTF-8 the engine gave it (VoiceFor below), on every platform.
+        ma_result ContentOpen( ma_vfs* /*vfs*/, const char* filePath, ma_uint32 openMode, ma_vfs_file* file )
+        {
+            if ( filePath == nullptr || file == nullptr )
+                return MA_INVALID_ARGS;
+            *file = nullptr;
+            if ( ( openMode & MA_OPEN_MODE_WRITE ) != 0 )
+                return MA_ACCESS_DENIED; // content is read-only; the audio engine writes no file
+            const std::string_view      utf8( filePath );
+            const std::filesystem::path path( std::u8string( utf8.begin(), utf8.end() ) );
+            auto                        bytes = Common::Utils::FileSystem::ReadByteFileContent( path );
+            if ( !bytes )
+                return MA_DOES_NOT_EXIST;
+            auto opened   = std::make_unique<ContentFile>();
+            opened->Bytes = bytes.ExtractValue();
+            *file         = opened.release(); // owned by miniaudio until ContentClose
+            return MA_SUCCESS;
+        }
+
+        ma_result ContentOpenWide( ma_vfs* /*vfs*/, const wchar_t* /*filePath*/, ma_uint32 /*openMode*/,
+                                   ma_vfs_file* /*file*/ )
+        {
+            return MA_NOT_IMPLEMENTED; // the engine opens by UTF-8 only (ma_sound_init_from_file, not _w)
+        }
+
+        ma_result ContentClose( ma_vfs* /*vfs*/, ma_vfs_file file )
+        {
+            const std::unique_ptr<ContentFile> closed( FileOf( file ) );
+            return MA_SUCCESS;
+        }
+
+        ma_result ContentRead( ma_vfs* /*vfs*/, ma_vfs_file file, void* destination, size_t sizeInBytes,
+                               size_t* bytesRead )
+        {
+            ContentFile* const open  = FileOf( file );
+            const std::size_t  left  = open->Bytes.size() - open->Cursor;
+            const std::size_t  count = std::min( left, sizeInBytes );
+            if ( count > 0 )
+                std::memcpy( destination, open->Bytes.data() + open->Cursor, count );
+            open->Cursor += count;
+            if ( bytesRead != nullptr )
+                *bytesRead = count;
+            return ( count == 0 && sizeInBytes > 0 ) ? MA_AT_END : MA_SUCCESS;
+        }
+
+        ma_result ContentWrite( ma_vfs* /*vfs*/, ma_vfs_file /*file*/, const void* /*source*/,
+                                size_t /*sizeInBytes*/, size_t* /*bytesWritten*/ )
+        {
+            return MA_ACCESS_DENIED;
+        }
+
+        ma_result ContentSeek( ma_vfs* /*vfs*/, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin )
+        {
+            ContentFile* const open = FileOf( file );
+            const auto         size = static_cast<ma_int64>( open->Bytes.size() );
+            ma_int64           base = 0;
+            if ( origin == ma_seek_origin_current )
+                base = static_cast<ma_int64>( open->Cursor );
+            else if ( origin == ma_seek_origin_end )
+                base = size;
+            const ma_int64 target = base + offset;
+            if ( target < 0 || target > size )
+                return MA_BAD_SEEK;
+            open->Cursor = static_cast<std::size_t>( target );
+            return MA_SUCCESS;
+        }
+
+        ma_result ContentTell( ma_vfs* /*vfs*/, ma_vfs_file file, ma_int64* cursor )
+        {
+            if ( cursor == nullptr )
+                return MA_INVALID_ARGS;
+            *cursor = static_cast<ma_int64>( FileOf( file )->Cursor );
+            return MA_SUCCESS;
+        }
+
+        ma_result ContentInfo( ma_vfs* /*vfs*/, ma_vfs_file file, ma_file_info* info )
+        {
+            if ( info == nullptr )
+                return MA_INVALID_ARGS;
+            info->sizeInBytes = static_cast<ma_uint64>( FileOf( file )->Bytes.size() );
+            return MA_SUCCESS;
+        }
+
+        // A custom miniaudio VFS is any object whose first member is the callback table.
+        struct ContentVfs
+        {
+            ma_vfs_callbacks Callbacks{};
+        };
     } // namespace
 
-    // A playing sound: the (VFS-read) clip bytes must outlive the decoder, the decoder the sound.
-    struct Sound
+    // A playing sound: miniaudio's sound over a resource-manager data source (a shared decoded buffer or a
+    // stream of its own). `Loading` is true until the job thread has opened and decoded the clip, so a
+    // failure is reported once, by name (Update).
+    struct Voice
     {
-        std::vector<uint8_t> Bytes;
-        ma_decoder        Decoder{};
-        ma_sound          Handle{};
-        bool              DecoderReady = false;
-        bool              SoundReady   = false;
-        bool              OneShot      = false;
+        ma_sound    Sound{};
+        std::string Clip;
+        bool        Ready   = false;
+        bool        OneShot = false;
+        bool        Loading = true;
 
-        ~Sound()
+        Voice()                          = default;
+        Voice( const Voice& )            = delete;
+        Voice& operator=( const Voice& ) = delete;
+        ~Voice()
         {
-            if ( SoundReady )
-                ma_sound_uninit( &Handle );
-            if ( DecoderReady )
-                ma_decoder_uninit( &Decoder );
+            if ( Ready )
+                ma_sound_uninit( &Sound );
         }
     };
 
     struct AudioEngine::Impl
     {
-        ma_engine Engine{};
-        bool      Initialized = false;
-        bool      InitFailed  = false;
+        ContentVfs Vfs;
+        ma_engine  Engine{};
+        bool       Initialized = false;
+        bool       InitFailed  = false;
         // One group per SoundClass, each sound is created INTO its class's group; AudioMix's class volume is
         // the group's volume and its master the engine's (PushMix).
         std::array<ma_sound_group, kSoundClassCount> Groups{};
+
+        // THE VOICE TABLE: slot index + generation (VoiceHandle). A released slot's generation moves on and
+        // the slot is reused, so the table never grows past the most voices alive at once.
+        struct Slot
+        {
+            uint32_t               Generation = 1;
+            std::unique_ptr<Voice> Playing;
+        };
+        std::vector<Slot>     Slots;
+        std::vector<uint32_t> FreeSlots;
+
+        Impl()
+        {
+            Vfs.Callbacks.onOpen  = &ContentOpen;
+            Vfs.Callbacks.onOpenW = &ContentOpenWide;
+            Vfs.Callbacks.onClose = &ContentClose;
+            Vfs.Callbacks.onRead  = &ContentRead;
+            Vfs.Callbacks.onWrite = &ContentWrite;
+            Vfs.Callbacks.onSeek  = &ContentSeek;
+            Vfs.Callbacks.onTell  = &ContentTell;
+            Vfs.Callbacks.onInfo  = &ContentInfo;
+        }
 
         void PushMix()
         {
@@ -68,46 +203,85 @@ namespace Desert::Audio
                 ma_sound_group_set_volume( &Groups[i], mix.ClassVolume( static_cast<SoundClass>( i ) ) );
         }
 
-        uint32_t                                            NextId = 1;
-        std::unordered_map<uint32_t, std::unique_ptr<Sound>> Sounds;
-
-        std::unique_ptr<Sound> LoadSound( const std::string& clipPath, SoundClass soundClass, bool loop,
-                                          bool spatial, float volume )
+        [[nodiscard]] Voice* Find( VoiceHandle handle ) const
         {
-            const auto path = ResolveClipPath( clipPath );
+            if ( !handle.IsValid() || handle.Index >= Slots.size() )
+                return nullptr;
+            const Slot& slot = Slots[handle.Index];
+            if ( slot.Generation != handle.Generation )
+                return nullptr;
+            return slot.Playing.get();
+        }
+
+        VoiceHandle Insert( std::unique_ptr<Voice> voice )
+        {
+            uint32_t index = 0;
+            if ( !FreeSlots.empty() )
+            {
+                index = FreeSlots.back();
+                FreeSlots.pop_back();
+            }
+            else
+            {
+                index = static_cast<uint32_t>( Slots.size() );
+                Slots.emplace_back();
+            }
+            Slots[index].Playing = std::move( voice );
+            return VoiceHandle{ index, Slots[index].Generation };
+        }
+
+        void Release( uint32_t index )
+        {
+            Slot& slot = Slots[index];
+            if ( !slot.Playing )
+                return;
+            slot.Playing.reset();
+            // 0 is the invalid generation; a slot that wrapped starts over at 1.
+            slot.Generation = slot.Generation == std::numeric_limits<uint32_t>::max() ? 1 : slot.Generation + 1;
+            FreeSlots.push_back( index );
+        }
+
+        void ReleaseAll()
+        {
+            for ( uint32_t index = 0; index < Slots.size(); ++index )
+                Release( index );
+        }
+
+        // A voice of @p source, loading on the resource manager's job thread. Resident: MA_SOUND_FLAG_DECODE —
+        // the decoded buffer is keyed by the file and shared by every voice of it while any lives. Streamed:
+        // MA_SOUND_FLAG_STREAM — paged decode, a stream per voice.
+        std::unique_ptr<Voice> VoiceFor( const SoundSource& source, bool loop, bool spatial, float volume )
+        {
+            const auto path = ResolveClipPath( source.Clip );
             if ( path.empty() )
             {
-                LOG_WARN( "[Audio] Clip not found: {}", clipPath );
+                LOG_WARN( "[Audio] Clip not found: {}", source.Clip );
                 return nullptr;
             }
 
-            auto sound = std::make_unique<Sound>();
-            auto bytes = Common::Utils::FileSystem::ReadByteFileContent( path );
-            if ( !bytes || bytes.GetValue().empty() )
-                return nullptr;
-            sound->Bytes = bytes.ExtractValue();
+            ma_uint32 flags = MA_SOUND_FLAG_ASYNC;
+            flags |= source.Loading == SoundLoading::Streamed ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
+            if ( !spatial )
+                flags |= MA_SOUND_FLAG_NO_SPATIALIZATION;
 
-            if ( ma_decoder_init_memory( sound->Bytes.data(), sound->Bytes.size(), nullptr,
-                                         &sound->Decoder ) != MA_SUCCESS )
+            const std::u8string utf8Path = path.u8string();
+            const std::string   utf8( utf8Path.begin(), utf8Path.end() );
+
+            auto voice  = std::make_unique<Voice>();
+            voice->Clip = source.Clip;
+            if ( ma_sound_init_from_file( &Engine, utf8.c_str(), flags,
+                                          &Groups[static_cast<std::size_t>( source.Class )], nullptr,
+                                          &voice->Sound ) != MA_SUCCESS )
             {
-                LOG_WARN( "[Audio] Failed to decode clip: {}", clipPath );
+                LOG_WARN( "[Audio] Failed to create a voice of {} ({})", source.Clip,
+                          SoundLoadingName( source.Loading ) );
                 return nullptr;
             }
-            sound->DecoderReady = true;
+            voice->Ready = true;
 
-            const ma_uint32 flags = spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION;
-            if ( ma_sound_init_from_data_source( &Engine, &sound->Decoder, flags,
-                                                 &Groups[static_cast<std::size_t>( soundClass )],
-                                                 &sound->Handle ) != MA_SUCCESS )
-            {
-                LOG_WARN( "[Audio] Failed to create sound: {}", clipPath );
-                return nullptr;
-            }
-            sound->SoundReady = true;
-
-            ma_sound_set_looping( &sound->Handle, loop ? MA_TRUE : MA_FALSE );
-            ma_sound_set_volume( &sound->Handle, volume );
-            return sound;
+            ma_sound_set_looping( &voice->Sound, loop ? MA_TRUE : MA_FALSE );
+            ma_sound_set_volume( &voice->Sound, volume );
+            return voice;
         }
     };
 
@@ -123,7 +297,7 @@ namespace Desert::Audio
 
     AudioEngine::~AudioEngine()
     {
-        m_Impl->Sounds.clear(); // sounds must die before their groups, the groups before the engine
+        m_Impl->ReleaseAll(); // voices must die before their groups, the groups before the engine
         if ( m_Impl->Initialized )
         {
             AudioMix::Get().SetListener( {} );
@@ -150,7 +324,12 @@ namespace Desert::Audio
         if ( m_Impl->InitFailed )
             return false;
 
-        if ( ma_engine_init( nullptr, &m_Impl->Engine ) != MA_SUCCESS )
+        // The engine owns its resource manager (decoded to f32 at the device rate, one job thread) and reads
+        // through the content VFS. The default device is followed when the OS switches it (miniaudio's
+        // automatic stream routing on CoreAudio and WASAPI, UE's AudioDeviceNotificationSubsystem).
+        ma_engine_config config    = ma_engine_config_init();
+        config.pResourceManagerVFS = &m_Impl->Vfs;
+        if ( ma_engine_init( &config, &m_Impl->Engine ) != MA_SUCCESS )
         {
             // Headless machine / CI: log once and stay silent instead of failing the app.
             LOG_WARN( "[Audio] No audio device available — sound disabled." );
@@ -188,95 +367,111 @@ namespace Desert::Audio
         ma_engine_listener_set_world_up( &m_Impl->Engine, 0, up.x, up.y, up.z );
     }
 
-    void AudioEngine::PlayOneShot( const std::string& clipPath, SoundClass soundClass, float volume )
+    void AudioEngine::PlayOneShot( const SoundSource& source, float volume )
     {
         if ( !EnsureInitialized() )
             return;
-        auto sound = m_Impl->LoadSound( clipPath, soundClass, /*loop=*/false, /*spatial=*/false, volume );
-        if ( !sound )
+        auto voice = m_Impl->VoiceFor( source, /*loop=*/false, /*spatial=*/false, volume );
+        if ( !voice )
             return;
-        sound->OneShot = true;
-        ma_sound_start( &sound->Handle );
-        m_Impl->Sounds.emplace( m_Impl->NextId++, std::move( sound ) );
+        voice->OneShot = true;
+        ma_sound_start( &voice->Sound );
+        static_cast<void>( m_Impl->Insert( std::move( voice ) ) ); // reclaimed by Update when it ends
     }
 
-    uint32_t AudioEngine::CreateSource( const std::string& clipPath, SoundClass soundClass, bool loop,
-                                        bool spatial, float volume )
+    VoiceHandle AudioEngine::CreateVoice( const SoundSource& source, bool loop, bool spatial, float volume )
     {
         if ( !EnsureInitialized() )
-            return 0;
-        auto sound = m_Impl->LoadSound( clipPath, soundClass, loop, spatial, volume );
-        if ( !sound )
-            return 0;
-        const uint32_t id = m_Impl->NextId++;
-        m_Impl->Sounds.emplace( id, std::move( sound ) );
-        return id;
+            return {};
+        auto voice = m_Impl->VoiceFor( source, loop, spatial, volume );
+        if ( !voice )
+            return {};
+        return m_Impl->Insert( std::move( voice ) );
     }
 
-    void AudioEngine::DestroySource( uint32_t id )
+    void AudioEngine::DestroyVoice( VoiceHandle voice )
     {
-        m_Impl->Sounds.erase( id );
+        if ( m_Impl->Find( voice ) != nullptr )
+            m_Impl->Release( voice.Index );
     }
 
-    void AudioEngine::StartSource( uint32_t id )
+    void AudioEngine::StartVoice( VoiceHandle voice )
     {
-        if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
-            ma_sound_start( &it->second->Handle );
+        if ( Voice* playing = m_Impl->Find( voice ) )
+            ma_sound_start( &playing->Sound );
     }
 
-    void AudioEngine::StopSource( uint32_t id )
+    void AudioEngine::StopVoice( VoiceHandle voice )
     {
-        if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
-            ma_sound_stop( &it->second->Handle );
+        if ( Voice* playing = m_Impl->Find( voice ) )
+            ma_sound_stop( &playing->Sound );
     }
 
-    bool AudioEngine::IsSourcePlaying( uint32_t id ) const
+    bool AudioEngine::IsVoicePlaying( VoiceHandle voice ) const
     {
-        if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
-            return ma_sound_is_playing( &it->second->Handle ) == MA_TRUE;
+        if ( const Voice* playing = m_Impl->Find( voice ) )
+            return ma_sound_is_playing( &playing->Sound ) == MA_TRUE;
         return false;
     }
 
-    void AudioEngine::SeekSource( uint32_t id, double seconds )
+    void AudioEngine::SeekVoice( VoiceHandle voice, double seconds )
     {
-        auto it = m_Impl->Sounds.find( id );
-        if ( it == m_Impl->Sounds.end() )
+        Voice* playing = m_Impl->Find( voice );
+        if ( playing == nullptr )
             return;
-        ma_uint32 sampleRate = 0;
-        if ( ma_sound_get_data_format( &it->second->Handle, nullptr, nullptr, &sampleRate, nullptr, 0 ) !=
-                  MA_SUCCESS ||
-             sampleRate == 0 )
-            return;
-        const double frame = std::max( seconds, 0.0 ) * static_cast<double>( sampleRate );
-        ma_sound_seek_to_pcm_frame( &it->second->Handle, static_cast<ma_uint64>( frame ) );
+        // The resource manager decodes every clip to the device rate (ma_engine_init: decodedSampleRate), so a
+        // second is that many frames whether or not the clip has finished loading — a seek before it has is
+        // kept by the data source and applied on its first read.
+        const double frame =
+             std::max( seconds, 0.0 ) * static_cast<double>( ma_engine_get_sample_rate( &m_Impl->Engine ) );
+        ma_sound_seek_to_pcm_frame( &playing->Sound, static_cast<ma_uint64>( frame ) );
     }
 
-    void AudioEngine::SetSourcePosition( uint32_t id, const glm::vec3& position )
+    void AudioEngine::SetVoicePosition( VoiceHandle voice, const glm::vec3& position )
     {
-        if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
-            ma_sound_set_position( &it->second->Handle, position.x, position.y, position.z );
+        if ( Voice* playing = m_Impl->Find( voice ) )
+            ma_sound_set_position( &playing->Sound, position.x, position.y, position.z );
     }
 
-    void AudioEngine::SetSourceVolume( uint32_t id, float volume )
+    void AudioEngine::SetVoiceVolume( VoiceHandle voice, float volume )
     {
-        if ( auto it = m_Impl->Sounds.find( id ); it != m_Impl->Sounds.end() )
-            ma_sound_set_volume( &it->second->Handle, volume );
+        if ( Voice* playing = m_Impl->Find( voice ) )
+            ma_sound_set_volume( &playing->Sound, volume );
     }
 
     void AudioEngine::StopAll()
     {
-        m_Impl->Sounds.clear();
+        m_Impl->ReleaseAll();
     }
 
     void AudioEngine::Update()
     {
-        // Reclaim finished one-shots (managed sources are owned by their system until destroyed).
-        for ( auto it = m_Impl->Sounds.begin(); it != m_Impl->Sounds.end(); )
+        for ( uint32_t index = 0; index < m_Impl->Slots.size(); ++index )
         {
-            if ( it->second->OneShot && ma_sound_is_playing( &it->second->Handle ) == MA_FALSE )
-                it = m_Impl->Sounds.erase( it );
-            else
-                ++it;
+            Voice* const voice = m_Impl->Slots[index].Playing.get();
+            if ( voice == nullptr )
+                continue;
+            // A clip that finished loading: a failure (unreadable file, an encoding no decoder knows) is
+            // reported once, by name; a managed voice stays silent until its owner destroys it.
+            bool failed = false;
+            if ( voice->Loading )
+            {
+                const ma_result loaded = ma_resource_manager_data_source_result(
+                     static_cast<ma_resource_manager_data_source*>( ma_sound_get_data_source( &voice->Sound ) ) );
+                if ( loaded != MA_BUSY )
+                {
+                    voice->Loading = false;
+                    failed         = loaded != MA_SUCCESS;
+                    if ( failed )
+                        LOG_ERROR( "[Audio] {} could not be loaded: {}", voice->Clip,
+                                   ma_result_description( loaded ) );
+                }
+            }
+            // Reclaim finished one-shots, and one-shots that will never sound (managed voices are owned by
+            // their system until destroyed). A one-shot still loading is started, not finished.
+            if ( voice->OneShot &&
+                 ( failed || ( !voice->Loading && ma_sound_is_playing( &voice->Sound ) == MA_FALSE ) ) )
+                m_Impl->Release( index );
         }
     }
 } // namespace Desert::Audio

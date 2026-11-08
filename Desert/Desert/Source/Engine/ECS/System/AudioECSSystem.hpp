@@ -17,9 +17,11 @@
 namespace Desert::ECS
 {
     // Drives AudioSourceComponents (Play only): AutoPlay sources start when the scene enters Play,
-    // spatial sources follow their entity's world transform, and the listener follows the active
+    // spatial sources follow their entity's WORLD transform (a child emitter sounds where it is drawn, UE
+    // USceneComponent::GetComponentLocation), every voice plays in the class and with the loading its
+    // `.desound` states (SoundAsset::Resolve), and the listener follows the active
     // camera. On the Play->Edit transition every source stops — Edit mode is silent, matching how
-    // physics/scripts freeze. The system OWNS the runtime source ids (the component stays pure data,
+    // physics/scripts freeze. The system OWNS the runtime voice handles (the component stays pure data,
     // so Play never dirties the authored scene).
     // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: sound is not a picture. An ambience emitter carries
     // no mesh at all, so hiding one in the outliner to declutter the scene would silently mute the level.
@@ -72,32 +74,30 @@ namespace Desert::ECS
                 {
                     if ( !source.AutoPlay || static_cast<uint64_t>( source.Sound ) == 0 )
                         continue;
-                    const auto file = Assets::SoundAsset::ResolveSourceFile( source.Sound );
-                    if ( !file )
+                    const auto sound = Assets::SoundAsset::Resolve( source.Sound );
+                    if ( !sound )
                     {
-                        LOG_ERROR( "[Audio] Audio Source: {}", file.GetError() );
-                        m_Sources.emplace( entity, 0 ); // one line, no retry every frame
+                        LOG_ERROR( "[Audio] Audio Source: {}", sound.GetError() );
+                        m_Sources.emplace( entity, Audio::VoiceHandle{} ); // one line, no retry every frame
                         continue;
                     }
-                    // Effects until AudioSourceData carries its own class (UE: USoundBase::SoundClass) —
-                    // a serialized field, so a migrator step of its own.
-                    const uint32_t id = audio.CreateSource( file.GetValue().string(), Audio::SoundClass::Effects,
-                                                            source.Loop, source.Spatial, source.Volume );
-                    if ( id == 0 )
+                    const Audio::VoiceHandle voice =
+                         audio.CreateVoice( sound.GetValue(), source.Loop, source.Spatial, source.Volume );
+                    if ( !voice.IsValid() )
                     {
-                        m_Sources.emplace( entity, 0 ); // failed clip: don't retry every frame
+                        m_Sources.emplace( entity, voice ); // failed clip: don't retry every frame
                         continue;
                     }
-                    audio.StartSource( id );
-                    it = m_Sources.emplace( entity, id ).first;
+                    audio.StartVoice( voice );
+                    it = m_Sources.emplace( entity, voice ).first;
                 }
 
-                if ( it->second == 0 )
+                if ( !it->second.IsValid() )
                     continue;
 
-                audio.SetSourceVolume( it->second, source.Volume );
+                audio.SetVoiceVolume( it->second, source.Volume );
                 if ( source.Spatial )
-                    audio.SetSourcePosition( it->second, transform.GetTranslation() );
+                    audio.SetVoicePosition( it->second, glm::vec3( transform.GetWorldTransform()[3] ) );
             }
 
             PlaySequenceAudio( registry, audio );
@@ -107,7 +107,7 @@ namespace Desert::ECS
             {
                 if ( !registry.valid( it->first ) || !registry.has<AudioSourceComponent>( it->first ) )
                 {
-                    audio.DestroySource( it->second );
+                    audio.DestroyVoice( it->second );
                     it = m_Sources.erase( it );
                 }
                 else
@@ -147,35 +147,34 @@ namespace Desert::ECS
                     case TL::AudioCommandKind::Start:
                     {
                         // The section names the sound's GUID; its file is the `.desound`'s to say (SoundAsset).
-                        const auto file = Assets::SoundAsset::ResolveSourceFile( command.Sound );
-                        if ( !file )
+                        const auto sound = Assets::SoundAsset::Resolve( command.Sound );
+                        if ( !sound )
                         {
-                            LOG_ERROR( "[Audio] Sequence sound: {}", file.GetError() );
+                            LOG_ERROR( "[Audio] Sequence sound: {}", sound.GetError() );
                             break; // the diff still holds the voice: one line, no retry spam
                         }
-                        // Effects, as the AudioSource path above, until the sound carries its own class.
-                        const uint32_t id =
-                             audio.CreateSource( file.GetValue().string(), Audio::SoundClass::Effects, false,
-                                                 false, command.Gain ); // 2D, as UE's master track
-                        if ( id == 0 )
-                            break; // CreateSource logged the path; the diff still holds the voice, no retry spam
-                        audio.SeekSource( id, command.Seconds );
-                        audio.StartSource( id );
-                        m_SequenceSources[key] = id;
+                        // In the sound's own class and loading, as the AudioSource path above.
+                        const Audio::VoiceHandle voice = audio.CreateVoice(
+                             sound.GetValue(), false, false, command.Gain ); // 2D, as UE's master track
+                        if ( !voice.IsValid() )
+                            break; // CreateVoice logged the path; the diff still holds the voice, no retry spam
+                        audio.SeekVoice( voice, command.Seconds );
+                        audio.StartVoice( voice );
+                        m_SequenceSources[key] = voice;
                         break;
                     }
                     case TL::AudioCommandKind::Seek:
                         if ( const auto it = m_SequenceSources.find( key ); it != m_SequenceSources.end() )
-                            audio.SeekSource( it->second, command.Seconds );
+                            audio.SeekVoice( it->second, command.Seconds );
                         break;
                     case TL::AudioCommandKind::SetGain:
                         if ( const auto it = m_SequenceSources.find( key ); it != m_SequenceSources.end() )
-                            audio.SetSourceVolume( it->second, command.Gain );
+                            audio.SetVoiceVolume( it->second, command.Gain );
                         break;
                     case TL::AudioCommandKind::Stop:
                         if ( const auto it = m_SequenceSources.find( key ); it != m_SequenceSources.end() )
                         {
-                            audio.DestroySource( it->second );
+                            audio.DestroyVoice( it->second );
                             m_SequenceSources.erase( it );
                         }
                         break;
@@ -186,26 +185,27 @@ namespace Desert::ECS
         void StopEverything()
         {
             auto& audio = Audio::AudioEngine::Get();
-            for ( const auto& [key, id] : m_SequenceSources )
-                audio.DestroySource( id );
+            for ( const auto& [key, voice] : m_SequenceSources )
+                audio.DestroyVoice( voice );
             m_SequenceSources.clear();
             m_SequenceCommands.clear();
             m_SequenceVoices.StopAll( m_SequenceCommands ); // the sources are gone already; forget the voices
             m_SequenceCommands.clear();
-            for ( const auto& [entity, id] : m_Sources )
-                audio.DestroySource( id );
+            for ( const auto& [entity, voice] : m_Sources )
+                audio.DestroyVoice( voice );
             m_Sources.clear();
             audio.StopAll(); // also drops Lua one-shots
             m_WasPlaying = false;
         }
 
         Core::Scene*                                m_Scene = nullptr;
-        std::unordered_map<entt::entity, uint32_t>  m_Sources;
+        std::unordered_map<entt::entity, Audio::VoiceHandle> m_Sources; // invalid = a clip that failed once
         bool                                        m_WasPlaying = false;
 
         Animation::Timeline::AudioVoices                             m_SequenceVoices;
         std::vector<Animation::Timeline::SoundingVoice>              m_SequenceFrame;    // reused per frame
         std::vector<Animation::Timeline::AudioCommand>               m_SequenceCommands; // reused per frame
-        std::map<std::tuple<uint64_t, uint32_t, uint32_t>, uint32_t> m_SequenceSources;  // voice → source id
+        std::map<std::tuple<uint64_t, uint32_t, uint32_t>, Audio::VoiceHandle>
+             m_SequenceSources; // section → voice
     };
 } // namespace Desert::ECS

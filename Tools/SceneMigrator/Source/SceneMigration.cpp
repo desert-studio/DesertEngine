@@ -811,7 +811,12 @@ namespace Desert::Migration
             std::ifstream      in( entry.path(), std::ios::binary );
             std::ostringstream text;
             text << in.rdbuf();
-            const auto parsed = Assets::SoundAsset::Parse( text.str() );
+            // Any generation names its file: a SNDW v0 `.desound` is read through its upgrade (the sound pass
+            // raises the file itself).
+            const auto raised = Assets::SoundAsset::Upgrade( text.str() );
+            if ( !raised )
+                return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), raised.GetError() );
+            const auto parsed = Assets::SoundAsset::Parse( raised.GetValue() ? *raised.GetValue() : text.str() );
             if ( !parsed )
                 return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), parsed.GetError() );
             if ( ( dir / parsed.GetValue().Source ).lexically_normal() == audioFile.lexically_normal() )
