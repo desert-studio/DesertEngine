@@ -8,7 +8,8 @@
 // by every tile of it, the same deterministic position, written to the probe by each - then each texel traces one
 // jittered ray by the GI ray contract (Common/GITracing.glslh GIRayRadianceFarField: the permutation's far field
 // only - UE's probes trace the global SDF, never the mesh SDFs -, the hit lit in place, the sky on a miss) and
-// blends it into the radiance atlas with the probe's history. The program is compiled per tracer (GlobalIllumination::TracerVariant); it names none. .a keeps the hit distance for the visibility moments.
+// blends it into the radiance atlas with the probe's history. The program is compiled per tracer
+// (GlobalIllumination::TracerVariant); it names none. .a keeps the hit distance for the visibility moments.
 Shader "RadianceCacheTrace"
 {
     Compute
