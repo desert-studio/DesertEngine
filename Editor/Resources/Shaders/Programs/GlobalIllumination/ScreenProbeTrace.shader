@@ -18,12 +18,14 @@
 //   SP_TRACE_CACHE_MISS  over those rays only (their own compacted list, so a few full-length rays no longer hold
 //             the far field's every wave): the rest of the ray, from the cache's distance to the full trace distance
 //             and the sky, so a new cell is neither black nor sky.
-//   SP_TRACE_HIT_LIGHTING over the far field's global-field hits no card holds (GPU-FARFIELD-3; UE defers hit
-//             lighting to a compacted pass of its own): the far field keeps only such a hit's distance (hit and
-//             reached bits both set, nothing stored) and this leg rebuilds the surface on the ray and lights it in
-//             place (GIHitRadianceGlobalFieldInPlace: the directional lights' global-field shadow marches, the
-//             cache's bounce). The far field's waves no longer wait on the shadow marches of their few hit lanes;
-//             here every lane is such a hit. The software tracer only - no other tracer makes a global-field hit.
+//   SP_TRACE_HIT_LIGHTING over the far field's global-field hits (GPU-FARFIELD-3/5; UE defers hit lighting to a
+//             compacted pass of its own): the far field marches with GI_TRACE_DISTANCE_ONLY and keeps only a hit's
+//             distance (hit and reached bits both set, nothing stored); this leg rebuilds the surface on the ray and
+//             lights it - the cards first (GIHitRadianceNeedsGlobalFieldInPlace), else in place
+//             (GIHitRadianceGlobalFieldInPlace: the directional lights' global-field shadow marches, the cache's
+//             bounce). The far field's waves no longer wait on the gradient, card search and shadow marches of their
+//             few hit lanes; here every lane is such a hit. The software tracer only - no other tracer makes a
+//             global-field hit.
 // The program is compiled per tracer (GlobalIllumination::TracerVariant) and per leg; it names no tracer. .a keeps the
 // distance the ray's radiance came from (the filter's angle test).
 Shader "ScreenProbeTrace"
@@ -184,7 +186,7 @@ Shader "ScreenProbeTrace"
 
         // GPU-FARFIELD-1: the far-field leg's rays by what its own trace did, after the cache-read words
         // (ScreenProbeGather.hpp ScreenProbeMissReasons, same order): every ray listed, the rays the global field hit
-        // (each lit by GIHitRadiance: the cards, or by the directional lights, one global-field test each), the
+        // (software: each lit by the hit-lighting leg; hardware: by GIHitRadiance here), the
         // rays outside the cache's coverage (marched to SP_TRACE_DISTANCE). One atomic per subgroup: the active lanes are the class.
         #define SP_FAR_FIELD_RAYS_LISTED  ( RADIANCE_CACHE_READ_REASONS + 0u )
         #define SP_FAR_FIELD_RAYS_HIT     ( RADIANCE_CACHE_READ_REASONS + 1u )
@@ -195,6 +197,9 @@ Shader "ScreenProbeTrace"
         #define SP_FAR_FIELD_STEPS        ( RADIANCE_CACHE_READ_REASONS + 3u )
         #define SP_FAR_FIELD_RAYS_DEFERRED ( RADIANCE_CACHE_READ_REASONS + 4u )
         #define SP_HIT_LIGHTING_STEPS     ( RADIANCE_CACHE_READ_REASONS + 5u )
+        // GPU-FARFIELD-5: every software far-field hit is handed over (DEFERRED = HIT); the hit-lighting leg's hits
+        // a card holds (lit by the cards, no shadow march), the rest lit in place.
+        #define SP_HIT_LIGHTING_CARD_HELD ( RADIANCE_CACHE_READ_REASONS + 6u )
         void SPCountFarFieldRays( uint word )
         {
             const uint count = subgroupBallotBitCount( subgroupBallot( true ) );
@@ -258,12 +263,16 @@ Shader "ScreenProbeTrace"
                  SPEncodeTraceHit( result.a, rest.hit, rest.hit && SPTraceHitMoving( probe, texel, rest.surface ), false );
 #elif defined( SP_TRACE_HIT_LIGHTING )
 #if defined( DESERT_GI_TRACER_SOFTWARE )
-            // A far-field hit no card holds (the far field left it with the hit and reached bits): its surface rebuilt
-            // on the same ray at the same distance, lit in place.
+            // A far-field hit (the far field left it with the hit and reached bits): its surface rebuilt on the same
+            // ray at the same distance (the finest clipmap's gradient), lit by the cards, else in place.
             const float distance = SPTraceHitDistance( state );
-            const GIHit hitAt    = GIFarFieldSurface( origin + dir * distance, dir, distance, -1 );
-            const vec3  radiance = GIHitRadianceGlobalFieldInPlace( hitAt, dir );
+            const GIHit hitAt = GIFarFieldSurface( origin + dir * distance, dir, distance, -1 );
+            vec3        radiance;
+            if ( GIHitRadianceNeedsGlobalFieldInPlace( hitAt, dir, radiance ) )
+                radiance = GIHitRadianceGlobalFieldInPlace( hitAt, dir );
 #if defined( SP_TRACE_MISS_REASONS )
+            else
+                SPCountFarFieldRays( SP_HIT_LIGHTING_CARD_HELD );
             SPCountSteps( SP_HIT_LIGHTING_STEPS );
 #endif
             imageStore( ScreenProbeTracedTexture, at, vec4( radiance, distance ) );
@@ -279,6 +288,11 @@ Shader "ScreenProbeTrace"
             if ( !texel.coverage.valid )
                 SPCountFarFieldRays( SP_FAR_FIELD_RAYS_OUTSIDE );
 #endif
+#if defined( DESERT_GI_TRACER_SOFTWARE )
+            // GPU-FARFIELD-5: the march keeps the hit's distance only (no gradient normal here: the hit-lighting
+            // leg rebuilds the surface where it lights it).
+            ray.flags |= GI_TRACE_DISTANCE_ONLY;
+#endif
             const GITraceResult far    = GITraceFarField( ray );
 #if defined( SP_TRACE_MISS_REASONS )
             SPCountSteps( SP_FAR_FIELD_STEPS );
@@ -289,19 +303,21 @@ Shader "ScreenProbeTrace"
 #if defined( SP_TRACE_MISS_REASONS )
                 SPCountFarFieldRays( SP_FAR_FIELD_RAYS_HIT );
 #endif
-                vec3 radiance;
-                if ( GIHitRadianceNeedsGlobalFieldInPlace( far.surface, dir, radiance ) )
-                {
-                    // No card holds it: the hit-lighting leg lights it (its own compacted list, so this leg's
-                    // waves do not wait on its shadow marches). Nothing stored yet; hit + reached marks it.
+#if defined( DESERT_GI_TRACER_SOFTWARE )
+                // Every software far-field hit is a global-field hit (UE TraceVoxels): the hit-lighting leg lights
+                // it - the cards first, else in place - in its own compacted list (UE's hit lighting pass), so this
+                // leg's waves wait neither on a card search (99.5 % of these hits find no card) nor on a shadow
+                // march of their few hit lanes. Nothing stored yet; hit + reached marks it.
 #if defined( SP_TRACE_MISS_REASONS )
-                    SPCountFarFieldRays( SP_FAR_FIELD_RAYS_DEFERRED );
+                SPCountFarFieldRays( SP_FAR_FIELD_RAYS_DEFERRED );
 #endif
-                    screenProbeTraceHit[slot] = SPEncodeTraceHit( far.surface.distance, true, false, true );
-                    return;
-                }
-                result = vec4( radiance, far.surface.distance );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( far.surface.distance, true, false, true );
+                return;
+#else
+                // The hardware far field's hits are triangles (never global-field): lit here.
+                result = vec4( GIHitRadiance( far.surface, dir ), far.surface.distance );
                 moving = SPTraceHitMoving( probe, texel, far.surface );
+#endif
             }
             else
             {
