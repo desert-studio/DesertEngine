@@ -305,7 +305,14 @@ SurfaceOutput DefaultSurfaceOutput()
 #endif
 // A binned draw's side of a dithered LOD transition (DesertMeshDraw::LodFadeSide,
 // Mesh/Surface/LODTransition.glslh).
-#ifdef DESERT_SURFACE_BINNED
+// A grass id list's rows (DESERT_SURFACE_INSTANCE_IDS, neither binned nor by GpuScene id) carry it in the row's
+// column 0 w (GrassCull.shader GrassLawInstance; 0 in every affine row): the vertex stage forwards it.
+#if defined( DESERT_SURFACE_INSTANCE_IDS ) && !defined( DESERT_SURFACE_BINNED )
+#ifndef DESERT_SURFACE_SCENE_INSTANCES
+#define DESERT_SURFACE_ROW_LOD_FADE 1
+#endif
+#endif
+#if defined( DESERT_SURFACE_BINNED ) || defined( DESERT_SURFACE_ROW_LOD_FADE )
 #define DESERT_SURFACE_LOD_FADE_VARYINGS flat float LodFadeSide;
 #else
 #define DESERT_SURFACE_LOD_FADE_VARYINGS
@@ -442,6 +449,12 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 #ifdef DESERT_SURFACE_BINNED
 #define DESERT_SURFACE_LOD_CLIPPED() \
     DesertLODTransitionClipped( gl_FragCoord.xy, v_Surface.LodFadeSide, cameraUB.LodTransition.x )
+#elif defined( DESERT_SURFACE_ROW_LOD_FADE )
+// The row's side, else the CPU-recorded draw's push field (a grass list's draw pushes 0, a row of an ISM 0).
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, \
+                                v_Surface.LodFadeSide != 0.0 ? v_Surface.LodFadeSide : m_PushConstants.LodFadeSide, \
+                                cameraUB.LodTransition.x )
 #else
 #define DESERT_SURFACE_LOD_CLIPPED() \
     DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
