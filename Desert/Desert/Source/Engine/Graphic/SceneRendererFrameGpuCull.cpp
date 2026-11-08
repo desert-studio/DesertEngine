@@ -56,6 +56,15 @@ namespace Desert::Graphic
             input.View.CullOrigin         = glm::vec4( lod.Origin, lensScale );
             input.View.Pass               = static_cast<uint32_t>( pass );
             input.View.Flags              = flags;
+            // THE DITHERED LOD TRANSITION (Geometry::LODView::Temporal): a scene view's opaque-pass views select
+            // from its two eye samples; a caster view draws one level from the live eye (its camera block has no
+            // fade, CameraUB::LodTransition).
+            const bool dither = lod.Temporal.Active && !caster;
+            for ( uint32_t sample = 0; sample < 2u; ++sample )
+                input.View.LodTemporalOrigins[sample] =
+                     glm::vec4( dither ? lod.Temporal.Origins[sample] : lod.Origin, 0.0f );
+            if ( dither )
+                input.View.Flags |= GpuDriven::CullViewFlags::kLodDither;
             input.Frustum                 = frustum;
             return input;
         }
@@ -273,7 +282,8 @@ namespace Desert::Graphic
         const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = Common::MakeSuccess( *m_FrameGpuSceneTables );
 
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
-                                     .Projection = camera->GetProjectionMatrix() };
+                                     .Projection = camera->GetProjectionMatrix(),
+                                     .Temporal   = frame.TemporalLOD };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
         const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
         const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;

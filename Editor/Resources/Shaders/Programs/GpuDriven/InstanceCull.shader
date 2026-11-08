@@ -212,7 +212,10 @@ Shader "InstanceCull"
 
         // Geometry::SelectLODFromBounds + BoundsScreenRadiusSquared (LODSelection.hpp), after MeshRenderer::ComputeLOD's
         // order (forced level first, then the renderer's LOD toggle).
-        uint SelectLod( GpuCullView view, GpuScenePrimitive primitive, mat4 world, bool emptyBounds )
+        // @p lodOrigin: the eye the level is selected from (LodOrigin.xyz, or a temporal sample of a kLodDither
+        // view).
+        uint SelectLod( GpuCullView view, GpuScenePrimitive primitive, mat4 world, bool emptyBounds,
+                        vec3 lodOrigin )
         {
             if ( primitive.ForcedLod >= 0 )
                 return uint( primitive.ForcedLod );
@@ -226,7 +229,7 @@ Shader "InstanceCull"
             const float radius    = length( boundsMax - boundsMin ) * 0.5 * scale;
             const vec3  center    = ( world * vec4( 0.5 * ( boundsMin + boundsMax ), 1.0 ) ).xyz;
 
-            const vec3  d        = center - view.LodOrigin.xyz;
+            const vec3  d        = center - lodOrigin;
             const float distSq   = dot( d, d ) * abs( view.LodProjection[2][3] );
             const float multiple = max( 0.5 * abs( view.LodProjection[0][0] ), 0.5 * abs( view.LodProjection[1][1] ) );
             const float screenRadiusSq = ( multiple * radius ) * ( multiple * radius ) / max( 1.0, distSq );
@@ -290,7 +293,35 @@ Shader "InstanceCull"
 
         // Counts the instance into each submesh bin of its LOD in the pass and writes its visible entries; @p restPose
         // (GpuCull_CastsRestPose) rides each entry's DESERT_GPU_VISIBLE_REST_POSE bit to the vertex stage.
-        void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod, bool restPose )
+        // THE DITHERED LOD TRANSITION (Geometry::SelectDitheredLODFromBounds; LODSelection.hpp): the newer
+        // sample's level is the one drawn; in a DESERT_GPU_CULL_VIEW_LOD_DITHER view the older sample's too,
+        // returned as @p older (equal: no transition).
+        uint SelectLodMask( GpuCullView view, GpuScenePrimitive primitive, mat4 world, bool emptyBounds,
+                            out uint older )
+        {
+            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_LOD_DITHER ) == 0u )
+            {
+                older = SelectLod( view, primitive, world, emptyBounds, view.LodOrigin.xyz );
+                return older;
+            }
+            older = SelectLod( view, primitive, world, emptyBounds, view.LodTemporalOrigins[0].xyz );
+            return SelectLod( view, primitive, world, emptyBounds, view.LodTemporalOrigins[1].xyz );
+        }
+
+        void EmitEntry( uint localView, uint instanceRow, uint slot, uint bits )
+        {
+            const uint bin   = DrawSlots[slot].Bin;
+            const uint k     = atomicAdd( Draws[localView * Params2.x + bin].InstanceCount, 1u );
+            const uint entry = localView * Params2.y + Bins[bin].FirstVisible + k;
+            Visible[entry]   = GpuVisibleInstance( instanceRow, slot | bits );
+            VisibleInstanceIds[entry] = instanceRow;
+        }
+
+        // @p older: the older level of a dithered LOD transition (SelectLodMask; == @p lod when there is none). A
+        // submesh whose slots at both levels clip (DESERT_GPU_DRAW_SLOT_DITHERED_LOD) draws both, tagged for
+        // Mesh/Surface/LODTransition.glslh; every other draws @p lod alone. A bin's Capacity counts every
+        // instance of the primitive once per slot (DrawCommandCache), so the second entry always has its room.
+        void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod, uint older, bool restPose )
         {
             if ( primitiveRow >= Params2.z )
                 return;
@@ -300,16 +331,24 @@ Shader "InstanceCull"
             if ( Params3.x != 0u && primitiveRow < Params3.x && VgPrimitiveDags[primitiveRow].y != 0u &&
                  VgCutViewOf[Views[Params.w + localView].ViewIndex] != DESERT_GPU_INVALID_INDEX )
                 atomicAdd( VgBinnedInstances, 1u );
-            const uint level = min( lod, pd.LodCount - 1u );
+            const uint level      = min( lod, pd.LodCount - 1u );
+            const uint olderLevel = min( older, pd.LodCount - 1u );
+            const uint pose       = restPose ? DESERT_GPU_VISIBLE_REST_POSE : 0u;
             for ( uint s = 0u; s < pd.SubmeshCount; ++s )
             {
                 const uint slot = pd.FirstDrawSlot + level * pd.SubmeshCount + s;
-                const uint bin  = DrawSlots[slot].Bin;
-                const uint k    = atomicAdd( Draws[localView * Params2.x + bin].InstanceCount, 1u );
-                const uint entry = localView * Params2.y + Bins[bin].FirstVisible + k;
-                Visible[entry] =
-                     GpuVisibleInstance( instanceRow, restPose ? slot | DESERT_GPU_VISIBLE_REST_POSE : slot );
-                VisibleInstanceIds[entry] = instanceRow;
+                if ( DrawSlots[slot].Bin == DESERT_GPU_INVALID_INDEX )
+                    continue;
+                const uint olderSlot = pd.FirstDrawSlot + olderLevel * pd.SubmeshCount + s;
+                if ( olderLevel != level && DrawSlots[olderSlot].Bin != DESERT_GPU_INVALID_INDEX &&
+                     ( DrawSlots[slot].Flags & DrawSlots[olderSlot].Flags &
+                       DESERT_GPU_DRAW_SLOT_DITHERED_LOD ) != 0u )
+                {
+                    EmitEntry( localView, instanceRow, slot, pose | DESERT_GPU_VISIBLE_LOD_FADE_IN );
+                    EmitEntry( localView, instanceRow, olderSlot, pose | DESERT_GPU_VISIBLE_LOD_FADE_OUT );
+                }
+                else
+                    EmitEntry( localView, instanceRow, slot, pose );
             }
         }
 
@@ -479,7 +518,8 @@ Shader "InstanceCull"
                     return;
                 }
             }
-            const uint lod  = SelectLod( view, primitive, world, empty );
+            uint       older;
+            const uint lod  = SelectLodMask( view, primitive, world, empty, older );
             if ( ( view.Flags & DESERT_GPU_CULL_VIEW_CONTENT_HASH ) != 0u )
             {
                 Visibility[cell] = 0u; // draws nothing: the cells are its output
@@ -504,7 +544,7 @@ Shader "InstanceCull"
                 return;
             }
             Visibility[cell] = word;
-            EmitToBins( localView, instanceRow, instance.Primitive, lod, restPose );
+            EmitToBins( localView, instanceRow, instance.Primitive, lod, older, restPose );
         }
 
         void CullPostOcclusion()
@@ -530,9 +570,10 @@ Shader "InstanceCull"
             if ( Params2.w != 0u && GpuCull_IsOccludedByHzb( GpuCullHzbTexture, PointClampSampler, view, view.ViewProjection, boxMin, boxMax ) )
                 return;
             const uint cell = entry.View * Params.y + entry.Instance;
-            const uint lod  = Visibility[cell] & DESERT_GPU_CULL_VISIBILITY_LOD_MASK;
+            uint       older;
+            const uint lod  = SelectLodMask( view, primitive, world, false, older );
             atomicOr( Visibility[cell], DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE );
-            EmitToBins( localView, entry.Instance, instance.Primitive, lod, restPose );
+            EmitToBins( localView, entry.Instance, instance.Primitive, lod, older, restPose );
         }
 
         void WriteDispatchArgs()

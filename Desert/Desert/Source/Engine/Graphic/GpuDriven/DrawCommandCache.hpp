@@ -124,6 +124,10 @@ namespace Desert::Graphic::GpuDriven
     {
         const GraphicsPipeline* Pipeline = nullptr;
         BinFallback             Fallback = BinFallback::None; // meaningful only when Pipeline is null
+        // The bin's cell clips per pixel (a Masked surface's DESERT_SURFACE_CLIP), so it can take part in a
+        // dithered LOD transition: its slots carry kDrawSlotDitheredLod (InstanceCull.shader EmitToBins draws
+        // both levels of a fading instance there). False: the submesh switches level at once.
+        bool                    DitheredLod = false;
     };
 
     // One pass's cached state: what the cull and the draw need, as host mirrors of the GPU tables.
@@ -262,6 +266,8 @@ namespace Desert::Graphic::GpuDriven
             std::array<std::vector<const GraphicsPipeline*>, kMeshPassCount> Pipelines;
             // [pass][submesh]: why a null Pipelines entry is not binned (BinFallback::None = not in the pass).
             std::array<std::vector<BinFallback>, kMeshPassCount> Fallbacks;
+            // [pass][submesh]: PassPipelineResolution::DitheredLod of a non-null Pipelines entry (1), else 0.
+            std::array<std::vector<uint8_t>, kMeshPassCount> DitheredLod;
         };
         struct MeshTransformRows
         {

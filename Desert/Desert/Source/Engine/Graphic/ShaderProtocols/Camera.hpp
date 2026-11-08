@@ -66,7 +66,11 @@
     /* light views only: the shadow wind rule's caster ring (ViewFrame::CasterWindRing, x the inner distance; */  \
     /* y, z, w the block's tail pad) */                                                                           \
     FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
-    /* block size 528 */
+    /* scene views: the dithered LOD transition (ViewFrame::TemporalLOD; Mesh/Surface/LODTransition.glslh): */    \
+    /* x how far the fade has come (0..1), y 1 while the view fades its level changes; light views carry */       \
+    /* 0: a caster view draws one level (InstanceCull: no kLodDither on a caster view) */                         \
+    FIELD( glm::vec4, LodTransition, LodTransition, { 0.0f } ) /* offset 528 */                                   \
+    /* block size 544 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -76,7 +80,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 528 );
+    static_assert( sizeof( Camera ) == 544 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -123,6 +127,8 @@ namespace Desert::Graphic::ShaderProtocols
         ub.CasterWindOrigin          = frame.CasterWindOrigin;
         ub.CasterWindRing            = frame.CasterWindRing;
         ub.GrassLens                 = frame.GrassLens;
+        ub.LodTransition             = glm::vec4( frame.TemporalLOD.Transition,
+                                                  frame.TemporalLOD.Active ? 1.0f : 0.0f, 0.0f, 0.0f );
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

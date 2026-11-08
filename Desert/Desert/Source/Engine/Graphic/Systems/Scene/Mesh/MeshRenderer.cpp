@@ -2145,6 +2145,17 @@ namespace Desert::Graphic::System
         const std::string_view templ    = std::string_view( surface ).substr( 0, surface.find( '/' ) );
         const bool             parallax = IsParallaxCell( surface );
         const bool twoSided = row.Instance != nullptr ? row.Instance->IsTwoSided() : row.Surface->IsTwoSided();
+        // THE DITHERED LOD TRANSITION (UE FMeshBatch::bDitheredLODTransition): a view cell that clips per pixel
+        // (Masked: DESERT_SURFACE_CLIP; under early-Z its depth twin clips, the equal twin keeps what that kept)
+        // draws both levels of a fading instance, each keeping its half of the dither (Mesh/Surface/
+        // LODTransition.glslh); an opaque cell has no clip and switches level at once.
+        const bool ditheredLod = row.Surface->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Masked;
+        const auto viewBinned  = [&]( const GraphicsPipeline* pipeline )
+        {
+            GpuDriven::PassPipelineResolution resolved = binned( pipeline );
+            resolved.DitheredLod                       = pipeline != nullptr && ditheredLod;
+            return resolved;
+        };
         const auto viewCell = [&]( const MeshPass meshPass ) -> std::optional<std::string>
         {
             auto cell = MeshShaderFor( templ, path, meshPass );
@@ -2162,7 +2173,7 @@ namespace Desert::Graphic::System
                 const std::array<const GraphicsPipeline*, 3> states{ m_StaticGBufferPipeline.get(),
                                                                      m_InstancedGBufferPipeline.get(),
                                                                      m_SkinnedGBufferPipeline.get() };
-                return binned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                return viewBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
             }
             case GpuDriven::MeshPass::Forward:
             {
@@ -2174,7 +2185,7 @@ namespace Desert::Graphic::System
                 const std::array<const GraphicsPipeline*, 3> states{
                      WireframePipelineOr( m_StaticPipeline.get() ),
                      WireframePipelineOr( m_StaticInstancedPipeline.get() ), m_SkinnedPipeline.get() };
-                return binned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                return viewBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
             }
             case GpuDriven::MeshPass::ShadowCascade:
             {

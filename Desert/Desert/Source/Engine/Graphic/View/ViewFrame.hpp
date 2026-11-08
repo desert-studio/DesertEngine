@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Common/Settings/Scalability.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <glm/glm.hpp>
@@ -269,6 +270,11 @@ namespace Desert::Graphic
         // generator takes its screen-width floor from it (GrassRenderer::PrepareVariety,
         // System::UnpackGrassFieldLens). 0 for every other view (a light view, a still preview frame).
         glm::vec4 GrassLens{ 0.0f };
+        // SCENE VIEWS: the view's dithered LOD transition (SceneViewState's Geometry::TemporalLODState): the two
+        // eye samples every LOD of the view is selected from and how far the fade between them has come. The
+        // GPU cull selects with it (Geometry::LODView::Temporal) and CameraUB::LodTransition carries the fade to
+        // the dithered cells (Mesh/Surface/LODTransition.glslh). Inactive for every other view.
+        Geometry::LODTemporalSamples TemporalLOD{};
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

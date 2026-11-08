@@ -42,6 +42,7 @@
 #define DESERT_CONTENT_HASH_MAX_SPAN 4u
 #define DESERT_CONTENT_HASH_CELLS 257u
 #define DESERT_CONTENT_HASH_WORDS 4u
+#define DESERT_GPU_CULL_VIEW_LOD_DITHER           256u // GpuDriven::CullViewFlags::kLodDither
 
 // GpuDriven::CullVisibility (one word per view x instance of the cull's Visibility[])
 #define DESERT_GPU_CULL_VISIBILITY_LOD_MASK     0xFFu
@@ -147,8 +148,10 @@ struct GpuDrawSlot
     uint Bin;              // offset 0 — DESERT_GPU_INVALID_INDEX = the submesh does not draw in this pass
     uint MaterialRow;      // offset 4 — row in Materials[]
     uint SubmeshTransform; // offset 8 — row in SubmeshTransforms[] (Submesh::Transform, relative to the primitive)
-    uint Pad1;             // offset 12
+    uint Flags;            // offset 12 — DESERT_GPU_DRAW_SLOT_*
 };
+// GpuDriven::kDrawSlotDitheredLod: the slot's cell clips, an instance in a LOD transition draws both levels here.
+#define DESERT_GPU_DRAW_SLOT_DITHERED_LOD 1u
 
 // Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
 struct GpuDrawBin
@@ -186,6 +189,11 @@ struct GpuVisibleInstance
 // its rest pose (GpuCull_CastsRestPose: a caster view, past the shadow wind distance), the vertex stage bends it
 // by no wind. DesertResolveDrawOf masks it off the slot row.
 #define DESERT_GPU_VISIBLE_REST_POSE 0x80000000u
+// GpuDriven::kVisibleLodFadeOut / kVisibleLodFadeIn / kVisibleSlotMask: the entry is the older / the newer level
+// of a dithered LOD transition (DESERT_GPU_CULL_VIEW_LOD_DITHER); the rest of the word is the DrawSlots[] row.
+#define DESERT_GPU_VISIBLE_LOD_FADE_OUT 0x40000000u
+#define DESERT_GPU_VISIBLE_LOD_FADE_IN  0x20000000u
+#define DESERT_GPU_VISIBLE_SLOT_MASK    0x1FFFFFFFu
 
 // Phase 1 rejected by the previous frame's HZB, re-tested by phase 2. 8 bytes.
 struct GpuOccludedInstance
@@ -194,7 +202,7 @@ struct GpuOccludedInstance
     uint View;     // offset 4
 };
 
-// Per (view x pass) the cull serves. 576 bytes.
+// Per (view x pass) the cull serves. 608 bytes.
 struct GpuCullView
 {
     mat4  ViewProjection;     // offset 0   — unjittered
@@ -212,6 +220,7 @@ struct GpuCullView
     vec4  StripPlanes[12];    // offset 368 — a scrolled cascade's static layer: strip s's planes at 6s
     uvec4 Strips;             // offset 560 — x = the strips (0: the whole frustum, at most 2)
     ivec4 ContentCells;       // offset 576 — a content-hash view: xy = TexelOrigin, z = cell texels, w = region
+    vec4  LodTemporalOrigins[2]; // offset 592 — the dithered LOD transition's eye samples, [0] older, [1] newer
 };
 
 // WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)
@@ -313,6 +322,9 @@ struct DesertMeshDraw
     uint MaterialRow; // row in Materials[]; the fragment stage gets it as a flat varying
     uint Flags;       // the primitive's DESERT_GPU_PRIMITIVE_*; the fragment stage gets it as a flat varying
     bool RestPose;    // DESERT_GPU_VISIBLE_REST_POSE: the wind does not bend it in this view
+    // DesertClipLODTransition's side (Mesh/Surface/LODTransition.glslh): +1 the older level of a dithered LOD
+    // transition (DESERT_GPU_VISIBLE_LOD_FADE_OUT), -1 the newer (_FADE_IN), 0 no transition.
+    float LodFadeSide;
     mat4 World;
     mat4 PrevWorld;
 };
@@ -320,7 +332,8 @@ struct DesertMeshDraw
 DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
 {
     const GpuSceneInstance   instance  = gpuSceneInstances.Instances[visible.Instance];
-    const GpuDrawSlot        slot      = gpuSceneDrawSlots.DrawSlots[visible.DrawSlot & ~DESERT_GPU_VISIBLE_REST_POSE];
+    const uint               slotRow   = visible.DrawSlot & DESERT_GPU_VISIBLE_SLOT_MASK;
+    const GpuDrawSlot        slot      = gpuSceneDrawSlots.DrawSlots[slotRow];
     const GpuScenePrimitive  primitive = gpuScene.Primitives[instance.Primitive];
     const mat4 local =
          GpuScene_InstanceToPrimitive( instance ) * gpuSceneSubmeshTransforms.SubmeshTransforms[slot.SubmeshTransform];
@@ -330,6 +343,11 @@ DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
     draw.MaterialRow = slot.MaterialRow;
     draw.Flags       = primitive.Flags;
     draw.RestPose    = ( visible.DrawSlot & DESERT_GPU_VISIBLE_REST_POSE ) != 0u;
+    draw.LodFadeSide = 0.0;
+    if ( ( visible.DrawSlot & DESERT_GPU_VISIBLE_LOD_FADE_OUT ) != 0u )
+        draw.LodFadeSide = 1.0;
+    if ( ( visible.DrawSlot & DESERT_GPU_VISIBLE_LOD_FADE_IN ) != 0u )
+        draw.LodFadeSide = -1.0;
     draw.World      = GpuScene_LocalToWorld( primitive ) * local;
     draw.PrevWorld   = GpuScene_PrevLocalToWorld( primitive ) * local;
     return draw;

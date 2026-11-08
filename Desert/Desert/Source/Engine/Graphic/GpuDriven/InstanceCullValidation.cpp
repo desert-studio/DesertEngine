@@ -325,13 +325,24 @@ namespace Desert::Graphic::GpuDriven
                     }
                     else
                     {
-                        const Geometry::LODView lodView{ .Origin     = glm::vec3( view.Gpu.LodOrigin ),
-                                                         .Projection = view.Gpu.LodProjection };
-                        lod = Geometry::SelectLODFromBounds(
-                             world, localBox, lodView,
-                             std::span<const float>( slot.LodScreenSizes )
-                                  .subspan( primitive.FirstLodScreenSize, primitive.LodCount ),
-                             -1, primitive.LodBias );
+                        // A kLodDither view selects at its two temporal samples (InstanceCull.shader
+                        // SelectLodMask); the word carries the newer sample's level, the older one only adds a
+                        // second (FADE_OUT) entry in the bins.
+                        Geometry::LODView lodView{ .Origin     = glm::vec3( view.Gpu.LodOrigin ),
+                                                   .Projection = view.Gpu.LodProjection };
+                        if ( ( view.Gpu.Flags & CullViewFlags::kLodDither ) != 0u )
+                        {
+                            lodView.Temporal.Active = true;
+                            for ( uint32_t sample = 0; sample < 2u; ++sample )
+                                lodView.Temporal.Origins[sample] =
+                                     glm::vec3( view.Gpu.LodTemporalOrigins[sample] );
+                        }
+                        lod = Geometry::SelectDitheredLODFromBounds(
+                                   world, localBox, lodView,
+                                   std::span<const float>( slot.LodScreenSizes )
+                                        .subspan( primitive.FirstLodScreenSize, primitive.LodCount ),
+                                   -1, primitive.LodBias )
+                                   .Levels[1];
                     }
                     return CullVisibility::kInView | std::min( lod, CullVisibility::kLodMask );
                 }();

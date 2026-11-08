@@ -303,6 +303,13 @@ SurfaceOutput DefaultSurfaceOutput()
 #else
 #define DESERT_SURFACE_BINNED_VARYINGS
 #endif
+// A binned draw's side of a dithered LOD transition (DesertMeshDraw::LodFadeSide,
+// Mesh/Surface/LODTransition.glslh).
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_SURFACE_LOD_FADE_VARYINGS flat float LodFadeSide;
+#else
+#define DESERT_SURFACE_LOD_FADE_VARYINGS
+#endif
 
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
 // What only the vertex can know; what the view knows (camera position, time) the fragment reads from the view block.
@@ -320,6 +327,7 @@ SurfaceOutput DefaultSurfaceOutput()
         flat float ObjectMoved; \
         flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
+        DESERT_SURFACE_LOD_FADE_VARYINGS \
     } v_Surface;
 
 // The material row the generated `Material` reads (DShaderParser: `MaterialRows[DESERT_SURFACE_MATERIAL_ROW]`): the
@@ -426,19 +434,28 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 }
 
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
+// A binned Masked cell also clips the other level of a dithered LOD transition (Mesh/Surface/LODTransition.glslh),
+// first: a pixel the transition takes away samples no mask.
+#ifdef DESERT_SURFACE_BINNED
+#include <Mesh/Surface/LODTransition.glslh>
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, v_Surface.LodFadeSide, cameraUB.LodTransition.x )
+#else
+#define DESERT_SURFACE_LOD_CLIPPED() false
+#endif
 #if defined( DESERT_SURFACE_OPACITY_DITHER )
 // A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
 // probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
 // the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
 // and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
+    if ( DESERT_SURFACE_LOD_CLIPPED() || DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
                                                ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
                                                : Material.OpacityMaskClipValue ) ) \
         discard
 #else
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
+    if ( DESERT_SURFACE_LOD_CLIPPED() || DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
         discard
 #endif
 #else
