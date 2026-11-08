@@ -259,7 +259,10 @@ namespace Desert::Editor::Tools
             }
         }
         if ( !active )
+        {
+            m_BegunFor = MS::Tool::None;
             return;
+        }
 
         if ( !m_Session )
             Begin( scene, ms );
@@ -343,6 +346,7 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
+        m_BegunFor         = ms.ActiveTool;
         const bool boolean = ms.ActiveTool == MS::Tool::Boolean || ms.ActiveTool == MS::Tool::Trim;
         if ( ms.ActiveTool == MS::Tool::VoxBoolean || ms.ActiveTool == MS::Tool::VoxBlend || boolean )
         {
@@ -1186,6 +1190,19 @@ namespace Desert::Editor::Tools
             if ( project( ev.A, a ) && project( ev.B, b ) )
                 dl->AddLine( a, b, IM_COL32( 240, 15, 15, 255 ), 3.0f ); // UE's boundary edge colour
         }
+    }
+
+    bool MeshProcessingTool::PreviewOutstanding() const
+    {
+        const MS& ms = MS::Get();
+        if ( !IsMeshProcessingTool( ms.ActiveTool ) )
+            return false;
+        if ( m_BegunFor != ms.ActiveTool )
+            return true; // opened by this frame's command: the viewport pass begins the session
+        if ( !m_Session )
+            return false; // Begin refused (DeformStatus says why): no preview is coming
+        // Update ends a session whose selection moved and begins the next; a settings change recomputes.
+        return !SelectionStillMatches() || m_Session->Pending.valid() || SettingsChanged( ms );
     }
 
     bool MeshProcessingTool::SettingsChanged( const MS& ms ) const

@@ -57,6 +57,13 @@ namespace Desert::Editor::Tools
             return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::Warp;
         }
 
+        // The preview on screen is not yet the one the panel asks for: the tool was opened (or the selection or a
+        // setting changed) and the next viewport pass begins or recomputes it, or its background compute has not
+        // landed. UE UMeshOpPreviewWithBackgroundCompute: HaveValidResult false while IsComputing. Read by the
+        // control channel's reply gate (PendingWork::ModelingPreview) BEFORE the frame's viewport pass runs
+        // Update.
+        [[nodiscard]] bool PreviewOutstanding() const;
+
         // Lattice is previewing: the viewport draws its control points and the gizmo on the selected ones.
         [[nodiscard]] bool HasLatticeSession() const
         {
@@ -209,6 +216,9 @@ namespace Desert::Editor::Tools
         void PlaceLatticeGizmo( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
 
         std::optional<Session> m_Session;
+        // The tool Begin last ran for (None once no mesh-processing tool is active): a refused Begin leaves no
+        // session, and that tool's preview is then not outstanding - nothing will land until the input changes.
+        Core::ModelingState::Tool m_BegunFor = Core::ModelingState::Tool::None;
         // The settings the preview was computed with.
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
