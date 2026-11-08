@@ -2422,10 +2422,16 @@ namespace Desert::Graphic::System
             }
             return { .Draw = draw, .SceneIds = ids };
         };
-        const auto groupTwoSided = []( DataDrivenMaterial*                             mat,
-                                       const std::vector<const StaticMeshRenderData*>& members )
+        // A group is two-sided when its surface is or ANY QUEUED member's instance is (UE: per mesh batch, not per
+        // visible set): the plan rows' answer (StaticPlanRows::SurfaceTwoSided), fixed while their key stands, so
+        // the group's culled permutation does not flip with what the camera sees. A surface the rows do not know
+        // (no rows yet) scans the group's members as before.
+        const auto groupTwoSided =
+             [this]( DataDrivenMaterial* mat, const std::vector<const StaticMeshRenderData*>& members )
         {
             bool twoSided = mat->IsTwoSided();
+            if ( const std::optional<bool> queued = QueuedSurfaceTwoSided( mat ) )
+                return twoSided || *queued;
             for ( const auto* obj : members )
                 if ( const auto* inst = SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance )
                     twoSided = twoSided || inst->IsTwoSided();
@@ -2610,7 +2616,23 @@ namespace Desert::Graphic::System
             slice.BucketCount = 0;
             // Up to this many objects the buckets are searched in order (a short scan beats filling a table).
             constexpr std::size_t kBucketScanMax = 16;
-            const bool            indexed        = objects.size() > kBucketScanMax;
+            // THE RETAINED PER-PRIMITIVE PLAN (StaticPlanRows; UE FCachedPassMeshDrawList): an own-surface group
+            // whose records all draw their own HiddenSubmeshes (no walked mask) takes each record's instance (the
+            // columns), its overrides / alone answer and its (mesh, hidden) bucket id from its row - an index, no
+            // hash table, no section-surface lookup. The buckets come out in first-seen order either way.
+            const StaticPlanRows&    rows     = m_StaticPlanRows;
+            const StaticWalkColumns& columns  = m_StaticColumns;
+            const std::size_t        rowCount = std::min( rows.Count(), columns.Count() );
+            const auto               rowOf    = [queueBase]( const StaticMeshRenderData* obj ) noexcept
+            { return static_cast<std::size_t>( obj - queueBase ); };
+            bool fromRows = !standsIn && rowCount != 0u;
+            for ( std::size_t oi = 0; fromRows && oi < objects.size(); ++oi )
+            {
+                const std::size_t at = rowOf( objects[oi] );
+                fromRows             = at < rowCount && rows.Bucket[at] != StaticPlanRows::kNoBucket &&
+                           ( at >= walked.At.size() || walked.At[at] == 0u );
+            }
+            const bool indexed = !fromRows && objects.size() > kBucketScanMax;
             if ( indexed )
             {
                 std::size_t slots = 64;
@@ -2658,15 +2680,50 @@ namespace Desert::Graphic::System
             // Each object's row is the scene material table's (SyncGpuScene); here only its instance and whether
             // it overrides anything (an overriding object leaves the batch) - decided when the instance's render
             // copy was written (MaterialPropertySet::HasOverrides), not by a scan of its properties per pass.
-            for ( const auto* obj : objects )
+            // From the plan rows (fromRows, above) or, for any other group, per object as before.
+            if ( fromRows )
             {
-                ObjDraw od;
+                if ( slice.BucketOfId.size() < rows.BucketCount )
+                {
+                    slice.BucketOfId.resize( rows.BucketCount, 0u );
+                    slice.IdStamp.resize( rows.BucketCount, 0u );
+                }
+                if ( ++slice.Stamp == 0u ) // wrapped: every stamp is stale again
+                {
+                    std::fill( slice.IdStamp.begin(), slice.IdStamp.end(), 0u );
+                    slice.Stamp = 1u;
+                }
+                for ( const auto* obj : objects )
+                {
+                    const std::size_t at    = rowOf( obj );
+                    const uint8_t     flags = rows.Flags[at];
+                    ObjDraw           od;
+                    od.Obj            = obj;
+                    od.Inst           = columns.Instances[at];
+                    od.HasOverrides   = ( flags & StaticPlanRows::kHasOverrides ) != 0u;
+                    od.Alone          = ( flags & StaticPlanRows::kAlone ) != 0u;
+                    od.Hidden         = SubmeshMask{ obj->HiddenSubmeshes };
+                    const uint32_t id = rows.Bucket[at];
+                    if ( slice.IdStamp[id] != slice.Stamp )
+                    {
+                        slice.IdStamp[id] = slice.Stamp;
+                        makeBucket( obj->Mesh, od.Hidden );
+                        slice.BucketOfId[id] = static_cast<uint32_t>( slice.BucketCount - 1u );
+                    }
+                    buckets[slice.BucketOfId[id]].second.push_back( od );
+                }
+            }
+            for ( std::size_t oi = 0; !fromRows && oi < objects.size(); ++oi )
+            {
+                const StaticMeshRenderData* const obj = objects[oi];
+                ObjDraw                           od;
                 od.Obj = obj;
                 // A stand-in object is the default surface, not the material it waits for: its own instance, its
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
                 od.Inst = standsIn ? standIn->Instance.get()
                                    : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
                 od.HasOverrides = od.Inst != nullptr && od.Inst->GetPropertySet().HasOverrides();
+                od.Alone        = !obj->ReceiveShadows || !obj->CastContactShadow || od.HasOverrides;
                 od.Hidden       = hiddenOf( obj );
                 bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
@@ -2685,7 +2742,7 @@ namespace Desert::Graphic::System
                 batchable.clear();
                 for ( const auto& od : bucket )
                 {
-                    if ( !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow || od.HasOverrides )
+                    if ( od.Alone )
                         plan.Singles.push_back( od );
                     else
                         batchable.push_back( od );

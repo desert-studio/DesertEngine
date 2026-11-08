@@ -343,6 +343,96 @@ namespace Desert::Graphic::System
         m_StaticToken        = 0;
         m_StaticColumnsToken = 0;
         m_StaticColumns.Clear();
+        m_StaticPlanRows.Valid = false; // its rows were of the dropped prefix
+        ++m_StaticColumnsGeneration;
+    }
+
+    void MeshRenderer::RefreshStaticPlanRows()
+    {
+        DESERT_PROFILE_SCOPE( "Mesh: Static plan rows" );
+        const StaticWalkColumns& columns = m_StaticColumns;
+        const std::size_t        count   = columns.Count();
+        StaticPlanRows&          rows    = m_StaticPlanRows;
+        // Every input of the rows (StaticPlanRows): the columns' gather, the instances' render copies (overrides,
+        // two-sided overrides) and the parents' two-sidedness (a material rebuilt: the draw readiness epoch).
+        uint64_t   key = 0xCBF29CE484222325ull;
+        const auto mix = [&key]( const uint64_t value ) noexcept { key = ( key ^ value ) * 0x100000001B3ull; };
+        mix( m_StaticColumnsGeneration );
+        mix( static_cast<uint64_t>( count ) );
+        mix( MaterialInstance::RenderPublishGeneration() );
+        mix( DrawReadinessKey() );
+        if ( rows.Valid && rows.Key == key && rows.Flags.size() == count )
+            return;
+        rows.Key   = key;
+        rows.Valid = true;
+        rows.Flags.resize( count );
+        rows.Bucket.resize( count );
+        rows.Order.clear();
+        for ( std::size_t i = 0; i < count; ++i )
+        {
+            const MaterialInstance* const inst  = columns.Instances[i];
+            uint8_t                       flags = 0u;
+            if ( inst != nullptr && inst->GetPropertySet().HasOverrides() )
+                flags |= StaticPlanRows::kHasOverrides;
+            if ( inst != nullptr && inst->IsTwoSided() )
+                flags |= StaticPlanRows::kTwoSided;
+            const StaticMeshRenderData& data = m_StaticQueue[i];
+            if ( !data.ReceiveShadows || !data.CastContactShadow ||
+                 ( flags & StaticPlanRows::kHasOverrides ) != 0u )
+                flags |= StaticPlanRows::kAlone;
+            rows.Flags[i]  = flags;
+            rows.Bucket[i] = StaticPlanRows::kNoBucket;
+            // The rows a group takes: WalkStaticChunk's admission (a mesh, a slot binding, a section instance).
+            if ( columns.Meshes[i] != nullptr && ( columns.Flags[i] & StaticWalkColumns::kHasSlots ) != 0u &&
+                 inst != nullptr )
+                rows.Order.push_back( static_cast<uint32_t>( i ) );
+        }
+        // One sort of the admitted rows by (surface, mesh, own hidden mask): runs of one surface give its queued
+        // two-sidedness, runs of one triple its bucket id. Heap only when the queue grew.
+        const auto tripleLess = [&columns]( const uint32_t a, const uint32_t b ) noexcept
+        {
+            if ( columns.Surfaces[a] != columns.Surfaces[b] )
+                return std::less<const DataDrivenMaterial*>{}( columns.Surfaces[a], columns.Surfaces[b] );
+            if ( columns.Meshes[a] != columns.Meshes[b] )
+                return std::less<const Desert::Mesh*>{}( columns.Meshes[a], columns.Meshes[b] );
+            if ( columns.Hidden[a] != columns.Hidden[b] )
+                return columns.Hidden[a] < columns.Hidden[b];
+            return a < b;
+        };
+        std::sort( rows.Order.begin(), rows.Order.end(), tripleLess );
+        rows.SurfaceTwoSided.clear();
+        uint32_t nextBucket = 0;
+        for ( std::size_t o = 0; o < rows.Order.size(); ++o )
+        {
+            const uint32_t i          = rows.Order[o];
+            const bool     twoSided   = ( rows.Flags[i] & StaticPlanRows::kTwoSided ) != 0u;
+            const bool     newSurface = o == 0 || columns.Surfaces[rows.Order[o - 1]] != columns.Surfaces[i];
+            if ( newSurface )
+                rows.SurfaceTwoSided.emplace_back( columns.Surfaces[i], twoSided );
+            else if ( twoSided )
+                rows.SurfaceTwoSided.back().second = true;
+            const uint32_t prev = o == 0 ? 0u : rows.Order[o - 1];
+            if ( newSurface || columns.Meshes[prev] != columns.Meshes[i] ||
+                 columns.Hidden[prev] != columns.Hidden[i] )
+                ++nextBucket;
+            rows.Bucket[i] = nextBucket - 1u;
+        }
+        rows.BucketCount = nextBucket;
+    }
+
+    std::optional<bool> MeshRenderer::QueuedSurfaceTwoSided( const DataDrivenMaterial* surface ) const noexcept
+    {
+        const auto& table = m_StaticPlanRows.SurfaceTwoSided;
+        if ( !m_StaticPlanRows.Valid || surface == nullptr )
+            return std::nullopt;
+        const auto at = std::lower_bound( table.begin(), table.end(), surface,
+                                          []( const std::pair<const DataDrivenMaterial*, bool>& entry,
+                                              const DataDrivenMaterial*                         wanted ) noexcept {
+                                              return std::less<const DataDrivenMaterial*>{}( entry.first, wanted );
+                                          } );
+        if ( at == table.end() || at->first != surface )
+            return std::nullopt;
+        return at->second;
     }
 
     void MeshRenderer::NoteStaticRewritten( const std::size_t index )
@@ -2468,6 +2558,10 @@ namespace Desert::Graphic::System
             else
                 rigid.push_back( record );
         }
+        // The plan rows read the columns just gathered (instances, surfaces, meshes, flags).
+        if ( firstGathered < m_StaticQueue.size() )
+            ++m_StaticColumnsGeneration;
+        RefreshStaticPlanRows();
         for ( const auto& data : m_GenericQueue )
             rigid.push_back( { .Entity = data.Entity,
                                .Part   = data.MotionPart,

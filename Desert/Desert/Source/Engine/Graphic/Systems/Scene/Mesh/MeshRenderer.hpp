@@ -3946,6 +3946,9 @@ namespace Desert::Graphic::System
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
             bool                        HasOverrides = false;
+            // Drawn alone, never batched: overrides, or the shadow-receive / contact-shadow cast opt-out (a batch
+            // pushes one PrimitiveFlags). The static plan row's answer (StaticPlanRows::kAlone) when it has one.
+            bool Alone = false;
             // A single draw's plan (BuildStaticDraws' planGroup): the mask it was bucketed by and, for a single,
             // its LOD level - decided on the setup task, replayed by the call that records it.
             SubmeshMask Hidden{};
@@ -4179,6 +4182,12 @@ namespace Desert::Graphic::System
                 std::vector<ObjDraw>    Batchable;
                 std::vector<uint32_t>   LodLevels;
                 std::vector<uint32_t>   DistinctLods; // Geometry::DistinctLODs( LodLevels ), capacity kept
+                // A group's plan-row bucket ids (StaticPlanRows::Bucket) -> its bucket index, valid where IdStamp
+                // equals Stamp (one Stamp per planned group: no clear per group). Grown to the rows' id count
+                // only.
+                std::vector<uint32_t> BucketOfId;
+                std::vector<uint32_t> IdStamp;
+                uint32_t              Stamp = 0;
             };
             std::vector<BucketScratch> BucketSlices;
             // A Resolve call's plan, which the same half's Record call reads (DrawBuildPhase). WalkGroups: the
@@ -4503,6 +4512,46 @@ namespace Desert::Graphic::System
             }
         };
         StaticWalkColumns m_StaticColumns;
+        // THE STATIC QUEUE's PER-PRIMITIVE PLAN ROWS (CPU-TAILS-F10 4; UE FCachedPassMeshDrawList: the
+        // per-primitive inputs of a pass's draw built at AddToScene / invalidation, per frame visibility only
+        // selects). Dense by m_StaticQueue position like m_StaticColumns, built by RefreshStaticPlanRows at the
+        // view sync (serial, after the columns), read by every pass's planGroup (setup tasks: read only). Per row:
+        // whether it draws alone (its instance's render copy overrides, or a shadow-receive / contact-shadow
+        // opt-out) and its bucket id - one id per (surface, mesh, own HiddenSubmeshes), so a group whose walked
+        // masks are the rows' own buckets by index, no hash. Per surface: TWO-SIDED IF ANY QUEUED MEMBER's
+        // INSTANCE IS (UE: per mesh batch, not per visible set; lead decision 11-08), so the culled permutation of
+        // a group is fixed per key. Key (every input; StaticPlanRowsKey): the columns' gather
+        // (m_StaticColumnsGeneration + Count) x MaterialInstance::RenderPublishGeneration (render-copy publish,
+        // two-sided override) x DrawReadinessKey (a parent material rebuilt: its IsTwoSided). The surface's own
+        // IsTwoSided is read live at the lookup.
+        struct StaticPlanRows
+        {
+            static constexpr uint8_t  kHasOverrides = 1u << 0u; // the instance's render copy overrides a property
+            static constexpr uint8_t  kAlone        = 1u << 1u; // ObjDraw::Alone
+            static constexpr uint8_t  kTwoSided     = 1u << 2u; // the row's instance is two-sided
+            static constexpr uint32_t kNoBucket     = ~0u; // a row no group takes (no mesh / slots / instance)
+            std::vector<uint8_t>      Flags;               // per row
+            std::vector<uint32_t>     Bucket;              // per row: its (surface, mesh, hidden) id, or kNoBucket
+            uint32_t                  BucketCount = 0;
+            // Per surface, sorted by address: whether any queued row of it has a two-sided instance.
+            std::vector<std::pair<const DataDrivenMaterial*, bool>> SurfaceTwoSided;
+            // The build's sort scratch: (row index) ordered by (surface, mesh, hidden). Capacity kept.
+            std::vector<uint32_t>     Order;
+            uint64_t                  Key   = 0;
+            bool                      Valid = false;
+            [[nodiscard]] std::size_t Count() const noexcept
+            {
+                return Valid ? Flags.size() : 0u;
+            }
+        };
+        StaticPlanRows m_StaticPlanRows;
+        uint64_t       m_StaticColumnsGeneration = 0; // moves with every columns gather that wrote a row
+        // m_StaticPlanRows rebuilt when its key moved (see StaticPlanRows). RENDER SIDE, at the view sync only.
+        void RefreshStaticPlanRows();
+        // Whether a group of @p surface is two-sided by its queued members (StaticPlanRows::SurfaceTwoSided);
+        // nothing when the rows do not know the surface (then the caller scans the group).
+        [[nodiscard]] std::optional<bool>
+        QueuedSurfaceTwoSided( const DataDrivenMaterial* surface ) const noexcept;
         // Whether m_StaticQueue entry @p index has its columns (m_StaticColumns): synced this view.
         [[nodiscard]] bool StaticColumnsHave( const std::size_t index ) const noexcept
         {
