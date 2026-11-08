@@ -453,8 +453,8 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 // The row's side, else the CPU-recorded draw's push field (a grass list's draw pushes 0, a row of an ISM 0).
 #define DESERT_SURFACE_LOD_CLIPPED() \
     DesertLODTransitionClipped( gl_FragCoord.xy, \
-                                v_Surface.LodFadeSide != 0.0 ? v_Surface.LodFadeSide : m_PushConstants.LodFadeSide, \
-                                cameraUB.LodTransition.x )
+        v_Surface.LodFadeSide != 0.0 ? v_Surface.LodFadeSide : m_PushConstants.LodFadeSide, \
+        cameraUB.LodTransition.x )
 #else
 #define DESERT_SURFACE_LOD_CLIPPED() \
     DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
