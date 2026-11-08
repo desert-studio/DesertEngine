@@ -29,8 +29,8 @@ namespace Desert::Geometry
     //    target with open edges too (each mesh is classified against the other);
     //  - a Union / Difference / Intersect whose cut seam could not be welded shut (the count of open edges left).
     //    Seam edges MergeEdges leaves open are first closed as UE's FBooleanMeshesOp does (bAttemptFixHoles):
-    //    coincident seam edges merged, the cracks they bound filled with triangles taking the neighbour's material;
-
+    //    coincident seam edges merged, the cracks they bound filled with triangles taking the neighbour's
+    //    material;
     //  - an empty result (a disjoint Intersect, a Trim that removes everything);
     //  - a Trim that changes nothing (the cutter does not reach the mesh). NewGroup keeps every triangle, so a
     //    mesh wholly inside or outside the cutter is regrouped or left alone, and neither is refused.

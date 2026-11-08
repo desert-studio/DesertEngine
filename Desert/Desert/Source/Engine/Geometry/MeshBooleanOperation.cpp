@@ -180,8 +180,8 @@ namespace Desert::Geometry
                 return Common::MakeError<BooleanOutcome>( closed.GetError() );
             if ( const std::ptrdiff_t open = CountOpenEdges( *mesh ); open != 0 )
                 return Common::MakeFormattedError<BooleanOutcome>(
-                     "Mesh {}: {} edges of the cut seam could not be welded shut ({} were left by the weld)",
-                     name, open, boolean.CreatedBoundaryEdges.size() );
+                     "Mesh {}: {} edges of the cut seam could not be welded shut ({} were left by the weld)", name,
+                     open, boolean.CreatedBoundaryEdges.size() );
         }
         if ( mesh->TriangleCount() == 0 )
             return Common::MakeFormattedError<BooleanOutcome>( "Mesh {}: the result has no triangles left", name );
