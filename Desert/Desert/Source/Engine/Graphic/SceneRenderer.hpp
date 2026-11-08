@@ -1082,6 +1082,10 @@ namespace Desert::Graphic
                      .Light1Direction      = light1.Direction,
                      .Light1ColorIntensity = light1.ColorIntensity };
         }
+        // This frame's point and spot lights (m_PointLight / m_SpotLight with their m_*LightShadows identities)
+        // as the world-space GI histories compare them (GlobalIllumination::UpdateLocalLightingHistory),
+        // ascending Key; made into m_FrameLocalLighting, its capacity kept across frames.
+        [[nodiscard]] std::span<const GlobalIllumination::LocalLighting> GatherFrameLocalLighting();
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
@@ -2024,6 +2028,7 @@ namespace Desert::Graphic
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
         std::vector<LocalLightShadowSettings> m_SpotLightShadows;
+        std::vector<GlobalIllumination::LocalLighting> m_FrameLocalLighting; // GatherFrameLocalLighting
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;

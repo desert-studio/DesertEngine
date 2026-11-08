@@ -42,6 +42,39 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
     }
 
+    std::span<const GlobalIllumination::LocalLighting> SceneRenderer::GatherFrameLocalLighting()
+    {
+        // The lights as the surface cache's direct lighting reads them (PointLightsUB / SpotLightsUB: colour
+        // times intensity over the range), each named by its kind and its SourceId (m_*LightShadows, index for
+        // index; a light with none is SourceId 0, matched by order among those).
+        m_FrameLocalLighting.clear();
+        m_FrameLocalLighting.reserve( m_PointLight.PointLights.size() + m_SpotLight.SpotLights.size() );
+        const auto sourceOf = []( const std::vector<LocalLightShadowSettings>& shadows, const size_t index )
+        { return index < shadows.size() ? static_cast<uint64_t>( shadows[index].SourceId ) : 0ull; };
+        for ( size_t i = 0; i < m_PointLight.PointLights.size(); ++i )
+        {
+            const ShaderProtocols::PointLightPayload& light = m_PointLight.PointLights[i];
+            m_FrameLocalLighting.push_back( GlobalIllumination::LocalLighting{
+                 .Key               = GlobalIllumination::kLocalLightingPoint | sourceOf( m_PointLightShadows, i ),
+                 .PositionRange     = glm::vec4( light.Position, light.Radius ),
+                 .Radiance          = glm::vec4( light.Color * light.Intensity, 0.0f ),
+                 .DirectionCosOuter = glm::vec4( 0.0f, 0.0f, 0.0f, -1.0f ) } );
+        }
+        for ( size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
+        {
+            const ShaderProtocols::SpotLightPayload& light = m_SpotLight.SpotLights[i];
+            m_FrameLocalLighting.push_back( GlobalIllumination::LocalLighting{
+                 .Key               = GlobalIllumination::kLocalLightingSpot | sourceOf( m_SpotLightShadows, i ),
+                 .PositionRange     = glm::vec4( light.Position, light.Range ),
+                 .Radiance          = glm::vec4( light.Color * light.Intensity, 0.0f ),
+                 .DirectionCosOuter = glm::vec4( light.Direction, light.CosOuter ) } );
+        }
+        std::sort( m_FrameLocalLighting.begin(), m_FrameLocalLighting.end(),
+                   []( const GlobalIllumination::LocalLighting& a, const GlobalIllumination::LocalLighting& b )
+                   { return a.Key < b.Key; } );
+        return m_FrameLocalLighting;
+    }
+
     SurfaceCache::SurfaceCacheRenderer* SceneRenderer::ReadSurfaceCache() const
     {
         SurfaceCache::SurfaceCacheRenderer* const cache =
@@ -242,7 +275,8 @@ namespace Desert::Graphic
         // nothing that writes the atlases (capture, copy, direct and indirect lighting) is recorded again.
         std::vector<SurfaceCache::SceneGroup> groups;
         meshRenderer->GatherSurfaceCacheInstances( groups );
-        auto update = cache->UpdateScene( groups, engineFrame, GetFrameDirectionalLighting() );
+        auto update =
+             cache->UpdateScene( groups, engineFrame, GetFrameDirectionalLighting(), GatherFrameLocalLighting() );
         if ( !update )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );

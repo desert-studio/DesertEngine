@@ -177,6 +177,15 @@ namespace Desert::Graphic::SurfaceCache
         {
             m_RelightAll = true;
         }
+        // The lit layers no longer hold the light inside @p regions (world spheres, xyz centre and w radius in cm:
+        // the regions of the local lights that changed significantly, GlobalIllumination::
+        // UpdateLocalLightingHistory): the next Update relights, besides its budget's pages, every visible page
+        // of a card whose bounds reach one of them (UE: the cards a changed light touches are relit). Empty: the
+        // budget alone. Replaces the last call's regions; Update consumes them.
+        void InvalidateLightingIn( std::span<const glm::vec4> regions )
+        {
+            m_RelightRegions.assign( regions.begin(), regions.end() );
+        }
 
         // From the exec of the graph that copies frame @p frame's captures into the atlas (any thread): those
         // captures landed, their cards are the surface from the next Update on.
@@ -297,6 +306,7 @@ namespace Desert::Graphic::SurfaceCache
         std::unordered_map<uint64_t, HeldGroup> m_Groups; // by SceneGroup::Id
         uint64_t                               m_Frame = 0;
         bool                                   m_RelightAll = false; // InvalidateLighting, consumed by Update
+        std::vector<glm::vec4>                  m_RelightRegions;     // InvalidateLightingIn, consumed by Update
         uint64_t                               m_PlacementRevision = 0; // GetPlacementRevision
         // THE SETTLED ALLOCATION (SCENE-CACHE-4, Update): moved by every mip allocated or freed and every atlas
         // reset; what the last AllocateCards measured with (placement revision, budget, capture atlas, viewers),
@@ -325,7 +335,17 @@ namespace Desert::Graphic::SurfaceCache
         uint64_t                                   m_RecordsPlacement = 0;
         bool                                       m_RecordsTransient = true;
         std::shared_ptr<const SceneRecords>        m_Records;
-        std::vector<std::pair<uint32_t, uint32_t>> m_VisiblePages; // (page index, physical page), ascending
+        // A visible page of the kept records: its index, its physical page and its card's world bounds (xyz
+        // centre, w radius), which InvalidateLightingIn's regions are measured against.
+        struct VisiblePage
+        {
+            uint32_t  Page         = 0;
+            uint32_t  PhysicalPage = 0;
+            glm::vec4 CardBounds{ 0.0f };
+        };
+        // True when a card bounded by @p bounds reaches one of m_RelightRegions.
+        [[nodiscard]] bool       InRelightRegion( const glm::vec4& bounds ) const;
+        std::vector<VisiblePage> m_VisiblePages; // ascending page index
         // A mip may wait for a capture (allocated, uncaptured, nothing in flight, its instance ready): the capture
         // pick walks the cards only while the last walk left one waiting or an event moved m_RecordSerial,
         // m_AtlasSerial or m_PlacementRevision since it (a ready flag only changes with a group taken, which

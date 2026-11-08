@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -361,5 +362,112 @@ namespace Desert::Graphic::GlobalIllumination
         return changed( was.SunDirection, was.SunColorIntensity, now.SunDirection, now.SunColorIntensity ) ||
                changed( was.Light1Direction, was.Light1ColorIntensity, now.Light1Direction,
                         now.Light1ColorIntensity );
+    }
+
+    // ONE LOCAL (point / spot) LIGHT of a frame as the world-space GI histories compare it
+    // (SceneRenderer::GatherFrameLocalLighting, from the frame's light lists). A point or spot light switched,
+    // moved, recoloured or re-aimed leaves the old light in the surface cache's lit pages until the direct
+    // lighting budget (DirectLightingUpdateFactor) reaches them; UE Lumen relights the cards a changed light
+    // touches. Only the region the light reaches - before and after the change - is invalidated: a light that
+    // stands still costs nothing, one that changes relights its own sphere, never the scene.
+    struct LocalLighting
+    {
+        // The light's identity across frames: kind (kLocalLightingPoint / kLocalLightingSpot) in the high word,
+        // its SourceId (entity + 1; 0 = none, matched by order among the frame's unnamed lights) in the low one.
+        uint64_t  Key = 0;
+        glm::vec4 PositionRange{ 0.0f }; // world position (cm), the distance it lights to (cm)
+        glm::vec4 Radiance{ 0.0f };      // rgb = colour times intensity
+        // A spot light's cone axis (xyz) and outer cosine (w); a point light's is 0 with w = -1 (all around).
+        glm::vec4 DirectionCosOuter{ 0.0f, 0.0f, 0.0f, -1.0f };
+    };
+    inline constexpr uint64_t kLocalLightingPoint = 1ull << 32u;
+    inline constexpr uint64_t kLocalLightingSpot  = 2ull << 32u;
+
+    // What a "significant" change of one local light is, against the state its region was last relit for (so a
+    // slow drift relights once it has added up): the radiance moved by kLightingHistoryRadianceShare of the
+    // brighter of the two, the light or its range moved by this share of the range, the cone turned by more than
+    // one degree (kLightingHistoryCosAngle) or opened / closed by more than this in cosine.
+    inline constexpr float kLocalLightingHistoryMoveShare = 0.02f;
+    inline constexpr float kLocalLightingHistoryConeShift = 0.001f;
+
+    // True when the light reaches anything (some radiance over some range): a dark light's region holds nothing
+    // of it.
+    [[nodiscard]] inline bool LocalLightingLights( const LocalLighting& light )
+    {
+        return light.PositionRange.w > 0.0f &&
+               std::max( { light.Radiance.x, light.Radiance.y, light.Radiance.z } ) > 0.0f;
+    }
+
+    // True when the region lit by @p was must be relit for a frame lit by @p now (the same light).
+    [[nodiscard]] inline bool InvalidatesLocalLightingHistory( const LocalLighting& was, const LocalLighting& now )
+    {
+        const bool wasLit = LocalLightingLights( was );
+        const bool nowLit = LocalLightingLights( now );
+        if ( !wasLit || !nowLit )
+            return wasLit != nowLit;
+        const glm::vec3 a     = glm::vec3( was.Radiance );
+        const glm::vec3 b     = glm::vec3( now.Radiance );
+        const float     scale = std::max( { a.x, a.y, a.z, b.x, b.y, b.z } );
+        if ( glm::length( a - b ) > kLightingHistoryRadianceShare * scale )
+            return true;
+        const float range = std::max( was.PositionRange.w, now.PositionRange.w );
+        if ( glm::length( glm::vec3( was.PositionRange ) - glm::vec3( now.PositionRange ) ) >
+                  kLocalLightingHistoryMoveShare * range ||
+             std::abs( was.PositionRange.w - now.PositionRange.w ) > kLocalLightingHistoryMoveShare * range )
+            return true;
+        if ( std::abs( was.DirectionCosOuter.w - now.DirectionCosOuter.w ) > kLocalLightingHistoryConeShift )
+            return true;
+        const float wasLength = glm::length( glm::vec3( was.DirectionCosOuter ) );
+        const float nowLength = glm::length( glm::vec3( now.DirectionCosOuter ) );
+        if ( wasLength <= 0.0f || nowLength <= 0.0f )
+            return ( wasLength <= 0.0f ) != ( nowLength <= 0.0f );
+        return glm::dot( glm::vec3( was.DirectionCosOuter ) / wasLength,
+                         glm::vec3( now.DirectionCosOuter ) / nowLength ) < kLightingHistoryCosAngle;
+    }
+
+    // One frame of the local-light history: @p litBy holds each light as its region was last relit (ascending
+    // Key), @p now the frame's lights (ascending Key). @p next receives the new history (a light kept as it was
+    // while it has not changed significantly, so a drift adds up), @p changed the world spheres (xyz centre, w
+    // radius, cm) to relight this frame: a changed light's region before and after, an added one's, a removed
+    // one's. Both outputs are cleared first; a frame where no light changed leaves @p changed empty.
+    inline void UpdateLocalLightingHistory( std::span<const LocalLighting> litBy,
+                                            std::span<const LocalLighting> now, std::vector<LocalLighting>& next,
+                                            std::vector<glm::vec4>& changed )
+    {
+        next.clear();
+        changed.clear();
+        const auto region = [&changed]( const LocalLighting& light )
+        {
+            if ( LocalLightingLights( light ) )
+                changed.push_back( light.PositionRange );
+        };
+        size_t w = 0;
+        size_t n = 0;
+        while ( w < litBy.size() || n < now.size() )
+        {
+            if ( n == now.size() || ( w < litBy.size() && litBy[w].Key < now[n].Key ) )
+            {
+                region( litBy[w++] ); // gone: what it lit goes dark
+                continue;
+            }
+            if ( w == litBy.size() || now[n].Key < litBy[w].Key )
+            {
+                region( now[n] ); // new: what it lights was lit without it
+                next.push_back( now[n++] );
+                continue;
+            }
+            if ( InvalidatesLocalLightingHistory( litBy[w], now[n] ) )
+            {
+                region( litBy[w] );
+                region( now[n] );
+                next.push_back( now[n] );
+            }
+            else
+            {
+                next.push_back( litBy[w] );
+            }
+            ++w;
+            ++n;
+        }
     }
 } // namespace Desert::Graphic::GlobalIllumination

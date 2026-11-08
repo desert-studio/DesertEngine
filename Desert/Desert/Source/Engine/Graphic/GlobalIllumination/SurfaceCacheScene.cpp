@@ -679,18 +679,29 @@ namespace Desert::Graphic::SurfaceCache
             m_RecordsSerial    = m_RecordSerial;
             m_RecordsAtlas     = m_AtlasSerial;
             m_RecordsPlacement = m_PlacementRevision;
+            m_RelightRegions.clear();
             return frame;
         }
         // Kept: no capture, no page first shown, the same records. The lighting budget's pages of this frame -
-        // one physical page in DirectLightingUpdateFactor, ascending as the walk would list them.
+        // one physical page in DirectLightingUpdateFactor, and every page in a changed local light's region
+        // (InvalidateLightingIn) - ascending as the walk would list them.
         frame.Records = m_Records;
         frame.LightingPages.reserve( m_VisiblePages.size() / lightingFactor + 1u );
-        for ( const auto& [page, physicalPage] : m_VisiblePages )
-            if ( physicalPage % lightingFactor == m_Frame % lightingFactor )
-                frame.LightingPages.push_back( page );
+        for ( const VisiblePage& visible : m_VisiblePages )
+            if ( visible.PhysicalPage % lightingFactor == m_Frame % lightingFactor ||
+                 InRelightRegion( visible.CardBounds ) )
+                frame.LightingPages.push_back( visible.Page );
+        m_RelightRegions.clear();
         return frame;
     }
 
+    bool SurfaceCacheScene::InRelightRegion( const glm::vec4& bounds ) const
+    {
+        for ( const glm::vec4& region : m_RelightRegions )
+            if ( glm::length( glm::vec3( region ) - glm::vec3( bounds ) ) <= region.w + bounds.w )
+                return true;
+        return false;
+    }
 
     void SurfaceCacheScene::BuildRecords( const std::map<const CardMip*, uint32_t>& captured,
                                           const uint64_t lightingFactor, SceneFrame& frame )
@@ -765,6 +776,10 @@ namespace Desert::Graphic::SurfaceCache
                 records.ResidentCards += resident ? 1u : 0u;
                 records.CapturedCards += visible ? 1u : 0u;
                 records.HighResCards += visible && shownMip == ShownMip::High ? 1u : 0u;
+                // The card's world bounds (its centre, the half diagonal of its box): what a changed local light's
+                // region is measured against.
+                const glm::vec4 cardBounds( card.Center, glm::length( card.Extent ) );
+                const bool      relightRegion = visible && InRelightRegion( cardBounds );
 
                 for ( uint32_t py = 0; py < mip.PagesY; ++py )
                     for ( uint32_t px = 0; px < mip.PagesX; ++px )
@@ -790,10 +805,15 @@ namespace Desert::Graphic::SurfaceCache
                         const uint32_t physicalPage =
                              rect.X / kPhysicalPageSize +
                              rect.Y / kPhysicalPageSize * AtlasPagesPerSide( m_Budget.AtlasSize );
-                        if ( visible && ( relight || physicalPage % lightingFactor == m_Frame % lightingFactor ) )
+                        // A page of a card a changed local light reaches (InvalidateLightingIn) is lit in it too.
+                        if ( visible && ( relight || physicalPage % lightingFactor == m_Frame % lightingFactor ||
+                                          relightRegion ) )
                             frame.LightingPages.push_back( static_cast<uint32_t>( records.Pages.size() ) );
                         if ( visible )
-                            m_VisiblePages.emplace_back( static_cast<uint32_t>( records.Pages.size() ), physicalPage );
+                            m_VisiblePages.push_back(
+                                 VisiblePage{ .Page         = static_cast<uint32_t>( records.Pages.size() ),
+                                              .PhysicalPage = physicalPage,
+                                              .CardBounds   = cardBounds } );
                         records.Pages.push_back( page );
                     }
                 // The page copies of every mip captured this frame, shown or not.
