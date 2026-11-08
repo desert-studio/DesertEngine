@@ -2067,6 +2067,11 @@ namespace Desert::Editor
         //
         // So the editor asks the gate, before the submit, whether THIS frame is the one the reply waits
         // for — the same question, on the same inputs, that OnFramePresented will answer afterwards.
+        //
+        // The answer is given here, on the game thread; the copy is recorded on the render task. The swapchain
+        // image is acquired late, by the interface graph's back-buffer import (PRESENT-COST-2), so the copy
+        // goes into a job of this frame queued behind the interface's draw and ahead of its submit and present
+        // (ViewportCapture::RecordWindowCapture).
         if ( !m_ControlInFlight || m_ControlInFlight->Operation != Control::Op::ShotWindow )
             return;
         // THE EFFECT WAIT AND NOT THE READINESS ONE. A shot parked behind the readiness gate has not been

@@ -3,6 +3,7 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 #include <Common/Core/Core.hpp>
+#include <Engine/Core/RenderTask.hpp> // shot.window's copy is recorded on the render task, behind the interface
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -266,9 +267,11 @@ namespace Desert::Editor
     }
 
     // The record half of a window capture, on the frame the control channel's gate named (see
-    // EditorLayer::RecordWindowCaptureIfDue): a swapchain image may only be touched between acquire and present.
+    // ControlService::RecordWindowCaptureIfDue): a swapchain image may only be touched between acquire and
+    // present.
     void ViewportCapture::RecordWindowCapture()
     {
+        m_CaptureError.clear();
         auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
              EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
         if ( !swapChain )
@@ -277,12 +280,32 @@ namespace Desert::Editor
             return;
         }
 
-        if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
-        {
-            m_CaptureError = recorded.GetError();
-            return;
-        }
-        m_CaptureError.clear();
+        // THE REQUEST IS MADE HERE AND SERVED WHERE THE BACK BUFFER IS READY TO PRESENT (UE: the game thread arms
+        // FSlateRHIRenderer::PrepareToTakeScreenshot, and DrawWindow_RenderThread reads the back buffer after the
+        // window's elements are drawn into it and before RHIEndDrawingViewport presents it).
+        //
+        // The swapchain image is acquired LATE (PRESENT-COST-2): by the back-buffer import of the interface graph,
+        // which VulkanImGui::End enqueued a moment ago as the render task's "Interface" job. On this thread, while
+        // the frame is still being built, the frame holds no image yet, and recording the copy here is refused
+        // ("this frame holds no acquired swapchain image"). So the copy is recorded by a job of THIS frame,
+        // enqueued right behind that one and before Application::Run's step 6 enqueues the submit and present: the
+        // queue's order runs it after the interface graph has left the acquired image in the present layout, into
+        // the frame's tail command buffer, between the acquire and the present. Serial (no render thread), the
+        // interface ran inline at End and so does this.
+        //
+        // A refusal is carried to the collect half. m_CaptureError is written here or by the job, and read by
+        // WriteWindowPng only behind the fence that finished this frame's jobs (Application::Run step 4b,
+        // RenderTask::SyncPreviousFrame; inline, step 7). The job reports success to the queue either way: a
+        // capture that could not be taken is the shot's failure, answered on the channel, not the frame's.
+        const ::Desert::Engine::RenderTask::ScopedOwner frameWork( ::Desert::Engine::RenderTask::FrameOwner() );
+        ::Desert::Engine::RenderTask::Get().Enqueue(
+             "Editor: window capture",
+             [this, swapChain = std::move( swapChain )]() -> Common::BoolResultStr
+             {
+                 if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
+                     m_CaptureError = recorded.GetError();
+                 return BOOLSUCCESS;
+             } );
     }
 
     bool ViewportCapture::WriteWindowPng( const std::string& path, std::string& outError )
@@ -294,8 +317,8 @@ namespace Desert::Editor
         // window from outside the process, by PID.
         //
         // This is the second half of the capture: the copy was recorded into this frame's command buffer
-        // by RecordWindowCaptureIfDue, and the bytes are collected here, once the present that carried it
-        // has gone out.
+        // by the render-task job RecordWindowCapture enqueued behind the interface draw, and the bytes are
+        // collected here, once the present that carried it has gone out.
         if ( !m_CaptureError.empty() )
         {
             outError = m_CaptureError;

@@ -683,12 +683,15 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<int>( m_ColorFormat ) );
         }
 
-        // The acquire is late (at the back-buffer import), so a frame whose present graph did not run holds no
-        // image, and the index left over names the previous frame's, already given back by its present.
+        // The acquire is late (at the back-buffer import), so a frame whose present graph has not run yet - or
+        // runs on another thread, later (the editor's interface is a render-task job: its capture is a job queued
+        // behind it, ViewportCapture::RecordWindowCapture) - holds no image, and the index left over names the
+        // previous frame's, already given back by its present.
         if ( !m_Output->HasAcquiredImage() )
             return Common::MakeError<bool>(
-                 "this frame holds no acquired swapchain image (its present graph did not import the back "
-                 "buffer, or the acquire was out of date); there is nothing to copy." );
+                 "this frame holds no acquired swapchain image (its present graph has not imported the back "
+                 "buffer yet on this thread, did not import it, or the acquire was out of date); there is nothing "
+                 "to copy." );
         const uint32_t imageIndex = m_Output->GetImageIndex();
         if ( imageIndex >= m_SwapChainImages.Images.size() )
         {

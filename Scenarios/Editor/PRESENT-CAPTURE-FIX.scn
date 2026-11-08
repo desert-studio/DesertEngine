@@ -1,0 +1,17 @@
+# PRESENT-CAPTURE-FIX: the whole-window capture (`Тогда <кадр>`, the channel's shot.window: menu, toolbar, panels and
+# viewport in one picture) works again on top of the late swapchain acquire (PRESENT-COST-2, 86de2a1a2).
+# Since the late acquire the image is taken by the interface graph's back-buffer import, which runs as the render
+# task's "Interface" job; the copy used to be recorded on the game thread before that job ran, and every window shot
+# answered "this frame holds no acquired swapchain image". Now the copy is a render-task job of the same frame,
+# queued right behind the interface draw and ahead of the submit and present (ViewportCapture::RecordWindowCapture;
+# UE: FSlateRHIRenderer::PrepareToTakeScreenshot, served in DrawWindow_RenderThread before the present).
+# Two window shots in a row around a panel step: the first proves the capture, the second that the staging buffer of
+# the first was collected (one capture at a time) and that the picture follows the panel change.
+Дано run Entity Cube
+Дано run View "View mode: Lit"
+Тогда-вид 0_viewport кадр вьюпорта как раньше: освещённый куб в сцене, без панелей и меню
+Тогда 1_window снимок окна редактора целиком: строка меню, тулбар, Outliner, Details с выбранным Cube, вьюпорт с кубом; не чёрный, не только вьюпорт
+# Panel step: Details shows the new Location (centimetres).
+Когда --subject selection set Translation 150.0,-275.0,40.0
+Тогда 2_window_after_panel_step снова окно целиком: Details показывает Location 150.0 / -275.0 / 40.0, куб во вьюпорте сдвинут; панели видны
+Тогда [log] в editor.log нет «no acquired swapchain image» и нет «a frame capture is already recorded»; есть две строки «[Control] wrote the presented frame (editor and interface)»; нет VUID и assert

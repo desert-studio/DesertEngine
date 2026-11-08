@@ -892,9 +892,10 @@ namespace Desert::Editor
         DESERT_PROFILE_PHASE( phases, "ImGui: EndFrame (render + draw data)" );
         m_ImGuiHost.EndFrame();
 
-        // AFTER the interface has been recorded into the swapchain pass and BEFORE the frame is submitted:
-        // the only window in which the presented image is legally ours to copy out of. A no-op unless a
-        // `shot.window` is waiting on exactly this frame. See RecordWindowCaptureIfDue.
+        // AFTER the interface's draw has been enqueued (EndFrame above) and BEFORE the frame's submit and present
+        // are (Application::Run step 6): the copy is enqueued between them on the render task, the only window in
+        // which the late-acquired back buffer is legally ours to copy out of. A no-op unless a `shot.window` is
+        // waiting on exactly this frame. See RecordWindowCaptureIfDue.
         DESERT_PROFILE_PHASE( phases, "Editor: Window capture" );
         m_Control.RecordWindowCaptureIfDue();
 
