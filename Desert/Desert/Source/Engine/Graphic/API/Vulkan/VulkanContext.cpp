@@ -337,7 +337,14 @@ namespace Desert::Graphic::API::Vulkan
             retire(); // no frame can be recording without an allocator
             return;
         }
-        m_VulkanAllocator->RT_DestroyLater( std::move( retire ) );
+        m_VulkanAllocator->RT_RetireServiceObject( std::move( retire ) );
+    }
+
+    std::size_t VulkanContext::ReleaseRetiredAtViewClose()
+    {
+        if ( !m_VulkanAllocator )
+            return 0; // nothing was queued: without an allocator a retirement runs at once (above)
+        return m_VulkanAllocator->ReleaseServiceRetirementsNow();
     }
 
     void VulkanContext::Shutdown()

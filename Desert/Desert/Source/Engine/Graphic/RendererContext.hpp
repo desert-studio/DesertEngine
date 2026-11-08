@@ -41,6 +41,13 @@ namespace Desert::Graphic
         /// thread of frame N unregisters it. The API-agnostic face of the device's host-object deletion queue;
         /// services above the API layer retire through this, never through an API allocator.
         virtual void RetireAfterFramesInFlight( std::function<void()> retire ) = 0;
+        /// UE FlushPendingDeletes at a view's teardown: releases every retirement queued above NOW, so a wrapper
+        /// a service retired while the view was closing (its UI's white Image2D, unregistered by ~Texture2D) is
+        /// gone before the view's ledger closes, instead of outliving it by the frames in flight. Answers how
+        /// many. Only from a teardown that has joined the render task, outside any frame's recording: what is
+        /// released is the host wrapper; its device handles are queued by its destructor and still wait for their
+        /// frames.
+        virtual std::size_t ReleaseRetiredAtViewClose() = 0;
 
         static std::shared_ptr<RendererContext> Create( const std::shared_ptr<Window>& window );
     };
