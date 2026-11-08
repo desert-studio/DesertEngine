@@ -2,7 +2,7 @@
 -- Attach to any mesh entity (Details -> Add Component -> Script) and press Play.
 --
 -- Showcases the scripting API:
---   Timer.after(seconds, fn)            -- deferred callback; re-arm inside fn to repeat
+--   Timer.every(seconds, fn)            -- a looping timer (UE SetTimer, bLoop); Timer.clear(handle) ends it
 --   self:add("PointLight")     -- reflection-driven components from script
 --   light.Intensity / light.Color       -- reflected fields read/write directly
 --   Input.wasPressed("B")               -- edge-detected key press (full keyboard)
@@ -27,7 +27,6 @@ local function blink()
         end
         self:setMaterialParam("EmissionFactor", { x = lit and 1.0 or 0.0, y = 0, z = 0, w = 1 })
     end
-    Timer.after(Properties.Period, blink) -- re-arm: a repeating timer is just recursion
 end
 
 function OnStart()
@@ -35,7 +34,7 @@ function OnStart()
     light.Color = vector.create(1.0, 0.55, 0.15)
     light.Intensity = 0.0
 
-    Timer.after(Properties.Period, blink)
+    Timer.every(Properties.Period, blink)
     Log.info(self:name() .. ": beacon armed (period " .. tostring(Properties.Period) .. "s)")
 end
 
