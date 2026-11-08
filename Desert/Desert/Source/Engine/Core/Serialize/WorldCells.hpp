@@ -80,9 +80,9 @@ namespace Desert::Core::WorldCells
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
     inline constexpr std::uint32_t kWorldFormatVersion =
-         7; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
+         8; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
             // 6: a cell row states its streaming bounds (WP-FAR-6B 9g); 7: prefab instances expanded at cook
-            // (WP21)
+            // (WP21); 8: a cell row states the height span of what it holds (WP-SRC-ALTITUDE)
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -103,6 +103,7 @@ namespace Desert::Core::WorldCells
         std::optional<Rules::CellBounds> Square;
         std::optional<Rules::CellBounds>
              Bounds; // Rules::PlannedCell::Bounds: what the loading range is measured to
+        std::optional<Rules::HeightSpan> Height; // Rules::PlannedCell::Height: what a source's altitude is measured to
         std::optional<std::string>       Reason;
         std::vector<std::uint64_t>       Ids;    // record ids, in ResidencyUnitMembers order
         std::vector<std::string>         Assets; // registry keys the unit needs, transitively; sorted
@@ -170,7 +171,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexReference> References;
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 7 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 8 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -179,7 +180,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 7 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 8 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -381,7 +382,7 @@ namespace Desert::Core::WorldCells
         std::string                SceneName;
         std::vector<BuiltHLODCell> Cells; // cell unit order
     };
-    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 7 )
+    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 8 )
     static_assert( Common::Json::FormatOf<BuiltHLODIndex>.Version == kWorldFormatVersion );
 
     // Where BuildWorldHLODs hands each cell's record file (CellPayload, kind WorldCell) the moment the cell is
