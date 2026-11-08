@@ -41,8 +41,11 @@ PushConstant PushConstants
 #endif
     uint PrimitiveFlags; // offset 120 — G-buffer fragment stage only (Mesh/Surface/Pass_GBuffer.glslh,
                          // Material::SetPrimitiveFlags): the draw's per-primitive bits, Graphic::PrimitiveFlag
-                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow). 0 = every default. Block size
-                         // 124, inside the 128 every Vulkan device guarantees.
+                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow). 0 = every default.
+    float LodFadeSide;   // offset 124 - a CPU-recorded Masked draw's side of a dithered LOD transition
+                         // (DrawPushFields::LodFadeSide; +1 older, -1 newer, 0 none - the binned draw's
+                         // DesertMeshDraw::LodFadeSide; Mesh/Surface/LODTransition.glslh). Block size 128, the
+                         // size every Vulkan device guarantees.
 }
 m_PushConstants;
 

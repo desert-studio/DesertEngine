@@ -526,6 +526,31 @@ namespace Desert::Graphic::System
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
+    Geometry::LODMask MeshRenderer::ComputeDitheredLOD( const glm::mat4& transform, const Mesh* mesh,
+                                                        const int forcedLOD, const int lodBias ) const
+    {
+        Geometry::LODMask levels;
+        if ( forcedLOD >= 0 )
+        {
+            levels.Levels[0] = levels.Levels[1] = static_cast<uint32_t>( forcedLOD );
+            return levels;
+        }
+        if ( !m_LODEnabled || !mesh )
+            return levels;
+        const auto* camera = m_SceneRenderer->GetMainCamera();
+        if ( !camera )
+            return levels;
+        const Geometry::LODView view{ .Origin     = camera->GetPosition(),
+                                      .Projection = camera->GetProjectionMatrix(),
+                                      .Temporal   = m_ViewTemporalLOD };
+        levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
+                                                        view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
+        const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+        levels.Levels[0]        = std::min( levels.Levels[0], maxLevel );
+        levels.Levels[1]        = std::min( levels.Levels[1], maxLevel );
+        return levels;
+    }
+
     uint64_t MeshRenderer::GetViewTrianglesDrawn() const
     {
         // The same path test the forward list's build makes: on Deferred the forward list is cleared and the

@@ -434,14 +434,17 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 }
 
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
-// A binned Masked cell also clips the other level of a dithered LOD transition (Mesh/Surface/LODTransition.glslh),
-// first: a pixel the transition takes away samples no mask.
-#ifdef DESERT_SURFACE_BINNED
+// A Masked cell also clips the other level of a dithered LOD transition (Mesh/Surface/LODTransition.glslh), first:
+// a pixel the transition takes away samples no mask. The side is the binned draw's (its vertex stage forwards
+// DesertMeshDraw::LodFadeSide) or the CPU-recorded draw's push field (MaterialTransport.glslh LodFadeSide, the
+// block the fragment stage reads MaterialIndex from).
 #include <Mesh/Surface/LODTransition.glslh>
+#ifdef DESERT_SURFACE_BINNED
 #define DESERT_SURFACE_LOD_CLIPPED() \
     DesertLODTransitionClipped( gl_FragCoord.xy, v_Surface.LodFadeSide, cameraUB.LodTransition.x )
 #else
-#define DESERT_SURFACE_LOD_CLIPPED() false
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
 #endif
 #if defined( DESERT_SURFACE_OPACITY_DITHER )
 // A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with

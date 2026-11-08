@@ -2599,8 +2599,16 @@ namespace Desert::Graphic::System
         // records the plan and buckets nothing, so what its Resolve call lent, applied and marked Drawn is what it
         // records. A setup task runs it, one slice of groups each: it reads the group, the walk's masks and the
         // objects' instances, and writes @p plan and @p slice alone.
+        // Whether a group's surface clips per pixel (Masked; ResolveBinnedPipeline's ditheredLod rule): planGroup's
+        // @p masked - an object of it in a dithered LOD transition draws both levels as singles
+        // (ComputeDitheredLOD, each its half of the dither); an opaque one switches at once.
+        const auto clipsDitheredLod = []( const DataDrivenMaterial* material ) noexcept
+        {
+            return material != nullptr &&
+                   material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Masked;
+        };
         const auto planGroup = [&]( const std::vector<const StaticMeshRenderData*>& objects, const bool standsIn,
-                                    DrawBuildScratch::StaticGroupPlan& plan,
+                                    const bool masked, DrawBuildScratch::StaticGroupPlan& plan,
                                     DrawBuildScratch::BucketScratch&   slice )
         {
             plan.Batches.clear();
@@ -2763,16 +2771,31 @@ namespace Desert::Graphic::System
                 // its batch stays one draw instead of splitting into four identical ones.
                 const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
                 auto&          levels   = slice.LodLevels;
+                // A fading object's entry: no level of a batch (it is planned as two singles).
+                constexpr uint32_t kFadingLevel = ~0u;
                 levels.clear();
                 levels.reserve( batchable.size() );
                 for ( const auto& od : batchable )
+                {
+                    // A fading object of a Masked group draws two levels: a single each (below), never a batch.
+                    if ( masked &&
+                         ComputeDitheredLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias )
+                              .IsDithered() )
+                    {
+                        levels.push_back( kFadingLevel );
+                        plan.Singles.push_back( od );
+                        continue;
+                    }
                     levels.push_back( std::min(
                          ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
                          maxLevel ) );
+                }
 
                 Geometry::DistinctLODs( levels, slice.DistinctLods );
                 for ( const uint32_t level : slice.DistinctLods )
                 {
+                    if ( level == kFadingLevel )
+                        continue; // the fading objects, already singles
                     const auto count = static_cast<uint32_t>( std::count( levels.begin(), levels.end(), level ) );
                     if ( count < 2 )
                     {
@@ -2801,9 +2824,29 @@ namespace Desert::Graphic::System
                 }
             }
             // The singles' levels, decided here with the batches' (the record replays them, it decides nothing).
-            for ( ObjDraw& single : plan.Singles )
-                single.Level = ComputeLOD( single.Obj->Transform, single.Obj->Mesh, single.Obj->ForcedLOD,
-                                           single.Obj->LODBias );
+            // A Masked group's single in a dithered transition draws both levels (UE: both LODs of the batch,
+            // each with its half of the dither): this draw the newer, an appended copy the older.
+            const std::size_t singleCount = plan.Singles.size();
+            for ( std::size_t si = 0; si < singleCount; ++si )
+            {
+                ObjDraw& single = plan.Singles[si];
+                if ( !masked )
+                {
+                    single.Level = ComputeLOD( single.Obj->Transform, single.Obj->Mesh, single.Obj->ForcedLOD,
+                                               single.Obj->LODBias );
+                    continue;
+                }
+                const Geometry::LODMask lod = ComputeDitheredLOD( single.Obj->Transform, single.Obj->Mesh,
+                                                                  single.Obj->ForcedLOD, single.Obj->LODBias );
+                single.Level       = lod.Levels[1];
+                single.LodFadeSide = lod.IsDithered() ? -1.0f : 0.0f;
+                if ( !lod.IsDithered() )
+                    continue;
+                ObjDraw older     = single;
+                older.Level       = lod.Levels[0];
+                older.LodFadeSide = 1.0f;
+                plan.Singles.push_back( older );
+            }
         };
         // A plan's batches packed into its set (a Full or a Record call; a Resolve call packs nothing).
         const auto packBatches = [&]( const DrawBuildScratch::StaticGroupPlan& plan )
@@ -2881,12 +2924,13 @@ namespace Desert::Graphic::System
                     continue;
                 DrawBuildScratch::BucketScratch& slice = scratch.BucketSlices[s];
                 tasks.Launch( "Mesh: Static bucketing slice",
-                              [&groups, &plans, &planGroup, standInKey, &slice, first, last]() noexcept
+                              [&groups, &plans, &planGroup, &clipsDitheredLod, standInKey, &slice, first,
+                               last]() noexcept
                               {
                                   for ( std::size_t gi = first; gi < last; ++gi )
                                       if ( plans[gi].Opaque )
-                                          planGroup( groups[gi].second, groups[gi].first == standInKey, plans[gi],
-                                                     slice );
+                                          planGroup( groups[gi].second, groups[gi].first == standInKey,
+                                                     clipsDitheredLod( groups[gi].first ), plans[gi], slice );
                               } );
                 first = last;
             }
@@ -3013,7 +3057,8 @@ namespace Desert::Graphic::System
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj->GpuPrimitive )
                                          .MaterialIndex( materialRow )
-                                         .PrimitiveFlags( PrimitiveFlagsOf( obj->CastContactShadow ) ) } );
+                                         .PrimitiveFlags( PrimitiveFlagsOf( obj->CastContactShadow ) )
+                                         .LodFadeSide( singles[i].LodFadeSide ) } );
             }
         }
 

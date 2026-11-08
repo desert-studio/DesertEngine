@@ -1854,6 +1854,11 @@ namespace Desert::Graphic::System
         // small ones. Returns 0 when LOD is off or there's no camera. Used by every mesh draw path.
         uint32_t ComputeLOD( const glm::mat4& transform, const class Desert::Mesh* mesh, int forcedLOD,
                              int lodBias = 0 ) const;
+        // ComputeLOD at the scene view's two temporal samples (m_ViewTemporalLOD; Geometry::
+        // SelectDitheredLODFromBounds, the binned cull's SelectLodMask), both clamped to the levels @p mesh has:
+        // a Masked CPU draw in a transition draws both levels, each with its DrawPushFields::LodFadeSide.
+        Geometry::LODMask ComputeDitheredLOD( const glm::mat4& transform, const class Desert::Mesh* mesh,
+                                              int forcedLOD, int lodBias = 0 ) const;
 
         // Cascaded shadow maps (R32F light-space depth, one framebuffer per cascade). Recompute the
         // per-cascade light matrices once per frame BEFORE the render graph records (intra-phase order is
@@ -3959,6 +3964,9 @@ namespace Desert::Graphic::System
             // its LOD level - decided on the setup task, replayed by the call that records it.
             SubmeshMask Hidden{};
             uint32_t    Level = 0;
+            // The single's side of a dithered LOD transition (ComputeDitheredLOD; a Masked group only): +1 the
+            // older level, -1 the newer, 0 none - its draw's DrawPushFields::LodFadeSide.
+            float LodFadeSide = 0.0f;
         };
         struct InstancedDraw
         {
