@@ -1333,6 +1333,21 @@ namespace Desert::Graphic::System
                       : nullptr;
             if ( caster == nullptr )
             {
+                if ( parent == nullptr || materials == nullptr || !materials->Owns( parent ) )
+                {
+                    // Not a refusal: the producer's template is a cell the service replaced (the same stale
+                    // template the G-buffer pass names), re-resolved every frame until the producer hands the
+                    // current one.
+                    static std::unordered_set<const DataDrivenMaterial*> s_Stale;
+                    if ( s_Stale.insert( parent ).second )
+                    {
+                        LOG_WARN( "[Shadows] a GPU-instanced section's ({} x ShadowDepth) template is no longer a "
+                                  "MaterialService cell (replaced while its producer held it); the section casts "
+                                  "no shadow until the producer hands the current one.",
+                                  MeshVertexPathName( gpu.Path ) );
+                    }
+                    continue;
+                }
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
                 if ( s_Refused.insert( parent ).second )
                     LOG_ERROR( "[Shadows] a GPU-instanced section's material has no ({} x ShadowDepth) cell; "
