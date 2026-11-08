@@ -112,18 +112,24 @@ Shader "RadianceCacheAllocate"
             return RADIANCE_CACHE_INVALID_PROBE;
         }
 
-        void main()
+        // The group's share of the priority histogram, added to the schedule's once per group and bucket
+        // (GPU-SCREENPROBE-6: one global atomic per read probe serialised on the histogram's few busy words).
+        shared uint s_Histogram[RC_PRIORITY_BUCKETS];
+
+        // Allocates and ranks this thread's entry: its probe's priority bucket, RC_PRIORITY_BUCKETS when it ranks
+        // none (out of the grid, the reset, unread this frame, or no slot left).
+        uint AllocateAndRank()
         {
             const uvec3 id    = gl_GlobalInvocationID;
             const uint  grid  = radianceCache.shape.y;
             const uint  width = grid * radianceCache.shape.x;
             if ( id.x >= width || id.y >= grid || id.z >= grid || Reset != 0u )
-                return;
+                return RC_PRIORITY_BUCKETS;
             const uint entry = id.x + width * ( id.y + grid * id.z );
             // Which readers stamped it this frame (RadianceCacheMark): a coverage reader, or only the fallback.
             const bool covered = radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] == FrameIndex;
             if ( !covered && radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] != FrameIndex )
-                return;
+                return RC_PRIORITY_BUCKETS;
             const uint  clipmap = id.x / grid;
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
 
@@ -136,7 +142,7 @@ Shader "RadianceCacheAllocate"
                     // The atlas is full: the next frame's Update frees the probes nobody reads now.
                     atomicAdd( radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )], 1 );
                     atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_FAILED], 1u );
-                    return;
+                    return RC_PRIORITY_BUCKETS;
                 }
                 atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_ALLOCATED], 1u );
                 radianceCacheProbes[probe].cell     = ivec4( world, int( clipmap ) );
@@ -158,7 +164,21 @@ Shader "RadianceCacheAllocate"
                 bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( FrameIndex - frames.y, 1u ) ) ) * 3.0 ) );
             radianceCacheProbes[probe].frames   = uvec4( FrameIndex, frames.y, frames.z, hash );
             radianceCacheProbes[probe].priority = uvec4( bucket, 0u, 0u, 0u );
-            atomicAdd( radianceCacheSchedule[bucket], 1u );
+            return bucket;
+        }
+
+        void main()
+        {
+            const uint t = gl_LocalInvocationIndex;
+            if ( t < RC_PRIORITY_BUCKETS )
+                s_Histogram[t] = 0u;
+            barrier();
+            const uint bucket = AllocateAndRank();
+            if ( bucket < RC_PRIORITY_BUCKETS )
+                atomicAdd( s_Histogram[bucket], 1u );
+            barrier();
+            if ( t < RC_PRIORITY_BUCKETS && s_Histogram[t] != 0u )
+                atomicAdd( radianceCacheSchedule[t], s_Histogram[t] );
         }
     }
 }

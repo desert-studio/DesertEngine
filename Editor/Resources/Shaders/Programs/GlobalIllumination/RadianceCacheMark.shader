@@ -31,8 +31,34 @@ Shader "RadianceCacheMark"
             vec4  MarkPointsData[];    // xyz = world cm
         };
 
+        // A pixel's stamps, one level of eight cells per RC_MARK_LEVEL_* (the coverage's two dither ends, the
+        // fallback), RC_MARK_NONE where it stamps none - kept per thread for the group's de-duplication below.
+        #define RC_MARK_LEVEL_FINE     0u
+        #define RC_MARK_LEVEL_COARSE   1u
+        #define RC_MARK_LEVEL_FALLBACK 2u
+        #define RC_MARK_SLOTS          24u
+        #define RC_MARK_NONE           0xFFFFFFFFu
+        shared uint s_Stamp[RC_MARK_SLOTS][64];
+
+        // The eight stamp words a pixel's read of @p clipmap touches into its slots @p level * 8 .. + 7.
         // @p kind: RC_STAMP_COVERAGE for a clipmap the read interpolates itself, RC_STAMP_FALLBACK for the level a
         // screen probe's radiance read falls back to (RadianceCacheAllocate ranks the two apart).
+        void CollectClipmap( vec3 p, vec3 N, vec3 V, uint clipmap, uint kind, uint level )
+        {
+            const vec3  biased = RadianceCacheReadPoint( radianceCache, p, N, V, clipmap );
+            const ivec3 base   = ivec3( floor( RadianceCacheCoordFloat( radianceCache, biased, clipmap ) - 0.5 ) );
+            const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
+            const int   grid   = int( radianceCache.shape.y );
+            for ( uint i = 0u; i < 8u; ++i )
+            {
+                const ivec3 local = clamp( base + ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u ), ivec3( 0 ),
+                                           ivec3( grid - 1 ) );
+                const uint entry = RadianceCacheIndirectionIndex( radianceCache, corner + local, clipmap );
+                s_Stamp[level * 8u + i][gl_LocalInvocationIndex] = RadianceCacheStampIndex( entry, kind );
+            }
+        }
+
+        // The capture points' stamps (MarkPoint), written directly: a few points, no neighbours to share with.
         void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap, uint kind )
         {
             // The read's own point (RadianceCacheReadPoint): the irradiance reads and the screen probes' radiance
@@ -52,19 +78,18 @@ Shader "RadianceCacheMark"
 
         // A point read in the six axis directions with the bias along the normal (V = N), at both ends of the
         // clipmap dither: every cell its read can touch.
-        void MarkPoint( vec3 p )
+        // One axis of a point read in the six axis directions with the bias along the normal (V = N), at both ends
+        // of the clipmap dither: every cell that read can touch.
+        void MarkPointAxis( vec3 p, uint axis )
         {
-            const vec3 axes[6] = vec3[6]( vec3( 1, 0, 0 ), vec3( -1, 0, 0 ), vec3( 0, 1, 0 ), vec3( 0, -1, 0 ),
-                                          vec3( 0, 0, 1 ), vec3( 0, 0, -1 ) );
+            vec3 N = vec3( 0.0 );
+            N[axis / 2u] = ( axis & 1u ) == 0u ? 1.0 : -1.0;
             const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
             const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
-            for ( int i = 0; i < 6; ++i )
-            {
-                if ( fine < radianceCache.shape.x )
-                    MarkClipmap( p, axes[i], axes[i], fine, RC_STAMP_COVERAGE );
-                if ( coarse != fine && coarse < radianceCache.shape.x )
-                    MarkClipmap( p, axes[i], axes[i], coarse, RC_STAMP_COVERAGE );
-            }
+            if ( fine < radianceCache.shape.x )
+                MarkClipmap( p, N, N, fine, RC_STAMP_COVERAGE );
+            if ( coarse != fine && coarse < radianceCache.shape.x )
+                MarkClipmap( p, N, N, coarse, RC_STAMP_COVERAGE );
         }
 
         void main()
@@ -75,35 +100,64 @@ Shader "RadianceCacheMark"
                 // the update's first pass, so Update counts its frees into it and Allocate its slots.
                 for ( uint i = 0u; i < RC_SCHEDULE_LIST; ++i )
                     radianceCacheSchedule[i] = 0u;
-                for ( uint i = 0u; i < MarkPointHeader.x; ++i )
-                    MarkPoint( MarkPointsData[i].xyz );
             }
+            // The capture points, one (point, axis) per thread of the dispatch (GPU-SCREENPROBE-6: one thread
+            // walked every point's 6 axes in series while its group waited).
+            const uint pointThread = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 8u;
+            if ( pointThread < MarkPointHeader.x * 6u )
+                MarkPointAxis( MarkPointsData[pointThread / 6u].xyz, pointThread % 6u );
+
+            for ( uint s = 0u; s < RC_MARK_SLOTS; ++s )
+                s_Stamp[s][gl_LocalInvocationIndex] = RC_MARK_NONE;
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
-            if ( pixel.x >= Width || pixel.y >= Height )
-                return;
-            const vec3 normal = texelFetch( GBufferBTexture, ivec2( pixel ), 0 ).rgb;
-            if ( dot( normal, normal ) <= 0.001 ) // no geometry (the G-buffer is cleared to zero)
-                return;
-            const vec2  uv    = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p     = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, ivec2( pixel ), 0 ).r,
-                                                          giFrame.invViewProjection );
-            const vec3  N     = normalize( normal );
-            const vec3  V     = normalize( giFrame.camera.xyz - p );
-            // The two ends of the dither: the finest clipmap any pixel here may read and the coarsest - the COVERAGE,
-            // the clipmaps a read here interpolates itself (RadianceCacheCoverageAt).
-            const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
-            const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
-            if ( fine < radianceCache.shape.x )
-                MarkClipmap( p, N, V, fine, RC_STAMP_COVERAGE );
-            if ( coarse != fine && coarse < radianceCache.shape.x )
-                MarkClipmap( p, N, V, coarse, RC_STAMP_COVERAGE );
-            // THE FALLBACK: the clipmap past the coarse end, where a screen probe's radiance read looks while its own
-            // clipmap's eight cells hold no traced probe (RadianceCacheRadianceAt). Stamped apart from the coverage
-            // (RC_STAMP_FALLBACK): its new probes take what the coverage's new probes leave of the budget
-            // (RC_PRIORITY_NEW_FALLBACK), so they never hold back the cells the reads interpolate themselves.
-            // Only when the screen probes read the cache (MarkFallback): the irradiance readers never read it.
-            if ( MarkFallback != 0u && coarse + 1u < radianceCache.shape.x )
-                MarkClipmap( p, N, V, coarse + 1u, RC_STAMP_FALLBACK );
+            const bool  inside = pixel.x < Width && pixel.y < Height;
+            const vec3  normal = inside ? texelFetch( GBufferBTexture, ivec2( pixel ), 0 ).rgb : vec3( 0.0 );
+            if ( dot( normal, normal ) > 0.001 ) // geometry (the G-buffer is cleared to zero)
+            {
+                const vec2 uv = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+                const float depth = texelFetch( GBufferDepthTexture, ivec2( pixel ), 0 ).r;
+                const vec3  p     = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
+                const vec3 N  = normalize( normal );
+                const vec3 V  = normalize( giFrame.camera.xyz - p );
+                // The two ends of the dither: the finest clipmap any pixel here may read and the coarsest - the
+                // COVERAGE, the clipmaps a read here interpolates itself (RadianceCacheCoverageAt).
+                const uint fine   = RadianceCacheClipmapAt( radianceCache, p, 0.0 );
+                const uint coarse = RadianceCacheClipmapAt( radianceCache, p, 0.9999 );
+                if ( fine < radianceCache.shape.x )
+                    CollectClipmap( p, N, V, fine, RC_STAMP_COVERAGE, RC_MARK_LEVEL_FINE );
+                if ( coarse != fine && coarse < radianceCache.shape.x )
+                    CollectClipmap( p, N, V, coarse, RC_STAMP_COVERAGE, RC_MARK_LEVEL_COARSE );
+                // THE FALLBACK: the clipmap past the coarse end, where a screen probe's radiance read looks
+                // while its own clipmap's eight cells hold no traced probe (RadianceCacheRadianceAt). Stamped
+                // apart from the coverage (RC_STAMP_FALLBACK): its new probes take what the coverage's new probes
+                // leave of the budget (RC_PRIORITY_NEW_FALLBACK), so they never hold back the cells the reads
+                // interpolate themselves. Only when the screen probes read the cache (MarkFallback): the
+                // irradiance readers never read it.
+                if ( MarkFallback != 0u && coarse + 1u < radianceCache.shape.x )
+                    CollectClipmap( p, N, V, coarse + 1u, RC_STAMP_FALLBACK, RC_MARK_LEVEL_FALLBACK );
+            }
+            barrier();
+
+            // ONE WRITE PER WORD AND RUN OF NEIGHBOURS (GPU-SCREENPROBE-6): neighbouring pixels read the same
+            // cells, so the group's 64 pixels stamped the same few words up to 64 times each (Mark 0.114 ms on
+            // FIELD_Barn, its stores serialised on those words). A slot is written unless the left or the upper
+            // thread holds the same word in the same slot: that one writes it, or skips it for the same reason -
+            // the chain ends at a thread with no such neighbour, which writes. Every word stamped before is
+            // stamped now.
+            const uint x = gl_LocalInvocationID.x;
+            const uint y = gl_LocalInvocationID.y;
+            const uint t = gl_LocalInvocationIndex;
+            for ( uint s = 0u; s < RC_MARK_SLOTS; ++s )
+            {
+                const uint word = s_Stamp[s][t];
+                if ( word == RC_MARK_NONE )
+                    continue;
+                if ( x > 0u && s_Stamp[s][t - 1u] == word )
+                    continue;
+                if ( y > 0u && s_Stamp[s][t - 8u] == word )
+                    continue;
+                radianceCacheLastUsed[word] = FrameIndex;
+            }
         }
     }
 }

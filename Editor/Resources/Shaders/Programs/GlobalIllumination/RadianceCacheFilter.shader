@@ -8,7 +8,11 @@ Shader "RadianceCacheFilter"
 {
     Compute
     {
-        LocalSize(8, 8, 1);
+        // 64 output texels (the 8x8 depth probe, the 6x6 irradiance probe in its first 36) x RC_FILTER_SPLIT
+        // quarters of the traced texels: each output's sum over the probe's res^2 texels is cut in four, summed by
+        // four threads at once and added up in shared memory (GPU-SCREENPROBE-6: 64 threads walking all 1024
+        // texels in series left 100 groups latency-bound, 0.104 ms on FIELD_Barn).
+        LocalSize(8, 8, 4);
 
         #include <Common/RadianceCacheState.glslh>
 
@@ -22,7 +26,16 @@ Shader "RadianceCacheFilter"
         // DDGI's depth sharpness: the lobe the distance moments are averaged over.
         #define RC_DISTANCE_LOBE_EXPONENT 50.0
 
+        // The workgroup's threads: 64 outputs x RC_FILTER_SPLIT parts of the texel sums.
+        #define RC_FILTER_SPLIT 4u
+        #define RC_FILTER_THREADS ( 64u * RC_FILTER_SPLIT )
+
         shared vec4 s_Radiance[RC_FILTER_MAX_TEXELS];
+        // Each loaded texel's direction, decoded once by its loader (not once per output thread).
+        shared vec3 s_Direction[RC_FILTER_MAX_TEXELS];
+        // The parts' sums: rgb = irradiance sum, a = cosine sum; xy = moment sum, z = lobe sum.
+        shared vec4 s_IrradiancePart[RC_FILTER_THREADS];
+        shared vec3 s_MomentPart[RC_FILTER_THREADS];
         shared vec3 s_Irradiance[64];
         shared vec2 s_Distance[64];
 
@@ -45,23 +58,30 @@ Shader "RadianceCacheFilter"
             float cosineSum     = 0.0;
             vec2  momentSum  = vec2( 0.0 );
             float lobeSum    = 0.0;
-            const uint  local = gl_LocalInvocationIndex;
+            // The flat thread index (all RC_FILTER_THREADS), the output texel it sums for, and its part.
+            const uint  thread = gl_LocalInvocationIndex;
+            const uint  local  = thread % 64u;
+            const uint  part   = thread / 64u;
             const vec3  irrDirection = RadianceCacheOctDecode( ( vec2( local % irrRes, local / irrRes ) + 0.5 ) / float( irrRes ) * 2.0 - 1.0 );
             const vec3  depDirection = RadianceCacheOctDecode( ( vec2( local % depRes, local / depRes ) + 0.5 ) / float( depRes ) * 2.0 - 1.0 );
 
             for ( uint first = 0u; first < texels; first += RC_FILTER_MAX_TEXELS )
             {
                 const uint slice = min( RC_FILTER_MAX_TEXELS, texels - first );
-                for ( uint i = local; i < slice; i += 64u )
+                for ( uint i = thread; i < slice; i += RC_FILTER_THREADS )
                 {
-                    const uint k = first + i;
-                    s_Radiance[i] = imageLoad( RadianceCacheRadianceTexture, origin + ivec2( k % res, k / res ) );
+                    const uint k   = first + i;
+                    s_Radiance[i]  = imageLoad( RadianceCacheRadianceTexture, origin + ivec2( k % res, k / res ) );
+                    s_Direction[i] =
+                         RadianceCacheOctDecode( ( vec2( k % res, k / res ) + 0.5 ) / float( res ) * 2.0 - 1.0 );
                 }
                 barrier();
-                for ( uint i = 0u; i < slice; ++i )
+                // This part's contiguous run of the slice.
+                const uint runBegin = ( slice * part ) / RC_FILTER_SPLIT;
+                const uint runEnd   = ( slice * ( part + 1u ) ) / RC_FILTER_SPLIT;
+                for ( uint i = runBegin; i < runEnd; ++i )
                 {
-                    const uint k         = first + i;
-                    const vec3 direction = RadianceCacheOctDecode( ( vec2( k % res, k / res ) + 0.5 ) / float( res ) * 2.0 - 1.0 );
+                    const vec3 direction = s_Direction[i];
                     const vec4 sample_   = s_Radiance[i];
                     const float c = dot( irrDirection, direction );
                     if ( c > 0.0 )
@@ -80,15 +100,29 @@ Shader "RadianceCacheFilter"
                 }
                 barrier();
             }
-            // (1/pi) * integral of L cos over the hemisphere = sum(L cos) / sum(cos) for evenly spread directions.
-            if ( local < irrRes * irrRes )
-                s_Irradiance[local] = irradianceSum / max( cosineSum, 1e-4 );
-            if ( local < depRes * depRes )
-                s_Distance[local] = lobeSum > 0.0 ? momentSum / lobeSum : vec2( 1.0 );
+            s_IrradiancePart[thread] = vec4( irradianceSum, cosineSum );
+            s_MomentPart[thread]     = vec3( momentSum, lobeSum );
+            barrier();
+            if ( part == 0u )
+            {
+                vec4 irr = s_IrradiancePart[local];
+                vec3 mom = s_MomentPart[local];
+                for ( uint p = 1u; p < RC_FILTER_SPLIT; ++p )
+                {
+                    irr += s_IrradiancePart[local + 64u * p];
+                    mom += s_MomentPart[local + 64u * p];
+                }
+                // (1/pi) * integral of L cos over the hemisphere = sum(L cos) / sum(cos) for evenly spread
+                // directions.
+                if ( local < irrRes * irrRes )
+                    s_Irradiance[local] = irr.rgb / max( irr.a, 1e-4 );
+                if ( local < depRes * depRes )
+                    s_Distance[local] = mom.z > 0.0 ? mom.xy / mom.z : vec2( 1.0 );
+            }
 
             // Radiance borders (its interior is as traced).
             const int finalRes = int( res ) + 2;
-            for ( uint i = local; i < uint( finalRes * finalRes ); i += 64u )
+            for ( uint i = thread; i < uint( finalRes * finalRes ); i += RC_FILTER_THREADS )
             {
                 const ivec2 b = ivec2( i % uint( finalRes ), i / uint( finalRes ) ) - 1;
                 const ivec2 s = RadianceCacheOctBorderSource( b, int( res ) );
@@ -99,7 +133,7 @@ Shader "RadianceCacheFilter"
 
             const ivec2 irrOrigin = RadianceCacheProbeAtlasOrigin( radianceCache, probe, irrRes + 2u ) + 1;
             const int   irrFinal  = int( irrRes ) + 2;
-            for ( uint i = local; i < uint( irrFinal * irrFinal ); i += 64u )
+            for ( uint i = thread; i < uint( irrFinal * irrFinal ); i += RC_FILTER_THREADS )
             {
                 const ivec2 b = ivec2( i % uint( irrFinal ), i / uint( irrFinal ) ) - 1;
                 const ivec2 s = RadianceCacheOctBorderSource( b, int( irrRes ) );
@@ -107,14 +141,14 @@ Shader "RadianceCacheFilter"
             }
             const ivec2 depOrigin = RadianceCacheProbeAtlasOrigin( radianceCache, probe, depRes + 2u ) + 1;
             const int   depFinal  = int( depRes ) + 2;
-            for ( uint i = local; i < uint( depFinal * depFinal ); i += 64u )
+            for ( uint i = thread; i < uint( depFinal * depFinal ); i += RC_FILTER_THREADS )
             {
                 const ivec2 b = ivec2( i % uint( depFinal ), i / uint( depFinal ) ) - 1;
                 const ivec2 s = RadianceCacheOctBorderSource( b, int( depRes ) );
                 imageStore( RadianceCacheDepthOutTexture, depOrigin + b, vec4( s_Distance[s.x + s.y * int( depRes )], 0.0, 0.0 ) );
             }
 
-            if ( local == 0u )
+            if ( thread == 0u )
             {
                 const RadianceCacheProbe state = radianceCacheProbes[probe];
                 radianceCacheProbes[probe].frames = uvec4( state.frames.x, FrameIndex, state.frames.w, state.frames.w );
