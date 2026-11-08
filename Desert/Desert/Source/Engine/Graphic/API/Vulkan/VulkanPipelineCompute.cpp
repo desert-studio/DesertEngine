@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <chrono>
 #include <utility>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -450,6 +452,21 @@ namespace Desert::Graphic::API::Vulkan
         return bindings;
     }
 
+    // One line per second at most (PipelineBuilds::Tracker::RecordCallingThread closes the window).
+    static void ReportCallingThreadBuild( const PipelineKind                          kind,
+                                          const std::chrono::steady_clock::time_point started ) noexcept
+    {
+        const auto now    = std::chrono::steady_clock::now();
+        const auto closed = PipelineBuilds::Get().RecordCallingThread( kind, now - started, now );
+        if ( !closed )
+            return;
+        LOG_WARN( "[PSO] calling-thread pipeline builds in the last {}s: {} graphics, {} compute; the asking "
+                  "thread waited {:.2f} ms (longest {:.2f} ms). Each one mid-frame is a hitch: precache it.",
+                  PipelineBuilds::Tracker::CallingThreadReportInterval.count(), closed->Graphics, closed->Compute,
+                  std::chrono::duration<double, std::milli>( closed->Blocked ).count(),
+                  std::chrono::duration<double, std::milli>( closed->Longest ).count() );
+    }
+
     void VulkanPipelineCompute::Invalidate()
     {
         RecordShaderCodeGeneration();
@@ -567,8 +584,10 @@ namespace Desert::Graphic::API::Vulkan
 
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
+            const auto                    started = std::chrono::steady_clock::now();
             VK_CHECK_RESULT(
                  vkCreateComputePipelines( device, pipelineCache, 1, &pipelineInfo, nullptr, &next->Pipeline ) );
+            ReportCallingThreadBuild( PipelineKind::Compute, started );
         }
 
         VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.Shader->GetName(),

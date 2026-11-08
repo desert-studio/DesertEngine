@@ -207,6 +207,21 @@ namespace Desert::Graphic::API::Vulkan
         Build( CompileOn::CallingThread );
     }
 
+    // One line per second at most (PipelineBuilds::Tracker::RecordCallingThread closes the window).
+    static void ReportCallingThreadBuild( const PipelineKind                          kind,
+                                          const std::chrono::steady_clock::time_point started ) noexcept
+    {
+        const auto now    = std::chrono::steady_clock::now();
+        const auto closed = PipelineBuilds::Get().RecordCallingThread( kind, now - started, now );
+        if ( !closed )
+            return;
+        LOG_WARN( "[PSO] calling-thread pipeline builds in the last {}s: {} graphics, {} compute; the asking "
+                  "thread waited {:.2f} ms (longest {:.2f} ms). Each one mid-frame is a hitch: precache it.",
+                  PipelineBuilds::Tracker::CallingThreadReportInterval.count(), closed->Graphics, closed->Compute,
+                  std::chrono::duration<double, std::milli>( closed->Blocked ).count(),
+                  std::chrono::duration<double, std::milli>( closed->Longest ).count() );
+    }
+
     void VulkanPipeline::InvalidateAsync( const PipelineRole role )
     {
         m_Role = role;
@@ -675,7 +690,9 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<BuiltPipeline> next = std::move( m_Building );
         if ( where == CompileOn::CallingThread )
         {
+            const auto started = std::chrono::steady_clock::now();
             Compile( device, pipelineCache, std::move( next ) );
+            ReportCallingThreadBuild( PipelineKind::Graphics, started );
             return;
         }
         m_State.store( BuildState::Compiling, std::memory_order_release );

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 
 // Graphics pipelines whose driver compile is running on the JobSystem (PSO1; the pattern of UE 5.8
 // FGraphicsPipelineStateInitializer precaching: the compile leaves the render thread, the draw waits for
@@ -25,6 +26,13 @@ namespace Desert::Graphic
     {
         Engine,   ///< a system pass (G-buffer, shadows, the default surface): the reveal waits for it
         Material, ///< a content material's own shader: compiled on demand, drawn with the default until ready
+    };
+
+    // Which driver entry point a calling-thread build went through (PipelineBuilds::Tracker::RecordCallingThread).
+    enum class PipelineKind : uint8_t
+    {
+        Graphics, ///< vkCreateGraphicsPipelines through the synchronous GraphicsPipeline::Create
+        Compute,  ///< vkCreateComputePipelines (every compute pipeline compiles on the thread that asks)
     };
 } // namespace Desert::Graphic
 
@@ -84,6 +92,52 @@ namespace Desert::Graphic::PipelineBuilds
                 m_CallerBlockedMax = blocked;
         }
 
+        // A DRIVER COMPILE THE ASKING THREAD WAITED FOR (FPS-PSO-PRECACHE; UE counts the same thing as
+        // "PSO hitches", FPSOPrecacheStats / r.PSOPrecache.Validation). The async path above is the one content
+        // takes; this is everything else: a system pass built through the synchronous Create and every compute
+        // pipeline. At startup that is expected; once frames run, each one is a hitch of the frame that asked.
+        // The window closes at most once per second and is then handed back, so the caller logs ONE line per
+        // second with the counts and the time the thread lost, never one line per pipeline.
+        struct CallingThreadWindow
+        {
+            uint64_t                 Graphics = 0;
+            uint64_t                 Compute  = 0;
+            std::chrono::nanoseconds Blocked{};
+            std::chrono::nanoseconds Longest{};
+        };
+        static constexpr std::chrono::seconds CallingThreadReportInterval{ 1 };
+
+        std::optional<CallingThreadWindow> RecordCallingThread( const PipelineKind                          kind,
+                                                                const std::chrono::nanoseconds              took,
+                                                                const std::chrono::steady_clock::time_point now )
+             noexcept
+        {
+            const std::lock_guard lock( m_Mutex );
+            ++m_CallingThreadTotal[static_cast<size_t>( kind )];
+            if ( kind == PipelineKind::Graphics )
+                ++m_Window.Graphics;
+            else
+                ++m_Window.Compute;
+            m_Window.Blocked += took;
+            if ( took > m_Window.Longest )
+                m_Window.Longest = took;
+            if ( !m_WindowStart )
+                m_WindowStart = now;
+            if ( now - *m_WindowStart < CallingThreadReportInterval )
+                return std::nullopt;
+            const CallingThreadWindow closed = m_Window;
+            m_Window                         = {};
+            m_WindowStart                    = now;
+            return closed;
+        }
+
+        // Monotonic: calling-thread builds of @p kind since the process started.
+        uint64_t CallingThreadBuilds( const PipelineKind kind ) const
+        {
+            const std::lock_guard lock( m_Mutex );
+            return m_CallingThreadTotal[static_cast<size_t>( kind )];
+        }
+
         struct CallerCost
         {
             std::chrono::nanoseconds Total{};
@@ -106,6 +160,9 @@ namespace Desert::Graphic::PipelineBuilds
         }
         std::array<size_t, 2>   m_Pending{};
         std::array<uint64_t, 2> m_Started{};
+        std::array<uint64_t, 2> m_CallingThreadTotal{};
+        CallingThreadWindow     m_Window{};
+        std::optional<std::chrono::steady_clock::time_point> m_WindowStart;
     };
 
     inline Tracker& Get()
