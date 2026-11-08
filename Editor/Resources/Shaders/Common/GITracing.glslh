@@ -75,6 +75,10 @@ struct GITraceInput {
     float farTMin;   // cm skipped before a FAR-field hit counts: GIFarFieldTMin of the ray leaving a surface, else 0
 };
 #define GI_TRACE_SHADOW_RAY 1u // any hit ends the walk (visibility only)
+// A gather ray whose caller keeps only a far-field hit's distance (UE: the global SDF trace writes the hit distance,
+// its lighting is a compacted pass of its own): the software far field refines the hit but builds no surface -
+// only .hit, .surface.distance and .surface.globalField are set. The hardware tracer builds its surface anyway.
+#define GI_TRACE_DISTANCE_ONLY 2u
 
 // Where a ray stopped (the fields both tracers can fill; UE FConeTraceResult / FRayTracedLightingResult).
 struct GIHit {

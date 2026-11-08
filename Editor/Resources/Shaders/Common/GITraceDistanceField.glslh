@@ -249,6 +249,12 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface.distance      = globalStart + march.T;
     if ( anyHit )
         return result;
+    if ( ( ray.flags & GI_TRACE_DISTANCE_ONLY ) != 0u )
+    {
+        // The caller rebuilds the surface where it lights the hit (GIFarFieldSurface with level -1).
+        result.surface.globalField = true;
+        return result;
+    }
     result.surface = GIFarFieldSurface( start + ray.direction * march.T, ray.direction, result.surface.distance,
                                         march.Level );
     return result;
