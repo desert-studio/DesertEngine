@@ -60,7 +60,7 @@ namespace
         {
             const auto plan =
                  Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( Descriptors ), Partition );
-            return EditorRegions::SelectRecords( plan, Ids, regions );
+            return EditorRegions::SelectRecords( plan, Ids, regions, {} );
         }
     };
 } // namespace

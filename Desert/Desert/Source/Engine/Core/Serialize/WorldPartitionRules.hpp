@@ -405,6 +405,10 @@ namespace Desert::Core::Rules
         int                Level   = 0;
         CellCoord          Cell;
         std::size_t        Grid    = 0; // index into WorldPartitionSerialized::Grids (UE: the actor's RuntimeGrid)
+        // The data layers the composite belongs to - its ANCHOR's (UE AActor::DataLayerAssets), as indices into
+        // WorldPartitionSerialized::DataLayers, ascending and unique. Empty = no layer. Whatever the Reason: an
+        // always-loaded composite belongs to its layers too, and the editor holds it by them (EditorRegions).
+        std::vector<std::size_t> DataLayers;
     };
 
     // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level and holds
@@ -539,6 +543,9 @@ namespace Desert::Core::Rules
          { "AlwaysLoaded", ComponentLoading::Global },
          // The grid a composite streams on (WP22): it chooses the cell size, never whether the entity is placed.
          { "RuntimeGrid", ComponentLoading::Spatial },
+         // The data layers an entity belongs to (WP-DATA-LAYERS): they decide what the editor holds, never whether
+         // the entity is placed.
+         { "DataLayers", ComponentLoading::Spatial },
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
          // start in an unloaded cell would silently change which one wins, or make a tag unresolvable.
          { "PlayerStart", ComponentLoading::Global },
@@ -646,6 +653,7 @@ namespace Desert::Core::Rules
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
+    inline constexpr std::string_view kDataLayersComponent   = "DataLayers";
     inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
@@ -1208,6 +1216,8 @@ namespace Desert::Core::Rules
         // grid. Read here so the plan names a grid the world does not have
         // (Entities[i].StreamingSource.TargetGrids).
         std::vector<std::string> TargetGrids;
+        // The DataLayers block's layer names (WP-DATA-LAYERS, UE AActor::DataLayerAssets); empty = no layer.
+        std::vector<std::string> DataLayers;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1287,6 +1297,8 @@ namespace Desert::Core::Rules
         }
         if ( const auto source = Detail::BlockOf( record, kStreamingSourceComponent, issues ); source.has_value() )
             source->ReadInto( "TargetGrids", out.TargetGrids, issues );
+        if ( const auto layers = Detail::BlockOf( record, kDataLayersComponent, issues ); layers.has_value() )
+            layers->ReadInto( "Layers", out.DataLayers, issues );
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
         {
@@ -1527,6 +1539,43 @@ namespace Desert::Core::Rules
         bool                 CellsUsable = true;
     };
 
+    // THE DATA LAYERS A WORLD MAY STATE (WP-DATA-LAYERS, UE UDataLayerInstance) - the one rule the planner (step
+    // 4d) and every editor edit of the block (EditWorldPartition: the panel's Data Layers section, `desertctl set
+    // world WorldPartition.DataLayers...`) read: every layer named, once - a name is the only way an entity reaches
+    // a layer, so two layers of one name would make membership a guess. No layers at all is a world without them.
+    [[nodiscard]] inline Common::Json::Issues CheckDataLayers( const WorldPartitionSerialized& settings )
+    {
+        Common::Json::Issues issues;
+        if ( !settings.DataLayers.has_value() )
+            return issues;
+        const std::vector<DataLayerSerialized>& layers = *settings.DataLayers;
+        for ( std::size_t layerIndex = 0; layerIndex < layers.size(); ++layerIndex )
+        {
+            const DataLayerSerialized& layer = layers[layerIndex];
+            const bool                 twice =
+                 std::any_of( layers.begin(), layers.begin() + static_cast<std::ptrdiff_t>( layerIndex ),
+                              [&]( const DataLayerSerialized& other ) { return other.Name == layer.Name; } );
+            if ( layer.Name.empty() || twice )
+                issues.push_back( { std::format( "WorldPartition.DataLayers[{}].Name", layerIndex ),
+                                    "a name no other data layer of the world states", layer.Name } );
+        }
+        return issues;
+    }
+
+    // The index of the layer @p name names in @p settings, or nullopt when the world states none of that name.
+    [[nodiscard]] inline std::optional<std::size_t> DataLayerIndexOf( const WorldPartitionSerialized& settings,
+                                                                      std::string_view                name )
+    {
+        if ( !settings.DataLayers.has_value() )
+            return std::nullopt;
+        const std::vector<DataLayerSerialized>& layers = *settings.DataLayers;
+        const auto found = std::find_if( layers.begin(), layers.end(),
+                                         [&]( const DataLayerSerialized& layer ) { return layer.Name == name; } );
+        if ( found == layers.end() )
+            return std::nullopt;
+        return static_cast<std::size_t>( found - layers.begin() );
+    }
+
     [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
     {
         RuntimeGridsCheck check;
@@ -1746,6 +1795,50 @@ namespace Desert::Core::Rules
                     box.MaxX        = std::max( box.MaxX, point.x );
                     box.MaxZ        = std::max( box.MaxZ, point.y );
                 }
+            }
+        }
+
+        // ── 4d. The data layers each composite belongs to: its anchor's (WP-DATA-LAYERS) ─────────────────
+        // Before the grids, because it does not depend on them: a world whose grids are unusable still holds its
+        // composites in the editor by their layers. A name the world does not state is an Issue with the record's
+        // path and is NOT read as some other layer (UE drops an invalid data layer reference the same way and
+        // the actor is then in no layer by it). A member that states layers other than its anchor's is an Issue
+        // too - the composite moves whole, so it cannot belong to two sets of layers (UE refuses an attachment
+        // across data layers in its streaming generation, IStreamingGenerationErrorHandler).
+        {
+            const Common::Json::Issues layerIssues = CheckDataLayers( settings );
+            plan.Issues.insert( plan.Issues.end(), layerIssues.begin(), layerIssues.end() );
+            const auto sortedNames = []( std::vector<std::string> names )
+            {
+                std::sort( names.begin(), names.end() );
+                names.erase( std::unique( names.begin(), names.end() ), names.end() );
+                return names;
+            };
+            for ( PlannedComposite& held : plan.Composites )
+            {
+                const EntityDescriptor& anchor = records[held.Anchor];
+                for ( const std::string& name : anchor.DataLayers )
+                {
+                    const std::optional<std::size_t> layer = DataLayerIndexOf( settings, name );
+                    if ( !layer.has_value() )
+                    {
+                        plan.Issues.push_back( { std::format( "Entities[{}].{}.Layers", held.Anchor,
+                                                              kDataLayersComponent ),
+                                                 "data layer", name, Common::Json::IssueKind::MissingReference } );
+                        continue;
+                    }
+                    held.DataLayers.push_back( *layer );
+                }
+                std::sort( held.DataLayers.begin(), held.DataLayers.end() );
+                held.DataLayers.erase( std::unique( held.DataLayers.begin(), held.DataLayers.end() ),
+                                       held.DataLayers.end() );
+                const std::vector<std::string> anchorNames = sortedNames( anchor.DataLayers );
+                for ( const std::size_t member : held.Members )
+                    if ( member != held.Anchor && sortedNames( records[member].DataLayers ) != anchorNames )
+                        plan.Issues.push_back(
+                             { std::format( "Entities[{}].{}.Layers", member, kDataLayersComponent ),
+                               std::format( "the data layers of its composite's anchor Entities[{}]", held.Anchor ),
+                               std::format( "{} layer(s) of its own", records[member].DataLayers.size() ) } );
             }
         }
 

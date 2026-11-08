@@ -1,0 +1,31 @@
+# WP-DATA-LAYERS (UE Editor Data Layers): the world states data layers (WorldPartition.DataLayers, WP format v2),
+# an entity belongs to layers by its DataLayers component, and what the editor holds follows the layers loaded in
+# the editor for this user (UE UDataLayerManager::ResolveIsLoadedInEditor: held when ANY of its layers is loaded),
+# whatever the regions - Load All included. The user's Loaded state is kept in Saved/Config/WorldPartitionEditor.json
+# beside the loaded regions (UE UWorldPartitionEditorPerProjectUserSettings), never in the world.
+# Member: the Player cube 9000001 (WP22-REST) - always loaded by its StreamingSource, and an unloaded editor layer
+# still takes it out of the editor (UE unloads always-loaded actors of an unloaded editor layer too).
+# Membership must be on DISK before a reload: a region load reads the world's files and refuses to unload an
+# entity that differs from its file - hence the save after the edits.
+# Lead: if `set` does not create a missing component, add it first (Details > Add Component > Data Layers, or the
+# DesertCtl add-component form) - the field is DataLayersData.Layers.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set world WorldPartition.DataLayers [{"Name":"Gameplay","InitiallyLoadedInEditor":true},{"Name":"Props","InitiallyLoadedInEditor":true}]
+Дано set 9000001 DataLayersData.Layers ["Gameplay"]
+Дано run Scene "Save"
+Дано --subject viewport set Camera.Position 0,40000,-40000
+Дано --subject viewport set Camera.Direction 0,-1,1
+Тогда dl_all_loaded вид сверху 400 м: весь мир загружен (Load All), игрок-куб 9000001 виден; в панели World Partition раздел Data Layers - две строки Gameplay и Props, у обеих Loaded и Initially Loaded отмечены, у Gameplay в Entities 1
+Когда run Scene "World Partition: Unload data layer Gameplay"
+Тогда dl_gameplay_unloaded тот же вид: игрока-куба 9000001 нет (ни во вьюпорте, ни в Outliner), остальной мир на месте; строка состояния панели: "... 1 in unloaded data layers", у Gameplay снят Loaded
+Когда run Scene "World Partition: Load All"
+Тогда dl_load_all_keeps_layer тот же вид: Load All не вернул игрока-куба - слой Gameplay остаётся выгруженным
+Когда run Scene "World Partition: Load data layer Gameplay"
+Тогда dl_gameplay_loaded тот же вид: игрок-куб 9000001 снова на месте; у Gameplay отмечен Loaded
+# Restore the scene: membership first (deleting a layer an entity names would leave a dangling name - an Issue).
+Когда set 9000001 DataLayersData.Layers []
+Когда set world WorldPartition.DataLayers []
+Когда run Scene "Save"
+Тогда dl_restored раздел Data Layers: "This world has no data layers."; мир как в начале
