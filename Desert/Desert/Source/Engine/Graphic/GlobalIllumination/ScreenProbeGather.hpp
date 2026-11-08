@@ -387,6 +387,8 @@ namespace Desert::Graphic::GlobalIllumination
             TraceFarField,    // the same program's far-field leg
             TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
+            TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
+                              // there
             Disocclusion,
             SpatialFilter,
             Filter,

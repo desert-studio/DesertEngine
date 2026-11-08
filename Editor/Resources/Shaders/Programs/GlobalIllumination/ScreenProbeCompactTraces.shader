@@ -4,13 +4,14 @@
 // (ScreenProbeTrace.shader, one thread per listed ray) run no lane for a ray an earlier leg answered. One workgroup per
 // probe, one thread per texel (Common/ScreenProbeTracing.glslh's trace hit buffer); the list keeps a probe's rays
 // together and in texel order (one group appends them as one run), so neighbouring threads of the world legs trace neighbouring directions
-// of one probe. Three compactions a frame (the push constant):
+// of one probe. Five compactions a frame (the push constant; the cache-miss selection serves two):
 //   near field   the rays with no hit that have not reached the radiance cache and are not past MaxDistance (the
 //                near field's end: UE CompactionMaxTraceDistance = MaxMeshSDFTraceDistance);
 //   far field    every ray with no hit (UE bCompactForSkyApply: the cache's radiance and the sky apply to all of
 //                them).
-//   cache miss   after the far field: the rays it left at the radiance cache with no traced probe answering (no
-//                hit, the reached bit still set - the far field clears it on every ray it answers).
+//   cache miss   no hit, the reached bit set: after the far field, the rays it left at the radiance cache (the
+//                cache-read leg's list, ScreenProbeTrace.shader SP_TRACE_CACHE_READ); after that leg, the ones no
+//                traced probe answered (it clears the bit on every ray it answers) - the cache-miss leg's list.
 //   hit lighting the far field's global-field hits, every one (hit AND reached: no other leg writes both),
 //                lit by their own leg (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING), which clears the bit.
 // The indirect arguments are written here rather than by UE's separate one-thread pass: the list's group count is the

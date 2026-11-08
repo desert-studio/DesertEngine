@@ -10,11 +10,15 @@
 //             miss hands the far field where it goes on.
 //   SP_TRACE_FAR_FIELD   over every ray with no hit: the contract's far field (GITraceFarField: the global field) only
 //             as far as the world radiance cache's coverage asks (minTraceDistanceBeforeCache: past it the cache's
-//             probes see what the ray would); a ray that gets there without a hit reads the cache's RADIANCE in its
-//             direction at the probe, from the probes that see it (RadianceCacheRadianceAt, UE
-//             SampleRadianceCacheInterpolated). Outside the cache the ray goes on to the full trace distance and the
-//             sky here (tMax is that distance). Where the cache covers the ray but no traced probe answers (cells the
-//             view just reached), nothing is traced here: the ray is left at the cache, reached and unanswered.
+//             probes see what the ray would); a ray that gets there without a hit is left at the cache (reached, no
+//             hit, nothing stored) for the cache-read leg. Outside the cache the ray goes on to the full trace
+//             distance and the sky here (tMax is that distance).
+//   SP_TRACE_CACHE_READ  over the rays the far field left at the cache (GPU-FARFIELD-6; their own compacted list,
+//             UE's trace / shading split): each reads the cache's RADIANCE in its direction at the probe, from the
+//             probes that see it (RadianceCacheRadianceAt, UE SampleRadianceCacheInterpolated). The far field's
+//             waves no longer hold the cache read's eight-cell latency on their march lanes, and this leg's waves
+//             are all cache reads (no march registers). Where no traced probe answers (cells the view just
+//             reached), nothing is stored: the ray stays at the cache, reached and unanswered.
 //   SP_TRACE_CACHE_MISS  over those rays only (their own compacted list, so a few full-length rays no longer hold
 //             the far field's every wave): the rest of the ray, from the cache's distance to the full trace distance
 //             and the sky, so a new cell is neither black nor sky.
@@ -158,7 +162,7 @@ Shader "ScreenProbeTrace"
         #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
         #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
-        #if !defined( SP_TRACE_HIT_LIGHTING )
+        #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
         #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
         #endif
         #endif
@@ -172,7 +176,7 @@ Shader "ScreenProbeTrace"
         }
 
 #if defined( SP_TRACE_MISS_REASONS )
-        // One atomic per subgroup and reason: the far field reads the cache on most of its rays.
+        // One atomic per subgroup and reason: the cache-read leg reads the cache on every one of its rays.
         void SPCountCacheRead( uint why )
         {
             for ( uint reason = 0u; reason < RADIANCE_CACHE_READ_REASONS; ++reason )
@@ -279,6 +283,24 @@ Shader "ScreenProbeTrace"
             // A global-field hit is never moving (UE TraceVoxels writes bMoving false).
             screenProbeTraceHit[slot] = SPEncodeTraceHit( distance, true, false, false );
 #endif
+#elif defined( SP_TRACE_CACHE_READ )
+            // A ray the far field left at the cache (reached, no hit; only covered rays get there). The coverage's
+            // point and clipmap (UE SampleRadianceCacheInterpolated with FRadianceCacheCoverage): the probe's own
+            // pixel, seen from the camera, so the eight cells read are the ones RadianceCacheMark stamped for that
+            // pixel (RadianceCacheReadPoint), in the clipmap tMax was cut for.
+            const vec3 V     = normalize( giFrame.camera.xyz - texel.position );
+            uint       why   = RADIANCE_CACHE_READ_EMPTY;
+            const vec4 cache = RadianceCacheRadianceAt( texel.position, N, V, dir, texel.coverage.clipmap, why );
+#if defined( SP_TRACE_MISS_REASONS )
+            SPCountCacheRead( why );
+#endif
+            // No traced probe answers, in the coverage's clipmap or a coarser one (RadianceCacheRadianceAt's
+            // fallback): the state stays reached and unanswered, and the cache-miss leg traces the rest of the ray.
+            if ( cache.a > 0.0 )
+            {
+                imageStore( ScreenProbeTracedTexture, at, vec4( cache.rgb, SP_TRACE_DISTANCE ) );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( SP_TRACE_DISTANCE, false, false, false );
+            }
 #else
             // The far field, then the radiance cache's far field, then the sky.
             vec4                result;
@@ -319,33 +341,15 @@ Shader "ScreenProbeTrace"
                 moving = SPTraceHitMoving( probe, texel, far.surface );
 #endif
             }
-            else
+            else if ( texel.coverage.valid )
             {
-                // The coverage's point and clipmap (UE SampleRadianceCacheInterpolated with FRadianceCacheCoverage):
-                // the probe's own pixel, seen from the camera, so the eight cells read are the ones RadianceCacheMark
-                // stamped for that pixel (RadianceCacheReadPoint), in the clipmap tMax was cut for.
-                vec4 cache = vec4( 0.0, 0.0, 0.0, -1.0 );
-                uint why   = RADIANCE_CACHE_READ_EMPTY;
-                if ( texel.coverage.valid )
-                {
-                    const vec3 V = normalize( giFrame.camera.xyz - texel.position );
-                    cache        = RadianceCacheRadianceAt( texel.position, N, V, dir, texel.coverage.clipmap, why );
-#if defined( SP_TRACE_MISS_REASONS )
-                    SPCountCacheRead( why );
-#endif
-                }
-                if ( cache.a > 0.0 )
-                    result = vec4( cache.rgb, SP_TRACE_DISTANCE );
-                else if ( texel.coverage.valid )
-                {
-                    // No traced probe answers, in the coverage's clipmap or a coarser one (RadianceCacheRadianceAt's
-                    // fallback): the cache-miss leg traces the rest of this ray.
-                    screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
-                    return;
-                }
-                else
-                    result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
+                // At the cache: the cache-read leg reads it in its own compacted list (UE's trace / shading split),
+                // so this leg's waves wait on no eight-cell cache read and carry none of its registers.
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
+                return;
             }
+            else
+                result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
             imageStore( ScreenProbeTracedTexture, at, result );
             // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the filter
             // reads its moving bit.
