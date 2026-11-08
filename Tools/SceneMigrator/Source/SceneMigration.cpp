@@ -2888,6 +2888,28 @@ namespace Desert::Migration
             bool                                        IncludeInHLOD = true;
         };
 
+        // The Procedural block of FOLT 7..10, member for member: the engine's FoliageProcedural is v11 (its
+        // DensityFalloff joined there).
+        struct FoliageProceduralV10
+        {
+            float                                                    CollisionRadius       = 100.0f;
+            float                                                    ShadeRadius           = 100.0f;
+            int32_t                                                  NumSteps              = 3;
+            float                                                    InitialSeedDensity    = 1.0f;
+            float                                                    AverageSpreadDistance = 50.0f;
+            float                                                    SpreadVariance        = 150.0f;
+            int32_t                                                  SeedsPerStep          = 3;
+            int32_t                                                  DistributionSeed      = 0;
+            float                                                    MaxInitialSeedOffset  = 0.0f;
+            bool                                                     CanGrowInShade        = false;
+            bool                                                     SpawnsInShade         = false;
+            float                                                    MaxInitialAge         = 0.0f;
+            float                                                    MaxAge                = 10.0f;
+            float                                                    OverlapPriority       = 0.0f;
+            Assets::Serialization::FoliageFloatInterval              ProceduralScale{ 1.0f, 3.0f };
+            std::vector<Assets::Serialization::FoliageScaleCurveKey> ScaleCurve{ { 0.0f, 0.0f }, { 1.0f, 1.0f } };
+        };
+
         // FOLT 7's body: v6 and Procedural. The engine's struct is v8 (its Wind has no DirectionDegrees).
         struct FoliageTypeDataV7
         {
@@ -2908,7 +2930,7 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
             FoliageWindV7                               Wind;
             bool                                        IncludeInHLOD = true;
-            Assets::Serialization::FoliageProcedural    Procedural;
+            FoliageProceduralV10                        Procedural;
         };
 
         // FOLT 8's body: v7 with Wind's response only (no DirectionDegrees). The engine's struct is v9.
@@ -2931,7 +2953,7 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
             Assets::Serialization::FoliageWind          Wind;
             bool                                        IncludeInHLOD = true;
-            Assets::Serialization::FoliageProcedural    Procedural;
+            FoliageProceduralV10                        Procedural;
         };
 
         // FOLT 9's body: v8 and Collision. The engine's struct is v10 (Scaling, ScaleY, ScaleZ).
@@ -2954,7 +2976,34 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
             Assets::Serialization::FoliageWind          Wind;
             bool                                        IncludeInHLOD = true;
-            Assets::Serialization::FoliageProcedural    Procedural;
+            FoliageProceduralV10                        Procedural;
+            Assets::Serialization::FoliageCollision     Collision;
+        };
+
+        // FOLT 10's body: v9 with Scaling, ScaleY and ScaleZ. The engine's struct is v11 (Procedural.DensityFalloff).
+        struct FoliageTypeDataV10
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::Serialization::FoliageTypeKind      Kind = Assets::Serialization::FoliageTypeKind::Mesh;
+            Assets::AssetGuidRef                        Mesh;
+            Assets::AssetGuidRef                        Prefab;
+            float                                       Density = 100.0f;
+            Assets::Serialization::FoliageScaling       Scaling = Assets::Serialization::FoliageScaling::Uniform;
+            Assets::Serialization::FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ScaleY{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ScaleZ{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
+            bool                                        AlignToNormal    = true;
+            bool                                        RandomYaw        = true;
+            float                                       RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>           LandscapeLayers;
+            float                                       MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind          Wind;
+            bool                                        IncludeInHLOD = true;
+            FoliageProceduralV10                        Procedural;
             Assets::Serialization::FoliageCollision     Collision;
         };
 
@@ -4328,7 +4377,7 @@ namespace Desert::Migration
         data.Wind                     = old.Wind;
         data.IncludeInHLOD            = old.IncludeInHLOD;
         // UE UFoliageType's procedural defaults: FOLT 6 had no procedural simulation to state them for.
-        data.Procedural = Assets::Serialization::FoliageProcedural{};
+        data.Procedural = FoliageProceduralV10{};
 
         std::string written = Common::Json::Write( data );
         if ( auto next = MigrateFoliageTypeV7ToV8( written ); !next )
@@ -4437,12 +4486,14 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "FOLT 9 body does not read: {}", v9.GetError() );
         const FoliageTypeDataV9& old = v9.GetValue();
 
-        Assets::Serialization::FoliageTypeData data;
-        data.Header             = old.Header;
-        data.Kind               = old.Kind;
-        data.Mesh               = old.Mesh;
-        data.Prefab             = old.Prefab;
-        data.Density            = old.Density;
+        // v10 text, not the engine's struct: the engine is v11, and v10 -> v11 is the chain's next step.
+        FoliageTypeDataV10 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 10u;
+        data.Kind                     = old.Kind;
+        data.Mesh                     = old.Mesh;
+        data.Prefab                   = old.Prefab;
+        data.Density                  = old.Density;
         // A v9 instance drew ScaleX on all three axes: UE's Uniform, with the other two ranges equal to it so a
         // later switch to a per-axis mode starts from the shape the field already has.
         data.Scaling            = Assets::Serialization::FoliageScaling::Uniform;
@@ -4463,9 +4514,72 @@ namespace Desert::Migration
         data.Procedural         = old.Procedural;
         data.Collision          = old.Collision;
 
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV10ToV11( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 10: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV10ToV11( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 10u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 10 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v10 = Common::Json::Read<FoliageTypeDataV10>( text );
+        if ( !v10 )
+            return Common::MakeFormattedError<std::string>( "FOLT 10 body does not read: {}", v10.GetError() );
+        const FoliageTypeDataV10& old = v10.GetValue();
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Header             = old.Header;
+        data.Kind               = old.Kind;
+        data.Mesh               = old.Mesh;
+        data.Prefab             = old.Prefab;
+        data.Density            = old.Density;
+        data.Scaling            = old.Scaling;
+        data.ScaleX             = old.ScaleX;
+        data.ScaleY             = old.ScaleY;
+        data.ScaleZ             = old.ScaleZ;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        data.CullDistance       = old.CullDistance;
+        data.Wind               = old.Wind;
+        data.IncludeInHLOD      = old.IncludeInHLOD;
+        data.Collision          = old.Collision;
+
+        auto&       p = data.Procedural;
+        const auto& o = old.Procedural;
+        p.CollisionRadius       = o.CollisionRadius;
+        p.ShadeRadius           = o.ShadeRadius;
+        p.NumSteps              = o.NumSteps;
+        p.InitialSeedDensity    = o.InitialSeedDensity;
+        p.AverageSpreadDistance = o.AverageSpreadDistance;
+        p.SpreadVariance        = o.SpreadVariance;
+        p.SeedsPerStep          = o.SeedsPerStep;
+        p.DistributionSeed      = o.DistributionSeed;
+        p.MaxInitialSeedOffset  = o.MaxInitialSeedOffset;
+        p.CanGrowInShade        = o.CanGrowInShade;
+        p.SpawnsInShade         = o.SpawnsInShade;
+        p.MaxInitialAge         = o.MaxInitialAge;
+        p.MaxAge                = o.MaxAge;
+        p.OverlapPriority       = o.OverlapPriority;
+        p.ProceduralScale       = o.ProceduralScale;
+        p.ScaleCurve            = o.ScaleCurve;
+        // A v10 volume grew the type at full density to its edge: the falloff stays off (its curve at UE's
+        // default, for the author who turns it on).
+        p.DensityFalloff = Assets::Serialization::FoliageDensityFalloff{};
+
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 10: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 11: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

@@ -1,0 +1,27 @@
+# PROC-FOLIAGE-BLOCK: UE AProceduralFoliageBlockingVolume + FFoliageDensityFalloff on the S1 procedural volume
+# (AUDIT-FOLIAGE-MOD-1104 tail). Polygon FOLIAGE_Edit.desce: "Procedural Volume" (12x20x12 m at -2500,0,0) growing
+# Foliage/Proof/FOLIAGE_EditShrub. The scene file gains, before this runs (see REMAINDER):
+#   - "Blocking Volume": ProceduralFoliageBlocking, Extent 300,1000,300 at -2500,0,0 (the volume's centre), Volume =
+#     the "Procedural Volume" entity, falloff off;
+#   - "Blocking Volume Soft": the same at -2500,0,400 with UseFalloffCurve on and the curve (0,0) -> (1,1).
+# The shrub type's Procedural.DensityFalloff (FOLT 11) is turned on with UE's default curve (1 at the centre, 0 at
+# the edge) by step 3. Camera straight down over the volume: Position -2500,2600,0, Direction 0,-1,-0.0001.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FOLIAGE_Edit.desce
+Дано run View "View mode: Lit"
+Дано run Scene "World Partition: Load All"
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position -2500,2600,0
+Дано --subject viewport set Camera.Direction 0,-1,-0.0001
+# 1: Resimulate with the hard blocker: a square hole 6x6 m at the volume's centre.
+Когда run Foliage "Resimulate procedural volume: Procedural Volume"
+Тогда-вид 1_hard_block shrubs fill the 12x12 m volume except a sharp-edged empty 6x6 m square at its centre; no shrub stands inside the square
+# 2: the soft blocker next to it: a clearing whose density rises from none at its centre to full at its rim.
+Когда run Foliage "Resimulate procedural volume: Procedural Volume"
+Тогда-вид 2_soft_block beside the hard square, a round clearing: empty at its middle, shrubs thickening towards its edge with no sharp border
+# 3: the type's own falloff (UE default curve): the forest thins from the volume's centre towards its edge.
+Когда run Foliage "Procedural type falloff on: FOLIAGE_EditShrub"
+Когда run Foliage "Resimulate procedural volume: Procedural Volume"
+Тогда-вид 3_type_falloff dense shrubs near the volume's centre (outside the two blocked areas), sparse near the volume's border, none at its corners
+# 4: the same Resimulate again draws the same instances (falloff and blocking are seeded by position).
+Когда run Foliage "Resimulate procedural volume: Procedural Volume"
+Тогда-вид 4_deterministic exactly the frame of step 3: the same shrubs at the same places

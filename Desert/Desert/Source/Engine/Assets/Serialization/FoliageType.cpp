@@ -162,6 +162,44 @@ namespace Desert::Assets::Serialization
         return BOOLSUCCESS;
     }
 
+    float EvaluateFoliageCurve( std::span<const FoliageScaleCurveKey> keys, float time )
+    {
+        if ( keys.empty() )
+            return 0.0f;
+        if ( time <= keys.front().Time )
+            return keys.front().Value;
+        if ( time >= keys.back().Time )
+            return keys.back().Value;
+        const auto  upper = std::upper_bound( keys.begin(), keys.end(), time,
+                                              []( float t, const FoliageScaleCurveKey& key ) { return t < key.Time; } );
+        const auto& b     = *upper;
+        const auto& a     = *( upper - 1 );
+        const float alpha = ( time - a.Time ) / ( b.Time - a.Time );
+        return a.Value + ( b.Value - a.Value ) * alpha;
+    }
+
+    Common::BoolResultStr ValidateFoliageDensityFalloff( const char* field, const FoliageDensityFalloff& falloff )
+    {
+        const auto& keys = falloff.FalloffCurve;
+        if ( keys.empty() )
+            return Common::MakeFormattedError<bool>( "{}.FalloffCurve must hold at least one key", field );
+        for ( size_t i = 0; i < keys.size(); ++i )
+        {
+            const auto& key = keys[i];
+            if ( !std::isfinite( key.Time ) || !std::isfinite( key.Value ) )
+                return Common::MakeFormattedError<bool>( "{}.FalloffCurve[{}] ({}, {}) must be finite", field, i,
+                                                         key.Time, key.Value );
+            if ( key.Value < 0.0f || key.Value > 1.0f )
+                return Common::MakeFormattedError<bool>(
+                     "{}.FalloffCurve[{}].Value {} must lie in 0..1 (the share of instances kept)", field, i,
+                     key.Value );
+            if ( i > 0 && !( key.Time > keys[i - 1].Time ) )
+                return Common::MakeFormattedError<bool>( "{}.FalloffCurve[{}].Time {} must lie after key {}'s {}",
+                                                         field, i, key.Time, i - 1, keys[i - 1].Time );
+        }
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ValidateFoliageProcedural( const FoliageProcedural& p )
     {
         const auto nonNegative = []( const char* name, float value ) -> Common::BoolResultStr
@@ -207,6 +245,8 @@ namespace Desert::Assets::Serialization
                      "Procedural.ScaleCurve[{}].Time {} must lie after key {}'s {}", i, key.Time, i - 1,
                      p.ScaleCurve[i - 1].Time );
         }
+        if ( auto ok = ValidateFoliageDensityFalloff( "Procedural.DensityFalloff", p.DensityFalloff ); !ok )
+            return ok;
         return BOOLSUCCESS;
     }
 

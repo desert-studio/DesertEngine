@@ -1,5 +1,7 @@
 #include <Engine/World/Foliage/Procedural/ProceduralFoliageVolume.hpp>
 
+#include <Common/Core/Math/RandomStream.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -7,6 +9,47 @@
 
 namespace Desert::World::Foliage::Procedural
 {
+    int32_t RandomSeedForPosition( glm::vec2 position )
+    {
+        // Teschner et al.'s spatial hash over the centimetre grid, as wide as the stream's seed.
+        const auto     x    = static_cast<uint64_t>( static_cast<int64_t>( std::llround( position.x ) ) );
+        const auto     z    = static_cast<uint64_t>( static_cast<int64_t>( std::llround( position.y ) ) );
+        const uint64_t hash = ( x * 73856093ull ) ^ ( z * 19349663ull );
+        return static_cast<int32_t>( static_cast<uint32_t>( hash ) );
+    }
+
+    bool IsInstanceFilteredByFalloff( const Assets::Serialization::FoliageDensityFalloff& falloff,
+                                      glm::vec2 position, glm::vec2 origin, float maxDistance )
+    {
+        if ( !falloff.UseFalloffCurve )
+            return false;
+        const glm::vec2 d          = position - origin;
+        const float     distance   = std::sqrt( d.x * d.x + d.y * d.y );
+        const float     normalized = maxDistance > 0.0f ? std::min( distance / maxDistance, 1.0f ) : 1.0f;
+        const float     keep       = Assets::Serialization::EvaluateFoliageCurve( falloff.FalloffCurve, normalized );
+        if ( !( keep < 1.0f ) )
+            return false;
+        Common::Math::RandomStream stream( RandomSeedForPosition( position ) );
+        return stream.FRand() > keep;
+    }
+
+    bool BlocksProceduralInstance( const ProceduralFoliageBlocker& blocker, const Common::UUID& volume,
+                                   const glm::vec3& traceStart, const glm::vec3& ground )
+    {
+        if ( !( blocker.Volume == Common::UUID::Null() ) && !( blocker.Volume == volume ) )
+            return false;
+        const ProceduralFoliageBox& box = blocker.Box;
+        if ( ground.x < box.Min.x || ground.x > box.Max.x || ground.z < box.Min.z || ground.z > box.Max.z )
+            return false;
+        if ( box.Max.y < ground.y || box.Min.y > traceStart.y )
+            return false;
+        if ( !blocker.DensityFalloff.UseFalloffCurve )
+            return true;
+        const glm::vec2 centre{ 0.5f * ( box.Min.x + box.Max.x ), 0.5f * ( box.Min.z + box.Max.z ) };
+        const float     maxExtent = 0.5f * std::max( box.Max.x - box.Min.x, box.Max.z - box.Min.z );
+        return IsInstanceFilteredByFalloff( blocker.DensityFalloff, { ground.x, ground.z }, centre, maxExtent );
+    }
+
     std::vector<ProceduralFoliageDesired> DesiredInstancesInVolume( const ProceduralFoliageSpawner& spawner,
                                                                     const ProceduralFoliageBox&     volume,
                                                                     float                           tileOverlap )
@@ -19,12 +62,22 @@ namespace Desert::World::Foliage::Procedural
              glm::vec2( static_cast<float>( layout.BottomLeftX ), static_cast<float>( layout.BottomLeftY ) ) *
              size;
 
+        // UE ActorVolumeLocation and ActorVolumeMaxExtent: what each type's DensityFalloff is measured from.
+        const glm::vec2 centre    = 0.5f * ( lo + hi );
+        const float     maxExtent = 0.5f * std::max( hi.x - lo.x, hi.y - lo.y );
+        const auto      types     = spawner.Types();
+
         std::vector<ProceduralFoliageDesired> desired;
         for ( const auto& placement : GenerateProceduralContent( spawner, layout, origin, tileOverlap ) )
         {
-            // UE ExtractDesiredInstances: only what stands inside the volume's footprint.
+            // UE ExtractDesiredInstances: only what stands inside the volume's footprint and survives the type's
+            // falloff (an out-of-range type index is PlaceProceduralFoliage's refusal to name).
             const glm::vec2 at = placement.Location;
             if ( at.x < lo.x || at.x > hi.x || at.y < lo.y || at.y > hi.y )
+                continue;
+            if ( placement.TypeIndex < types.size() &&
+                 IsInstanceFilteredByFalloff( types[placement.TypeIndex].Procedural.DensityFalloff, at, centre,
+                                              maxExtent ) )
                 continue;
             desired.push_back( ProceduralFoliageDesired{
                  placement, { at.x, volume.Max.y, at.y }, { at.x, volume.Min.y, at.y } } );

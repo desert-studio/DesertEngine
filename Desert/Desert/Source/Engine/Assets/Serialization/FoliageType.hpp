@@ -62,7 +62,10 @@ namespace Desert::Assets::Serialization
      *  10 - Scaling, ScaleY and ScaleZ join (FOLIAGE-SCALING, UE EFoliageScaling and UFoliageType::ScaleY/ScaleZ):
      *       the instances may scale per axis. SceneMigrator raises a v9 file (MigrateFoliageTypeV9ToV10) with
      *       Scaling Uniform and ScaleY = ScaleZ = ScaleX, what every v9 instance drew (ScaleX on all three axes).
-     *       The engine reads v10 only.
+     *  11 - Procedural.DensityFalloff joins (PROC-FOLIAGE-BLOCK, UE UFoliageType::DensityFalloff): the type may
+     *       thin towards the edge of the procedural volume. SceneMigrator raises a v10 file
+     *       (MigrateFoliageTypeV10ToV11) with UseFalloffCurve false, what every v10 volume grew (full density to
+     *       its edge). The engine reads v11 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -214,6 +217,30 @@ namespace Desert::Assets::Serialization
     };
 
     /**
+     * @brief UE FFoliageDensityFalloff: the share of instances kept as a function of the normalized distance from
+     *        a volume's centre (the horizontal distance over the volume's largest horizontal half extent, clamped
+     *        to 1).
+     *
+     * FalloffCurve's Time is that normalized distance and its Value the probability, 0..1, that an instance there
+     * is kept. Whether one is kept is drawn from a stream seeded by its position (UE IsInstanceFiltered with
+     * GetRandomSeedForPosition), so a resimulation keeps and drops the same instances. Read only when
+     * UseFalloffCurve is on. Held by a foliage type (its procedural volume) and by a procedural foliage blocking
+     * volume (World::Foliage::Procedural::ProceduralFoliageBlocker).
+     */
+    struct FoliageDensityFalloff
+    {
+        bool UseFalloffCurve = false;
+        /// UE's default: full density at the centre, none at the edge.
+        std::vector<FoliageScaleCurveKey> FalloffCurve{ { 0.0f, 1.0f }, { 1.0f, 0.0f } };
+
+        [[nodiscard]] bool operator==( const FoliageDensityFalloff& ) const = default;
+    };
+
+    /// A foliage curve (UE FRichCurve: ScaleCurve, FalloffCurve) at @p time: piecewise linear between its keys,
+    /// constant beyond its ends, 0 for a curve without keys. The one evaluation every foliage curve goes through.
+    [[nodiscard]] float EvaluateFoliageCurve( std::span<const FoliageScaleCurveKey> keys, float time );
+
+    /**
      * @brief What the procedural foliage simulation grows from a type (UE UFoliageType, category Procedural:
      *        Collision, Clustering, Growth). Read by World::Foliage::Procedural; centimetres as in UE.
      *
@@ -255,6 +282,9 @@ namespace Desert::Assets::Serialization
         FoliageFloatInterval ProceduralScale{ 1.0f, 3.0f };
         /// Age over MaxAge -> share of ProceduralScale (keys with strictly increasing Time).
         std::vector<FoliageScaleCurveKey> ScaleCurve{ { 0.0f, 0.0f }, { 1.0f, 1.0f } };
+        /// How the type thins towards the edge of its procedural volume (FOLT 11, UE DensityFalloff): the distance
+        /// is measured from the volume's centre over its largest horizontal half extent.
+        FoliageDensityFalloff DensityFalloff;
 
         [[nodiscard]] bool operator==( const FoliageProcedural& ) const = default;
     };
@@ -390,6 +420,9 @@ namespace Desert::Assets::Serialization
     /// Rejects procedural numbers the simulation cannot honour (negative radii, steps or densities, a scale curve
     /// whose keys do not rise in Time), naming the field.
     Common::BoolResultStr ValidateFoliageProcedural( const FoliageProcedural& procedural );
+    /// Rejects a falloff curve the filter cannot honour (no keys, a non-finite key, Time not rising, a Value
+    /// outside 0..1), naming @p field. Shared by every holder of a FoliageDensityFalloff.
+    Common::BoolResultStr ValidateFoliageDensityFalloff( const char* field, const FoliageDensityFalloff& falloff );
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data );
 
     /// Parses a `.defoliage`. A file without a header, of another version, of another kind, with a
