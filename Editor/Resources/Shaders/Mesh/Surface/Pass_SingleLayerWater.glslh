@@ -247,9 +247,10 @@ void main()
     A.BackIrradiance = vec3( 0.0 );
     const vec3 reflected = DesertEvaluateShadingModelAmbient( DESERT_SHADING_MODEL_INDEX, A, S, P );
 
-    // What the interface does not reflect enters the eye from the volume (UE: 1 - EnvBRDF).
+    // What the interface does not reflect enters the eye from the volume (UE: 1 - EnvBRDF), the reflection being the
+    // multiply-scattered lobe the model's ambient specular draws (Mesh/AmbientIBL.glslh DesertAmbientSpecularAlbedo).
     const vec3 F0      = DesertSpecularF0( S );
-    const vec3 through = vec3( 1.0 ) - ( F0 * A.SpecularBRDF.x + A.SpecularBRDF.y );
+    const vec3 through = vec3( 1.0 ) - DesertAmbientSpecularAlbedo( F0, A.SpecularBRDF );
 
     // The fog in front of the surface (pre-exposed inscattering, transmittance): the refracted scene behind is the
     // fogged copy, so only the light the water itself sends (its inscattering, the interface) is attenuated, and the

@@ -65,4 +65,114 @@ vec3 fresnelSchlick(vec3 F0, float cosTheta)
 	return F0 + (vec3(1.0) - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
+// MULTIPLE-SCATTERING ENERGY COMPENSATION of the GGX specular lobe (Kulla-Conty 2017, Fdez-Aguera 2019; UE's
+// ShadingEnergyConservation: ComputeGGXSpecEnergyTermsRGB, W = 1 + F0 * (1 - E) / E).
+//
+// A single-scattering microfacet BRDF loses the light that bounces between microfacets more than once: its
+// directional albedo E(N.V, roughness) for F0 = 1 - the white-furnace integral of the lobe - is 1 for a mirror and
+// falls to 0.34 at roughness 1 seen head-on. A rough metal therefore drew up to three times darker than the light
+// it receives, and darker the rougher it was. The missing share is restored by scaling the lobe by
+// W = 1 + F0 * (1 / E - 1): for F0 = 1 the lobe then integrates to exactly 1 (W * E = 1), and a dielectric's small
+// F0 takes only F0 * (1 - E) more - the multiply-scattered light is coloured by F0 (Kulla-Conty's F_avg term).
+//
+// THE PREINTEGRATED E. kGGXSpecularAlbedo is the split-sum LUT's scale + bias at F0 = 1 (Graphic/BRDFLut.cpp
+// IntegrateBRDF: GGX D, Smith-Schlick G with k = roughness^2 / 2) on a 16 x 16 grid of texel centres - u = N.V,
+// v = roughness, both (i + 0.5) / 16 - integrated from the same integrand at 16384 Hammersley samples by
+// scripts/Dev/ggx_specular_albedo_table.py, which prints these rows. It is the PHYSICAL lobe's albedo, not the
+// direct lobe's: VisibilitySmith's k = (roughness + 1)^2 / 8 is Karis' "hotness" remap for analytic lights, which
+// darkens a smooth surface at grazing on purpose; compensating THAT would invert the remap (26x at N.V 0.03,
+// roughness 0.03) instead of restoring inter-reflection. At roughness 1 the two k agree (0.5), and that is where
+// the loss the compensation answers lives.
+//
+// WHY A CONSTANT TABLE AND NOT THE LUT TEXTURE. Every path that lights a surface reaches this file - the deferred
+// composite, the forward passes, MegaLights' shade and volume programs, the GI hit lighting of every tracer - and
+// most of them bind no BrdfLutTexture. Like DirectLighting.glslh this file declares no sampler, so it stays
+// includable anywhere and compiles as C++ (the Desert/Tests/Engine references). The image-based half has the LUT
+// texture at hand and takes E from its own sample (Mesh/AmbientIBL.glslh DesertAmbientSpecularAlbedo), which makes
+// its white furnace exact.
+const float kGGXSpecularAlbedo[256] = {
+	0.9703f, 0.9906f, 0.9947f, 0.9965f, 0.9975f, 0.9981f, 0.9986f, 0.9989f,
+	0.9991f, 0.9993f, 0.9995f, 0.9996f, 0.9997f, 0.9998f, 0.9999f, 1.0000f,
+	0.7776f, 0.9188f, 0.9537f, 0.9690f, 0.9778f, 0.9833f, 0.9872f, 0.9900f,
+	0.9922f, 0.9939f, 0.9954f, 0.9966f, 0.9975f, 0.9983f, 0.9991f, 0.9997f,
+	0.6461f, 0.8007f, 0.8773f, 0.9159f, 0.9387f, 0.9537f, 0.9642f, 0.9719f,
+	0.9780f, 0.9825f, 0.9864f, 0.9896f, 0.9924f, 0.9947f, 0.9967f, 0.9985f,
+	0.6442f, 0.7031f, 0.7875f, 0.8449f, 0.8830f, 0.9091f, 0.9287f, 0.9434f,
+	0.9547f, 0.9640f, 0.9715f, 0.9779f, 0.9832f, 0.9879f, 0.9918f, 0.9952f,
+	0.6801f, 0.6619f, 0.7171f, 0.7723f, 0.8182f, 0.8540f, 0.8821f, 0.9044f,
+	0.9222f, 0.9369f, 0.9490f, 0.9592f, 0.9680f, 0.9756f, 0.9822f, 0.9879f,
+	0.7168f, 0.6581f, 0.6782f, 0.7185f, 0.7602f, 0.7976f, 0.8300f, 0.8572f,
+	0.8802f, 0.9002f, 0.9170f, 0.9315f, 0.9441f, 0.9552f, 0.9650f, 0.9736f,
+	0.7443f, 0.6691f, 0.6657f, 0.6870f, 0.7166f, 0.7481f, 0.7787f, 0.8071f,
+	0.8324f, 0.8553f, 0.8757f, 0.8938f, 0.9100f, 0.9244f, 0.9374f, 0.9490f,
+	0.7611f, 0.6851f, 0.6661f, 0.6709f, 0.6871f, 0.7095f, 0.7337f, 0.7587f,
+	0.7826f, 0.8056f, 0.8270f, 0.8468f, 0.8651f, 0.8820f, 0.8975f, 0.9118f,
+	0.7679f, 0.6973f, 0.6694f, 0.6623f, 0.6677f, 0.6798f, 0.6961f, 0.7146f,
+	0.7342f, 0.7541f, 0.7736f, 0.7927f, 0.8110f, 0.8284f, 0.8450f, 0.8606f,
+	0.7655f, 0.7025f, 0.6704f, 0.6558f, 0.6520f, 0.6553f, 0.6635f, 0.6748f,
+	0.6881f, 0.7028f, 0.7183f, 0.7342f, 0.7501f, 0.7659f, 0.7813f, 0.7964f,
+	0.7549f, 0.6995f, 0.6661f, 0.6465f, 0.6361f, 0.6323f, 0.6331f, 0.6374f,
+	0.6441f, 0.6526f, 0.6626f, 0.6735f, 0.6851f, 0.6972f, 0.7095f, 0.7220f,
+	0.7371f, 0.6884f, 0.6551f, 0.6325f, 0.6174f, 0.6078f, 0.6025f, 0.6003f,
+	0.6007f, 0.6031f, 0.6071f, 0.6123f, 0.6186f, 0.6257f, 0.6334f, 0.6416f,
+	0.7132f, 0.6697f, 0.6372f, 0.6127f, 0.5941f, 0.5802f, 0.5698f, 0.5624f,
+	0.5572f, 0.5539f, 0.5522f, 0.5518f, 0.5525f, 0.5542f, 0.5566f, 0.5598f,
+	0.6840f, 0.6446f, 0.6129f, 0.5872f, 0.5662f, 0.5489f, 0.5346f, 0.5228f,
+	0.5129f, 0.5049f, 0.4982f, 0.4928f, 0.4885f, 0.4851f, 0.4825f, 0.4806f,
+	0.6506f, 0.6141f, 0.5831f, 0.5566f, 0.5338f, 0.5140f, 0.4967f, 0.4815f,
+	0.4681f, 0.4562f, 0.4456f, 0.4362f, 0.4277f, 0.4201f, 0.4133f, 0.4072f,
+	0.6141f, 0.5795f, 0.5490f, 0.5220f, 0.4979f, 0.4763f, 0.4569f, 0.4392f,
+	0.4231f, 0.4084f, 0.3949f, 0.3825f, 0.3711f, 0.3605f, 0.3506f, 0.3415f,
+};
+
+// E(N.V, roughness) for F0 = 1, bilinear between the table's texel centres and clamped at its edges (a texture's
+// clamp-to-edge). Written in the subset GLSL and C++ share: no literal is a double and no built-in is called.
+float GGXSpecularAlbedo(float NoV, float roughness)
+{
+	float x = NoV * 16.0f - 0.5f;
+	float y = roughness * 16.0f - 0.5f;
+	if (x < 0.0f)
+		x = 0.0f;
+	if (x > 15.0f)
+		x = 15.0f;
+	if (y < 0.0f)
+		y = 0.0f;
+	if (y > 15.0f)
+		y = 15.0f;
+	int x0 = int(x);
+	int y0 = int(y);
+	if (x0 > 14)
+		x0 = 14;
+	if (y0 > 14)
+		y0 = 14;
+	const float fx  = x - float(x0);
+	const float fy  = y - float(y0);
+	const float e00 = kGGXSpecularAlbedo[y0 * 16 + x0];
+	const float e10 = kGGXSpecularAlbedo[y0 * 16 + x0 + 1];
+	const float e01 = kGGXSpecularAlbedo[(y0 + 1) * 16 + x0];
+	const float e11 = kGGXSpecularAlbedo[(y0 + 1) * 16 + x0 + 1];
+	const float e0  = e00 + (e10 - e00) * fx;
+	const float e1  = e01 + (e11 - e01) * fx;
+	return e0 + (e1 - e0) * fy;
+}
+
+// W = 1 + F0 * (1 / E - 1) for the lobe's F0 = 1 albedo @p specularAlbedo. Multiplies the specular lobe; the diffuse
+// lobe under it gives up the same extra energy (GGXMultipleScatteringShare). The table's least entry is 0.34; the
+// floor is for a split-sum sample of the frame graph's black stand-in LUT (FrameGraphRefs.hpp: BrdfLut or
+// System.Black), whose lobe is 0 and must stay 0 rather than become 0 * inf = NaN.
+vec3 GGXEnergyCompensation(vec3 F0, float specularAlbedo)
+{
+	float E = specularAlbedo;
+	if (E < 1e-4f)
+		E = 1e-4f;
+	return 1.0f + F0 * (1.0f / E - 1.0f);
+}
+
+// What the compensated lobe reflects ON TOP of the single-scattering one, E * (W - 1) = F0 * (1 - E): the share of
+// the incident energy the diffuse lobe under it can no longer receive.
+vec3 GGXMultipleScatteringShare(vec3 F0, float specularAlbedo)
+{
+	return F0 * (1.0f - specularAlbedo);
+}
+
 #endif // BRDF_GLSLH
