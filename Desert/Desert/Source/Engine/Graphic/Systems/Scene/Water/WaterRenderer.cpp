@@ -34,17 +34,27 @@
 
 namespace
 {
-    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    // The slot names the two water cells' passes bind, spelled once (RDGShaderParameters.hpp; UE
+    // FSingleLayerWaterPassParameters). The material's own (route fill): WaterTiles, Materials, the push block.
     struct WaterShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials ); // Core::Formats::kMaterialRowBlockName
+        // Mesh/Surface/WaterMeshTiles.glslh binding 25: both cells' vertex stage (the waves damp by the ground),
+        // the water's fragment stage (the surf). Fetched by texel, so it brings no sampler of its own.
+        DESERT_SHADER_PARAMETER( Texture, WaterInfoTexture );
+        // Pass_SingleLayerWater.glslh only: the scene behind the water and the one state its cubes, BRDF LUT,
+        // scene copy and front-layer reflection are read through.
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         // Mesh/Surface/FrontLayerReflection.glslh, as the glass cells bind them (MeshRendererForward.cpp).
         DESERT_SHADER_PARAMETER( Texture, FrontLayerReflectionTexture );
         DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
     };
     static_assert( WaterShaderParameters::FrontLayerReflectionTexture.Name ==
                    ::Desert::Graphic::kPassFrontLayerReflectionTextureName );
+    static_assert( WaterShaderParameters::SceneColorTexture.Name ==
+                   ::Desert::Graphic::kPassSceneColorTextureName );
 } // namespace
 
 namespace Desert::Graphic::System
@@ -542,14 +552,13 @@ namespace Desert::Graphic::System
         const auto&          layout  = slotted.Layout;
         auto block = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
         BindSceneViewInputs( block, view, slotted.Slots );
-        constexpr RDG::TextureParameter kSceneColor{ "SceneColorTexture" };
-        constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
         // The WaterInfo ground (UE: the water info texture a view's water pass reads): a pass input like the scene
         // copy, never a material property.
-        constexpr RDG::TextureParameter kWaterInfo{ "WaterInfoTexture" };
-        block.Texture( kSceneColor, sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Texture( kWaterInfo, waterInfo, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-             .Sampler( kClamp, RDG::SamplerDesc::LinearClamp() );
+        block.Texture( WaterShaderParameters::SceneColorTexture, sceneCopy, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( WaterShaderParameters::WaterInfoTexture, waterInfo, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Sampler( WaterShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         // The front layer's traced reflection where this fragment is the front layer (FrontLayerReflection.glslh),
         // fetched by texel through the clamp state above; the caller hands the graph's black for both without one,
         // which the water reads as "no trace" (its captures and sky alone).
@@ -571,10 +580,24 @@ namespace Desert::Graphic::System
         pass.Prepares( *front.Material->GetMaterialExecutor() );
         const SlottedLayout& slotted = m_Layout.GetSlotted( front.Pipeline->GetSpecification().Shader );
         auto block = pass.Bindings( slotted.Layout, front.Material->GetMaterialExecutor()->GetRouteFill() );
+        // THE CELL'S RESOURCES (census of WaterMesh.FrontLayer = Vertex_WaterMesh.glslh + Pass_FrontLayer.glslh
+        // over SurfaceTypes.glslh), every one filled here or by the material - ValidatePassBindings refuses the
+        // node otherwise:
+        //   the view block and the frame's blocks           - frame.ApplyTo above;
+        //   WaterTiles, Materials, the push block           - the material (PrepareFrame, ApplyMaterial);
+        //   the bindless textures and samplers              - the material table's bindless set, as every cell;
+        //   any SceneViewSlot the layout declares           - BindSceneViewInputs (none today: the front layer
+        //                                                     pass reads no scene depth, no shading word);
+        //   WaterInfoTexture                                - here: the waves damp by the ground in the vertex
+        //                                                     stage, as the water's own cell's do.
+        // No shared sampler: Pass_FrontLayer.glslh samples nothing through one, WaterInfoTexture is fetched by
+        // texel, the scene depth's PointClampSampler is the Forward cells' (SurfaceTypes.glslh) - and a shared
+        // sampler no stage reads fails the shader map build, so the cell declares none and the pass binds none
+        // (a bound slot the shader lacks is refused: "is not a resource of shader"). No SceneColorTexture either:
+        // the front layer draws before the scene copy exists.
         BindSceneViewInputs( block, view, slotted.Slots );
-        // The waves damp by the ground's depth in the vertex stage (WaterMeshTiles.glslh), as the surface's do.
-        constexpr RDG::TextureParameter kWaterInfo{ "WaterInfoTexture" };
-        block.Texture( kWaterInfo, waterInfo, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+        block.Texture( WaterShaderParameters::WaterInfoTexture, waterInfo, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr WaterRenderer::RenderManual( const RDG::PassContext& context )
