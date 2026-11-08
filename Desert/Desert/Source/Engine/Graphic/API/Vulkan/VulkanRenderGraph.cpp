@@ -1745,6 +1745,22 @@ namespace Desert::Graphic::API::Vulkan
             if ( logged->second != structure )
             {
                 std::string line;
+                // GPU-ASYNC-WAIT: each join also names how many graphics passes the queue has between the fork and
+                // the join (the work that overlaps the segment) and the first graphics passes after the join (the
+                // work queued behind the wait), so an "RDG Wait" line reads against the order that caused it.
+                const auto onAsync = [&]( uint32_t position )
+                {
+                    for ( const RDG::PipeSegment& other : graph.Result->Segments )
+                    {
+                        if ( other.OnPipe == RDG::Pipe::AsyncCompute && position >= other.FirstPosition &&
+                             position <= other.LastPosition )
+                            return true;
+                    }
+                    return false;
+                };
+                const auto     positions       = static_cast<uint32_t>( graph.Result->Passes.size() );
+                uint32_t       windowStart     = 0; // one past the fork that orders the current segment
+                constexpr auto kNamedAfterJoin = 4u;
                 for ( const RDG::PipeSegment& segment : graph.Result->Segments )
                 {
                     if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
@@ -1762,9 +1778,15 @@ namespace Desert::Graphic::API::Vulkan
                             continue;
                         forked = true;
                         if ( forkSync.SignalPosition == RDG::CrossPipeSync::kForkAtGraphStart )
+                        {
                             line += ", forked at the graph start";
+                            windowStart = 0;
+                        }
                         else
+                        {
                             line += ", forked after '" + graph.Result->Passes[forkSync.SignalPosition].Name + "'";
+                            windowStart = forkSync.SignalPosition + 1;
+                        }
                         if ( !forkSync.Cause.empty() )
                             line += " by " + forkSync.Cause;
                     }
@@ -1783,6 +1805,28 @@ namespace Desert::Graphic::API::Vulkan
                             // What made it wait (RDGCompile CutRunsAtConsumers): the resource and the async pass.
                             if ( !sync.Cause.empty() )
                                 line += " by " + sync.Cause;
+                            uint32_t overlapping = 0;
+                            for ( uint32_t p = windowStart; p < sync.WaitPosition && p < positions; ++p )
+                            {
+                                if ( !onAsync( p ) )
+                                    ++overlapping;
+                            }
+                            line += ", " + std::to_string( overlapping ) + " graphics passes from its fork, then";
+                            uint32_t named = 0;
+                            for ( uint32_t p = sync.WaitPosition + 1; p < positions && named < kNamedAfterJoin;
+                                  ++p )
+                            {
+                                if ( onAsync( p ) )
+                                    continue;
+                                if ( named == 0 )
+                                    line += " '";
+                                else
+                                    line += "', '";
+                                line += graph.Result->Passes[p].Name;
+                                ++named;
+                            }
+                            if ( named > 0 )
+                                line += "'";
                         }
                     }
                     line += "]";
