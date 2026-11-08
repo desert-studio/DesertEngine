@@ -28,9 +28,11 @@ namespace Desert::Runtime
      * memmove, crash 20261107-204659), and a reader racing a resize read a freed buffer. So: Register /
      * Unregister / Replace / Clear take the lock exclusively, Resolve / Share / ForEachImage take it shared,
      * and no caller ever sees the raw vectors. An image whose last reference is dropped by Unregister /
-     * Replace / Clear is destroyed AFTER the lock is released, so its destructor never runs under the lock.
-     * Resolve's raw pointer is valid while the caller keeps the owner (the Texture2D / Environment) alive, as
-     * before; a holder that must outlive the owner takes Share.
+     * Replace / Clear is released AFTER the lock is released, so its destructor never runs under the lock.
+     * Resolve's raw pointer is valid while the caller keeps the owner (the Texture2D / Environment) alive,
+     * and for the frames in flight after Unregister / Replace (the outgoing image retires through
+     * RendererContext::RetireAfterFramesInFlight); Clear (shutdown) destroys at once. A holder that must
+     * outlive both takes Share.
      */
     class ImageService
     {

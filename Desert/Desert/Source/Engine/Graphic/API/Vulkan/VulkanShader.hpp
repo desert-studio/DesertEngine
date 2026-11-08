@@ -169,12 +169,15 @@ namespace Desert::Graphic::API::Vulkan
         {
             return !Current().StageInfos.empty();
         }
-        [[nodiscard]] std::string_view GetDeviceRefusal() const override
+        // Immutable copies taken under m_ErrorLock: a Reload on another thread rewrites the strings.
+        [[nodiscard]] std::string GetDeviceRefusal() const override
         {
+            std::lock_guard lock( m_ErrorLock );
             return m_DeviceRefusal;
         }
-        [[nodiscard]] std::string_view GetCompileError() const override
+        [[nodiscard]] std::string GetCompileError() const override
         {
+            std::lock_guard lock( m_ErrorLock );
             return m_CompileError;
         }
         /**
@@ -287,6 +290,10 @@ namespace Desert::Graphic::API::Vulkan
         std::filesystem::path                        m_ShaderPath;
         std::string                                  m_ShaderName;
         std::string                                  m_PassName; // empty = default program
+        // Written only through SetDeviceRefusal / SetCompileError, read only as copies (the getters).
+        void SetDeviceRefusal( std::string refusal ) noexcept;
+        void SetCompileError( std::string error ) noexcept;
+        mutable std::mutex m_ErrorLock;
         // Set by BuildFromSpirv when a stage needs a capability this device lacks (GetDeviceRefusal).
         std::string m_DeviceRefusal;
         // The last Reload's failure, or empty after one that succeeded (GetCompileError).

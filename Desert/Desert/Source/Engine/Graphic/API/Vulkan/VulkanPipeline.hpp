@@ -32,9 +32,64 @@ namespace Desert::Graphic::API::Vulkan
     // recording context hands GetVkPipelineFor for a framebuffer-opened pass.
     RdgRenderPassKey CompatibleRenderPassKeyOf( const FramebufferSpecification& spec, uint32_t samples );
 
+    // EVERYTHING ONE BUILD PRODUCED, AS ONE IMMUTABLE RECORD (UE: a PSO rebuilt after a shader change is a
+    // new pipeline object; the old one is released by deferred deletion after the frames in flight). A
+    // render worker of frame N-1 binds this pipeline - and creates its pass variants from the create-info
+    // below - while the game thread of frame N rebuilds it after a shader reload; nothing it reads is ever
+    // written again once published. A rebuild builds a NEW record and publishes it; the replaced one is
+    // destroyed through the allocator's deletion queue (RT_DestroyLater), never in place. A draw reads the
+    // record ONCE (VulkanPipeline::GetBuilt) and takes pipeline, layout, layouts and push range from it.
+    struct VulkanBuiltPipeline
+    {
+        // The shader record the stages came from, co-owned: PipelineInfo.pStages points into it, and a
+        // pass variant is created from PipelineInfo frames after the shader may have been reloaded.
+        std::shared_ptr<const VulkanShader::CompiledProgram> Program;
+
+        VkPipelineLayout PipelineLayout = VK_NULL_HANDLE;
+        VkPipeline       Pipeline       = VK_NULL_HANDLE;
+        // Set with PipelineLayout, from the same SetUpPushConstantRange call (GetPushConstantRange).
+        std::optional<VkPushConstantRange> PushConstantRange;
+        // The descriptor set layouts PipelineLayout was built from, held so they outlive it.
+        std::vector<DescriptorSetLayoutRef> Layouts;
+
+        VkPipelineVertexInputStateCreateInfo   VertexInputInfo{};
+        VkPipelineInputAssemblyStateCreateInfo InputAssembly{};
+        VkPipelineDynamicStateCreateInfo       DynamicStateInfo{};
+        VkPipelineViewportStateCreateInfo      ViewportState{};
+        VkPipelineRasterizationStateCreateInfo Rasterizer{};
+        VkPipelineMultisampleStateCreateInfo   Multisampling{};
+        VkPipelineDepthStencilStateCreateInfo  DepthStencil{};
+        VkPipelineColorBlendStateCreateInfo    ColorBlending{};
+        // Layout ∩ vertex-stage inputs; VertexInputInfo points into it.
+        ShaderReflection::VertexInputState VertexInput;
+
+        std::vector<VkDynamicState>                      DynamicStates;
+        std::vector<VkPipelineColorBlendAttachmentState> ColorBlendAttachments;
+
+        VkPipelineTessellationStateCreateInfo Tessellation{};
+        VkGraphicsPipelineCreateInfo          PipelineInfo{};
+        // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
+        // is built against; compatible with every render pass the graph builds for those formats.
+        VkRenderPass CompatibleRenderPass = VK_NULL_HANDLE;
+        // The sample count Pipeline was built at, and the variants for every render pass at another count
+        // it was bound in, by that pass's compatibility key. The variants are the one part made after
+        // publication (on first use, by a render worker), so they sit under their own lock and die with
+        // the record they were made from.
+        uint32_t                                       BuiltSamples = 1;
+        mutable std::map<RdgRenderPassKey, VkPipeline> PassVariants;
+        mutable std::mutex                             PassVariantsLock;
+
+        VulkanBuiltPipeline()                                        = default;
+        VulkanBuiltPipeline( const VulkanBuiltPipeline& )            = delete; // create-info points into itself
+        VulkanBuiltPipeline& operator=( const VulkanBuiltPipeline& ) = delete;
+        ~VulkanBuiltPipeline(); // destroys the variants, the pipeline, its layout and the compatible pass
+    };
+
     class VulkanPipeline final : public GraphicsPipeline
     {
     public:
+        using BuiltPipeline = VulkanBuiltPipeline; // one build's product, published whole (above)
+
         VulkanPipeline( const GraphicsPipelineSpecification& specification );
         ~VulkanPipeline() override;
 
@@ -108,6 +163,15 @@ namespace Desert::Graphic::API::Vulkan
         // pipeline is rebuilt or released -- switching back costs nothing. Null while the base is not built or
         // when the variant could not be created (logged once per key).
         VkPipeline GetVkPipelineFor( const RdgRenderPassKey& openPass );
+        // The same, from @p record (a GetBuilt() the caller read once): its layout and push range are then the
+        // ones of the pipeline bound, even when a rebuild publishes a new record in between.
+        VkPipeline GetVkPipelineFor( const BuiltPipeline& record, const RdgRenderPassKey& openPass );
+        // THE PUBLISHED RECORD, read once (one atomic load). Valid for the frames in flight after a rebuild
+        // replaces it (deferred deletion), so a draw takes every handle it records from this one read.
+        [[nodiscard]] const BuiltPipeline& GetBuilt() const noexcept
+        {
+            return Current();
+        }
 
         // The descriptor set layouts the published pipeline layout was built from, one per set.
         const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
@@ -144,8 +208,6 @@ namespace Desert::Graphic::API::Vulkan
         void CreateDepthStencilState();
         void CreateColorBlendState();
 
-        struct BuiltPipeline; // one build's product, published whole (below)
-
         enum class CompileOn : uint8_t
         {
             CallingThread,
@@ -160,58 +222,6 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         GraphicsPipelineSpecification m_Specification;
-
-        // EVERYTHING ONE BUILD PRODUCED, AS ONE IMMUTABLE RECORD (UE: a PSO rebuilt after a shader change is a
-        // new pipeline object; the old one is released by deferred deletion after the frames in flight). A
-        // render worker of frame N-1 binds this pipeline - and creates its pass variants from the create-info
-        // below - while the game thread of frame N rebuilds it after a shader reload; nothing it reads is ever
-        // written again once published. A rebuild builds a NEW record and publishes it; the replaced one is
-        // destroyed through the allocator's deletion queue (RT_DestroyLater), never in place.
-        struct BuiltPipeline
-        {
-            // The shader record the stages came from, co-owned: PipelineInfo.pStages points into it, and a
-            // pass variant is created from PipelineInfo frames after the shader may have been reloaded.
-            std::shared_ptr<const VulkanShader::CompiledProgram> Program;
-
-            VkPipelineLayout PipelineLayout = VK_NULL_HANDLE;
-            VkPipeline       Pipeline       = VK_NULL_HANDLE;
-            // Set with PipelineLayout, from the same SetUpPushConstantRange call (GetPushConstantRange).
-            std::optional<VkPushConstantRange> PushConstantRange;
-            // The descriptor set layouts PipelineLayout was built from, held so they outlive it.
-            std::vector<DescriptorSetLayoutRef> Layouts;
-
-            VkPipelineVertexInputStateCreateInfo   VertexInputInfo{};
-            VkPipelineInputAssemblyStateCreateInfo InputAssembly{};
-            VkPipelineDynamicStateCreateInfo       DynamicStateInfo{};
-            VkPipelineViewportStateCreateInfo      ViewportState{};
-            VkPipelineRasterizationStateCreateInfo Rasterizer{};
-            VkPipelineMultisampleStateCreateInfo   Multisampling{};
-            VkPipelineDepthStencilStateCreateInfo  DepthStencil{};
-            VkPipelineColorBlendStateCreateInfo    ColorBlending{};
-            // Layout ∩ vertex-stage inputs; VertexInputInfo points into it.
-            ShaderReflection::VertexInputState VertexInput;
-
-            std::vector<VkDynamicState>                      DynamicStates;
-            std::vector<VkPipelineColorBlendAttachmentState> ColorBlendAttachments;
-
-            VkPipelineTessellationStateCreateInfo Tessellation{};
-            VkGraphicsPipelineCreateInfo          PipelineInfo{};
-            // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
-            // is built against; compatible with every render pass the graph builds for those formats.
-            VkRenderPass CompatibleRenderPass = VK_NULL_HANDLE;
-            // The sample count Pipeline was built at, and the variants for every render pass at another count
-            // it was bound in, by that pass's compatibility key. The variants are the one part made after
-            // publication (on first use, by a render worker), so they sit under their own lock and die with
-            // the record they were made from.
-            uint32_t                                       BuiltSamples = 1;
-            mutable std::map<RdgRenderPassKey, VkPipeline> PassVariants;
-            mutable std::mutex                             PassVariantsLock;
-
-            BuiltPipeline()                                  = default;
-            BuiltPipeline( const BuiltPipeline& )            = delete; // the create-info points into itself
-            BuiltPipeline& operator=( const BuiltPipeline& ) = delete;
-            ~BuiltPipeline(); // destroys the variants, the pipeline, its layout and the compatible render pass
-        };
 
         [[nodiscard]] const BuiltPipeline& Current() const noexcept
         {

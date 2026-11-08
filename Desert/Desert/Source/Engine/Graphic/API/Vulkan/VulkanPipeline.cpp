@@ -141,7 +141,7 @@ namespace Desert::Graphic::API::Vulkan
         return s_Empty;
     }
 
-    VulkanPipeline::BuiltPipeline::~BuiltPipeline()
+    VulkanBuiltPipeline::~VulkanBuiltPipeline()
     {
         if ( Pipeline == VK_NULL_HANDLE && PipelineLayout == VK_NULL_HANDLE &&
              CompatibleRenderPass == VK_NULL_HANDLE && PassVariants.empty() )
@@ -485,11 +485,15 @@ namespace Desert::Graphic::API::Vulkan
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
+        return GetVkPipelineFor( Current(), openPass );
+    }
+
+    VkPipeline VulkanPipeline::GetVkPipelineFor( const BuiltPipeline& record, const RdgRenderPassKey& openPass )
+    {
         // ONE RECORD for the whole lookup: the base, its sample count, the create-info a variant is made
-        // from and the variant map all belong to the build that is published now.
+        // from and the variant map all belong to the build the caller read.
         if ( GetBuildState() != BuildState::Built )
             return VK_NULL_HANDLE;
-        const BuiltPipeline& record  = Current();
         VkPipeline           base    = record.Pipeline;
         const uint32_t samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == record.BuiltSamples )

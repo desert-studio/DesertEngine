@@ -1,7 +1,9 @@
 #include "AnimatedImageService.hpp"
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/IO/ImageReader.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
@@ -77,7 +79,8 @@ namespace Desert::Runtime
         if ( static_cast<uint64_t>( handle ) == 0 )
             return nullptr;
 
-        const Anim& anim = GetOrDecode( handle );
+        std::lock_guard lock( m_Lock );
+        const Anim&     anim = GetOrDecode( handle );
         if ( !anim.Animated )
             return nullptr;
 
@@ -99,6 +102,18 @@ namespace Desert::Runtime
 
     void AnimatedImageService::Clear()
     {
-        m_Anims.clear();
+        auto outgoing = std::make_shared<std::unordered_map<Assets::AssetHandle, Anim>>();
+        {
+            std::lock_guard lock( m_Lock );
+            outgoing->swap( m_Anims );
+        }
+        if ( outgoing->empty() )
+            return;
+        // An Image2D* Resolve answered for frame N-1 may still be recorded: the frame textures retire after
+        // the frames in flight, and die at once only with no renderer.
+        const auto ctx = EngineContext::GetInstance().GetRendererContext();
+        if ( !ctx )
+            return; // `outgoing` dies here
+        ctx->RetireAfterFramesInFlight( [held = std::move( outgoing )]() mutable { held.reset(); } );
     }
 } // namespace Desert::Runtime

@@ -70,17 +70,18 @@ namespace
     {
         if ( shader.IsCompiled() )
             return;
-        if ( !shader.GetDeviceRefusal().empty() )
+        if ( const std::string refusal = shader.GetDeviceRefusal(); !refusal.empty() )
         {
-            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader.GetName(),
-                      shader.GetDeviceRefusal(), file.string() );
+            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader.GetName(), refusal,
+                      file.string() );
             return;
         }
+        std::string why = shader.GetCompileError();
+        if ( why.empty() )
+            why = "the build gave no reason";
         LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using it will not "
                    "draw until it compiles ({}): {}",
-                   shader.GetName(), file.string(),
-                   shader.GetCompileError().empty() ? std::string_view( "the build gave no reason" )
-                                                    : shader.GetCompileError() );
+                   shader.GetName(), file.string(), why );
     }
 } // namespace
 
@@ -513,7 +514,7 @@ namespace Desert::Runtime
             // nothing the header did not already say: the doc lists the refusals and the error names which
             // one this is, and since NN-RUNTIME-6 the reason travels in the Result, so the caller that marks
             // a path refused or falls back says WHY in its own log or report instead of a line nobody pairs.
-            const std::string why = program ? std::string( program->GetCompileError() ) : built.GetError();
+            const std::string why = program ? program->GetCompileError() : built.GetError();
             return refused(
                  std::format( "Variant {} of '{}' has no compiled stages - the source did not compile or "
                               "reflect: {}",

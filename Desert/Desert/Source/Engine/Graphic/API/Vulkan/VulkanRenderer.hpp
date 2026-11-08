@@ -22,6 +22,8 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    struct VulkanBuiltPipeline; // VulkanPipeline.hpp: one published pipeline build
+
     class VulkanRendererAPI : public RendererAPI
     {
     public:
@@ -195,7 +197,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings&   bindings,
                                                      const GraphicsPipeline&    pipeline,
                                                      const MaterialExecutor*    material,
-                                                     std::span<const std::byte> drawPush, PassStatePush pushMode );
+                                                     std::span<const std::byte> drawPush, PassStatePush pushMode,
+                                                     const VulkanBuiltPipeline* record = nullptr );
         // Binds @p geometry's vertex buffer (binding 0), its streams or the shared default (binding 1, when
         // @p pipeline's vertex input has it) and its index buffer, each at its byte offset, unless exactly those
         // are bound already for this pipeline on this command buffer (m_BoundGeometry); then the instance id
@@ -300,7 +303,10 @@ namespace Desert::Graphic::API::Vulkan
          * Latched by debug name because this is asked once per draw call: a broken shader would
          * otherwise write the same line thousands of times a second and the log would stop being read.
          */
-        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
+        // @p record: the pipeline's build the caller read once (VulkanPipeline::GetBuilt) and takes its layout and
+        // push range from; null = the one published now.
+        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline*    pipeline,
+                                              const VulkanBuiltPipeline* record = nullptr );
         // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
         // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
         // RDG-PARALLEL-1: its handle, read under m_GrowLock - a chunk on another worker may grow it meanwhile (the
