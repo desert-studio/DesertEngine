@@ -26,6 +26,7 @@
 #include <format>
 #include <optional>
 #include <span>
+#include <utility>
 
 namespace Desert::Graphic::System
 {
@@ -329,7 +330,11 @@ namespace Desert::Graphic::System
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
             m_HitLightingShader    = std::move( program );
-            m_HitLightingPipeline  = pipeline.GetValue();
+            // Published whole; the replaced one outlives the frames that may still trace it (a pass of an
+            // earlier frame traces the one it captured: HitLightingPipeline()).
+            std::shared_ptr<RayTracingPipeline> outgoing =
+                 std::exchange( m_HitLightingPipeline, pipeline.GetValue() );
+            RayTracingPipeline::Retire( std::move( outgoing ) );
             m_HitLightingTemplates = templates;
             m_HitLightingFor       = m_TracedVariant.Hash();
             return BOOLSUCCESS;
@@ -640,19 +645,28 @@ namespace Desert::Graphic::System
         // EXEC of the hit-lit node: the same push constants as the classify's, one ray generation per trace texel,
         // the shader binding table from @p hits (this frame's RayTracingHitGroupTable, whose Templates built the
         // pipeline).
+        // GRAPH BUILD: the hit-lit pipeline published right now, for the pass to capture - its exec traces the
+        // one it holds, never the member a later frame's EnsureHitLightingPipeline may republish meanwhile.
+        [[nodiscard]] std::shared_ptr<RayTracingPipeline> HitLightingPipeline() const
+        {
+            return m_HitLightingPipeline;
+        }
+
+        // @p pipeline: HitLightingPipeline() taken at this frame's graph build.
         [[nodiscard]] Common::BoolResultStr
-        RecordHitLighting( const RDG::PassContext& context, const glm::vec4& cameraPos,
-                           const TraceSettings& settings, const bool sceneHistoryReadable, const uint32_t seed,
+        RecordHitLighting( const RDG::PassContext& context, const RayTracingPipeline* pipeline,
+                           const glm::vec4& cameraPos, const TraceSettings& settings,
+                           const bool sceneHistoryReadable, const uint32_t seed,
                            const RayTracing::RayTracingHitGroupTable& hits ) const
         {
             DESERT_PROFILE_PASS( "SSR: Hit-lit trace" );
-            if ( !m_HitLightingPipeline )
+            if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the hit-lit pipeline was not made this frame" );
             const TracePush push =
                  MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Trace );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::TraceRays( bindings, *m_HitLightingPipeline, hits,
+            return Renderer::TraceRays( bindings, *pipeline, hits,
                                         TraceExtent( Width(), settings.DownsampleFactor ),
                                         TraceExtent( Height(), settings.DownsampleFactor ) );
         }

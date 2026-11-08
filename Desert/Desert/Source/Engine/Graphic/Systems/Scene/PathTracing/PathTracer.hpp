@@ -582,7 +582,9 @@ namespace Desert::Graphic::System
             auto pipeline = RayTracingPipeline::Create( spec );
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
-            m_TracePipeline     = pipeline.GetValue();
+            // Published whole; the replaced one outlives the frames that may still trace it.
+            std::shared_ptr<RayTracingPipeline> outgoing = std::exchange( m_TracePipeline, pipeline.GetValue() );
+            RayTracingPipeline::Retire( std::move( outgoing ) );
             m_PipelineTemplates = templates;
             return BOOLSUCCESS;
         }
@@ -687,7 +689,9 @@ namespace Desert::Graphic::System
             auto pipeline = RayTracingPipeline::Create( spec );
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
-            m_TracePipelineNrc     = pipeline.GetValue();
+            std::shared_ptr<RayTracingPipeline> outgoing =
+                 std::exchange( m_TracePipelineNrc, pipeline.GetValue() );
+            RayTracingPipeline::Retire( std::move( outgoing ) );
             m_PipelineTemplatesNrc = m_PipelineTemplates;
             return BOOLSUCCESS;
         }

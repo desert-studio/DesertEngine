@@ -2231,11 +2231,12 @@ namespace Desert::Graphic
                                                      hzb, traceUniforms, camera, *traced,
                                                      frontLayer != nullptr ? &frontInputs : nullptr );
                  },
-                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
-                  sceneHistoryReadable, seed,
-                  hits = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr {
-                     return ssrPtr->RecordHitLighting( context, cameraPos, settings, sceneHistoryReadable, seed,
-                                                       *hits );
+                 [ssrPtr = &ssr, pipeline = ssr.HitLightingPipeline(),
+                  cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings, sceneHistoryReadable, seed,
+                  hits      = traced->HitGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     return ssrPtr->RecordHitLighting( context, pipeline.get(), cameraPos, settings,
+                                                       sceneHistoryReadable, seed, *hits );
                  } );
         }
         if ( raw )

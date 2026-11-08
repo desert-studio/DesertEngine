@@ -45,5 +45,13 @@ namespace Desert::Graphic
 
         NO_DISCARD static Common::ResultStr<std::shared_ptr<RayTracingPipeline>>
         Create( const RayTracingPipelineSpecification& spec );
+
+        // A BUILT PIPELINE IS AN IMMUTABLE PUBLISHED RECORD (UE: FRayTracingPipelineState, held by the command
+        // list that traces it): Create builds it whole, nothing rebuilds it in place, and a trace reads its
+        // pipeline, layout, set layouts, push stages and group handles from the one object it was handed. A
+        // rebuild makes a NEW pipeline; the holder publishes it and hands the one it replaces here, which keeps
+        // it alive past the frames in flight that may still record with it (RendererContext::
+        // RetireAfterFramesInFlight; dies at once with no renderer). A trace pass captures its own reference.
+        static void Retire( std::shared_ptr<RayTracingPipeline>&& outgoing ) noexcept;
     };
 } // namespace Desert::Graphic
