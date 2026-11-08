@@ -10,6 +10,7 @@
 // Geometry/Mesh.hpp by translation units that never include Core.hpp on their own.
 #include <Common/Core/Core.hpp>
 
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -105,6 +106,17 @@ namespace Desert::Graphic
                     DESERT_VERIFY( field.Location == layout.m_Elements.size(),
                                    "a vertex format's binding-0 attributes are not at consecutive locations" );
                     layout.m_Elements.push_back( element );
+                    continue;
+                }
+                if ( field.Binding == ShaderProtocols::kMeshPreviousPositionBinding )
+                {
+                    // The previous positions: a buffer of this very format, its first attribute (the position)
+                    // read at the format's stride (offset 0, CalculateOffsetsAndStride).
+                    DESERT_VERIFY( !layout.m_PreviousPositionLocation.has_value() &&
+                                        field.Type == ShaderDataType::Float3,
+                                   "a vertex format's previous positions are not one Float3" );
+                    layout.m_PreviousPositionLocation = field.Location;
+                    layout.m_PreviousPosition         = element;
                     continue;
                 }
                 if ( layout.m_StreamElements.empty() )
@@ -203,10 +215,26 @@ namespace Desert::Graphic
             return m_StreamFirstLocation;
         }
 
+        // THE PREVIOUS-POSITION BINDING (ShaderProtocols::kMeshPreviousPositionBinding, the skinned format only):
+        // a buffer of THIS layout's vertices whose first attribute is the position the vertex had last frame, read
+        // as one Float3 at GetPreviousPositionLocation(), offset 0, at GetStride(). A mesh whose vertices did not
+        // move under it binds its own vertices there (MeshGeometry::PreviousVertices null).
+        [[nodiscard]] std::optional<uint32_t> GetPreviousPositionLocation() const
+        {
+            return m_PreviousPositionLocation;
+        }
+        // Meaningful only when GetPreviousPositionLocation() has a value.
+        [[nodiscard]] const VertexBufferElement& GetPreviousPositionElement() const
+        {
+            return m_PreviousPosition;
+        }
+
     private:
         std::vector<VertexBufferElement> m_StreamElements;
         std::uint32_t                    m_StreamStride        = 0;
         std::uint32_t                    m_StreamFirstLocation = 0;
+        std::optional<uint32_t>          m_PreviousPositionLocation;
+        VertexBufferElement              m_PreviousPosition;
     };
 
     class VertexBuffer : public DynamicResources

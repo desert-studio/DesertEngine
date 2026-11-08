@@ -359,11 +359,12 @@ namespace Desert::Graphic::GpuDriven
         // same range. The range is pool-absolute (the mesh's span base added), so two pooled meshes never share a
         // bin while all of them share their arena's group.
         using BindingKey = std::tuple<const VertexBuffer*, uint64_t, const VertexBuffer*, uint64_t,
-                                      const IndexBuffer*, uint64_t>;
+                                      const IndexBuffer*, uint64_t, const VertexBuffer*, uint64_t>;
         const auto keyOf = []( const MeshGeometryBinding& binding )
         {
-            return BindingKey{ binding.Vertices, binding.VertexOffset, binding.Streams,
-                               binding.StreamOffset, binding.Indices, binding.IndexOffset };
+            return BindingKey{ binding.Vertices,    binding.VertexOffset,     binding.Streams,
+                               binding.StreamOffset, binding.Indices,          binding.IndexOffset,
+                               binding.PreviousVertices, binding.PreviousVertexOffset };
         };
         using BinKey = std::tuple<const GraphicsPipeline*, BindingKey, uint32_t, uint32_t, uint32_t>;
         struct BinDraft

@@ -155,6 +155,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             return Current().VertexInput.HasBinding( GpuDriven::kVisibleRowVertexBinding );
         }
+        // The vertex stage reads last frame's positions (a_PrevPosition, the skinned format's binding 3): the draw
+        // binds the geometry's previous vertices there (MeshGeometryBinding::PreviousVertices, its own when null).
+        [[nodiscard]] bool ReadsPreviousPositions() const
+        {
+            return Current().VertexInput.HasBinding( ShaderProtocols::kMeshPreviousPositionBinding );
+        }
 
         // THE PIPELINE FOR THE RENDER PASS THE DRAW IS RECORDED IN, passed by the caller as that pass's
         // compatibility key (RdgCompatibilityKey). The pipeline is built at the sample count of its target when

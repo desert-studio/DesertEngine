@@ -121,7 +121,8 @@ namespace Desert
     }
 
     std::shared_ptr<SkinnedMesh>
-    SkinnedMesh::MakeMorphedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> morphedVertices )
+    SkinnedMesh::MakeMorphedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> morphedVertices,
+                                  std::shared_ptr<Graphic::VertexBuffer> previousVertices )
     {
         // Private default constructor: make_shared cannot reach it.
         std::shared_ptr<SkinnedMesh> twin( new SkinnedMesh() );
@@ -130,6 +131,7 @@ namespace Desert
         const Graphic::MeshGeometry& baseGeometry = base.GetGeometry();
         Graphic::MeshGeometry        geometry;
         geometry.Vertices         = std::move( morphedVertices );
+        geometry.PreviousVertices = std::move( previousVertices ); // binding 3: last frame's blend
         geometry.Streams          = baseGeometry.Streams;
         geometry.Indices          = baseGeometry.Indices;
         geometry.StreamByteOffset = baseGeometry.StreamByteOffset;

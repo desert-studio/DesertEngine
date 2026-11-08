@@ -142,6 +142,23 @@ namespace Desert::Graphic::ShaderProtocols
         return fields;
     }
 
+    /// @p fields followed by @p extra on their own @p binding, at consecutive locations from @p firstLocation.
+    template <std::size_t Count, std::size_t ExtraCount>
+    [[nodiscard]] constexpr std::array<VertexInputField, Count + ExtraCount>
+    AppendVertexInputs( const std::array<VertexInputField, Count>&     fields,
+                        const std::array<VertexInputSpec, ExtraCount>& extra, const uint32_t firstLocation,
+                        const uint32_t binding )
+    {
+        std::array<VertexInputField, Count + ExtraCount> all{};
+        for ( std::size_t i = 0; i < Count; ++i )
+            all[i] = fields[i];
+        for ( std::size_t i = 0; i < ExtraCount; ++i )
+            all[Count + i] = { extra[i].Name, extra[i].Type,
+                               extra[i].Glsl, firstLocation + static_cast<uint32_t>( i ),
+                               binding,       extra[i].Normalized };
+        return all;
+    }
+
     /// True when no two attributes share a location or a name — a stream first location inside binding 0's range
     /// breaks it.
     [[nodiscard]] constexpr bool VertexInputsAreDistinct( const std::span<const VertexInputField> fields )
@@ -193,14 +210,28 @@ namespace Desert::Graphic::ShaderProtocols
     FIELD_NORMALIZED( UNorm8x4, a_Color )                                                                         \
     FIELD( Float2, a_TexCoord1 )
 
+    // THE PREVIOUS POSITIONS (skinned path only; UE FGPUBaseSkinVertexFactory's PreviousMorph / the skin cache's
+    // PreviousPosition): binding kMeshPreviousPositionBinding holds a buffer OF THIS FORMAT (same stride) whose
+    // first attribute is the position the vertex had last frame - a morphed twin's previous blend
+    // (MeshRendererMorph), every other mesh its own vertices (MeshGeometry::PreviousVertices). Read only by the
+    // view-pass cells of Mesh/Surface/Vertex_Skinned.glslh that skin in the vertex stage (no skin-cache entry),
+    // for velocity; a stage that does not read it gets no binding (VulkanShaderReflection BuildVertexInput).
+    // Binding 2 / location 9 are the binned draw's instance id stream (GpuDriven/GpuSceneLayout.hpp).
+#define DESERT_MESH_PREVIOUS_POSITION_FIELDS( FIELD, FIELD_NORMALIZED ) FIELD( Float3, a_PrevPosition )
+
     inline constexpr uint32_t kMeshVertexStreamFirstLocation = 7;
+    inline constexpr uint32_t kMeshPreviousPositionBinding   = 3;
+    inline constexpr uint32_t kMeshPreviousPositionLocation  = 10;
 
     inline constexpr auto kMeshVertexInputs = MakeVertexInputs(
          DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_VERTEX_FIELDS ),
          DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_VERTEX_STREAM_FIELDS ), kMeshVertexStreamFirstLocation );
-    inline constexpr auto kMeshSkinnedVertexInputs = MakeVertexInputs(
-         DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_SKINNED_VERTEX_FIELDS ),
-         DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_VERTEX_STREAM_FIELDS ), kMeshVertexStreamFirstLocation );
+    inline constexpr auto kMeshSkinnedVertexInputs =
+         AppendVertexInputs( MakeVertexInputs( DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_SKINNED_VERTEX_FIELDS ),
+                                               DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_VERTEX_STREAM_FIELDS ),
+                                               kMeshVertexStreamFirstLocation ),
+                             DESERT_VERTEX_INPUT_SPECS( DESERT_MESH_PREVIOUS_POSITION_FIELDS ),
+                             kMeshPreviousPositionLocation, kMeshPreviousPositionBinding );
     static_assert( VertexInputsAreDistinct( kMeshVertexInputs ) &&
                         VertexInputsAreDistinct( kMeshSkinnedVertexInputs ),
                    "the mesh streams' first location falls inside binding 0's attributes" );
