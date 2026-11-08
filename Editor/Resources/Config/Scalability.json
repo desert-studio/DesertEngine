@@ -240,6 +240,7 @@
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 64,
+                "GlobalIllumination.ScreenSpaceRays": 4,
                 "GlobalIllumination.Method": "ProbeVolume",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
@@ -257,6 +258,7 @@
             },
             "Medium": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
+                "GlobalIllumination.ScreenSpaceRays": 4,
                 "GlobalIllumination.Method": "ProbeVolume",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,

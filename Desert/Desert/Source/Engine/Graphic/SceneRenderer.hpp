@@ -90,6 +90,7 @@
 #include "Systems/Scene/PostProcessing/AutoExposureRenderer.hpp"
 #include "Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
+#include "Systems/Scene/Deferred/SSGIRenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
@@ -1447,6 +1448,10 @@ namespace Desert::Graphic
                                                        const std::vector<RDG::TextureRef>& gbuffer,
                                                        const ViewFrame&                    frame );
         bool                       EnsureMegaLightsResources();
+        // GIMethod::ScreenSpace's trace + denoiser (m_SSGI) and the screen trace's shared inputs, built with the
+        // first frame that resolves GI to ScreenSpace; a program that does not build refuses the method
+        // (RefuseProgramMethods), so the next BeginScene resolves GI below it.
+        bool EnsureSSGIResources();
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
         // MegaLightsVolume, sliced over @p lightGrid's depth range, its froxels' visibility the frame's
         // StochasticVisibility per light (rayquery: the TLAS; vsm+screen: the screen trace from the froxel point
@@ -1866,6 +1871,12 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
                                            const ViewFrame& frame );
+        // GIMethod::ScreenSpace's diffuse indirect of this frame (System::SSGIRenderer: the HZB trace over the
+        // scene colour history, then the diffuse-indirect denoiser) into FrameTransients::GIDiffuse, which the
+        // composite reads as GI mode 1 - only when the frame's GI is ScreenSpace and @p screenTrace is valid.
+        void AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                           const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
+                           const ViewFrame& frame );
         // The pending reflection capture's cube, written in this view's graph with its capture point measured by
         // the view's diffuse estimator (ReflectionCaptureLighting): the world radiance cache when @p tracedGI and
         // this frame's AddFrameTracedGI produced one, otherwise the sky's irradiance cube.
@@ -2374,6 +2385,12 @@ namespace Desert::Graphic
         System::MegaLightsQuality  m_MegaLightsQuality;
         bool                       m_MegaLightsReady  = false;
         bool                       m_MegaLightsFailed = false;
+        // GIMethod::ScreenSpace (per view: its denoiser history is this view's), created on the first frame that
+        // resolves GI to ScreenSpace; its quality (GlobalIllumination.ScreenSpace*) taken each BeginScene.
+        System::SSGIRenderer           m_SSGI;
+        System::SSGIRenderer::Settings m_SSGISettings;
+        bool                           m_SSGIReady  = false;
+        bool                           m_SSGIFailed = false;
         // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
         // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
         // BeginScene.

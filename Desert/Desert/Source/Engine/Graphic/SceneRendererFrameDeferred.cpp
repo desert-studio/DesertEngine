@@ -747,6 +747,53 @@ namespace Desert::Graphic
         t.GIOccluded = gathered.GetValue().ShortRangeAO;
     }
 
+    void SceneRenderer::AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                      const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+    {
+        if ( m_RenderMethods.GlobalIllumination.Effective != Common::Scalability::GIMethod::ScreenSpace )
+            return;
+        // Said once per distinct reason (the traced GI's refusal record: the two methods never run together).
+        const auto refuse = [this]( std::string message )
+        {
+            if ( m_TracedGIRefusal.Claim( std::move( message ) ) )
+            {
+                LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
+            }
+        };
+        if ( gbuffer.size() < 2 || !m_GBuffer || !screenTrace.HZB.IsValid() ||
+             !screenTrace.SceneHistory.IsValid() )
+        {
+            refuse( "SSGI: no G-buffer normal or no screen trace this frame (HZB / scene colour history)" );
+            return;
+        }
+        if ( !EnsureSSGIResources() )
+            return; // refused once by EnsureSSGIResources; the next BeginScene resolves GI below ScreenSpace
+        const auto desc = graph.GetTextureDesc( gbuffer[1] );
+        if ( !desc )
+        {
+            refuse( std::format( "SSGI: {}", desc.GetError() ) );
+            return;
+        }
+        const auto&                        refs = textures.GraphRefs();
+        const System::SSGIRenderer::Inputs in{ .GBufferNormal        = gbuffer[1],
+                                               .GBufferDepth         = textures.Depth( m_GBuffer, "GBuffer" ),
+                                               .Velocity             = textures.Transients.Velocity,
+                                               .HZB                  = screenTrace.HZB,
+                                               .SceneHistory         = screenTrace.SceneHistory,
+                                               .Black                = refs.System.Black,
+                                               .SceneHistoryReadable = screenTrace.SceneHistoryReadable };
+        const auto traced = m_SSGI.AddPasses( graph, in, m_SSGISettings, frame, desc.GetValue().Size.Width,
+                                              desc.GetValue().Size.Height );
+        if ( !traced )
+        {
+            refuse( std::format( "SSGI: {}", traced.GetError() ) );
+            return;
+        }
+        m_TracedGIRefusal.Clear();
+        textures.Transients.GIDiffuse = traced.GetValue(); // -> Deferred: Composite, GI mode 1
+    }
+
     bool SceneRenderer::WorldLightGridRead() const
     {
         // The traced GI's hits lit in place, the traced reflections' (the surface cache brings those up too), and

@@ -130,8 +130,10 @@ Shader "SSAO"
         // cosine-weighted mean direction of the visible arc between the two horizons (Jimenez et al. 2016,
         // Algorithm 2 - XeGTAO XeGTAO_MainPass's t0 / t1). An angle theta of the slice is the direction
         // cos(theta) * viewDir + sin(theta) * S with S = -perp, the side gamma measures toward (sin(gamma) is
-        // -dot(projNormal, perp) / |projNormal|), so t0 is the arc's share along S and t1 along the view direction.
-        float ComputeInnerIntegral(vec2 angles, vec2 screenDir, vec3 viewDir, vec3 viewSpaceNormal, inout vec3 bent)
+        // -dot(projNormal, perp) / |projNormal|), so t0 is the arc's share along S and t1 along the view
+        // direction.
+        float ComputeInnerIntegral(vec2 angles, vec2 screenDir, vec3 viewDir, vec3 viewSpaceNormal,
+                                   inout vec3 bent)
         {
         	const vec3 planeNormal = normalize(cross(vec3(screenDir.xy, 0.0), viewDir));
         	const vec3 perp        = cross(viewDir, planeNormal);

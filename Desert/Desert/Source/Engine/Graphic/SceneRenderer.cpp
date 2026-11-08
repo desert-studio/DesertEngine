@@ -1255,6 +1255,10 @@ namespace Desert::Graphic
         m_SurfaceCacheAsyncRadiosity = quality.As<int>( Parameter::SurfaceCacheAsyncRadiosity ) != 0;
         m_ScreenProbeDownsample      = quality.As<uint32_t>( Parameter::ScreenProbeDownsample );
         m_ScreenProbeTracedTexels    = quality.As<uint32_t>( Parameter::ScreenProbeTracedTexels );
+        m_SSGISettings.RaysPerPixel  = quality.As<uint32_t>( Parameter::GlobalIlluminationScreenSpaceRays );
+        m_SSGISettings.Iterations    = quality.As<uint32_t>( Parameter::GlobalIlluminationScreenSpaceSteps );
+        m_SSGISettings.DenoiserRadius =
+             quality.As<uint32_t>( Parameter::GlobalIlluminationScreenSpaceDenoiserRadius );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_ParallaxQuality = ParallaxQuality{ .MinSteps    = quality.As<int>( Parameter::ShadingParallaxMinSteps ),
                                              .MaxSteps    = quality.As<int>( Parameter::ShadingParallaxMaxSteps ),
@@ -2603,10 +2607,14 @@ namespace Desert::Graphic
                                            : nullptr;
                 const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
                 const FrameScreenTrace screenTrace =
-                     ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )
+                     ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) ||
+                       ( m_RenderMethods.GlobalIllumination.Effective ==
+                              Common::Scalability::GIMethod::ScreenSpace &&
+                         EnsureSSGIResources() ) )
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
                 AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                AddFrameSSGI( graph, textures, gbuffer, screenTrace, frame );
                 // THE GRAPHICS QUEUE'S WORK WHILE THE GI GATHERS (UE FDeferredShadingSceneRenderer::Render:
                 // Lumen's gather on the async pipe while the graphics pipe renders what reads none of it - the
                 // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache and the
@@ -3331,6 +3339,32 @@ namespace Desert::Graphic
         return true;
     }
 
+    bool SceneRenderer::EnsureSSGIResources()
+    {
+        if ( m_SSGIReady )
+            return true;
+        if ( m_SSGIFailed )
+            return false;
+        static constexpr std::array<Common::Scalability::GIMethod, 1> kSSGIMethods{
+             Common::Scalability::GIMethod::ScreenSpace };
+        // The trace walks the view's HZB and returns its scene colour history: without them there is no method.
+        if ( !EnsureScreenTraceResources() )
+        {
+            RefuseProgramMethods( kSSGIMethods, "HZB",
+                                  "the screen trace's HZB or scene colour history did not build" );
+            m_SSGIFailed = true;
+            return false;
+        }
+        if ( const Common::BoolResultStr initialized = m_SSGI.Initialize(); !initialized )
+        {
+            RefuseProgramMethods( kSSGIMethods, "SSGI", initialized.GetError() );
+            m_SSGIFailed = true;
+            return false;
+        }
+        m_SSGIReady = true;
+        return true;
+    }
+
     System::MegaLightsLighting SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
                                                                   const std::vector<RDG::TextureRef>& gbuffer,
                                                                   const ViewFrame&                    frame )
@@ -3984,6 +4018,7 @@ namespace Desert::Graphic
         // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again; the path tracer
         // is brought up again by EnsurePathTracerResources once PathTraced resolves again).
         m_SSRResourcesFailed         = false;
+        m_SSGIFailed                 = false;
         m_ScreenTraceResourcesFailed = false;
     }
 

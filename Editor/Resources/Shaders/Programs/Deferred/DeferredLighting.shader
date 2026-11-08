@@ -647,9 +647,10 @@ Shader "DeferredLighting"
         	// texel - in a sky tile the tiled SSAO never writes (GPU-TILE-CLASSIFY), so any value, NaN included.
         	// GTAO's texel (SSAO.shader): rgb = the bent normal encoded 0.5 + 0.5 n, a = the visibility. z is 1 only
         	// when this frame's GTAO wrote the target, so its bent normal is never a neutral texture's.
-        	const bool  gtao     = Params.z > 0.5;
-        	const vec4  ssaoTexel = gtao ? texelFetch(SsaoTexture, ivec2(gl_FragCoord.xy), 0) : vec4(0.5, 0.5, 0.5, 1.0);
-        	const float ssao     = ssaoTexel.a;
+        	const bool  gtao      = Params.z > 0.5;
+        	const vec4  ssaoTexel = gtao ? texelFetch(SsaoTexture, ivec2(gl_FragCoord.xy), 0)
+        	                             : vec4(0.5, 0.5, 0.5, 1.0);
+        	const float ssao      = ssaoTexel.a;
         	float       ao       = ge.a * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
@@ -737,7 +738,8 @@ Shader "DeferredLighting"
         	                             ? DesertSampleAmbient(surface, texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   texelFetch(GiSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   vec3(0.0), ao)
-        	                             : DesertSampleAmbient(surface, DesertAmbientIrradiance(skyIrradianceDirection),
+        	                             : DesertSampleAmbient(surface,
+        	                                                   DesertAmbientIrradiance(skyIrradianceDirection),
         	                                                   DesertAmbientSpecular(reflect(-surface.V, surface.N),
         	                                                                         surface.Roughness),
         	                                                   screenIndirect, ao);
