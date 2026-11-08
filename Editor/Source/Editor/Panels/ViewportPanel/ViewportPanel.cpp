@@ -289,7 +289,7 @@ namespace Desert::Editor
              camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
              static_cast<uint32_t>( m_ViewportData.Size.y ) );
         ::Desert::Core::RaycastHit hit;
-        if ( !m_Scene->Raycast( ray, hit ) )
+        if ( !m_Scene->RaycastComplex( ray, hit ) )
             return Common::MakeError( "foliage preview: the viewport centre meets no surface" );
         Core::FoliagePaint::HoverPoint() = hit.Point;
         return BOOLSUCCESS;
@@ -2147,7 +2147,8 @@ namespace Desert::Editor
                 {
                     ::Desert::Core::RaycastHit hover;
                     Core::FoliagePaint::HoverPoint() =
-                         m_Scene->Raycast( ray, hover ) ? std::optional<glm::vec3>( hover.Point ) : std::nullopt;
+                         m_Scene->RaycastComplex( ray, hover ) ? std::optional<glm::vec3>( hover.Point )
+                                                               : std::nullopt;
                 }
                 if ( pressing )
                 {

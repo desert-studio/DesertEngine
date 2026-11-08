@@ -363,6 +363,11 @@ namespace Desert::Core
         // physics bodies.
         [[nodiscard]] bool RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
                                            const std::function<bool( const Common::UUID& )>& accept = {} ) const;
+        // The complex trace against a landscape set gathered earlier (a foliage dab traces hundreds of segments
+        // at one moment, UE AInstancedFoliageActor::FoliageTrace with bTraceComplex).
+        [[nodiscard]] bool RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                           const std::function<bool( const Common::UUID& )>& accept,
+                                           const RaycastLandscapeSet&                        landscape ) const;
 
         // Play-mode state. Edit = authoring (gameplay systems frozen); Play = running (gameplay ticks);
         // Paused = running but time frozen (ts forced to 0). The editor snapshots the scene on Play and
