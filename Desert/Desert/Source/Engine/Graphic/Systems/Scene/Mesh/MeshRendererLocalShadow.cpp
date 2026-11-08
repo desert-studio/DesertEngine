@@ -135,8 +135,12 @@ namespace Desert::Graphic::System
         }
         SignatureHash hash;
         // The static / generic casters, kept per sphere while the static casters' revision holds
-        // (LocalStaticCasterHash): in a still frame no static caster is walked here.
-        hash.Add( LocalStaticCasterHash( centre, radius ) );
+        // (LocalStaticCasterHash): in a still frame no static caster is walked here. A masked one in a dithered
+        // LOD transition clips another dither each frame: the view is drawn every frame until it ends.
+        const std::optional<uint64_t> statics = LocalStaticCasterHash( centre, radius );
+        if ( !statics )
+            return std::nullopt;
+        hash.Add( *statics );
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
@@ -152,8 +156,10 @@ namespace Desert::Graphic::System
                     continue;
                 // Swaying foliage within the shadow wind distance moves every frame, like a posed mesh; a farther
                 // instance casts its rest pose (the gather's Sways, BuildShadowCascadeDraws draws it still) and is
-                // keyed like a still one.
-                if ( m_ShadowCasterSetup.Instances[k].Sways )
+                // keyed like a still one. A masked instance in a dithered LOD transition (FadeLod) casts both its
+                // levels' dither, which moves every frame too.
+                const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
+                if ( row.Sways || row.FadeLod.IsDithered() )
                     return std::nullopt;
                 hash.Add( ( *ism.Transforms )[m_ShadowCasterSetup.InstanceIndex[k]] );
                 // The level the views draw it at follows the main camera (the gather's): a new one redraws.
@@ -169,7 +175,7 @@ namespace Desert::Graphic::System
         return hash.Value;
     }
 
-    uint64_t MeshRenderer::LocalStaticCasterHash( const glm::vec3& centre, const float radius )
+    std::optional<uint64_t> MeshRenderer::LocalStaticCasterHash( const glm::vec3& centre, const float radius )
     {
         const ShadowCasterSetup& setup = m_ShadowCasterSetup;
         // Every field hashed below reaches the static casters' revision (StaticCasterTrack: the transform is Moved,
@@ -177,9 +183,11 @@ namespace Desert::Graphic::System
         // the rows that revision keeps) and the levels the LOD key (StaticLodKey): a part made under both is the
         // one the walk would make.
         const bool tracked = StaticCastersTracked();
-        const auto walk    = [this, &setup, &centre, radius]
+        const bool apart   = LodSamplesApart();
+        const auto walk    = [this, &setup, &centre, radius, apart]( bool& fading )
         {
             SignatureHash still;
+            fading = false;
             // The statics from the walk columns (this view's sync): a record outside the sphere costs its mesh,
             // flag and box; one inside is read only for its section slot (and the transform when its primitive
             // has no stamp). The world enters as its primitive's stamp (PlacementOf), not 64 bytes of transform.
@@ -202,6 +210,11 @@ namespace Desert::Graphic::System
                 still.Add( rd.SectionSlot );
                 // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 still.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
+                // A masked one draws both levels of a dithered transition (ShadowStaticFadeLod), each frame's
+                // dither: the part says so and holds no key (the levels only move with the samples, StaticLodKey).
+                if ( apart && ( columns.Flags[i] & StaticWalkColumns::kMasked ) != 0u &&
+                     ShadowStaticFadeLod( static_cast<uint32_t>( i ) ).IsDithered() )
+                    fading = true;
             }
             for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
             {
@@ -219,8 +232,14 @@ namespace Desert::Graphic::System
             }
             return still.Value;
         };
+        bool fading = false;
         if ( !tracked )
-            return walk();
+        {
+            const uint64_t made = walk( fading );
+            if ( fading )
+                return std::nullopt;
+            return made;
+        }
         // Once per gather: the spheres no light asked for in kLocalStaticPartGathers gathers leave.
         if ( m_LocalStaticSweep != setup.Gather )
         {
@@ -239,8 +258,11 @@ namespace Desert::Graphic::System
         {
             part.Revision = m_StaticCasters.Revision;
             part.LodKey   = setup.StaticLodKey;
-            part.Hash     = walk();
+            part.Hash     = walk( fading );
+            part.Fading   = fading;
         }
+        if ( part.Fading )
+            return std::nullopt;
         return part.Hash;
     }
 

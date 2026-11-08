@@ -143,6 +143,10 @@ namespace Desert::Graphic::GpuDriven
         std::vector<DrawSplitLabel>             BinLabels;
         std::vector<IndirectGroup>         Groups;
         uint32_t                                VisibleCapacity = 0; // sum of the bins' Capacity
+        // The draw slots marked kDrawSlotDitheredLod: zero = no binned draw of the pass takes part in a dithered
+        // LOD transition, so no instance of it leaves a cached cascade's static layer while one fades (the plan's
+        // mover rule, MeshRenderer::CascadeStaticSignature).
+        uint32_t                                DitheredLodSlots = 0;
     };
 
     // The graph handles of one pass's tables after this frame's upload.

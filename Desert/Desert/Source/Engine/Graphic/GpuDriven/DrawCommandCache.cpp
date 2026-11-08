@@ -450,7 +450,10 @@ namespace Desert::Graphic::GpuDriven
                         drafts[it->second].Capacity += record->InstanceCount;
                         slot.Bin = it->second; // the draft's ordinal; remapped to the sorted row below
                         if ( record->DitheredLod[passIndex][si] != 0u )
+                        {
                             slot.Flags |= kDrawSlotDitheredLod;
+                            ++table.DitheredLodSlots;
+                        }
                     }
                     table.DrawSlots.push_back( slot );
                 }

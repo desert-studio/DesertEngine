@@ -49,6 +49,9 @@ namespace
     // the terms the inner distance is made of), Edge = within it (the GPU may have taken either side: the CPU walk
     // keys and draws it as a mover, CascadeStaticSignature redraws the static layer each frame it is there),
     // Mover otherwise (and in every view with no ring).
+    // The word a cascade's static key takes for a caster that left it for the movable layer (ShadowCasterFades).
+    constexpr uint32_t kFadingCasterWord = 0xFADEu;
+
     enum class ShadowWindRingSide : uint8_t
     {
         Mover,
@@ -732,16 +735,50 @@ namespace Desert::Graphic::System
 
     uint64_t MeshRenderer::TemporalLodKey() const
     {
-        // At rest both samples are the eye and the key holds still (the transition cycles with the sample clock
-        // but no caster fades); while they differ a masked caster may be fading, and its dither moves each frame.
+        // The origins move only when a sample advances (TemporalLODState, at most once per lag,
+        // kLODTemporalLagSeconds): the levels hold between, while the transition moves the dither of the casters
+        // that fade - drawn in the movable layer each frame (ShadowCasterFades), so it keys no cached part.
         const Geometry::LODTemporalSamples& temporal = m_ViewTemporalLOD;
         SignatureHash                       hash;
         hash.Add( temporal.Active );
         hash.Add( temporal.Origins[0] );
         hash.Add( temporal.Origins[1] );
-        if ( temporal.Active && temporal.Origins[0] != temporal.Origins[1] )
-            hash.Add( temporal.Transition );
         return hash.Value;
+    }
+
+    bool MeshRenderer::LodSamplesApart() const
+    {
+        const Geometry::LODTemporalSamples& temporal = m_ViewTemporalLOD;
+        return temporal.Active && temporal.Origins[0] != temporal.Origins[1];
+    }
+
+    bool MeshRenderer::ShadowCasterFades( const Geometry::LODMask& fade, const ShadowCasterLayer layer )
+    {
+        return layer != ShadowCasterLayer::All && fade.IsDithered();
+    }
+
+    void MeshRenderer::GrowFadeBounds( CasterFadeMovers& fades, const Common::Math::AABB& box ) noexcept
+    {
+        if ( fades.Bounds )
+            fades.Bounds = Common::Math::AABB{ glm::min( fades.Bounds->Min, box.Min ),
+                                               glm::max( fades.Bounds->Max, box.Max ) };
+        else
+            fades.Bounds = box;
+    }
+
+    void MeshRenderer::AddFadeMovers( CascadeMovers& movers, const CasterFadeMovers& fades,
+                                      const float transition ) noexcept
+    {
+        if ( !fades.Any )
+            return;
+        movers.Keyed = true;
+        movers.Casters.Add( fades.Casters );
+        movers.Pose.Add( transition );
+        if ( movers.Bounds )
+            movers.Bounds = Common::Math::AABB{ glm::min( movers.Bounds->Min, fades.Bounds->Min ),
+                                                glm::max( movers.Bounds->Max, fades.Bounds->Max ) };
+        else
+            movers.Bounds = fades.Bounds;
     }
 
     void MeshRenderer::FinishStaticCasterRows()
@@ -1026,6 +1063,7 @@ namespace Desert::Graphic::System
                 setup.InstanceIndex.insert( setup.InstanceIndex.end(), run.Index.begin(), run.Index.end() );
                 for ( const ShadowCasterRow& row : run.Rows )
                     setup.InstanceBounds.PushBack( row.WorldBounds );
+                field.Fading += run.Fading;
             }
             field.Count = static_cast<uint32_t>( setup.Instances.size() ) - field.First;
         }
@@ -1035,6 +1073,7 @@ namespace Desert::Graphic::System
     {
         run.Rows.clear();
         run.Index.clear();
+        run.Fading = 0;
         const InstancedMeshRenderData& ism         = m_InstancedQueue[run.Field];
         const Common::Math::AABB       localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
         const float                    lensScale   = DrawDistanceScale( lodView );
@@ -1056,7 +1095,9 @@ namespace Desert::Graphic::System
         const DataDrivenMaterial* fieldMat  = nullptr;
         if ( fieldInst != nullptr )
             fieldMat = dynamic_cast<const DataDrivenMaterial*>( fieldInst->GetParentMaterial() );
-        const bool fieldFades = lodView.Temporal.Active && IsMaskedSurface( fieldMat );
+        const bool fieldFades = lodView.Temporal.Active &&
+                                lodView.Temporal.Origins[0] != lodView.Temporal.Origins[1] &&
+                                IsMaskedSurface( fieldMat );
         run.OlderLevels.clear();
         if ( fieldFades )
         {
@@ -1113,6 +1154,8 @@ namespace Desert::Graphic::System
                    .FadeLod      = fade,
                    .FadeKnown    = true } );
             run.Index.push_back( k );
+            if ( fade.IsDithered() )
+                ++run.Fading;
         }
     }
 
@@ -1160,7 +1203,10 @@ namespace Desert::Graphic::System
              still.LodKey != m_ShadowCasterSetup.StaticLodKey || still.CasterVP != casterVP ||
              still.WithLod != withLod )
         {
-            SignatureHash stillHash;
+            SignatureHash    stillHash;
+            SignatureHash    fadeHash;
+            CasterFadeMovers fades;
+            const bool       apart = LodSamplesApart();
             // The statics from the walk columns (this view's sync), the world as its primitive's stamp
             // (PlacementOf); the record is read only for ForcedLOD, LODBias and SectionSlot of a caster that
             // reaches the cascade (and its transform when its primitive has no stamp).
@@ -1184,15 +1230,22 @@ namespace Desert::Graphic::System
                 // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 if ( withLod )
                     stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
-                // A masked caster casts its two temporal levels' dither (ShadowStaticFadeLod): the levels and,
-                // while it fades, the transition (StaticLodKey remakes this part each frame of a fade).
-                if ( withLod && ( columns.Flags[i] & StaticWalkColumns::kMasked ) != 0u )
+                // A masked caster in a dithered transition (ShadowStaticFadeLod; ShadowCasterFades) is drawn by
+                // the movable layer, its two levels' dither every frame: the static layer keys that it left (in
+                // a content key too - the layer drew it and must be drawn again without it, and with it again
+                // when the fade ends), the movers its levels, box and the transition (CasterFadeMovers).
+                if ( apart && ( columns.Flags[i] & StaticWalkColumns::kMasked ) != 0u )
                 {
                     const Geometry::LODMask fade = ShadowStaticFadeLod( static_cast<uint32_t>( i ) );
-                    stillHash.Add( fade.Levels[0] );
-                    stillHash.Add( fade.Levels[1] );
+                    stillHash.Add( fade.IsDithered() );
                     if ( fade.IsDithered() )
-                        stillHash.Add( m_ViewTemporalLOD.Transition );
+                    {
+                        fades.Any = true;
+                        fadeHash.Add( i );
+                        fadeHash.Add( fade.Levels[0] );
+                        fadeHash.Add( fade.Levels[1] );
+                        GrowFadeBounds( fades, m_ShadowCasterSetup.Statics[i].WorldBounds );
+                    }
                 }
                 // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
                 // (ShadingOf's answer, the column the casters draw with).
@@ -1220,8 +1273,11 @@ namespace Desert::Graphic::System
             still.CasterVP = casterVP;
             still.WithLod  = withLod;
             still.Hash     = stillHash.Value;
+            fades.Casters  = fadeHash.Value;
+            still.Fades    = fades;
         }
         hash.Add( still.Hash );
+        AddFadeMovers( movers, still.Fades, m_ViewTemporalLOD.Transition );
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound) and by
         // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
         // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull
@@ -1281,6 +1337,8 @@ namespace Desert::Graphic::System
             bool          ismMovable = false;
             bool          nearEdge   = false;
             bool          ismSplit   = false;
+            SignatureHash    fadeHash;
+            CasterFadeMovers ismFades;
             // The fields' headers in queue order, each field's rows in runs of kIsmGatherRun on the setup tasks
             // (SignIsmRun: the walk this loop made per row), their hashes added in field and run order.
             std::size_t runs = 0;
@@ -1346,6 +1404,12 @@ namespace Desert::Graphic::System
                     ismMovable = ismMovable || run.Movable;
                     nearEdge   = nearEdge || run.NearEdge;
                     ismSplit   = ismSplit || run.Split;
+                    if ( run.Fades.Any )
+                    {
+                        ismFades.Any = true;
+                        fadeHash.Add( run.Fades.Casters );
+                        GrowFadeBounds( ismFades, *run.Fades.Bounds );
+                    }
                 }
             }
             part.Valid    = !nearEdge;
@@ -1358,8 +1422,19 @@ namespace Desert::Graphic::System
             part.Hash     = ismHash.Value;
             part.Movable  = ismMovable;
             part.Held      = heldKey.Value;
+            ismFades.Casters = fadeHash.Value;
+            part.Fades       = ismFades;
         }
         hash.Add( part.Hash );
+        AddFadeMovers( movers, part.Fades, m_ViewTemporalLOD.Transition );
+        // THE BINS' FADES (InstanceCull.shader DrawsLodDithered): the GPU cull moves an instance of a dithered
+        // draw slot (kDrawSlotDitheredLod) to the movable layer while its two samples' levels differ - which this
+        // walk cannot see per instance, so while the samples are apart and the cascade pass has such a slot the
+        // movable layer is drawn each frame over the whole copied layer (the static one sees them leave and
+        // return through the content hash).
+        if ( LodSamplesApart() && m_DrawCommandCache &&
+             m_DrawCommandCache->Pass( GpuDriven::MeshPass::ShadowCascade ).DitheredLodSlots != 0u )
+            movers.Unkeyed = "binned casters in a dithered LOD transition";
         // The bin-held fields' content: the GPU cull's answer for this box (the cascade's placement this frame, or
         // the cached one's when the cached box is asked). None read for it yet: the layer is redrawn every frame
         // until one is (a fresh key each frame; windSplit keeps it off the content key, so it neither scrolls).
@@ -1491,9 +1566,11 @@ namespace Desert::Graphic::System
         // register (VisibleInViewBits: the same verdict per row as IsVisibleInView on its WorldBounds).
         const ShadowCasterSetup& setup = m_ShadowCasterSetup;
         SignatureHash            hash;
+        SignatureHash            fadeHash;
         run.Movable  = false;
         run.NearEdge = false;
         run.Split    = false;
+        run.Fades    = CasterFadeMovers{};
         run.Bits.resize( ( std::size_t{ run.Count } + 63u ) / 64u );
         VisibleInViewBits( *view.CasterFrustum, setup.InstanceBounds, run.First, run.Count, run.Bits );
         for ( uint32_t k = run.First; k < run.First + run.Count; ++k )
@@ -1527,19 +1604,23 @@ namespace Desert::Graphic::System
                 }
             }
             hash.Add( setup.InstanceIndex[k] );
-            if ( view.WithLod )
+            // A masked instance in a dithered transition (FadeLod; ShadowCasterFades) is drawn by the movable
+            // layer: the static layer keys that it left (in a content key too), the movers its levels and box.
+            if ( row.FadeLod.IsDithered() )
             {
-                hash.Add( row.LodLevel );
-                // A masked instance in a dithered transition casts both levels' dither (FadeLod): the older level
-                // and the transition (IsmGatherKey starts the gather over each frame of a fade).
-                if ( row.FadeLod.IsDithered() )
-                {
-                    hash.Add( row.FadeLod.Levels[0] );
-                    hash.Add( m_ViewTemporalLOD.Transition );
-                }
+                hash.Add( kFadingCasterWord );
+                run.Fades.Any = true;
+                fadeHash.Add( setup.InstanceIndex[k] );
+                fadeHash.Add( row.FadeLod.Levels[0] );
+                fadeHash.Add( row.FadeLod.Levels[1] );
+                GrowFadeBounds( run.Fades, row.WorldBounds );
+                continue;
             }
+            if ( view.WithLod )
+                hash.Add( row.LodLevel );
         }
-        run.Hash = hash.Value;
+        run.Hash         = hash.Value;
+        run.Fades.Casters = fadeHash.Value;
     }
 
     namespace
@@ -2508,8 +2589,11 @@ namespace Desert::Graphic::System
         // The queue's hot columns (m_StaticColumns, dense by position: mesh, primitive, mask, caster flag and the
         // section's surface with its masked answer), so a record is read only once it casts in this view. A
         // record past the columns was queued after the sync: skipped.
-        const StaticWalkColumns& columns = m_StaticColumns;
-        const std::size_t        statics = drawStatic ? columns.Count() : 0u;
+        // A cached cascade's movable layer walks them too while the samples are apart: a masked static in a
+        // dithered transition is its caster, not the static layer's (ShadowCasterFades).
+        const StaticWalkColumns& columns     = m_StaticColumns;
+        const bool               fadesWalked = drawMovable && layer != ShadowCasterLayer::All && LodSamplesApart();
+        const std::size_t        statics     = drawStatic || fadesWalked ? columns.Count() : 0u;
         // inView four rows at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record that
         // reaches the test is tested once over the rows' columns (StaticBounds, kept with the rows), the view's
         // bits AND the union of the strips' - per row the verdict inView gives its box. Rows whose columns are
@@ -2534,6 +2618,8 @@ namespace Desert::Graphic::System
             const uint8_t             flags = columns.Flags[i];
             if ( mesh == nullptr || ( flags & StaticWalkColumns::kCastsShadow ) == 0u )
                 continue;
+            if ( !drawStatic && ( flags & StaticWalkColumns::kMasked ) == 0u )
+                continue; // an opaque static switches level at once: never a mover
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
                  walkHidden( mesh, mesh->GetSubmeshes().size(), columns.Primitives[i], columns.Hidden[i] );
@@ -2556,6 +2642,12 @@ namespace Desert::Graphic::System
                 bucketFor( i, rd.Mesh, hidden ).push_back( &rd );
                 continue;
             }
+            // At the lit draw's level (planGroup: ComputeDitheredLOD's newer); in a dithered transition the older
+            // level too, each draw its half of the dither (DrawPushFields::LodFadeSide), as the lit singles - in
+            // the movable layer of a cached cascade, the static one leaving it out.
+            const Geometry::LODMask fade = ShadowStaticFadeLod( static_cast<uint32_t>( i ) );
+            if ( ShadowCasterFades( fade, layer ) ? !drawMovable : !drawStatic )
+                continue;
             auto* masked = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
             if ( masked == nullptr )
             {
@@ -2576,11 +2668,8 @@ namespace Desert::Graphic::System
             draw.Transform = rd.Transform;
             draw.Instance  = inst;
             draw.Row       = *row;
-            // At the lit draw's level (planGroup: ComputeDitheredLOD's newer); in a dithered transition the older
-            // level too, each draw its half of the dither (DrawPushFields::LodFadeSide), as the lit singles.
-            const Geometry::LODMask fade = ShadowStaticFadeLod( static_cast<uint32_t>( i ) );
-            draw.LodLevel                = fade.Levels[1];
-            draw.HiddenSubmeshMask       = hidden;
+            draw.LodLevel          = fade.Levels[1];
+            draw.HiddenSubmeshMask = hidden;
             if ( fade.IsDithered() )
                 draw.LodFadeSide = -1.0f;
             m_ScratchMaskedDraws.push_back( draw );
@@ -2661,8 +2750,14 @@ namespace Desert::Graphic::System
                 // branch had no condition at all.
                 // A still field draws into the still layer only; a swaying one may draw into both (its instances
                 // past the shadow wind distance cast their rest pose with the still casters: the gather's Sways).
-                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
-                     !( ism.Wind.Sways() && viewSways ? drawMovable || drawStatic : drawStatic ) )
+                // So does a field with instances in a dithered transition in a cached cascade (ShadowCasterFades).
+                if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
+                    continue;
+                const bool fieldFades =
+                     layer != ShadowCasterLayer::All &&
+                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) ).Fading != 0u;
+                const bool fieldMoves = ( ism.Wind.Sways() && viewSways ) || fieldFades;
+                if ( !( drawStatic || ( fieldMoves && drawMovable ) ) )
                     continue;
                 // The field's walk (walkHidden over its primitive, the rule the static loop above reads): a still
                 // VG field in a cascade or a VSM level hides exactly its clustered submeshes; a field the bins or
@@ -2703,10 +2798,19 @@ namespace Desert::Graphic::System
                     for ( std::size_t w = 0; w < fieldWords; ++w )
                         m_ScratchCasterBits[w] &= m_ScratchStripBits[w];
                 }
-                // The field's movers and its still-standing instances are two draws: the wind is pushed per draw.
-                for ( const bool swaying : { false, true } )
+                // The field's still-standing instances, its swaying ones and - in a cached cascade - the ones at
+                // rest in a dithered transition (ShadowCasterFades: the movable layer's, with no wind) are three
+                // draws: the wind is pushed per draw.
+                for ( const uint32_t share : { 0u, 1u, 2u } )
                 {
-                    if ( swaying ? !ism.Wind.Sways() || !viewSways || !drawMovable : !drawStatic )
+                    const bool swaying = share == 1u;
+                    const bool fading  = share == 2u;
+                    bool       drawn   = drawStatic;
+                    if ( swaying )
+                        drawn = ism.Wind.Sways() && viewSways && drawMovable;
+                    else if ( fading )
+                        drawn = fieldFades && drawMovable;
+                    if ( !drawn )
                         continue;
                     const InstanceWind wind = swaying ? ism.Wind : InstanceWind{};
                     auto& visible = m_ScratchIsmVisible;
@@ -2719,7 +2823,10 @@ namespace Desert::Graphic::System
                     visibleIds.clear();
                     for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
                     {
-                        if ( instanceSways( k ) != swaying || !VisibleBit( m_ScratchCasterBits, k - field.First ) )
+                        const bool sways = instanceSways( k );
+                        const bool fades = !sways && ShadowCasterFades( gathered.Instances[k].FadeLod, layer );
+                        if ( sways != swaying || fades != fading ||
+                             !VisibleBit( m_ScratchCasterBits, k - field.First ) )
                             continue;
                         visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
                         levels.push_back( gathered.Instances[k].LodLevel );
