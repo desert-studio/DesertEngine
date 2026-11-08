@@ -66,7 +66,17 @@ namespace Desert::Core::Rules
             return false;
         const float x = source.Position.x;
         const float z = source.Position.z;
-        return x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ;
+        if ( !( x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ ) )
+            return false;
+        // WP-SRC-ALTITUDE: under the source's feet only while the source also REACHES the cell. A plane 2 km above
+        // a 25 m cell stands in its square, but THE QUERY does not want that cell (its distance is 3D): waiting for
+        // it would block forever, and from up there the cell's HLOD stands in for it.
+        if ( cell.Grid >= partition.Grids.size() )
+            return false;
+        for ( const SourceSector& sector : SourceSectors( source, partition.Grids[cell.Grid] ) )
+            if ( WithAltitude( DistanceToCellInSector( sector, cell.Bounds ), sector, cell.Height ) <= sector.Radius )
+                return true;
+        return false;
     }
 
     // @p state sized for @p plan (an unsized state — before the first step — has nothing resident).

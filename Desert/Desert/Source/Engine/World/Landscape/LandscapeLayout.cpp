@@ -51,6 +51,8 @@ namespace Desert::World::Landscape
         rect.MinZ = first.OriginZ;
         rect.MaxX = next.OriginX;
         rect.MaxZ = next.OriginZ;
+        rect.MinY = root.Origin.y + LandscapeHeightCm( static_cast<uint16_t>( 0 ), root.ZScale );
+        rect.MaxY = root.Origin.y + LandscapeHeightCm( kLandscapeMaxSample, root.ZScale );
         return rect;
     }
 
