@@ -390,6 +390,23 @@ namespace Desert::Editor
                                          view.Phase1 + view.Phase2 + view.Occluded );
         LOG_INFO( "[Profiler] DrawBins{} (instances drawn phase 1 + phase 2 / in view without occlusion)",
                   binViews.empty() ? " none" : binViews );
+        // GPU-FARFIELD-4: what 'Clouds: March' did with its rays (System::CloudMarchCounters, frames in flight
+        // late).
+        const Graphic::System::CloudMarchCounters* const cloudMarch =
+             renderer != nullptr ? renderer->GetCloudMarchCounters() : nullptr;
+        if ( cloudMarch != nullptr && cloudMarch->Valid )
+        {
+            const auto&  words      = cloudMarch->Words;
+            const double rays       = std::max( 1.0, static_cast<double>( words[0] ) );
+            const double litSamples = std::max( 1.0, static_cast<double>( words[2] ) );
+            LOG_INFO( "[Profiler] Clouds march: rays {} | primary steps {} ({:.1f} a ray) | lit {} ({:.1f} a ray) "
+                      "| light samples {} ({:.1f} a lit sample, full ray {}) | early exit {} ({:.1f} %) | "
+                      "column jumps {} | lanes at the ceiling {} (a frame; primary = view-ray field evaluations, "
+                      "lit = samples with density and a shadow ray, early exit = transmittance under the stop)",
+                      words[0], words[1], words[1] / rays, words[2], words[2] / rays, words[3],
+                      words[3] / litSamples,
+                      words[7], words[4], 100.0 * words[4] / rays, words[6], words[5] );
+        }
 #if DESERT_DEV_INSTRUMENTS
         // PROBE-TURN-1: why this view's screen probe rays took the cache-miss leg - the far field's radiance cache
         // reads by why they answered or not (GlobalIllumination::ScreenProbeMissReasons, frames in flight late).
@@ -412,12 +429,16 @@ namespace Desert::Editor
                  "level its untraced cells fell back to, saw the point behind something / weighed NaN)",
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
             // GPU-FARFIELD-1: what the far-field leg's own trace did with its rays (ScreenProbeMissReasons
-            // [6..8]).
+            // [6..8]); GPU-FARFIELD-3: the global field's steps of its marches and of the hit-lighting leg
+            // [9..11].
+            const double stepsPerRay = rays[6] > 0u ? static_cast<double>( rays[9] ) / rays[6] : 0.0;
+            const double stepsPerHit = rays[10] > 0u ? static_cast<double>( rays[11] ) / rays[10] : 0.0;
             LOG_INFO(
-                 "[Profiler] ScreenProbes far field rays: listed {} global-field hit {} outside the cache {} "
-                 "(a frame, frames in flight late; a hit is lit by the cards or in place with a visibility ray "
-                 "per light; outside = marched to the full trace distance)",
-                 rays[6], rays[7], rays[8] );
+                 "[Profiler] ScreenProbes far field rays: listed {} global-field hit {} outside the cache {} | "
+                 "steps {} ({:.1f} a ray) | lit in place {} (hit-lighting leg, steps {}, {:.1f} a hit) (a frame, "
+                 "frames in flight late; a hit is lit by the cards, or in place by the hit-lighting leg with one "
+                 "global-field shadow march per directional light; outside = marched to the full trace distance)",
+                 rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[11], stepsPerHit );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the

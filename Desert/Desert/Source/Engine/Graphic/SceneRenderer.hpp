@@ -561,6 +561,12 @@ namespace Desert::Graphic
         {
             return m_DrawBinPhaseCounts.LastCounts();
         }
+        /// GPU-FARFIELD-4: the cloud march's counters of the newest frame read back (System::CloudMarchCounters);
+        /// nullptr while the view has no cloud renderer.
+        [[nodiscard]] const System::CloudMarchCounters* GetCloudMarchCounters() const
+        {
+            return m_Systems.VolumetricCloud ? &m_Systems.VolumetricCloud->LastMarchCounters() : nullptr;
+        }
 #if DESERT_DEV_INSTRUMENTS
         /// PROBE-TURN-1: this view's screen probe far-field reads of the radiance cache by why they answered or not
         /// (GlobalIllumination::ScreenProbeMissReasons, read back slots-in-flight late); nullptr while the view has

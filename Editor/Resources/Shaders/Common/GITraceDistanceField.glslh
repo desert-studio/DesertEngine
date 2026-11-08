@@ -219,6 +219,8 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
     return result;
 }
 
+GIHit GIFarFieldSurface( vec3 position, vec3 direction, float distance, int level );
+
 // THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax.
 GITraceResult GITraceFarField( GITraceInput ray )
 {
@@ -247,25 +249,37 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface.distance      = globalStart + march.T;
     if ( anyHit )
         return result;
-    result.surface.position      = start + ray.direction * march.T;
-    result.surface.meshCards     = GI_NO_MESH_CARDS;
-    result.surface.instance      = GI_NO_INSTANCE;
-    result.surface.primitive     = 0u;
-    result.surface.barycentrics  = vec2( 0.0 );
-    result.surface.frontFace     = true;
-    result.surface.normal        = -ray.direction;
-    result.surface.velocity      = vec3( 0.0 );
-    result.surface.motionKnown   = false;
-    result.surface.globalField   = true;
-    const int level = march.Level >= 0 ? march.Level : GlobalDistanceFieldLevelAt( result.surface.position, GI_TRACE_GDF_LEVELS );
+    result.surface = GIFarFieldSurface( start + ray.direction * march.T, ray.direction, result.surface.distance,
+                                        march.Level );
+    return result;
+}
+
+// The surface of a far-field hit at @p position, @p distance along a ray of @p direction: no object, no material,
+// the normal from the global field's gradient in clipmap @p level (< 0: the finest holding the point). A pass that
+// kept only a far-field hit's distance (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING) rebuilds it with level -1.
+GIHit GIFarFieldSurface( vec3 position, vec3 direction, float distance, int level )
+{
+    GIHit surface;
+    surface.position     = position;
+    surface.distance     = distance;
+    surface.meshCards    = GI_NO_MESH_CARDS;
+    surface.instance     = GI_NO_INSTANCE;
+    surface.primitive    = 0u;
+    surface.barycentrics = vec2( 0.0 );
+    surface.normal       = -direction;
+    surface.velocity     = vec3( 0.0 );
+    surface.motionKnown  = false;
+    surface.globalField  = true;
+    if ( level < 0 )
+        level = GlobalDistanceFieldLevelAt( position, GI_TRACE_GDF_LEVELS );
     if ( level >= 0 )
     {
-        const vec3 gradient = GlobalDistanceFieldGradient( level, result.surface.position, GI_TRACE_GDF_LEVELS[level].w );
+        const vec3 gradient = GlobalDistanceFieldGradient( level, position, GI_TRACE_GDF_LEVELS[level].w );
         if ( dot( gradient, gradient ) > 1e-12 )
-            result.surface.normal = normalize( gradient );
+            surface.normal = normalize( gradient );
     }
-    result.surface.frontFace = dot( result.surface.normal, ray.direction ) < 0.0;
-    return result;
+    surface.frontFace = dot( surface.normal, direction ) < 0.0;
+    return surface;
 }
 
 // The whole walk: the near field, then the far field from where it ended.
