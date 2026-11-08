@@ -1,8 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"3a02605d9d834e589e5e39869562f1e3","Versions":{"SHDR":1},"Dependencies":[]}
 // Ported from UE 5.8 Shaders/Private/Lumen/LumenScreenProbeGatherTemporal.usf ScreenProbeTemporalReprojectionCS
 // (the history weights, NumFramesAccumulated and the 1 / (1 + frames) blend of the diffuse, rough specular and
-// backface diffuse), adapted: the history taps are tested here (Common/ScreenProbeTemporal.glslh, UE's
-// classification pass: depth reprojected by the velocity's depth, the foliage threshold and material test); the
+// backface diffuse), adapted: the history taps come packed from this frame's history classification
+// (ScreenProbeDisocclusion, Common/ScreenProbeTemporal.glslh SPHistoryReproject - UE's classification pass and
+// PackedPixelData: depth reprojected by the velocity's depth, the foliage threshold and material test); the
 // fast-update mode as UE's (:486-500: LightIsMoving - the traces' moving share, ScreenProbeFilter, interpolated by
 // the integrate into the rough specular's alpha - turns into a fast-update amount that caps the frames the history
 // may hold; the amount kept in the new rough specular history's alpha, UE's FastUpdateMode_NumFramesAccumulated)
@@ -38,8 +39,8 @@ Shader "ScreenProbeTemporal"
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
         Uniform(3) texture2D GBufferBTexture;
         #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
-        Uniform(4) texture2D Velocity;                 // NDC.xyz current - previous (View/Velocity.hpp)
-        #define Velocity sampler2D(Velocity, PointClampSampler)
+        Uniform(4) utexture2D ScreenProbeHistoryTaps;  // the packed taps (ScreenProbeDisocclusion, this frame)
+        #define ScreenProbeHistoryTaps usampler2D(ScreenProbeHistoryTaps, PointClampSampler)
         Uniform(5) texture2D DiffuseIndirect;          // this frame's integrate
         #define DiffuseIndirect sampler2D(DiffuseIndirect, PointClampSampler)
         Uniform(6) texture2D RoughSpecularIndirect;    // .a = LightIsMoving (ScreenProbeIntegrate)
@@ -60,16 +61,6 @@ Shader "ScreenProbeTemporal"
         #include <Generated/ShadingModels.glslh>
         #define SCREEN_PROBE_HISTORY_DECLARED
         #include <Common/ScreenProbeTemporal.glslh>
-
-        // The same hash as ScreenProbeIntegrate's SPPixelNoise, another stream (UE BlueNoiseScalar).
-        float TemporalNoise( uvec2 pixel, uint frame )
-        {
-            uvec3 h = uvec3( pixel.x, pixel.y * 4u + 3u, frame ) * 1664525u + 1013904223u;
-            h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
-            h ^= h >> 16u;
-            h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
-            return float( h.x & 0xFFFFu ) / 65536.0;
-        }
 
         void main()
         {
@@ -98,8 +89,8 @@ Shader "ScreenProbeTemporal"
             const float lightIsMoving = newSpecular.a;
             vec3        backface      = texelFetch( BackfaceDiffuseIndirect, pixel, 0 ).rgb;
 
-            const float         noise = TemporalNoise( uvec2( pixel ), screenProbeParams.atlas.y );
-            const SPHistoryTaps taps  = SPHistoryReproject( pixel, depth, p, n, foliage, noise );
+            // Reprojected and tested once, by the history classification (UE's PackedPixelData).
+            const SPHistoryTaps taps = SPUnpackHistoryTaps( texelFetch( ScreenProbeHistoryTaps, pixel, 0 ).xy );
             float frames         = 0.0;
             float fastUpdateOut  = 0.0; // UE OutFastUpdateModeAmount: this frame's amount, into the history
             if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) != 0u )

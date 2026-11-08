@@ -146,8 +146,6 @@ namespace
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeParamsUB );
-        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIndexUB );
-        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbesUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
         DESERT_SHADER_PARAMETER( Texture, Velocity );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
@@ -155,6 +153,7 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, DiffuseIndirectHistory );
         DESERT_SHADER_PARAMETER( Texture, HistoryGuide );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeDisocclusionUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, ScreenProbeHistoryTaps );
     };
     struct ScreenProbeGatherSpatialFilterShaderParameters
     {
@@ -170,7 +169,7 @@ namespace
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeParamsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
-        DESERT_SHADER_PARAMETER( Texture, Velocity );
+        DESERT_SHADER_PARAMETER( Texture, ScreenProbeHistoryTaps );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord );
         DESERT_SHADER_PARAMETER( Texture, DiffuseIndirect );
@@ -883,15 +882,26 @@ namespace Desert::Graphic::GlobalIllumination
         m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
 #endif
 
-        // SPATIAL FILTER (UE FilterScreenProbes, SpatialFilterNumPasses): the disocclusion of every probe's tile,
-        // then three passes across neighbouring probes, each reading the last one's radiance.
+        // HISTORY CLASSIFICATION (UE StochasticLightingTileClassification, PackedPixelData): every surface pixel's
+        // history taps reprojected and tested once (ScreenProbeDisocclusion.shader), packed for the temporal
+        // filter, and every uniform tile's disoccluded share for the spatial filter. SPATIAL FILTER (UE
+        // FilterScreenProbes, SpatialFilterNumPasses): then three passes across neighbouring probes, each reading
+        // the last one's radiance.
         RDG::TextureRef radiance = traced;
+        RDG::TextureRef historyTaps;
         if ( inputs.Denoise )
         {
-            const RDG::BufferRef disocclusion =
-                 graph.CreateBuffer( RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( float ) ) },
-                                     "ScreenProbes.Disocclusion" );
+            const RDG::BufferRef disocclusion = graph.CreateBuffer(
+                 RDG::BufferDesc{ static_cast<uint64_t>( layout.UniformProbes ) * sizeof( float ) },
+                 "ScreenProbes.Disocclusion" );
+            historyTaps = graph.CreateTexture(
+                 RDG::TextureDesc{ .Size   = { .Width = inputs.Extent.x, .Height = inputs.Extent.y },
+                                   .Format = Core::Formats::ImageFormat::RG32_UINT },
+                 "ScreenProbes.HistoryTaps" );
             {
+                // One group per uniform tile, from the strip before the jittered grid (tile -1) to past the frame.
+                const glm::uvec2       classifyGroups( DivideRoundUp( inputs.Extent.x, layout.Downsample ) + 1u,
+                                                       DivideRoundUp( inputs.Extent.y, layout.Downsample ) + 1u );
                 ComputePipeline* const pipeline = m_Pipelines[Disocclusion].get();
                 graph.AddPass(
                      "ScreenProbes: Disocclusion", kAsyncPass,
@@ -901,9 +911,8 @@ namespace Desert::Graphic::GlobalIllumination
                                                         Renderer::GetPipelineRouteFill( *pipeline ) );
                          block.Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeParamsUB,
                                         paramsBuffer, kR )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeIndexUB, index,
-                                        kR )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbesUB, probes, kR )
+                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeHistoryTaps,
+                                        historyTaps, kW )
                               .Storage( ScreenProbeGatherDisocclusionShaderParameters::GIFrameUB, inputs.GIFrame,
                                         kR )
                               .Texture( ScreenProbeGatherDisocclusionShaderParameters::Velocity, inputs.Velocity,
@@ -926,10 +935,11 @@ namespace Desert::Graphic::GlobalIllumination
                                         disocclusion, kW );
                          gbuf( block );
                      },
-                     [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     [pipeline, classifyGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                         return Renderer::DispatchCompute( bindings, *pipeline, classifyGroups.x, classifyGroups.y,
+                                                           1u );
                      } );
             }
             const uint32_t         res = layout.TracedTexels;
@@ -1140,7 +1150,8 @@ namespace Desert::Graphic::GlobalIllumination
                      block.Storage( ScreenProbeGatherTemporalShaderParameters::ScreenProbeParamsUB, paramsBuffer,
                                     kR )
                           .Storage( ScreenProbeGatherTemporalShaderParameters::GIFrameUB, inputs.GIFrame, kR )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::Velocity, inputs.Velocity, kS, all )
+                          .Texture( ScreenProbeGatherTemporalShaderParameters::ScreenProbeHistoryTaps, historyTaps,
+                                    kS, all )
                           .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
                           .Texture( ScreenProbeGatherTemporalShaderParameters::GBufferShadingWord,
