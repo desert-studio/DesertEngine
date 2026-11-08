@@ -44,7 +44,7 @@ namespace Desert::Graphic::System
                                                       MaterialInstance*         instance )
         {
             Core::Formats::MaterialParamRow row = material->GetParamRow();
-            if ( instance == nullptr )
+            if ( instance == nullptr || !instance->GetPropertySet().HasOverrides() )
                 return row;
             for ( const auto& [name, prop] : instance->GetPropertySet().GetProperties() )
             {

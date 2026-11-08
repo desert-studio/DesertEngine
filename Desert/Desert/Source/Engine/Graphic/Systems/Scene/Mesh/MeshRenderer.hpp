@@ -4127,6 +4127,11 @@ namespace Desert::Graphic::System
             {
                 std::vector<MeshBucket> Buckets;
                 std::size_t             BucketCount = 0;
+                // A large group's (mesh, hidden mask) -> bucket look-up (planGroup): open addressing, a slot holds
+                // its bucket's index + 1 (0 = empty), at least twice the group's objects, so never full. Filled
+                // per group by assign (its capacity kept): the bucketing is linear in the objects, not objects x
+                // buckets, and the buckets keep their first-seen order (the draw order is unchanged).
+                std::vector<uint32_t>   BucketIndex;
                 std::vector<ObjDraw>    Batchable;
                 std::vector<uint32_t>   LodLevels;
             };
@@ -4671,8 +4676,11 @@ namespace Desert::Graphic::System
         };
         std::vector<IsmSignatureRun> m_IsmSignatureRuns;
         void SignIsmRun( IsmSignatureRun& run, const IsmSignatureView& view ) const noexcept;
-        // A view's static caster buckets by (mesh, hidden submeshes): the index of each key's bucket, so the walk
-        // finds it without a search (BuildShadowCascadeDraws); a member so its nodes persist.
+        // A view's static caster buckets by (mesh, hidden submeshes), in first-seen order, reused by index
+        // (m_ScratchShadowBucketCount in use; each bucket's list keeps its capacity), and the index of each key's
+        // bucket in an open-addressed table (a slot holds the bucket's index + 1, 0 = empty; at least twice the
+        // static queue, so never full), so the walk finds it without a search and with no heap once warm
+        // (BuildShadowCascadeDraws). The same key hash buckets planGroup's large groups (BuildStaticDraws).
         struct ShadowBucketKey
         {
             const Desert::Mesh* Mesh = nullptr;
@@ -4683,7 +4691,11 @@ namespace Desert::Graphic::System
         {
             [[nodiscard]] std::size_t operator()( const ShadowBucketKey& key ) const noexcept;
         };
-        std::unordered_map<ShadowBucketKey, std::size_t, ShadowBucketKeyHash> m_ScratchShadowBucketOf;
+        using ShadowMeshBucket =
+             std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>;
+        std::vector<ShadowMeshBucket> m_ScratchShadowBuckets;
+        std::size_t                   m_ScratchShadowBucketCount = 0;
+        std::vector<uint32_t>         m_ScratchShadowBucketSlots;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
         // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
         struct MaskedCasterSet

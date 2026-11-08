@@ -2500,13 +2500,20 @@ namespace Desert::Graphic::System
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
             // section of its twins, one mask for the whole instanced draw. The buckets are the slice's, reused
             // by index: no allocation per group in the steady state.
-            auto& buckets        = slice.Buckets;
-            slice.BucketCount    = 0;
-            const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            auto& buckets     = slice.Buckets;
+            slice.BucketCount = 0;
+            // Up to this many objects the buckets are searched in order (a short scan beats filling a table).
+            constexpr std::size_t kBucketScanMax = 16;
+            const bool            indexed        = objects.size() > kBucketScanMax;
+            if ( indexed )
             {
-                for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
-                    if ( buckets[bi].first.first == mesh && buckets[bi].first.second == hidden )
-                        return buckets[bi].second;
+                std::size_t slots = 64;
+                while ( slots < objects.size() * 2u )
+                    slots <<= 1u;
+                slice.BucketIndex.assign( slots, 0u );
+            }
+            const auto makeBucket = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            {
                 if ( slice.BucketCount == buckets.size() )
                     buckets.emplace_back();
                 DrawBuildScratch::MeshBucket& made = buckets[slice.BucketCount++];
@@ -2514,9 +2521,37 @@ namespace Desert::Graphic::System
                 made.second.clear();
                 return made.second;
             };
+            const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            {
+                if ( !indexed )
+                {
+                    for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
+                        if ( buckets[bi].first.first == mesh && buckets[bi].first.second == hidden )
+                            return buckets[bi].second;
+                    return makeBucket( mesh, hidden );
+                }
+                // The shadow walk's key hash (ShadowBucketKeyHash): the same (mesh, hidden mask) key.
+                const std::size_t      key   = ShadowBucketKeyHash{}( ShadowBucketKey{ mesh, hidden } );
+                std::vector<uint32_t>& table = slice.BucketIndex;
+                const std::size_t      mask  = table.size() - 1u;
+                for ( std::size_t at = key & mask;; at = ( at + 1u ) & mask )
+                {
+                    const uint32_t slot = table[at];
+                    if ( slot == 0u )
+                    {
+                        std::vector<ObjDraw>& made = makeBucket( mesh, hidden );
+                        table[at]                  = static_cast<uint32_t>( slice.BucketCount );
+                        return made;
+                    }
+                    DrawBuildScratch::MeshBucket& found = buckets[slot - 1u];
+                    if ( found.first.first == mesh && found.first.second == hidden )
+                        return found.second;
+                }
+            };
 
             // Each object's row is the scene material table's (SyncGpuScene); here only its instance and whether
-            // it overrides anything (an overriding object leaves the batch).
+            // it overrides anything (an overriding object leaves the batch) - decided when the instance's render
+            // copy was written (MaterialPropertySet::HasOverrides), not by a scan of its properties per pass.
             for ( const auto* obj : objects )
             {
                 ObjDraw od;
@@ -2525,14 +2560,8 @@ namespace Desert::Graphic::System
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
                 od.Inst = standsIn ? standIn->Instance.get()
                                    : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
-                if ( od.Inst != nullptr )
-                    for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
-                        if ( prop.bIsOverridden )
-                        {
-                            od.HasOverrides = true;
-                            break;
-                        }
-                od.Hidden = hiddenOf( obj );
+                od.HasOverrides = od.Inst != nullptr && od.Inst->GetPropertySet().HasOverrides();
+                od.Hidden       = hiddenOf( obj );
                 bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
 

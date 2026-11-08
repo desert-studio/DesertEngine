@@ -77,6 +77,19 @@ namespace Desert::Graphic
         Changed();
     }
 
+    void MaterialPropertySet::Changed()
+    {
+        m_bIsDirty       = true;
+        m_Revision       = NextMaterialRevision();
+        m_bAnyOverridden = false;
+        for ( const auto& [name, prop] : m_Properties )
+            if ( prop.bIsOverridden )
+            {
+                m_bAnyOverridden = true;
+                break;
+            }
+    }
+
     void MaterialPropertySet::CopyFrom( const MaterialPropertySet& other )
     {
         m_Properties = other.m_Properties;
