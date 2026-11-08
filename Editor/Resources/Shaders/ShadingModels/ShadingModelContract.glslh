@@ -240,7 +240,21 @@ struct DesertLight
     // Shadow's normal offset moves a leaf's far side AWAY from the light, behind the leaf itself, so Shadow is 0
     // exactly where the light shines through. 1 for a receiver that is not a subsurface model (no model reads it).
     float TransmissionShadow;
+    // A RECT source (RectLightComponent; UE FAreaLight's rect, Mesh/LightSources.glslh DesertRectLightAt): the
+    // emitting part the barn doors leave visible, relative to the surface - its centre and its two half-extents
+    // (world, cm). Then L and Radiance are the rect's vector irradiance (UE RectIrradianceLambert): any model
+    // that knows nothing of rects lights it exactly in the Lambert sense, and a model with a specular lobe aims
+    // that lobe at the rect itself (Mesh/RectLight.glslh). Zero extents = a punctual source (sun, point, spot).
+    vec3 RectCenter;
+    vec3 RectExtentX;
+    vec3 RectExtentY;
 };
+
+// Whether the light is a rect source (DesertLight::RectCenter).
+bool DesertIsRectLight( DesertLight light )
+{
+    return dot( light.RectExtentX, light.RectExtentX ) > 0.0;
+}
 
 // The environment at the surface, sampled once by the pass for the model's normal and roughness (the split-sum
 // inputs of Mesh/AmbientIBL.glslh:30-38, 79-97).

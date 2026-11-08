@@ -10,8 +10,9 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// `struct PointLight` / `struct SpotLight` (std430, 80 / 112 bytes) are GENERATED from ShaderProtocols::PointLight /
-// SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp) by the shader includer.
+// `struct PointLight` / `struct SpotLight` (std430, 128 / 112 bytes) are GENERATED from
+// ShaderProtocols::PointLight / SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp)
+// by the shader includer.
 #include <Mesh/LightSourceLayouts.glslh>
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
@@ -47,11 +48,110 @@ DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float
     light.Radiance           = radiance;
     light.Shadow             = shadow;
     light.TransmissionShadow = transmissionShadow;
+    light.RectCenter         = vec3( 0.0 );
+    light.RectExtentX        = vec3( 0.0 );
+    light.RectExtentY        = vec3( 0.0 );
+    return light;
+}
+
+// THE RECT SOURCE (ECS::RectLightComponent, UE URectLightComponent). It rides the point lights' list (a point
+// light whose rectHalfWidth > 0: UE culls, shadows and samples its rect lights as local lights with a cube shadow,
+// as it does a point light) and is resolved here, so every pass that lights by DesertPointLightAt - the deferred
+// composite, the forward passes, MegaLights, the surface cache, the GI hit lighting, the fog volume - sees a rect.
+
+// One edge of a polygon's vector irradiance (Heitz et al. 2016, "Real-Time Polygonal-Light Shading with Linearly
+// Transformed Cosines", IntegrateEdgeVec): the cross product of the two unit corner directions times
+// theta / sin(theta), theta from its cubic fit (exact to 1e-3 rad, no acos).
+vec3 RectLightEdge( vec3 v1, vec3 v2 )
+{
+    const float x     = dot( v1, v2 );
+    const float y     = abs( x );
+    const float a     = 0.8543985 + ( 0.4965155 + 0.0145206 * y ) * y;
+    const float b     = 3.4175940 + ( 4.1616724 + y ) * y;
+    const float v     = a / b;
+    const float other = 0.5 * inversesqrt( max( 1.0 - x * x, 1e-7 ) ) - v;
+    return cross( v1, v2 ) * ( x > 0.0 ? v : other );
+}
+
+// How far along one axis of the rect the barn doors let a receiver see it (UE RectLight.ush's barn-door clip of
+// the rect's bounds). The door on that axis' + edge is hinged at halfExtent and its free edge stands at
+// (halfExtent + reach, barnDepth) in the rect's frame; a receiver at (lateral, depth) beyond it sees the rect only
+// up to where the line through that free edge meets the rect's plane. The - edge is the same call mirrored.
+float RectLightBarnDoorLimit( float halfExtent, float lateral, float depth, float reach, float barnDepth )
+{
+    const float doorEdge = halfExtent + reach;
+    if ( lateral <= doorEdge )
+        return halfExtent;
+    if ( depth <= barnDepth )
+        return -halfExtent;
+    return min( halfExtent, ( depth * doorEdge - barnDepth * lateral ) / ( depth - barnDepth ) );
+}
+
+// The rect at a surface: its vector irradiance V (the integral of the unit direction over the visible rect,
+// half the LTC edge sum) gives L = V / |V| and Radiance = luminance * |V| * the range window, so
+// Radiance * dot( N, L ) is the rect's exact Lambert irradiance on a surface it lies wholly above (UE
+// RectIrradianceLambert). `intensity` is the emitted luminance (RectLightSystem: candelas over the rect's area),
+// `radius` the attenuation radius. One-sided: nothing behind the emitting face.
+DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
+{
+    const vec3  normal    = cross( source.rectAxisX, source.rectAxisY );
+    const vec3  fromLight = worldPosition - source.position;
+    const float depth     = dot( fromLight, normal );
+    const float lateralX  = dot( fromLight, source.rectAxisX );
+    const float lateralY  = dot( fromLight, source.rectAxisY );
+    const float x1 = RectLightBarnDoorLimit( source.rectHalfWidth, lateralX, depth, source.rectBarnReach,
+                                             source.rectBarnDepth );
+    const float x0 = -RectLightBarnDoorLimit( source.rectHalfWidth, -lateralX, depth, source.rectBarnReach,
+                                              source.rectBarnDepth );
+    const float y1 = RectLightBarnDoorLimit( source.rectHalfHeight, lateralY, depth, source.rectBarnReach,
+                                             source.rectBarnDepth );
+    const float y0 = -RectLightBarnDoorLimit( source.rectHalfHeight, -lateralY, depth, source.rectBarnReach,
+                                              source.rectBarnDepth );
+
+    DesertLight light;
+    light.L                  = normalize( -fromLight );
+    light.Radiance           = vec3( 0.0 );
+    light.Shadow             = 1.0;
+    light.TransmissionShadow = 1.0;
+    light.RectCenter         = vec3( 0.0 );
+    light.RectExtentX        = vec3( 0.0 );
+    light.RectExtentY        = vec3( 0.0 );
+    const float distance     = length( fromLight );
+    if ( depth <= 0.0 || x1 <= x0 || y1 <= y0 || distance >= source.radius )
+        return light;
+
+    const float halfScale = 0.5;
+    const vec3  extentX = source.rectAxisX * ( ( x1 - x0 ) * halfScale );
+    const vec3  extentY = source.rectAxisY * ( ( y1 - y0 ) * halfScale );
+    const vec3  center  = source.position + source.rectAxisX * ( ( x0 + x1 ) * halfScale ) +
+                          source.rectAxisY * ( ( y0 + y1 ) * halfScale ) - worldPosition;
+    const vec3  c0      = normalize( center - extentX - extentY );
+    const vec3  c1      = normalize( center + extentX - extentY );
+    const vec3  c2      = normalize( center + extentX + extentY );
+    const vec3  c3      = normalize( center - extentX + extentY );
+    vec3 irradiance = ( RectLightEdge( c0, c1 ) + RectLightEdge( c1, c2 ) + RectLightEdge( c2, c3 ) +
+                        RectLightEdge( c3, c0 ) ) * halfScale;
+    // Every direction toward the face runs against its normal, so V does: the winding's sign, fixed once.
+    if ( dot( irradiance, normal ) > 0.0 )
+        irradiance = -irradiance;
+    const float solidAngle = length( irradiance );
+    if ( solidAngle <= 0.0 )
+        return light;
+
+    // The attenuation radius windows the rect as it windows the inverse-square point light (BRDF.glslh).
+    const float window = 1.0 - distance / source.radius;
+    light.L            = irradiance / solidAngle;
+    light.Radiance     = source.color * ( source.intensity * solidAngle * window );
+    light.RectCenter   = center;
+    light.RectExtentX  = extentX;
+    light.RectExtentY  = extentY;
     return light;
 }
 
 DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
 {
+    if ( source.rectHalfWidth > 0.0 )
+        return DesertRectLightAt( source, worldPosition );
     const vec3  toLight  = source.position - worldPosition;
     const float distance = length( toLight );
     DesertLight light;
@@ -60,6 +160,9 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
                      LightFalloffFactor( distance, source.minRadius, source.radius, source.falloff );
     light.Shadow             = 1.0;
     light.TransmissionShadow = 1.0;
+    light.RectCenter         = vec3( 0.0 );
+    light.RectExtentX        = vec3( 0.0 );
+    light.RectExtentY        = vec3( 0.0 );
     return light;
 }
 
@@ -73,6 +176,9 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
                      SpotConeFactor( source, light.L );
     light.Shadow             = 1.0;
     light.TransmissionShadow = 1.0;
+    light.RectCenter         = vec3( 0.0 );
+    light.RectExtentX        = vec3( 0.0 );
+    light.RectExtentY        = vec3( 0.0 );
     return light;
 }
 

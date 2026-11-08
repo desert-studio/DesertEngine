@@ -1218,6 +1218,7 @@ namespace Desert::Core
         r.prepare<ECS::DirectionLightComponent>();
         r.prepare<ECS::PointLightComponent>();
         r.prepare<ECS::SpotLightComponent>();
+        r.prepare<ECS::RectLightComponent>();
         r.prepare<ECS::SkyboxComponent>();
         r.prepare<ECS::SkyAtmosphereComponent>();
         r.prepare<ECS::TimeOfDayComponent>();

@@ -15,7 +15,7 @@
 // kPointLightPayloadFields, from which the includer GENERATES `struct PointLight` (Mesh/LightSourceLayouts.glslh,
 // included by the binding-free Mesh/LightSources.glslh) and the PointLightsUB storage buffer
 // (Mesh/PointLightsUB.glslh, binding 6, included by Mesh/PointLight.glslh); neither is a file on disk. std430:
-// each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (80
+// each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (128
 // bytes); the static_asserts below make any other layout a build error.
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -60,7 +60,19 @@
     FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 72 */                                          \
     /* UE ULightComponent::VolumetricScatteringIntensity: the light's share in the froxel fog's in-scattering */  \
     /* (VolumetricFogLightScattering); 1 = as bright as on surfaces, 0 = the fog does not see the light. */       \
-    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 76 -> 80 */
+    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 76 */               \
+    /* A RECT source (ECS::RectLightComponent) when RectHalfWidth > 0, else a point: the rect's width and */      \
+    /* height axes (unit, world; their cross is the emitting face's normal) and half-extents (cm), and its */     \
+    /* barn doors' free edge from the rect's border - RectBarnReach outward in its plane, RectBarnDepth */        \
+    /* along its normal (cm). Intensity is then the emitted luminance (LightSources.glslh DesertRectLightAt). */  \
+    FIELD( glm::vec3, RectAxisX, rectAxisX, {} )             /* 80 */                                             \
+    FIELD( float, RectHalfWidth, rectHalfWidth, { 0.0f } )   /* 92 */                                             \
+    FIELD( glm::vec3, RectAxisY, rectAxisY, {} )             /* 96 */                                             \
+    FIELD( float, RectHalfHeight, rectHalfHeight, { 0.0f } ) /* 108 */                                            \
+    FIELD( float, RectBarnReach, rectBarnReach, { 0.0f } )   /* 112 */                                            \
+    FIELD( float, RectBarnDepth, rectBarnDepth, { 0.0f } )   /* 116 */                                            \
+    FIELD( float, RectPad0, rectPad0, { 0.0f } )             /* 120 */                                            \
+    FIELD( float, RectPad1, rectPad1, { 0.0f } )             /* 124 -> 128 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -70,7 +82,7 @@ namespace Desert::Graphic::ShaderProtocols
          Std430StructLayoutMatches( kPointLightPayloadFields, sizeof( PointLightPayload ) ),
          "PointLightPayload is not laid out (or strided) as std430 places the generated struct PointLight: "
          "reorder or pad DESERT_POINT_LIGHT_FIELDS" );
-    static_assert( sizeof( PointLightPayload ) == 80 );
+    static_assert( sizeof( PointLightPayload ) == 128 );
 
     struct PointLight
     {

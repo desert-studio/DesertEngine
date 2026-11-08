@@ -91,6 +91,8 @@ namespace Desert::Tests::CornellSymmetryRef
         using uint = std::uint32_t;
         using glm::abs;
         using glm::length;
+        using glm::cross;       // the rect source's vector irradiance (LightSources.glslh RectLightEdge)
+        using glm::inversesqrt;
         uint floatBitsToUint( float value )
         {
             return std::bit_cast<uint>( value );
