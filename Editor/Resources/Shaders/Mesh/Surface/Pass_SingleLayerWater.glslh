@@ -104,8 +104,23 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 #include <Common/ThinGeometryCoverage.glslh>
 // The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
 #include <Mesh/Surface/WaterMeshTiles.glslh>
+// The scene's air (WIND-FIELD-GPU): the gust fronts and the local sources the foliage sways by roughen the ripples.
+#include <Common/WindGust.glslh>
+#include <Common/LocalWind.glslh>
 
 const float kWaterPi = 3.14159265;
+
+// THE WIND ON THE RIPPLES (WIND-FIELD-GPU; Ghost of Tsushima's gust fronts seen as cat's paws on water): the factor
+// the material's ripple tilt is scaled by at a world point - the scene's ONE wind field, the one the foliage sways
+// by. The gust fronts (WindGustScale, in [1 - Gustiness, 1]) calm the water in a lull as they still a plant; a local
+// source (LocalWindXZ, in units of the frame's reference speed) roughens it by its air, up to twice the material's
+// tilt at the reference speed and above. No wind (Gustiness 0, no local source): exactly 1, the material's look.
+float WaterWindRippleScale( vec3 worldPosition )
+{
+    const float gust  = WindGustScale( worldPosition.x, worldPosition.z, cameraUB.WindGust );
+    const float local = min( length( LocalWindXZ( worldPosition, false ) ), 1.0 );
+    return gust * ( 1.0 + local );
+}
 
 vec3 WaterWorldAt( vec2 uv, float deviceDepth )
 {
@@ -163,7 +178,10 @@ void main()
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
-    const SurfaceOutput          s = EvaluateSurface( i );
+    SurfaceOutput                s = EvaluateSurface( i );
+    const float                  windRipple = WaterWindRippleScale( i.WorldPosition );
+    if ( windRipple != 1.0 )
+        s.Normal = SurfaceScaleTangentNormal( s.Normal, windRipple );
     const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
 
     const vec3 V = normalize( i.CameraPosition - i.WorldPosition );

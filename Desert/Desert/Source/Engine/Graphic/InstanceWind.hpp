@@ -85,12 +85,15 @@ namespace Desert::Graphic
      * clamped to [0, 1] and squared: the root (y <= 0) never moves, the tip moves most. The sway term lies in
      * [0, 1] (the plant leans downwind and swings back to upright), and the phase comes from the instance's
      * world position so neighbours do not move in lockstep. The scene's gust fronts at the instance's point
-     * (@p gust, CameraUB::WindGust; WindGustScale in [1 - Gustiness, 1]) scale it. Its magnitude never exceeds
-     * Strength, which is what WindBoundsPad relies on.
+     * (@p gust, CameraUB::WindGust; WindGustScale in [1 - Gustiness, 1]) scale it. The direction is the air at
+     * the instance (FoliageWindAir): the per-draw directional wind plus @p localAir, the scene's local sources at
+     * the instance's point (LocalWindXZ of CameraUB::LocalWind), shortened to length 1. Its magnitude never
+     * exceeds Strength, which is what WindBoundsPad relies on.
      */
     [[nodiscard]] inline glm::vec3 FoliageWindOffset( const glm::vec3& localPosition,
                                                       const glm::vec3& instanceOrigin, const InstanceWind& wind,
-                                                      const glm::vec4& gust )
+                                                      const glm::vec4& gust,
+                                                      const glm::vec2& localAir = glm::vec2( 0.0f ) )
     {
         if ( !wind.Sways() )
             return glm::vec3( 0.0f );
@@ -102,7 +105,8 @@ namespace Desert::Graphic
              0.65f * std::sin( t + phase ) + 0.35f * std::sin( kWindHarmonicRatio * t + 1.7f * phase );
         const float amount = wind.Strength * mask * ( 0.5f + 0.5f * sway ) *
                              WindGustScale( instanceOrigin.x, instanceOrigin.z, gust );
-        return glm::vec3( wind.Direction.x, 0.0f, wind.Direction.y ) * amount;
+        const glm::vec2 air = FoliageWindAir( wind.Direction, localAir );
+        return glm::vec3( air.x, 0.0f, air.y ) * amount;
     }
 
     /// The largest distance FoliageWindOffset can move a vertex: what the instance's box grows by.
