@@ -130,6 +130,11 @@ namespace Desert::Graphic::DistanceField
         std::vector<GlobalDistanceFieldObject> Objects;
         // Each object's world box (its field's LocalSpaceMeshBounds through World), index for index with Objects.
         std::vector<Common::Math::AABB> Bounds;
+        // The set's distinct fields, first use first, and each object's index into them, index for index with
+        // Objects (sealed): the scene's residency and the frame's lookups run once per field (UE
+        // FDistanceFieldAssetState: per asset, not per instance), and an object reads its field's answer.
+        std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> Fields;
+        std::vector<uint32_t>                                               FieldOfObject;
         // The landscape tiles, placed after the objects in the object records (DF_OBJECT_FLAG_HEIGHTFIELD): the
         // global field's composite reads them, the near field's cull stops before them.
         std::vector<GlobalDistanceFieldHeightfield> Heightfields;
@@ -138,7 +143,8 @@ namespace Desert::Graphic::DistanceField
         // placement is keyed on. Not PrevWorld: the clipmaps hold this frame's surface only.
         uint64_t Identity = 0;
     };
-    // Fills @p set's Bounds and Identity from its Objects; call after every rebuild of the Objects.
+    // Fills @p set's Bounds, Fields, FieldOfObject and Identity from its Objects; call after every rebuild of the
+    // Objects.
     void SealGlobalDistanceFieldObjectSet( GlobalDistanceFieldObjectSet& set );
 
     // The parameters of a clipmap level (pure, shared by the update and every reader): its voxel in centimetres,
@@ -263,9 +269,17 @@ namespace Desert::Graphic::DistanceField
             uint32_t MeshObjects = 0;
         };
         std::optional<KeptPlacement> m_Placement;
-        // The fields of the set m_FieldsIdentity names, as BeginViewFrame takes them (rebuilt with the set only).
-        std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> m_Fields;
-        std::optional<uint64_t>                                             m_FieldsIdentity;
+        // The resident slot of each of the set's Fields (DistanceFieldSceneData::ResolveFields), resolved for the
+        // set m_SlotsIdentity names at the scene's resident epoch m_SlotsEpoch: re-resolved only when either
+        // moved, so a frame's lookups read an array. The set holds the fields, so a slot cannot outlive its field.
+        std::vector<DistanceFieldSceneData::FieldSlot> m_FieldSlots;
+        std::optional<uint64_t>                        m_SlotsIdentity;
+        uint64_t                                       m_SlotsEpoch = 0;
+        // The frame's scratch, kept so a frame allocates nothing: the nearest object distance of each field, each
+        // field's record index (nullopt: not resident) and the placed objects (object, record index).
+        std::vector<float>                         m_FieldDistance;
+        std::vector<std::optional<uint32_t>>       m_FieldIndex;
+        std::vector<std::pair<uint32_t, uint32_t>> m_Placed;
         // The scene pool generation the clipmaps were composited from (DistanceFieldSceneData::GetPoolGeneration).
         std::optional<uint64_t> m_PoolGeneration;
 

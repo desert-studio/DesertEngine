@@ -101,6 +101,22 @@ namespace Desert::ShaderResources
         // RecordingSeal: that is the growth this call exists to move out of recording.
         NO_DISCARD virtual Common::BoolResultStr Reserve( uint32_t size ) = 0;
 
+        // A WRITER'S OWN VERSION OF THE ACTIVE VIEW'S COPY for the current frame in flight (ViewCopiedBlock,
+        // IBlockCopy::GetAppliedVersion): a writer whose bytes change only with its revision rewrites a copy only
+        // when the copy is behind it. The newest version noted on that copy, 0 when it does not exist yet (a new
+        // copy is behind every write) - and always 0 for a persistent or device-only buffer, which has one
+        // device buffer and no per-copy record, so such a writer writes every time. A backend without per-view
+        // copies (the suites' doubles) keeps no record either: the base answers 0.
+        NO_DISCARD virtual uint64_t ActiveAppliedVersion() const
+        {
+            return 0;
+        }
+        // Records that the active view's copy for the current frame holds every write up to @p version (a copy
+        // that does not exist holds nothing; a persistent or device-only buffer keeps no record).
+        virtual void NoteActiveApplied( uint64_t /*version*/ )
+        {
+        }
+
     private:
         Graphic::ResourceOwnership m_Accounting;
 

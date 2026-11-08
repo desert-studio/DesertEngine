@@ -223,6 +223,20 @@ namespace Desert::ShaderResources::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    uint64_t VulkanStorageBuffer::ActiveAppliedVersion() const
+    {
+        if ( IsPersistent() || !m_PerView )
+            return 0; // one device buffer, no per-copy record: its writer writes every time
+        return m_PerView->ActiveAppliedVersion( EngineContext::GetInstance().GetCurrentFrameIndex() );
+    }
+
+    void VulkanStorageBuffer::NoteActiveApplied( const uint64_t version )
+    {
+        if ( IsPersistent() || !m_PerView )
+            return;
+        m_PerView->NoteActiveApplied( EngineContext::GetInstance().GetCurrentFrameIndex(), version );
+    }
+
     Common::BoolResultStr VulkanStorageBuffer::SetData( const void* data, uint32_t size, uint32_t offset )
     {
         if ( !m_Built.IsSuccess() )

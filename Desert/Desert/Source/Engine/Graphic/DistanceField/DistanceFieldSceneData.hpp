@@ -125,7 +125,27 @@ namespace Desert::Graphic::DistanceField
 
     class DistanceFieldSceneData
     {
+        struct Resident;
+
     public:
+        // ONE FIELD'S PLACE IN THE RESIDENT SET (UE FDistanceFieldAssetState: the streaming state is per asset, a
+        // primitive names its asset's): what ResolveFields hands a reader for each distinct field of its object
+        // set, so a frame's Lookup is an array read - no hash, no weak_ptr lock - while the reader's set holds the
+        // field. Valid for the resident epoch it was resolved at (GetResidentEpoch); empty when the field was not
+        // resident then.
+        class FieldSlot
+        {
+        public:
+            [[nodiscard]] bool IsResident() const noexcept
+            {
+                return m_Resident != nullptr;
+            }
+
+        private:
+            friend class DistanceFieldSceneData;
+            Resident* m_Resident = nullptr;
+        };
+
         // @p scene is the owning Core::Scene's ledger instance (Scene::GetLedgerInstance).
         explicit DistanceFieldSceneData( ResourceOwnerInstance scene );
         ~DistanceFieldSceneData();
@@ -133,8 +153,9 @@ namespace Desert::Graphic::DistanceField
         DistanceFieldSceneData& operator=( const DistanceFieldSceneData& ) = delete;
 
         // Every view calls this first, with the engine's absolute frame number, its pool request (Scalability
-        // GlobalIllumination.DistanceFieldPoolMiB) and the fields of every distance-field-bearing primitive of
-        // the scene. A new number starts the scene's frame and decides its resident set (above): the pool becomes
+        // GlobalIllumination.DistanceFieldPoolMiB) and the distinct fields of every distance-field-bearing
+        // primitive of the scene, first use first (GlobalDistanceFieldObjectSet::Fields: work per asset, not per
+        // instance). A new number starts the scene's frame and decides its resident set (above): the pool becomes
         // the largest any view asked for during the previous frame (a different size drops every resident field
         // and re-creates the atlas: GetPoolGeneration moves), fields nothing holds leave, the finer mips stream,
         // the waiting fields and then @p fields get their coarse mip, the atlas and this frame's copies of the
@@ -166,13 +187,29 @@ namespace Desert::Graphic::DistanceField
             return m_IndirectionBuffer;
         }
 
-        // The asset record index of @p field in this frame's resident set, and the distance in centimetres from
-        // the view's camera to an object drawn with it - the largest per-axis gap to its box (the nearest of every
-        // view's objects this frame counts; the next frame's streaming reads it). Allocates nothing: a field the
-        // set lacks returns nullopt and waits for the next frame start (BeginViewFrame); so does a field without a
-        // single mip (a mesh with no triangles), which never gets a record.
+        // Moves whenever a field joins or leaves the resident set or the pool drops them all - only at a frame
+        // start (BeginViewFrame) or AdoptPool. Drawn from one process-wide counter, so no two scene datas share
+        // an epoch: a FieldSlot resolved at another epoch, or for another scene, is resolved again.
+        [[nodiscard]] uint64_t GetResidentEpoch() const
+        {
+            return m_ResidentEpoch;
+        }
+
+        // Each of @p fields' slot in this frame's resident set, index for index (after BeginViewFrame): run when
+        // the reader's set or GetResidentEpoch moved, not per frame. The reader keeps every field alive while it
+        // keeps the slots (its object set holds them), so a resident field cannot leave under a slot.
+        void ResolveFields( const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields,
+                            std::vector<FieldSlot>&                                                    slots );
+
+        // The asset record index of @p field (resolved to @p slot at this epoch) in this frame's resident set, and
+        // the distance in centimetres from the view's camera to the nearest object drawn with it - the largest
+        // per-axis gap to its box (the nearest of every view's lookups this frame counts; the next frame's
+        // streaming reads it). Allocates nothing: a field the set lacks returns nullopt and waits for the next
+        // frame start (BeginViewFrame); so does a field without a single mip (a mesh with no triangles), which
+        // never gets a record.
         [[nodiscard]] std::optional<uint32_t>
-        Lookup( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field, float distance );
+        Lookup( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field, FieldSlot slot,
+                float distance );
 
         // How many mips of @p field are resident (0 = not resident): part of an object's identity in the global
         // field, so a mip arriving or leaving recomposites the object.
@@ -187,7 +224,8 @@ namespace Desert::Graphic::DistanceField
             return m_Indirection;
         }
         // Bumped whenever GetAssetData or GetIndirection changes (a mip in or out, a pool change): a reader that
-        // keeps a device copy uploads again only then.
+        // keeps a device copy uploads again only then - the frame start's own upload into this frame's copies
+        // does (UploadRecordsIfBehind).
         [[nodiscard]] uint64_t GetRevision() const
         {
             return m_Revision;
@@ -257,8 +295,15 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] Common::ResultStr<std::optional<uint32_t>>
         Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field, float distance );
 
+        // A field joined or left m_Resident (or it was cleared): the next process-wide epoch.
+        void MoveResidentEpoch();
+        // Uploads the records and the table into the active view's copies for this frame when they are behind
+        // m_Revision (a still frame writes nothing).
+        [[nodiscard]] Common::BoolResultStr UploadRecordsIfBehind();
+
         std::unordered_map<const Assets::MeshDistanceFieldVolume*, Resident> m_Resident;
-        BrickAllocator                                                     m_BrickSlots;
+        uint64_t                                                             m_ResidentEpoch = 0;
+        BrickAllocator                                                       m_BrickSlots;
         RangeAllocator                                                     m_IndirectionSlots;
         RangeAllocator                                                     m_AssetSlots;
         std::vector<glm::vec4>                                             m_AssetData;
