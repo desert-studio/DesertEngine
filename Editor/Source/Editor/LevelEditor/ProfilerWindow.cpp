@@ -390,6 +390,23 @@ namespace Desert::Editor
                                          view.Phase1 + view.Phase2 + view.Occluded );
         LOG_INFO( "[Profiler] DrawBins{} (instances drawn phase 1 + phase 2 / in view without occlusion)",
                   binViews.empty() ? " none" : binViews );
+        // GPU-FARFIELD-4: what 'Clouds: March' did with its rays (System::CloudMarchCounters, frames in flight
+        // late).
+        const Graphic::System::CloudMarchCounters* const cloudMarch =
+             renderer != nullptr ? renderer->GetCloudMarchCounters() : nullptr;
+        if ( cloudMarch != nullptr && cloudMarch->Valid )
+        {
+            const auto&  words      = cloudMarch->Words;
+            const double rays       = std::max( 1.0, static_cast<double>( words[0] ) );
+            const double litSamples = std::max( 1.0, static_cast<double>( words[2] ) );
+            LOG_INFO( "[Profiler] Clouds march: rays {} | primary steps {} ({:.1f} a ray) | lit {} ({:.1f} a ray) "
+                      "| light samples {} ({:.1f} a lit sample, full ray {}) | early exit {} ({:.1f} %) | "
+                      "column jumps {} | lanes at the ceiling {} (a frame; primary = view-ray field evaluations, "
+                      "lit = samples with density and a shadow ray, early exit = transmittance under the stop)",
+                      words[0], words[1], words[1] / rays, words[2], words[2] / rays, words[3],
+                      words[3] / litSamples,
+                      words[7], words[4], 100.0 * words[4] / rays, words[6], words[5] );
+        }
 #if DESERT_DEV_INSTRUMENTS
         // PROBE-TURN-1: why this view's screen probe rays took the cache-miss leg - the far field's radiance cache
         // reads by why they answered or not (GlobalIllumination::ScreenProbeMissReasons, frames in flight late).

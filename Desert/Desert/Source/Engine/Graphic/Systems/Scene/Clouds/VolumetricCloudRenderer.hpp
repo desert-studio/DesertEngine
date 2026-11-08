@@ -109,6 +109,21 @@ namespace Desert::Graphic::System
         static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ) };
     };
 
+    // GPU-FARFIELD-4: one frame of the march's own counters ("Clouds.MarchCounters", CloudRaymarch.shader
+    // CLOUD_MARCH_COUNT_*, in that order), read back slots-in-flight late. A ray is one trace texel, counted once
+    // by its first segment lane after the lanes' results are composed.
+    struct CloudMarchCounters
+    {
+        static constexpr uint32_t kWords = 8;
+        // [0] rays marched (reached the loop), [1] view-ray field evaluations (the primary steps: search and fine
+        // samples; a column-probe jump is not one), [2] lit samples (density > 0, a shadow ray each), [3] the
+        // light samples those scheduled, [4] rays stopped on the transmittance (the early exit), [5] segment
+        // lanes that hit their iteration ceiling, [6] column-probe jumps, [7] lit samples that ran the full
+        // light ray (outside the shadow map).
+        std::array<uint32_t, kWords> Words{};
+        bool                         Valid = false;
+    };
+
     class VolumetricCloudRenderer final : public RenderSystem
     {
     public:
@@ -116,6 +131,12 @@ namespace Desert::Graphic::System
         ~VolumetricCloudRenderer() override;
 
         Common::BoolResultStr Initialize() override;
+
+        // GPU-FARFIELD-4: the march's counters of the newest frame read back (CloudMarchCounters).
+        [[nodiscard]] const CloudMarchCounters& LastMarchCounters() const
+        {
+            return m_MarchCounters;
+        }
 
         // The S3 composite as one raster pass on the scene target: its body, pipeline and declared reads. Not
         // registered with the builder: its place in the frame is the call that adds it
@@ -609,6 +630,11 @@ namespace Desert::Graphic::System
         // read and the BACK a wind-only refresh re-marches in bands (Graphic/Clouds/CloudAmortizedRefresh.hpp).
         // m_ShadowMap is this frame's front, null when the frame has no map. The plan is decided at declaration
         // and committed by SettleShadowMapNodes only when the graph accepted its node.
+        // GPU-FARFIELD-4: the march counters' readback slots, one per frame in flight, indexed by a frame count
+        // that a camera cut does not reset (m_FrameIndex does, and a slot read early is a fence not passed).
+        std::vector<RDG::ExternalBuffer>        m_MarchCounterSlots;
+        uint64_t                                m_MarchCounterFrame = 0;
+        CloudMarchCounters                      m_MarchCounters;
         std::shared_ptr<Image>                  m_ShadowMap;
         std::array<std::shared_ptr<Image2D>, 2> m_ShadowMapImages;
         uint32_t                                m_ShadowMapImageResolution = 0;

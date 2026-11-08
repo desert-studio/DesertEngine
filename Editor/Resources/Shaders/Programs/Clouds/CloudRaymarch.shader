@@ -96,6 +96,12 @@ Shader "CloudRaymarch"
 
     Compute
     {
+        // GPU-FARFIELD-4: the segment lanes of one ray compose their results through subgroupShuffle, and the
+        // march counters are summed per subgroup (subgroupAdd) before one atomic each.
+        #extension GL_KHR_shader_subgroup_basic : require
+        #extension GL_KHR_shader_subgroup_shuffle : require
+        #extension GL_KHR_shader_subgroup_arithmetic : require
+
         // The volumetric cloud march. Writes RGBA16F: .rgb = in-scattered radiance, PREMULTIPLIED, linear
         // HDR; .a = the transmittance of the cloud layer along that ray. The composite pass then needs no
         // more than `scene = rgb + scene * a`, which is the same premultiplied over-operator the height
@@ -369,6 +375,38 @@ Shader "CloudRaymarch"
             float CloudSelfShadowLocalSamples; // the short ray's sample count
         };
 
+        // GPU-FARFIELD-4: THE MARCH COUNTERS, zeroed per frame and read back into the profile dump
+        // (Graphic::System::CloudMarchCounters, "[Profiler] Clouds march"). One word each, in this order.
+        Buffer(21) CloudMarchCountersUB
+        {
+            uint cloudMarchCounters[];
+        };
+        #define CLOUD_MARCH_COUNT_RAYS            0u // rays that reached the loop
+        #define CLOUD_MARCH_COUNT_FIELD_SAMPLES   1u // view-ray field evaluations: the primary steps
+        #define CLOUD_MARCH_COUNT_LIT_SAMPLES     2u // samples with density, one shadow ray each
+        #define CLOUD_MARCH_COUNT_LIGHT_SAMPLES   3u // the light samples those scheduled
+        #define CLOUD_MARCH_COUNT_EARLY_EXIT      4u // rays whose composed transmittance fell under the stop
+        #define CLOUD_MARCH_COUNT_CEILING_LANES   5u // segment lanes that ran out of iterations
+        #define CLOUD_MARCH_COUNT_COLUMN_JUMPS    6u // column-probe jumps over empty columns
+        #define CLOUD_MARCH_COUNT_FULL_LIGHT_RAYS 7u // lit samples outside the shadow map (the full light ray)
+        void CloudMarchCount(uint word, uint value)
+        {
+            uint total = subgroupAdd(value);
+            if (subgroupElect() && total > 0u)
+                atomicAdd(cloudMarchCounters[word], total);
+        }
+
+        // GPU-FARFIELD-4: LANES PER VIEW RAY (VolumetricCloudRenderer.cpp kMarchSegmentLanes, the same number).
+        // The march traces 1.57 % of the screen's pixels a frame (one 2x2 phase of a quarter-resolution grid,
+        // about 8k rays at 1080p), a quarter of what Unreal's quarter-resolution trace dispatches, so the pass is
+        // too narrow to hide a fetch's latency: its time was the serial chain of the longest ray in a wave, not
+        // the ray count. Each of these lanes marches one contiguous stretch of the ray's segment with its own
+        // local transmittance; the lanes are then composed front to back, which is exact for an
+        // emission-absorption integral: L = sum_k P_k L_k, T = prod_k T_k, P_k = prod_{j<k} T_j (and the
+        // transmittance-weighted front the same way). The lanes of a ray sit side by side in x, so an 8-wide
+        // group row holds two rays and a ray's lanes are four consecutive subgroup lanes, aligned.
+        #define CLOUD_MARCH_SEGMENT_LANES 4u
+
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
@@ -561,7 +599,12 @@ Shader "CloudRaymarch"
             ivec2 size      = imageSize(CloudScatterTexture);
             int   phaseBits = int(CloudVisualize.y + 0.5f) & 3;
             ivec2 gridPhase = ivec2(phaseBits & 1, phaseBits >> 1);
-            ivec2 coord     = ivec2(gl_GlobalInvocationID.xy) * 2 + gridPhase;
+            // GPU-FARFIELD-4: the ray this invocation is a segment lane of (CLOUD_MARCH_SEGMENT_LANES), and which.
+            uint  segmentLane   = gl_GlobalInvocationID.x % CLOUD_MARCH_SEGMENT_LANES;
+            uvec2 rayInvocation = uvec2(gl_GlobalInvocationID.x / CLOUD_MARCH_SEGMENT_LANES,
+                                        gl_GlobalInvocationID.y);
+            uint  laneBase      = gl_SubgroupInvocationID - segmentLane;
+            ivec2 coord         = ivec2(rayInvocation) * 2 + gridPhase;
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
@@ -712,7 +755,7 @@ Shader "CloudRaymarch"
             // The offset moves from trace to trace, so the reconstruction integrates it; a still frame of
             // this pass is therefore NOT a valid check of it — it shows one realization of the dither, not
             // what the viewer sees. Spatio-temporal low-discrepancy, not white (CloudMarchStartOffset).
-            float jitter = CloudMarchStartOffset(ivec2(gl_GlobalInvocationID.xy), gridPhase, ivec2(CloudTraceParams.xy),
+            float jitter = CloudMarchStartOffset(ivec2(rayInvocation), gridPhase, ivec2(CloudTraceParams.xy),
                                                  uint(CameraPosition.w));
 
             CloudFieldParams params = CloudUnpackFieldParams();
@@ -842,7 +885,16 @@ Shader "CloudRaymarch"
 
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
             float transmittance = 1.0f;
-            float t             = segment.x + jitter * stepKm;
+
+            // GPU-FARFIELD-4: THIS LANE'S STRETCH of the segment (CLOUD_MARCH_SEGMENT_LANES), with the same start
+            // offset inside its first step as the whole ray had at its entry. Everything below that read the
+            // segment's ends as the march's own bounds reads these; the guide's "end of search" stays segment.y.
+            float laneLengthKm = (segment.y - segment.x) / float(CLOUD_MARCH_SEGMENT_LANES);
+            float laneStartKm  = segment.x + laneLengthKm * float(segmentLane);
+            float laneEndKm    = segment.y;
+            if (segmentLane + 1u < CLOUD_MARCH_SEGMENT_LANES)
+                laneEndKm = laneStartKm + laneLengthKm;
+            float t             = laneStartKm + jitter * stepKm;
 
             // Where along the ray this pixel's cloud effectively IS, weighted by how much of the ray's
             // light each sample still gets to contribute. A cloud is not at one distance, but the
@@ -895,11 +947,18 @@ Shader "CloudRaymarch"
             int   censusFieldEvaluations = 0;
             int   censusLitSamples       = 0;
             float censusLightSamples     = 0.0f;
+            int   censusColumnJumps      = 0;
+            int   censusFullLightRays    = 0;
+            // Left by the stretch's end or by the transmittance, not by the iteration ceiling.
+            bool  laneFinished           = false;
 
             for (int i = 0; i < iterationTotal; ++i)
             {
-                if (t >= segment.y)
+                if (t >= laneEndKm)
+                {
+                    laneFinished = true;
                     break;
+                }
 
                 // The step this sample is integrated over and advances by: the fine step, grown with the texel
                 // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
@@ -921,6 +980,7 @@ Shader "CloudRaymarch"
                                                     skippedHeights.y))
                     {
                         t += emptyColumnAdvance;
+                        ++censusColumnJumps;
                         continue;
                     }
                 }
@@ -951,7 +1011,7 @@ Shader "CloudRaymarch"
                         emptyRun = 0;
                         if (coarseStepKm > litStepKm)
                         {
-                            t = max(segment.x, t - coarseStepKm + litStepKm);
+                            t = max(laneStartKm, t - coarseStepKm + litStepKm);
                             continue;
                         }
                     }
@@ -1004,6 +1064,7 @@ Shader "CloudRaymarch"
                                                                          lightCost);
                         ++censusLitSamples;
                         censusLightSamples += lightCost.x;
+                        censusFullLightRays += int(lightCost.y > 0.5f);
 
                         // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
                         //
@@ -1098,12 +1159,73 @@ Shader "CloudRaymarch"
                         transmittance *= CloudBeerTransmittance(sigmaT, litStepKm);
 
                         if (transmittance < stopT)
+                        {
+                            laneFinished = true;
                             break;
+                        }
                     }
                 }
 
                 t += litStepKm;
             }
+
+            // GPU-FARFIELD-4: THE LANES COMPOSED FRONT TO BACK (CLOUD_MARCH_SEGMENT_LANES). Every lane of the ray
+            // reaches this point (each one left the loop; nothing above returned for one lane and not another),
+            // so every shuffle below reads an active lane. Each lane's own sums are weighted by the transmittance
+            // of the lanes in front of it; afterwards every lane holds the whole ray's result.
+            {
+                vec3  composedLuminance = vec3(0.0f, 0.0f, 0.0f);
+                float composedWeightedT = 0.0f;
+                float composedWeightSum = 0.0f;
+                float composedT         = 1.0f;
+                for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                {
+                    uint  source = laneBase + lane;
+                    vec3  laneL  = subgroupShuffle(luminance, source);
+                    float laneW  = subgroupShuffle(aerialWeightedT, source);
+                    float laneS  = subgroupShuffle(aerialWeightSum, source);
+                    float laneT  = subgroupShuffle(transmittance, source);
+                    composedLuminance += composedT * laneL;
+                    composedWeightedT += composedT * laneW;
+                    composedWeightSum += composedT * laneS;
+                    composedT         *= laneT;
+                }
+                luminance       = composedLuminance;
+                aerialWeightedT = composedWeightedT;
+                aerialWeightSum = composedWeightSum;
+                transmittance   = composedT;
+            }
+
+            // The march counters: the per-lane ones from every lane, the per-ray ones from the first lane only.
+            bool firstLane = segmentLane == 0u;
+            CloudMarchCount(CLOUD_MARCH_COUNT_RAYS, uint(firstLane));
+            CloudMarchCount(CLOUD_MARCH_COUNT_FIELD_SAMPLES, uint(censusFieldEvaluations));
+            CloudMarchCount(CLOUD_MARCH_COUNT_LIT_SAMPLES, uint(censusLitSamples));
+            CloudMarchCount(CLOUD_MARCH_COUNT_LIGHT_SAMPLES, uint(censusLightSamples + 0.5f));
+            CloudMarchCount(CLOUD_MARCH_COUNT_EARLY_EXIT, uint(firstLane && transmittance < stopT));
+            CloudMarchCount(CLOUD_MARCH_COUNT_CEILING_LANES, uint(!laneFinished));
+            CloudMarchCount(CLOUD_MARCH_COUNT_COLUMN_JUMPS, uint(censusColumnJumps));
+            CloudMarchCount(CLOUD_MARCH_COUNT_FULL_LIGHT_RAYS, uint(censusFullLightRays));
+
+            // The census view shows the whole ray's cost: the lanes' counts summed into every lane.
+            {
+                int   rayFieldEvaluations = 0;
+                int   rayLitSamples       = 0;
+                float rayLightSamples     = 0.0f;
+                for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                {
+                    rayFieldEvaluations += subgroupShuffle(censusFieldEvaluations, laneBase + lane);
+                    rayLitSamples       += subgroupShuffle(censusLitSamples, laneBase + lane);
+                    rayLightSamples     += subgroupShuffle(censusLightSamples, laneBase + lane);
+                }
+                censusFieldEvaluations = rayFieldEvaluations;
+                censusLitSamples       = rayLitSamples;
+                censusLightSamples     = rayLightSamples;
+            }
+
+            // One lane stores the ray; the others have nothing of their own left to write.
+            if (!firstLane)
+                return;
 
             // AERIAL PERSPECTIVE. Sixty kilometres of air between the camera and a distant cloud is not
             // nothing: it scatters its own light in and attenuates what comes back, which is why a real

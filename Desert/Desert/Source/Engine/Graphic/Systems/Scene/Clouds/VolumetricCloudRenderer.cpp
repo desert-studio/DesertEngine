@@ -5,6 +5,7 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialBake.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -23,7 +24,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <array>
 #include <cstring>
+#include <span>
 
 namespace
 {
@@ -63,6 +66,8 @@ namespace
         // The cloud shadow map as the march's far shadow term - a SAMPLED read under its own name, since the
         // producer's CloudShadowMapTexture above is the storage image it writes.
         DESERT_SHADER_PARAMETER( Texture, CloudSelfShadowMapTexture );
+        // GPU-FARFIELD-4: the march's counters (CloudMarchCounters), zeroed per frame and read back.
+        DESERT_SHADER_PARAMETER( StorageBuffer, CloudMarchCountersUB );
     };
 } // namespace
 
@@ -74,6 +79,11 @@ namespace Desert::Graphic::System
         // inside every implementation's guaranteed maximum and the dispatch bounds-checks, so any target
         // size is fine.
         constexpr uint32_t kMarchWorkGroupSize = 8;
+
+        // GPU-FARFIELD-4: lanes per view ray, CloudRaymarch.shader CLOUD_MARCH_SEGMENT_LANES. Each lane marches
+        // one contiguous quarter of the ray's segment and the four are composed front to back, so the dispatch
+        // is four times as wide for the same rays (see the shader for why).
+        constexpr uint32_t kMarchSegmentLanes = 4;
 
         // One spelling with the material schema's own — the march program IS the cloud material shader.
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
@@ -2343,6 +2353,12 @@ namespace Desert::Graphic::System
         // has cost this project a build before).
         const std::shared_ptr<Image> selfShadowImage = selfShadowMap ? m_ShadowMap : fallback2D;
         const char* const selfShadowName = selfShadowMap ? "Clouds.ShadowMap" : "Clouds.SelfShadowMapFallback";
+        // GPU-FARFIELD-4: the march's counters (CloudMarchCounters), zeroed per frame. Always bound: the shader
+        // declares the block unconditionally, and a declared buffer with nothing bound is an invalid set.
+        constexpr std::array<uint32_t, CloudMarchCounters::kWords> kMarchCountersReset{};
+        const RDG::BufferRef marchCounters =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kMarchCountersReset ) }, "Clouds.MarchCounters" );
+        graph.QueueBufferUpload( marchCounters, std::as_bytes( std::span( kMarchCountersReset ) ) );
         SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, m_MarchPipeline.get(), m_MarchLayout,
                                                             static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
              .Storage( VolumetricCloudShaderParameters::CloudScatterTexture, trace, RDG::Access::StorageWrite )
@@ -2373,11 +2389,14 @@ namespace Desert::Graphic::System
              // The column maximum of the clipmap's levels, written by the same Write as the volume above it
              // (CloudProceduralClipmap), so it exists exactly when CloudModellingTexture does.
              .Texture( VolumetricCloudShaderParameters::CloudColumnMaxTexture, m_Clipmap.GetColumnImage(),
-                       RDG::Access::SampledCompute, "Clouds.ColumnMax" );
+                       RDG::Access::SampledCompute, "Clouds.ColumnMax" )
+             .Storage( VolumetricCloudShaderParameters::CloudMarchCountersUB, marchCounters,
+                       RDG::Access::StorageWrite );
         // ONE 2x2 LATTICE PHASE PER FRAME (CloudTraceGridPhase): thread (x, y) marches texel
         // (2x + phase.X, 2y + phase.Y), so the dispatch is half the grid's width and half its height, rounded up,
         // and no lane idles on a texel of another phase (CloudRaymarch.shader main).
-        const uint32_t marchColumns = HalfExtent( traceWidth );
+        // GPU-FARFIELD-4: kMarchSegmentLanes lanes a ray, side by side in x (CLOUD_MARCH_SEGMENT_LANES).
+        const uint32_t marchColumns = HalfExtent( traceWidth ) * kMarchSegmentLanes;
         const uint32_t marchRows    = HalfExtent( traceHeight );
         march.Record                = [this, push, marchColumns, marchRows]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -2390,6 +2409,31 @@ namespace Desert::Graphic::System
                                               GroupCount( marchRows, kMarchWorkGroupSize ), 1 );
         };
         nodes.push_back( std::move( march ) );
+
+        // GPU-FARFIELD-4: the slot of this frame count was handed its words slots-in-flight frames ago, so its
+        // fence has passed (the ScreenProbeMissCounts pattern); read it, then hand it this frame's counters.
+        {
+            const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+            if ( m_MarchCounterSlots.size() != slots )
+            {
+                m_MarchCounterSlots.clear();
+                m_MarchCounterSlots.resize( slots );
+            }
+            const std::size_t    index = static_cast<std::size_t>( m_MarchCounterFrame % slots );
+            RDG::ExternalBuffer& slot  = m_MarchCounterSlots[index];
+            if ( slot.Physical )
+            {
+                const std::span<const std::byte> bytes = slot.Physical->ReadForHost();
+                if ( bytes.size() >= sizeof( m_MarchCounters.Words ) )
+                {
+                    std::memcpy( m_MarchCounters.Words.data(), bytes.data(), sizeof( m_MarchCounters.Words ) );
+                    m_MarchCounters.Valid = true;
+                }
+            }
+            slot = RDG::ExternalBuffer{};
+            graph.Extract( marchCounters, slot, RDG::Access::HostRead );
+            ++m_MarchCounterFrame;
+        }
 
         // S2 — THE TEMPORAL RECONSTRUCTION, through the VIEW's history (SceneViewState::Clouds): last frame's
         // pair registered back into this graph, this frame's a transient pair extracted for the next. Readable
