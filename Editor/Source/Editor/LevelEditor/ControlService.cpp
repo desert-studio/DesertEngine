@@ -308,8 +308,8 @@ namespace Desert::Editor
     //   OnUpdate      ServiceControlChannel()   read a request, run it, arm the gate
     //   OnUpdate      ...deferred queues drain, the scene renders...
     //   OnUpdate      SampleFrameQuiescence()   what was still outstanding while this frame was made
-    //   OnUIRender ...the interface is recorded into the swapchain...
-    //   present
+    //   OnUIRender    RecordWindowCaptureIfDue()  the interface's draw, then (when due) the copy, are enqueued
+    //   render task   interface graph (acquires the back buffer), the copy, submit, present
     //   OnFramePresented                        judge the frame; take the shot; release the reply
     // =============================================================================================
 

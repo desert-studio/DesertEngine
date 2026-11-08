@@ -13,8 +13,8 @@
 //   OnUpdate      ServiceChannel()            read a request, run it, arm the gate
 //   OnUpdate      ...deferred queues drain, the scene renders...
 //   OnUpdate      SampleFrameQuiescence()     what was still outstanding while this frame was made
-//   OnUIRender    RecordWindowCaptureIfDue()  ...the interface's draw is enqueued; the copy is enqueued behind
-//   it... render task   interface graph (acquires the back buffer), then the copy, then submit and present
+//   OnUIRender    RecordWindowCaptureIfDue()  the interface's draw is enqueued, then (when due) the copy behind it
+//   render task                               interface graph (acquires the back buffer), copy, submit, present
 //   OnFramePresented                          judge the frame; take the shot; release the reply
 
 #include "Editor/Core/CommandPalette.hpp"

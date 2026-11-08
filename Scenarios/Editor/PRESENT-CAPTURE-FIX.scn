@@ -14,4 +14,4 @@
 # Panel step: Details shows the new Location (centimetres).
 Когда --subject selection set Translation 150.0,-275.0,40.0
 Тогда 2_window_after_panel_step снова окно целиком: Details показывает Location 150.0 / -275.0 / 40.0, куб во вьюпорте сдвинут; панели видны
-Тогда [log] в editor.log нет «no acquired swapchain image» и нет «a frame capture is already recorded»; есть две строки «[Control] wrote the presented frame (editor and interface)»; нет VUID и assert
+Тогда [log] в editor.log нет «no acquired swapchain image» и нет «a frame capture is already recorded»; есть три строки «[Control] wrote the presented frame (editor and interface)» (1_window, 2_window_after_panel_step и снимок окна этой же строки [log]); нет VUID и assert
