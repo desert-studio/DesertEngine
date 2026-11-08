@@ -293,11 +293,11 @@ namespace Desert::Graphic::GlobalIllumination
     {
         static constexpr uint32_t kReasons = 6; // RADIANCE_CACHE_READ_REASONS
         // GPU-FARFIELD-1: then the far-field leg's own rays (ScreenProbeTrace.shader SP_FAR_FIELD_RAYS_*): [6]
-        // every ray listed, [7] the rays the global field hit (lit by GIHitRadiance), [8] the rays outside the
-        // cache's coverage (marched to the full trace distance). GPU-FARFIELD-3: [9] the global field's
-        // sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the hits no
-        // card holds, handed to the hit-lighting leg, [11] that leg's steps (its shadow marches: a hit = [11] /
-        // [10]).
+        // every ray listed, [7] the rays the global field hit (all handed to the hit-lighting leg), [8] the rays
+        // outside the cache's coverage (marched to the full trace distance). GPU-FARFIELD-3: [9] the global
+        // field's sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the
+        // hits no card holds, lit in place by the hit-lighting leg (which counts them), [11] that leg's steps (its
+        // shadow marches: a hit = [11] / [10]).
         static constexpr uint32_t kFarFieldClasses = 6;
         static constexpr uint32_t kWords           = kReasons + kFarFieldClasses;
         // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected

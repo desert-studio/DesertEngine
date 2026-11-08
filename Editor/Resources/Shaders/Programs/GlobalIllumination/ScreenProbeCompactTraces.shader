@@ -11,8 +11,9 @@
 //                them).
 //   cache miss   after the far field: the rays it left at the radiance cache with no traced probe answering (no
 //                hit, the reached bit still set - the far field clears it on every ray it answers).
-//   hit lighting the far field's global-field hits no card holds (hit AND reached: no other leg writes both),
-//                lit by their own leg (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING), which clears the bit.
+//   hit lighting the far field's global-field hits (hit AND reached: no other leg writes both), read from the
+//                cards or lit in place by their own leg (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING), which
+//                clears the bit.
 // The indirect arguments are written here rather than by UE's separate one-thread pass: the list's group count is the
 // largest end any probe's run reached (atomicMax), so the dispatch needs no pass of its own.
 Shader "ScreenProbeCompactTraces"

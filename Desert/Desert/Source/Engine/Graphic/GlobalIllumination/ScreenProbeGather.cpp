@@ -893,8 +893,9 @@ namespace Desert::Graphic::GlobalIllumination
                              CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), kCompactNearField } ) );
         traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
                     compact( "far field", CompactPush{ std::numeric_limits<float>::max(), kCompactFarField } ) );
-        // GPU-FARFIELD-3: the far field's global-field hits no card holds, lit in a list of their own (UE's hit
-        // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches.
+        // GPU-FARFIELD-3, GPU-SCREENPROBE-9: every global-field hit of the far field, read from the cards or lit
+        // in place in a list of its own (UE's hit lighting is its own compacted pass), so the far field's waves
+        // wait neither on the card lookup nor on the shadow marches of their few hit lanes.
         traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting",
                     compact( "hit lighting",
                              CompactPush{ std::numeric_limits<float>::max(), kCompactHitLighting } ) );
