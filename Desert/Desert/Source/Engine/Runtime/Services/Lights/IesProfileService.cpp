@@ -1,70 +1,58 @@
 #include "IesProfileService.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/IesProfileAsset.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Image.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
-#include <Common/Utilities/VFS.hpp>
 
-#include <filesystem>
+#include <string>
 
 namespace Desert::Runtime
 {
     namespace
     {
-        Common::ResultStr<Graphic::IesProfileGrid> ReadProfile( std::string_view reference )
+        Common::ResultStr<Graphic::IesProfileGrid> ReadProfile( const std::string& key )
         {
-            const std::filesystem::path file =
-                 Assets::ContentRegistry::FileToOpen( std::filesystem::path( reference ) );
-            std::string text;
-            if ( const auto packed =
-                      Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
-                 packed.has_value() )
-            {
-                text = packed.value();
-            }
-            else if ( auto read = Common::Utils::FileSystem::ReadFileContent( file ); read )
-            {
-                text = read.ExtractValue();
-            }
-            if ( text.empty() )
-                return Common::MakeFormattedError<Graphic::IesProfileGrid>( "'{}' is empty or could not be opened",
-                                                                            file.string() );
-            auto parsed = Graphic::ParseIesProfile( text );
-            if ( !parsed )
-                return Common::MakeError<Graphic::IesProfileGrid>( parsed.GetError() );
-            return Graphic::ResampleIesProfile( parsed.GetValue() );
+            if ( key.empty() )
+                return Common::MakeError<Graphic::IesProfileGrid>(
+                     "no content registry row holds the handle (the .dies is missing or not yet discovered)" );
+            const auto read = Assets::IesProfileAsset::ReadFile( Common::AssetHandle::PathForStableKey( key ) );
+            if ( !read )
+                return Common::MakeError<Graphic::IesProfileGrid>( read.GetError() );
+            return Graphic::ResampleIesProfile( Assets::Serialization::PhotometryOf( read.GetValue().Data ) );
         }
     } // namespace
 
-    int32_t IesProfileService::AcquireRow( std::string_view path )
+    int32_t IesProfileService::AcquireRow( const Assets::AssetHandle profile )
     {
-        if ( path.empty() )
+        const uint64_t handle = static_cast<uint64_t>( profile );
+        if ( handle == 0 )
             return kNoProfile;
 
         const std::lock_guard<std::mutex> lock( m_Mutex );
-        if ( const auto known = m_ByPath.find( path ); known != m_ByPath.end() )
+        if ( const auto known = m_ByHandle.find( handle ); known != m_ByHandle.end() )
             return known->second.Row;
 
-        Entry entry;
-        if ( auto grid = ReadProfile( path ); grid )
+        const std::string key = Assets::ContentRegistry::KeyForHandle( handle );
+        Entry             entry;
+        if ( auto grid = ReadProfile( key ); grid )
         {
             const Graphic::IesProfileGrid& profile = grid.GetValue();
             entry.Row                              = static_cast<int32_t>( m_Profiles * Graphic::kIesProfileRows );
             m_Texels.insert( m_Texels.end(), profile.Candela.begin(), profile.Candela.end() );
             ++m_Profiles;
             m_Dirty = true;
-            LOG_INFO( "[IES] Profile '{}' -> atlas row {} (peak {} cd).", std::string( path ), entry.Row,
+            LOG_INFO( "[IES] Profile '{}' -> atlas row {} (peak {} cd).", key, entry.Row,
                       profile.PeakCandela );
         }
         else
         {
-            LOG_ERROR( "[IES] Profile '{}' not usable, the light emits unshaped: {}", std::string( path ),
+            LOG_ERROR( "[IES] Profile {:#x} ('{}') not usable, the light emits unshaped: {}", handle, key,
                        grid.GetError() );
         }
-        m_ByPath.emplace( std::string( path ), entry );
+        m_ByHandle.emplace( handle, entry );
         return entry.Row;
     }
 
@@ -73,8 +61,8 @@ namespace Desert::Runtime
         const std::lock_guard<std::mutex> lock( m_Mutex );
         if ( m_Dirty )
         {
-            m_Dirty                                         = false;
-            const Core::Formats::Image2DSpecification spec  = { .Tag        = "IesProfileAtlas",
+            m_Dirty = false;
+            const Core::Formats::Image2DSpecification spec = { .Tag        = "IesProfileAtlas",
                                                                 .Width      = Graphic::kIesProfileColumns,
                                                                 .Height     = m_Profiles * Graphic::kIesProfileRows,
                                                                 .Format     = Core::Formats::ImageFormat::R32F,
@@ -100,7 +88,7 @@ namespace Desert::Runtime
     void IesProfileService::Clear()
     {
         const std::lock_guard<std::mutex> lock( m_Mutex );
-        m_ByPath.clear();
+        m_ByHandle.clear();
         m_Texels.clear();
         m_Profiles = 0;
         m_Dirty    = false;

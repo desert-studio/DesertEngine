@@ -88,9 +88,9 @@ namespace Desert::ECS
                      light.ContactShadowNonCastingIntensity = spotlight.Data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = spotlight.Data.VolumetricScatteringIntensity;
                      // The IES frame: Direction and the entity's X (SceneRenderer::AddSpotLight stamps the slot).
-                     light.Tangent       = glm::normalize( glm::vec3( worldTransform[0] ) );
-                     light.IesProfileRow =
-                          Runtime::ResourceRegistry::GetIesProfileService()->AcquireRow( spotlight.Data.IesProfile );
+                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
+                     light.Tangent                         = glm::normalize( glm::vec3( worldTransform[0] ) );
+                     light.IesProfileRow                   = ies->AcquireRow( spotlight.Data.IesProfile );
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).

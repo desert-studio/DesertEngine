@@ -2130,12 +2130,14 @@ namespace Desert::ECS
                            "VolumetricScatteringIntensity). 0 = the light leaves no shaft or halo in fog." ) )
         float VolumetricScatteringIntensity = 1.0f;
 
-        // UE ULocalLightComponent::IESTexture: the .ies photometric profile (IESNA LM-63) that shapes the light by
+        // UE ULocalLightComponent::IESTexture: the .dies profile (Assets::IesProfileAsset, an IESNA LM-63 .ies
+        // imported, stored as {Guid, Path}) that shapes the light by
         // direction in its own frame (forward = the entity's -Z, horizontal 0 along its Y), normalised to the
         // profile's peak so Intensity stays the brightness. Runtime::IesProfileService packs it into the atlas.
-        PROPERTY( DisplayName( "IES Profile" ), Category( "Light Profiles" ),
-                  Tooltip( "An IES (.ies) photometric profile from the project content; empty = unshaped." ) )
-        std::string IesProfile;
+        PROPERTY( DisplayName( "IES Profile" ), Category( "Light Profiles" ), Asset<IesProfileAsset>,
+                  Tooltip( "An IES light profile (.dies, imported from a .ies) from the project content; "
+                           "None = unshaped." ) )
+        Assets::AssetHandle IesProfile;
     };
 
     struct PointLightComponent
@@ -2263,12 +2265,14 @@ namespace Desert::ECS
                            "VolumetricScatteringIntensity). 0 = the light leaves no shaft or halo in fog." ) )
         float VolumetricScatteringIntensity = 1.0f;
 
-        // UE ULocalLightComponent::IESTexture: the .ies photometric profile (IESNA LM-63) that shapes the light by
+        // UE ULocalLightComponent::IESTexture: the .dies profile (Assets::IesProfileAsset, an IESNA LM-63 .ies
+        // imported, stored as {Guid, Path}) that shapes the light by
         // direction in its own frame (forward = the entity's -Z, horizontal 0 along its Y), normalised to the
         // profile's peak so Intensity stays the brightness. Runtime::IesProfileService packs it into the atlas.
-        PROPERTY( DisplayName( "IES Profile" ), Category( "Light Profiles" ),
-                  Tooltip( "An IES (.ies) photometric profile from the project content; empty = unshaped." ) )
-        std::string IesProfile;
+        PROPERTY( DisplayName( "IES Profile" ), Category( "Light Profiles" ), Asset<IesProfileAsset>,
+                  Tooltip( "An IES light profile (.dies, imported from a .ies) from the project content; "
+                           "None = unshaped." ) )
+        Assets::AssetHandle IesProfile;
     };
 
     struct SpotLightComponent
@@ -2380,12 +2384,14 @@ namespace Desert::ECS
                            "VolumetricScatteringIntensity). 0 = the light leaves no shaft or halo in fog." ) )
         float VolumetricScatteringIntensity = 1.0f;
 
-        // UE ULocalLightComponent::IESTexture: the .ies photometric profile (IESNA LM-63) that shapes the light by
+        // UE ULocalLightComponent::IESTexture: the .dies profile (Assets::IesProfileAsset, an IESNA LM-63 .ies
+        // imported, stored as {Guid, Path}) that shapes the light by
         // direction in its own frame (forward = the entity's -Z, horizontal 0 along its Y), normalised to the
         // profile's peak so Intensity stays the brightness. Runtime::IesProfileService packs it into the atlas.
-        PROPERTY( DisplayName( "IES Profile" ), Category( "Light Profiles" ),
-                  Tooltip( "An IES (.ies) photometric profile from the project content; empty = unshaped." ) )
-        std::string IesProfile;
+        PROPERTY( DisplayName( "IES Profile" ), Category( "Light Profiles" ), Asset<IesProfileAsset>,
+                  Tooltip( "An IES light profile (.dies, imported from a .ies) from the project content; "
+                           "None = unshaped." ) )
+        Assets::AssetHandle IesProfile;
     };
 
     struct RectLightComponent

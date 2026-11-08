@@ -76,6 +76,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::Fracture:           // the Fracture Mode panel arrives with DST-02
             case Assets::AssetTypeID::WaterWaves:         // edited in the water body's Details (WATER-W2)
             case Assets::AssetTypeID::Sound:              // picked into slots; UE's sound wave has no editor here
+            case Assets::AssetTypeID::IesProfile:         // imported from a .ies and picked into a light's slot
             case Assets::AssetTypeID::WeatherPreset:      // a JSON file for now; the Weather panel is WTH-STATE's
                                                           // REMAINDER
                 return kNoEditor;

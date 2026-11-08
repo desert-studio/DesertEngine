@@ -118,6 +118,9 @@ namespace Desert::Assets
     // A .dsssprofile: one Burley subsurface profile (SSS-PROFILE; Serialization/SubsurfaceProfile.hpp).
     inline constexpr uint32_t kSubsurfaceProfileSchemaTag     = Common::Content::FourCC( "SSSP" );
     inline constexpr uint32_t kSubsurfaceProfileSchemaVersion = 1;
+    // A .dies: one IES light profile's photometric data (LIGHTS-RECT-IES; Serialization/IesProfile.hpp).
+    inline constexpr uint32_t kIesProfileSchemaTag     = Common::Content::FourCC( "IESP" );
+    inline constexpr uint32_t kIesProfileSchemaVersion = 1;
     // A .dfxmod: the VFX module file layout (comment header, `Module "<Name>"` block), stated in the header from
     // its first version (VFX-MODULE-ASSET; Engine/VFX/VFXModuleFormat.hpp).
     inline constexpr uint32_t kVFXModuleSchemaTag     = Common::Content::FourCC( "VFXM" );

@@ -98,8 +98,8 @@ namespace Desert::ECS
                      light.ContactShadowCastingIntensity    = data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = data.VolumetricScatteringIntensity;
-                     light.IesProfileRow =
-                          Runtime::ResourceRegistry::GetIesProfileService()->AcquireRow( data.IesProfile );
+                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
+                     light.IesProfileRow                   = ies->AcquireRow( data.IesProfile );
 
                      const Graphic::LocalLightShadowSettings shadow{
                           .CastShadows     = data.CastShadows,
