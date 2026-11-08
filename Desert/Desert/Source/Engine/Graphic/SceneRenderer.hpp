@@ -1687,8 +1687,10 @@ namespace Desert::Graphic
                             System::MeshRenderer* meshRenderer ,
                            const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
-        // glass.
-        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy );
+        // glass. @p frontLayer: the front layer's reflection, which the water reads where it is the front layer
+        // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
+        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                            const FrameFrontLayer& frontLayer );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
@@ -1914,9 +1916,24 @@ namespace Desert::Graphic
         // Nothing when no translucent object is visible or a target cannot be described (logged). Under Shadows
         // VirtualMaps it is drawn before the virtual shadow map, whose receivers its depth marks, and @p prepared
         // above hands it to the reflections rather than drawing it twice.
+        // WHO WRITES THE FRONT LAYER this frame: the translucent meshes (MeshRenderer::BuildFrontLayerDraws, which
+        // builds their list - asked once per frame, by BuildFrontLayerWriters) and the water surface
+        // (WaterRenderer::HasFrontLayerDraws: UE's single layer water in the G-buffer its reflections trace from).
+        struct FrontLayerWriters
+        {
+            bool               Meshes = false;
+            bool               Water  = false;
+            [[nodiscard]] bool Any() const
+            {
+                return Meshes || Water;
+            }
+        };
+        [[nodiscard]] FrontLayerWriters BuildFrontLayerWriters( System::MeshRenderer* meshRenderer );
+        // The meshes' pass when @p writers has meshes, then the water's ("... (Water)") over it, or cleared.
         std::optional<FrontLayerSurface> AddFrameFrontLayerSurface( RDG::Builder& graph, FrameTextures& textures,
                                                                     System::MeshRenderer* meshRenderer,
-                                                                    const std::vector<RDG::TextureRef>& gbuffer );
+                                                                    const std::vector<RDG::TextureRef>& gbuffer,
+                                                                    const FrontLayerWriters&            writers );
         bool m_FrontLayerReflectionsFailed = false;
 
         struct FrameSSR

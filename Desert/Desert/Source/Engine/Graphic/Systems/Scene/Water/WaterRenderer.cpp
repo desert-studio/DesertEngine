@@ -39,7 +39,12 @@ namespace
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials ); // Core::Formats::kMaterialRowBlockName
+        // Mesh/Surface/FrontLayerReflection.glslh, as the glass cells bind them (MeshRendererForward.cpp).
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerReflectionTexture );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
     };
+    static_assert( WaterShaderParameters::FrontLayerReflectionTexture.Name ==
+                   ::Desert::Graphic::kPassFrontLayerReflectionTextureName );
 } // namespace
 
 namespace Desert::Graphic::System
@@ -181,9 +186,60 @@ namespace Desert::Graphic::System
                       std::format( "its template '{}' does not build: {}", templ.CompileName, built.GetError() ) );
             return nullptr;
         }
-        program.Material = std::make_unique<DataDrivenMaterial>( cellName );
-        m_Resolved       = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &program };
+        program.Material    = std::make_unique<DataDrivenMaterial>( cellName );
+        program.CompileName = templ.CompileName;
+        m_Resolved          = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &program };
         return &program;
+    }
+
+    WaterRenderer::WaterProgram* WaterRenderer::FrontLayerProgramFor( const Assets::AssetHandle& material,
+                                                                      WaterProgram&              program )
+    {
+        if ( program.FrontLayerTried )
+            return program.FrontLayer ? program.FrontLayer.get() : nullptr;
+        program.FrontLayerTried = true;
+        // The template's own front layer cell (DShaderParser kSurfaceWaterMeshFrontLayerCell): the same surface
+        // function over the water mesh path, its mirror normal into the front layer G-buffer
+        // (Pass_FrontLayer.glslh).
+        const std::string cellName =
+             std::format( "{}/{}", program.CompileName, Core::Preprocess::kSurfaceWaterMeshFrontLayerCell );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
+        if ( !shader )
+        {
+            if ( FirstWarning( material, WaterWarning::NoFrontLayerCell ) )
+                Warn( material,
+                      std::format( "its template '{}' has no {} cell - the water is not in the front "
+                                   "layer and reflects its captures and the sky without the trace",
+                                   program.CompileName, Core::Preprocess::kSurfaceWaterMeshFrontLayerCell ) );
+            return nullptr;
+        }
+        // UE's FrontLayerTranslucencyGBuffer state over the cell's own (its cull): opaque, depth-tested and
+        // depth-written against the front layer's depth, so each pixel keeps its nearest translucent surface.
+        GraphicsPipelineSpecification spec;
+        spec.DebugName = "WaterFrontLayerPipeline:" + program.CompileName;
+        spec.Shader    = shader;
+        ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+        spec.TargetLayout      = FrontLayerTargetLayout();
+        spec.DepthTestEnabled  = true;
+        spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+        spec.DepthWriteEnabled = true;
+        spec.BlendEnable       = false;
+        const auto pipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !pipeline )
+        {
+            if ( FirstWarning( material, WaterWarning::FrontLayerDoesNotBuild ) )
+                Warn( material,
+                      std::format( "its {} cell does not build: {} - the water reflects its captures "
+                                   "and the sky without the trace",
+                                   Core::Preprocess::kSurfaceWaterMeshFrontLayerCell, pipeline.GetError() ) );
+            return nullptr;
+        }
+        auto front         = std::make_unique<WaterProgram>();
+        front->Pipeline    = pipeline.GetValue();
+        front->Material    = std::make_unique<DataDrivenMaterial>( cellName );
+        front->CompileName = program.CompileName;
+        program.FrontLayer = std::move( front );
+        return program.FrontLayer.get();
     }
 
     Common::BoolResultStr WaterRenderer::BuildProgram( const std::shared_ptr<Shader>& shader,
@@ -294,6 +350,7 @@ namespace Desert::Graphic::System
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
         m_Frame            = nullptr;
+        m_FrameFrontLayer  = nullptr;
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -338,6 +395,8 @@ namespace Desert::Graphic::System
         }
         stamp.ContentSerial   = Assets::ContentRegistry::WriteSerial();
         WaterProgram* program = ProgramFor( material, stamp );
+        // The template's front layer cell, of the base program (it reads no local shadow: no VSM twin).
+        WaterProgram* const frontLayer = program != nullptr ? FrontLayerProgramFor( material, *program ) : nullptr;
         // Under Shadows.Method VirtualMaps no atlas is drawn: the cell's virtual-map permutation draws, as every
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
         if ( program != nullptr && m_SceneRenderer->LocalShadowsAreVirtual() )
@@ -450,16 +509,25 @@ namespace Desert::Graphic::System
         }
         if ( ground != nullptr && ground->ExtentCm > 0.0f )
             waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
+        std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
-        {
-            std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
             tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
-        }
         m_Frame = program;
+
+        // The front layer draws the same surface: the same `.demat` folded into its own row and the same upload.
+        if ( frontLayer != nullptr )
+        {
+            ApplyMaterial( material, stamp, *frontLayer );
+            if ( auto* tiles =
+                      frontLayer->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
+                tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
+            m_FrameFrontLayer = frontLayer;
+        }
     }
 
     void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                      const RDG::TextureRef waterInfo, const SceneViewInputs& view,
+                                      const RDG::TextureRef waterInfo, const RDG::TextureRef frontReflection,
+                                      const RDG::TextureRef frontDepth, const SceneViewInputs& view,
                                       const SceneFrameBinding& frame )
     {
         // Exactly when RenderManual draws.
@@ -482,15 +550,57 @@ namespace Desert::Graphic::System
         block.Texture( kSceneColor, sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Texture( kWaterInfo, waterInfo, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( kClamp, RDG::SamplerDesc::LinearClamp() );
+        // The front layer's traced reflection where this fragment is the front layer (FrontLayerReflection.glslh),
+        // fetched by texel through the clamp state above; the caller hands the graph's black for both without one,
+        // which the water reads as "no trace" (its captures and sky alone).
+        if ( slotted.Slots.Has( SceneViewSlot::FrontLayerReflectionTexture ) )
+            block.Texture( WaterShaderParameters::FrontLayerReflectionTexture, frontReflection,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Texture( WaterShaderParameters::FrontLayerDepthTexture, frontDepth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() );
+    }
+
+    void WaterRenderer::DeclareFrontLayerDraws( RDG::PassBuilder& pass, const RDG::TextureRef waterInfo,
+                                                const SceneViewInputs& view, const SceneFrameBinding& frame )
+    {
+        // Exactly when RenderFrontLayerManual draws.
+        if ( !HasFrontLayerDraws() || !waterInfo.IsValid() )
+            return;
+        WaterProgram& front = *m_FrameFrontLayer;
+        frame.ApplyTo( front.Material.get() );
+        pass.Prepares( *front.Material->GetMaterialExecutor() );
+        const SlottedLayout& slotted = m_Layout.GetSlotted( front.Pipeline->GetSpecification().Shader );
+        auto block = pass.Bindings( slotted.Layout, front.Material->GetMaterialExecutor()->GetRouteFill() );
+        BindSceneViewInputs( block, view, slotted.Slots );
+        // The waves damp by the ground's depth in the vertex stage (WaterMeshTiles.glslh), as the surface's do.
+        constexpr RDG::TextureParameter kWaterInfo{ "WaterInfoTexture" };
+        block.Texture( kWaterInfo, waterInfo, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
     Common::BoolResultStr WaterRenderer::RenderManual( const RDG::PassContext& context )
     {
-        const auto* camera = m_SceneRenderer->GetMainCamera();
-        if ( m_FrameDraws.empty() || m_Frame == nullptr || camera == nullptr )
+        if ( m_FrameDraws.empty() || m_Frame == nullptr )
             return BOOLSUCCESS;
-        const DataDrivenMaterial& material = *m_Frame->Material;
         DESERT_PROFILE_PASS( "Water: Surface" );
+        return RecordDraws( context, *m_Frame );
+    }
+
+    Common::BoolResultStr WaterRenderer::RenderFrontLayerManual( const RDG::PassContext& context )
+    {
+        // The graph opened the render pass on the front layer's targets (after the mesh front layer, or cleared).
+        if ( !HasFrontLayerDraws() )
+            return BOOLSUCCESS;
+        DESERT_PROFILE_PASS( "Water: Front Layer" );
+        return RecordDraws( context, *m_FrameFrontLayer );
+    }
+
+    Common::BoolResultStr WaterRenderer::RecordDraws( const RDG::PassContext& context,
+                                                      const WaterProgram&     program )
+    {
+        const auto* camera = m_SceneRenderer->GetMainCamera();
+        if ( camera == nullptr )
+            return BOOLSUCCESS;
+        const DataDrivenMaterial& material = *program.Material;
 
         // RENDER-THREADS M3: the push values travel BY VALUE, the material is only read (DrawPushFields, as
         // TerrainRenderer::RecordDraws): each draw's block is a copy of the material's with the identity matrix,
@@ -510,7 +620,7 @@ namespace Desert::Graphic::System
             if ( auto written = fields.WriteInto( push, material.GetMaterialLayout() ); !written )
                 return Common::MakeFormattedError( "{}: water draw at tile row {}: {}", context.GetPassName(),
                                                    draw.FirstRow, written.GetError() );
-            if ( auto drawn = Renderer::GetInstance().DrawProcedural( block, *m_Frame->Pipeline, executor,
+            if ( auto drawn = Renderer::GetInstance().DrawProcedural( block, *program.Pipeline, executor,
                                                                       draw.QuadsPerSide * draw.QuadsPerSide * 6u,
                                                                       draw.RowCount, push );
                  !drawn.IsSuccess() )

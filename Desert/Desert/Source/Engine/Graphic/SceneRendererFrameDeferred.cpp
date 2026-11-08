@@ -2280,8 +2280,11 @@ namespace Desert::Graphic
     {
         if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed )
             return {};
-        // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
-        if ( prepared == nullptr && !meshRenderer->BuildFrontLayerDraws() )
+        // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it (a
+        // translucent object or the water surface).
+        const FrontLayerWriters writers =
+             prepared == nullptr ? BuildFrontLayerWriters( meshRenderer ) : FrontLayerWriters{};
+        if ( prepared == nullptr && !writers.Any() )
             return {};
         if ( !m_Systems.FrontLayerReflections )
         {
@@ -2303,7 +2306,7 @@ namespace Desert::Graphic
         // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
         const std::optional<FrontLayerSurface> drawn =
              prepared != nullptr ? std::optional<FrontLayerSurface>( *prepared )
-                                 : AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                                 : AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer, writers );
         if ( !drawn )
             return {};
         const FrontLayerSurface& surface = *drawn;
@@ -2314,12 +2317,20 @@ namespace Desert::Graphic
         return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
     }
 
+    SceneRenderer::FrontLayerWriters SceneRenderer::BuildFrontLayerWriters( System::MeshRenderer* meshRenderer )
+    {
+        // Always asked of the meshes: BuildFrontLayerDraws builds (or clears) the list their pass records.
+        const auto* water = m_Systems.Water.get();
+        return FrontLayerWriters{ .Meshes = meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws(),
+                                  .Water  = water != nullptr && water->HasFrontLayerDraws() };
+    }
+
     std::optional<SceneRenderer::FrontLayerSurface> SceneRenderer::AddFrameFrontLayerSurface(
          RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-         const std::vector<RDG::TextureRef>& gbuffer )
+         const std::vector<RDG::TextureRef>& gbuffer, const FrontLayerWriters& writers )
     {
-        // The caller asked MeshRenderer::BuildFrontLayerDraws first (a translucent object is visible).
-        if ( meshRenderer == nullptr || gbuffer.size() < 2 )
+        // The caller asked BuildFrontLayerWriters first (a translucent object or the water is visible).
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 || !writers.Any() )
             return std::nullopt;
         // The front layer's targets: the G-buffer normal slot's, the view velocity's and the G-buffer depth's
         // descriptions (FrontLayerTargetLayout), transients of this frame.
@@ -2341,17 +2352,52 @@ namespace Desert::Graphic
         // Cleared: a zero normal (no surface) and the far depth, so the depth test keeps each pixel's nearest
         // translucent surface; whether that is in front of the opaque scene is the trace's question
         // (SSRSurfaceNormal) and the glass's (its own depth test).
-        graph.AddPass(
-             "Translucency: Front Layer G-buffer", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.ColorTarget( 0, surface.Normal, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-                 pass.ColorTarget( 1, surface.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-                 pass.DepthTarget( surface.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ) );
-                 meshRenderer->DeclareFrontLayerDraws( pass );
-             },
-             [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderFrontLayerManual( context ); } );
+        if ( writers.Meshes )
+            graph.AddPass(
+                 "Translucency: Front Layer G-buffer", RDG::PassFlags::Raster,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.ColorTarget( 0, surface.Normal, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.ColorTarget( 1, surface.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.DepthTarget( surface.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ) );
+                     meshRenderer->DeclareFrontLayerDraws( pass );
+                 },
+                 [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderFrontLayerManual( context ); } );
+        // THE WATER into the same targets (UE: single layer water's G-buffer, which its SSR traces from), over the
+        // meshes' layer - the shared depth test keeps the nearer of glass and water - or into cleared targets.
+        auto* water = m_Systems.Water.get();
+        if ( writers.Water && water != nullptr )
+        {
+            const RDG::TextureRef waterInfo =
+                 textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+            if ( !waterInfo.IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] Translucency: Front Layer G-buffer (Water): the WaterInfo ground "
+                           "cannot be imported - the water is not in the front layer" );
+            }
+            else
+            {
+                const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
+                const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
+                const bool              load  = writers.Meshes;
+                graph.AddPass(
+                     "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         const RDG::LoadOp colorLoad =
+                              load ? RDG::LoadOp::Load() : RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+                         const RDG::LoadOp depthLoad =
+                              load ? RDG::LoadOp::Load() : RDG::LoadOp::ClearDepth( Core::kDepthClear );
+                         pass.ColorTarget( 0, surface.Normal, colorLoad );
+                         pass.ColorTarget( 1, surface.Velocity, colorLoad );
+                         pass.DepthTarget( surface.Depth, depthLoad );
+                         water->DeclareFrontLayerDraws( pass, waterInfo, view, frame );
+                     },
+                     [water]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return water->RenderFrontLayerManual( context ); } );
+            }
+        }
         return surface;
     }
 } // namespace Desert::Graphic

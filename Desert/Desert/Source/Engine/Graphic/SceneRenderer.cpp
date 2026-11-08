@@ -2569,8 +2569,10 @@ namespace Desert::Graphic
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Virtual shadows + volume" );
                 m_FrameVsmPages.reset();
                 std::optional<FrontLayerSurface> frontLayerSurface;
-                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws() )
-                    frontLayerSurface = AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr )
+                    if ( const FrontLayerWriters writers = BuildFrontLayerWriters( meshRenderer ); writers.Any() )
+                        frontLayerSurface =
+                             AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer, writers );
                 const RDG::TextureRef receivers[] = { frontLayerSurface ? frontLayerSurface->Depth
                                                                         : RDG::TextureRef{} };
                 const FrameVirtualShadows virtualShadows =
@@ -2746,7 +2748,7 @@ namespace Desert::Graphic
 
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
-                AddFrameWater( graph, textures, sceneCopy );
+                AddFrameWater( graph, textures, sceneCopy, frontLayer );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
