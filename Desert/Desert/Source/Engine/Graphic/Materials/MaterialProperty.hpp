@@ -37,7 +37,8 @@ namespace Desert::Graphic
     public:
         MaterialPropertySet() = default;
         // A copy is another set: its own revision (a cache that held the source's never takes the copy for it).
-        MaterialPropertySet( const MaterialPropertySet& other ) : m_Properties( other.m_Properties )
+        MaterialPropertySet( const MaterialPropertySet& other )
+             : m_Properties( other.m_Properties ), m_bAnyOverridden( other.m_bAnyOverridden )
         {
         }
         MaterialPropertySet& operator=( const MaterialPropertySet& other )
@@ -93,16 +94,20 @@ namespace Desert::Graphic
         {
             return m_Revision;
         }
-
-    private:
-        void Changed()
+        // Whether any property is overridden (bIsOverridden), decided at the write that changed it (Changed),
+        // never by a scan at read: MeshRenderer's static plan asks it of every object's instance, every pass,
+        // every frame (UE: a draw-command cache input derived at invalidation, not per visible primitive).
+        [[nodiscard]] bool HasOverrides() const
         {
-            m_bIsDirty = true;
-            m_Revision = NextMaterialRevision();
+            return m_bAnyOverridden;
         }
 
+    private:
+        void Changed();
+
         std::unordered_map<std::string, MaterialProperty> m_Properties;
-        bool                                              m_bIsDirty = true;
+        bool                                              m_bAnyOverridden = false;
+        bool                                              m_bIsDirty       = true;
         uint64_t                                          m_Revision = NextMaterialRevision();
     };
 } // namespace Desert::Graphic

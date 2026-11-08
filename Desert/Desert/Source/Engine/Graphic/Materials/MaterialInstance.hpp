@@ -110,10 +110,12 @@ namespace Desert::Graphic
         }
         // TwoSided of this instance: its own override (a `.demat` instance that sets MaterialData::TwoSided), else
         // its parent instance's, else the base material's. Nothing = inherit.
-        void SetTwoSidedOverride( const std::optional<bool> twoSided )
-        {
-            m_TwoSidedOverride = twoSided;
-        }
+        void SetTwoSidedOverride( std::optional<bool> twoSided ) noexcept;
+        // THE RENDER-COPY PUBLISH EPOCH (UE: a MaterialInstance parameter change invalidates the cached mesh draw
+        // commands that use it). Moves with every write of any instance's render copy (Publish, a child's first
+        // copy) and every two-sided override, never otherwise: a render-side cache of per-instance answers
+        // (MeshRenderer::StaticPlanRows: HasOverrides, IsTwoSided) holds while it stands.
+        [[nodiscard]] static uint64_t RenderPublishGeneration() noexcept;
         [[nodiscard]] bool  IsTwoSided() const;
         MaterialInstancePtr GetParentInstance() const
         {

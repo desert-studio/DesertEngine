@@ -1918,6 +1918,48 @@ namespace Desert::Graphic::System
         }
     }
 
+    MeshRenderer::StaticCellDrawCache& MeshRenderer::StaticCellDrawsOf( const MeshPass            pass,
+                                                                        const DeferredPrepassHalf half,
+                                                                        const uint64_t            key ) noexcept
+    {
+        ++m_StaticCellDrawUses;
+        StaticCellDrawCache* slot = nullptr;
+        for ( StaticCellDrawCache& cache : m_StaticCellDrawCaches )
+        {
+            if ( cache.InUse && cache.Pass == pass && cache.Half == half )
+            {
+                slot = &cache;
+                break;
+            }
+        }
+        if ( slot == nullptr )
+        {
+            // An unused slot, else the least recently used one (six cover every (pass, half) a frame builds).
+            for ( StaticCellDrawCache& cache : m_StaticCellDrawCaches )
+            {
+                if ( !cache.InUse )
+                {
+                    slot = &cache;
+                    break;
+                }
+                if ( slot == nullptr || cache.UsedAt < slot->UsedAt )
+                    slot = &cache;
+            }
+            slot->Pass  = pass;
+            slot->Half  = half;
+            slot->InUse = true;
+            slot->Entries.clear(); // another (pass, half)'s answers: capacity kept
+            slot->Key = key;
+        }
+        else if ( slot->Key != key )
+        {
+            slot->Entries.clear(); // an input moved: every answer is asked again, once
+            slot->Key = key;
+        }
+        slot->UsedAt = m_StaticCellDrawUses;
+        return *slot;
+    }
+
     uint32_t MeshRenderer::BuildStaticDraws( MeshDrawList& list, const DrawBuildMode& mode,
                                              DrawBuildScratch& scratch )
     {
@@ -2380,14 +2422,84 @@ namespace Desert::Graphic::System
             }
             return { .Draw = draw, .SceneIds = ids };
         };
-        const auto groupTwoSided = []( DataDrivenMaterial*                             mat,
-                                       const std::vector<const StaticMeshRenderData*>& members )
+        // A group is two-sided when its surface is or ANY QUEUED member's instance is (UE: per mesh batch, not per
+        // visible set): the plan rows' answer (StaticPlanRows::SurfaceTwoSided), fixed while their key stands, so
+        // the group's culled permutation does not flip with what the camera sees. A surface the rows do not know
+        // (no rows yet) scans the group's members as before.
+        const auto groupTwoSided =
+             [this]( DataDrivenMaterial* mat, const std::vector<const StaticMeshRenderData*>& members )
         {
             bool twoSided = mat->IsTwoSided();
+            if ( const std::optional<bool> queued = QueuedSurfaceTwoSided( mat ) )
+                return twoSided || *queued;
             for ( const auto* obj : members )
                 if ( const auto* inst = SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance )
                     twoSided = twoSided || inst->IsTwoSided();
             return twoSided;
+        };
+        // A GROUP's CELL ANSWER, RETAINED (StaticCellDrawCache; UE FCachedPassMeshDrawList): asked of the cells
+        // only when its key moved - the draw readiness epoch (DrawReadinessKey, read here, before this call's
+        // first answer) and every input cellDrawOf reads besides the material and its two-sidedness. A pass that
+        // takes the prepass's record (the forward base pass, the G-buffer's Equal half) reads that record as
+        // before; a renderer-owned material is asked every time (its forward VSM twin is keyed by address).
+        const bool takesPrepassRecord =
+             companion && ( mode.Pass == MeshPass::Forward || mode.Half == DeferredPrepassHalf::Equal );
+        StaticCellDrawCache* kept = nullptr;
+        // Never from a setup task: ChooseCellDraw answers Nothing there (MissInSetupTask), not an answer to keep.
+        if ( !recordCall && !takesPrepassRecord && materialService != nullptr && !::Common::TaskGroup::InTask() )
+        {
+            uint64_t   key = DrawReadinessKey();
+            const auto mix = [&key]( const uint64_t value ) noexcept { key = ( key ^ value ) * 0x100000001B3ull; };
+            const auto bits = []( const void* p ) noexcept
+            { return static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( p ) ); };
+            const auto mixCells = [&]( const StaticPassCells& c )
+            {
+                mix( static_cast<uint64_t>( c.Pass ) );
+                mix( bits( c.StaticState ) );
+                mix( bits( c.StandInPipeline ) );
+                mix( bits( c.InstancedState ) );
+                mix( bits( c.InstancedStandIn ) );
+                mix( ( c.InstancingOn ? 1u : 0u ) | ( c.DepthEqual ? 2u : 0u ) );
+            };
+            mixCells( cells );
+            mix( companion ? 1u : 0u );
+            if ( companion )
+                mixCells( *companion );
+            mix( ( instancingOn ? 1u : 0u ) | ( m_ForwardVirtualLocal ? 2u : 0u ) );
+            mix( bits( materialService ) );
+            kept = &StaticCellDrawsOf( mode.Pass, mode.Half, key );
+        }
+        const auto keptCellDrawOf = [&]( DataDrivenMaterial* mat, const bool twoSided ) -> CellDraw
+        {
+            if ( kept == nullptr || mat == nullptr || !materialService->Owns( mat ) )
+                return cellDrawOf( mat, twoSided, /*perObject*/ true );
+            std::vector<StaticCellDrawEntry>&                entries = kept->Entries;
+            const std::pair<const DataDrivenMaterial*, bool> wanted{ mat, twoSided };
+            const auto at = std::lower_bound( entries.begin(), entries.end(), wanted,
+                                              []( const StaticCellDrawEntry&                        entry,
+                                                  const std::pair<const DataDrivenMaterial*, bool>& k ) noexcept
+                                              {
+                                                  if ( entry.Material != k.first )
+                                                      return std::less<const DataDrivenMaterial*>{}(
+                                                           entry.Material, k.first );
+                                                  return entry.TwoSided < k.second;
+                                              } );
+            if ( at != entries.end() && at->Material == mat && at->TwoSided == twoSided )
+            {
+                m_StandInDraws += at->StandIns;
+                // The prepass's record is per frame (cleared at its Declare): written again from the kept answer.
+                if ( companion && mode.Pass == MeshPass::Depth )
+                    RecordPrepassCellDraw( PrepassCellKey{ mat, MeshVertexPath::Static, twoSided, true },
+                                           at->Draw );
+                return at->Draw;
+            }
+            const uint32_t standInsBefore = m_StandInDraws;
+            const CellDraw draw           = cellDrawOf( mat, twoSided, /*perObject*/ true );
+            entries.insert( at, StaticCellDrawEntry{ .Material = mat,
+                                                     .TwoSided = twoSided,
+                                                     .Draw     = draw,
+                                                     .StandIns = m_StandInDraws - standInsBefore } );
+            return draw;
         };
         if ( !recordCall ) // a Record call's groups were split by its Resolve call
         {
@@ -2404,7 +2516,7 @@ namespace Desert::Graphic::System
                     objects.clear();
                     continue;
                 }
-                const CellDraw draw = cellDrawOf( mat, twoSided, /*perObject*/ true );
+                const CellDraw draw = keptCellDrawOf( mat, twoSided );
                 if ( draw == CellDraw::DefaultSurface )
                     standingIn.insert( standingIn.end(), objects.begin(), objects.end() );
                 if ( draw != CellDraw::Own )
@@ -2500,13 +2612,36 @@ namespace Desert::Graphic::System
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
             // section of its twins, one mask for the whole instanced draw. The buckets are the slice's, reused
             // by index: no allocation per group in the steady state.
-            auto& buckets        = slice.Buckets;
-            slice.BucketCount    = 0;
-            const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            auto& buckets     = slice.Buckets;
+            slice.BucketCount = 0;
+            // Up to this many objects the buckets are searched in order (a short scan beats filling a table).
+            constexpr std::size_t kBucketScanMax = 16;
+            // THE RETAINED PER-PRIMITIVE PLAN (StaticPlanRows; UE FCachedPassMeshDrawList): an own-surface group
+            // whose records all draw their own HiddenSubmeshes (no walked mask) takes each record's instance (the
+            // columns), its overrides / alone answer and its (mesh, hidden) bucket id from its row - an index, no
+            // hash table, no section-surface lookup. The buckets come out in first-seen order either way.
+            const StaticPlanRows&    rows     = m_StaticPlanRows;
+            const StaticWalkColumns& columns  = m_StaticColumns;
+            const std::size_t        rowCount = std::min( rows.Count(), columns.Count() );
+            const auto               rowOf    = [queueBase]( const StaticMeshRenderData* obj ) noexcept
+            { return static_cast<std::size_t>( obj - queueBase ); };
+            bool fromRows = !standsIn && rowCount != 0u;
+            for ( std::size_t oi = 0; fromRows && oi < objects.size(); ++oi )
             {
-                for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
-                    if ( buckets[bi].first.first == mesh && buckets[bi].first.second == hidden )
-                        return buckets[bi].second;
+                const std::size_t at = rowOf( objects[oi] );
+                fromRows             = at < rowCount && rows.Bucket[at] != StaticPlanRows::kNoBucket &&
+                           ( at >= walked.At.size() || walked.At[at] == 0u );
+            }
+            const bool indexed = !fromRows && objects.size() > kBucketScanMax;
+            if ( indexed )
+            {
+                std::size_t slots = 64;
+                while ( slots < objects.size() * 2u )
+                    slots <<= 1u;
+                slice.BucketIndex.assign( slots, 0u );
+            }
+            const auto makeBucket = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            {
                 if ( slice.BucketCount == buckets.size() )
                     buckets.emplace_back();
                 DrawBuildScratch::MeshBucket& made = buckets[slice.BucketCount++];
@@ -2514,25 +2649,82 @@ namespace Desert::Graphic::System
                 made.second.clear();
                 return made.second;
             };
+            const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
+            {
+                if ( !indexed )
+                {
+                    for ( std::size_t bi = 0; bi < slice.BucketCount; ++bi )
+                        if ( buckets[bi].first.first == mesh && buckets[bi].first.second == hidden )
+                            return buckets[bi].second;
+                    return makeBucket( mesh, hidden );
+                }
+                // The shadow walk's key hash (ShadowBucketKeyHash): the same (mesh, hidden mask) key.
+                const std::size_t      key   = ShadowBucketKeyHash{}( ShadowBucketKey{ mesh, hidden } );
+                std::vector<uint32_t>& table = slice.BucketIndex;
+                const std::size_t      mask  = table.size() - 1u;
+                for ( std::size_t at = key & mask;; at = ( at + 1u ) & mask )
+                {
+                    const uint32_t slot = table[at];
+                    if ( slot == 0u )
+                    {
+                        std::vector<ObjDraw>& made = makeBucket( mesh, hidden );
+                        table[at]                  = static_cast<uint32_t>( slice.BucketCount );
+                        return made;
+                    }
+                    DrawBuildScratch::MeshBucket& found = buckets[slot - 1u];
+                    if ( found.first.first == mesh && found.first.second == hidden )
+                        return found.second;
+                }
+            };
 
             // Each object's row is the scene material table's (SyncGpuScene); here only its instance and whether
-            // it overrides anything (an overriding object leaves the batch).
-            for ( const auto* obj : objects )
+            // it overrides anything (an overriding object leaves the batch) - decided when the instance's render
+            // copy was written (MaterialPropertySet::HasOverrides), not by a scan of its properties per pass.
+            // From the plan rows (fromRows, above) or, for any other group, per object as before.
+            if ( fromRows )
             {
-                ObjDraw od;
+                if ( slice.BucketOfId.size() < rows.BucketCount )
+                {
+                    slice.BucketOfId.resize( rows.BucketCount, 0u );
+                    slice.IdStamp.resize( rows.BucketCount, 0u );
+                }
+                if ( ++slice.Stamp == 0u ) // wrapped: every stamp is stale again
+                {
+                    std::fill( slice.IdStamp.begin(), slice.IdStamp.end(), 0u );
+                    slice.Stamp = 1u;
+                }
+                for ( const auto* obj : objects )
+                {
+                    const std::size_t at    = rowOf( obj );
+                    const uint8_t     flags = rows.Flags[at];
+                    ObjDraw           od;
+                    od.Obj            = obj;
+                    od.Inst           = columns.Instances[at];
+                    od.HasOverrides   = ( flags & StaticPlanRows::kHasOverrides ) != 0u;
+                    od.Alone          = ( flags & StaticPlanRows::kAlone ) != 0u;
+                    od.Hidden         = SubmeshMask{ obj->HiddenSubmeshes };
+                    const uint32_t id = rows.Bucket[at];
+                    if ( slice.IdStamp[id] != slice.Stamp )
+                    {
+                        slice.IdStamp[id] = slice.Stamp;
+                        makeBucket( obj->Mesh, od.Hidden );
+                        slice.BucketOfId[id] = static_cast<uint32_t>( slice.BucketCount - 1u );
+                    }
+                    buckets[slice.BucketOfId[id]].second.push_back( od );
+                }
+            }
+            for ( std::size_t oi = 0; !fromRows && oi < objects.size(); ++oi )
+            {
+                const StaticMeshRenderData* const obj = objects[oi];
+                ObjDraw                           od;
                 od.Obj = obj;
                 // A stand-in object is the default surface, not the material it waits for: its own instance, its
                 // defaults row — the waiting material's overrides are not the stand-in's to show.
                 od.Inst = standsIn ? standIn->Instance.get()
                                    : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
-                if ( od.Inst != nullptr )
-                    for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
-                        if ( prop.bIsOverridden )
-                        {
-                            od.HasOverrides = true;
-                            break;
-                        }
-                od.Hidden = hiddenOf( obj );
+                od.HasOverrides = od.Inst != nullptr && od.Inst->GetPropertySet().HasOverrides();
+                od.Alone        = !obj->ReceiveShadows || !obj->CastContactShadow || od.HasOverrides;
+                od.Hidden       = hiddenOf( obj );
                 bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
 
@@ -2550,7 +2742,7 @@ namespace Desert::Graphic::System
                 batchable.clear();
                 for ( const auto& od : bucket )
                 {
-                    if ( !od.Obj->ReceiveShadows || !od.Obj->CastContactShadow || od.HasOverrides )
+                    if ( od.Alone )
                         plan.Singles.push_back( od );
                     else
                         batchable.push_back( od );
@@ -2578,7 +2770,8 @@ namespace Desert::Graphic::System
                          ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
                          maxLevel ) );
 
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                Geometry::DistinctLODs( levels, slice.DistinctLods );
+                for ( const uint32_t level : slice.DistinctLods )
                 {
                     const auto count = static_cast<uint32_t>( std::count( levels.begin(), levels.end(), level ) );
                     if ( count < 2 )

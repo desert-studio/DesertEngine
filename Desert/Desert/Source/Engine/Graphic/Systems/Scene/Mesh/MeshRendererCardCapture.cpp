@@ -55,7 +55,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    uint64_t MeshRenderer::CardReadinessKey() const
+    uint64_t MeshRenderer::DrawReadinessKey() const
     {
         auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
         auto* const shaders   = Runtime::ResourceRegistry::GetShaderService();
@@ -65,7 +65,15 @@ namespace Desert::Graphic::System
         key = HashCombine( key, Graphic::PipelineReadinessGeneration() );
         if ( shaders != nullptr )
             key = HashCombine( key, static_cast<uint64_t>( shaders->RecompileGeneration() ) );
-        key = HashCombine( key, Assets::MeshCardsSlot::PublishGeneration() );
+        if ( m_SceneRenderer != nullptr )
+            key = HashCombine( key, m_SceneRenderer->GetPipelineCache().Generation() );
+        return key;
+    }
+
+    uint64_t MeshRenderer::CardReadinessKey() const
+    {
+        uint64_t key = DrawReadinessKey();
+        key          = HashCombine( key, Assets::MeshCardsSlot::PublishGeneration() );
         key = HashCombine( key, PointerBits( m_StaticGBufferPipeline.get() ) );
         key = HashCombine( key, PointerBits( m_InstancedGBufferPipeline.get() ) );
         key = HashCombine( key, PointerBits( m_SkinnedGBufferPipeline.get() ) );

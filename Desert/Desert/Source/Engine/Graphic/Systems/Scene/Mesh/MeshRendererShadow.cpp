@@ -1058,11 +1058,15 @@ namespace Desert::Graphic::System
 
     std::size_t MeshRenderer::ShadowBucketKeyHash::operator()( const ShadowBucketKey& key ) const noexcept
     {
-        std::size_t h = std::hash<const void*>{}( key.Mesh );
-        h ^= std::hash<uint64_t>{}( key.Hidden.Low ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u );
-        h ^= std::hash<const void*>{}( key.Hidden.High.data() ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) +
-             ( h >> 2u );
-        return h ^ ( key.Hidden.High.size() * 0x9E3779B97F4A7C15ull );
+        // The words SubmeshMask::operator== compares (the High view by address), mixed so the low bits a
+        // power-of-two table masks by depend on every word (a pointer's low bits are alignment zeros).
+        uint64_t h = static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( key.Mesh ) );
+        h          = ( h ^ ( h >> 33u ) ) * 0xFF51AFD7ED558CCDull;
+        h ^= key.Hidden.Low * 0x9E3779B97F4A7C15ull;
+        h ^= static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( key.Hidden.High.data() ) ) +
+             static_cast<uint64_t>( key.Hidden.High.size() );
+        h = ( h ^ ( h >> 29u ) ) * 0xC4CEB9FE1A85EC53ull;
+        return static_cast<std::size_t>( h ^ ( h >> 32u ) );
     }
 
     uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, const glm::mat4& casterVP,
@@ -2279,18 +2283,38 @@ namespace Desert::Graphic::System
         };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
-        // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
-        std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
-             byMesh;
-        m_ScratchShadowBucketOf.clear();
-        const auto bucketFor = [&]( Desert::Mesh*     mesh,
-                                    const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
+        // in first-seen order; the key's bucket found by m_ScratchShadowBucketSlots, not by a search. Reused by
+        // index, as the slots: no allocation per cascade in the steady state.
+        m_ScratchShadowBucketCount = 0;
         {
-            const auto [it, added] =
-                 m_ScratchShadowBucketOf.try_emplace( ShadowBucketKey{ mesh, hidden }, byMesh.size() );
-            if ( added )
-                byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<const StaticMeshRenderData*>{} );
-            return byMesh[it->second].second;
+            std::size_t slots = 64;
+            while ( slots < m_StaticQueue.size() * 2u )
+                slots <<= 1u;
+            m_ScratchShadowBucketSlots.assign( slots, 0u );
+        }
+        const auto bucketFor = [this]( Desert::Mesh*     mesh,
+                                       const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
+        {
+            std::vector<uint32_t>& table = m_ScratchShadowBucketSlots;
+            const std::size_t      mask  = table.size() - 1u;
+            for ( std::size_t at = ShadowBucketKeyHash{}( ShadowBucketKey{ mesh, hidden } ) & mask;;
+                  at             = ( at + 1u ) & mask )
+            {
+                const uint32_t slot = table[at];
+                if ( slot == 0u )
+                {
+                    if ( m_ScratchShadowBucketCount == m_ScratchShadowBuckets.size() )
+                        m_ScratchShadowBuckets.emplace_back();
+                    ShadowMeshBucket& made = m_ScratchShadowBuckets[m_ScratchShadowBucketCount++];
+                    made.first             = std::make_pair( mesh, hidden );
+                    made.second.clear();
+                    table[at] = static_cast<uint32_t>( m_ScratchShadowBucketCount );
+                    return made.second;
+                }
+                ShadowMeshBucket& found = m_ScratchShadowBuckets[slot - 1u];
+                if ( found.first.first == mesh && found.first.second == hidden )
+                    return found.second;
+            }
         };
         const auto staticIndex = [this]( const StaticMeshRenderData* rd )
         { return static_cast<uint32_t>( rd - m_StaticQueue.data() ); };
@@ -2429,8 +2453,9 @@ namespace Desert::Graphic::System
         singles.clear();
         idBatches.clear();
         shadowIsmIds.clear();
-        for ( auto& [meshKey, bucket] : byMesh )
+        for ( std::size_t bi = 0; bi < m_ScratchShadowBucketCount; ++bi )
         {
+            const auto& [meshKey, bucket] = m_ScratchShadowBuckets[bi];
             Desert::Mesh* const mesh = meshKey.first;
             if ( instancingOn && bucket.size() >= 2 )
             {
@@ -2445,7 +2470,8 @@ namespace Desert::Graphic::System
                 for ( const auto* rd : bucket )
                     levels.push_back( std::min( ShadowStaticLod( staticIndex( rd ) ), maxLevel ) );
 
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                for ( const uint32_t level : m_ScratchDistinctLods )
                 {
                     const auto first = static_cast<uint32_t>( instTransforms.size() );
                     for ( std::size_t i = 0; i < bucket.size(); ++i )
@@ -2592,7 +2618,8 @@ namespace Desert::Graphic::System
                         }
                         auto& set    = maskedSetFor( caster );
                         set.SceneIds = byId;
-                        for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                        Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                        for ( const uint32_t level : m_ScratchDistinctLods )
                         {
                             const std::size_t setSize = byId ? set.Ids.size() : set.Transforms.size();
                             const auto        first   = static_cast<uint32_t>( setSize );
@@ -2623,7 +2650,8 @@ namespace Desert::Graphic::System
                         continue;
                     }
 
-                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                    Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                    for ( const uint32_t level : m_ScratchDistinctLods )
                     {
                         if ( ismIds )
                         {
