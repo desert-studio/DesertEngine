@@ -850,6 +850,9 @@ namespace Desert::Graphic::System
         // frame. Refused: no variety is generated, culled or drawn from its ranges this frame (m_Frame emptied).
         [[nodiscard]] Common::BoolResultStr CommitVarietyPools( RDG::Builder& graph );
         std::vector<uint64_t> m_SegmentTableScratch; // CommitVarietyPools' (no allocation once grown)
+        // GRASS-CULL-COST-4: the params pool's host image (word i: what the last upload wrote to word i), so the
+        // frame's records go up as one span of it (CommitVarietyPools; grown, never shrunk).
+        std::vector<uint32_t> m_ParamsImage;
         // CPU-GRASS-VARIETY-1: WriteVarietyTable's scratch, kept across frames so a frame allocates nothing: the
         // table's bytes (reserved to the header and every row at once) and a row's cascade key, which is swapped
         // into the variety's CascadeKey when it differs (both vectors keep their capacity).
