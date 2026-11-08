@@ -283,13 +283,12 @@ uint SPTileSlot( uint tile, uint level, uint k )
     return 1u + screenProbeParams.grid.z * SP_LEVELS + tile * SP_ADAPTIVE_PER_TILE + SPLevelSlotBase( level ) + k;
 }
 
-// UE's upsample plane weight (CalculateUpsampleInterpolationWeights, PLANE_WEIGHTING): how far probe @p id lies
+// UE's upsample plane weight (CalculateUpsampleInterpolationWeights, PLANE_WEIGHTING): how far @p probe lies
 // from the plane of the surface point @p p (normal @p n, @p viewDistance from the camera), relative to the depth —
 // times its hemisphere facing the point's normal: a probe here is a hemi-octahedron around its own normal (UE's is
-// a full octahedron), so a probe turned away from the point holds nothing it can read.
-float SPProbeWeight( uint id, vec3 p, vec3 n, float viewDistance )
+// a full octahedron), so a probe turned away from the point holds nothing it can read. At most 1.
+float SPProbeWeight( ScreenProbe probe, vec3 p, vec3 n, float viewDistance )
 {
-    const ScreenProbe probe = screenProbes[id];
     if ( probe.position.w <= 0.0 )
         return 0.0;
     const float plane = abs( dot( probe.position.xyz - p, n ) ) / max( viewDistance, 1.0 );
@@ -301,6 +300,40 @@ float SPProbeWeight( uint id, vec3 p, vec3 n, float viewDistance )
 // the adaptive levels below @p levels (1 = none, SP_LEVELS = all), weighted by its plane and its screen distance
 // to the pixel (1 at the pixel, 0 a uniform spacing away). Placement and integrate share it, so a position the
 // placement left without a probe is exactly a pixel the integrate finds no probe for.
+//
+// THE NEIGHBOURHOOD it reads, by uniform tile and SLOT (0 = the tile's uniform probe,
+// 1 + SPLevelSlotBase(level) + k = adaptive slot k of a level): the probe buffers themselves, unless the pass
+// defines SP_INTERPOLATE_NEIGHBOURHOOD and these four over its own copy of them (ScreenProbeIntegrate: one groupshared load a tile, the same values).
+//   SPNeighbourUniform(tile)         the uniform probe's id, SP_INVALID outside the grid or where none is;
+//   SPNeighbourCount(tile, level)    the adaptive probes of a level, 0 outside the grid;
+//   SPNeighbourAdaptive(tile, slot)  an adaptive slot's id (slot below 1 + its level's base + count);
+//   SPNeighbourProbe(tile, slot, id) the probe itself.
+#if !defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+uint SPNeighbourUniform( ivec2 tile )
+{
+    return SPUniformProbeAt( tile );
+}
+
+uint SPNeighbourCount( ivec2 tile, uint level )
+{
+    if ( !SPUniformTileInside( tile ) )
+        return 0u;
+    return min( screenProbeIndex[SPTileHeader( SPUniformTileIndex( tile ), level )], SPLevelSlots( level ) );
+}
+
+uint SPNeighbourAdaptive( ivec2 tile, uint slot )
+{
+    // SPTileSlot( t, level, k ) with SPLevelSlotBase( level ) + k = slot - 1.
+    return screenProbeIndex[1u + screenProbeParams.grid.z * SP_LEVELS +
+                            SPUniformTileIndex( tile ) * SP_ADAPTIVE_PER_TILE + slot - 1u];
+}
+
+ScreenProbe SPNeighbourProbe( ivec2 tile, uint slot, uint id )
+{
+    return screenProbes[id];
+}
+#endif
+
 void SPInterpolate( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint levels, out uvec4 ids, out vec4 weights )
 {
     const vec2  c = vec2( pixel - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE );
@@ -310,20 +343,27 @@ void SPInterpolate( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint levels
     {
         const ivec2 tile     = b + ivec2( i & 1, i >> 1 );
         const vec2  bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
-        uint        id       = SPUniformProbeAt( tile );
-        float       w = id == SP_INVALID ? 0.0 : bilinear.x * bilinear.y * SPProbeWeight( id, p, n, viewDistance );
-        if ( w <= SP_ADAPTIVE_EPSILON && SPUniformTileInside( tile ) )
+        uint        id       = SPNeighbourUniform( tile );
+        float       w        = 0.0;
+        if ( id != SP_INVALID )
+            w = bilinear.x * bilinear.y * SPProbeWeight( SPNeighbourProbe( tile, 0u, id ), p, n, viewDistance );
+        if ( w <= SP_ADAPTIVE_EPSILON )
         {
-            const uint t = SPUniformTileIndex( tile );
             for ( uint level = 1u; level < levels; ++level )
             {
-                const uint count = min( screenProbeIndex[SPTileHeader( t, level )], SPLevelSlots( level ) );
+                const uint count = SPNeighbourCount( tile, level );
                 for ( uint k = 0u; k < count; ++k )
                 {
-                    const uint  candidate = screenProbeIndex[SPTileSlot( t, level, k )];
-                    const vec2  d         = abs( vec2( SPProbePixelOf( screenProbes[candidate] ) - pixel ) );
-                    const float corner    = 1.0 - clamp( max( d.x, d.y ) / float( SP_DOWNSAMPLE ), 0.0, 1.0 );
-                    const float candidateW = corner * SPProbeWeight( candidate, p, n, viewDistance );
+                    const uint        slot      = 1u + SPLevelSlotBase( level ) + k;
+                    const uint        candidate = SPNeighbourAdaptive( tile, slot );
+                    const ScreenProbe probe     = SPNeighbourProbe( tile, slot, candidate );
+                    const vec2        d         = abs( vec2( SPProbePixelOf( probe ) - pixel ) );
+                    const float corner = 1.0 - clamp( max( d.x, d.y ) / float( SP_DOWNSAMPLE ), 0.0, 1.0 );
+                    // The plane weight is at most 1: a corner weight that cannot beat the best so far skips it
+                    // (a uniform spacing or more away: corner 0), the same pick without its exp2.
+                    if ( corner <= w )
+                        continue;
+                    const float candidateW = corner * SPProbeWeight( probe, p, n, viewDistance );
                     if ( candidateW > w )
                     {
                         w  = candidateW;
