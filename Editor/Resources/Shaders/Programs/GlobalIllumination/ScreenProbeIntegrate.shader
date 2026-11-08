@@ -213,33 +213,87 @@ Shader "ScreenProbeIntegrate"
             const float f4 = f2 * f2;
             return f4 * f4;
         }
-        void SPShortRangeAOAt( ivec2 pixel, vec3 p, float distance, vec3 n, out vec3 bent, out float ao )
+        // THE TILE'S TRACED TEXELS, LOADED ONCE (UE ScreenProbeIntegrateCS reads its G-buffer once a pixel): an 8x8
+        // tile's pixels upsample from the SP_SR_AO_TILE^2 texels starting at (tile origin - offset) / 2, each with
+        // its traced pixel's normal and world position. One thread a texel fetches the AO texel, the traced
+        // pixel's normal and depth and reconstructs its position into shared memory, so a pixel's four texels
+        // cost no G-buffer fetch and no matrix product (they cost 4 AO + 4 normal + 4 depth fetches and 4 mat4
+        // products a pixel before). The same values in the same sums: the picture is unchanged.
+        //   x  = the AO texel (w <= 0: no surface; the normal and position are then not loaded);
+        //   n  = the traced pixel's normalised G-buffer normal;   p = its world position.
+        #define SP_SR_AO_TILE 5
+        #define SP_SR_AO_TEXELS ( SP_SR_AO_TILE * SP_SR_AO_TILE )
+        shared vec4 s_SRAoSample[SP_SR_AO_TEXELS];
+        shared vec3 s_SRAoNormal[SP_SR_AO_TEXELS];
+        shared vec3 s_SRAoPosition[SP_SR_AO_TEXELS];
+
+        // The first texel a tile at @p tileOrigin (pixels) upsamples from: floor((origin - offset) / 2), the origin
+        // even, the offset 0 or 1. Its pixels' texels at a non-zero bilinear weight span 5 from there; with the
+        // offset 1 the tile's last pixel column/row lands on a texel exactly (f = 0) and names a 6th at weight 0,
+        // which SPShortRangeAOAt skips before indexing.
+        ivec2 SPShortRangeAOTileBase( ivec2 tileOrigin )
         {
-            const ivec2 extent    = ivec2( giFrame.screen.xy );
-            const ivec2 aoExtent  = ( extent + 1 ) / 2;
+            return tileOrigin / 2 - SPShortRangeAOOffset( screenProbeParams.atlas.y );
+        }
+
+        // Called by every thread of the group in uniform control flow (it holds the barrier).
+        void SPShortRangeAOLoadTile( ivec2 tileOrigin, bool enabled )
+        {
+            const uint index = gl_LocalInvocationIndex;
+            if ( enabled && index < uint( SP_SR_AO_TEXELS ) )
+            {
+                const ivec2 extent   = ivec2( giFrame.screen.xy );
+                const ivec2 aoExtent = ( extent + 1 ) / 2;
+                const ivec2 offset   = SPShortRangeAOOffset( screenProbeParams.atlas.y );
+                const ivec2 local    = ivec2( int( index ) % SP_SR_AO_TILE, int( index ) / SP_SR_AO_TILE );
+                const ivec2 texel = clamp( SPShortRangeAOTileBase( tileOrigin ) + local, ivec2( 0 ), aoExtent - 1 );
+                const vec4  s     = texelFetch( ShortRangeAoTexture, texel, 0 );
+                vec3        nt    = vec3( 0.0 );
+                vec3        pt    = vec3( 0.0 );
+                if ( s.w > 0.0 )
+                {
+                    const ivec2 traced = min( texel * 2 + offset, extent - 1 );
+                    const vec2  uvt    = ( vec2( traced ) + 0.5 ) * giFrame.screen.zw;
+                    nt = normalize( texelFetch( GBufferBTexture, traced, 0 ).xyz );
+                    pt = ReconstructWorldPosition( uvt, texelFetch( GBufferDepthTexture, traced, 0 ).r,
+                                                   giFrame.invViewProjection );
+                }
+                s_SRAoSample[index]   = s;
+                s_SRAoNormal[index]   = nt;
+                s_SRAoPosition[index] = pt;
+            }
+            barrier();
+        }
+
+        // @p tileOrigin: the pixel tile SPShortRangeAOLoadTile loaded.
+        void SPShortRangeAOAt( ivec2 pixel, ivec2 tileOrigin, vec3 p, float distance, vec3 n, out vec3 bent,
+                               out float ao )
+        {
             const ivec2 offset    = SPShortRangeAOOffset( screenProbeParams.atlas.y );
             const vec2  c         = vec2( pixel - offset ) * 0.5;
             const ivec2 b         = ivec2( floor( c ) );
             const vec2  f         = c - vec2( b );
+            const ivec2 local     = b - SPShortRangeAOTileBase( tileOrigin );
             const float tolerance = distance * SP_SHORT_RANGE_AO_PLANE_TOLERANCE;
             vec3        bentSum   = vec3( 0.0 );
             float       aoSum     = 0.0;
             float       total     = 0.0;
             for ( int i = 0; i < 4; ++i )
             {
-                const vec2  bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
-                const ivec2 texel    = clamp( b + ivec2( i & 1, i >> 1 ), ivec2( 0 ), aoExtent - 1 );
-                const vec4  s        = texelFetch( ShortRangeAoTexture, texel, 0 );
-                if ( bilinear.x * bilinear.y <= 0.0 || s.w <= 0.0 )
+                const vec2 bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
+                // Weight 0 first: it is the only case whose texel lies past the loaded SP_SR_AO_TILE.
+                if ( bilinear.x * bilinear.y <= 0.0 )
                     continue;
-                const ivec2 traced = min( texel * 2 + offset, extent - 1 );
-                const vec3  nt     = normalize( texelFetch( GBufferBTexture, traced, 0 ).xyz );
+                const ivec2 at   = local + ivec2( i & 1, i >> 1 );
+                const int   slot = at.y * SP_SR_AO_TILE + at.x;
+                const vec4  s    = s_SRAoSample[slot];
+                if ( s.w <= 0.0 )
+                    continue;
+                const vec3  nt     = s_SRAoNormal[slot];
                 const float facing = dot( nt, n );
                 if ( facing <= 0.0 )
                     continue;
-                const vec2  uvt   = ( vec2( traced ) + 0.5 ) * giFrame.screen.zw;
-                const vec3  pt    = ReconstructWorldPosition( uvt, texelFetch( GBufferDepthTexture, traced, 0 ).r,
-                                                              giFrame.invViewProjection );
+                const vec3  pt    = s_SRAoPosition[slot];
                 const float plane = abs( dot( pt - p, n ) ) / tolerance;
                 const float w     = bilinear.x * bilinear.y * exp2( -plane * plane ) *
                                     SPShortRangeAONormalWeight( facing );
@@ -356,8 +410,14 @@ Shader "ScreenProbeIntegrate"
                 return;
             const uint  tile   = screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - listIndex];
 #endif
-            const ivec2 pixel  = ivec2( tile & 0xFFFFu, tile >> 16u ) * 8 + ivec2( gl_LocalInvocationID.xy );
-            const vec2  extent = giFrame.screen.xy;
+            const ivec2 tileOrigin = ivec2( tile & 0xFFFFu, tile >> 16u ) * 8;
+            const ivec2 pixel      = tileOrigin + ivec2( gl_LocalInvocationID.xy );
+            const vec2  extent     = giFrame.screen.xy;
+            // Off (Scalability GlobalIllumination.ShortRangeAO 0): the shading normal, unoccluded; SSAO occludes the
+            // gather in the composite instead. The tile's AO texels load before any pixel returns: the whole group
+            // reaches the barrier (the flag and the tile are uniform over it).
+            const bool shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
+            SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
             if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
                 return;
             const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
@@ -375,12 +435,10 @@ Shader "ScreenProbeIntegrate"
             const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
             const vec3  v        = ( giFrame.camera.xyz - p ) / distance;
             const vec3  r        = reflect( -v, n );
-            // Off (Scalability GlobalIllumination.ShortRangeAO 0): the shading normal, unoccluded; SSAO occludes the
-            // gather in the composite instead.
             vec3  bent = n;
             float ao   = 1.0;
-            if ( ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u )
-                SPShortRangeAOAt( pixel, p, distance, n, bent, ao );
+            if ( shortRangeAO )
+                SPShortRangeAOAt( pixel, tileOrigin, p, distance, n, bent, ao );
             const float roughness   = max( gb.a, 0.04 );
             const float diffuseLerp = SPRoughSpecularDiffuseLerp( roughness );
 
