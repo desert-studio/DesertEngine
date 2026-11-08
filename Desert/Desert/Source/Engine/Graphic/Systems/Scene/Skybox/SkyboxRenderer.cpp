@@ -537,8 +537,8 @@ namespace Desert::Graphic::System
         // new world AND feeding its IBL into every lit surface. This is the same explicit-absence rule the
         // sky, the fog and the cloud layer already follow, and it is what lets a render system outlive the
         // scene it was built for (IRenderSystem::OnSceneReplaced).
-        // A skybox replaced by one still to be converted keeps lighting until the new cubes exist (GetEnvironment);
-        // a scene with none drops it at once (the explicit-absence rule below).
+        // A skybox replaced by one still to be converted keeps lighting until the new cubes exist
+        // (GetEnvironment); a scene with none drops it at once (the explicit-absence rule below).
         const std::shared_ptr<MaterialSkybox> current = m_MaterialSkybox.lock();
         if ( !material )
             m_PreviousMaterialSkybox.reset();

@@ -320,7 +320,8 @@ namespace Desert::Graphic::System
 
     private:
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;
-        // THE SKYBOX BEING REPLACED, held (its cubes alive) while the new one waits for its conversion in the frame
+        // THE SKYBOX BEING REPLACED, held (its cubes alive) while the new one waits for its
+        // conversion in the frame
         // graph (UE keeps the previous convolved sky until the new one is ready): GetEnvironment lights with it,
         // in the look it was drawn with, until the new material has cubes. Empty otherwise.
         std::shared_ptr<MaterialSkybox> m_PreviousMaterialSkybox;
