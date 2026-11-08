@@ -2358,7 +2358,9 @@ namespace Desert::Graphic::System
         const auto bucketFor = [&]( const std::size_t row, Desert::Mesh* mesh,
                                     const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
-            const bool     ownMask = hidden.High.empty() && hidden.Low == m_StaticColumns.Hidden[row];
+            // The id names (row mesh, own mask): a walk that draws another mesh (an LOD swap) takes the hash.
+            const bool ownMask = hidden.High.empty() && hidden.Low == m_StaticColumns.Hidden[row] &&
+                                 mesh == m_StaticColumns.Meshes[row];
             const uint32_t id      = rowsCover && ownMask && row < planRows.ShadowBucket.size()
                                           ? planRows.ShadowBucket[row]
                                           : StaticPlanRows::kNoBucket;
