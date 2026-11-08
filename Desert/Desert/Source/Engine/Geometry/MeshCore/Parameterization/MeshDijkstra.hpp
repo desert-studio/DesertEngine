@@ -1,7 +1,8 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshDijkstra.h (constructor,
 // SeedPoint, ComputeToMaxDistance, GetMaxGraphDistance(PointID), GetNodeForPointSetID, UpdateNeighboursSparse),
 // adapted: nodes live in a TArray and are addressed by index (UE holds GraphNode* across appends, which its
-// chunked DynamicVector keeps stable and a TArray would not); no distance weighting, target or path queries.
+// chunked DynamicVector keeps stable and a TArray would not); no distance weighting. ComputeToTargetPoint and
+// FindPathToNearestSeed (UE's target and path queries) serve the UV Seams tool's vertex-to-vertex paths.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/IndexPriorityQueue.hpp"
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -58,6 +60,63 @@ namespace Desert::Geometry
                 UpdateNeighboursSparse( NodeIndex );
             }
         }
+        // UE ComputeToTargetPoint: grows from the seeds until TargetPointID is frozen (true) or the queue empties /
+        // the distance passes ComputeToMaxDistanceIn first (false).
+        bool ComputeToTargetPoint( const std::vector<SeedPoint>& SeedPointsIn, int32_t TargetPointID,
+                                   double ComputeToMaxDistanceIn = std::numeric_limits<double>::max() )
+        {
+            m_MaxGraphDistance        = 0.0;
+            m_MaxGraphDistancePointID = -1;
+            for ( int32_t SeedIndex = 0; SeedIndex < static_cast<int32_t>( SeedPointsIn.size() ); ++SeedIndex )
+            {
+                const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
+                if ( m_Queue.Contains( PointID ) )
+                    continue;
+                GraphNode& Node    = m_AllocatedNodes[GetNodeIndex( PointID, true )];
+                Node.GraphDistance = SeedPointsIn[SeedIndex].StartDistance;
+                Node.bFrozen       = true;
+                Node.SeedPointID   = SeedIndex;
+                m_Queue.Insert( PointID, float( Node.GraphDistance ) );
+            }
+            while ( m_Queue.GetCount() > 0 )
+            {
+                const int32_t NodeIndex = GetNodeIndex( m_Queue.Dequeue(), false );
+                GraphNode&    Node      = m_AllocatedNodes[NodeIndex];
+                m_MaxGraphDistance      = std::max<double>( Node.GraphDistance, m_MaxGraphDistance );
+                if ( m_MaxGraphDistance > ComputeToMaxDistanceIn )
+                    return false;
+                Node.bFrozen              = true;
+                m_MaxGraphDistancePointID = Node.PointID;
+                if ( Node.PointID == TargetPointID )
+                    return true;
+                UpdateNeighboursSparse( NodeIndex );
+            }
+            return false;
+        }
+
+        // UE FindPathToNearestSeed: the parent chain from PointID (computed and frozen) back to its seed, PointID
+        // first and the seed last. False (and an empty path) when PointID was not reached.
+        bool FindPathToNearestSeed( int32_t PointID, std::vector<int32_t>& PathToSeedOut, int32_t MaxLength = 100000 )
+        {
+            PathToSeedOut.clear();
+            int32_t NodeIndex = GetNodeIndex( PointID, false );
+            if ( NodeIndex < 0 || !m_AllocatedNodes[NodeIndex].bFrozen )
+                return false;
+            PathToSeedOut.push_back( PointID );
+            for ( int32_t IterCount = 0; IterCount < MaxLength; ++IterCount )
+            {
+                const int32_t ParentID = m_AllocatedNodes[NodeIndex].ParentPointID;
+                if ( ParentID == -1 )
+                    return true;
+                PathToSeedOut.push_back( ParentID );
+                NodeIndex = GetNodeIndex( ParentID, false );
+                if ( NodeIndex < 0 )
+                    break;
+            }
+            PathToSeedOut.clear();
+            return false;
+        }
+
         [[nodiscard]] double GetMaxGraphDistance() const
         {
             return m_MaxGraphDistance;

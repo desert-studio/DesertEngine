@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Desert::Geometry
 {
@@ -180,4 +181,31 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<UVOutcome> TransformUVs( const DynamicMesh3&        mesh,
                                                              const UVTransformSettings& settings,
                                                              std::span<const int32_t>   triangles = {} );
+
+    // ---- Seams (UE USeamSculptTool, Modeling Mode UVs -> Seams; Join as UE's UV Editor seam tool) ----
+    enum class UVSeamMode : uint8_t
+    {
+        Cut,  // UE FDynamicMeshUVEditor::CreateSeamsAtEdges: the path's edges become UV seams
+        Join, // UE FDynamicMeshUVEditor::RemoveSeamsAtEdges: the seams on the path's edges are closed
+    };
+    [[nodiscard]] const char* ToString( UVSeamMode mode );
+
+    // The shortest path over the mesh's edges from @p fromVertex to @p toVertex, @p fromVertex first (UE
+    // USeamSculptTool::UpdateCurrentDrawPath: TMeshDijkstra ComputeToTargetPoint + FindPathToNearestSeed). Refused
+    // for a vertex that is not on the mesh, or when no edge path joins the two.
+    [[nodiscard]] Common::ResultStr<std::vector<int32_t>> ShortestEdgePath( const DynamicMesh3& mesh,
+                                                                            int32_t fromVertex, int32_t toVertex );
+
+    // Cuts or joins the UV seams of layer 0 along the edges between consecutive @p pathVertices.
+    //   - Cut leaves every UV value where it was and changes only the topology (the split elements are copies):
+    //     each path edge separates its two sides, so the islands come apart for a later Unwrap with Source =
+    //     ExistingUVs. A cut opens at a vertex where it meets another cut edge, a seam or the border; a single
+    //     interior edge touching none of them cannot open (the Report counts it).
+    //   - Join merges, at both ends of each seam edge on the path, the element of the edge's first triangle into
+    //     the second's (UE MergeElement(tri0 element, tri1 element)): the first side's corners take the second's
+    //     UVs.
+    // Mesh border edges are neither (no opposite side). Refused for a mesh with no UV layer 0, a path of fewer than
+    // two vertices, or two consecutive path vertices with no edge between them.
+    [[nodiscard]] Common::ResultStr<UVOutcome> EditUVSeams( const DynamicMesh3&      mesh,
+                                                            std::span<const int32_t> pathVertices, UVSeamMode mode );
 } // namespace Desert::Geometry

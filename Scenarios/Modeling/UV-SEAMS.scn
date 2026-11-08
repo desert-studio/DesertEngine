@@ -1,0 +1,41 @@
+# UV-SEAMS: Modeling Mode UVs -> Seams (UE USeamSculptTool; Join as UE's UV Editor seam tool), a session on the selected
+# mesh: the existing UV seams drawn green, a path picked vertex to vertex (shortest edge path, Geometry::ShortestEdgePath)
+# drawn yellow, Apply cuts or joins the seams on it (Geometry::EditUVSeams), Accept is ONE undo step, Cancel leaves the mesh.
+# A 100 cm Box (pivot centre) 60 cm above the origin: every face is its own UV island, so all 12 edges are seams. The
+# picks aim 5 cm inside the top face's front corners, so the nearest vertex of the hit triangle is the corner itself and
+# the path is the top front edge (-50,110,50) -> (50,110,50).
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,60,0
+Дано run Entity Box
+Дано --subject viewport set Camera.Position 0,300,150
+Дано --subject viewport set Camera.Direction 0,-0.86,-0.51
+Когда run Modeling "UV tool: Seams"
+Тогда-вид 0_seams green lines on every visible box edge (top face border and the vertical edges); panel status "6 UV islands"; tool bar UV Seams with Accept and Cancel
+Когда run Modeling "UV Seams mode: Join"
+Когда --subject viewport set Camera.Direction -0.203,-0.857,-0.474
+Когда run Modeling "UV Seams: pick vertex at the viewport centre"
+Когда --subject viewport set Camera.Direction 0.203,-0.857,-0.474
+Когда run Modeling "UV Seams: pick vertex at the viewport centre"
+Когда --subject viewport set Camera.Direction 0,-0.86,-0.51
+Тогда-вид 1_path a yellow line along the top front edge over the green seam, a dot at each picked corner
+Когда run Modeling "UV Seams: apply path"
+Тогда-вид 2_join the top front edge has no green line any more (the other 11 seams stay); status "Join 1 edges: 1 joined ... 5 UV islands"
+Когда run Modeling "UV Seams mode: Cut"
+Когда --subject viewport set Camera.Direction -0.203,-0.857,-0.474
+Когда run Modeling "UV Seams: pick vertex at the viewport centre"
+Когда --subject viewport set Camera.Direction 0.203,-0.857,-0.474
+Когда run Modeling "UV Seams: pick vertex at the viewport centre"
+Когда run Modeling "UV Seams: apply path"
+Когда --subject viewport set Camera.Direction 0,-0.86,-0.51
+Тогда-вид 3_cut the green line on the top front edge is back; status "Cut 1 edges: 1 opened ... 6 UV islands"
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 4_accepted no tool bar, no seam lines, the box drawn with its material
+Когда run Action "Undo"
+Когда run Modeling "UV tool: Seams"
+Тогда-вид 5_undo all 12 edges green again, status "6 UV islands" (the accepted edit was one undo step)
+Когда run Modeling "Active tool: Cancel"
