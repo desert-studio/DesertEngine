@@ -36,6 +36,9 @@ namespace Desert::Graphic
             // A display-referred buffer view (Graphic::IsDisplayReferredView): the scene colour, un-pre-exposed,
             // is the picture - SceneComposite's operator 2 skips exposure, the effects and the curve.
             bool VisualizeBuffer = false;
+            // The bits per channel the target's final write quantises to (DisplayOutputState::QuantizationBits):
+            // the dither is one code of this depth wide, 0 = a float output, no dither (SDR-10BIT-DITHER).
+            uint32_t QuantizationBits = 8;
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
@@ -63,5 +66,7 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, LocalExposureUV, "LocalExposureUV", ( glm::vec4( 1.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureSlice, "LocalExposureSlice", ( glm::vec4( 0.0f ) ) )
         MPROPERTY( float, LocalExposureMethod, "LocalExposureMethod", 0.0f )
+        // One code of the output's quantisation, 1 / (2^bits - 1); 0 on a float output (no dither).
+        MPROPERTY( float, OutputQuantizationStep, "OutputQuantizationStep", ( 1.0f / 255.0f ) )
     };
 } // namespace Desert::Graphic

@@ -24,6 +24,10 @@ namespace Desert::Graphic
         SetLocalExposureUV( params.LocalExposureUV );
         SetLocalExposureSlice( params.LocalExposureSlice );
         SetLocalExposureMethod( params.LocalExposureMethod );
+        float quantizationStep = 0.0f;
+        if ( params.QuantizationBits > 0u )
+            quantizationStep = 1.0f / static_cast<float>( ( 1u << params.QuantizationBits ) - 1u );
+        SetOutputQuantizationStep( quantizationStep );
         // Uploaded where the draw reads them (MaterialExecutor::Apply: dirty MPROPERTYs into their fields, then
         // every field-filled buffer whose active copy is behind -- each frame-in-flight copy catches up on its
         // own).

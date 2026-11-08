@@ -126,6 +126,11 @@ namespace Desert::Core::Formats
         /// PF_FloatR11G11B10, Graphic/GlobalIllumination/SurfaceCache.hpp). Half the bytes of RGBA16F. APPENDED.
         R11G11B10F,
 
+        /// `VK_FORMAT_A2B10G10R10_UNORM_PACK32`. Ten bits per colour channel, a two-bit alpha, packed in
+        /// four bytes - the SDR back buffer when the surface offers it (UE PF_A2B10G10R10, the 10-bit SDR
+        /// swapchain): the final write quantises to 1/1023 instead of 1/255 (SDR-10BIT-DITHER). APPENDED.
+        RGB10A2_UNORM,
+
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
         // A hand-maintained constant was tried first, pinned to the last enumerator with
@@ -269,6 +274,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RG32_UINT: // two channels, 32-bit unsigned integer each
                 return { 1, 1, 8 };
             case ImageFormat::R11G11B10F: // three packed unsigned floats
+            case ImageFormat::RGB10A2_UNORM: // 10:10:10:2 packed unsigned normalised
                 return { 1, 1, 4 };
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
@@ -328,6 +334,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RG16F:
             case ImageFormat::RG8_UNORM:
             case ImageFormat::R11G11B10F:
+            case ImageFormat::RGB10A2_UNORM:
                 return false;
             case ImageFormat::Count:
                 break; // the sentinel is not a format
@@ -378,6 +385,8 @@ namespace Desert::Core::Formats
                 return 2;
             case ImageFormat::R11G11B10F:
                 return 3; // radiance; the format has no alpha
+            case ImageFormat::RGB10A2_UNORM:
+                return 4; // the back buffer's colour and its two-bit alpha
             case ImageFormat::BC4_UNORM:
                 return 1;
             case ImageFormat::Count:
@@ -457,6 +466,7 @@ namespace Desert::Core::Formats
             case ImageFormat::R32_UINT:
             case ImageFormat::RG32_UINT:
             case ImageFormat::R11G11B10F:
+            case ImageFormat::RGB10A2_UNORM:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:

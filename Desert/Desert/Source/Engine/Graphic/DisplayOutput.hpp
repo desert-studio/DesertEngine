@@ -47,6 +47,10 @@ namespace Desert::Graphic
         float Headroom       = 1.0f;
         float PaperWhiteNits = 0.0f;
         float PeakNits       = 0.0f;
+        // The bits per colour channel the back buffer's final write quantises to (SDR-10BIT-DITHER): 8 on BGRA8,
+        // 10 on the 10-bit SDR surface, 0 on the half-float scRGB surface (nothing to quantise). The tonemap sizes
+        // its dither to one code of this depth (TonemapRenderer, SceneComposite OutputQuantizationStep).
+        uint32_t QuantizationBits = 8;
 
         [[nodiscard]] bool IsHDR() const
         {

@@ -138,6 +138,10 @@ namespace Desert::Graphic::System
         params.LocalExposureSlice = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV, mode );
         // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
         params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
+        // SDR-10BIT-DITHER: the dither is one code of the back buffer's depth (8 or 10 bits; 0 on scRGB, a float
+        // surface). The HDR rendition is a float measurement target; the output beside it is the SDR frame a
+        // capture packs to 8 bits, so it is dithered for 8.
+        params.QuantizationBits = CurrentDisplayOutput().QuantizationBits;
 
 
         // HDR-OUTPUT p3: with the HDR rendition this frame (PrepareHdrRendition) the output carries the SDR
@@ -145,7 +149,9 @@ namespace Desert::Graphic::System
         // rendition the HDR one; the SAME params otherwise, so the two are one frame in two transforms.
         if ( m_HdrRendition && m_MaterialTonemapHdr )
         {
+            params.QuantizationBits = 0u;
             m_MaterialTonemapHdr->BindValues( params );
+            params.QuantizationBits = 8u;
         }
         // A display-referred buffer view: no effect is composited over the stored value (UE buffer visualization).
         if ( m_VisualizeBuffer )

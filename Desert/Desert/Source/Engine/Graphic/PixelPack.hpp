@@ -42,6 +42,10 @@ namespace Desert::Graphic
         /// rendition: clamped to [0,1] and sRGB-encoded (the same display transfer SceneComposite applies on
         /// the SDR output), so a capture of an HDR window compares against an SDR one (HDR-OUTPUT).
         RGBA16F_ScRGB,
+        /// 4 bytes/pixel, one little-endian word: red bits 0-9, green 10-19, blue 20-29, alpha 30-31 - the
+        /// 10-bit SDR swapchain (VK_FORMAT_A2B10G10R10_UNORM_PACK32, SDR-10BIT-DITHER). Display-encoded already;
+        /// each channel is requantised to 8 bits by rounding to the nearest byte.
+        A2B10G10R10,
     };
 
     /// IEEE 754 binary16 -> float, without a library: the pack stays free of glm and Vulkan.
@@ -151,6 +155,22 @@ namespace Desert::Graphic
                 uint16_t half = 0;
                 std::memcpy( &half, raw + i * 2u, sizeof( half ) );
                 out[i] = Common::Math::QuantiseUnitToByte( HalfToFloat( half ) );
+            }
+            return out;
+        }
+
+        if ( source == PackedPixelSource::A2B10G10R10 )
+        {
+            for ( std::size_t i = 0; i < pixels; ++i )
+            {
+                uint32_t word = 0;
+                std::memcpy( &word, raw + i * 4u, sizeof( word ) );
+                for ( uint32_t c = 0; c < 3u; ++c )
+                {
+                    const uint32_t code = ( word >> ( 10u * c ) ) & 0x3ffu;
+                    out[i * 4u + c]     = static_cast<uint8_t>( ( code * 255u + 511u ) / 1023u );
+                }
+                out[i * 4u + 3u] = static_cast<uint8_t>( ( ( word >> 30u ) * 255u ) / 3u );
             }
             return out;
         }
