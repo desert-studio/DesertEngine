@@ -21,7 +21,10 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
 #include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace Desert::Geometry
@@ -63,6 +66,30 @@ namespace Desert::Geometry
                                                     const ElementSelection& selection );
     [[nodiscard]] ElementSelection InvertSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                                     const ElementSelection& selection );
+
+    // UE PolyEdit's Select Edge Loops / Select Edge Rings (FGroupTopologySelector::ExpandSelectionByEdgeLoops /
+    // ExpandSelectionByEdgeRings). A LOOP runs on through a corner where exactly four faces meet, to the edge that
+    // borders neither face of the edge it arrives on, and along an open border through a corner where exactly two
+    // border edges meet - UE's "paths through valence-4 vertices, or boundaries of holes". A RING steps across a
+    // four-sided face to its opposite edge and on through the face beyond, until a border, a face that is not a
+    // quad, or the ring closes.
+    enum class EdgeExpansion : uint8_t
+    {
+        Loops,
+        Rings,
+    };
+    [[nodiscard]] const char* ToString( EdgeExpansion expansion );
+
+    // @p edges (mesh edge IDs, as an Edge selection holds them) plus every mesh edge of the loops / rings through
+    // them; ascending, unique. @p topology is PolyEditTopology( mesh ). At the Group level the faces are
+    // polygroups and the steps go group edge to group edge (each adds all of its mesh edges); an edge of @p edges
+    // inside a polygroup (on no group edge) is kept and starts nothing. At the Triangle level every triangle is a
+    // face (UE TriEdit's TriangleGroupTopology), so a loop runs through vertices with four triangles and a ring,
+    // with no four-sided face to cross, adds nothing - as in UE. Refused, by ID, when an edge is not the mesh's.
+    [[nodiscard]] Common::ResultStr<std::vector<int>> ExpandEdges( const DynamicMesh3&  mesh,
+                                                                   const GroupTopology& topology,
+                                                                   TopologyLevel level, EdgeExpansion expansion,
+                                                                   std::span<const int> edges );
 
     // Every live triangle ID of @p mesh, in iteration order: the "whole mesh" region a mesh-wide operation
     // (UV unwrap/reset, XForm merge/duplicate) runs on. One definition; the per-file copies in

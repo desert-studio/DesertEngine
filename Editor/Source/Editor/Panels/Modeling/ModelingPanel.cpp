@@ -2263,6 +2263,23 @@ namespace Desert::Editor
             state.SetLevel( Geometry::TopologyLevel::Triangle );
         if ( triangles )
             ImGui::PopStyleColor();
+        // UE's Select Edge Loops / Select Edge Rings selection settings: an Edge click takes the loops / rings
+        // through the picked edge with it. Edge mode only, as UE's EditCondition.
+        ImGui::BeginDisabled( state.Mode() != ElementMode::Edge );
+        bool pickLoops = state.PickEdgeLoops();
+        if ( ImGui::Checkbox( "Pick Edge Loops", &pickLoops ) )
+            state.SetPickEdgeLoops( pickLoops );
+        if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            ImGui::SetTooltip( "A click on an edge selects its whole loop: on through corners where four faces "
+                               "meet, and along an open border" );
+        ImGui::SameLine();
+        bool pickRings = state.PickEdgeRings();
+        if ( ImGui::Checkbox( "Pick Edge Rings", &pickRings ) )
+            state.SetPickEdgeRings( pickRings );
+        if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+            ImGui::SetTooltip( "A click on an edge selects its ring: the opposite edges across each four-sided face "
+                               "(PolyEdit; TriEdit faces are triangles, so a ring stays one edge)" );
+        ImGui::EndDisabled();
         ImGui::Spacing();
         if ( !state.HasMesh() )
         {
@@ -2293,6 +2310,15 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::Button( "Clear", ImVec2( half, 0.0f ) ) )
             report( state.Apply( Op::Clear ) );
+        if ( ImGui::Button( "Loops", ImVec2( half, 0.0f ) ) )
+            report( state.Apply( Op::SelectEdgeLoops ) );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Select Edge Loops: add the loops through the selected edges" );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Rings", ImVec2( half, 0.0f ) ) )
+            report( state.Apply( Op::SelectEdgeRings ) );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Select Edge Rings: add the rings through the selected edges" );
 
         // UE's Selection palette actions: one click = one undo step (mesh + the selection it leaves).
         if ( !Utils::ImGuiUtilities::SectionHeader( "Selection Actions" ) )
