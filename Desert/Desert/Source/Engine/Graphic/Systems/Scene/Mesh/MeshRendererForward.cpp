@@ -1673,6 +1673,9 @@ namespace Desert::Graphic::System
         const bool same = entry.Snapshot == ism.Transforms && entry.LocalBounds.Min == localBounds.Min &&
                           entry.LocalBounds.Max == localBounds.Max && entry.Planes == planes &&
                           entry.View.Origin == view.Origin && entry.View.Projection == view.Projection &&
+                          entry.View.Temporal.Active == view.Temporal.Active &&
+                          entry.View.Temporal.Origins[0] == view.Temporal.Origins[0] &&
+                          entry.View.Temporal.Origins[1] == view.Temporal.Origins[1] &&
                           entry.LodScreenSizes == lodSizes;
         if ( same )
             return { .Entry = &entry, .Stale = false };
@@ -1730,7 +1733,9 @@ namespace Desert::Graphic::System
         // The main view's cull, as BuildStaticDraws asks it (the same frustum and LOD view): the passes' look-ups
         // then find every entry current and cull nothing again this frame.
         const Core::Frustum     frustum = camera->GetFrustum();
-        const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        const Geometry::LODView mainView{ .Origin     = camera->GetPosition(),
+                                          .Projection = camera->GetProjectionMatrix(),
+                                          .Temporal   = m_ViewTemporalLOD };
         ++m_IsmViewCullCall;
         m_ViewIsmStale.clear();
         for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
@@ -1792,26 +1797,47 @@ namespace Desert::Graphic::System
     {
         DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
         CollectIsmInstances( *ism.Transforms, entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
-                             entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels, &entry.Indices );
+                             entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels, &entry.Indices,
+                             &entry.OlderLevels );
         OrderIsmViewCullByLevel( entry );
     }
 
     void MeshRenderer::OrderIsmViewCullByLevel( IsmViewCull& entry ) noexcept
     {
-        // The distinct levels, ascending (Geometry::DistinctLODs' order), with their counts.
-        std::vector<IsmLevelRun>& runs = entry.Runs;
-        runs.clear();
-        for ( const uint32_t level : entry.Levels )
+        // Each kept instance's slots: (its newer level, side 0) at rest; in a dithered transition (its two
+        // temporal levels differ, CollectIsmInstances) (newer, -1) and (older, +1) - the instance twice, each
+        // draw its half of the dither (UE: both LODs of the mesh batch, DitheredLODTransition).
+        const bool temporal = entry.OlderLevels.size() == entry.Levels.size();
+        const auto fades    = [&entry, temporal]( const std::size_t i ) noexcept
+        { return temporal && entry.OlderLevels[i] != entry.Levels[i]; };
+        std::vector<IsmLevelRun>& runs  = entry.Runs;
+        const auto                runOf = [&runs]( const uint32_t level, const float side ) -> IsmLevelRun&
         {
-            const auto found = std::find_if( runs.begin(), runs.end(),
-                                             [level]( const IsmLevelRun& run ) { return run.Level == level; } );
-            if ( found != runs.end() )
-                ++found->Count;
-            else
-                runs.push_back( { .Level = level, .First = 0, .Count = 1 } );
+            for ( IsmLevelRun& run : runs )
+                if ( run.Level == level && run.Side == side )
+                    return run;
+            return runs.emplace_back( IsmLevelRun{ .Level = level, .First = 0, .Count = 0, .Side = side } );
+        };
+        // The distinct (level, side) slices, by level ascending (Geometry::DistinctLODs' order) then side, with
+        // their counts.
+        runs.clear();
+        for ( std::size_t i = 0; i < entry.Levels.size(); ++i )
+        {
+            if ( !fades( i ) )
+            {
+                ++runOf( entry.Levels[i], 0.0f ).Count;
+                continue;
+            }
+            ++runOf( entry.Levels[i], -1.0f ).Count;
+            ++runOf( entry.OlderLevels[i], 1.0f ).Count;
         }
         std::sort( runs.begin(), runs.end(),
-                   []( const IsmLevelRun& a, const IsmLevelRun& b ) { return a.Level < b.Level; } );
+                   []( const IsmLevelRun& a, const IsmLevelRun& b )
+                   {
+                       if ( a.Level != b.Level )
+                           return a.Level < b.Level;
+                       return a.Side < b.Side;
+                   } );
         uint32_t first = 0;
         for ( IsmLevelRun& run : runs )
         {
@@ -1819,31 +1845,40 @@ namespace Desert::Graphic::System
             first += run.Count;
         }
         if ( runs.size() <= 1 )
-            return; // one level (or none): Visible is its run already
-        // The stable partition: each kept instance at its level's next slot, in kept order (Count is the cursor,
-        // back to the count when every instance is placed).
+            return; // one slice (or none; a fading instance makes two): Visible is its run already
+        // The stable partition: each slot at its slice's next place, in kept order (Count is the cursor, back to
+        // the count when every slot is placed).
         for ( IsmLevelRun& run : runs )
             run.Count = 0;
         // The indices move with their transforms (an entry the cull filled without them has none).
-        const bool indexed = entry.Indices.size() == entry.Visible.size();
-        entry.Ordered.resize( entry.Visible.size() );
-        entry.OrderedIndices.resize( indexed ? entry.Indices.size() : 0u );
+        const bool        indexed = entry.Indices.size() == entry.Visible.size();
+        const std::size_t slots   = first;
+        entry.Ordered.resize( slots );
+        entry.OrderedIndices.resize( 0u );
+        if ( indexed )
+            entry.OrderedIndices.resize( slots );
+        const auto place = [&entry, &runOf, indexed]( const std::size_t i, const uint32_t level, const float side )
+        {
+            IsmLevelRun&   run  = runOf( level, side );
+            const uint32_t slot = run.First + run.Count++;
+            entry.Ordered[slot] = entry.Visible[i];
+            if ( indexed )
+                entry.OrderedIndices[slot] = entry.Indices[i];
+        };
         for ( std::size_t i = 0; i < entry.Visible.size(); ++i )
         {
-            const uint32_t level = entry.Levels[i];
-            for ( IsmLevelRun& run : runs )
-                if ( run.Level == level )
-                {
-                    const uint32_t slot = run.First + run.Count++;
-                    entry.Ordered[slot] = entry.Visible[i];
-                    if ( indexed )
-                        entry.OrderedIndices[slot] = entry.Indices[i];
-                    break;
-                }
+            if ( !fades( i ) )
+            {
+                place( i, entry.Levels[i], 0.0f );
+                continue;
+            }
+            place( i, entry.Levels[i], -1.0f );
+            place( i, entry.OlderLevels[i], 1.0f );
         }
         entry.Visible.swap( entry.Ordered );
         if ( indexed )
             entry.Indices.swap( entry.OrderedIndices );
+        entry.Levels.resize( slots );
         for ( const IsmLevelRun& run : runs )
             std::fill_n( entry.Levels.begin() + run.First, run.Count, run.Level );
     }
@@ -2599,8 +2634,8 @@ namespace Desert::Graphic::System
         // records the plan and buckets nothing, so what its Resolve call lent, applied and marked Drawn is what it
         // records. A setup task runs it, one slice of groups each: it reads the group, the walk's masks and the
         // objects' instances, and writes @p plan and @p slice alone.
-        // Whether a group's surface clips per pixel (Masked; ResolveBinnedPipeline's ditheredLod rule): planGroup's
-        // @p masked - an object of it in a dithered LOD transition draws both levels as singles
+        // Whether a group's surface clips per pixel (Masked; ResolveBinnedPipeline's ditheredLod rule):
+        // planGroup's @p masked - an object of it in a dithered LOD transition draws both levels as singles
         // (ComputeDitheredLOD, each its half of the dither); an opaque one switches at once.
         const auto clipsDitheredLod = []( const DataDrivenMaterial* material ) noexcept
         {
@@ -3097,7 +3132,11 @@ namespace Desert::Graphic::System
             // a call looks an entry up once). Serial, in queue order: the packing from each ISM's entry. The sets
             // are made in the order the one loop made them and every ISM packs the same cull, so the sets,
             // instances and draws are the same; ParallelSetup 0 runs the culls inline, in queue order.
-            const Geometry::LODView mainView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+            // With the view's temporal LOD samples: an instance in a dithered transition draws both levels
+            // (OrderIsmViewCullByLevel), PrepareViewIsmIds' view bit for bit.
+            const Geometry::LODView mainView{ .Origin     = camera->GetPosition(),
+                                              .Projection = camera->GetProjectionMatrix(),
+                                              .Temporal   = m_ViewTemporalLOD };
             ++m_IsmViewCullCall;
             scratch.IsmQueued.clear();
             scratch.IsmStale.clear();
@@ -3204,10 +3243,16 @@ namespace Desert::Graphic::System
                 InstancedBatchSet* const       ismSet      = queued.Set;
                 const bool                     ismStandsIn = queued.StandsIn;
                 const std::vector<glm::mat4>&  visible     = queued.Cull->Visible;
-                if ( mode.Half != DeferredPrepassHalf::Depth )
-                    ismInstances += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
+                // A Masked section draws both levels of an instance in a dithered transition, each its half of
+                // the dither (the +1 / -1 slices); an opaque one switches at once: its -1 slice is a plain level
+                // and the +1 (the older level, the same instances again) is not drawn.
+                const bool ismMasked = clipsDitheredLod( mat );
+                if ( mode.Half != DeferredPrepassHalf::Depth )
+                    for ( const IsmLevelRun& run : queued.Cull->Runs )
+                        if ( run.Side <= 0.0f )
+                            ismInstances += run.Count;
 
                 // ONE material row for the whole ISM, named by every one of its per-level draws: the
                 // level splits the geometry, not the material.
@@ -3229,12 +3274,17 @@ namespace Desert::Graphic::System
                 // (OrderIsmViewCullByLevel): the same instances in the same order a per-level filter gave.
                 for ( const IsmLevelRun& run : queued.Cull->Runs )
                 {
+                    if ( !ismMasked && run.Side > 0.0f )
+                        continue;
                     InstancedDraw d;
                     d.Mesh          = ism.Mesh;
                     d.FirstInstance = static_cast<uint32_t>( ismTransforms.size() );
                     d.MaterialIndex = *materialIndex;
                     d.HiddenSubmeshMask = queued.Hidden;
                     d.LodLevel          = run.Level;
+                    d.LodFadeSide       = 0.0f;
+                    if ( ismMasked )
+                        d.LodFadeSide = run.Side;
                     d.Wind              = ismWind;
                     d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
                     if ( ismSet->SceneIds )
@@ -3344,7 +3394,8 @@ namespace Desert::Graphic::System
                                 .Push              = DrawPushFields{}
                                              .MaterialIndex( d.MaterialIndex )
                                              .Wind( d.Wind )
-                                             .PrimitiveFlags( d.PrimitiveFlags ) } );
+                                             .PrimitiveFlags( d.PrimitiveFlags )
+                                             .LodFadeSide( d.LodFadeSide ) } );
                 }
             }
         }

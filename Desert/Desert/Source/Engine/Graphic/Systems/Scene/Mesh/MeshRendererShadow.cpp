@@ -681,6 +681,7 @@ namespace Desert::Graphic::System
             hash.Add( camera->GetPosition() );
             hash.Add( camera->GetProjectionMatrix() );
         }
+        hash.Add( TemporalLodKey() );
         hash.Add( DrawDistanceScale( lodView ) );
         hash.Add( m_ShadowWindDistance );
         hash.Add( m_InstancedQueue.size() );
@@ -725,6 +726,21 @@ namespace Desert::Graphic::System
             hash.Add( camera->GetPosition() );
             hash.Add( camera->GetProjectionMatrix() );
         }
+        hash.Add( TemporalLodKey() );
+        return hash.Value;
+    }
+
+    uint64_t MeshRenderer::TemporalLodKey() const
+    {
+        // At rest both samples are the eye and the key holds still (the transition cycles with the sample clock
+        // but no caster fades); while they differ a masked caster may be fading, and its dither moves each frame.
+        const Geometry::LODTemporalSamples& temporal = m_ViewTemporalLOD;
+        SignatureHash                       hash;
+        hash.Add( temporal.Active );
+        hash.Add( temporal.Origins[0] );
+        hash.Add( temporal.Origins[1] );
+        if ( temporal.Active && temporal.Origins[0] != temporal.Origins[1] )
+            hash.Add( temporal.Transition );
         return hash.Value;
     }
 
@@ -746,7 +762,10 @@ namespace Desert::Graphic::System
             if ( setup.StaticLodKey != lodKey )
             {
                 for ( ShadowCasterRow& row : setup.Statics )
-                    row.LodLevel = kShadowLodUnknown;
+                {
+                    row.LodLevel  = kShadowLodUnknown;
+                    row.FadeKnown = false;
+                }
                 for ( ShadowCasterRow& row : setup.Generics )
                     row.LodLevel = kShadowLodUnknown;
             }
@@ -854,6 +873,18 @@ namespace Desert::Graphic::System
         return row.LodLevel;
     }
 
+    Geometry::LODMask MeshRenderer::ShadowStaticFadeLod( const uint32_t index )
+    {
+        ShadowCasterRow& row = m_ShadowCasterSetup.Statics[index];
+        if ( !row.FadeKnown )
+        {
+            const StaticMeshRenderData& rd = m_StaticQueue[index];
+            row.FadeLod                    = ComputeDitheredLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+            row.FadeKnown                  = true;
+        }
+        return row.FadeLod;
+    }
+
     uint32_t MeshRenderer::ShadowGenericLod( const uint32_t index )
     {
         ShadowCasterRow& row = m_ShadowCasterSetup.Generics[index];
@@ -936,7 +967,9 @@ namespace Desert::Graphic::System
         const auto*       camera = m_SceneRenderer->GetMainCamera();
         Geometry::LODView lodView{};
         if ( camera != nullptr )
-            lodView = Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() };
+            lodView = Geometry::LODView{ .Origin     = camera->GetPosition(),
+                                         .Projection = camera->GetProjectionMatrix(),
+                                         .Temporal   = m_ViewTemporalLOD };
         // The runs of every field a caster view asks (each one's filter: a mesh, CastShadows, instances), in field
         // order and, within a field, in index order.
         std::size_t runs = 0;
@@ -1010,10 +1043,29 @@ namespace Desert::Graphic::System
         // The run's levels eight per register (SelectLODsFromBounds: per instance SelectLODFromBounds bit for
         // bit), the culled instances' too: one pass over the run's transforms in place costs less than copying
         // the kept.
+        // At the LOD view's newer temporal sample, as the view's ISM cull (CollectIsmInstances); a MASKED field's
+        // at the older one too, the level its instances in a dithered transition also cast (FadeLod).
         const std::span<const glm::mat4> runTransforms( transforms.data() + run.Begin, run.End - run.Begin );
+        Geometry::LODView                newer = lodView;
+        if ( lodView.Temporal.Active )
+            newer.Origin = lodView.Temporal.Origins[1];
         run.Levels.resize( runTransforms.size() );
-        Geometry::SelectLODsFromBounds( runTransforms, localBounds, lodView, ism.Mesh->GetLODScreenSizes(), -1, 0,
+        Geometry::SelectLODsFromBounds( runTransforms, localBounds, newer, ism.Mesh->GetLODScreenSizes(), -1, 0,
                                         run.Levels );
+        MaterialInstance* const   fieldInst = ism.Material.get();
+        const DataDrivenMaterial* fieldMat  = nullptr;
+        if ( fieldInst != nullptr )
+            fieldMat = dynamic_cast<const DataDrivenMaterial*>( fieldInst->GetParentMaterial() );
+        const bool fieldFades = lodView.Temporal.Active && IsMaskedSurface( fieldMat );
+        run.OlderLevels.clear();
+        if ( fieldFades )
+        {
+            Geometry::LODView older = lodView;
+            older.Origin            = lodView.Temporal.Origins[0];
+            run.OlderLevels.resize( runTransforms.size() );
+            Geometry::SelectLODsFromBounds( runTransforms, localBounds, older, ism.Mesh->GetLODScreenSizes(), -1,
+                                            0, run.OlderLevels );
+        }
 
         // WHO SWAYS IN THE SHADOWS (UE WPO Disable Distance;
         // r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange):
@@ -1044,14 +1096,22 @@ namespace Desert::Graphic::System
             glm::vec2 casterReach( 0.0f );
             if ( fieldSways )
                 casterReach = ShadowWindCasterReach( transforms[k], boundsExtent, windPad );
+            const uint32_t    level = run.Levels[k - run.Begin];
+            Geometry::LODMask fade;
+            fade.Levels[0] = level;
+            fade.Levels[1] = level;
+            if ( fieldFades )
+                fade.Levels[0] = run.OlderLevels[k - run.Begin];
             run.Rows.push_back(
                  { .WorldBounds  = *reach,
-                   .LodLevel     = run.Levels[k - run.Begin],
+                   .LodLevel     = level,
                    .Sways        = fieldSways && ( nearEdge || !ShadowWindCastsRestPose( point, lodView.Origin,
                                                                                          m_ShadowWindDistance ) ),
                    .NearWindEdge = nearEdge,
                    .WindPoint    = point,
-                   .CasterReach  = casterReach } );
+                   .CasterReach  = casterReach,
+                   .FadeLod      = fade,
+                   .FadeKnown    = true } );
             run.Index.push_back( k );
         }
     }
@@ -1124,6 +1184,16 @@ namespace Desert::Graphic::System
                 // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
                 if ( withLod )
                     stillHash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
+                // A masked caster casts its two temporal levels' dither (ShadowStaticFadeLod): the levels and,
+                // while it fades, the transition (StaticLodKey remakes this part each frame of a fade).
+                if ( withLod && ( columns.Flags[i] & StaticWalkColumns::kMasked ) != 0u )
+                {
+                    const Geometry::LODMask fade = ShadowStaticFadeLod( static_cast<uint32_t>( i ) );
+                    stillHash.Add( fade.Levels[0] );
+                    stillHash.Add( fade.Levels[1] );
+                    if ( fade.IsDithered() )
+                        stillHash.Add( m_ViewTemporalLOD.Transition );
+                }
                 // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
                 // (ShadingOf's answer, the column the casters draw with).
                 stillHash.Add( rd.SectionSlot );
@@ -1458,7 +1528,16 @@ namespace Desert::Graphic::System
             }
             hash.Add( setup.InstanceIndex[k] );
             if ( view.WithLod )
+            {
                 hash.Add( row.LodLevel );
+                // A masked instance in a dithered transition casts both levels' dither (FadeLod): the older level
+                // and the transition (IsmGatherKey starts the gather over each frame of a fade).
+                if ( row.FadeLod.IsDithered() )
+                {
+                    hash.Add( row.FadeLod.Levels[0] );
+                    hash.Add( m_ViewTemporalLOD.Transition );
+                }
+            }
         }
         run.Hash = hash.Value;
     }
@@ -2497,8 +2576,18 @@ namespace Desert::Graphic::System
             draw.Transform = rd.Transform;
             draw.Instance  = inst;
             draw.Row       = *row;
-            draw.LodLevel          = ShadowStaticLod( static_cast<uint32_t>( i ) );
-            draw.HiddenSubmeshMask = hidden;
+            // At the lit draw's level (planGroup: ComputeDitheredLOD's newer); in a dithered transition the older
+            // level too, each draw its half of the dither (DrawPushFields::LodFadeSide), as the lit singles.
+            const Geometry::LODMask fade = ShadowStaticFadeLod( static_cast<uint32_t>( i ) );
+            draw.LodLevel                = fade.Levels[1];
+            draw.HiddenSubmeshMask       = hidden;
+            if ( fade.IsDithered() )
+                draw.LodFadeSide = -1.0f;
+            m_ScratchMaskedDraws.push_back( draw );
+            if ( !fade.IsDithered() )
+                continue;
+            draw.LodLevel    = fade.Levels[0];
+            draw.LodFadeSide = 1.0f;
             m_ScratchMaskedDraws.push_back( draw );
         }
 
@@ -2622,9 +2711,11 @@ namespace Desert::Graphic::System
                     const InstanceWind wind = swaying ? ism.Wind : InstanceWind{};
                     auto& visible = m_ScratchIsmVisible;
                     auto& levels  = m_ScratchLodLevels;
+                    auto& older   = m_ScratchLodOlderLevels;
                     auto&              visibleIds = m_ScratchIsmVisibleIds;
                     visible.clear();
                     levels.clear();
+                    older.clear();
                     visibleIds.clear();
                     for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
                     {
@@ -2632,6 +2723,7 @@ namespace Desert::Graphic::System
                             continue;
                         visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
                         levels.push_back( gathered.Instances[k].LodLevel );
+                        older.push_back( gathered.Instances[k].FadeLod.Levels[0] );
                         // Its GpuScene row (MeshRenderer.hpp InstancedDraw::FirstGpuInstance: field instance i is
                         // row FirstGpuInstance + i), the id this view's id casters read it by.
                         if ( ismIds )
@@ -2680,34 +2772,54 @@ namespace Desert::Graphic::System
                         }
                         auto& set    = maskedSetFor( caster );
                         set.SceneIds = byId;
-                        Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
-                        for ( const uint32_t level : m_ScratchDistinctLods )
+                        // Per fade side (DrawPushFields::LodFadeSide; the gather's FadeLod): the instances at rest
+                        // (0) per level, and the ones in a dithered transition twice - their newer level (-1)
+                        // and their older (+1), each its half of the dither, as the view's ISM slices.
+                        for ( const float side : { 0.0f, -1.0f, 1.0f } )
                         {
-                            const std::size_t setSize = byId ? set.Ids.size() : set.Transforms.size();
-                            const auto        first   = static_cast<uint32_t>( setSize );
+                            auto& sideLevels = m_ScratchLodSideLevels;
+                            sideLevels.resize( visible.size() );
                             for ( std::size_t i = 0; i < visible.size(); ++i )
                             {
-                                if ( levels[i] != level )
-                                    continue;
-                                if ( byId )
-                                    set.Ids.push_back( visibleIds[i] );
-                                else
-                                    set.Transforms.push_back( visible[i] );
+                                const bool fades = older[i] != levels[i];
+                                sideLevels[i]    = levels[i];
+                                if ( side > 0.0f )
+                                    sideLevels[i] = older[i];
+                                if ( fades != ( side != 0.0f ) )
+                                    sideLevels[i] = kShadowLodUnknown;
                             }
-                            const std::size_t setEnd = byId ? set.Ids.size() : set.Transforms.size();
-                            MaskedCasterDraw draw;
-                            draw.Set      = &set;
-                            draw.Path     = MeshVertexPath::Instanced;
-                            draw.Mesh     = ism.Mesh;
-                            draw.HiddenSubmeshMask = ismHidden;
-                            draw.Instance = ismInst;
-                            draw.Row      = *row;
-                            draw.Count             = static_cast<uint32_t>( setEnd ) - first;
-                            draw.First    = first;
-                            draw.LodLevel = level;
-                            draw.Wind     = PackInstanceWind( wind );
-                            draw.BoundsPad         = WindBoundsPad( wind );
-                            m_ScratchMaskedDraws.push_back( draw );
+                            Geometry::DistinctLODs( sideLevels, m_ScratchDistinctLods );
+                            for ( const uint32_t level : m_ScratchDistinctLods )
+                            {
+                                if ( level == kShadowLodUnknown )
+                                    continue; // the other sides' instances
+                                const std::size_t setSize = byId ? set.Ids.size() : set.Transforms.size();
+                                const auto        first   = static_cast<uint32_t>( setSize );
+                                for ( std::size_t i = 0; i < visible.size(); ++i )
+                                {
+                                    if ( sideLevels[i] != level )
+                                        continue;
+                                    if ( byId )
+                                        set.Ids.push_back( visibleIds[i] );
+                                    else
+                                        set.Transforms.push_back( visible[i] );
+                                }
+                                const std::size_t setEnd = byId ? set.Ids.size() : set.Transforms.size();
+                                MaskedCasterDraw draw;
+                                draw.Set      = &set;
+                                draw.Path     = MeshVertexPath::Instanced;
+                                draw.Mesh     = ism.Mesh;
+                                draw.HiddenSubmeshMask = ismHidden;
+                                draw.Instance = ismInst;
+                                draw.Row      = *row;
+                                draw.Count             = static_cast<uint32_t>( setEnd ) - first;
+                                draw.First    = first;
+                                draw.LodLevel = level;
+                                draw.LodFadeSide       = side;
+                                draw.Wind     = PackInstanceWind( wind );
+                                draw.BoundsPad         = WindBoundsPad( wind );
+                                m_ScratchMaskedDraws.push_back( draw );
+                            }
                         }
                         continue;
                     }
@@ -3036,7 +3148,7 @@ namespace Desert::Graphic::System
                         [&draw]
                    {
                        DrawPushFields push;
-                       push.Transform( draw.Transform ).MaterialIndex( draw.Row );
+                       push.Transform( draw.Transform ).MaterialIndex( draw.Row ).LodFadeSide( draw.LodFadeSide );
                        if ( draw.Path == MeshVertexPath::Instanced )
                            push.Wind( draw.Wind );
                        if ( draw.Path == MeshVertexPath::Skinned )

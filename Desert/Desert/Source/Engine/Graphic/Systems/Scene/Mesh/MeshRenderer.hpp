@@ -3988,6 +3988,9 @@ namespace Desert::Graphic::System
             // The push PrimitiveFlags (Common/MaterialTransport.glslh) every instance of the draw shares: a batch
             // only holds objects that agree on them. Pushed with every draw, for the reason Wind is.
             uint32_t PrimitiveFlags = 0;
+            // The draw's side of a dithered LOD transition (DrawPushFields::LodFadeSide; IsmLevelRun::Side of a
+            // Masked ISM's slice), 0 for every other draw - pushed with every draw, for the reason Wind is.
+            float LodFadeSide = 0.0f;
         };
 
         // EVERY INSTANCED DRAW THAT ONE MATERIAL RECORDS, plus the two buffers those draws read.
@@ -4064,6 +4067,9 @@ namespace Desert::Graphic::System
         // reason every accumulator in this file is one: their capacity persists, so a frame that culls
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
+        // A masked ISM caster's per-instance older levels and one fade side's levels (BuildShadowCascadeDraws).
+        std::vector<uint32_t>                    m_ScratchLodOlderLevels;
+        std::vector<uint32_t>                    m_ScratchLodSideLevels;
         std::vector<uint32_t>                    m_ScratchDistinctLods; // DistinctLODs( m_ScratchLodLevels )
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
         // CPU-ISM-PACK 5: a shadow view's ISM casters by GpuScene id - the visible instances' ids
@@ -4103,12 +4109,16 @@ namespace Desert::Graphic::System
         {
             [[nodiscard]] std::size_t operator()( const IsmViewCullKey& key ) const noexcept;
         };
-        // One LOD level's slice of a cull entry's level-ordered Visible: [First, First + Count).
+        // One (LOD level, fade side) slice of a cull entry's level-ordered Visible: [First, First + Count). Side
+        // is the slice's DrawPushFields::LodFadeSide: 0 the instances at rest, -1 the newer level of the ones in
+        // a dithered transition, +1 their older level (the same instances again) - drawn by a Masked section
+        // only; an opaque one draws the -1 slice as a plain level and skips the +1 (it switches at once).
         struct IsmLevelRun
         {
             uint32_t Level = 0;
             uint32_t First = 0;
             uint32_t Count = 0;
+            float    Side  = 0.0f;
         };
         struct IsmViewCull
         {
@@ -4123,6 +4133,9 @@ namespace Desert::Graphic::System
             // G2).
             std::vector<glm::mat4>                        Visible;
             std::vector<uint32_t>                         Levels;
+            // Per kept instance (the cull's order): its level at the LOD view's older temporal sample (Levels is
+            // the newer's, CollectIsmInstances); OrderIsmViewCullByLevel duplicates an instance whose two differ.
+            std::vector<uint32_t>                         OlderLevels;
             std::vector<IsmLevelRun>                      Runs;
             std::vector<glm::mat4>                        Ordered; // the reorder's scratch, swapped with Visible
             // Per kept instance (Visible's order): its index in the field's transforms - the GpuScene instance
@@ -4410,6 +4423,12 @@ namespace Desert::Graphic::System
             // Zero for every other row.
             glm::vec3 WindPoint{ 0.0f };
             glm::vec2 CasterReach{ 0.0f };
+            // A MASKED caster's levels at the main view's two temporal LOD samples (ComputeDitheredLOD; an ISM
+            // instance's at the gather, [1] its LodLevel), what its draws clip by: in a dithered transition it
+            // casts both levels, each its half of the dither (DrawPushFields::LodFadeSide), as the lit draws do.
+            // Both LodLevel for an opaque ISM caster. A static row's is asked lazily (ShadowStaticFadeLod).
+            Geometry::LODMask FadeLod{};
+            bool              FadeKnown = false;
         };
         struct ShadowIsmField
         {
@@ -4745,6 +4764,12 @@ namespace Desert::Graphic::System
         // The level of static / generic caster @p index, asked of the camera once per gather.
         [[nodiscard]] uint32_t ShadowStaticLod( uint32_t index );
         [[nodiscard]] uint32_t ShadowGenericLod( uint32_t index );
+        // The levels a MASKED static caster @p index casts at (ShadowCasterRow::FadeLod), asked once per gather.
+        [[nodiscard]] Geometry::LODMask ShadowStaticFadeLod( uint32_t index );
+        // The view's temporal LOD samples as a caster key word (StaticLodKey, IsmGatherKey): the two origins and,
+        // while they differ (a dithered transition may be under way), the transition - a fading masked caster
+        // clips another dither each frame, so its cached layer is made again until the samples meet.
+        [[nodiscard]] uint64_t TemporalLodKey() const;
         // ISM field @p field's kept instances (Instances / InstanceIndex) of this gather (GatherIsmCasters: every
         // field that casts, on the setup tasks, when the gather starts over).
         [[nodiscard]] const ShadowIsmField& ShadowIsmInstances( uint32_t field ) const;
@@ -4762,6 +4787,7 @@ namespace Desert::Graphic::System
             std::vector<ShadowCasterRow> Rows;   // the kept instances of the run, in index order
             std::vector<uint32_t>        Index;  // each row's index in the field's transforms
             std::vector<uint32_t>        Levels; // the level of every instance of the run (kept or not)
+            std::vector<uint32_t>        OlderLevels; // a masked field's at the older temporal sample, else empty
         };
         std::vector<IsmGatherRun> m_IsmGatherRuns; // slots kept with their capacity across gathers
         void                      GatherIsmCasters();
@@ -4840,6 +4866,7 @@ namespace Desert::Graphic::System
             // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
             uint32_t          GpuPrimitive         = 0;
             uint32_t          LodLevel  = 0;
+            float             LodFadeSide = 0.0f; // DrawPushFields::LodFadeSide (ShadowCasterRow::FadeLod)
             SubmeshMask       HiddenSubmeshMask{}; // the caster's section group, as its lit draw (+ VSM clusters)
             InstanceWindPush  Wind;
             float             BoundsPad = 0.0f; // WindBoundsPad of the wind above, cm (MeshDrawCommand)

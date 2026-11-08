@@ -317,9 +317,10 @@ Shader "InstanceCull"
             VisibleInstanceIds[entry] = instanceRow;
         }
 
-        // Whether an instance of @p primitiveRow in a transition @p older -> @p lod draws it dithered: some submesh's
-        // slots at both levels clip (DESERT_GPU_DRAW_SLOT_DITHERED_LOD) - EmitToBins' second-entry rule. An opaque
-        // slot switches at once (one entry, the newer level), so its instance stays a still, cacheable caster.
+        // Whether an instance of @p primitiveRow in a transition @p older -> @p lod draws it dithered: some
+        // submesh's slots at both levels clip (DESERT_GPU_DRAW_SLOT_DITHERED_LOD) - EmitToBins' second-entry rule.
+        // An opaque slot switches at once (one entry, the newer level), so its instance stays a still, cacheable
+        // caster.
         bool DrawsLodDithered( uint primitiveRow, uint lod, uint older )
         {
             if ( older == lod || primitiveRow >= Params2.z )
@@ -337,7 +338,8 @@ Shader "InstanceCull"
                 const uint olderSlot = pd.FirstDrawSlot + olderLevel * pd.SubmeshCount + s;
                 if ( DrawSlots[slot].Bin != DESERT_GPU_INVALID_INDEX &&
                      DrawSlots[olderSlot].Bin != DESERT_GPU_INVALID_INDEX &&
-                     ( DrawSlots[slot].Flags & DrawSlots[olderSlot].Flags & DESERT_GPU_DRAW_SLOT_DITHERED_LOD ) != 0u )
+                     ( DrawSlots[slot].Flags & DrawSlots[olderSlot].Flags &
+                       DESERT_GPU_DRAW_SLOT_DITHERED_LOD ) != 0u )
                     return true;
             }
             return false;
