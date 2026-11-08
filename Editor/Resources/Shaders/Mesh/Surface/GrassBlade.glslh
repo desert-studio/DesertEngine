@@ -89,7 +89,7 @@ struct BladePoint
 // length as it bends. The lean grows as t^bend: 2 is an even arc, a larger power a straight stalk that bends near
 // its tip (GoT's per-blade bend). Without wind the position is affine in the matrix's columns: the blade of an
 // identity matrix, transformed by the matrix, is the blade of that matrix (the ray tracer's shared BLAS).
-BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB )
+BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB, vec4 gust )
 {
     const vec3  root    = vec3( model[3] );
     const float heightK = length( model[1].xyz );
@@ -109,7 +109,7 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
     const float bend = 2.0 + 3.0 * shape.Bend.y * fract( model[1].w * 256.0 );
     vec3        tip  = forward * ( height * lean );
     // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists.
-    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - shape.Size.y );
+    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB, gust ) * ( 1.0 - shape.Size.y );
     const float reach = min( length( tip ) / max( height, 1e-3 ), 0.95 );
     const float rise  = height * sqrt( 1.0 - reach * reach );
 

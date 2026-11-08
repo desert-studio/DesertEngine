@@ -12,6 +12,7 @@
 // fixed step under --play, zero while editing), so the same time is the same pose on every machine.
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 
 #include <glm/glm.hpp>
 
@@ -81,11 +82,13 @@ namespace Desert::Graphic
      * Horizontal only, along the wind. The height mask is the vertex's MESH-local height over Height,
      * clamped to [0, 1] and squared: the root (y <= 0) never moves, the tip moves most. The sway term lies in
      * [0, 1] (the plant leans downwind and swings back to upright), and the phase comes from the instance's
-     * world position so neighbours do not move in lockstep. Its magnitude never exceeds Strength, which is
-     * what WindBoundsPad relies on.
+     * world position so neighbours do not move in lockstep. The scene's gust fronts at the instance's point
+     * (@p gust, CameraUB::WindGust; WindGustScale in [1 - Gustiness, 1]) scale it. Its magnitude never exceeds
+     * Strength, which is what WindBoundsPad relies on.
      */
     [[nodiscard]] inline glm::vec3 FoliageWindOffset( const glm::vec3& localPosition,
-                                                      const glm::vec3& instanceOrigin, const InstanceWind& wind )
+                                                      const glm::vec3& instanceOrigin, const InstanceWind& wind,
+                                                      const glm::vec4& gust )
     {
         if ( !wind.Sways() )
             return glm::vec3( 0.0f );
@@ -95,7 +98,8 @@ namespace Desert::Graphic
         const float t     = 6.2831853f * wind.Speed * wind.Seconds;
         const float sway =
              0.65f * std::sin( t + phase ) + 0.35f * std::sin( kWindHarmonicRatio * t + 1.7f * phase );
-        const float amount = wind.Strength * mask * ( 0.5f + 0.5f * sway );
+        const float amount = wind.Strength * mask * ( 0.5f + 0.5f * sway ) *
+                             WindGustScale( instanceOrigin.x, instanceOrigin.z, gust );
         return glm::vec3( wind.Direction.x, 0.0f, wind.Direction.y ) * amount;
     }
 

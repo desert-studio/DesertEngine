@@ -8,8 +8,12 @@
 //
 // windA = (dir.x, dir.z, Strength cm, Height cm), windB = (Speed Hz, Seconds, 0, 0), pushed at offset 80
 // (Graphic::kInstancedWindPushOffset). Strength 0 = no offset, which every non-foliage instance pushes.
+// gust = CameraUB::WindGust (CameraUB::PrevWindGust for a previous position): the scene's gust fronts at the
+// instance's world point scale the sway (Common/WindGust.glslh; never past Strength).
 #ifndef DESERT_FOLIAGE_WIND_GLSLH
 #define DESERT_FOLIAGE_WIND_GLSLH
+
+#include <Common/WindGust.glslh>
 
 // The height mask FoliageWindOffset scales Strength by: the vertex's MESH-local height over Height, clamped to
 // [0, 1] and squared - 0 at and below the root, 1 from Height up, never falling as the height grows.
@@ -19,7 +23,7 @@ float FoliageWindHeightMask(float localY, float height)
     return mask * mask;
 }
 
-vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4 windB)
+vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4 windB, vec4 gust)
 {
     if (windA.z <= 0.0)
         return vec3(0.0);
@@ -27,14 +31,15 @@ vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4
     float phase  = instanceOrigin.x * 0.0123 + instanceOrigin.z * 0.0171;
     float t      = 6.2831853 * windB.x * windB.y;
     float sway   = 0.65 * sin(t + phase) + 0.35 * sin(2.3 * t + 1.7 * phase);
-    float amount = windA.z * mask * (0.5 + 0.5 * sway);
+    float amount = windA.z * mask * (0.5 + 0.5 * sway) * WindGustScale(instanceOrigin.x, instanceOrigin.z, gust);
     return vec3(windA.x, 0.0, windA.y) * amount;
 }
 
 // The world position of an instanced vertex: the instance's model matrix, then the wind.
-vec3 InstancedWorldPosition(mat4 model, vec3 localPosition, vec4 windA, vec4 windB)
+vec3 InstancedWorldPosition(mat4 model, vec3 localPosition, vec4 windA, vec4 windB, vec4 gust)
 {
-    return vec3(model * vec4(localPosition, 1.0)) + FoliageWindOffset(localPosition, vec3(model[3]), windA, windB);
+    return vec3(model * vec4(localPosition, 1.0)) +
+           FoliageWindOffset(localPosition, vec3(model[3]), windA, windB, gust);
 }
 
 // THE WIND'S REACH over a mesh-local box whose top is at @p localTop (cm): the largest horizontal distance

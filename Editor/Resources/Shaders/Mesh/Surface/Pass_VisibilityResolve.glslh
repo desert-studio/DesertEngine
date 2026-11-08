@@ -124,8 +124,10 @@ void main()
     vec4       jittered[3];
     for ( int k = 0; k < 3; ++k )
     {
-        point[k]    = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, m_PushConstants.WindB );
-        previous[k] = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev ).Position;
+        point[k]    = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA,
+                               m_PushConstants.WindB, cameraUB.WindGust );
+        previous[k] = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev,
+                               cameraUB.PrevWindGust ).Position;
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
     }
 
@@ -271,8 +273,10 @@ void main()
         const uvec2 at     = GrassMeshAddressAdd( vertexAddress, index * vertexStride );
         const uvec2 stream = GrassMeshAddressAdd( streamAddress, index * streamStride );
         const vec3  local3 = GrassMeshVec3( at, 0u );
-        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB );
-        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev );
+        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB,
+                                               cameraUB.WindGust );
+        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev,
+                                               cameraUB.PrevWindGust );
         jittered[k]  = cameraUB.JitteredViewProjection * vec4( world[k], 1.0 );
         normal[k]    = normalize( normalMatrix * GrassMeshVec3( at, 12u ) );
         tangent[k]   = normalize( normalMatrix * GrassMeshVec3( at, 24u ) );

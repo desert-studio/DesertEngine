@@ -20,6 +20,8 @@
 #include <Engine/Graphic/Render/Commands/DrawSkinnedMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawSlotMaterialMeshCommand.hpp>
+#include <Engine/Graphic/Render/Commands/WindGustCommand.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -62,6 +64,18 @@ namespace Desert::ECS
             // under --play, zero while editing - accumulated, never a wall clock, so one time is one pose.
             m_PrevWindSeconds = m_WindSeconds;
             m_WindSeconds += static_cast<double>( ts.GetSeconds() );
+            // THE GUST FRONTS (WIND-FIELD-GPU): carried downwind by the same gameplay step as the sway's clock,
+            // sent to every view (Render::WindGustCommand -> CameraUB::WindGust, Common/WindGust.glslh).
+            {
+                const ECS::WindGustAir air      = ECS::WindGust( registry );
+                const glm::vec4        prevGust = Graphic::PackWindGust( m_WindGustOffset, air.Gustiness,
+                                                                         air.GustSize, air.VelocityXZ );
+                m_WindGustOffset = Graphic::AdvanceWindGust( m_WindGustOffset, air.GustSize, air.VelocityXZ,
+                                                             static_cast<double>( ts.GetSeconds() ) );
+                renderCommandBuffer.Emplace<Graphic::Render::WindGustCommand>(
+                     Graphic::PackWindGust( m_WindGustOffset, air.Gustiness, air.GustSize, air.VelocityXZ ),
+                     prevGust );
+            }
 
             // Frame-constant invalidation stamp: cached instance sets built against an older stamp
             // rebuild below (their parent Material may have been graveyarded by Invalidate()).
@@ -1199,6 +1213,8 @@ namespace Desert::ECS
         // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
         double m_WindSeconds = 0.0;
         double m_PrevWindSeconds = 0.0; // the clock one gameplay step ago: the instances' velocity
+        // The gust fronts' offset, gust cells, wrapped to the lattice's period (Graphic::AdvanceWindGust).
+        glm::dvec2 m_WindGustOffset{ 0.0 };
 
         // The retained static scene's state (RecordStaticScene).
         const entt::registry*                                              m_StaticRegistry         = nullptr;

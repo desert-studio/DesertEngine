@@ -269,6 +269,12 @@ namespace Desert::Graphic
         // generator takes its screen-width floor from it (GrassRenderer::PrepareVariety,
         // System::UnpackGrassFieldLens). 0 for every other view (a light view, a still preview frame).
         glm::vec4 GrassLens{ 0.0f };
+        // EVERY VIEW of a scene: the gust fronts the foliage sway is scaled by (Graphic::PackWindGust,
+        // Common/WindGust.glslh) at this gameplay step and the previous one, the ECS's (Render::WindGustCommand).
+        // Written by the frame's owner with the grass lens (SceneRenderer::OnUpdate); a light view carries its
+        // scene's (WriteLightCamera), so a plant's shadow sways with the plant. 0 = no gusts (a still preview).
+        glm::vec4 WindGust{ 0.0f };
+        glm::vec4 PrevWindGust{ 0.0f };
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

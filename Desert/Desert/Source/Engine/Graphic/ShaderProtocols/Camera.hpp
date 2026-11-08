@@ -66,7 +66,11 @@
     /* light views only: the shadow wind rule's caster ring (ViewFrame::CasterWindRing, x the inner distance; */  \
     /* y, z, w the block's tail pad) */                                                                           \
     FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
-    /* block size 528 */
+    /* every view: the gust fronts the foliage sway is scaled by (ViewFrame::WindGust, Common/WindGust.glslh: */  \
+    /* xy the fronts' offset, gust cells; z 1 / GustSize; w Gustiness, 0 = none), now and one step before */      \
+    FIELD( glm::vec4, WindGust, WindGust, { 0.0f } )         /* offset 528 */                                     \
+    FIELD( glm::vec4, PrevWindGust, PrevWindGust, { 0.0f } ) /* offset 544 */                                     \
+    /* block size 560 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -76,7 +80,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 528 );
+    static_assert( sizeof( Camera ) == 560 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -123,6 +127,8 @@ namespace Desert::Graphic::ShaderProtocols
         ub.CasterWindOrigin          = frame.CasterWindOrigin;
         ub.CasterWindRing            = frame.CasterWindRing;
         ub.GrassLens                 = frame.GrassLens;
+        ub.WindGust                  = frame.WindGust;
+        ub.PrevWindGust              = frame.PrevWindGust;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

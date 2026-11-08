@@ -810,6 +810,12 @@ namespace Desert::Graphic::System
         {
             m_ParallaxQuality = parallax;
         }
+        // The scene view's gust fronts (SceneRenderer::SetWindGust, ViewFrame::WindGust): the light cameras of
+        // the casters carry them (WriteLightCamera), so a swaying caster's shadow sways with it.
+        void SetWindGust( const glm::vec4& gust )
+        {
+            m_WindGust = gust;
+        }
 
         // MESH DISPLACEMENT (DisplacementCache.hpp), after the queues are built and before SyncGpuScene: asks
         // @p cache for the levels of every static record whose mesh carries a displacement topology (per submesh, the
@@ -4859,6 +4865,7 @@ namespace Desert::Graphic::System
         std::vector<DataDrivenMaterial*>         m_ScratchGenericRecorders; // distinct recording materials
         float                                                     m_WorldTimeSeconds = 0.0f;
         ParallaxQuality                                           m_ParallaxQuality;
+        glm::vec4                                                 m_WindGust{ 0.0f };
         // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
         std::vector<MotionRecord>          m_ScratchRigidRecords;
         std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;

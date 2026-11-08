@@ -1394,6 +1394,7 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         m_Systems.Mesh->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
         m_Systems.Mesh->SetParallaxQuality( m_ParallaxQuality );
+        m_Systems.Mesh->SetWindGust( m_WindGust );
         m_Systems.AutoExposure->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
@@ -1844,6 +1845,9 @@ namespace Desert::Graphic
         ViewFrame viewFrame = begun.GetValue();
         viewFrame.GrassLens =
              System::PackGrassFieldLens( System::MakeGrassFieldLens( m_GrassQuality, viewFrame ) );
+        // The gust fronts the foliage sways by (ViewFrame::WindGust), the ECS's this step and the step before.
+        viewFrame.WindGust     = m_WindGust;
+        viewFrame.PrevWindGust = m_PrevWindGust;
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.

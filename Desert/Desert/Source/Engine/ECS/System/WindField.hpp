@@ -28,4 +28,15 @@ namespace Desert::ECS
         }
         return wind;
     }
+
+    // THE GUSTS the scene's air carries (ECS::WindGustAir): every WindSource entity visited once, the same
+    // per-source term as WindGustFromSources. MeshECSSystem advances the fronts with it
+    // (Graphic::AdvanceWindGust).
+    [[nodiscard]] inline WindGustAir WindGust( entt::registry& registry )
+    {
+        WindGustSums sums;
+        for ( const entt::entity entity : registry.view<WindSourceComponent>() )
+            sums.Add( registry.get<WindSourceComponent>( entity ).Data );
+        return sums.Air();
+    }
 } // namespace Desert::ECS

@@ -190,7 +190,7 @@ void main()
         }
     }
 #endif
-    const BladePoint blade = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B );
+    const BladePoint blade = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B, cameraUB.WindGust );
 #if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
 #define GRASS_BLADE_DEPTH_CELL 1
 #endif
@@ -237,7 +237,8 @@ void main()
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
     const BladePoint previous = BladeAt( Blade, model, side, t, windA,
-                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ) );
+                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ),
+                                         cameraUB.PrevWindGust );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a blade never moves, only the wind bends it.

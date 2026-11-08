@@ -266,7 +266,7 @@ void main()
     v_VisibilityRow =
          GrassMeshVisibilityRow( uint( gl_InstanceIndex ) - MeshRows.Slots.y, uint( gl_VertexIndex ) );
 #endif
-    const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB );
+    const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB, cameraUB.WindGust );
 #if ( defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_PASS_Visibility ) ) &&                           \
      defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
     // THE MASKED DEPTH CELLS - the view's early-Z pass and the casters (UE's depth-only / shadow-depth vertex factory:
@@ -319,16 +319,20 @@ void main()
 #ifdef DESERT_SURFACE_BINNED
     // Binned: the primitive's previous world x the same instance / submesh transforms; the wind at the row's previous clock.
     const mat4 prevModel         = draw.PrevWorld;
-    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, windA, GpuScene_WindB( row, true ) );
+    const vec3 prevWorldPosition =
+         InstancedWorldPosition( prevModel, a_Position, windA, GpuScene_WindB( row, true ),
+                                 cameraUB.PrevWindGust );
 #elif defined( DESERT_SURFACE_SCENE_INSTANCES )
     // By GpuScene id: the primitive's previous world x the instance's (a moved field's rows carry it, no offset).
     const mat4 prevModel         = GpuScene_PrevLocalToWorld( scenePrimitive ) * sceneLocal;
     const vec4 prevWind          = vec4( INSTANCED_WIND_B.x, INSTANCED_WIND_B.z, 0.0, 0.0 );
-    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A, prevWind );
+    const vec3 prevWorldPosition =
+         InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A, prevWind, cameraUB.PrevWindGust );
 #else
     const mat4 prevModel         = transforms[DESERT_INSTANCE_INDEX + floatBitsToUint( INSTANCED_WIND_B.w )];
     const vec4 prevWind          = vec4( INSTANCED_WIND_B.x, INSTANCED_WIND_B.z, 0.0, 0.0 );
-    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A, prevWind );
+    const vec3 prevWorldPosition =
+         InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A, prevWind, cameraUB.PrevWindGust );
 #endif
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );

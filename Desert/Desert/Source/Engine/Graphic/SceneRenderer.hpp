@@ -801,6 +801,15 @@ namespace Desert::Graphic
                                   const glm::vec3&                      windDirection,
                                   const std::vector<HeroCloudInstance>& heroClouds );
 
+        // This gameplay step's gust fronts and the previous step's (Graphic::PackWindGust), from the ECS, which
+        // advances them with the timestep (Render::WindGustCommand). Every view's frame carries them
+        // (ViewFrame::WindGust, OnUpdate), and the light cameras the current ones (MeshRenderer::SetWindGust).
+        void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust )
+        {
+            m_WindGust     = gust;
+            m_PrevWindGust = prevGust;
+        }
+
         // The evaluated per-frame sky: sun direction and radiance, ambient above/below, night factor, the
         // planet radius, and an OPAQUE handle to the packed sky-parameter buffer. Consumers never see the
         // sky's authoring representation, so a change to the palette cannot break them.
@@ -2314,6 +2323,9 @@ namespace Desert::Graphic
         int   m_ContactShadowSteps                  = 12;
         // Shading.Parallax*Steps, read in BeginScene; every view's frame carries them (ViewFrame::Parallax).
         ParallaxQuality m_ParallaxQuality;
+        // The ECS's gust fronts (SetWindGust): 0 = no gusts until a scene's systems say otherwise.
+        glm::vec4 m_WindGust{ 0.0f };
+        glm::vec4 m_PrevWindGust{ 0.0f };
         // Foliage.GrassCullDistanceScalePercent (and the density), read in BeginScene; the scene view's frame
         // carries the lens it makes (ViewFrame::GrassLens, OnUpdate).
         System::GrassQuality m_GrassQuality;
