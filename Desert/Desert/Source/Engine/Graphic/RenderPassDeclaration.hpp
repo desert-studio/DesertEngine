@@ -118,6 +118,7 @@ namespace Desert::Graphic
         {
             std::string_view                ParameterName;
             uint32_t                        Element = RDG::TextureParameter::kWhole;
+            uint64_t                        NameHash = 0; // CPU-COMPILE-KEY: the parameter's, carried to replay
             RDG::ShaderResourceKind         Kind    = RDG::ShaderResourceKind::Texture;
             RDG::TextureRef                 Texture;
             std::shared_ptr<Image>          Image;
@@ -269,6 +270,7 @@ namespace Desert::Graphic
                 BlockEntry& entry   = Block().Entries.emplace_back();
                 entry.ParameterName = parameter.Name;
                 entry.Element       = parameter.Element;
+                entry.NameHash      = parameter.NameHash;
                 entry.Kind          = K;
                 entry.Access        = access;
                 entry.Range         = range;
@@ -511,31 +513,32 @@ namespace Desert::Graphic
                     texture = nextImage < blockImages.size() ? blockImages[nextImage++] : RDG::TextureRef{};
                 const std::string_view name    = entry.ParameterName;
                 const uint32_t         element = entry.Element;
+                const uint64_t         hash    = entry.NameHash;
                 switch ( entry.Kind )
                 {
                     case RDG::ShaderResourceKind::Texture:
-                        bindings.Texture( RDG::TextureParameter( name, element ), texture, entry.Access,
+                        bindings.Texture( RDG::TextureParameter( name, element, hash ), texture, entry.Access,
                                           entry.Range );
                         break;
                     case RDG::ShaderResourceKind::Sampler:
                         // BlockDeclaration::Sampler always carries the state. An entry without one is not
                         // replayed, and ValidatePassBindings names its slot as filled by neither route.
                         if ( entry.Sampler )
-                            bindings.Sampler( RDG::SamplerParameter( name, element ), *entry.Sampler );
+                            bindings.Sampler( RDG::SamplerParameter( name, element, hash ), *entry.Sampler );
                         break;
                     case RDG::ShaderResourceKind::StorageTexture:
-                        bindings.Storage( RDG::StorageTextureParameter( name, element ), texture, entry.Access,
-                                          entry.Range.BaseMip );
+                        bindings.Storage( RDG::StorageTextureParameter( name, element, hash ), texture,
+                                          entry.Access, entry.Range.BaseMip );
                         break;
                     case RDG::ShaderResourceKind::UniformBuffer:
-                        bindings.Uniform( RDG::UniformBufferParameter( name, element ), entry.Buffer );
+                        bindings.Uniform( RDG::UniformBufferParameter( name, element, hash ), entry.Buffer );
                         break;
                     case RDG::ShaderResourceKind::StorageBuffer:
-                        bindings.Storage( RDG::StorageBufferParameter( name, element ), entry.Buffer,
+                        bindings.Storage( RDG::StorageBufferParameter( name, element, hash ), entry.Buffer,
                                           entry.Access );
                         break;
                     case RDG::ShaderResourceKind::AccelerationStructure:
-                        bindings.AccelerationStructure( RDG::AccelerationStructureParameter( name, element ),
+                        bindings.AccelerationStructure( RDG::AccelerationStructureParameter( name, element, hash ),
                                                         entry.Buffer );
                         break;
                 }

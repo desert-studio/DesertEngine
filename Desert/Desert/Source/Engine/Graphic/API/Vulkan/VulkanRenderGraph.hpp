@@ -802,7 +802,7 @@ namespace Desert::Graphic::API::Vulkan
         struct PreparedRenderPass; // below
         // Everything one chunk keeps while its worker records it: what the frame's state holds for the calling
         // thread (m_CommandBuffer -> Record.CommandBuffer, m_OpenRenderPass, m_PassSets, m_ProfilerScopes,
-        // m_CpuScopes), and the debug labels its passes opened (EndChunk closes what a failed pass left open).
+        // m_CpuScope), and the debug labels its passes opened (EndChunk closes what a failed pass left open).
         struct Chunk
         {
             const VulkanRdgBackend*         Owner = nullptr;
@@ -813,7 +813,8 @@ namespace Desert::Graphic::API::Vulkan
             VulkanRdgPassSetMemo            PassSets;
             std::vector<int32_t>            ProfilerScopes;
 #if DESERT_DEV_INSTRUMENTS
-            std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> CpuScopes;
+            // CPU-RDG-RECORD: its open pass's CPU row, in place (no allocation per pass); passes never nest.
+            std::optional<Common::Profiling::ScopedTimer> CpuScope;
 #endif
             std::vector<const char*> Labels; // pass names (CompileResult outlives the chunk)
             // Its primary from BeginChunk until ExecuteChunk splices it (Record.CommandBuffer is nulled by a device
@@ -921,6 +922,13 @@ namespace Desert::Graphic::API::Vulkan
         // The graph holds the shared transient heaps after an earlier graph
         // (VulkanRdgTransientAllocator::ReserveGraphHeaps): its first command buffer opens with a memory barrier.
         bool m_SharedHeapBarrierPending = false;
+        // CPU-RDG-RECORD (F6): a chunk was spliced last and the segment has no buffer recording on this thread
+        // (VulkanRdgSegmentRecorder::SpliceChunk). Every calling-thread entry point that records calls
+        // ResumeSegment first, which begins the continuation then; a failed begin leaves no buffer recording
+        // and is reported by EndPipeSegment (m_ResumeFailure), the passes in between see no command buffer.
+        bool        m_ContinuationPending = false;
+        std::string m_ResumeFailure;
+        void        ResumeSegment();
         void RecordSharedHeapBarrier( VkCommandBuffer commandBuffer );
         // A GPU row around the graph's commands outside every pass ("RDG Barriers: <graph> | <what>"); -1 when
         // there is no profiler. EndGraphCommandsScope ignores -1.
@@ -955,7 +963,8 @@ namespace Desert::Graphic::API::Vulkan
         // only when that structure changes - never because a pass name carries this frame's counts.
         std::map<std::string, std::vector<uint32_t>, std::less<>> m_AsyncSegmentsLogged;
 #if DESERT_DEV_INSTRUMENTS
-        std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
+        // CPU row of the open pass, in place (CPU-RDG-RECORD: no allocation per pass); passes never nest.
+        std::optional<Common::Profiling::ScopedTimer> m_CpuScope;
 #endif
         std::optional<RdgRenderPassKey>          m_OpenRenderPass;
         std::map<RdgRenderPassKey, VkRenderPass> m_RenderPasses;

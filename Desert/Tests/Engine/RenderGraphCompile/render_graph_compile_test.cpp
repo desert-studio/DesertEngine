@@ -4891,11 +4891,13 @@ TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
 {
     DeclaredBindingBlock block;
     block.Layout = std::make_shared<const ShaderBindingLayout>( GlassLayout() );
-    block.Entries.push_back( { "SceneColorTexture", ShaderResourceKind::Texture, ResourceKind::Texture, 0,
+    block.Entries.push_back( { "SceneColorTexture", HashShaderName( "SceneColorTexture" ),
+                               ShaderResourceKind::Texture, ResourceKind::Texture, 0,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
 
-    block.Entries.push_back( { "u_ShadowMap0", ShaderResourceKind::Texture, ResourceKind::Texture, 1,
+    block.Entries.push_back( { "u_ShadowMap0", HashShaderName( "u_ShadowMap0" ), ShaderResourceKind::Texture,
+                               ResourceKind::Texture, 1,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     const Common::BoolResultStr refused = ValidatePassBindings( block );
     ASSERT_FALSE( refused.IsSuccess() );
@@ -5272,7 +5274,8 @@ namespace
         CollectedBlock& Texture( Desert::Graphic::RDG::TextureParameter parameter, TextureRef texture,
                                  Access access, SubresourceRange range )
         {
-            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::Texture,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), parameter.SlotNameHash(),
+                                       ShaderResourceKind::Texture,
                                        ResourceKind::Texture, texture.Index, access, range, std::nullopt } );
             return *this;
         }
@@ -5282,7 +5285,8 @@ namespace
             for ( const DeclaredBindingEntry& e : Block.Entries )
                 if ( e.Kind == ShaderResourceKind::Sampler && e.ShaderName == name && e.Sampler == sampler )
                     return *this;
-            Block.Entries.push_back( { Keep( name ), ShaderResourceKind::Sampler, ResourceKind::Texture,
+            Block.Entries.push_back( { Keep( name ), parameter.SlotNameHash(), ShaderResourceKind::Sampler,
+                                       ResourceKind::Texture,
                                        kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
@@ -5290,7 +5294,8 @@ namespace
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageBufferParameter parameter, BufferRef buffer,
                                  Access access )
         {
-            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::StorageBuffer,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), parameter.SlotNameHash(),
+                                       ShaderResourceKind::StorageBuffer,
                                        ResourceKind::Buffer, buffer.Index, access, SubresourceRange::All(),
                                        SamplerDesc::LinearClamp() } );
             return *this;
@@ -5299,7 +5304,8 @@ namespace
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageTextureParameter parameter, TextureRef texture,
                                  Access access )
         {
-            Block.Entries.push_back( { Keep( parameter.SlotName() ), ShaderResourceKind::StorageTexture,
+            Block.Entries.push_back( { Keep( parameter.SlotName() ), parameter.SlotNameHash(),
+                                       ShaderResourceKind::StorageTexture,
                                        ResourceKind::Texture, texture.Index, access, SubresourceRange::All(),
                                        std::nullopt } );
             return *this;

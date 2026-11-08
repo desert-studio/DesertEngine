@@ -3,6 +3,7 @@
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Common/Core/ProfilerName.hpp>
 
 #include <array>
 #include <cstdint>
@@ -121,7 +122,13 @@ namespace Desert::Graphic::RDG
 
         uint32_t    Pass = 0;
         std::string Name;
-        PassFlags   Flags = PassFlags::None;
+        // CPU-RDG-RECORD (UE: FRDGPass's event name, built once): the profiler rows of this pass, interned
+        // where Name is set (CompilePassOps, and Rebind only when the name changed), so recording a pass
+        // hashes no string. RecordRow is "RDG Record: <Name>" (the builder's record cost), PassRow is
+        // "<Name>" (the backend's CPU row beside the pass's GPU row). Empty ids without dev instruments.
+        Common::Profiling::InternedScopeName RecordRow;
+        Common::Profiling::InternedScopeName PassRow;
+        PassFlags                            Flags = PassFlags::None;
         // ALL transitions this pass needs, recorded as one batch (one vkCmdPipelineBarrier in the Vulkan backend).
         std::vector<Barrier>            Barriers;
         std::vector<AttachmentDecision> Attachments;

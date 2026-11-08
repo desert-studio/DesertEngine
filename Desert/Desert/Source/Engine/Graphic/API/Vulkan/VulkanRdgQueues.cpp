@@ -288,6 +288,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Open->OnPipe        = pipe;
         m_Open->Queue         = queue;
         m_Open->CommandBuffers.push_back( buffer.GetValue() );
+        m_OpenRecording = true;
         return Common::MakeSuccess( true );
     }
 
@@ -295,7 +296,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !m_Open.has_value() )
             return Common::MakeError( "no segment is open" );
-        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
+        // A segment whose last commands are a spliced chunk has no buffer of its own recording: nothing to end.
+        const bool     recording = std::exchange( m_OpenRecording, false );
+        const VkResult ended     = recording ? vkEndCommandBuffer( m_Open->CommandBuffers.back() ) : VK_SUCCESS;
         if ( ended != VK_SUCCESS )
         {
             m_Open.reset();
@@ -307,27 +310,40 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::SpliceChunk( VkCommandBuffer          chunk,
-                                                                              const VulkanRdgQueueSet& queues )
+    Common::BoolResultStr VulkanRdgSegmentRecorder::SpliceChunk( VkCommandBuffer chunk )
+    {
+        if ( !m_Open.has_value() || m_Open->CommandBuffers.empty() )
+            return Common::MakeError( "a chunk replayed while no segment is open" );
+        if ( chunk == VK_NULL_HANDLE )
+            return Common::MakeError( "a chunk with no command buffer replayed" );
+        // A failure leaves the open submission half-spliced: the caller abandons the graph (AbandonGraph drops
+        // it, its buffers reset with the slot's pools). A chunk spliced right after another finds nothing
+        // recording: the two primaries follow each other.
+        if ( std::exchange( m_OpenRecording, false ) )
+        {
+            const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
+            if ( ended != VK_SUCCESS )
+                return Common::MakeError(
+                     std::format( "vkEndCommandBuffer before a chunk failed ({})", static_cast<int>( ended ) ) );
+        }
+        m_Open->CommandBuffers.push_back( chunk );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::Continue( const VulkanRdgQueueSet& queues )
     {
         using Out = VkCommandBuffer;
         if ( !m_Open.has_value() || m_Open->CommandBuffers.empty() )
-            return Common::MakeError<Out>( "a chunk replayed while no segment is open" );
+            return Common::MakeError<Out>( "a segment continued while none is open" );
+        if ( m_OpenRecording )
+            return Common::MakeSuccess( m_Open->CommandBuffers.back() );
         if ( queues.Objects == nullptr )
             return Common::MakeError<Out>( "the queue set has no per-slot queue objects" );
-        if ( chunk == VK_NULL_HANDLE )
-            return Common::MakeError<Out>( "a chunk with no command buffer replayed" );
-        // A failure leaves the open submission half-spliced: the caller abandons the graph (AbandonGraph drops
-        // it, its buffers reset with the slot's pools).
-        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
-        if ( ended != VK_SUCCESS )
-            return Common::MakeError<Out>(
-                 std::format( "vkEndCommandBuffer before a chunk failed ({})", static_cast<int>( ended ) ) );
-        m_Open->CommandBuffers.push_back( chunk );
         const Common::ResultStr<VkCommandBuffer> next = queues.Objects->BeginCommandBuffer( m_Open->OnPipe );
         if ( !next )
             return Common::MakeError<Out>( next.GetError() );
         m_Open->CommandBuffers.push_back( next.GetValue() );
+        m_OpenRecording = true;
         return Common::MakeSuccess( next.GetValue() );
     }
 
@@ -405,7 +421,7 @@ namespace Desert::Graphic::API::Vulkan
         // A segment that signals another API's timeline is submitted as it is: nothing may record after the
         // signal.
         if ( last && segment.OnPipe == RDG::Pipe::Graphics && endJoins.empty() && !segment.SignalExternal )
-            return Common::MakeSuccess( m_Open->CommandBuffers.back() ); // the final barriers record into it
+            return Continue( queues ); // the final barriers record into it
 
         if ( const Common::BoolResultStr closed = Close(); !closed )
             return Common::MakeError<Out>( closed.GetError() );
@@ -447,6 +463,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !dropped.empty() && m_Objects != nullptr )
             m_Objects->SignalOnHost( dropped );
         m_Open.reset();
+        m_OpenRecording = false;
         m_Submissions.resize( std::min( m_Submissions.size(), m_GraphSubmissions ) );
         m_Result = nullptr;
     }
