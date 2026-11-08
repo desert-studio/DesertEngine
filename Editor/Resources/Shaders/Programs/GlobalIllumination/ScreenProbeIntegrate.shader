@@ -33,6 +33,7 @@ Shader "ScreenProbeIntegrate"
     Compute
     {
         LocalSize(8, 8, 1);
+        #define SP_INTEGRATE_GROUP_THREADS 64u // the LocalSize above
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
@@ -185,6 +186,60 @@ Shader "ScreenProbeIntegrate"
         {
             uint screenProbeIntegrateTiles[]; // this permutation's tiles (the classification above)
         };
+
+        // THE TILE'S PROBE NEIGHBOURHOOD, LOADED ONCE (SPInterpolate's SP_INTERPOLATE_NEIGHBOURHOOD,
+        // ScreenProbes.glslh): an 8x8 tile's pixels interpolate the uniform probes of at most 3x3 uniform tiles
+        // (8 pixels span at most two of the jittered SP_DOWNSAMPLE-pixel cells per axis, plus the corner after),
+        // and each failed corner scans its tile's adaptive probes. Every pixel read the uniform tile's index
+        // entry, then the 32-byte probe, per corner, and two dependent loads per adaptive candidate: up to
+        // 4 x SP_ADAPTIVE_PER_TILE (60 at 16 px) on the foliage, where the corners miss. One thread a (tile, slot)
+        // loads the ids, counts and probes into groupshared memory here, so the scan reads no buffer. The same
+        // values in the same order: the picture is unchanged. 9 x (1 + SP_ADAPTIVE_PER_TILE) x 36 bytes: 5.2 KB at 16 px,
+        // 20.7 KB at 32; a 64-pixel layout (83 KB, past the 48 KB a group may hold) reads the buffers as before.
+#if SP_DOWNSAMPLE_LOG2 <= 5
+        #define SP_INTERPOLATE_NEIGHBOURHOOD
+        #define SP_NB_SIDE 3
+        #define SP_NB_TILES ( SP_NB_SIDE * SP_NB_SIDE )
+        #define SP_NB_SLOTS ( 1u + SP_ADAPTIVE_PER_TILE )
+        #define SP_NB_ENTRIES ( uint( SP_NB_TILES ) * SP_NB_SLOTS )
+        #define SP_NB_COUNTS ( uint( SP_NB_TILES ) * ( SP_LEVELS - 1u ) )
+        shared uint s_NbId[SP_NB_ENTRIES];
+        shared vec4 s_NbPosition[SP_NB_ENTRIES];
+        shared vec4 s_NbNormal[SP_NB_ENTRIES];
+        shared uint s_NbCount[SP_NB_COUNTS];
+        // The neighbourhood's first uniform tile (SPNeighbourhoodBase): the same for every thread of the group.
+        ivec2 g_NbBase;
+
+        uint SPNeighbourTile( ivec2 tile )
+        {
+            const ivec2 local = tile - g_NbBase;
+            return uint( local.y * SP_NB_SIDE + local.x );
+        }
+
+        uint SPNeighbourUniform( ivec2 tile )
+        {
+            return s_NbId[SPNeighbourTile( tile ) * SP_NB_SLOTS];
+        }
+
+        uint SPNeighbourCount( ivec2 tile, uint level )
+        {
+            return s_NbCount[SPNeighbourTile( tile ) * ( SP_LEVELS - 1u ) + level - 1u];
+        }
+
+        uint SPNeighbourAdaptive( ivec2 tile, uint slot )
+        {
+            return s_NbId[SPNeighbourTile( tile ) * SP_NB_SLOTS + slot];
+        }
+
+        ScreenProbe SPNeighbourProbe( ivec2 tile, uint slot, uint id )
+        {
+            const uint  entry = SPNeighbourTile( tile ) * SP_NB_SLOTS + slot;
+            ScreenProbe probe;
+            probe.position = s_NbPosition[entry];
+            probe.normal   = s_NbNormal[entry];
+            return probe;
+        }
+#endif
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
@@ -264,6 +319,64 @@ Shader "ScreenProbeIntegrate"
             }
             barrier();
         }
+
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+        // The neighbourhood's first uniform tile: SPInterpolate's floor((pixel - jitter) / SP_DOWNSAMPLE) of the
+        // tile's first pixel; its last pixel's lies at most one further, and its corners one past that.
+        ivec2 SPNeighbourhoodBase( ivec2 tileOrigin )
+        {
+            return ivec2( floor( vec2( tileOrigin - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE ) ) );
+        }
+
+        // Fills the neighbourhood of the pixel tile at @p tileOrigin. Called by every thread before the barrier of
+        // SPShortRangeAOLoadTile, which publishes it. A slot past its level's count keeps SP_INVALID and loads no
+        // probe (its index entry is a previous frame's, or never written).
+        void SPNeighbourhoodLoad( ivec2 tileOrigin )
+        {
+            g_NbBase = SPNeighbourhoodBase( tileOrigin );
+            for ( uint e = gl_LocalInvocationIndex; e < SP_NB_COUNTS; e += SP_INTEGRATE_GROUP_THREADS )
+            {
+                const uint  local = e / ( SP_LEVELS - 1u );
+                const ivec2 tile  = g_NbBase + ivec2( int( local ) % SP_NB_SIDE, int( local ) / SP_NB_SIDE );
+                const uint  level = e % ( SP_LEVELS - 1u ) + 1u;
+                uint        count = 0u;
+                if ( SPUniformTileInside( tile ) )
+                    count = min( screenProbeIndex[SPTileHeader( SPUniformTileIndex( tile ), level )],
+                                 SPLevelSlots( level ) );
+                s_NbCount[e] = count;
+            }
+            for ( uint e = gl_LocalInvocationIndex; e < SP_NB_ENTRIES; e += SP_INTEGRATE_GROUP_THREADS )
+            {
+                const uint  local = e / SP_NB_SLOTS;
+                const uint  slot  = e % SP_NB_SLOTS;
+                const ivec2 tile  = g_NbBase + ivec2( int( local ) % SP_NB_SIDE, int( local ) / SP_NB_SIDE );
+                uint        id    = SP_INVALID;
+                if ( slot == 0u )
+                    id = SPUniformProbeAt( tile );
+                else if ( SPUniformTileInside( tile ) )
+                {
+                    // The slot's level and its k inside it (SPLevelSlotBase( level ) + k = slot - 1).
+                    uint level = 1u;
+                    while ( level + 1u < SP_LEVELS && slot - 1u >= SPLevelSlotBase( level + 1u ) )
+                        ++level;
+                    const uint t     = SPUniformTileIndex( tile );
+                    const uint count = min( screenProbeIndex[SPTileHeader( t, level )], SPLevelSlots( level ) );
+                    if ( slot - 1u - SPLevelSlotBase( level ) < count )
+                        id = screenProbeIndex[SPTileSlot( t, level, slot - 1u - SPLevelSlotBase( level ) )];
+                }
+                vec4 position = vec4( 0.0 );
+                vec4 normal   = vec4( 0.0 );
+                if ( id != SP_INVALID )
+                {
+                    position = screenProbes[id].position;
+                    normal   = screenProbes[id].normal;
+                }
+                s_NbId[e]       = id;
+                s_NbPosition[e] = position;
+                s_NbNormal[e]   = normal;
+            }
+        }
+#endif
 
         // @p tileOrigin: the pixel tile SPShortRangeAOLoadTile loaded.
         void SPShortRangeAOAt( ivec2 pixel, ivec2 tileOrigin, vec3 p, float distance, vec3 n, out vec3 bent,
@@ -417,6 +530,10 @@ Shader "ScreenProbeIntegrate"
             // gather in the composite instead. The tile's AO texels load before any pixel returns: the whole group
             // reaches the barrier (the flag and the tile are uniform over it).
             const bool shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            // Published by the barrier in SPShortRangeAOLoadTile, which every thread reaches whatever the flag.
+            SPNeighbourhoodLoad( tileOrigin );
+#endif
             SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
             if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
                 return;
