@@ -281,6 +281,12 @@ namespace Desert::Graphic
         // light view carries its scene's current ones as both (WriteLightCamera). Empty = no local wind.
         LocalWindSources LocalWind;
         LocalWindSources PrevLocalWind;
+        // THE SCENE VIEW: the directional air at this gameplay step (cm/s, world XZ, the ECS's
+        // ECS::WindGustAir::VelocityXZ) and the speed (cm/s) LocalWind's units stand for
+        // (LocalWindSelection::ReferenceSpeed): what the particle simulation turns the scene's air back into a
+        // velocity with (ParticleRenderer's SceneWind block, VFX_SceneWind). 0 = still air / no local sources.
+        glm::vec2 WindVelocityXZ{ 0.0f };
+        float     LocalWindReferenceSpeed = 0.0f;
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

@@ -74,7 +74,7 @@ namespace Desert::ECS
                                                              static_cast<double>( ts.GetSeconds() ) );
                 renderCommandBuffer.Emplace<Graphic::Render::WindGustCommand>(
                      Graphic::PackWindGust( m_WindGustOffset, air.Gustiness, air.GustSize, air.VelocityXZ ),
-                     prevGust, glm::length( air.VelocityXZ ) );
+                     prevGust, air.VelocityXZ );
                 // The per-draw wind below is the DIRECTIONAL air's; the point sources reach each instance through
                 // the camera block (Render::LocalWindSourceCommand -> Graphic::SelectLocalWind ->
                 // Common/LocalWind.glslh), so a field sways per instance by the sources around it.

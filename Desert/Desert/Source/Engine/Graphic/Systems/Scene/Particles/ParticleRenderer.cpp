@@ -32,6 +32,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
 #include <cstdint>
@@ -82,6 +83,8 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, CollisionView );
         DESERT_SHADER_PARAMETER( Texture, SceneDepth );
         DESERT_SHADER_PARAMETER( Sampler, CollisionPointSampler );
+        // A wind-reading stack only: ParticleSimulate under VFX_READS_SCENE_WIND.
+        DESERT_SHADER_PARAMETER( StorageBuffer, SceneWind );
     };
 
     // ParticleSimulate's CollisionView block (std430): the simulating view's jittered view-projection and its
@@ -94,6 +97,32 @@ namespace
         glm::vec4 Camera{ 0.0f };
     };
     static_assert( sizeof( ParticleCollisionViewGpu ) == 144, "ParticleSimulate.shader CollisionView" );
+
+    // ParticleSimulate's SceneWind block (std430, WIND-FIELD-GPU): the scene view's air, the one the foliage sways
+    // by. Directional = (directional velocity x, 0, z in cm/s, the speed in cm/s the local sources' units stand
+    // for); Gust = CameraUB::WindGust; Source / Speed = CameraUB::LocalWind / LocalWindSpeed
+    // (Common/LocalWind.glslh).
+    struct ParticleSceneWindGpu
+    {
+        glm::vec4                                       Directional{ 0.0f };
+        glm::vec4                                       Gust{ 0.0f };
+        std::array<glm::vec4, kMaxLocalWindSources>     Source{};
+        std::array<glm::vec4, kMaxLocalWindSources / 4> Speed{};
+    };
+    static_assert( sizeof( ParticleSceneWindGpu ) == 192, "ParticleSimulate.shader SceneWind" );
+
+    // The scene view's air as the SceneWind block carries it (ViewFrame: the gusts, the local sources and the
+    // directional velocity with the local sources' reference speed).
+    [[nodiscard]] ParticleSceneWindGpu MakeParticleSceneWind( const ViewFrame& view )
+    {
+        ParticleSceneWindGpu wind;
+        wind.Directional = glm::vec4( view.WindVelocityXZ.x, 0.0f, view.WindVelocityXZ.y,
+                                      view.LocalWindReferenceSpeed );
+        wind.Gust        = view.WindGust;
+        wind.Source      = view.LocalWind.Source;
+        wind.Speed       = view.LocalWind.Speed;
+        return wind;
+    }
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleMeshInstancesShaderParameters
@@ -612,6 +641,11 @@ namespace Desert::Graphic::System
             // PORT-VFX-MODULES (UE Scene Depth collision): a colliding stack - the one kind that ticks PostOpaque
             // (VFXStackCompiler 4b) - declares CollisionView / SceneDepth (VFX::kVFXSceneDepthDefine); every other
             // stack declares neither, so the same test that chose its chain chooses its slots.
+            // WIND-FIELD-GPU: a wind-reading stack (VFX::kVFXSceneWindDefine) declares SceneWind; an emitter whose
+            // block is not in the graph sat the frame out in ImportFrameBuffers.
+            if ( ve.Frame->Gpu->ReadsSceneWind )
+                block.Storage( ParticleSimulateShaderParameters::SceneWind, m_SceneWindRef,
+                               RDG::Access::StorageRead );
             if ( ve.Frame->Gpu->ReadsSceneDepth )
                 block.Storage( ParticleSimulateShaderParameters::CollisionView, m_CollisionViewRef,
                                RDG::Access::StorageRead )
@@ -656,6 +690,7 @@ namespace Desert::Graphic::System
         m_CollisionViewRef  = {};
         m_CollisionDepthRef = {};
         m_CollisionReady    = false;
+        m_SceneWindRef      = {};
         m_EventImports.clear();
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
@@ -677,6 +712,8 @@ namespace Desert::Graphic::System
         m_Pool.FreeRef  = graph.RegisterExternal( m_Pool.FreeImport, "ParticleFreeList" );
         m_Pool.AliveRef = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
         m_Pool.Declared = true;
+        // The scene's air, once for every wind-reading emitter of the simulating view (VFX_SceneWind).
+        const Common::BoolResultStr wind = ImportSceneWind( graph );
 
         for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {
@@ -732,6 +769,8 @@ namespace Desert::Graphic::System
                 }
                 else if ( stack )
                     stack = Common::MakeError<bool>( std::string( "the system has no event buffer" ) );
+                if ( stack && gpu.ReadsSceneWind && !wind )
+                    stack = Common::MakeError<bool>( std::format( "the scene wind block: {}", wind.GetError() ) );
                 if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR(
@@ -785,6 +824,33 @@ namespace Desert::Graphic::System
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
         }
+    }
+
+    Common::BoolResultStr ParticleRenderer::ImportSceneWind( RDG::Builder& graph )
+    {
+        m_SceneWindRef = {};
+        if ( !m_Simulates || std::ranges::none_of( m_ViewEmitters, []( const ViewEmitter& ve )
+                                                   { return ve.Frame->Gpu->ReadsSceneWind; } ) )
+            return BOOLSUCCESS; // no emitter binds it: nothing to write
+        const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( view == nullptr )
+            return Common::MakeError<bool>( std::string( "the view has no frame this frame" ) );
+        if ( !m_SceneWind )
+        {
+            m_SceneWind = ShaderResources::StorageBuffer::Create(
+                 "ParticleSceneWind", static_cast<uint32_t>( sizeof( ParticleSceneWindGpu ) ), 16 );
+            if ( !m_SceneWind )
+                return Common::MakeError<bool>( std::string( "the buffer was not created" ) );
+        }
+        const ParticleSceneWindGpu  air     = MakeParticleSceneWind( *view );
+        const Common::BoolResultStr written = m_SceneWind->SetData( &air, static_cast<uint32_t>( sizeof( air ) ) );
+        if ( !written )
+            return written;
+        const Common::BoolResultStr imported = Renderer::ImportBuffer( m_SceneWind, m_SceneWindImport );
+        if ( !imported )
+            return imported;
+        m_SceneWindRef = graph.RegisterExternal( m_SceneWindImport, "ParticleSceneWind" );
+        return BOOLSUCCESS;
     }
 
     bool ParticleRenderer::ImportCollisionInputs( RDG::Builder& graph, const RDG::TextureRef sceneDepth )

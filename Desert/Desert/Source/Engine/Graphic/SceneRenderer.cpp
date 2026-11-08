@@ -1400,8 +1400,9 @@ namespace Desert::Graphic
         {
             const LocalWindSelection previous = m_LocalWindSelection;
             if ( const auto* cam = GetMainCamera() )
-                SelectLocalWind( m_LocalWindCandidates, cam->GetPosition(), m_DirectionalWindSpeed, previous,
-                                 m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
+                SelectLocalWind( m_LocalWindCandidates, cam->GetPosition(),
+                                 glm::length( m_DirectionalWindVelocityXZ ),
+                                 previous, m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
             else
             {
                 m_LocalWindSelection = LocalWindSelection{};
@@ -1865,6 +1866,9 @@ namespace Desert::Graphic
         viewFrame.PrevWindGust = m_PrevWindGust;
         viewFrame.LocalWind     = m_LocalWind;
         viewFrame.PrevLocalWind = m_PrevLocalWind;
+        // The directional air and the local sources' reference speed (cm/s): the particle wind (VFX_SceneWind).
+        viewFrame.WindVelocityXZ          = m_DirectionalWindVelocityXZ;
+        viewFrame.LocalWindReferenceSpeed = m_LocalWindSelection.ReferenceSpeed;
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.

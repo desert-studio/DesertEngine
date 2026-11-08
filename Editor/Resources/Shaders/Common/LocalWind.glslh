@@ -1,10 +1,12 @@
 // THE LOCAL WIND (WIND-FIELD-GPU; UE: the local wind sources a WindDirectionalSource's field is summed with):
-// the air the scene's point wind sources blow at a world point, the ONE statement of it on the GPU. The sources are
-// CameraUB::LocalWind (Graphic::SelectLocalWind: the kMaxLocalWindSources nearest the main camera, the filled slots
-// first): [i] = (world position cm, 1 / Radius), the speed of slot i LocalWindSpeed[i / 4][i % 4] in units of the
-// frame's reference speed, 0 = an empty slot (the loop stops there). Each source blows radially AWAY from its centre,
-// linearly falling to 0 at Radius. The C++ twin is Graphic::LocalWindXZ (Engine/Graphic/WindGust.hpp): the same
-// expressions in the same order; change one, change both.
+// the air the scene's point wind sources blow at a world point, the ONE statement of it on the GPU. The sources
+// are CameraUB::LocalWind (Graphic::SelectLocalWind: the kMaxLocalWindSources nearest the main camera, the filled
+// slots first): [i] = (world position cm, 1 / Radius), the speed of slot i LocalWindSpeed[i / 4][i % 4] in units
+// of
+// the frame's reference speed, 0 = an empty slot (the loop stops there). Each source blows radially AWAY from its
+// centre, linearly falling to 0 at Radius (one source's term: Common/LocalWindField.glslh LocalWindSourceXZ). The
+// C++ twin is Graphic::LocalWindXZ (Engine/Graphic/WindGust.hpp): the same expressions in the same order; change
+// one, change both.
 //
 // @p previous reads PrevLocalWind / PrevLocalWindSpeed (the previous gameplay step, for a view pass's previous
 // position). The result is world XZ, added to the directional wind by FoliageWindAir (Common/FoliageWind.glslh).
@@ -12,8 +14,7 @@
 #define DESERT_LOCAL_WIND_GLSLH
 
 #include <Common/CameraUB.glslh>
-
-const int kMaxLocalWindSources = 8; // Graphic::kMaxLocalWindSources, CameraUB's LocalWind[8]
+#include <Common/LocalWindField.glslh>
 
 vec2 LocalWindXZ(vec3 point, bool previous)
 {
@@ -34,10 +35,7 @@ vec2 LocalWindXZ(vec3 point, bool previous)
         }
         if (!(speed > 0.0))
             break;
-        vec3  away     = point - source.xyz;
-        float range    = length(away);
-        float falloff  = max(1.0 - range * source.w, 0.0);
-        air += away.xz * (speed * falloff / max(range, 1e-6));
+        air += LocalWindSourceXZ(point, source, speed);
     }
     return air;
 }

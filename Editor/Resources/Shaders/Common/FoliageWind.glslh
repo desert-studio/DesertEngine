@@ -12,8 +12,8 @@
 // instance's world point scale the sway (Common/WindGust.glslh; never past Strength).
 // localAir = the scene's local wind sources at the instance's world point (Common/LocalWind.glslh LocalWindXZ
 // of CameraUB::LocalWind, or of PrevLocalWind for a previous position; vec2(0) where no view block is bound):
-// added to the directional wind by FoliageWindAir, so a point source bends the plant away from itself. This header reads no
-// view block itself (ClusterCut includes it for the reach alone): the caller evaluates the local air.
+// added to the directional wind by FoliageWindAir, so a point source bends the plant away from itself. This header
+// reads no view block itself (ClusterCut includes it for the reach alone): the caller evaluates the local air.
 #ifndef DESERT_FOLIAGE_WIND_GLSLH
 #define DESERT_FOLIAGE_WIND_GLSLH
 

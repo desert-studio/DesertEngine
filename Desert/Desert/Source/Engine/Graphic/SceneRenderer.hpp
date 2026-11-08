@@ -807,11 +807,12 @@ namespace Desert::Graphic
         // (ViewFrame::WindGust, OnUpdate), and the light cameras the current ones (MeshRenderer::SetSceneWind).
         // It opens the step's local wind list: the step's point sources follow it (AddLocalWindSource), and a
         // step that sends none leaves none.
-        void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust, const float directionalSpeed )
+        void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust,
+                          const glm::vec2& directionalVelocityXZ )
         {
-            m_WindGust                = gust;
-            m_PrevWindGust            = prevGust;
-            m_DirectionalWindSpeed    = directionalSpeed;
+            m_WindGust                   = gust;
+            m_PrevWindGust               = prevGust;
+            m_DirectionalWindVelocityXZ  = directionalVelocityXZ;
             m_LocalWindCandidates.clear();
         }
 
@@ -2338,9 +2339,10 @@ namespace Desert::Graphic
         // The ECS's gust fronts (SetWindGust): 0 = no gusts until a scene's systems say otherwise.
         glm::vec4 m_WindGust{ 0.0f };
         glm::vec4 m_PrevWindGust{ 0.0f };
-        // The directional wind's horizontal speed (cm/s) the per-draw direction stands for: the local sources'
-        // reference speed (SelectLocalWind). 0 = no directional wind.
-        float m_DirectionalWindSpeed = 0.0f;
+        // The directional wind's horizontal velocity (cm/s, world XZ; SetWindGust): its length is the speed the
+        // per-draw direction stands for and the local sources' reference speed (SelectLocalWind), and the scene
+        // view carries it to the particle simulation (ViewFrame::WindVelocityXZ). 0 = no directional wind.
+        glm::vec2 m_DirectionalWindVelocityXZ{ 0.0f };
         // This step's point sources (AddLocalWindSource): retained storage, cleared by SetWindGust, so a steady
         // scene allocates nothing per frame.
         std::vector<LocalWindCandidate> m_LocalWindCandidates;
