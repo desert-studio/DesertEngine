@@ -178,8 +178,11 @@ namespace Desert::Graphic::System
         for ( auto& level : m_VsmMovableDraws )
             level.CountAs( GpuDriven::MeshPass::VirtualShadow );
         // "Deferred: Masked Depth Prepass" draws its opaque occluders (the bins, the VG clusters) before its
-        // alpha-tested CPU commands (UE's depth pass sorts masked after opaque; GPU-MASKED-PREPASS).
+        // alpha-tested CPU commands (UE's depth pass sorts masked after opaque; GPU-MASKED-PREPASS), and its CPU
+        // commands opaque-first too. Phase 2's depth pass ("Deferred: Depth Prepass Post-Occlusion", the same
+        // table's groups through the same twins) takes the same key.
         m_MaskedDepthDraws.RecordBinnedFirst();
+        m_EarlyZPostDepthDraws.RecordBinnedFirst();
 
         const auto& targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
@@ -527,6 +530,20 @@ namespace Desert::Graphic::System
             // a record nested on the thread between two draws never sees another record's bytes.
             thread_local std::vector<std::byte>                t_RecordPush;
             thread_local std::vector<const RDG::PassBindings*> t_RecordGroupBindings;
+            // The depth pass's one sweep of its bins (RecordBinned under RecordBinnedFirst): per group the
+            // pipeline this sweep draws it with, null = the other sweep's. Same kept-scratch rule as the two
+            // above.
+            thread_local std::vector<const GraphicsPipeline*> t_RecordSweepPipelines;
+
+            // Whether a depth pass's group pipeline runs an alpha-tested cell (the template's Blend Masked: its
+            // Depth cell clips, Pass_Depth.glslh) - the sort key's masked bit (UE
+            // CalculateDepthPassMeshStaticSortKey).
+            [[nodiscard]] bool ClipsInDepthPass( const GraphicsPipeline& pipeline )
+            {
+                const std::shared_ptr<Shader>& shader = pipeline.GetSpecification().Shader;
+                return shader != nullptr &&
+                       shader->GetProgramMeta().Blend == Core::Formats::SurfaceBlendMode::Masked;
+            }
         } // namespace
 
         void MeshDrawList::Clear()
@@ -542,7 +559,24 @@ namespace Desert::Graphic::System
             m_SceneInstances = {};
             m_GroupBlock.clear();
             m_VgGroupBlock.clear();
+            m_OpaqueCommands.clear();
+            m_MaskedCommands.clear();
+            m_CommandViewports = false;
             m_Layouts.DropExpired();
+        }
+
+        void MeshDrawList::BucketForDepthSort( const uint32_t index )
+        {
+            if ( !m_BinnedFirst )
+                return;
+            const MeshDrawCommand& command = m_Commands[index];
+            if ( command.Viewport )
+                m_CommandViewports = true;
+            // Add refused a command without pipeline, so every command here has one.
+            if ( ClipsInDepthPass( *command.Pipeline ) )
+                m_MaskedCommands.push_back( index );
+            else
+                m_OpaqueCommands.push_back( index );
         }
 
         void MeshDrawList::SetBinned( BinnedIssue issue )
@@ -720,6 +754,7 @@ namespace Desert::Graphic::System
                 }
             }
             m_Commands.push_back( std::move( command ) );
+            BucketForDepthSort( static_cast<uint32_t>( m_Commands.size() - 1u ) );
         }
 
         void MeshDrawList::Append( MeshDrawList& other )
@@ -751,6 +786,7 @@ namespace Desert::Graphic::System
                 {
                     m_BlockOf.push_back( remap[other.m_BlockOf[c]] );
                     m_Commands.push_back( std::move( other.m_Commands[c] ) );
+                    BucketForDepthSort( static_cast<uint32_t>( m_Commands.size() - 1u ) );
                 }
                 m_Triangles += other.m_Triangles;
                 // The scene's instance rows of one view graph: whichever list set them, the same handle.
@@ -903,21 +939,35 @@ namespace Desert::Graphic::System
             if ( m_CountedPass )
                 counted.emplace( static_cast<uint32_t>( *m_CountedPass ) );
             const RDG::OpenBindingBlocks blocks( context, 0u, m_Blocks.size() );
-            // RecordBinnedFirst: the depth pass's opaque occluders (the bins, the VG clusters) before the masked
-            // CPU commands; every other list the commands first.
+            // RecordBinnedFirst: the depth pass's sort key (UE CalculateDepthPassMeshStaticSortKey, the masked bit
+            // first): the opaque bins + clusters, the opaque CPU commands, then the masked bins + clusters and the
+            // masked CPU commands. A command setting a viewport keeps the build order (both sweeps of the bins,
+            // then every command). Every other list: the commands first, then its one sweep of the bins.
+            if ( m_BinnedFirst && !m_CommandViewports )
+            {
+                if ( auto binned = RecordBinned( context, blocks, 0u ); !binned )
+                    return binned;
+                if ( auto opaque = RecordCommands( context, blocks, CommandSweep::Opaque ); !opaque )
+                    return opaque;
+                if ( auto binned = RecordBinned( context, blocks, 1u ); !binned )
+                    return binned;
+                return RecordCommands( context, blocks, CommandSweep::Masked );
+            }
             if ( m_BinnedFirst )
             {
-                if ( auto binned = RecordBinned( context, blocks ); !binned )
-                    return binned;
-                return RecordCommands( context, blocks );
+                for ( uint32_t sweep = 0; sweep < 2u; ++sweep )
+                    if ( auto binned = RecordBinned( context, blocks, sweep ); !binned )
+                        return binned;
+                return RecordCommands( context, blocks, CommandSweep::All );
             }
-            if ( auto commands = RecordCommands( context, blocks ); !commands )
+            if ( auto commands = RecordCommands( context, blocks, CommandSweep::All ); !commands )
                 return commands;
-            return RecordBinned( context, blocks );
+            return RecordBinned( context, blocks, 0u );
         }
 
         Common::BoolResultStr MeshDrawList::RecordCommands( const RDG::PassContext&       context,
-                                                            const RDG::OpenBindingBlocks& blocks ) const
+                                                            const RDG::OpenBindingBlocks& blocks,
+                                                            const CommandSweep            which ) const
         {
             // CPU-FRAME-ARENA 3: the draw's push block in this thread's kept scratch (rewritten whole per draw,
             // used by that draw's call alone), no vector per record.
@@ -933,8 +983,17 @@ namespace Desert::Graphic::System
             std::optional<Common::Profiling::GpuDrawSplitScope> drawRun;
             const Mesh*                                         groupMesh     = nullptr;
             const MaterialExecutor*                             groupMaterial = nullptr;
-            for ( size_t i = 0; i < m_Commands.size(); ++i )
+            // The commands this call issues: all in build order, or one depth-sort bucket (indices into
+            // m_Commands, so m_BlockOf / m_FirstRecords keep their meaning).
+            const std::vector<uint32_t>* bucket = nullptr;
+            if ( which == CommandSweep::Opaque )
+                bucket = &m_OpaqueCommands;
+            else if ( which == CommandSweep::Masked )
+                bucket = &m_MaskedCommands;
+            const size_t issued = bucket != nullptr ? bucket->size() : m_Commands.size();
+            for ( size_t k = 0; k < issued; ++k )
             {
+                const size_t           i    = bucket != nullptr ? size_t{ ( *bucket )[k] } : k;
                 const MeshDrawCommand& draw = m_Commands[i];
                 if ( split )
                 {
@@ -1014,12 +1073,14 @@ namespace Desert::Graphic::System
         }
 
         Common::BoolResultStr MeshDrawList::RecordBinned( const RDG::PassContext&       context,
-                                                          const RDG::OpenBindingBlocks& blocks ) const
+                                                          const RDG::OpenBindingBlocks& blocks,
+                                                          const uint32_t                sweep ) const
         {
             // The GPU-culled bins, after the CPU commands unless RecordBinnedFirst (whatever the CPU lists still
             // draw is what the bins do not hold: MeshRenderer::CpuWalkHidden).
-            const bool split = Common::Profiling::MeshDrawSplitOn();
-            if ( m_Binned )
+            const bool     split  = Common::Profiling::MeshDrawSplitOn();
+            const uint32_t sweeps = m_BinnedFirst ? 2u : 1u;
+            if ( m_Binned && sweep < sweeps )
             {
                 // CPU-FRAME-ARENA 3: the groups' open blocks in this thread's kept scratch (read by the call below
                 // alone, before any other record on the thread).
@@ -1029,15 +1090,53 @@ namespace Desert::Graphic::System
                     if ( m_GroupBlock[group] < blocks.Count() )
                         groupBindings[group] = &blocks.At( m_GroupBlock[group] );
                 RendererAPI& api = *Renderer::GetInstance().GetRendererAPI();
+                // THE DEPTH PASS'S SORT INSIDE THE BINS (UE CalculateDepthPassMeshStaticSortKey: the masked bit
+                // sorts every alpha-tested draw after the opaque ones). Under RecordBinnedFirst two sweeps: the
+                // opaque groups' bins and clusters (the barn, the trunks, the rocks), then the masked groups' (the
+                // tree canopies), so a leaf behind an opaque occluder fails the early depth test before its clip
+                // runs. The Table's group order mixes the two (one group per pipeline, in first-use order). Every
+                // other list: one sweep, every group, as before. The depth written is the nearest fragment
+                // whatever the order (CloserOrEqual + write), so only the cost moves. One sweep per call: Record
+                // puts the opaque CPU commands between the two.
+                const bool sweepMasked = sweep == 1u;
+                // The bins: this sweep's groups through a filtered copy of the issue's pipelines.
+                std::span<const GraphicsPipeline* const> pipelines = m_Binned->GroupPipelines;
+                if ( m_BinnedFirst && m_Binned->BinsIssued )
+                {
+                    std::vector<const GraphicsPipeline*>& sweepPipelines = t_RecordSweepPipelines;
+                    sweepPipelines.assign( m_Binned->Table->Groups.size(), nullptr );
+                    for ( size_t group = 0; group < sweepPipelines.size(); ++group )
+                    {
+                        const GraphicsPipeline* const pipeline = m_Binned->GroupPipeline( group );
+                        if ( pipeline != nullptr && ClipsInDepthPass( *pipeline ) == sweepMasked )
+                            sweepPipelines[group] = pipeline;
+                    }
+                    pipelines = sweepPipelines;
+                }
                 if ( m_Binned->BinsIssued )
-                    if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings,
-                                                                          m_Binned->GroupCarriers, m_Binned->Mode,
-                                                                          *m_Binned->Table, m_Binned->Culled,
-                                                                          m_Binned->GroupPipelines );
+                    if ( auto recorded = GpuDriven::RecordIndirectGroups(
+                              api, groupBindings, m_Binned->GroupCarriers, m_Binned->Mode, *m_Binned->Table,
+                              m_Binned->Culled, pipelines );
                          !recorded )
                         return recorded;
+                if ( auto clusters = RecordBinnedClusters( context, blocks, api, split, sweep, sweeps );
+                     !clusters )
+                    return clusters;
+            }
+            return BOOLSUCCESS;
+        }
+
+        Common::BoolResultStr MeshDrawList::RecordBinnedClusters( const RDG::PassContext&       context,
+                                                                  const RDG::OpenBindingBlocks& blocks,
+                                                                  RendererAPI& api, const bool split,
+                                                                  const uint32_t sweep,
+                                                                  const uint32_t sweeps ) const
+        {
+            if ( m_Binned )
+            {
                 // The VG raster after the bins: per group its clusters' one indirect draw (an empty group draws
-                // zero instances; the arguments are the GPU's).
+                // zero instances; the arguments are the GPU's). Of two sweeps (RecordBinned), only the sweep's
+                // groups: the opaque ones in sweep 0, the masked ones in sweep 1.
                 if ( m_Binned->VirtualGeometry )
                 {
                     const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
@@ -1046,6 +1145,8 @@ namespace Desert::Graphic::System
                         if ( m_VgGroupBlock[group] >= blocks.Count() )
                             continue;
                         const GraphicsPipeline&        pipeline = *vg.GroupPipeline( *m_Binned->Table, group );
+                        if ( sweeps > 1u && ClipsInDepthPass( pipeline ) != ( sweep == 1u ) )
+                            continue;
                         // The cluster raster's group: one indirect draw whose triangles only the GPU knows.
                         std::optional<Common::Profiling::GpuDrawSplitScope> vgGroup;
                         if ( split )

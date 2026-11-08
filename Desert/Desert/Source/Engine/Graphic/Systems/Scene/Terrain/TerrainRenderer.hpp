@@ -78,9 +78,12 @@ namespace Desert::Graphic::System
         // The forward terrain program's DESERT_LOCAL_SHADOW_VSM permutation (Shadows.Method VirtualMaps on the
         // Forward path), ShippedByCook - the one statement EnsureForwardVsmPipeline acquires and the cook lists.
         [[nodiscard]] static Core::ShaderVariant ForwardVsmVariant();
+        // TerrainDepth.shader's DESERT_TERRAIN_NO_HOLES permutation (early fragment tests, nothing discards): the
+        // view depth prepass of a frame whose tiles have no visibility layer (EnsureDepthNoHolesPipelines).
+        [[nodiscard]] static Core::ShaderVariant                     DepthNoHolesVariant();
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
-            return { { "Terrain", ForwardVsmVariant() } };
+            return { { "Terrain", ForwardVsmVariant() }, { "TerrainDepth", DepthNoHolesVariant() } };
         }
 
         // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
@@ -508,6 +511,15 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
         // The deferred depth prepass's (GBufferDepthLayout): TerrainDepth.shader into the G-buffer depth.
         std::shared_ptr<GraphicsPipeline>     m_GBufferDepthPipeline;
+        // The no-holes twins of m_DepthPipeline / m_GBufferDepthPipeline (DepthNoHolesVariant): the same layouts
+        // and declarations, the depth test before the fragment stage. Built on the first frame without holes; a
+        // refused permutation is logged once and the frame keeps the discarding program (still exact).
+        std::shared_ptr<GraphicsPipeline> m_DepthNoHolesPipeline;
+        std::shared_ptr<GraphicsPipeline> m_GBufferDepthNoHolesPipeline;
+        bool                              m_DepthNoHolesRefused = false;
+        // Whether a tile of this frame's m_Queue has a visibility layer (PrepareFrame): the discarding prepass.
+        bool                                  m_FrameHasHoles = true;
+        void                                  EnsureDepthNoHolesPipelines();
         ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::Off;
         // The pipeline the view's depth prepass records with this frame: the forward one, the deferred one under
         // PrepassesGBuffer, or nullptr when the frame's path does not prepass the ground.
