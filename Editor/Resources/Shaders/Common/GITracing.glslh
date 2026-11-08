@@ -147,4 +147,17 @@ vec3 GIRayRadiance( GITraceInput ray, out float hitDistance )
     return result.hit ? GIHitRadiance( result.surface, ray.direction ) : GIMissRadiance( ray.direction );
 }
 
+// A WORLD PROBE's ray (the radiance cache, UE TraceFromProbesCS in LumenRadianceCache.usf): the far field alone,
+// from @p ray.tMin. UE traces its radiance cache probes through the global SDF only, never through the mesh SDFs:
+// the probes stand in for the lighting past a pixel's own trace (the screen probes trace the near field themselves
+// and read the cache only beyond it, RadianceCacheCoverage.minTraceDistanceBeforeCache), so the near field's
+// detail is never seen through them. Software: the global SDF march; hardware: the TLAS walk (its far field is the whole
+// ray, one precision). @p hitDistance is @p ray.tMax on a miss, as GIRayRadiance's.
+vec3 GIRayRadianceFarField( GITraceInput ray, out float hitDistance )
+{
+    const GITraceResult result = GITraceFarField( ray );
+    hitDistance = result.hit ? result.surface.distance : ray.tMax;
+    return result.hit ? GIHitRadiance( result.surface, ray.direction ) : GIMissRadiance( ray.direction );
+}
+
 #endif // GI_TRACING_GLSLH

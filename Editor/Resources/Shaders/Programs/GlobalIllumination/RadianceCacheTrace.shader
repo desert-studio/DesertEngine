@@ -6,9 +6,9 @@
 // TURN for 100 probes). The probe is first moved out of geometry by the tracer (GIMoveOutOfGeometry; not in UE: a
 // world-grid probe inside a wall would see only the wall's back faces; DDGI relocates its probes the same way) -
 // by every tile of it, the same deterministic position, written to the probe by each - then each texel traces one
-// jittered ray by the GI ray contract (Common/GITracing.glslh: the permutation's tracer, the hit lit in place,
-// the sky on a miss) and blends it into the radiance atlas with the probe's history. The program is compiled per
-// tracer (GlobalIllumination::TracerVariant); it names none. .a keeps the hit distance for the visibility moments.
+// jittered ray by the GI ray contract (Common/GITracing.glslh GIRayRadianceFarField: the permutation's far field
+// only - UE's probes trace the global SDF, never the mesh SDFs -, the hit lit in place, the sky on a miss) and
+// blends it into the radiance atlas with the probe's history. The program is compiled per tracer (GlobalIllumination::TracerVariant); it names none. .a keeps the hit distance for the visibility moments.
 Shader "RadianceCacheTrace"
 {
     Compute
@@ -146,7 +146,8 @@ Shader "RadianceCacheTrace"
                 ray.flags     = 0u;
                 ray.farTMin   = 0.0; // a probe in free space leaves no surface
                 float      hitDistance;
-                const vec3 radiance = GIRayRadiance( ray, hitDistance );
+                // The far field alone (UE TraceFromProbesCS: the global SDF, no mesh SDFs; GIRayRadianceFarField).
+                const vec3 radiance = GIRayRadianceFarField( ray, hitDistance );
                 const vec4 traced   = vec4( radiance, hitDistance );
                 // The atlas texels the ray stands for: itself, or its 2x2 block (an odd res's last row and column
                 // block is cut at the probe's edge).
