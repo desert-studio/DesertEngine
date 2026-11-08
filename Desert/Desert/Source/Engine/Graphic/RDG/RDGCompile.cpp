@@ -2958,9 +2958,10 @@ namespace Desert::Graphic::RDG
         {
             const PassRecord& record = builder.m_Passes[pass.Pass];
             // A name that carries a counter changes; only then are its rows interned again.
-            if ( pass.Name != record.Name )
+            const std::string_view recordName( record.Name.data(), record.Name.size() );
+            if ( std::string_view( pass.Name ) != recordName )
             {
-                pass.Name = record.Name;
+                pass.Name.assign( recordName.data(), recordName.size() );
                 InternPassRows( pass );
             }
             pass.External = record.External;
