@@ -418,6 +418,32 @@ namespace Desert::Graphic::System
             rows.Bucket[i] = nextBucket - 1u;
         }
         rows.BucketCount = nextBucket;
+        // The shadow casters' ids: a second sort (the same scratch) of the rows with a mesh by (mesh, own hidden
+        // mask) - a shadow bucket spans surfaces (BuildShadowCascadeDraws: one depth draw per mesh section set).
+        rows.ShadowBucket.assign( count, StaticPlanRows::kNoBucket );
+        rows.Order.clear();
+        for ( std::size_t i = 0; i < count; ++i )
+            if ( columns.Meshes[i] != nullptr )
+                rows.Order.push_back( static_cast<uint32_t>( i ) );
+        const auto pairLess = [&columns]( const uint32_t a, const uint32_t b ) noexcept
+        {
+            if ( columns.Meshes[a] != columns.Meshes[b] )
+                return std::less<const Desert::Mesh*>{}( columns.Meshes[a], columns.Meshes[b] );
+            if ( columns.Hidden[a] != columns.Hidden[b] )
+                return columns.Hidden[a] < columns.Hidden[b];
+            return a < b;
+        };
+        std::sort( rows.Order.begin(), rows.Order.end(), pairLess );
+        uint32_t nextShadow = 0;
+        for ( std::size_t o = 0; o < rows.Order.size(); ++o )
+        {
+            const uint32_t i    = rows.Order[o];
+            const uint32_t prev = o == 0 ? 0u : rows.Order[o - 1];
+            if ( o == 0 || columns.Meshes[prev] != columns.Meshes[i] || columns.Hidden[prev] != columns.Hidden[i] )
+                ++nextShadow;
+            rows.ShadowBucket[i] = nextShadow - 1u;
+        }
+        rows.ShadowBucketCount = nextShadow;
     }
 
     std::optional<bool> MeshRenderer::QueuedSurfaceTwoSided( const DataDrivenMaterial* surface ) const noexcept

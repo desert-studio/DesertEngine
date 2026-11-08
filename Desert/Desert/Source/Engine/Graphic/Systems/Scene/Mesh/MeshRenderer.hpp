@@ -4533,6 +4533,11 @@ namespace Desert::Graphic::System
             std::vector<uint8_t>      Flags;               // per row
             std::vector<uint32_t>     Bucket;              // per row: its (surface, mesh, hidden) id, or kNoBucket
             uint32_t                  BucketCount = 0;
+            // Per row: its SHADOW CASTER bucket id (CPU-TAILS-F10 5; UE's cached shadow-depth draw command) - one
+            // per (mesh, own HiddenSubmeshes) over the rows with a mesh, the key BuildShadowCascadeDraws batches
+            // an opaque caster by when the view's walk leaves the row its own mask; kNoBucket without a mesh.
+            std::vector<uint32_t> ShadowBucket;
+            uint32_t              ShadowBucketCount = 0;
             // Per surface, sorted by address: whether any queued row of it has a two-sided instance.
             std::vector<std::pair<const DataDrivenMaterial*, bool>> SurfaceTwoSided;
             // The build's sort scratch: (row index) ordered by (surface, mesh, hidden). Capacity kept.
@@ -4790,6 +4795,12 @@ namespace Desert::Graphic::System
         std::vector<ShadowMeshBucket> m_ScratchShadowBuckets;
         std::size_t                   m_ScratchShadowBucketCount = 0;
         std::vector<uint32_t>         m_ScratchShadowBucketSlots;
+        // A view's buckets by the plan rows' shadow ids (StaticPlanRows::ShadowBucket): id -> bucket index + 1,
+        // valid where m_ScratchShadowIdStamp[id] == m_ScratchShadowStamp (bumped per view, so no clear per view;
+        // capacity kept). The key hash above serves only rows the walk gave another mask (or rows not synced).
+        std::vector<uint32_t> m_ScratchShadowBucketOfId;
+        std::vector<uint32_t> m_ScratchShadowIdStamp;
+        uint32_t              m_ScratchShadowStamp = 0;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
         // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
         struct MaskedCasterSet

@@ -2285,36 +2285,97 @@ namespace Desert::Graphic::System
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketSlots, not by a search. Reused by
         // index, as the slots: no allocation per cascade in the steady state.
-        m_ScratchShadowBucketCount = 0;
+        // THE RETAINED IDS FIRST (CPU-TAILS-F10 5; UE's cached shadow-depth draw commands: per frame only the
+        // visibility and the instance lists): a row the walk leaves its own mask takes its bucket by the plan
+        // rows' shadow id (StaticPlanRows::ShadowBucket, built at the sync from one sort) through a stamped
+        // id -> bucket table - no hash, no table clear per view. The key hash is built only when a row of this
+        // view needs it (the walk gave it another mask - a VG cut -, or the rows do not cover it), and then holds
+        // every bucket of the view, so a walked row still joins an id-made bucket of its key: the same buckets,
+        // in the same first-seen order, as one hash over every caster.
+        m_ScratchShadowBucketCount        = 0;
+        const StaticPlanRows&  planRows   = m_StaticPlanRows;
+        const bool             rowsCover  = planRows.ShadowBucket.size() == planRows.Count();
+        std::vector<uint32_t>& bucketOfId = m_ScratchShadowBucketOfId;
+        std::vector<uint32_t>& idStamp    = m_ScratchShadowIdStamp;
+        if ( rowsCover && idStamp.size() < planRows.ShadowBucketCount )
         {
-            std::size_t slots = 64;
-            while ( slots < m_StaticQueue.size() * 2u )
-                slots <<= 1u;
-            m_ScratchShadowBucketSlots.assign( slots, 0u );
+            bucketOfId.resize( planRows.ShadowBucketCount, 0u );
+            idStamp.resize( planRows.ShadowBucketCount, 0u );
         }
-        const auto bucketFor = [this]( Desert::Mesh*     mesh,
-                                       const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
+        if ( ++m_ScratchShadowStamp == 0u )
+        {
+            std::fill( idStamp.begin(), idStamp.end(), 0u );
+            m_ScratchShadowStamp = 1u;
+        }
+        const uint32_t stamp      = m_ScratchShadowStamp;
+        bool           hashActive = false;
+        const auto     makeBucket = [this]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> uint32_t
+        {
+            if ( m_ScratchShadowBucketCount == m_ScratchShadowBuckets.size() )
+                m_ScratchShadowBuckets.emplace_back();
+            ShadowMeshBucket& made = m_ScratchShadowBuckets[m_ScratchShadowBucketCount++];
+            made.first             = std::make_pair( mesh, hidden );
+            made.second.clear();
+            return static_cast<uint32_t>( m_ScratchShadowBucketCount );
+        };
+        // The key's slot in the hash (a bucket index + 1, 0 = empty): open addressed, at least twice the queue.
+        const auto hashSlot = [this]( const Desert::Mesh* mesh, const SubmeshMask hidden ) -> uint32_t&
         {
             std::vector<uint32_t>& table = m_ScratchShadowBucketSlots;
             const std::size_t      mask  = table.size() - 1u;
             for ( std::size_t at = ShadowBucketKeyHash{}( ShadowBucketKey{ mesh, hidden } ) & mask;;
                   at             = ( at + 1u ) & mask )
             {
-                const uint32_t slot = table[at];
+                uint32_t& slot = table[at];
                 if ( slot == 0u )
-                {
-                    if ( m_ScratchShadowBucketCount == m_ScratchShadowBuckets.size() )
-                        m_ScratchShadowBuckets.emplace_back();
-                    ShadowMeshBucket& made = m_ScratchShadowBuckets[m_ScratchShadowBucketCount++];
-                    made.first             = std::make_pair( mesh, hidden );
-                    made.second.clear();
-                    table[at] = static_cast<uint32_t>( m_ScratchShadowBucketCount );
-                    return made.second;
-                }
-                ShadowMeshBucket& found = m_ScratchShadowBuckets[slot - 1u];
+                    return slot;
+                const ShadowMeshBucket& found = m_ScratchShadowBuckets[slot - 1u];
                 if ( found.first.first == mesh && found.first.second == hidden )
-                    return found.second;
+                    return slot;
             }
+        };
+        const auto activateHash = [&]()
+        {
+            hashActive        = true;
+            std::size_t slots = 64;
+            while ( slots < m_StaticQueue.size() * 2u )
+                slots <<= 1u;
+            m_ScratchShadowBucketSlots.assign( slots, 0u );
+            for ( std::size_t b = 0; b < m_ScratchShadowBucketCount; ++b )
+            {
+                const ShadowMeshBucket& made                    = m_ScratchShadowBuckets[b];
+                hashSlot( made.first.first, made.first.second ) = static_cast<uint32_t>( b + 1u );
+            }
+        };
+        // The bucket index + 1 of key (mesh, hidden), made in first-seen order when new (hash active).
+        const auto hashedBucket = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> uint32_t
+        {
+            uint32_t& slot = hashSlot( mesh, hidden );
+            if ( slot == 0u )
+                slot = makeBucket( mesh, hidden );
+            return slot;
+        };
+        const auto bucketFor = [&]( const std::size_t row, Desert::Mesh* mesh,
+                                    const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
+        {
+            // The id names (row mesh, own mask): a walk that draws another mesh (an LOD swap) takes the hash.
+            const bool ownMask = hidden.High.empty() && hidden.Low == m_StaticColumns.Hidden[row] &&
+                                 mesh == m_StaticColumns.Meshes[row];
+            const uint32_t id      = rowsCover && ownMask && row < planRows.ShadowBucket.size()
+                                          ? planRows.ShadowBucket[row]
+                                          : StaticPlanRows::kNoBucket;
+            if ( id == StaticPlanRows::kNoBucket || id >= idStamp.size() )
+            {
+                if ( !hashActive )
+                    activateHash();
+                return m_ScratchShadowBuckets[hashedBucket( mesh, hidden ) - 1u].second;
+            }
+            if ( idStamp[id] != stamp )
+            {
+                idStamp[id]    = stamp;
+                bucketOfId[id] = hashActive ? hashedBucket( mesh, hidden ) : makeBucket( mesh, hidden );
+            }
+            return m_ScratchShadowBuckets[bucketOfId[id] - 1u].second;
         };
         const auto staticIndex = [this]( const StaticMeshRenderData* rd )
         { return static_cast<uint32_t>( rd - m_StaticQueue.data() ); };
@@ -2412,7 +2473,7 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* mat  = columns.Surfaces[i];
             if ( ( flags & StaticWalkColumns::kMasked ) == 0u )
             {
-                bucketFor( rd.Mesh, hidden ).push_back( &rd );
+                bucketFor( i, rd.Mesh, hidden ).push_back( &rd );
                 continue;
             }
             auto* masked = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
