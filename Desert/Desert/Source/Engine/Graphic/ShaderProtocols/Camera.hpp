@@ -70,17 +70,30 @@
     /* xy the fronts' offset, gust cells; z 1 / GustSize; w Gustiness, 0 = none), now and one step before */      \
     FIELD( glm::vec4, WindGust, WindGust, { 0.0f } )         /* offset 528 */                                     \
     FIELD( glm::vec4, PrevWindGust, PrevWindGust, { 0.0f } ) /* offset 544 */                                     \
-    /* block size 560 */
+    /* every view: the local wind sources nearest the main camera (ViewFrame::LocalWind, */                       \
+    /* Graphic::SelectLocalWind, Common/LocalWind.glslh: [i] = position, 1 / Radius; the speeds four to a */      \
+    /* vec4, in reference-speed units), now and one step before */                                                \
+    FIELD( CameraLocalWindSources, LocalWind, LocalWind[8], {} )                  /* offset 560 */                \
+    FIELD( CameraLocalWindSpeeds, LocalWindSpeed, LocalWindSpeed[2], {} )         /* offset 688 */                \
+    FIELD( CameraLocalWindSources, PrevLocalWind, PrevLocalWind[8], {} )          /* offset 720 */                \
+    FIELD( CameraLocalWindSpeeds, PrevLocalWindSpeed, PrevLocalWindSpeed[2], {} ) /* offset 848 */                \
+    /* block size 880 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
+    // The local wind arrays' C++ types (a FIELD's type is one macro argument: no comma). Their GLSL names spell
+    // the same lengths: LocalWind[8], LocalWindSpeed[2].
+    using CameraLocalWindSources = decltype( LocalWindSources::Source );
+    using CameraLocalWindSpeeds  = decltype( LocalWindSources::Speed );
+    static_assert( kMaxLocalWindSources == 8, "CameraUB spells LocalWind[8] and LocalWindSpeed[2]" );
+
     /// Camera and kCameraFields — the block's std140 fields, what Common/CameraUB.glslh is generated from
     /// (Std140Block.hpp).
     DESERT_SHADER_STRUCT( Camera, DESERT_CAMERA_UB_FIELDS, static constexpr RDG::UniformBufferParameter Parameter{ "CameraUB" }; inline const static std::string Name = std::string( Parameter.Name ); )
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 560 );
+    static_assert( sizeof( Camera ) == 880 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -129,6 +142,10 @@ namespace Desert::Graphic::ShaderProtocols
         ub.GrassLens                 = frame.GrassLens;
         ub.WindGust                  = frame.WindGust;
         ub.PrevWindGust              = frame.PrevWindGust;
+        ub.LocalWind                 = frame.LocalWind.Source;
+        ub.LocalWindSpeed            = frame.LocalWind.Speed;
+        ub.PrevLocalWind             = frame.PrevLocalWind.Source;
+        ub.PrevLocalWindSpeed        = frame.PrevLocalWind.Speed;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

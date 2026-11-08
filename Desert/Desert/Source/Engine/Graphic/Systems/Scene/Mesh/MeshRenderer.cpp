@@ -1815,7 +1815,7 @@ namespace Desert::Graphic::System
         frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
         if ( viewKey != kBinnedMainView )
             WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, m_WindGust,
+                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, m_SceneWind,
                               CasterWindOrigin( viewKey ) );
         if ( !LendMaterialTable( *carrier.Material ) )
         {

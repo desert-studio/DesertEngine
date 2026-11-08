@@ -4,6 +4,7 @@
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 
 #include <glm/glm.hpp>
 
@@ -275,6 +276,11 @@ namespace Desert::Graphic
         // scene's (WriteLightCamera), so a plant's shadow sways with the plant. 0 = no gusts (a still preview).
         glm::vec4 WindGust{ 0.0f };
         glm::vec4 PrevWindGust{ 0.0f };
+        // EVERY VIEW of a scene: the local (point) wind sources nearest the main camera (Graphic::SelectLocalWind,
+        // Common/LocalWind.glslh) at this step and the previous one, written with the gusts by the same owner; a
+        // light view carries its scene's current ones as both (WriteLightCamera). Empty = no local wind.
+        LocalWindSources LocalWind;
+        LocalWindSources PrevLocalWind;
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

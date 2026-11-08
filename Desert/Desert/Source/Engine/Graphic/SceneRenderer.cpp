@@ -1394,7 +1394,22 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         m_Systems.Mesh->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
         m_Systems.Mesh->SetParallaxQuality( m_ParallaxQuality );
-        m_Systems.Mesh->SetWindGust( m_WindGust );
+        // THE LOCAL WIND SOURCES this frame's views and light cameras carry: the step's point sources nearest the
+        // main camera (Graphic::SelectLocalWind), each matched by its entity to the previous frame's pick for its
+        // previous position. No camera: none (a light camera has nothing to measure from).
+        {
+            const LocalWindSelection previous = m_LocalWindSelection;
+            if ( const auto* cam = GetMainCamera() )
+                SelectLocalWind( m_LocalWindCandidates, cam->GetPosition(), m_DirectionalWindSpeed, previous,
+                                 m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
+            else
+            {
+                m_LocalWindSelection = LocalWindSelection{};
+                m_LocalWind          = LocalWindSources{};
+                m_PrevLocalWind      = LocalWindSources{};
+            }
+        }
+        m_Systems.Mesh->SetSceneWind( SceneWind{ m_WindGust, m_LocalWind } );
         m_Systems.AutoExposure->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
@@ -1848,6 +1863,8 @@ namespace Desert::Graphic
         // The gust fronts the foliage sways by (ViewFrame::WindGust), the ECS's this step and the step before.
         viewFrame.WindGust     = m_WindGust;
         viewFrame.PrevWindGust = m_PrevWindGust;
+        viewFrame.LocalWind     = m_LocalWind;
+        viewFrame.PrevLocalWind = m_PrevLocalWind;
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.

@@ -39,4 +39,17 @@ namespace Desert::ECS
             sums.Add( registry.get<WindSourceComponent>( entity ).Data );
         return sums.Air();
     }
+
+    // Whether any point (local) source blows: a swaying type then sways even in still directional air, by the local
+    // sources the camera block carries (Graphic::SelectLocalWind, Common/LocalWind.glslh).
+    [[nodiscard]] inline bool AnyLocalWind( entt::registry& registry )
+    {
+        for ( const entt::entity entity : registry.view<WindSourceComponent>() )
+        {
+            const WindSourceData& data = registry.get<WindSourceComponent>( entity ).Data;
+            if ( data.PointWind && data.Speed > 0.0f && data.Radius > 0.0f )
+                return true;
+        }
+        return false;
+    }
 } // namespace Desert::ECS

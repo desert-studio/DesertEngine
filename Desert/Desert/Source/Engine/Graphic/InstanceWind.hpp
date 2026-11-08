@@ -56,17 +56,19 @@ namespace Desert::Graphic
     }
 
     /// The wind of a type from its response (cm, Hz, cm) and the scene's wind where it stands (@p windXZ: the
-    /// world XZ components of ECS::WindAt's velocity, cm/s) at @p gameplaySeconds. The direction is the scene's,
-    /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength.
+    /// world XZ components of the DIRECTIONAL air, cm/s) at @p gameplaySeconds. The direction is the scene's,
+    /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength - unless
+    /// @p localWind (a point source blows somewhere): then the type sways with Direction zero, by the local
+    /// sources each instance finds around it (Graphic::LocalWindXZ, FoliageWindAir).
     [[nodiscard]] inline InstanceWind MakeInstanceWind( float strength, float speed, float height,
                                                         const glm::vec2& windXZ, double gameplaySeconds,
-                                                        double prevGameplaySeconds )
+                                                        double prevGameplaySeconds, bool localWind = false )
     {
         InstanceWind wind;
         const float  horizontal = glm::length( windXZ );
-        if ( !( horizontal > 1e-6f ) )
+        if ( !( horizontal > 1e-6f ) && !localWind )
             return wind;
-        wind.Direction       = windXZ / horizontal;
+        wind.Direction       = horizontal > 1e-6f ? windXZ / horizontal : glm::vec2( 0.0f );
         wind.Strength        = strength;
         wind.Speed           = speed;
         wind.Height          = height;
