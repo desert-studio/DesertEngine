@@ -89,9 +89,13 @@ void main()
     v_Surface.VertexColor    = colour;
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN            = mat3( right, -up, facing );
-    // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
+    // The particle's own motion (UE: the sprite vertex factory's precise motion vectors, read from
+    // Particles.Previous.Position): the corner moved back by the particle's displacement since the tick drawn last
+    // frame, through the previous camera - a fast spark reprojects to where it was, no TAA / upscaler trail. The
+    // quad's axes and size are this frame's (no previous size / rotation / velocity attribute).
+    const vec3 prevWorldPos = worldPos + ( ParticlePreviousWorldPosition( n ) - position );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
-    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPos, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
     v_Surface.ObjectMoved = 1.0;
 
