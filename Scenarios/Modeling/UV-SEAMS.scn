@@ -3,7 +3,8 @@
 # drawn yellow, Apply cuts or joins the seams on it (Geometry::EditUVSeams), Accept is ONE undo step, Cancel leaves the mesh.
 # A 100 cm Box (pivot centre) 60 cm above the origin: every face is its own UV island, so all 12 edges are seams. The
 # picks aim 5 cm inside the top face's front corners, so the nearest vertex of the hit triangle is the corner itself and
-# the path is the top front edge (-50,110,50) -> (50,110,50).
+# the path is the top front edge (-50,110,50) -> (50,110,50). The Cut finds the left and right seams at both corners, so
+# each corner splits along its fan (UE CreateSeamsAtEdges: two elements added).
 Дано run Panel "Open Modeling"
 Дано run View "View mode: Lit"
 Дано run Modeling "Create shape pivot: Centre"
@@ -24,7 +25,7 @@
 Когда --subject viewport set Camera.Direction 0,-0.86,-0.51
 Тогда-вид 1_path a yellow line along the top front edge over the green seam, a dot at each picked corner
 Когда run Modeling "UV Seams: apply path"
-Тогда-вид 2_join the top front edge has no green line any more (the other 11 seams stay); status "Join 1 edges: 1 joined ... 5 UV islands"
+Тогда-вид 2_join the top front edge has no green line any more (the other 11 seams stay); status "5 UV islands; Join 1 edges: 1 joined, 0 were not seams, 0 on the border, 0 still seams"
 Когда run Modeling "UV Seams mode: Cut"
 Когда --subject viewport set Camera.Direction -0.203,-0.857,-0.474
 Когда run Modeling "UV Seams: pick vertex at the viewport centre"
@@ -32,7 +33,7 @@
 Когда run Modeling "UV Seams: pick vertex at the viewport centre"
 Когда run Modeling "UV Seams: apply path"
 Когда --subject viewport set Camera.Direction 0,-0.86,-0.51
-Тогда-вид 3_cut the green line on the top front edge is back; status "Cut 1 edges: 1 opened ... 6 UV islands"
+Тогда-вид 3_cut the green line on the top front edge is back; status "6 UV islands; Cut 1 edges: 1 opened, 0 already seams, 0 on the border, 0 not opened; 2 UV elements added"
 Когда run Modeling "Active tool: Accept"
 Тогда-вид 4_accepted no tool bar, no seam lines, the box drawn with its material
 Когда run Action "Undo"

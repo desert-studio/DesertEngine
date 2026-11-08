@@ -1,8 +1,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshDijkstra.h (constructor,
-// SeedPoint, ComputeToMaxDistance, GetMaxGraphDistance(PointID), GetNodeForPointSetID, UpdateNeighboursSparse),
-// adapted: nodes live in a TArray and are addressed by index (UE holds GraphNode* across appends, which its
-// chunked DynamicVector keeps stable and a TArray would not); no distance weighting. ComputeToTargetPoint and
-// FindPathToNearestSeed (UE's target and path queries) serve the UV Seams tool's vertex-to-vertex paths.
+// SeedPoint, bEnableDistanceWeighting + GetWeightedDistanceFunc, ComputeToMaxDistance, ComputeToTargetPoint,
+// FindPathToNearestSeed, GetMaxGraphDistance(PointID), GetNodeForPointSetID, UpdateNeighboursSparse), adapted:
+// nodes live in a TArray and are addressed by index (UE holds GraphNode* across appends, which its chunked
+// DynamicVector keeps stable and a TArray would not); GetPositionFunc is not ported (every caller here reads the
+// point set's own positions). ComputeToTargetPoint and FindPathToNearestSeed serve the UV Seams paths.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/IndexPriorityQueue.hpp"
@@ -11,6 +12,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -28,6 +30,15 @@ namespace Desert::Geometry
             double  StartDistance = 0;
         };
 
+        /** If enabled, GetWeightedDistanceFunc is called with each neighbour pair's Euclidean distance, to allow
+         *  for alternative metrics (UE MeshDijkstra.h:38-48). */
+        bool bEnableDistanceWeighting = false;
+        /** (FromVID, ToVID, SeedVID: the seed FromVID's value was propagated from, EuclideanDistance) -> distance
+         */
+        std::function<double( int32_t FromVID, int32_t ToVID, int32_t SeedVID, double EuclideanDistance )>
+             GetWeightedDistanceFunc = []( int32_t, int32_t, int32_t, double EuclideanDistance )
+        { return EuclideanDistance; };
+
         explicit MeshDijkstra( const PointSetType* PointSetIn ) : m_PointSet( PointSetIn )
         {
             m_Queue.Initialize( m_PointSet->MaxVertexID() );
@@ -35,19 +46,7 @@ namespace Desert::Geometry
 
         void ComputeToMaxDistance( const std::vector<SeedPoint>& SeedPointsIn, double ComputeToMaxDistanceIn )
         {
-            m_MaxGraphDistance        = 0.0;
-            m_MaxGraphDistancePointID = -1;
-            for ( int32_t SeedIndex = 0; SeedIndex < static_cast<int32_t>( SeedPointsIn.size() ); ++SeedIndex )
-            {
-                const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
-                if ( m_Queue.Contains( PointID ) )
-                    continue; // UE ensure()s on a repeated seed and skips it
-                GraphNode& Node    = m_AllocatedNodes[GetNodeIndex( PointID, true )];
-                Node.GraphDistance = SeedPointsIn[SeedIndex].StartDistance;
-                Node.bFrozen       = true;
-                Node.SeedPointID   = SeedIndex;
-                m_Queue.Insert( PointID, float( Node.GraphDistance ) );
-            }
+            QueueSeedPoints( SeedPointsIn );
             while ( m_Queue.GetCount() > 0 )
             {
                 const int32_t NodeIndex = GetNodeIndex( m_Queue.Dequeue(), false );
@@ -60,24 +59,13 @@ namespace Desert::Geometry
                 UpdateNeighboursSparse( NodeIndex );
             }
         }
-        // UE ComputeToTargetPoint: grows from the seeds until TargetPointID is frozen (true) or the queue empties /
-        // the distance passes ComputeToMaxDistanceIn first (false).
+
+        /** Grows from the seeds until TargetPointID is frozen (true), or until the queue empties or the graph
+         *  distance passes ComputeToMaxDistanceIn first (false). */
         bool ComputeToTargetPoint( const std::vector<SeedPoint>& SeedPointsIn, int32_t TargetPointID,
                                    double ComputeToMaxDistanceIn = std::numeric_limits<double>::max() )
         {
-            m_MaxGraphDistance        = 0.0;
-            m_MaxGraphDistancePointID = -1;
-            for ( int32_t SeedIndex = 0; SeedIndex < static_cast<int32_t>( SeedPointsIn.size() ); ++SeedIndex )
-            {
-                const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
-                if ( m_Queue.Contains( PointID ) )
-                    continue;
-                GraphNode& Node    = m_AllocatedNodes[GetNodeIndex( PointID, true )];
-                Node.GraphDistance = SeedPointsIn[SeedIndex].StartDistance;
-                Node.bFrozen       = true;
-                Node.SeedPointID   = SeedIndex;
-                m_Queue.Insert( PointID, float( Node.GraphDistance ) );
-            }
+            QueueSeedPoints( SeedPointsIn );
             while ( m_Queue.GetCount() > 0 )
             {
                 const int32_t NodeIndex = GetNodeIndex( m_Queue.Dequeue(), false );
@@ -94,9 +82,11 @@ namespace Desert::Geometry
             return false;
         }
 
-        // UE FindPathToNearestSeed: the parent chain from PointID (computed and frozen) back to its seed, PointID
-        // first and the seed last. False (and an empty path) when PointID was not reached.
-        bool FindPathToNearestSeed( int32_t PointID, std::vector<int32_t>& PathToSeedOut, int32_t MaxLength = 100000 )
+        /** The parent chain from PointID (computed and frozen) back to its seed: PointID first, the seed last.
+         *  False with an empty path when PointID or a node on the chain was not reached. UE returns the chain cut
+         *  at MaxLength as found; here a chain longer than MaxLength is refused (false, empty). */
+        bool FindPathToNearestSeed( int32_t PointID, std::vector<int32_t>& PathToSeedOut,
+                                    int32_t MaxLength = 100000 )
         {
             PathToSeedOut.clear();
             int32_t NodeIndex = GetNodeIndex( PointID, false );
@@ -110,7 +100,7 @@ namespace Desert::Geometry
                     return true;
                 PathToSeedOut.push_back( ParentID );
                 NodeIndex = GetNodeIndex( ParentID, false );
-                if ( NodeIndex < 0 )
+                if ( NodeIndex < 0 || !m_AllocatedNodes[NodeIndex].bFrozen )
                     break;
             }
             PathToSeedOut.clear();
@@ -139,8 +129,29 @@ namespace Desert::Geometry
         std::unordered_map<int32_t, int32_t> m_IDToNodeIndexMap;
         std::vector<GraphNode>               m_AllocatedNodes;
         IndexPriorityQueue                   m_Queue;
+        std::vector<SeedPoint>               m_SeedPoints;
         double                               m_MaxGraphDistance        = 0.0;
         int32_t                              m_MaxGraphDistancePointID = -1;
+
+        // The seeding both Compute* share (UE repeats it in each): every seed frozen at its StartDistance, a
+        // repeated seed skipped (UE ensure()s on it); the seeds are kept for the distance weighting's SeedVID.
+        void QueueSeedPoints( const std::vector<SeedPoint>& SeedPointsIn )
+        {
+            m_MaxGraphDistance        = 0.0;
+            m_MaxGraphDistancePointID = -1;
+            m_SeedPoints              = SeedPointsIn;
+            for ( int32_t SeedIndex = 0; SeedIndex < static_cast<int32_t>( SeedPointsIn.size() ); ++SeedIndex )
+            {
+                const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
+                if ( m_Queue.Contains( PointID ) )
+                    continue;
+                GraphNode& Node    = m_AllocatedNodes[GetNodeIndex( PointID, true )];
+                Node.GraphDistance = SeedPointsIn[SeedIndex].StartDistance;
+                Node.bFrozen       = true;
+                Node.SeedPointID   = SeedIndex;
+                m_Queue.Insert( PointID, float( Node.GraphDistance ) );
+            }
+        }
 
         int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
@@ -164,7 +175,11 @@ namespace Desert::Geometry
                 GraphNode& Nbr = m_AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )
                     continue;
-                const double NbrDist = ParentDist + Distance( ParentPos, m_PointSet->GetVertex( NbrPointID ) );
+                double LocalDist = Distance( ParentPos, m_PointSet->GetVertex( NbrPointID ) );
+                if ( bEnableDistanceWeighting )
+                    LocalDist = GetWeightedDistanceFunc( ParentID, NbrPointID, m_SeedPoints[ParentSeed].PointID,
+                                                         LocalDist );
+                const double NbrDist = ParentDist + LocalDist;
                 if ( m_Queue.Contains( NbrPointID ) )
                 {
                     if ( NbrDist < Nbr.GraphDistance )

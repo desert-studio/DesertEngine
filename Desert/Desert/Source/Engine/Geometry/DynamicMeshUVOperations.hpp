@@ -190,22 +190,37 @@ namespace Desert::Geometry
     };
     [[nodiscard]] const char* ToString( UVSeamMode mode );
 
-    // The shortest path over the mesh's edges from @p fromVertex to @p toVertex, @p fromVertex first (UE
-    // USeamSculptTool::UpdateCurrentDrawPath: TMeshDijkstra ComputeToTargetPoint + FindPathToNearestSeed). Refused
-    // for a vertex that is not on the mesh, or when no edge path joins the two.
-    [[nodiscard]] Common::ResultStr<std::vector<int32_t>> ShortestEdgePath( const DynamicMesh3& mesh,
-                                                                            int32_t fromVertex, int32_t toVertex );
+    // UE USeamSculptProperties (bShowWireframe / bHitBackFaces belong to the editor tool's view, not here).
+    struct UVSeamSettings
+    {
+        UVSeamMode Mode = UVSeamMode::Cut;
+        // UE PathSimilarityWeight (ClampMin 0, UIMax 1000): above 0 the path's cost adds how far each edge strays
+        // from the straight line between the two picked vertices, so among similarly short paths the one closer
+        // to that line wins (a close zigzag over a quad strip's wrong diagonal beats a wider "up and over" path
+        // of similar length). 0 = path length only. Scale-free: the term is divided by the mesh's largest
+        // bounds dimension squared.
+        double PathSimilarityWeight = 200.0;
 
-    // Cuts or joins the UV seams of layer 0 along the edges between consecutive @p pathVertices.
-    //   - Cut leaves every UV value where it was and changes only the topology (the split elements are copies):
-    //     each path edge separates its two sides, so the islands come apart for a later Unwrap with Source =
-    //     ExistingUVs. A cut opens at a vertex where it meets another cut edge, a seam or the border; a single
-    //     interior edge touching none of them cannot open (the Report counts it).
+        bool operator==( const UVSeamSettings& ) const = default;
+    };
+
+    // The shortest path over the mesh's edges from @p fromVertex to @p toVertex, @p fromVertex first (UE
+    // USeamSculptTool::UpdateCurrentDrawPath: TMeshDijkstra ComputeToTargetPoint + FindPathToNearestSeed, distance
+    // weighted by settings.PathSimilarityWeight). Refused for a vertex that is not on the mesh, the same vertex
+    // twice (UE draws no path then), or when no edge path joins the two.
+    [[nodiscard]] Common::ResultStr<std::vector<int32_t>> ShortestEdgePath( const DynamicMesh3& mesh,
+                                                                            int32_t fromVertex, int32_t toVertex,
+                                                                            const UVSeamSettings& settings );
+
+    // Cuts or joins the UV seams of layer 0 along the edges between consecutive @p pathVertices (UE
+    // USeamSculptTool::CreateSeamAlongPath, Join as UE's UV Editor seam tool).
+    //   - Cut copies UV elements and leaves every UV value where it was: each path edge separates its two sides,
+    //     so the islands come apart for a later Unwrap with Source = ExistingUVs. A lone interior edge with no
+    //     other seam at either end opens together with one neighbour edge (UE splits half its vertex's fan).
     //   - Join merges, at both ends of each seam edge on the path, the element of the edge's first triangle into
-    //     the second's (UE MergeElement(tri0 element, tri1 element)): the first side's corners take the second's
-    //     UVs.
-    // Mesh border edges are neither (no opposite side). Refused for a mesh with no UV layer 0, a path of fewer than
-    // two vertices, or two consecutive path vertices with no edge between them.
-    [[nodiscard]] Common::ResultStr<UVOutcome> EditUVSeams( const DynamicMesh3&      mesh,
-                                                            std::span<const int32_t> pathVertices, UVSeamMode mode );
+    //     the second's: the first side's corners take the second's UVs.
+    // Mesh border edges are neither (no opposite side). Refused for a mesh with no UV layer 0, a path of fewer
+    // than two vertices, or two consecutive path vertices with no edge between them.
+    [[nodiscard]] Common::ResultStr<UVOutcome>
+    EditUVSeams( const DynamicMesh3& mesh, std::span<const int32_t> pathVertices, const UVSeamSettings& settings );
 } // namespace Desert::Geometry

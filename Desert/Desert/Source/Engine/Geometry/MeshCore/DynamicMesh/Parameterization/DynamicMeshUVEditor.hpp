@@ -8,7 +8,8 @@
 // SetTriangleUVsFromCylinderProjection :1322-1459), SplitBowtiesOnUVElements (:1306-1320), AutoOrientUVArea
 // (:1562-1669) and QuickPack (:1671-1684, with FDynamicMeshUVPacker::StandardPack of MeshUVPacking.cpp:62-120)
 // serve the Modeling palette's UVs tools; the box projection's MinIslandTriCount region merging (FMeshRegionGraph)
-// is not ported, every triangle keeps its own box face.
+// is not ported, every triangle keeps its own box face. CreateSeamsAtEdges / RemoveSeamsAtEdges (:1044-1052) serve
+// the UVs palette's Seams tool, with the bodies of UE's FDynamicMeshEditor overlay seam helpers.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
@@ -107,6 +108,18 @@ namespace Desert::Geometry
 
         /** Packs every UV island of the overlay into the unit square (bowties split first). */
         bool QuickPack( int32_t TargetTextureResolution = 512, float GutterSize = 1.0f );
+
+        /** Makes each of the edges a UV seam by splitting UV elements (UV values are copied, not moved). A vertex
+         *  of the edge is split along the fan between the edge and the next present or future seam; when neither
+         *  vertex has one, half of the first vertex's one-ring is split off, so the edge opens together with one
+         *  neighbour edge. Edges that already are seams only get their end vertices' bowties split. The edges are
+         *  handled in the order given (UE walks a TSet in its hash order). New elements go to Result. */
+        bool CreateSeamsAtEdges( const std::vector<int32_t>& EidsToMakeIntoSeams, UVEditResult* Result = nullptr );
+
+        /** Closes the UV seams on the edges: at both ends of each interior edge whose two triangles have UVs, the
+         *  first triangle's element is merged into the second's (that side's corners take the other side's UVs).
+         *  Mesh border edges are skipped, there is no opposite side to merge with. */
+        bool RemoveSeamsAtEdges( const std::vector<int32_t>& EidsToRemoveAsSeams );
 
     private:
         DynamicMesh3*         m_Mesh;
