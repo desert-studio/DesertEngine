@@ -810,6 +810,12 @@ namespace Desert::Graphic::System
         {
             m_ParallaxQuality = parallax;
         }
+        // The scene view's dithered LOD transition this frame (SceneRenderer::OnUpdate, ViewFrame::TemporalLOD):
+        // the cascades' light cameras carry it (WriteLightCamera), so a fading caster clips the view's dither.
+        void SetViewTemporalLOD( const Geometry::LODTemporalSamples& temporalLod )
+        {
+            m_ViewTemporalLOD = temporalLod;
+        }
 
         // MESH DISPLACEMENT (DisplacementCache.hpp), after the queues are built and before SyncGpuScene: asks
         // @p cache for the levels of every static record whose mesh carries a displacement topology (per submesh, the
@@ -4859,6 +4865,7 @@ namespace Desert::Graphic::System
         std::vector<DataDrivenMaterial*>         m_ScratchGenericRecorders; // distinct recording materials
         float                                                     m_WorldTimeSeconds = 0.0f;
         ParallaxQuality                                           m_ParallaxQuality;
+        Geometry::LODTemporalSamples                              m_ViewTemporalLOD; // SetViewTemporalLOD
         // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
         std::vector<MotionRecord>          m_ScratchRigidRecords;
         std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;

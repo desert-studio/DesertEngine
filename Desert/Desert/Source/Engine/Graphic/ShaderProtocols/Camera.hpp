@@ -67,8 +67,8 @@
     /* y, z, w the block's tail pad) */                                                                           \
     FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
     /* scene views: the dithered LOD transition (ViewFrame::TemporalLOD; Mesh/Surface/LODTransition.glslh): */    \
-    /* x how far the fade has come (0..1), y 1 while the view fades its level changes; light views carry */       \
-    /* 0: a caster view draws one level (InstanceCull: no kLodDither on a caster view) */                         \
+    /* x how far the fade has come (0..1), y 1 while the view fades its level changes; a cascade's light */       \
+    /* view carries its scene view's (WriteLightCamera): its casters clip the view's dither */                    \
     FIELD( glm::vec4, LodTransition, LodTransition, { 0.0f } ) /* offset 528 */                                   \
     /* block size 544 */
 

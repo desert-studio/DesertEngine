@@ -488,17 +488,9 @@ Shader "InstanceCull"
                 return;
             }
             const mat4 world = GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
-            // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer), per instance: the static layer
-            // keeps what stands still (a swaying instance past the shadow wind distance among it, in its rest
-            // pose), the movable layer what moves by itself.
+            // A caster view's swaying instance past the shadow wind distance casts its rest pose (the layer split
+            // after the LOD, below).
             const bool restPose = GpuCull_CastsRestPose( view, primitive, world );
-            const bool movable  = ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u && !restPose;
-            if ( ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u && movable ) ||
-                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u && !movable ) )
-            {
-                Visibility[cell] = 0u;
-                return;
-            }
             if ( !KeepsInstanceAtDistance( view, instance, instanceRow - primitive.FirstInstance, world[3].xyz ) )
             {
                 Visibility[cell] = 0u;
@@ -520,6 +512,20 @@ Shader "InstanceCull"
             }
             uint       older;
             const uint lod  = SelectLodMask( view, primitive, world, empty, older );
+            // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer), per instance: the static layer
+            // keeps what stands still (a swaying instance past the shadow wind distance among it, in its rest
+            // pose), the movable layer what moves by itself - and, in a kLodDither caster view, an instance whose
+            // LOD is fading (its two levels' dither changes every frame, UE's cached shadow treats a dithered
+            // transition as a dynamic caster): the cached layer is redrawn where it leaves and where it returns
+            // (the content hash, below, sees it gone), never kept half-dithered.
+            const bool moves   = ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u && !restPose;
+            const bool movable = moves || older != lod;
+            if ( ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u && movable ) ||
+                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u && !movable ) )
+            {
+                Visibility[cell] = 0u;
+                return;
+            }
             if ( ( view.Flags & DESERT_GPU_CULL_VIEW_CONTENT_HASH ) != 0u )
             {
                 Visibility[cell] = 0u; // draws nothing: the cells are its output

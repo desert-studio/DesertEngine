@@ -1857,6 +1857,10 @@ namespace Desert::Graphic
             bloom->SetPreExposure( frame.PreExposure );
         if ( auto* shafts = m_Systems.LightShaft.get() )
             shafts->SetPreExposure( frame.PreExposure );
+        // The view's dithered LOD transition for the cascades' casters (WriteLightCamera): they clip the fade the
+        // view clips with.
+        if ( auto* mesh = m_Systems.Mesh.get() )
+            mesh->SetViewTemporalLOD( frame.TemporalLOD );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Resize render targets" );

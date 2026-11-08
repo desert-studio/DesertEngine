@@ -21,9 +21,13 @@ namespace Desert::Graphic
     // the main camera, Shadows.WindAnimationDistance), the one the caster cull views carry as LodOrigin.
     // @p casterWindRing is the movers' ring of a draw whose vertex stage splits its instances (ViewFrame::
     // CasterWindRing, GPU-FRAME-6: x the inner distance; 0 = none, every other caster draw).
+    // @p temporalLod is the scene view's dithered LOD transition (ViewFrame::TemporalLOD): a binned caster of a
+    // fading instance clips its half of the dither with the fade the view clips with (CameraUB::LodTransition,
+    // Mesh/Surface/LODTransition.glslh), so the shadow is whole while the level changes.
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
                            double timeSeconds, const CascadeCasterBias& bias, const ParallaxQuality& parallax,
-                           const glm::vec4& casterWindOrigin, const glm::vec4& casterWindRing = glm::vec4( 0.0f ) );
+                           const Geometry::LODTemporalSamples& temporalLod, const glm::vec4& casterWindOrigin,
+                           const glm::vec4& casterWindRing = glm::vec4( 0.0f ) );
 
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
@@ -37,7 +41,7 @@ namespace Desert::Graphic
 
         void SetLightMatrix( const glm::mat4& view, const glm::mat4& projection, double timeSeconds,
                              const CascadeCasterBias& bias, const ParallaxQuality& parallax,
-                             const glm::vec4& casterWindOrigin );
+                             const Geometry::LODTemporalSamples& temporalLod, const glm::vec4& casterWindOrigin );
 
     protected:
         // Lets a path variant bind a different shader while reusing SetLightMatrix. The debug name is a

@@ -255,11 +255,6 @@ namespace Desert::Graphic::GpuDriven
                         restPose = ShadowWindCastsRestPose( windPoint, windOrigin, view.Gpu.LodOrigin.w ) ||
                                    ShadowWindInsideRing( windPoint, windOrigin, ringInner );
                     }
-                    const bool movableCaster =
-                         ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose;
-                    if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
-                         ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
-                        return 0u;
                     const InstanceCullDistance cull  = ScaledByLens(
                          { instance.CullDistanceStart, instance.CullDistanceEnd }, view.Gpu.CullOrigin.w );
                     if ( !KeepsInstanceAtDistance( cull, row - primitive.FirstInstance, glm::vec3( world[3] ),
@@ -307,7 +302,8 @@ namespace Desert::Graphic::GpuDriven
                     }
 
                     // MeshRenderer::ComputeLOD's order: forced level, the renderer's LOD toggle, then the policy.
-                    uint32_t lod = 0;
+                    uint32_t lod    = 0;
+                    bool     fading = false; // a dithered LOD transition: the two samples' levels differ
                     if ( primitive.ForcedLod >= 0 )
                     {
                         lod = static_cast<uint32_t>( primitive.ForcedLod );
@@ -337,13 +333,22 @@ namespace Desert::Graphic::GpuDriven
                                 lodView.Temporal.Origins[sample] =
                                      glm::vec3( view.Gpu.LodTemporalOrigins[sample] );
                         }
-                        lod = Geometry::SelectDitheredLODFromBounds(
-                                   world, localBox, lodView,
-                                   std::span<const float>( slot.LodScreenSizes )
-                                        .subspan( primitive.FirstLodScreenSize, primitive.LodCount ),
-                                   -1, primitive.LodBias )
-                                   .Levels[1];
+                        const Geometry::LODMask levels = Geometry::SelectDitheredLODFromBounds(
+                             world, localBox, lodView,
+                             std::span<const float>( slot.LodScreenSizes )
+                                  .subspan( primitive.FirstLodScreenSize, primitive.LodCount ),
+                             -1, primitive.LodBias );
+                        lod    = levels.Levels[1];
+                        fading = levels.IsDithered();
                     }
+                    // InstanceCull.shader's cascade-cache layer split, per instance: a mover, or (a kLodDither
+                    // caster view) an instance whose LOD is fading, is the movable layer's.
+                    const bool movableCaster =
+                         ( ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose ) ||
+                         fading;
+                    if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
+                         ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
+                        return 0u;
                     return CullVisibility::kInView | std::min( lod, CullVisibility::kLodMask );
                 }();
 

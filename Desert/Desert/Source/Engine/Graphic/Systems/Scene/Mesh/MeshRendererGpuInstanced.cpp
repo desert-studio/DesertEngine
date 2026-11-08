@@ -1267,7 +1267,8 @@ namespace Desert::Graphic::System
                     // The list's light camera, once per bin: the rule's origin and distance are the cascade's; the
                     // ring and the thinning's origin are each draw's (its row's Caster).
                     WriteLightCamera( *cell, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                                      m_CascadeCasterBias[shadowView], m_ParallaxQuality, viewWind,
+                                      m_CascadeCasterBias[shadowView], m_ParallaxQuality,
+                                      m_ViewTemporalLOD, viewWind,
                                       glm::vec4( 0.0f ) );
                     if ( !LendMaterialTable( *cell ) )
                         return false;
@@ -1364,7 +1365,8 @@ namespace Desert::Graphic::System
             // The section's own light camera: the thinning's origin and the ring's inner distance
             // (sectionCasterOf).
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, setup.ThinOrigin,
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality,
+                              m_ViewTemporalLOD, setup.ThinOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
             BindGpuInstancedBuffers( *caster, gpu, listIds );
             const GpuInstanceRefs& refs = *setup.Refs;
