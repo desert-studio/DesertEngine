@@ -2842,7 +2842,7 @@ namespace Desert::Graphic
         if ( pathTraced )
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
         else
-            AddFrameTranslucency( graph, textures );
+            AddFrameTranslucency( graph, textures, frame );
 
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )

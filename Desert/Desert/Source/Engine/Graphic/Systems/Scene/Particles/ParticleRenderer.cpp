@@ -1597,7 +1597,13 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::DrawsLitSprites() const
     {
+        // The forward draws DeclareSpriteDraws declares, by its own filter. Asked after the PostOpaque stage's
+        // collision import (HasDrawnHalf reads m_CollisionReady), so a sprite this frame does not draw never
+        // fills the volume and one it draws always finds it filled.
         for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !IsDrawn( ve ) || !HasDrawnHalf( ve, false ) )
+                continue;
             for ( const ViewDraw& draw : ve.Draws )
             {
                 const SpriteDraw* sprite = draw.Sprite;
@@ -1607,6 +1613,7 @@ namespace Desert::Graphic::System
                 if ( slotted.Slots.Has( SceneViewSlot::TranslucencyLightingVolume ) )
                     return true;
             }
+        }
         return false;
     }
 

@@ -254,7 +254,8 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures,
+                                              const ViewFrame& frame )
     {
         // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
         // numeric placement. The height fog's apply is NOT here: it fogs the OPAQUE scene and ran before the scene
@@ -267,7 +268,12 @@ namespace Desert::Graphic
                               ->CompositePass() );
         if ( auto* particles = m_Systems.Particle.get();
              particles != nullptr && !m_ViewProfile.SceneCapture )
+        {
+            // The lit cells' light first (UE fills the translucency lighting volume before the translucency):
+            // asked here, where the frame's every sprite draw record exists, so a lit sprite always has it.
+            AddFrameTranslucencyLightingVolume( graph, textures, frame );
             AddSystemRaster( graph, textures, particles->DrawPass() );
+        }
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
     }
 

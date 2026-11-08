@@ -1578,10 +1578,11 @@ namespace Desert::Graphic
         void AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef display,
                                 const OverlayTargets& overlay );
 #endif // DESERT_DEV_INSTRUMENTS
-       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles,
-       // then the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
+       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles
+       // (after the translucency lighting volume their lit cells read, AddFrameTranslucencyLightingVolume), then
+       // the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
-        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
         // the position of this call. The frame build calls it once per point, at that point's place.
@@ -1974,8 +1975,8 @@ namespace Desert::Graphic
         [[nodiscard]] System::VolumetricFogSunInput GatherVolumeSunInput( float scale ) const;
         // The translucency lighting volume's fill (TranslucencyLightingVolumeRenderer) into FrameTransients::
         // TranslucencyLightingVolume, on a frame this view draws a lit particle (ParticleRenderer::
-        // DrawsLitSprites); after the light grid, the shadow depths and the cloud shadow, before the
-        // translucency (AddFrameOpaqueFog).
+        // DrawsLitSprites); after the light grid, the shadow depths, the cloud shadow and the PostOpaque particle
+        // stage, right before the particles' DrawPass (AddFrameTranslucency).
         void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
                                                  const ViewFrame& frame );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );

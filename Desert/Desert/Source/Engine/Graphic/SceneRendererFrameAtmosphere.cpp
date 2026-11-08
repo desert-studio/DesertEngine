@@ -284,8 +284,11 @@ namespace Desert::Graphic
     {
         auto* volume    = m_Systems.TranslucencyLightingVolume.get();
         auto* particles = m_Systems.Particle.get();
-        // Zero cost when unused: no lit particle in this view's frame, no node and no volume read.
-        if ( volume == nullptr || particles == nullptr || !particles->DrawsLitSprites() )
+        // Zero cost when unused: no lit particle in this view's frame, no node and no volume read. Asked here,
+        // right before the particles' DrawPass, where every draw record of the frame exists (PrepareFrame, the
+        // simulate declare, the PostOpaque collision import): the volume is filled exactly when a draw reads it.
+        if ( volume == nullptr || particles == nullptr || m_ViewProfile.SceneCapture ||
+             !particles->DrawsLitSprites() )
             return;
         // The sun's irradiance as the surfaces receive it (no volumetric scattering scale: a particle is lit, not
         // a medium's in-scatter).
@@ -305,7 +308,6 @@ namespace Desert::Graphic
         if ( froxels == OpaqueFogFroxels::AddHere )
             AddFrameVolumetricFog( graph, textures, frame );
         AddFrameAtmosphericFog( graph, textures );
-        AddFrameTranslucencyLightingVolume( graph, textures, frame );
     }
 
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
