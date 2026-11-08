@@ -30,13 +30,20 @@ namespace Desert::Geometry
     // In the policy header and not inside the renderer because it has three call sites — batched
     // statics, ISM instances, shadow casters — and the rule they share is exactly the one all three
     // were missing. Three inline copies is how one of them ends up disagreeing with the other two.
-    inline std::vector<uint32_t> DistinctLODs( const std::vector<uint32_t>& levels )
+    // Into @p out (cleared, its capacity kept): the per-frame callers (the batch loops of every pass) pass a
+    // scratch vector, so a steady frame allocates nothing per bucket (UE FMemStack: no heap per batch).
+    inline void DistinctLODs( const std::vector<uint32_t>& levels, std::vector<uint32_t>& out )
     {
-        std::vector<uint32_t> out;
+        out.clear();
         for ( const uint32_t level : levels )
             if ( std::find( out.begin(), out.end(), level ) == out.end() )
                 out.push_back( level );
         std::sort( out.begin(), out.end() );
+    }
+    inline std::vector<uint32_t> DistinctLODs( const std::vector<uint32_t>& levels )
+    {
+        std::vector<uint32_t> out;
+        DistinctLODs( levels, out );
         return out;
     }
 

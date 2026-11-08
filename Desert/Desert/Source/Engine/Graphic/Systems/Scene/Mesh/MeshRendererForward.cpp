@@ -1918,6 +1918,48 @@ namespace Desert::Graphic::System
         }
     }
 
+    MeshRenderer::StaticCellDrawCache& MeshRenderer::StaticCellDrawsOf( const MeshPass            pass,
+                                                                        const DeferredPrepassHalf half,
+                                                                        const uint64_t            key ) noexcept
+    {
+        ++m_StaticCellDrawUses;
+        StaticCellDrawCache* slot = nullptr;
+        for ( StaticCellDrawCache& cache : m_StaticCellDrawCaches )
+        {
+            if ( cache.InUse && cache.Pass == pass && cache.Half == half )
+            {
+                slot = &cache;
+                break;
+            }
+        }
+        if ( slot == nullptr )
+        {
+            // An unused slot, else the least recently used one (six cover every (pass, half) a frame builds).
+            for ( StaticCellDrawCache& cache : m_StaticCellDrawCaches )
+            {
+                if ( !cache.InUse )
+                {
+                    slot = &cache;
+                    break;
+                }
+                if ( slot == nullptr || cache.UsedAt < slot->UsedAt )
+                    slot = &cache;
+            }
+            slot->Pass  = pass;
+            slot->Half  = half;
+            slot->InUse = true;
+            slot->Entries.clear(); // another (pass, half)'s answers: capacity kept
+            slot->Key = key;
+        }
+        else if ( slot->Key != key )
+        {
+            slot->Entries.clear(); // an input moved: every answer is asked again, once
+            slot->Key = key;
+        }
+        slot->UsedAt = m_StaticCellDrawUses;
+        return *slot;
+    }
+
     uint32_t MeshRenderer::BuildStaticDraws( MeshDrawList& list, const DrawBuildMode& mode,
                                              DrawBuildScratch& scratch )
     {
@@ -2389,6 +2431,70 @@ namespace Desert::Graphic::System
                     twoSided = twoSided || inst->IsTwoSided();
             return twoSided;
         };
+        // A GROUP's CELL ANSWER, RETAINED (StaticCellDrawCache; UE FCachedPassMeshDrawList): asked of the cells
+        // only when its key moved - the draw readiness epoch (DrawReadinessKey, read here, before this call's
+        // first answer) and every input cellDrawOf reads besides the material and its two-sidedness. A pass that
+        // takes the prepass's record (the forward base pass, the G-buffer's Equal half) reads that record as
+        // before; a renderer-owned material is asked every time (its forward VSM twin is keyed by address).
+        const bool takesPrepassRecord =
+             companion && ( mode.Pass == MeshPass::Forward || mode.Half == DeferredPrepassHalf::Equal );
+        StaticCellDrawCache* kept = nullptr;
+        // Never from a setup task: ChooseCellDraw answers Nothing there (MissInSetupTask), not an answer to keep.
+        if ( !recordCall && !takesPrepassRecord && materialService != nullptr && !::Common::TaskGroup::InTask() )
+        {
+            uint64_t   key = DrawReadinessKey();
+            const auto mix = [&key]( const uint64_t value ) noexcept { key = ( key ^ value ) * 0x100000001B3ull; };
+            const auto bits = []( const void* p ) noexcept
+            { return static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( p ) ); };
+            const auto mixCells = [&]( const StaticPassCells& c )
+            {
+                mix( static_cast<uint64_t>( c.Pass ) );
+                mix( bits( c.StaticState ) );
+                mix( bits( c.StandInPipeline ) );
+                mix( bits( c.InstancedState ) );
+                mix( bits( c.InstancedStandIn ) );
+                mix( ( c.InstancingOn ? 1u : 0u ) | ( c.DepthEqual ? 2u : 0u ) );
+            };
+            mixCells( cells );
+            mix( companion ? 1u : 0u );
+            if ( companion )
+                mixCells( *companion );
+            mix( ( instancingOn ? 1u : 0u ) | ( m_ForwardVirtualLocal ? 2u : 0u ) );
+            mix( bits( materialService ) );
+            kept = &StaticCellDrawsOf( mode.Pass, mode.Half, key );
+        }
+        const auto keptCellDrawOf = [&]( DataDrivenMaterial* mat, const bool twoSided ) -> CellDraw
+        {
+            if ( kept == nullptr || mat == nullptr || !materialService->Owns( mat ) )
+                return cellDrawOf( mat, twoSided, /*perObject*/ true );
+            std::vector<StaticCellDrawEntry>&                entries = kept->Entries;
+            const std::pair<const DataDrivenMaterial*, bool> wanted{ mat, twoSided };
+            const auto at = std::lower_bound( entries.begin(), entries.end(), wanted,
+                                              []( const StaticCellDrawEntry&                        entry,
+                                                  const std::pair<const DataDrivenMaterial*, bool>& k ) noexcept
+                                              {
+                                                  if ( entry.Material != k.first )
+                                                      return std::less<const DataDrivenMaterial*>{}(
+                                                           entry.Material, k.first );
+                                                  return entry.TwoSided < k.second;
+                                              } );
+            if ( at != entries.end() && at->Material == mat && at->TwoSided == twoSided )
+            {
+                m_StandInDraws += at->StandIns;
+                // The prepass's record is per frame (cleared at its Declare): written again from the kept answer.
+                if ( companion && mode.Pass == MeshPass::Depth )
+                    RecordPrepassCellDraw( PrepassCellKey{ mat, MeshVertexPath::Static, twoSided, true },
+                                           at->Draw );
+                return at->Draw;
+            }
+            const uint32_t standInsBefore = m_StandInDraws;
+            const CellDraw draw           = cellDrawOf( mat, twoSided, /*perObject*/ true );
+            entries.insert( at, StaticCellDrawEntry{ .Material = mat,
+                                                     .TwoSided = twoSided,
+                                                     .Draw     = draw,
+                                                     .StandIns = m_StandInDraws - standInsBefore } );
+            return draw;
+        };
         if ( !recordCall ) // a Record call's groups were split by its Resolve call
         {
             std::vector<const StaticMeshRenderData*> standingIn = scratch.TakeList();
@@ -2404,7 +2510,7 @@ namespace Desert::Graphic::System
                     objects.clear();
                     continue;
                 }
-                const CellDraw draw = cellDrawOf( mat, twoSided, /*perObject*/ true );
+                const CellDraw draw = keptCellDrawOf( mat, twoSided );
                 if ( draw == CellDraw::DefaultSurface )
                     standingIn.insert( standingIn.end(), objects.begin(), objects.end() );
                 if ( draw != CellDraw::Own )
@@ -2607,7 +2713,8 @@ namespace Desert::Graphic::System
                          ComputeLOD( od.Obj->Transform, od.Obj->Mesh, od.Obj->ForcedLOD, od.Obj->LODBias ),
                          maxLevel ) );
 
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                Geometry::DistinctLODs( levels, slice.DistinctLods );
+                for ( const uint32_t level : slice.DistinctLods )
                 {
                     const auto count = static_cast<uint32_t>( std::count( levels.begin(), levels.end(), level ) );
                     if ( count < 2 )

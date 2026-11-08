@@ -2444,6 +2444,18 @@ namespace Desert::Graphic::System
         uint64_t                                              m_CardGather         = 0;
         uint64_t                                              m_CardGroupRevision  = 0;
         [[nodiscard]] uint64_t                                CardReadinessKey() const;
+        // THE DRAW READINESS EPOCH (CPU-TAILS-F10 step A; UE: the PSO precache's completion and a material proxy's
+        // invalidation are EVENTS a cached mesh draw command is re-made by, never a per-frame poll). Moves when
+        // any answer "which pipeline does this material's cell draw through, and is it ready" may have changed:
+        //  - Graphic::PipelineReadinessGeneration: any pipeline's driver compile started, landed or failed (the
+        //    cells' own pipelines, their cull permutations and the stand-ins alike);
+        //  - PipelineCache::Generation: a cached pipeline was dropped (Clear, a hot reload's InvalidateByShader);
+        //  - MaterialService::GetInvalidationVersion: a material rebuilt / unloaded (its variants and cells with
+        //    it, so an address reused by another material is a new answer), a slot's texture landed;
+        //  - ShaderService::RecompileGeneration: a program recompiled (its permutations re-made).
+        // Read it BEFORE the answers it keys are asked: an event after the read moves the next read.
+        // CardReadinessKey is this epoch plus the cards' own inputs.
+        [[nodiscard]] uint64_t DrawReadinessKey() const;
         // The renderer-owned surface (MeshECSSystem's default, no `.demat` and so no view copies): one cell
         // material per capture of it in the frame, its camera in its block.
         // By MeshVertexPath: the static, skinned and instanced cells.
@@ -2743,6 +2755,37 @@ namespace Desert::Graphic::System
             else
                 m_PrepassCellDraws.insert( at, PrepassCellEntry{ key, draw } );
         }
+        // A STATIC PASS's CELL ANSWERS, RETAINED (CPU-TAILS-F10 step B; UE FCachedPassMeshDrawList: what a cached
+        // command binds is re-made by an invalidation event, the per-frame setup only selects). BuildStaticDraws'
+        // per-group CellDraw (cellDrawOf, perObject) of a `.demat` group, kept per (pass, half) while the inputs
+        // of that answer stand: Key = DrawReadinessKey (read before the first answer was asked) x the pass's
+        // cells and its companion's (pass states, stand-in pipelines, instancing, depth-equal) x instancingOn x
+        // m_ForwardVirtualLocal x the material service. Entries sorted by (Material, TwoSided); a Material is
+        // only valid under its Key (an unload moves the invalidation version, so a reused address misses).
+        // StandIns: how many stand-in answers (m_StandInDraws) the answer counted when it was made, counted
+        // again on every frame it is reused, so the shot gate sees the same count as an asked frame. Only the
+        // passes that DECIDE are kept: a pass that takes the prepass's record (the forward base pass, the
+        // G-buffer's Equal half) reads that record as before. Touched only where ChooseCellDraw is (serial).
+        struct StaticCellDrawEntry
+        {
+            const DataDrivenMaterial*         Material = nullptr;
+            bool                              TwoSided = false;
+            MaterialPipelineTracker::CellDraw Draw     = MaterialPipelineTracker::CellDraw::Nothing;
+            uint32_t                          StandIns = 0;
+        };
+        struct StaticCellDrawCache
+        {
+            MeshPass                         Pass   = MeshPass::Forward;
+            DeferredPrepassHalf              Half   = DeferredPrepassHalf::None;
+            bool                             InUse  = false;
+            uint64_t                         Key    = 0;
+            uint64_t                         UsedAt = 0; // m_StaticCellDrawUses at its last use (slot reuse)
+            std::vector<StaticCellDrawEntry> Entries;
+        };
+        std::array<StaticCellDrawCache, 6> m_StaticCellDrawCaches;
+        uint64_t                           m_StaticCellDrawUses = 0;
+        // The (pass, half)'s cache, emptied when @p key differs from the one its entries were made under.
+        StaticCellDrawCache& StaticCellDrawsOf( MeshPass pass, DeferredPrepassHalf half, uint64_t key ) noexcept;
         std::optional<uint64_t>                                     m_PrepassFrame;
         // The G-buffer groups' early-Z twins (EarlyZBinTwinsOf), per group pipeline: checked against the group's
         // cell shader (a pipeline rebuilt at the same address is a new group) and held weakly (the PipelineCache
@@ -4004,6 +4047,7 @@ namespace Desert::Graphic::System
         // reason every accumulator in this file is one: their capacity persists, so a frame that culls
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
+        std::vector<uint32_t>                    m_ScratchDistinctLods; // DistinctLODs( m_ScratchLodLevels )
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
         // CPU-ISM-PACK 5: a shadow view's ISM casters by GpuScene id - the visible instances' ids
         // (FirstGpuInstance + index), the opaque id batches and their ids end to end (the view's id material's
@@ -4134,6 +4178,7 @@ namespace Desert::Graphic::System
                 std::vector<uint32_t>   BucketIndex;
                 std::vector<ObjDraw>    Batchable;
                 std::vector<uint32_t>   LodLevels;
+                std::vector<uint32_t>   DistinctLods; // Geometry::DistinctLODs( LodLevels ), capacity kept
             };
             std::vector<BucketScratch> BucketSlices;
             // A Resolve call's plan, which the same half's Record call reads (DrawBuildPhase). WalkGroups: the

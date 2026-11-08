@@ -2470,7 +2470,8 @@ namespace Desert::Graphic::System
                 for ( const auto* rd : bucket )
                     levels.push_back( std::min( ShadowStaticLod( staticIndex( rd ) ), maxLevel ) );
 
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                for ( const uint32_t level : m_ScratchDistinctLods )
                 {
                     const auto first = static_cast<uint32_t>( instTransforms.size() );
                     for ( std::size_t i = 0; i < bucket.size(); ++i )
@@ -2617,7 +2618,8 @@ namespace Desert::Graphic::System
                         }
                         auto& set    = maskedSetFor( caster );
                         set.SceneIds = byId;
-                        for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                        Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                        for ( const uint32_t level : m_ScratchDistinctLods )
                         {
                             const std::size_t setSize = byId ? set.Ids.size() : set.Transforms.size();
                             const auto        first   = static_cast<uint32_t>( setSize );
@@ -2648,7 +2650,8 @@ namespace Desert::Graphic::System
                         continue;
                     }
 
-                    for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                    Geometry::DistinctLODs( levels, m_ScratchDistinctLods );
+                    for ( const uint32_t level : m_ScratchDistinctLods )
                     {
                         if ( ismIds )
                         {
