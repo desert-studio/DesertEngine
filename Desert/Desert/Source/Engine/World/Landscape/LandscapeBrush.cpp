@@ -3,6 +3,9 @@
 
 #include <Engine/World/Landscape/LandscapeBrush.hpp>
 
+#include <glm/geometric.hpp>
+#include <glm/trigonometric.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -28,6 +31,110 @@ namespace Desert::World::Landscape
             for ( size_t i = 0; i < kLandscapeBrushMaxPositions; ++i )
                 out.push_back(
                      positions[( i * ( positions.size() - 1u ) ) / ( kLandscapeBrushMaxPositions - 1u )] );
+            return out;
+        }
+
+        /// UE's FVector2D::GetRotated: @p v turned by @p degrees.
+        glm::vec2 Rotated( glm::vec2 v, float degrees )
+        {
+            const float theta = glm::radians( degrees );
+            const float c     = std::cos( theta );
+            const float s     = std::sin( theta );
+            return { c * v.x - s * v.y, s * v.x + c * v.y };
+        }
+
+        /// UE's FLandscapeBrushAlpha / FLandscapeBrushAlphaPattern::ApplyBrush around one centre @p c (lattice
+        /// units). The rectangle is UE's ExclusiveBounds: floor(c - R) .. ceil(c + R) + 1.
+        LandscapeBrushWeights AlphaBrushWeights( const LandscapeRoot& root, const LandscapeBrushSettings& s,
+                                                 glm::vec2 c, float totalRadius, float radius, float falloff )
+        {
+            const LandscapeBrushAlphaTexture& tex   = *s.AlphaTexture;
+            const float                       sizeX = static_cast<float>( tex.Width );
+            const float                       sizeY = static_cast<float>( tex.Height );
+
+            LandscapeBrushWeights out;
+            out.X0             = static_cast<int32_t>( std::floor( c.x - totalRadius ) );
+            out.Z0             = static_cast<int32_t>( std::floor( c.y - totalRadius ) );
+            const int32_t endX = static_cast<int32_t>( std::ceil( c.x + totalRadius ) ) + 1;
+            const int32_t endZ = static_cast<int32_t>( std::ceil( c.y + totalRadius ) ) + 1;
+            out.Width          = static_cast<uint32_t>( endX - out.X0 );
+            out.Depth          = static_cast<uint32_t>( endZ - out.Z0 );
+            out.Values.assign( static_cast<size_t>( out.Width ) * out.Depth, 0.0f );
+
+            if ( s.Type == LandscapeBrushType::Alpha )
+            {
+                // ComputeAlphaBrushScaleAndRadius: the longer side fits the square inscribed in the circle.
+                const float maxSize = 2.0f * std::sqrt( totalRadius * totalRadius / 2.0f );
+                const float scale   = maxSize / std::max( sizeX, sizeY );
+                const float angle   = glm::radians( s.AlphaRotationDeg );
+                const float cosA    = std::cos( angle );
+                const float sinA    = std::sin( angle );
+                for ( int32_t z = out.Z0; z < endZ; ++z )
+                {
+                    float* row = out.Values.data() + static_cast<size_t>( z - out.Z0 ) * out.Width;
+                    for ( int32_t x = out.X0; x < endX; ++x )
+                    {
+                        const float sx = ( static_cast<float>( x ) - c.x ) / scale;
+                        const float sy = ( static_cast<float>( z ) - c.y ) / scale;
+                        const float tx = sx * cosA - sy * sinA + sizeX * 0.5f;
+                        const float ty = sy * cosA + sx * sinA + sizeY * 0.5f;
+                        if ( tx >= 0.0f && tx <= sizeX - 1.0f && ty >= 0.0f && ty <= sizeY - 1.0f )
+                            row[x - out.X0] = LandscapeBrushAlphaSample( tex, tx, ty );
+                    }
+                }
+                return out;
+            }
+
+            // Pattern: the sample position is a function of the lattice position alone, so it is hoisted.
+            glm::vec2 scale;
+            glm::vec2 bias;
+            float     angleDeg = 0.0f;
+            if ( s.PatternWorldSpace )
+            {
+                const float spacing     = static_cast<float>( root.SpacingCm );
+                glm::vec2   localOrigin = -glm::vec2(
+                     static_cast<float>( ( static_cast<double>( s.PatternOriginCm.x ) - root.Origin.x ) /
+                                         root.SpacingCm ),
+                     static_cast<float>( ( static_cast<double>( s.PatternOriginCm.y ) - root.Origin.z ) /
+                                         root.SpacingCm ) );
+                const glm::vec2 localScale( spacing / ( s.PatternRepeatCm * ( sizeX / sizeY ) ),
+                                            spacing / s.PatternRepeatCm );
+                localOrigin *= localScale;
+                angleDeg = -s.PatternWorldRotationDeg;
+                if ( s.PatternCenterOnOrigin )
+                    localOrigin += Rotated( glm::vec2( 0.5f, 0.5f ), -angleDeg );
+                scale = glm::vec2( sizeX, sizeY ) * localScale;
+                bias  = glm::vec2( sizeX, sizeY ) * localOrigin;
+            }
+            else
+            {
+                scale    = glm::vec2( 1.0f / s.PatternScale );
+                bias     = glm::vec2( sizeX * s.PatternPanU, sizeY * s.PatternPanV );
+                angleDeg = s.AlphaRotationDeg;
+            }
+            for ( int32_t z = out.Z0; z < endZ; ++z )
+            {
+                float* row = out.Values.data() + static_cast<size_t>( z - out.Z0 ) * out.Width;
+                for ( int32_t x = out.X0; x < endX; ++x )
+                {
+                    const glm::vec2 p =
+                         Rotated( glm::vec2( static_cast<float>( x ), static_cast<float>( z ) ) * scale + bias,
+                                  angleDeg );
+                    float mx = std::fmod( p.x, sizeX );
+                    float my = std::fmod( p.y, sizeY );
+                    if ( mx < 0.0f )
+                        mx += sizeX;
+                    if ( my < 0.0f )
+                        my += sizeY;
+                    const float alpha = LandscapeBrushAlphaSample( tex, mx, my );
+                    const float dx    = c.x - static_cast<float>( x );
+                    const float dz    = c.y - static_cast<float>( z );
+                    // The pattern brush derives from FLandscapeBrushCircle_Smooth: Smooth, whatever Shape says.
+                    row[x - out.X0] = LandscapeBrushFalloffWeight( LandscapeBrushFalloff::Smooth,
+                                                                   std::sqrt( dx * dx + dz * dz ), radius, falloff ) *
+                                      alpha;
+                }
+            }
             return out;
         }
     } // namespace
@@ -79,6 +186,43 @@ namespace Desert::World::Landscape
         if ( !std::isfinite( settings.Strength ) || settings.Strength < 0.0f )
             return Common::MakeFormattedError<bool>(
                  "Landscape brush strength must be non-negative and finite, got {}", settings.Strength );
+        if ( settings.Type != LandscapeBrushType::Circle )
+        {
+            // UE's CanPaint: an alpha brush with no valid alpha data does not paint. Here it says why.
+            const LandscapeBrushAlphaTexture* tex = settings.AlphaTexture.get();
+            if ( tex == nullptr )
+                return Common::MakeError<bool>( std::string(
+                     "Landscape alpha / pattern brush has no alpha texture; choose one with 'Landscape: Alpha "
+                     "texture: <name>' or switch to 'Landscape: Brush type: Circle'" ) );
+            if ( tex->Width == 0u || tex->Height == 0u ||
+                 tex->Values.size() != static_cast<size_t>( tex->Width ) * tex->Height )
+                return Common::MakeFormattedError<bool>(
+                     "Landscape alpha texture '{}' holds {} values for {} x {} texels", tex->Source,
+                     tex->Values.size(), tex->Width, tex->Height );
+            if ( !std::isfinite( settings.AlphaRotationDeg ) )
+                return Common::MakeFormattedError<bool>( "Landscape brush texture rotation must be finite, got {}",
+                                                         settings.AlphaRotationDeg );
+            if ( settings.Type == LandscapeBrushType::Pattern )
+            {
+                if ( !( settings.PatternScale >= 0.005f && settings.PatternScale <= 5.0f ) )
+                    return Common::MakeFormattedError<bool>(
+                         "Landscape pattern texture scale must be within [0.005, 5], got {}", settings.PatternScale );
+                if ( !( settings.PatternPanU >= 0.0f && settings.PatternPanU <= 1.0f && settings.PatternPanV >= 0.0f &&
+                        settings.PatternPanV <= 1.0f ) )
+                    return Common::MakeFormattedError<bool>(
+                         "Landscape pattern texture pan must be within [0, 1], got ({}, {})", settings.PatternPanU,
+                         settings.PatternPanV );
+                if ( settings.PatternWorldSpace &&
+                     ( !std::isfinite( settings.PatternRepeatCm ) || settings.PatternRepeatCm <= 0.0f ||
+                       !std::isfinite( settings.PatternOriginCm.x ) || !std::isfinite( settings.PatternOriginCm.y ) ||
+                       !std::isfinite( settings.PatternWorldRotationDeg ) ) )
+                    return Common::MakeFormattedError<bool>(
+                         "Landscape world-space pattern needs a positive repeat size and a finite origin and rotation, "
+                         "got repeat {} cm, origin ({}, {}) cm, rotation {}",
+                         settings.PatternRepeatCm, settings.PatternOriginCm.x, settings.PatternOriginCm.y,
+                         settings.PatternWorldRotationDeg );
+            }
+        }
         return Common::MakeSuccess( true );
     }
 
@@ -114,6 +258,19 @@ namespace Desert::World::Landscape
                      "Landscape brush position must be finite, got ({}, {})", c.x, c.y );
             c.x = static_cast<float>( ( static_cast<double>( c.x ) - root.Origin.x ) / root.SpacingCm );
             c.y = static_cast<float>( ( static_cast<double>( c.y ) - root.Origin.z ) / root.SpacingCm );
+        }
+
+        // UE's alpha brushes apply at LastMousePosition alone: the step's last position.
+        if ( settings.Type != LandscapeBrushType::Circle )
+        {
+            if ( centres.empty() )
+                return Common::MakeSuccess( LandscapeBrushWeights{} );
+            LandscapeBrushWeights alpha =
+                 AlphaBrushWeights( root, settings, centres.back(), totalRadius, radius, falloff );
+            if ( settings.Strength != 1.0f )
+                for ( float& v : alpha.Values )
+                    v *= settings.Strength;
+            return Common::MakeSuccess( std::move( alpha ) );
         }
 
         // UE's SpotExclusiveBounds, one per centre; the result covers their union.
@@ -213,5 +370,51 @@ namespace Desert::World::Landscape
     {
         const int32_t q = static_cast<int32_t>( root.QuadsPerTile );
         return weights.At( tileX * q + static_cast<int32_t>( x ), tileZ * q + static_cast<int32_t>( z ) );
+    }
+
+    float LandscapeBrushAlphaSample( const LandscapeBrushAlphaTexture& texture, float x, float y )
+    {
+        const int32_t w    = static_cast<int32_t>( texture.Width );
+        const int32_t h    = static_cast<int32_t>( texture.Height );
+        auto          wrap = []( int32_t v, int32_t n )
+        {
+            const int32_t m = v % n;
+            return m < 0 ? m + n : m;
+        };
+        const float   fx  = std::floor( x );
+        const float   fy  = std::floor( y );
+        const int32_t x0  = wrap( static_cast<int32_t>( fx ), w );
+        const int32_t y0  = wrap( static_cast<int32_t>( fy ), h );
+        const int32_t x1  = wrap( x0 + 1, w );
+        const int32_t y1  = wrap( y0 + 1, h );
+        auto          at  = [&]( int32_t tx, int32_t ty )
+        { return static_cast<float>( texture.Values[static_cast<size_t>( ty ) * texture.Width + static_cast<size_t>( tx )] ) / 255.0f; };
+        const float   ax  = x - fx;
+        const float   ay  = y - fy;
+        const float   top = at( x0, y0 ) + ax * ( at( x1, y0 ) - at( x0, y0 ) );
+        const float   bot = at( x0, y1 ) + ax * ( at( x1, y1 ) - at( x0, y1 ) );
+        return top + ay * ( bot - top );
+    }
+
+    void LandscapeAlphaBrushRotation::Move( const LandscapeRoot& root, glm::vec2 positionCm, float deltaSeconds )
+    {
+        const glm::vec2 p(
+             static_cast<float>( ( static_cast<double>( positionCm.x ) - root.Origin.x ) / root.SpacingCm ),
+             static_cast<float>( ( static_cast<double>( positionCm.y ) - root.Origin.z ) / root.SpacingCm ) );
+        SecondsSinceTurn += std::max( deltaSeconds, 0.0f );
+        if ( !OldPosition )
+        {
+            OldPosition      = p;
+            SecondsSinceTurn = 0.0f;
+            return;
+        }
+        const glm::vec2 delta = p - *OldPosition;
+        if ( glm::dot( delta, delta ) < 0.25f )
+            return;
+        const glm::vec2 direction = glm::normalize( delta );
+        const float     target    = std::atan2( -direction.y, direction.x );
+        AngleRadians += std::min( 10.0f * SecondsSinceTurn, 1.0f ) * ( target - AngleRadians );
+        SecondsSinceTurn = 0.0f;
+        OldPosition      = p;
     }
 } // namespace Desert::World::Landscape

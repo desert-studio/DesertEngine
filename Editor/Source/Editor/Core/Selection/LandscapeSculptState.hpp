@@ -199,6 +199,20 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
+    inline const char* LandscapeBrushTypeName( World::Landscape::LandscapeBrushType type )
+    {
+        switch ( type )
+        {
+            case World::Landscape::LandscapeBrushType::Circle:
+                return "Circle";
+            case World::Landscape::LandscapeBrushType::Alpha:
+                return "Alpha";
+            case World::Landscape::LandscapeBrushType::Pattern:
+                return "Pattern";
+        }
+        return "Unknown";
+    }
+
     inline constexpr float kLandscapeMinRadiusCm = 100.0f;
     inline constexpr float kLandscapeMaxRadiusCm = 65536.0f;
     inline constexpr float kLandscapeMinStrength = 0.05f;
@@ -217,6 +231,9 @@ namespace Desert::Editor::Core
         World::Landscape::LandscapeHydroErosionSettings HydroErosion;
         World::Landscape::LandscapeMirrorSettings       Mirror;
         World::Landscape::LandscapePasteMode            PasteMode = World::Landscape::LandscapePasteMode::Both;
+        /// UE's bAlphaBrushAutoRotate: the Alpha stamp turns with the stroke (LandscapeAlphaBrushRotation) instead of
+        /// keeping Brush.AlphaRotationDeg.
+        bool AlphaAutoRotate = true;
         /// What the Splines tool gives a new control point and segment (UE: the new point copies the selected
         /// one; here the tool's own values, UE's defaults until stepped).
         World::Landscape::LandscapeSplineControlPoint SplinePoint;
@@ -366,6 +383,71 @@ namespace Desert::Editor::Core
         controls.push_back( { "Brush falloff: smaller", "Falloff", []( LandscapeSculptSettings& s )
                               { s.Brush.FalloffFraction = std::max( s.Brush.FalloffFraction - 0.1f, 0.0f ); },
                               always } );
+        // UE's brush sets and the Alpha / Pattern rows (LandscapeEditorObject.h:700-735).
+        {
+            using World::Landscape::LandscapeBrushType;
+            using S = LandscapeSculptSettings;
+            for ( const LandscapeBrushType type :
+                  { LandscapeBrushType::Circle, LandscapeBrushType::Alpha, LandscapeBrushType::Pattern } )
+                controls.push_back( { std::string( "Brush type: " ) + LandscapeBrushTypeName( type ), "Brush Type",
+                                      [type]( S& s ) { s.Brush.Type = type; }, always } );
+            auto textured = []( const S& s ) { return s.Brush.Type != LandscapeBrushType::Circle; };
+            auto alpha    = []( const S& s ) { return s.Brush.Type == LandscapeBrushType::Alpha; };
+            auto pattern  = []( const S& s ) { return s.Brush.Type == LandscapeBrushType::Pattern; };
+            auto world    = []( const S& s )
+            { return s.Brush.Type == LandscapeBrushType::Pattern && s.Brush.PatternWorldSpace; };
+            auto turn = []( float degrees, float by )
+            {
+                const float t = degrees + by;
+                return t > 180.0f ? t - 360.0f : ( t < -180.0f ? t + 360.0f : t );
+            };
+            controls.push_back( { "Texture rotation: +45", "Texture Rotation", [turn]( S& s )
+                                  { s.Brush.AlphaRotationDeg = turn( s.Brush.AlphaRotationDeg, 45.0f ); }, textured } );
+            controls.push_back( { "Texture rotation: -45", "Texture Rotation", [turn]( S& s )
+                                  { s.Brush.AlphaRotationDeg = turn( s.Brush.AlphaRotationDeg, -45.0f ); }, textured } );
+            controls.push_back( { "Auto-rotate: on", "Auto-Rotate", []( S& s ) { s.AlphaAutoRotate = true; }, alpha } );
+            controls.push_back( { "Auto-rotate: off", "Auto-Rotate", []( S& s ) { s.AlphaAutoRotate = false; }, alpha } );
+            controls.push_back( { "Texture scale: larger", "Texture Scale", []( S& s )
+                                  { s.Brush.PatternScale = std::min( s.Brush.PatternScale * 2.0f, 5.0f ); }, pattern } );
+            controls.push_back( { "Texture scale: smaller", "Texture Scale", []( S& s )
+                                  { s.Brush.PatternScale = std::max( s.Brush.PatternScale / 2.0f, 0.005f ); }, pattern } );
+            controls.push_back( { "Texture pan U: +0.1", "Texture Pan U", []( S& s )
+                                  { s.Brush.PatternPanU = std::min( s.Brush.PatternPanU + 0.1f, 1.0f ); }, pattern } );
+            controls.push_back( { "Texture pan U: -0.1", "Texture Pan U", []( S& s )
+                                  { s.Brush.PatternPanU = std::max( s.Brush.PatternPanU - 0.1f, 0.0f ); }, pattern } );
+            controls.push_back( { "Texture pan V: +0.1", "Texture Pan V", []( S& s )
+                                  { s.Brush.PatternPanV = std::min( s.Brush.PatternPanV + 0.1f, 1.0f ); }, pattern } );
+            controls.push_back( { "Texture pan V: -0.1", "Texture Pan V", []( S& s )
+                                  { s.Brush.PatternPanV = std::max( s.Brush.PatternPanV - 0.1f, 0.0f ); }, pattern } );
+            controls.push_back( { "Pattern world-space: on", "Use World-Space", []( S& s )
+                                  { s.Brush.PatternWorldSpace = true; }, pattern } );
+            controls.push_back( { "Pattern world-space: off", "Use World-Space", []( S& s )
+                                  { s.Brush.PatternWorldSpace = false; }, pattern } );
+            controls.push_back( { "World-space rotation: +45", "World-Space Rotation", [turn]( S& s )
+                                  { s.Brush.PatternWorldRotationDeg = turn( s.Brush.PatternWorldRotationDeg, 45.0f ); },
+                                  world } );
+            controls.push_back( { "World-space rotation: -45", "World-Space Rotation", [turn]( S& s )
+                                  { s.Brush.PatternWorldRotationDeg = turn( s.Brush.PatternWorldRotationDeg, -45.0f ); },
+                                  world } );
+            controls.push_back( { "Repeat size: larger", "Repeat Size", []( S& s )
+                                  { s.Brush.PatternRepeatCm = std::min( s.Brush.PatternRepeatCm * 2.0f, 1.0e6f ); },
+                                  world } );
+            controls.push_back( { "Repeat size: smaller", "Repeat Size", []( S& s )
+                                  { s.Brush.PatternRepeatCm = std::max( s.Brush.PatternRepeatCm / 2.0f, 100.0f ); },
+                                  world } );
+            controls.push_back( { "Center texture on origin: on", "Center Texture On Origin", []( S& s )
+                                  { s.Brush.PatternCenterOnOrigin = true; }, world } );
+            controls.push_back( { "Center texture on origin: off", "Center Texture On Origin", []( S& s )
+                                  { s.Brush.PatternCenterOnOrigin = false; }, world } );
+            controls.push_back( { "World-space origin X: +1000", "World-Space Origin X", []( S& s )
+                                  { s.Brush.PatternOriginCm.x += 1000.0f; }, world } );
+            controls.push_back( { "World-space origin X: -1000", "World-Space Origin X", []( S& s )
+                                  { s.Brush.PatternOriginCm.x -= 1000.0f; }, world } );
+            controls.push_back( { "World-space origin Z: +1000", "World-Space Origin Z", []( S& s )
+                                  { s.Brush.PatternOriginCm.y += 1000.0f; }, world } );
+            controls.push_back( { "World-space origin Z: -1000", "World-Space Origin Z", []( S& s )
+                                  { s.Brush.PatternOriginCm.y -= 1000.0f; }, world } );
+        }
         for ( const LandscapeBrushFalloff shape :
               { LandscapeBrushFalloff::Linear, LandscapeBrushFalloff::Smooth, LandscapeBrushFalloff::Spherical,
                 LandscapeBrushFalloff::Tip } )
@@ -814,6 +896,45 @@ namespace Desert::Editor::Core
         rows.push_back( flt(
              "Tool Strength", strength, []( S& s ) { return &s.Brush.Strength; }, 0.0f, 1.0f,
              kLandscapeMinStrength, kLandscapeMaxStrength, false ) );
+        // Brush settings (LandscapeEditorObject.h:700-735): the brush set, and the Alpha / Pattern texture rows. The
+        // texture itself is chosen by the palette's 'Alpha texture: <name>' rows (it is read, not typed).
+        {
+            using BT                = L::LandscapeBrushType;
+            const Shown brushed     = []( const S& s ) { return LandscapeToolUsesBrush( s.Tool ); };
+            const Shown textured    = []( const S& s )
+            { return LandscapeToolUsesBrush( s.Tool ) && s.Brush.Type != BT::Circle; };
+            const Shown alphaOnly   = []( const S& s )
+            { return LandscapeToolUsesBrush( s.Tool ) && s.Brush.Type == BT::Alpha; };
+            const Shown patternOnly = []( const S& s )
+            { return LandscapeToolUsesBrush( s.Tool ) && s.Brush.Type == BT::Pattern; };
+            const Shown worldOnly   = []( const S& s )
+            { return LandscapeToolUsesBrush( s.Tool ) && s.Brush.Type == BT::Pattern && s.Brush.PatternWorldSpace; };
+            rows.push_back( MakeLandscapeChoice( "Brush Type", brushed,
+                                                 std::vector<BT>{ BT::Circle, BT::Alpha, BT::Pattern },
+                                                 LandscapeBrushTypeName,
+                                                 []( S& s ) -> BT& { return s.Brush.Type; } ) );
+            rows.push_back( boolean( "Auto-Rotate", alphaOnly, []( S& s ) { return &s.AlphaAutoRotate; } ) );
+            rows.push_back( flt( "Texture Rotation", textured, []( S& s ) { return &s.Brush.AlphaRotationDeg; },
+                                 -180.0f, 180.0f, -360.0f, 360.0f, false ) );
+            rows.push_back( flt( "Texture Scale", patternOnly, []( S& s ) { return &s.Brush.PatternScale; }, 0.005f,
+                                 5.0f, 0.005f, 5.0f, true ) );
+            rows.push_back( flt( "Texture Pan U", patternOnly, []( S& s ) { return &s.Brush.PatternPanU; }, 0.0f,
+                                 1.0f, 0.0f, 1.0f, false ) );
+            rows.push_back( flt( "Texture Pan V", patternOnly, []( S& s ) { return &s.Brush.PatternPanV; }, 0.0f,
+                                 1.0f, 0.0f, 1.0f, false ) );
+            rows.push_back( boolean( "Use World-Space", patternOnly, []( S& s ) { return &s.Brush.PatternWorldSpace; } ) );
+            rows.push_back( flt( "World-Space Origin X", worldOnly, []( S& s ) { return &s.Brush.PatternOriginCm.x; },
+                                 -100000.0f, 100000.0f, -1.0e7f, 1.0e7f, false ) );
+            rows.push_back( flt( "World-Space Origin Z", worldOnly, []( S& s ) { return &s.Brush.PatternOriginCm.y; },
+                                 -100000.0f, 100000.0f, -1.0e7f, 1.0e7f, false ) );
+            rows.push_back( flt( "World-Space Rotation", worldOnly,
+                                 []( S& s ) { return &s.Brush.PatternWorldRotationDeg; }, -180.0f, 180.0f, -360.0f,
+                                 360.0f, false ) );
+            rows.push_back( boolean( "Center Texture On Origin", worldOnly,
+                                     []( S& s ) { return &s.Brush.PatternCenterOnOrigin; } ) );
+            rows.push_back( flt( "Repeat Size", worldOnly, []( S& s ) { return &s.Brush.PatternRepeatCm; }, 100.0f,
+                                 100000.0f, 1.0f, 1.0e7f, true ) );
+        }
         // Flatten (LandscapeEditorObject.h:353-383).
         rows.push_back( MakeLandscapeChoice(
              "Flatten Mode", is( LandscapeTool::Flatten ),

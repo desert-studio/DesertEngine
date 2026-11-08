@@ -8,8 +8,8 @@
 // Manage mode has New Landscape and UE's heightmap Import / Export
 // (LandscapeEditorDetailCustomization_ImportExport: one file field, Import as a new landscape or into the existing
 // one, Export all or the selected tiles). NOT PORTED, each for a stated reason. The Manage tools resize /
-// components: nothing drives them yet. Alpha / Pattern / Component brush sets: the stroke maths has only UE's
-// circle brush, so the brush row shows the one set that exists.
+// components: nothing drives them yet. Component brush set: no component selection to brush. The Circle / Alpha /
+// Pattern sets are the Brush Type row of LandscapeToolProperties(); the alpha texture is the palette's choice.
 
 #include "LandscapePanel.hpp"
 
