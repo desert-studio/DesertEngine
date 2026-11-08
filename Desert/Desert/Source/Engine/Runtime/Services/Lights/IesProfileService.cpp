@@ -62,13 +62,14 @@ namespace Desert::Runtime
         if ( m_Dirty )
         {
             m_Dirty = false;
-            const Core::Formats::Image2DSpecification spec = { .Tag        = "IesProfileAtlas",
-                                                                .Width      = Graphic::kIesProfileColumns,
-                                                                .Height     = m_Profiles * Graphic::kIesProfileRows,
-                                                                .Format     = Core::Formats::ImageFormat::R32F,
-                                                                .Data       = m_Texels,
-                                                                .Usage      = Core::Formats::Image2DUsage::Image2D,
-                                                                .Properties = Core::Formats::Sample };
+            const Core::Formats::Image2DSpecification spec = {
+                 .Tag        = "IesProfileAtlas",
+                 .Width      = Graphic::kIesProfileColumns,
+                 .Height     = m_Profiles * Graphic::kIesProfileRows,
+                 .Format     = Core::Formats::ImageFormat::R32F,
+                 .Data       = m_Texels,
+                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Properties = Core::Formats::Sample };
             std::shared_ptr<Graphic::Image2D>         atlas = Graphic::Image2D::Create( spec );
             if ( !atlas || !atlas->GetBindlessSlot().IsValid() )
             {

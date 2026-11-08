@@ -1293,8 +1293,8 @@ namespace Desert::Core::Serialize
             }
             if ( type == "IesProfileAsset" )
             {
-                // An IES profile's handle IS HandleForGuid of its header GUID, as a sound's: the registry row under
-                // it is the `.dies` wherever it has since moved.
+                // An IES profile's handle IS HandleForGuid of its header GUID, as a sound's: the registry row
+                // under it is the `.dies` wherever it has since moved.
                 return Assets::ContentRegistry::KeyForHandle( guid ).empty() ? 0 : guid;
             }
             if ( type == "SkyboxAsset" )

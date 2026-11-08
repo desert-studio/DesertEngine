@@ -150,9 +150,10 @@ namespace Desert::Graphic
 
         // THE EXACT PART OF THE LIGHTING A SCENE'S CAPTURES SEE, apart from the captures themselves: the sky bake
         // (@p environment: its identity changes only when the sky's own rule re-baked it - a sun past its Rebake
-        // Sun Angle, the clouds, the sky's look) and every visible point and spot light's colour, intensity,
-        // reach, cone and transform - an edit, never a drift, so any change counts. The suns are not in it: they
-        // move every frame of a running day and are compared by ReflectionCaptureSunChanged's threshold instead.
+        // Sun Angle, the clouds, the sky's look) and every visible point, spot and rect light's colour, intensity,
+        // reach, cone or rect, IES profile and transform - an edit, never a drift, so any change counts. The suns
+        // are not in it: they move every frame of a running day and are compared by ReflectionCaptureSunChanged's
+        // threshold instead.
         // Hashed field by field, not as raw component bytes: the components carry editor-only fields (ShowRadius,
         // ShowCone) and padding that would relight on nothing.
         [[nodiscard]] uint64_t LightingSignature( const entt::registry& registry, uint64_t environment )
@@ -163,6 +164,13 @@ namespace Desert::Graphic
             {
                 HashBytes( hash, &transform.GetTranslation(), sizeof( transform.GetTranslation() ) );
                 HashBytes( hash, &transform.GetRotation(), sizeof( transform.GetRotation() ) );
+            };
+            // The profile's identity (a handle, so a re-import keeping the GUID is not seen; the profile's data
+            // is a scene-load fact, as a mesh's is).
+            const auto hashProfile = [&hash]( const Assets::AssetHandle& profile )
+            {
+                const uint64_t value = profile;
+                HashBytes( hash, &value, sizeof( value ) );
             };
             const auto points = registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>();
             for ( const entt::entity entity : points )
@@ -180,6 +188,7 @@ namespace Desert::Graphic
                 HashBytes( hash, &d.MinRadius, sizeof( d.MinRadius ) );
                 HashBytes( hash, &d.Falloff, sizeof( d.Falloff ) );
                 HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
+                hashProfile( d.IesProfile );
                 hashTransform( transform );
             }
             const auto spots = registry.view<const ECS::SpotLightComponent, const ECS::TransformComponent>();
@@ -199,6 +208,30 @@ namespace Desert::Graphic
                 HashBytes( hash, &d.OuterConeAngle, sizeof( d.OuterConeAngle ) );
                 HashBytes( hash, &d.Falloff, sizeof( d.Falloff ) );
                 HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
+                hashProfile( d.IesProfile );
+                hashTransform( transform );
+            }
+            // Rect lights light the captures as the point list they ride (RectLightSystem): the rect and its barn
+            // doors shape what a capture sees, so they are part of the signature as the spot's cone is.
+            const auto rects = registry.view<const ECS::RectLightComponent, const ECS::TransformComponent>();
+            for ( const entt::entity entity : rects )
+            {
+                if ( ECS::IsHidden( registry, entity ) )
+                    continue;
+                const ECS::TransformComponent& transform = rects.get<const ECS::TransformComponent>( entity );
+                const ECS::RectLightData&      d         = rects.get<const ECS::RectLightComponent>( entity ).Data;
+                const auto                     id        = entt::to_integral( entity );
+                HashBytes( hash, &id, sizeof( id ) );
+                HashBytes( hash, &d.Color, sizeof( d.Color ) );
+                HashBytes( hash, &d.Intensity, sizeof( d.Intensity ) );
+                HashBytes( hash, &d.IntensityUnits, sizeof( d.IntensityUnits ) );
+                HashBytes( hash, &d.Range, sizeof( d.Range ) );
+                HashBytes( hash, &d.SourceWidth, sizeof( d.SourceWidth ) );
+                HashBytes( hash, &d.SourceHeight, sizeof( d.SourceHeight ) );
+                HashBytes( hash, &d.BarnDoorAngle, sizeof( d.BarnDoorAngle ) );
+                HashBytes( hash, &d.BarnDoorLength, sizeof( d.BarnDoorLength ) );
+                HashBytes( hash, &d.CastShadows, sizeof( d.CastShadows ) );
+                hashProfile( d.IesProfile );
                 hashTransform( transform );
             }
             return hash;
