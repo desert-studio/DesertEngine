@@ -267,18 +267,29 @@ vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float dither
     const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
     const int   grid   = int( radianceCache.shape.y );
 
+    // In phases, as the radiance read below (RadianceCacheRadianceInClipmap): the eight entries first, then every
+    // corner's reads unconditionally (an unused corner's at the safe probe 0), dropped by a select - no branch
+    // makes one corner's offset -> moments chain wait on the corner before it. Same sums in the same order.
+    uint entries[8];
+    for ( uint i = 0u; i < 8u; ++i )
+    {
+        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
+        entries[i] = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
+    }
+
     vec3  sum    = vec3( 0.0 );
     float weight = 0.0;
     for ( uint i = 0u; i < 8u; ++i )
     {
+        const uint  entry  = entries[i];
+        const bool  used   = entry != RADIANCE_CACHE_INVALID_PROBE &&
+                             ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) == 0u;
+        const uint  probe  = used ? entry : 0u;
         const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
-        const ivec3 local  = clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
-        const ivec3 world  = corner + local;
-        const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
-        if ( entry == RADIANCE_CACHE_INVALID_PROBE || ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
-            continue;
+        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
         const vec3  probePos  = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
-                                RADIANCE_CACHE_PROBES[entry].offset.xyz;
+                                RADIANCE_CACHE_PROBES[probe].offset.xyz;
         const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
         float       w         = trilinear.x * trilinear.y * trilinear.z;
         // Probes behind the surface count less (DDGI's smooth backface weight).
@@ -286,12 +297,17 @@ vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float dither
         const float toProbeLength = max( length( toProbe ), 1e-3 );
         const float wrap      = ( dot( toProbe / toProbeLength, N ) + 1.0 ) * 0.5;
         w *= wrap * wrap + 0.2;
-        w *= RadianceCacheProbeVisibility( entry, probePos, biased, momentRange );
+        w *= RadianceCacheProbeVisibility( probe, probePos, biased, momentRange );
         w = max( w, 1e-6 );
-        sum    += w * RadianceCacheSampleProbeIrradiance( entry, N );
-        if ( second )
-            irradianceR += w * RadianceCacheSampleProbeIrradiance( entry, R );
-        weight += w;
+        const vec3 irradiance = RadianceCacheSampleProbeIrradiance( probe, N );
+        // @p second is a constant at every call site: the branch folds away.
+        const vec3 irradianceAboutR = second ? RadianceCacheSampleProbeIrradiance( probe, R ) : vec3( 0.0 );
+        if ( used )
+        {
+            sum    += w * irradiance;
+            irradianceR += w * irradianceAboutR;
+            weight += w;
+        }
     }
     if ( weight <= 0.0 )
         return vec4( 0.0 );
@@ -414,6 +430,19 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 V, vec3 direction, uin
     const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
     const int   grid   = int( radianceCache.shape.y );
 
+    // THE GATHER IN PHASES (UE SampleRadianceCacheInterpolated: its eight indirection reads, then its eight probe
+    // samples, no branch between them): the eight entries first, then every corner's probe offset, distance
+    // moments and radiance read unconditionally, an unused corner's at the safe probe 0, dropped by a select.
+    // A `continue` per corner made each corner's offset -> moments chain wait on the corner before it (no compiler
+    // hoists a load out of a branch): 2 x 8 dependent round trips a read, now 3. Same sums in the same order.
+    uint entries[8];
+    for ( uint i = 0u; i < 8u; ++i )
+    {
+        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
+        entries[i] = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
+    }
+
     vec3  sum       = vec3( 0.0 );
     float weight    = 0.0;
     uint  allocated = 0u;
@@ -421,23 +450,26 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 V, vec3 direction, uin
     bool  nanWeight = false;
     for ( uint i = 0u; i < 8u; ++i )
     {
-        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
-        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
-        const uint  entry  = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
-        if ( entry == RADIANCE_CACHE_INVALID_PROBE )
-            continue;
-        ++allocated;
-        if ( ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) != 0u )
-            continue;
-        ++traced;
-        const vec3  probePos  = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
-                                RADIANCE_CACHE_PROBES[entry].offset.xyz;
-        const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
+        const uint  entry       = entries[i];
+        const bool  isAllocated = entry != RADIANCE_CACHE_INVALID_PROBE;
+        const bool  isTraced    = isAllocated && ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) == 0u;
+        const uint  probe       = isTraced ? entry : 0u;
+        const ivec3 offset      = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+        const ivec3 world       = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
+        const vec3  probePos    = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
+                                  RADIANCE_CACHE_PROBES[probe].offset.xyz;
+        const vec3  trilinear   = mix( 1.0 - alpha, alpha, vec3( offset ) );
         const float w = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 ) *
-                        RadianceCacheProbeVisibility( entry, probePos, biased, momentRange );
-        nanWeight = nanWeight || isnan( w );
-        sum    += w * RadianceCacheSampleProbeRadiance( entry, direction );
-        weight += w;
+                        RadianceCacheProbeVisibility( probe, probePos, biased, momentRange );
+        const vec3  radiance = RadianceCacheSampleProbeRadiance( probe, direction );
+        allocated += isAllocated ? 1u : 0u;
+        traced    += isTraced ? 1u : 0u;
+        if ( isTraced )
+        {
+            nanWeight = nanWeight || isnan( w );
+            sum    += w * radiance;
+            weight += w;
+        }
     }
     if ( weight > 0.0 )
         why = RADIANCE_CACHE_READ_ANSWERED;
