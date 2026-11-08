@@ -1530,8 +1530,9 @@ namespace Desert::Graphic::RDG
             bool                              RenderPassOpen = false;
             std::string                       BackendFailure;
             // CPU-RDG-RECORD: LostRoot[i] is pass LostRootBase + i. A chunk's state covers only its own pass
-            // range (positions keep AddPass order, so a chunk's passes are one contiguous range of indices);
-            // a pass outside it was not recorded by this state and reads as not lost.
+            // range: the lowest to the highest pass index over its positions (positions do NOT keep AddPass
+            // order - HoistQueuedUploads and ScheduleIntoAsyncWindows move passes - so the first position's pass
+            // need not be the lowest); a pass outside it was not recorded by this state and reads as not lost.
             uint32_t LostRootBase = 0;
             [[nodiscard]] int32_t LostRootOf( uint32_t pass ) const noexcept
             {
@@ -1875,9 +1876,18 @@ namespace Desert::Graphic::RDG
             }
             for ( RecordChunk& chunk : chunks )
             {
-                chunk.LostRootBase    = result.Passes[chunk.Desc.FirstPosition].Pass;
-                const uint32_t passes = result.Passes[chunk.Desc.LastPosition].Pass + 1 - chunk.LostRootBase;
-                chunk.LostRoot.assign( passes, -1 );
+                // GPU-FARFIELD-7: the first and last positions' passes are not the range's ends once a pass was
+                // moved (last < first wrapped to ~4e9 entries: the abort in assign, scn-1108-123617).
+                const RecordChunkDesc& range   = chunk.Desc;
+                uint32_t               lowest  = result.Passes[range.FirstPosition].Pass;
+                uint32_t               highest = lowest;
+                for ( uint32_t position = range.FirstPosition; position <= range.LastPosition; ++position )
+                {
+                    lowest  = std::min( lowest, result.Passes[position].Pass );
+                    highest = std::max( highest, result.Passes[position].Pass );
+                }
+                chunk.LostRootBase = lowest;
+                chunk.LostRoot.assign( highest + 1 - lowest, -1 );
             }
             // Measured this frame for the next one: only a plan the cache keeps is ever read again.
             if ( !chunks.empty() && backend.GetCompileCache() != nullptr )
