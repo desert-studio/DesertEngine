@@ -33,6 +33,7 @@
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -792,6 +793,14 @@ namespace Desert::Graphic
         if ( Borrowed )
             return;
         // Every member that held a row of this view has been destroyed by now (this one is declared first).
+        // THE RETIRE QUEUE IS FLUSHED FIRST (UE: FlushPendingDeletes at viewport teardown). A member's destructor
+        // may hand its wrapper to the frame-retire queue instead of dropping it: ~Texture2D unregisters its image
+        // and ImageService retires it after the frames in flight, so the UI's white Image2D (a row of this view,
+        // Render2D::Init) outlived the view by those frames and was reported here as a leak (FIELD_Barn, every
+        // close). ~SceneRenderer joined the render task, so no worker reads a pointer a service answered; the
+        // device handles inside still wait for their frames (RendererContext::ReleaseRetiredAtViewClose).
+        if ( const auto ctx = EngineContext::GetInstance().GetRendererContext() )
+            ctx->ReleaseRetiredAtViewClose();
         const ResourceInstanceCensus left = ResourceLedger::TakeFor( Instance );
         if ( left.Live == 0 )
         {

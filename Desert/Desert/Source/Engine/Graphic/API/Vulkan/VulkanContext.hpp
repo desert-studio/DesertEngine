@@ -32,7 +32,8 @@ namespace Desert::Graphic::API::Vulkan
         }
         virtual void Shutdown() override;
         // The allocator's host-object deletion queue (VulkanAllocator::RT_DestroyLater); at once with none.
-        void RetireAfterFramesInFlight( std::function<void()> retire ) override;
+        void        RetireAfterFramesInFlight( std::function<void()> retire ) override;
+        std::size_t ReleaseRetiredAtViewClose() override;
 
         [[nodiscard]] static const VkInstance& GetVulkanInstance()
         {

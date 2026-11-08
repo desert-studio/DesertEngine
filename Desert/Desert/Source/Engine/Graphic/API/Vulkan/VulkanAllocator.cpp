@@ -651,6 +651,37 @@ namespace Desert::Graphic::API::Vulkan
         m_HostObjectDeletionQueue.push_back( { std::move( destroy ), queuedFrame } );
     }
 
+    void VulkanAllocator::RT_RetireServiceObject( std::function<void()> retire )
+    {
+        if ( !retire )
+            return;
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const std::lock_guard lock( m_DeletionMutex );
+        m_ServiceRetireQueue.push_back( { std::move( retire ), queuedFrame } );
+    }
+
+    std::size_t VulkanAllocator::ReleaseServiceRetirementsNow()
+    {
+        // TAKEN UNDER THE LOCK, RUN OUTSIDE IT (DestroyQueued's rule): a wrapper's destructor re-enters
+        // RT_Destroy* for its device handles, and a retirement may retire another (a mesh holding a material).
+        std::size_t released = 0;
+        for ( ;; )
+        {
+            std::vector<HostObjectDeletionEntry> taken;
+            {
+                const std::lock_guard lock( m_DeletionMutex );
+                taken.swap( m_ServiceRetireQueue );
+            }
+            if ( taken.empty() )
+                return released;
+            for ( const HostObjectDeletionEntry& entry : taken )
+            {
+                entry.Destroy();
+                ++released;
+            }
+        }
+    }
+
     void VulkanAllocator::RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets )
     {
         if ( pool == VK_NULL_HANDLE || sets.empty() )
@@ -916,6 +947,8 @@ namespace Desert::Graphic::API::Vulkan
             framebuffers           = take( m_FramebufferDeletionQueue );
             renderPasses           = take( m_RenderPassDeletionQueue );
             hostObjects            = take( m_HostObjectDeletionQueue );
+            for ( HostObjectDeletionEntry& entry : take( m_ServiceRetireQueue ) )
+                hostObjects.push_back( std::move( entry ) );
             queryPools             = take( m_QueryPoolDeletionQueue );
             pipelines              = take( m_PipelineDeletionQueue );
 
@@ -1026,7 +1059,8 @@ namespace Desert::Graphic::API::Vulkan
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
                m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
                m_PipelineDeletionQueue.size() + m_AccelerationStructureDeletionQueue.size() +
-               m_DescriptorPoolDeletionQueue.size() + m_HostObjectDeletionQueue.size();
+               m_DescriptorPoolDeletionQueue.size() + m_HostObjectDeletionQueue.size() +
+               m_ServiceRetireQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()

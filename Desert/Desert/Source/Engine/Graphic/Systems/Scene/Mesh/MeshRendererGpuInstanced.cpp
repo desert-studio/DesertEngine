@@ -386,7 +386,15 @@ namespace Desert::Graphic::System
                              record.EqualCarrier == m_InstancedGBufferEqualPipeline.get() &&
                              record.ForwardVirtual == m_ForwardVirtualLocal && record.EarlyZ == m_EarlyZPass &&
                              record.DrawRows == drawRows;
-        if ( current )
+        // A REFUSAL BY A TEMPLATE THE SERVICE NO LONGER OWNS IS NOT KEPT. A material re-registered over its cell
+        // (MaterialService::Register parks the old one) leaves the producer holding the old built material until
+        // it re-resolves; a resolve between the two (an invalidation-version bump: a texture or load completion)
+        // found `owned` false and the record kept that null cell as current for as long as the source stayed,
+        // which is the cold-run "(GrassBlade x Depth) cell" refusal that MaterialService never named. Asked again
+        // each frame until the producer's template is the service's (or the source changes).
+        const bool staleRefusal =
+             current && record.Admitted && record.Cell == nullptr && !materials->Owns( record.Parent );
+        if ( current && !staleRefusal )
         {
             // A texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE).
             if ( materials->AwaitsTextures( record.Parent ) )
@@ -678,10 +686,28 @@ namespace Desert::Graphic::System
             if ( draw.Cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
+                auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+                const bool  owned     = materials != nullptr && materials->Owns( draw.Parent );
+                if ( !owned )
+                {
+                    // Not a refusal: the producer's template is a cell the service replaced (GpuInstancedDrawOf's
+                    // staleRefusal), re-resolved every frame until the producer hands the current one.
+                    static std::unordered_set<const DataDrivenMaterial*> s_Stale;
+                    if ( s_Stale.insert( draw.Parent ).second )
+                    {
+                        LOG_WARN( "[MeshRenderer] a GPU-instanced section's ({} x {}) template is no longer a "
+                                  "MaterialService cell (replaced while its producer held it); the section is not "
+                                  "drawn until the producer hands the current one.",
+                                  MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
+                    }
+                    continue;
+                }
                 if ( s_Refused.insert( draw.Parent ).second )
+                {
                     LOG_ERROR( "[MeshRenderer] a GPU-instanced section's material has no ({} x {}) cell; the "
                                "section is not drawn (MaterialService named the cell it refused).",
                                MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
+                }
                 continue;
             }
             if ( draw.Pipeline == nullptr || draw.Pipeline->GetReadiness() != PipelineReadiness::Ready )
