@@ -146,6 +146,8 @@ namespace Desert::ECS
         auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
         const uint32_t materialVersion =
              materialService != nullptr ? materialService->GetInvalidationVersion() : 0u;
+        const uint32_t valuesSerial =
+             materialService != nullptr ? materialService->GetValuesEditSerial() : 0u;
         const uint64_t contentSerial = Assets::ContentRegistry::WriteSerial();
         const auto     overridesOf   = [&]( const uint64_t                rootKey,
                                         const LandscapeMaterialData* look ) -> std::shared_ptr<const Graphic::MaterialOverrides>
@@ -153,7 +155,8 @@ namespace Desert::ECS
             const uint64_t     raw    = look != nullptr ? static_cast<uint64_t>( look->Material ) : 0u;
             ResolvedOverrides& cached = m_RootOverrides[rootKey];
             if ( cached.Overrides != nullptr && cached.Material == raw && cached.Service == materialService &&
-                 cached.InvalidationVersion == materialVersion && cached.ContentSerial == contentSerial )
+                 cached.InvalidationVersion == materialVersion && cached.ContentSerial == contentSerial &&
+                 cached.ValuesEditSerial == valuesSerial )
                 return cached.Overrides;
             auto resolved = std::make_shared<Graphic::MaterialOverrides>();
             if ( raw != 0u &&
@@ -170,6 +173,7 @@ namespace Desert::ECS
             cached.Service             = materialService;
             cached.InvalidationVersion = materialVersion;
             cached.ContentSerial       = contentSerial;
+            cached.ValuesEditSerial    = valuesSerial;
             cached.Overrides           = std::move( resolved );
             return cached.Overrides;
         };

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
@@ -122,12 +123,36 @@ namespace Desert::Graphic::System
             uint32_t QuadsPerSide = 0;
         };
 
+        // What a material resolution read, so a cache of one is current exactly while none of it moved (the
+        // LandscapeECSSystem overrides key): the material service, its rebuild stamp, its in-place value edit
+        // stamp and the content registry's write serial. Taken once per frame (PrepareFrame).
+        struct MaterialStamp
+        {
+            const void* Service             = nullptr;
+            uint32_t    InvalidationVersion = 0;
+            uint32_t    ValuesEditSerial    = 0;
+            uint64_t    ContentSerial       = 0;
+            bool        operator==( const MaterialStamp& ) const = default;
+        };
+
+        // THE FOLDED VALUES (UE FMaterialRenderProxy's cached uniform expressions): the `.demat` last folded into
+        // a program's material row, re-resolved and re-folded only when another material is drawn with the
+        // program or the stamp moved. The textures are re-bound every frame from Overrides (allocation-free
+        // lookups): a texture still loading lands the frame it is ready, with no stamp of its own.
+        struct FoldedValues
+        {
+            uint64_t          Material = 0; // the handle, 0 = nothing folded yet
+            MaterialStamp     Stamp;
+            MaterialOverrides Overrides;
+        };
+
         // One SingleLayerWater program's pipeline and its material (the frame block, the rows and the values of
         // the `.demat` drawn with it), built on first use of the template.
         struct WaterProgram
         {
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::unique_ptr<DataDrivenMaterial> Material;
+            FoldedValues                        Folded;
             // The same cell under DESERT_LOCAL_SHADOW_VSM (MeshRenderer::ForwardShadowMaskVariant's virtual map),
             // drawn under Shadows.Method VirtualMaps, when no atlas is drawn; built on first such frame. Its own
             // material: the frame's values and rows are written into the program that draws.
@@ -137,7 +162,7 @@ namespace Desert::Graphic::System
 
         // The program of @p material's template, built on first use; null (said once per handle) when the handle
         // names no material, or one whose template is not of the SingleLayerWater domain or does not build.
-        WaterProgram* ProgramFor( const Assets::AssetHandle& material );
+        WaterProgram* ProgramFor( const Assets::AssetHandle& material, const MaterialStamp& stamp );
         // @p program's DESERT_LOCAL_SHADOW_VSM twin (WaterProgram::VirtualLocal); null (said once per handle) when
         // the permutation does not build - the water is then not drawn under VirtualMaps rather than drawn with
         // every point and spot light unshadowed.
@@ -145,14 +170,41 @@ namespace Desert::Graphic::System
         // The pipeline of @p shader into @p program; the build's refusal otherwise.
         [[nodiscard]] Common::BoolResultStr BuildProgram( const std::shared_ptr<Shader>& shader,
                                                           const std::string& debugName, WaterProgram& program );
-        // Folds @p material's values over its program's schema into the program's WaterMaterialUB and ripple maps.
-        void ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program );
-        void WarnOnce( const Assets::AssetHandle& material, const std::string& why );
+        // Folds @p material's values over its program's schema into the program's WaterMaterialUB and ripple maps;
+        // the fold is cached in WaterProgram::Folded, so a steady frame resolves nothing and allocates nothing.
+        void ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                            WaterProgram& program );
+
+        // WARNINGS ONCE PER CAUSE: each (material, cause) is said once. FirstWarning asks (and marks) before any
+        // message is built, so a cause that recurs every frame builds no string after its first.
+        enum class WaterWarning : uint8_t
+        {
+            NoTemplate,
+            NoWaterCell,
+            TemplateDoesNotBuild,
+            NoVirtualLocalPermutation,
+            VirtualLocalDoesNotBuild,
+            MixedMaterials,
+            NoWavesService,
+            WavesRefused,
+            TooManyWaves,
+        };
+        [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
+        void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
+        static void Warn( const Assets::AssetHandle& material, std::string_view why );
 
         std::unordered_map<std::string, WaterProgram> m_Programs;        // by template compile name
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
         ShaderBindingLayoutCache                      m_Layout;
-        std::unordered_set<uint64_t>                  m_Warned;
+        std::unordered_set<uint64_t>                  m_Warned; // FirstWarning's (material, cause) keys
+        // ProgramFor's last answer (UE: the proxy's cached FMaterial), while the material and the stamp stand.
+        struct ResolvedProgram
+        {
+            uint64_t      Material = 0;
+            MaterialStamp Stamp;
+            WaterProgram* Program = nullptr; // m_Programs' entries are never erased
+        };
+        ResolvedProgram m_Resolved;
 
         // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
         std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
