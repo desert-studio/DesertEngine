@@ -456,6 +456,16 @@ namespace Common::Scalability
         // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
         // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
         RenderPipelineGrassCullAsync,
+        // The ceiling the Effects level puts on VolumetricCloudData::LightMarchLocalSamples: the SHORT sun ray a
+        // lit cloud sample marches where the cloud shadow map supplies the far optical depth (Programs/Clouds/
+        // CloudRaymarch.shader, CloudSelfShadowOpticalDepth; UE r.VolumetricCloud.ShadowSampleCountScale-style).
+        // A ceiling and not a value: the GPU gets min( authored, this ), so an artist who authored fewer keeps
+        // them on every level. 16 = ECS::kCloudLightMarchLocalMaxSamples, the identity (caps nothing). On the
+        // squared quadrature over the 1 km short ray the first segment is 1 km / n^2: 4 = 62.5 m (half a map
+        // texel, the least the map's 117 m texel still meets), 6 = 27.8 m, the authored 8 = 15.6 m. Read by
+        // SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack. Key
+        // "Effects.CloudLightLocalSamples".
+        CloudLightLocalSamples,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

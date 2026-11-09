@@ -327,7 +327,7 @@ namespace Desert::Graphic
      *                      shades with the full shadow ray everywhere, which is the same answer the
      *                      covered region approximates.
      * @param localSamples  VolumetricCloudData::LightMarchLocalSamples.
-     * @param ceiling       CloudQualityScale::LightMarchLocalSampleCeiling.
+     * @param ceiling       Scalability Effects.CloudLightLocalSamples (Parameter::CloudLightLocalSamples).
      */
     inline CloudSelfShadowParams CloudSelfShadowPack( bool hasMap, const CloudShadowMapView& view,
                                                       int32_t localSamples, int32_t ceiling )

@@ -83,6 +83,7 @@
         "Effects": {
             "Low": {
                 "Effects.CloudQuality": 0,
+                "Effects.CloudLightLocalSamples": 4,
                 "Effects.SkinCache": 0,
                 "Effects.SpawnCountScalePercent": 25,
                 "Effects.QualityLevel": 0,
@@ -93,6 +94,7 @@
             },
             "Medium": {
                 "Effects.CloudQuality": 1,
+                "Effects.CloudLightLocalSamples": 6,
                 "Effects.SpawnCountScalePercent": 50,
                 "Effects.QualityLevel": 1,
                 "Effects.MaxWorldParticles": 32768,
@@ -101,6 +103,7 @@
                 "Effects.VolumetricFogGridSizeZ": 64
             },
             "High": {
+                "Effects.CloudLightLocalSamples": 6,
                 "Effects.SpawnCountScalePercent": 75,
                 "Effects.QualityLevel": 2,
                 "Effects.MaxWorldParticles": 65536,
@@ -311,8 +314,8 @@
                 "Reflections.TranslucentFrontLayer": 0
             },
             "High": {
-                "Reflections.MaxSteps": 48,
-                "Reflections.RaysPerPixel": 2,
+                "Reflections.MaxSteps": 32,
+                "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "SoftwareTraced"
             },
             "Epic": {},
