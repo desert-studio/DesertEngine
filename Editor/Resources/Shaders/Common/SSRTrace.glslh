@@ -172,7 +172,7 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 {
 	radiance = vec3(0.0);
 	hitPoint = worldPos;
-	const GITraceBias bias = GIRayBias(worldPos, N, L);
+	const GITraceBias bias = GIRayBias(worldPos, N);
 	GITraceInput ray;
 	ray.origin    = worldPos + N * bias.nearOffset;
 	ray.farTMin   = GIFarFieldTMin(bias, N, L);
