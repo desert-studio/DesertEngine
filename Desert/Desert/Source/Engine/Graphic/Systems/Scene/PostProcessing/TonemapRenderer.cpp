@@ -139,7 +139,6 @@ namespace Desert::Graphic::System
         // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
         params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
 
-
         // HDR-OUTPUT p3: with the HDR rendition this frame (PrepareHdrRendition) the output carries the SDR
         // transform — headroom 1, SceneComposite's SDR arm, the very values the SDR output writes — and the
         // rendition the HDR one; the SAME params otherwise, so the two are one frame in two transforms.

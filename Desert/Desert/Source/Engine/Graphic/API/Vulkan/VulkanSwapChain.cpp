@@ -9,6 +9,7 @@
 #include <Engine/Graphic/DisplayOutput.hpp>
 
 #include <format>
+#include <span>
 #include <utility>
 #include <rflcpp/rfl/enums.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -309,6 +310,23 @@ namespace Desert::Graphic::API::Vulkan
                                  : std::format( "VkColorSpace {}", static_cast<int>( space ) );
             return { f, c };
         }
+
+        // The bits per colour channel the final write into a back buffer of @p format quantises to: 0 for the
+        // half-float scRGB surface (no quantisation the tonemap's dither has to hide), 10 for the 10:10:10:2
+        // packings, 8 for every byte-per-channel surface.
+        [[nodiscard]] uint32_t SurfaceQuantizationBits( VkFormat format )
+        {
+            switch ( format )
+            {
+                case VK_FORMAT_R16G16B16A16_SFLOAT:
+                    return 0u;
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+                case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+                    return 10u;
+                default:
+                    return 8u;
+            }
+        }
     } // namespace
 
     Common::ResultStr<bool>
@@ -367,22 +385,33 @@ namespace Desert::Graphic::API::Vulkan
                               os.GetValue().ReferenceHeadroom );
                 }
             }
-            const VkFormat        wantFormat = state.Output == DisplayOutput::scRGB_Linear
-                                                    ? VK_FORMAT_R16G16B16A16_SFLOAT
-                                                    : VK_FORMAT_B8G8R8A8_UNORM;
-            const VkColorSpaceKHR wantSpace  = state.Output == DisplayOutput::scRGB_Linear
-                                                    ? VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT
-                                                    : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+            const bool            scRGB = state.Output == DisplayOutput::scRGB_Linear;
+            const VkColorSpaceKHR wantSpace =
+                 scRGB ? VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+            // THE SDR BACK BUFFER IS 10-BIT WHEN THE SURFACE OFFERS IT (SDR-10BIT-DITHER; UE PF_A2B10G10R10,
+            // r.HDR.Display.OutputDevice 0 on a 10-bit swapchain): the final write then quantises to 1/1023, four
+            // times finer than BGRA8, so the sky's gradients and the shade under the grass stop stepping. The
+            // tonemap's dither is sized to the chosen depth (DisplayOutputState::QuantizationBits). BGRA8 is the
+            // fallback every surface offers; scRGB has its one half-float pair.
+            const VkFormat sdrPreference[] = { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_FORMAT_B8G8R8A8_UNORM };
+            const VkFormat hdrPreference[] = { VK_FORMAT_R16G16B16A16_SFLOAT };
+            const std::span<const VkFormat> preference =
+                 scRGB ? std::span<const VkFormat>( hdrPreference ) : std::span<const VkFormat>( sdrPreference );
             bool found = false;
-            for ( auto&& surfaceFormat : surfaceFormats )
+            for ( const VkFormat wantFormat : preference )
             {
-                if ( surfaceFormat.format == wantFormat && surfaceFormat.colorSpace == wantSpace )
+                for ( auto&& surfaceFormat : surfaceFormats )
                 {
-                    m_ColorFormat = surfaceFormat.format;
-                    m_ColorSpace  = surfaceFormat.colorSpace;
-                    found = true;
-                    break;
+                    if ( surfaceFormat.format == wantFormat && surfaceFormat.colorSpace == wantSpace )
+                    {
+                        m_ColorFormat = surfaceFormat.format;
+                        m_ColorSpace  = surfaceFormat.colorSpace;
+                        found         = true;
+                        break;
+                    }
                 }
+                if ( found )
+                    break;
             }
             if ( !found )
             {
@@ -393,12 +422,14 @@ namespace Desert::Graphic::API::Vulkan
                 m_ColorFormat = surfaceFormats[0].format;
                 m_ColorSpace  = surfaceFormats[0].colorSpace;
             }
+            state.QuantizationBits = SurfaceQuantizationBits( m_ColorFormat );
             Graphic::PublishDisplayOutput( state );
             LOG_INFO( "[Display] output {}: format {} colour space {}; paper white {:.0f} nits, peak {:.0f} nits, "
-                      "headroom {:.3f}",
-                      Common::Scalability::DisplayOutputName( state.Output ), SurfacePairName( m_ColorFormat, m_ColorSpace ).first,
+                      "headroom {:.3f}; quantisation {} bit",
+                      Common::Scalability::DisplayOutputName( state.Output ),
+                      SurfacePairName( m_ColorFormat, m_ColorSpace ).first,
                       SurfacePairName( m_ColorFormat, m_ColorSpace ).second, state.PaperWhiteNits, state.PeakNits,
-                      state.Headroom );
+                      state.Headroom, state.QuantizationBits );
         }
         return BOOLSUCCESS;
     }
@@ -627,6 +658,9 @@ namespace Desert::Graphic::API::Vulkan
                     return true;
                 case VK_FORMAT_R16G16B16A16_SFLOAT: // scRGB (HDR-OUTPUT): packed to its SDR rendition
                     out = Graphic::PackedPixelSource::RGBA16F_ScRGB;
+                    return true;
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32: // the 10-bit SDR back buffer (SDR-10BIT-DITHER)
+                    out = Graphic::PackedPixelSource::A2B10G10R10;
                     return true;
                 default:
                     return false;

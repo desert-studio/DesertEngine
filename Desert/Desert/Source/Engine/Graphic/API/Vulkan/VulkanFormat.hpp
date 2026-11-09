@@ -59,6 +59,10 @@ namespace Desert::Graphic::API::Vulkan
                 // shaderStorageImageExtendedFormats (r11f_g11f_b10f), as RG16F does.
                 case Core::Formats::ImageFormat::R11G11B10F:
                     return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+                // The 10-bit SDR back buffer (VulkanSwapChain::GetImageFormatAndColorSpace): sampled, colour
+                // attachment and blend are mandatory for A2B10G10R10_UNORM_PACK32 in the core format tables.
+                case Core::Formats::ImageFormat::RGB10A2_UNORM:
+                    return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
                 case Core::Formats::ImageFormat::DEPTH24STENCIL8:
                     return deviceDepthFormat;
                 // The four block formats. `textureCompressionBC` is read off the physical device and

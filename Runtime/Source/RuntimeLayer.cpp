@@ -627,6 +627,10 @@ namespace Desert::Player
         m_UIRenderTextures.reset(); // destroying the captures is what returns their renderer slots
         m_BlitExecutor.reset();
         m_BlitPipeline.reset();
+        m_EncodeExecutor.reset();
+        m_EncodePipeline.reset();
+        m_UIComposite.reset();
+        m_PendingUICompositeResize.reset();
         m_PresentReady = false;
         // Its readbacks own staging buffers and command buffers: finished while the device is alive.
         Graphic::EnvironmentCacheWriter::Get().Drain();
@@ -954,6 +958,16 @@ namespace Desert::Player
                                              static_cast<float>( m_PendingResize->second ) );
             m_PendingResize.reset();
         }
+        if ( m_PendingUICompositeResize )
+        {
+            const auto [compositeW, compositeH] = *m_PendingUICompositeResize;
+            m_PendingUICompositeResize.reset();
+            if ( const auto resized = ResizeUIComposite( compositeW, compositeH ); !resized )
+            {
+                LOG_ERROR( "[Runtime] the UI composite: {}", resized.GetError() );
+                m_PresentReady = false; // nothing is built against a live composite: the present re-inits
+            }
+        }
 
         // Same safe-point garbage collection as the editor (scripts can invalidate materials live).
         if ( auto* materialService = ::Desert::Runtime::ResourceRegistry::GetMaterialService() )
@@ -1033,29 +1047,77 @@ namespace Desert::Player
         if ( !blitShader )
             return Common::MakeError( "InitPresent: missing shader 'SwapchainBlit'" );
 
-        // Fullscreen blit pipeline (vertexless: the VS synthesizes the quad), opaque, into the swapchain.
+        // The display encode (vertexless fullscreen triangle, opaque): the UI composite -> the composed target
+        // (the swapchain's composite framebuffer, or the movie target), the one dithered, quantising write.
+        Graphic::GraphicsPipelineSpecification encodeSpec;
+        encodeSpec.DebugName         = "RuntimeDisplayEncodePipeline";
+        encodeSpec.Shader            = blitShader;
+        encodeSpec.Framebuffer       = swapFb;
+        encodeSpec.DepthTestEnabled  = false;
+        encodeSpec.DepthWriteEnabled = false;
+        encodeSpec.CullMode          = Graphic::CullMode::None;
+        const auto encodePipeline    = Graphic::GraphicsPipeline::Create( encodeSpec );
+        if ( !encodePipeline )
+            return Common::MakeError( "InitPresent: the display encode: " + encodePipeline.GetError() );
+        m_EncodePipeline = encodePipeline.GetValue();
+        m_EncodeExecutor = Graphic::MaterialExecutor::Create( "SwapchainBlit", blitShader );
+        m_BlitExecutor   = Graphic::MaterialExecutor::Create( "SwapchainBlit", blitShader );
+
+        m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
+        m_Render2D         = std::make_unique<Graphic::Render2D::Render2D>();
+        m_UIComposite.reset();
+        // The composite, the scene blit into it and the Render2D pipelines (built against its render pass).
+        if ( const auto made = ResizeUIComposite( swapFb->GetFramebufferWidth(), swapFb->GetFramebufferHeight() );
+             !made )
+            return made;
+
+        m_PresentReady = true;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr RuntimeLayer::ResizeUIComposite( const uint32_t width, const uint32_t height )
+    {
+        if ( width == 0 || height == 0 )
+            return Common::MakeFormattedError<bool>( "ResizeUIComposite: an empty {}x{} target", width, height );
+        if ( !m_Render2D || !m_BlitExecutor )
+            return Common::MakeError( "ResizeUIComposite: the present is not initialised" );
+        if ( !m_UIComposite )
+        {
+            Graphic::FramebufferSpecification spec;
+            spec.Width  = width;
+            spec.Height = height;
+            // UE Slate's UI composite is a float target for the same reason: the blend of a translucent widget
+            // over the scene keeps sub-code precision until the one encode quantises it (with the dither).
+            spec.Attachments = { Core::Formats::ImageFormat::RGBA16F };
+            spec.DebugName   = "RuntimeUIComposite";
+            spec.NoResizeble = true;
+            m_UIComposite    = Graphic::Framebuffer::Create( spec );
+            if ( !m_UIComposite )
+                return Common::MakeFormattedError<bool>( "ResizeUIComposite: could not create the {}x{} composite",
+                                                         width, height );
+        }
+        // Create only constructs; Resize makes the image and the render pass the pipelines below are built
+        // against, so they are rebuilt after every Resize (a pipeline outliving its render pass is a device loss).
+        if ( const auto made = m_UIComposite->Resize( width, height ); !made )
+            return Common::MakeFormattedError<bool>( "ResizeUIComposite: could not allocate {}x{}: {}", width,
+                                                     height, made.GetError() );
+
         Graphic::GraphicsPipelineSpecification spec;
-        spec.DebugName          = "SwapchainBlitPipeline";
-        spec.Shader             = blitShader;
-        spec.Framebuffer        = swapFb;
+        spec.DebugName          = "RuntimeSceneBlitPipeline";
+        spec.Shader             = m_EncodePipeline->GetSpecification().Shader;
+        spec.Framebuffer        = m_UIComposite;
         spec.DepthTestEnabled   = false;
         spec.DepthWriteEnabled  = false;
         spec.CullMode           = Graphic::CullMode::None;
         const auto blitPipeline = Graphic::GraphicsPipeline::Create( spec );
         if ( !blitPipeline )
-            return Common::MakeError( "InitPresent: " + blitPipeline.GetError() );
+            return Common::MakeError( "ResizeUIComposite: the scene blit: " + blitPipeline.GetError() );
         m_BlitPipeline = blitPipeline.GetValue();
-        m_BlitExecutor = Graphic::MaterialExecutor::Create( "SwapchainBlit", blitShader );
 
-        m_UIRenderTextures = std::make_unique<Graphic::Render2D::UIRenderTextureCache>();
-        m_Render2D         = std::make_unique<Graphic::Render2D::Render2D>();
         // The game's UI is drawn for the game's one view: its rows are that view's (RT-LEDGER-4). m_Render2D is
-        // reset in OnDetach, before m_SceneRenderer goes, so the view closes with none of them left.
-        if ( const auto r = m_Render2D->Init( swapFb, m_SceneRenderer->GetLedgerInstance() ); !r )
-            return r;
-
-        m_PresentReady = true;
-        return BOOLSUCCESS;
+        // reset in OnDetach, before m_SceneRenderer goes, so the view closes with none of them left. Init is
+        // idempotent: it rebuilds the pipelines and keeps the buffers.
+        return m_Render2D->Init( m_UIComposite, m_SceneRenderer->GetLedgerInstance() );
     }
 
     // The runtime's frame present: ONE graph node whose colour target is this frame's back buffer (imported
@@ -1096,6 +1158,12 @@ namespace Desert::Player
                 m_LastHeight    = height;
                 m_PendingResize = GameViewExtent( width, height, composeTarget == renderer.GetCompositeFramebuffer() );
             }
+            // The UI composite follows the composed target at the same safe point as the scene (the frame in
+            // between is encoded from the old-size composite, stretched like the old-size scene image).
+            if ( m_PresentReady && width > 0 && height > 0 &&
+                 ( m_UIComposite->GetFramebufferWidth() != width ||
+                   m_UIComposite->GetFramebufferHeight() != height ) )
+                m_PendingUICompositeResize = std::make_pair( width, height );
             const float w = static_cast<float>( width );
             const float h = static_cast<float>( height );
 
@@ -1237,11 +1305,13 @@ namespace Desert::Player
             }
         }
 
-        // THE PRESENT IS A GRAPH NODE (UE: the viewport's back buffer is registered as an external texture each
-        // frame, the final passes write it, and the present follows the graph). The node clears its target,
-        // samples the scene's final image as a declared pass parameter, draws the 2D batch over it, and the
-        // graph leaves the back buffer in the present layout. Every draw's binding block is declared in the setup
-        // (the blit's first, then one per 2D batch: Render2D::DeclareBindings over the list gathered above).
+        // THE PRESENT IS TWO GRAPH NODES (UE: the viewport's back buffer is registered as an external texture each
+        // frame, the final passes write it, and the present follows the graph; Slate composes the UI in its own
+        // target before the one write of the back buffer). "RuntimePresent" clears the UI composite, samples the
+        // scene's final image as a declared pass parameter and draws the 2D batch over it; "RuntimeDisplayEncode"
+        // then writes the target from the composite with the quantisation dither, and the graph leaves the back
+        // buffer in the present layout. Every draw's binding block is declared in the setup (the blit's first,
+        // then one per 2D batch: Render2D::DeclareBindings over the list gathered above).
         Graphic::RDG::Builder         graph( "RuntimePresent" );
         Graphic::RDG::ExternalTexture backBuffer;
         if ( const auto imported = renderer.ImportBackBuffer( backBuffer ); !imported )
@@ -1276,8 +1346,31 @@ namespace Desert::Player
             graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
         }
 #endif
-        Graphic::RDG::ExternalTexture sceneImage;
-        Graphic::RDG::TextureRef      sceneRef;
+        // SDR-10BIT-DITHER: the encode dithers to one code of the target it writes: the back buffer's depth (0 on
+        // a float surface: no dither), or the movie target's 8 bits (RGBA8, read back as the PNG's bytes).
+        float encodeStep = Graphic::CurrentDisplayOutput().QuantizationStep();
+#if DESERT_DEV_INSTRUMENTS
+        if ( m_Movie.has_value() )
+            encodeStep = Graphic::QuantizationStepForBits( 8u );
+#endif
+        // The UI composite every colour change of the frame lands in before the encode. Absent only while the
+        // present resources are not made (InitPresent failed): the node then just clears the target.
+        Graphic::RDG::ExternalTexture compositeImage;
+        Graphic::RDG::TextureRef      compositeRef;
+        if ( m_PresentReady && m_UIComposite )
+        {
+            if ( const auto imported =
+                      renderer.ImportImage( m_UIComposite->GetColorAttachmentImage( 0 ), compositeImage );
+                 !imported )
+            {
+                return Common::MakeError(
+                     std::format( "[Runtime] present: the UI composite: {}", imported.GetError() ) );
+            }
+            compositeRef = graph.RegisterExternal( compositeImage, "RuntimeUIComposite" );
+        }
+        const Graphic::RDG::TextureRef composeRef = compositeRef.IsValid() ? compositeRef : target;
+        Graphic::RDG::ExternalTexture  sceneImage;
+        Graphic::RDG::TextureRef       sceneRef;
         if ( presented )
         {
             if ( const auto imported = renderer.ImportImage( presented, sceneImage ); !imported )
@@ -1303,10 +1396,14 @@ namespace Desert::Player
              "RuntimePresent", Graphic::RDG::PassFlags::Raster | Graphic::RDG::PassFlags::NeverParallel,
              [&]( Graphic::RDG::PassBuilder& pass )
              {
-                 pass.ColorTarget( 0, target, targetLoad );
+                 pass.ColorTarget( 0, composeRef, targetLoad );
                  // Block 0: the scene blit, with the sampler it sampled the final image with before.
                  if ( sceneRef.IsValid() )
                  {
+                     // SDR-10BIT-DITHER: the blit writes the float UI composite, not the back buffer: a plain
+                     // copy, no dither (the encode below dithers once). Written in setup, before the prepare.
+                     const Graphic::DisplayEncodePush push{ .OutputQuantizationStep = 0.0f };
+                     m_BlitExecutor->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      // RENDER-THREADS M1: the blit executor's view sets exist before the graph records.
                      pass.Prepares( *m_BlitExecutor );
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
@@ -1341,6 +1438,39 @@ namespace Desert::Player
                  }
                  return BOOLSUCCESS;
              } );
+        // THE DISPLAY ENCODE: the one write of the target, from the composite, dithered to one code of the
+        // target's depth (SwapchainBlit.shader); nothing draws over it.
+        if ( compositeRef.IsValid() )
+        {
+            graph.AddPass(
+                 "RuntimeDisplayEncode", Graphic::RDG::PassFlags::Raster,
+                 [&]( Graphic::RDG::PassBuilder& pass )
+                 {
+                     pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::DontCare() );
+                     // Written in setup, before the prepare.
+                     const Graphic::DisplayEncodePush push{ .OutputQuantizationStep = encodeStep };
+                     m_EncodeExecutor->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     // RENDER-THREADS M1: the encode executor's view sets exist before the graph records.
+                     pass.Prepares( *m_EncodeExecutor );
+                     pass.Bindings( m_EncodeLayout.Get( m_EncodePipeline->GetSpecification().Shader ),
+                                    m_EncodeExecutor->GetRouteFill() )
+                          .Texture( RuntimeLayerBlitShaderParameters::FinalColorTexture, compositeRef,
+                                    Graphic::RDG::Access::SampledGraphics, Graphic::RDG::SubresourceRange::All() )
+                          .Sampler( RuntimeLayerBlitShaderParameters::LinearClampSampler,
+                                    Graphic::RDG::SamplerDesc::LinearClamp() );
+                 },
+                 [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     const Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     if ( const auto drawn =
+                               renderer.DrawFullscreen( bindings, *m_EncodePipeline, m_EncodeExecutor.get() );
+                          !drawn )
+                     {
+                         return Common::MakeError( std::format( "the display encode: {}", drawn.GetError() ) );
+                     }
+                     return BOOLSUCCESS;
+                 } );
+        }
 #if DESERT_DEV_INSTRUMENTS
         // The swapchain image acquired for this frame still has to be written before it is presented; during a
         // movie it is only cleared, and the picture lives in the offscreen target, left sampleable as the

@@ -110,9 +110,9 @@ namespace Desert::Player
         std::unique_ptr<Core::WorldStreamer> m_WorldStreamer;
         double                               m_WorldStreamClock = 0.0; // seconds of play, for retries
 
-        // The present path: one graph node into the imported back buffer blits the scene's final image with
-        // a fullscreen triangle, then draws the UI + splash with the engine's own Render2D batcher. Lazily
-        // created on the first present (the pipelines are built against the swapchain's composite framebuffer).
+        // The present path: one graph node into the UI composite (m_UIComposite) blits the scene's final image
+        // with a fullscreen triangle, then draws the UI + splash with the engine's own Render2D batcher; one
+        // display-encode node then writes the imported back buffer. Lazily created on the first present.
         std::unique_ptr<Graphic::Render2D::Render2D> m_Render2D;
 
         // The offscreen worlds behind this game's render-texture UI elements (Ю16). HERE and not only in
@@ -121,10 +121,20 @@ namespace Desert::Player
         // reason m_Render2D is — the header forward-declares the Render2D namespace rather than pulling
         // the batcher in, and this type owns Scenes and SceneRenderers behind it.
         std::unique_ptr<Graphic::Render2D::UIRenderTextureCache> m_UIRenderTextures;
+        // THE UI COMPOSITE (SDR-10BIT-DITHER, UE Slate: the UI is composed in its own target, then one pass writes
+        // the back buffer). RGBA16F at the size of the target the frame is composed for: the scene blit and every
+        // 2D batch draw into it, and only the display encode (m_EncodePipeline, SwapchainBlit with the dither)
+        // writes the back buffer / movie target, so nothing blends over the dithered, quantised write.
+        std::shared_ptr<Graphic::Framebuffer> m_UIComposite;
+        // Scene blit into m_UIComposite (SwapchainBlit with no dither: a copy).
         std::shared_ptr<Graphic::GraphicsPipeline>   m_BlitPipeline;
         std::unique_ptr<Graphic::MaterialExecutor>   m_BlitExecutor;
         // The present node's blit block (RDG-FAULT1), keyed on m_BlitPipeline's shader.
         Graphic::ShaderBindingLayoutCache            m_BlitLayout;
+        // The display encode: m_UIComposite -> the back buffer (or the movie target), dithered to one code.
+        std::shared_ptr<Graphic::GraphicsPipeline>   m_EncodePipeline;
+        std::unique_ptr<Graphic::MaterialExecutor>   m_EncodeExecutor;
+        Graphic::ShaderBindingLayoutCache            m_EncodeLayout;
         bool                                         m_PresentReady  = false;
         bool                                         m_PrevMouseDown = false; // for the click (down->up) edge
         float                                        m_ScrollAccum   = 0.0f;  // wheel delta since last present
@@ -144,6 +154,9 @@ namespace Desert::Player
         float m_UIFrameDtSeconds = 0.0f;
 
         Common::BoolResultStr InitPresent( const std::shared_ptr<Graphic::Framebuffer>& swapFb );
+        // (Re)allocates m_UIComposite at @p width x @p height and rebuilds what is built against its render
+        // pass (the scene blit, the Render2D pipelines). At the safe point only (OnUpdate, before recording).
+        Common::BoolResultStr ResizeUIComposite( uint32_t width, uint32_t height );
 
         /// The render collectors and gameplay systems, in the order Play mode uses. Its own function so
         /// the boot stage that times it stays a one-line lambda — see the note on the definition.
@@ -152,6 +165,8 @@ namespace Desert::Player
         // Scene::Resize destroys GPU resources — deferred to the top of OnUpdate (same rule as the
         // editor's viewport panel).
         std::optional<std::pair<uint32_t, uint32_t>> m_PendingResize;
+        // The composed target's new size, for m_UIComposite (ResizeUIComposite), applied at the same point.
+        std::optional<std::pair<uint32_t, uint32_t>> m_PendingUICompositeResize;
 
         // THE MOVIE RENDER (--render-movie, MovieRender.hpp). Set, the frame is composed into m_MovieTarget —
         // an offscreen framebuffer of the requested size — instead of the swapchain, and every frame drawn
