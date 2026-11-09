@@ -404,8 +404,16 @@ Shader "CloudRaymarch"
         // local transmittance; the lanes are then composed front to back, which is exact for an
         // emission-absorption integral: L = sum_k P_k L_k, T = prod_k T_k, P_k = prod_{j<k} T_j (and the
         // transmittance-weighted front the same way). The lanes of a ray sit side by side in x, so an 8-wide
-        // group row holds two rays and a ray's lanes are four consecutive subgroup lanes, aligned.
-        #define CLOUD_MARCH_SEGMENT_LANES 4u
+        // group row IS one ray and a ray's lanes are eight consecutive subgroup lanes, aligned (every subgroup
+        // size Vulkan ships for compute, 8 to 64, is a multiple of the row).
+        //
+        // EIGHT, NOT FOUR (FPS-CLOUDS-MARCH-2). At four the FIELD_Barn trace was 3259 rays = 13k invocations, about
+        // 400 waves on a GPU with room for thousands: the pass still waited on the serial chain of its longest
+        // stretch (about 24 primary and 22 light field evaluations a ray). Eight lanes halve that chain and double
+        // the waves that hide each other's fetches, with the same samples per ray and the same exact composition,
+        // so the picture is High's own; what it costs is one more lane start per ray (below, the step-back keeps
+        // that start on the ray's dither) and four more shuffles an iteration.
+        #define CLOUD_MARCH_SEGMENT_LANES 8u
 
         PushConstant CloudPush
         {
@@ -895,6 +903,11 @@ Shader "CloudRaymarch"
             if (segmentLane + 1u < CLOUD_MARCH_SEGMENT_LANES)
                 laneEndKm = laneStartKm + laneLengthKm;
             float t             = laneStartKm + jitter * stepKm;
+            // The lane's first sample. The coarse tier's step-back never lands before it (below): a lane that
+            // starts inside a body would otherwise restart its fine samples at laneStartKm itself, a distance
+            // with no dither in it, and that lane's samples would then sit on the same planes every frame - a
+            // shell the temporal reconstruction cannot average away, drawn once per lane boundary.
+            float laneFirstKm   = t;
 
             // Where along the ray this pixel's cloud effectively IS, weighted by how much of the ray's
             // light each sample still gets to contribute. A cloud is not at one distance, but the
@@ -1037,9 +1050,14 @@ Shader "CloudRaymarch"
                     {
                         fine     = true;
                         emptyRun = 0;
-                        if (coarseStepKm > litStepKm)
+                        // The step-back target is past the lane's first sample for every coarse sample but
+                        // that first one, whose gap behind it is the lane's own dither offset: that hit is
+                        // integrated where it stands, on the ray's dither, rather than re-fetched at the
+                        // undithered lane start (laneFirstKm above).
+                        float steppedBackKm = t - coarseStepKm + litStepKm;
+                        if (coarseStepKm > litStepKm && steppedBackKm > laneFirstKm)
                         {
-                            t = max(laneStartKm, t - coarseStepKm + litStepKm);
+                            t = steppedBackKm;
                             continue;
                         }
                     }

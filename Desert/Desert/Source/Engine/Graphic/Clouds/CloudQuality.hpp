@@ -148,7 +148,11 @@ namespace Desert::Graphic
             case Common::Settings::CloudQuality::Medium:
                 scale.LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
                 scale.ShadowMapScale          = 0.5f;
-                scale.StopTransmittanceFloor  = 0.0f;
+                // FPS-CLOUDS-MARCH-2: the march's own saving on the middle tier, which until now paid High's
+                // full view march. Four times the default and under half of Low's 0.05 - the samples it drops
+                // sit behind 98 % opacity, so the frame moves by less than the 10 of 255 Low's floor was
+                // measured at. High keeps its identity floor of zero.
+                scale.StopTransmittanceFloor = 0.02f;
                 break;
 
             case Common::Settings::CloudQuality::High:
