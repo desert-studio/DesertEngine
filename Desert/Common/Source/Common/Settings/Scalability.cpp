@@ -442,8 +442,9 @@ namespace Common::Scalability
                16, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
-               "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",
-               Of( EarlyZPassMode::All ), Vis::Advanced },
+               "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL; a frame with a "
+               "DBuffer decal runs All)",
+               Of( EarlyZPassMode::Masked ), Vis::Advanced },
              { P::ParallelExecute, G::ViewDistance, "RenderPipeline.ParallelExecute", 0, 1, CL::None,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
                "workers into secondary command buffers, replayed in pass order)",

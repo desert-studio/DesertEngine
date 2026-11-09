@@ -2371,8 +2371,7 @@ namespace Desert::Graphic::System
 
     bool TerrainRenderer::PrepassesGBuffer() const
     {
-        return m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && m_GBufferDepthPipeline &&
-               m_GBufferPrepassedPipeline;
+        return m_DepthPrepass && m_GBufferDepthPipeline && m_GBufferPrepassedPipeline;
     }
 
     const GraphicsPipeline* TerrainRenderer::GBufferPassPipeline() const
