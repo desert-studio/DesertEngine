@@ -24,6 +24,11 @@ namespace Desert::Core
     class Scene;
 } // namespace Desert::Core
 
+namespace Desert::Editor::Core
+{
+    struct MergeInputs;
+} // namespace Desert::Editor::Core
+
 namespace Desert::Editor::Tools
 {
     class GizmoController;
@@ -51,6 +56,13 @@ namespace Desert::Editor::Tools
         {
             return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::Warp;
         }
+
+        // The preview on screen is not yet the one the panel asks for: the tool was opened (or the selection or a
+        // setting changed) and the next viewport pass begins or recomputes it, or its background compute has not
+        // landed. UE UMeshOpPreviewWithBackgroundCompute: HaveValidResult false while IsComputing. Read by the
+        // control channel's reply gate (PendingWork::ModelingPreview) BEFORE the frame's viewport pass runs
+        // Update.
+        [[nodiscard]] bool PreviewOutstanding() const;
 
         // Lattice is previewing: the viewport draws its control points and the gizmo on the selected ones.
         [[nodiscard]] bool HasLatticeSession() const
@@ -153,6 +165,11 @@ namespace Desert::Editor::Tools
             // VisibilityComponent before that (nullopt = it had none, so Restore removes the one added).
             bool                OtherHidden = false;
             std::optional<bool> OtherVisibility;
+            // Merge (UE UCombineMeshesTool): the inputs gathered at Begin (Entity is the first, the receiver,
+            // and draws the merged preview); the others are hidden for the session, each with its
+            // VisibilityComponent before that (nullopt = it had none), put back by Restore.
+            std::shared_ptr<const Core::MergeInputs>                  Merge;
+            std::vector<std::pair<Common::UUID, std::optional<bool>>> MergeHidden;
             // Boolean / Trim: A's material slots before the session drew its preview with the pair's table (both
             // inputs' materials, UE UCSGMeshesTool); Restore puts them back.
             std::optional<std::vector<Common::AssetHandle>> SlotsBefore;
@@ -184,9 +201,10 @@ namespace Desert::Editor::Tools
         // written as Core::CommitBooleanTool says (into the operated input or a new entity, the inputs deleted /
         // hidden / kept) - one undo step.
         [[nodiscard]] bool AcceptBoolean( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
-        // Pattern's Accept (UE UPatternTool::OnShutdown): the source is restored and the previewed layout is
-        // written by Core::ApplyXformOperation (merged into the source or as new entities) - one undo step.
-        [[nodiscard]] bool AcceptPattern( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // Pattern's, Merge's and Split's Accept (UE UPatternTool / UCombineMeshesTool / USplitMeshesTool
+        // OnShutdown): the inputs are restored and what the preview showed is written by Core::ApplyXformOperation
+        // at the settings it was computed with - one undo step.
+        [[nodiscard]] bool AcceptXform( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
         [[nodiscard]] bool SelectionStillMatches() const;
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
@@ -198,6 +216,9 @@ namespace Desert::Editor::Tools
         void PlaceLatticeGizmo( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
 
         std::optional<Session> m_Session;
+        // The tool Begin last ran for (None once no mesh-processing tool is active): a refused Begin leaves no
+        // session, and that tool's preview is then not outstanding - nothing will land until the input changes.
+        Core::ModelingState::Tool m_BegunFor = Core::ModelingState::Tool::None;
         // The settings the preview was computed with.
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
@@ -207,6 +228,7 @@ namespace Desert::Editor::Tools
         Geometry::VoxBlendSettings   m_VoxBlend;
         Core::BooleanToolArgs        m_Boolean;
         Geometry::PatternSettings    m_Pattern;
+        Geometry::SplitMethod        m_Split = Geometry::SplitMethod::ConnectedComponents;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::HoleFillSettings m_HoleFill;
