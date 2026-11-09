@@ -179,18 +179,26 @@ Shader "ScreenProbeTrace"
         #define GDF_COUNT_STEPS 1
         uint gdfCountedSteps = 0u;
 #endif
+#if defined( SP_TRACE_CACHE_READ )
+        // The cache-read leg traces nothing and lights no hit: the tracer's types only, so it declares no
+        // tracer resource and no shared sampler it would not sample (ScreenProbeGather binds none).
+        #include <Common/GITracing.glslh>
+#else
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
+#endif
 
         // UE IsTraceMoving on a world hit: only a hit whose tracer knows its object's motion (GIHit.motionKnown:
         // the mesh SDF near field) can be moving; a global-field hit is not (UE TraceVoxels writes bMoving false).
+#if !defined( SP_TRACE_CACHE_READ )
         bool SPTraceHitMoving( uint probe, SPTexelRay texel, GIHit hit )
         {
             const float probeDepth = ( giFrame.viewProjection * vec4( texel.position, 1.0 ) ).w;
             return hit.motionKnown && SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, hit.velocity );
         }
+#endif
 
 #if defined( SP_TRACE_MISS_REASONS )
         // One atomic per subgroup and reason: the cache-read leg reads the cache on every one of its rays.
@@ -246,9 +254,10 @@ Shader "ScreenProbeTrace"
             const uint       state = screenProbeTraceHit[slot];
             const vec3       N     = texel.normal;
             const vec3       dir   = texel.direction;
+            const ivec2       at     = SPAtlasOrigin( probe, SP_RES ) + texel.texel;
+#if !defined( SP_TRACE_CACHE_READ )
             const GITraceBias bias   = GIRayBias( texel.position, N, dir );
             const vec3        origin = texel.position + N * bias.nearOffset;
-            const ivec2       at     = SPAtlasOrigin( probe, SP_RES ) + texel.texel;
 
             GITraceInput ray;
             ray.origin    = origin;
@@ -259,6 +268,7 @@ Shader "ScreenProbeTrace"
             // The cone of one texel: the hemisphere's 2 pi over SP_RES^2 texels, as a cone's half angle.
             ray.coneAngle = sqrt( 2.0 / float( SP_RES * SP_RES ) );
             ray.flags     = 0u;
+#endif
 
 #if defined( SP_TRACE_NEAR_FIELD )
             float               farStart;

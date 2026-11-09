@@ -287,8 +287,17 @@ namespace Desert::Graphic::GlobalIllumination
     // Declares the tracer's reads on a consumer pass's binding block, under the shader names the tracer include
     // (Common/GITracer.glslh) declares. The consumer's program must be compiled with TracerVariant. @p sampled =
     // the stage the consumer samples in (a compute consumer, or a raster one: the surface cache's card lighting).
+    // @p pointClamp = whether the software field's object grid binds the includer's PointClampSampler with it. The
+    // grid is fetched texel by texel, so a program that samples nothing else point-clamped (the software far field:
+    // it defers its hits, no G-buffer read) reflects no such sampler - it passes Skip.
+    enum class TracerPointClamp : uint8_t
+    {
+        Bind,
+        Skip,
+    };
     void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
-                             RDG::Access sampled = RDG::Access::SampledCompute );
+                             RDG::Access      sampled    = RDG::Access::SampledCompute,
+                             TracerPointClamp pointClamp = TracerPointClamp::Bind );
 
     // THIS FRAME'S SURFACE CACHE AS A HIT READS IT (GIHitRadiance, Common/SurfaceCacheSampling.glslh): the card //
     // records, the instance table of contract B3 (SurfaceCache.hpp; the rows of a hit come from the tracer,

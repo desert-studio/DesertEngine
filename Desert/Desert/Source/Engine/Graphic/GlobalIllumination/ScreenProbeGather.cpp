@@ -910,7 +910,11 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactTexelsUB,
                                     list.Texels, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR );
-                     DeclareTracerReads( block, inputs.Tracer );
+                     // The cache-read leg traces nothing (ScreenProbeTrace.shader includes no tracer); a leg that
+                     // lights no hit samples nothing point-clamped (the object grid is fetched).
+                     const TracerPointClamp pointClamp = lightsHits ? TracerPointClamp::Bind : TracerPointClamp::Skip;
+                     if ( program != TraceCacheRead )
+                         DeclareTracerReads( block, inputs.Tracer, kS, pointClamp );
                      if ( readsCards && lightsHits )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
 #if DESERT_DEV_INSTRUMENTS
@@ -1176,8 +1180,11 @@ namespace Desert::Graphic::GlobalIllumination
                      auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
                      builder.Read( integrateArgs, RDG::Access::IndirectArgs );
+                     // The simple-diffuse program samples nothing linearly (ScreenProbeIntegrate.shader).
                      if ( !simple )
-                         block.Texture( IntegrateSlots::ScreenProbeFilteredTexture, filtered, kS, all );
+                         block.Texture( IntegrateSlots::ScreenProbeFilteredTexture, filtered, kS, all )
+                              .Sampler( ScreenProbeGatherIntegrateShaderParameters::LinearClampSampler,
+                                        RDG::SamplerDesc::LinearClamp() );
                      // The args again as storage: the 2D grid's groups past the count read it (a buffer's two
                      // reads merge into one barrier).
                      block.Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kR )
@@ -1188,8 +1195,6 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbesUB, probes, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeSHUB, sh, kR )
-                          .Sampler( ScreenProbeGatherIntegrateShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeDiffuseOutTexture,
                                     diffuse, kW )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeSpecularOutTexture,
