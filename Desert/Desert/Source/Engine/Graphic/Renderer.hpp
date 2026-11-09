@@ -26,6 +26,7 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    struct BinDraw; // RendererAPI.hpp: a caller of RenderMeshIndirectCountBins includes it
     class RayTracingPipeline;
     namespace RayTracing
     {
@@ -212,6 +213,14 @@ namespace Desert::Graphic
                                  std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
                                  RDG::BufferRef count, uint64_t countOffset, uint32_t maxDraws,
                                  SubmeshMask hiddenSubmeshMask );
+        // FPS-CPU2-VKRECORD, A PASS'S COMPACTED BINS IN ONE CALL (UE SubmitMeshDrawCommandsRange with
+        // FMeshDrawCommandStateCache): every bin of @p bins exactly as RenderMeshIndirectCount records it, in
+        // order, but the argument / count buffers, the device limits and the pass's recording state are resolved
+        // once per batch, and the pass state and mesh buffers are bound again only when a bin's pipeline,
+        // material or mesh differs from the bin before it. An error names the bin (its index in @p bins).
+        // Success(false): some bin's pipeline is still compiling and was skipped; every other bin is recorded.
+        [[nodiscard]] static Common::BoolResultStr RenderMeshIndirectCountBins( const RDG::PassBindings& bindings,
+                                                                                std::span<const BinDraw> bins );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything

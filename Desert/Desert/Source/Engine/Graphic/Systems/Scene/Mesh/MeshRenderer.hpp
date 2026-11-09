@@ -3924,6 +3924,58 @@ namespace Desert::Graphic::System
         bool m_GrassPerVarietyDraws = false;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
+        // FPS-CPU2-GRASS, THE WALKS' KEPT STATE (UE FMeshDrawCommand caching + FParallelMeshDrawCommandPass's kept
+        // lists; BuildGpuInstancedDraws, BuildGpuInstancedShadowDraws - serial setups, one walk at a time):
+        //   - one list's compacted bins (GpuInstancedListBin) and the slots of the open-addressing index over
+        //     them (index + 1, 0 empty; keyed by table, pipeline, template, mesh), and their entries and reads
+        //     (GpuDrawBinWalk) - refilled per walk, the capacity kept;
+        //   - the sections the GRASS-VIS set holds and each phase's masked prepass recorded (key -> its index in
+        //     the phase's list), O(1) per section instead of a find over the lists; FPS-CPU2-GRASS2: kept with
+        //     their lists (filled where a key is pushed, cleared where the list is), so no walk rebuilds them;
+        //   - the cells frameState.ApplyTo wrote this frame (the parent material of each record's instance), so a
+        //     cell two walks of one view's frame draw (phase 1 and phase 2 of a pass) is written once; the set
+        //     starts again on another view, another frame of it, or a MaterialService invalidation (a rebuilt
+        //     cell).
+        struct GpuInstancedListBin
+        {
+            const GpuInstancedDrawRecord* By    = nullptr; // the bin's first section's: pipeline, cell executor
+            Desert::Mesh*                 Mesh  = nullptr;
+            GpuDrawBinFrame*              Table = nullptr;
+            uint32_t                      Index = 0; // the table's bin
+            uint32_t                      Slots = 0;
+            uint32_t                      FirstSlot = 0; // laid out after the walk
+            std::span<RDG::BufferRef>     Reads{};       // laid out after the walk (GpuDrawBinReadPool)
+            uint32_t                      Filled = 0;
+        };
+        std::vector<GpuInstancedListBin> m_GpuInstancedListBins;
+        // FPS-CPU2-GRASS2: one cascade list's bin of BuildGpuInstancedShadowDraws (its (template, strip mesh, ids)
+        // key, the bin's cell and pipeline); its entries and reads are noted in m_GpuInstancedCasterWalk and laid
+        // out after the walk like the camera lists' (GpuInstancedListBin). Refilled per walk, the capacity kept.
+        struct GpuInstancedCasterBin
+        {
+            const DataDrivenMaterial*    Parent     = nullptr;
+            Desert::Mesh*                Mesh       = nullptr;
+            bool                         ThroughIds = false;
+            Graphic::DataDrivenMaterial* Cell       = nullptr;
+            GraphicsPipeline*            Pipeline   = nullptr;
+            GpuDrawBinFrame*             Table      = nullptr;
+            uint32_t                     Index      = 0; // the table's bin
+            uint32_t                     Slots      = 0;
+            uint32_t                     FirstSlot  = 0;  // laid out after the walk
+            std::span<RDG::BufferRef>    Reads{};         // laid out after the walk (GpuDrawBinReadPool)
+            uint32_t                     Filled = 0;
+        };
+        std::vector<GpuInstancedCasterBin> m_GpuInstancedCasterBins;
+        std::vector<uint32_t>            m_GpuInstancedListBinSlots;
+        GpuDrawBinWalk                   m_GpuInstancedBinWalk;
+        GpuDrawBinWalk                   m_GpuInstancedCasterWalk;
+        GpuSectionKeyTable               m_GpuInstancedViaVisibility; // m_GrassVisibilitySections' keys
+        GpuSectionKeyTable               m_MaskedPrepassedKeys;       // m_MaskedPrepassed: key -> first index
+        GpuSectionKeyTable               m_MaskedPrepassedPostKeys;   // m_MaskedPrepassedPost: likewise
+        GpuSectionKeyTable               m_GpuInstancedApplied;
+        const ViewFrame*                 m_GpuInstancedAppliedView    = nullptr;
+        uint64_t                         m_GpuInstancedAppliedFrame   = 0;
+        uint32_t                         m_GpuInstancedAppliedVersion = 0;
         // The record of @p gpu in @p pass through @p carrier (BuildGpuInstancedDraws' arguments; @p prepassed: the
         // G-buffer draws the section EQUAL after the masked prepass drew it), resolved again when its revision
         // moved. Null without a material service.

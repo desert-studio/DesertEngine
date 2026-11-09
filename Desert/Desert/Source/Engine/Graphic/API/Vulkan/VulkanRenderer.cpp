@@ -1077,36 +1077,81 @@ namespace Desert::Graphic::API::Vulkan
                                                compute.GetSpecification().DebugName );
 
         // The other route: the pipeline's own setters (asset textures, out-of-graph buffers), set 0.
-        RdgOtherRoute other;
+        // FPS-CPU2-VKRECORD: the thread's scratch (a context records on one thread), so no slot list is allocated.
+        thread_local RdgOtherRoute t_Other;
+        RdgOtherRoute&             other = t_Other;
+        other.Filled.clear();
         for ( const uint32_t binding : compute.GetBoundBindings() )
             other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
         other.PushConstants = !compute.GetBoundPushConstants().empty();
+        const bool setters  = !other.Filled.empty();
 
-        const auto resolved =
-             ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ), shader->GetName(), bindings,
-                                     other );
-        if ( !resolved )
-            return Common::MakeError( resolved.GetError() );
-        const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, resolved.GetValue(), pass,
-                               !other.Filled.empty(), nullptr );
-        if ( !sets )
-            return Common::MakeError( sets.GetError() );
-        if ( !other.Filled.empty() )
+        // FPS-CPU2-VKRECORD (GPU-COST-36's memo, as the graphics draws use it): the sets an earlier dispatch of
+        // this pass exec wrote from the same block, shader and layout are bound again; only the first resolves
+        // and writes. A pipeline with setters is kept out: its set 0 is written for each dispatch
+        // (WriteBoundResources).
+        VulkanRdgPassSetMemo* memo = nullptr;
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): the shader's address is the memo's identity
+        const VulkanRdgPassSetMemo::Key key{ .Block          = bindings.GetBlock(),
+                                             .Shader         = reinterpret_cast<std::uintptr_t>( shader ),
+                                             .Layout         = built.Layout,
+                                             .MaterialPush   = other.PushConstants,
+                                             .BlockPushBytes = bindings.GetPushConstants().size() };
+        // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+        std::optional<std::span<const VkDescriptorSet>> kept;
+        if ( !setters )
         {
-            if ( sets.GetValue().empty() )
-                return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not",
-                                                   pass );
-            if ( const Common::BoolResultStr written = compute.WriteBoundResources( built, sets.GetValue()[0] );
-                 !written.IsSuccess() )
-                return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
+            const Common::ResultStr<VulkanRdgPassSetMemo*> memoOf = VulkanRdgBackend::SetMemoOf( context );
+            if ( !memoOf )
+                return Common::MakeError( memoOf.GetError() );
+            memo = memoOf.GetValue();
+            kept = memo->Find( key );
         }
+        std::vector<VkDescriptorSet> fresh; // a memo miss's sets (the writer's own vector, moved)
+        if ( !kept.has_value() )
+        {
+            const auto resolved = ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ),
+                                                          shader->GetName(), bindings, other );
+            if ( !resolved )
+                return Common::MakeError( resolved.GetError() );
+            auto written =
+                 WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, resolved.GetValue(), pass, setters,
+                                   nullptr );
+            if ( !written )
+                return Common::MakeError( written.GetError() );
+            fresh = std::move( written.GetValue() );
+            if ( setters )
+            {
+                if ( fresh.empty() )
+                    return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not",
+                                                       pass );
+                if ( const Common::BoolResultStr filled = compute.WriteBoundResources( built, fresh[0] );
+                     !filled.IsSuccess() )
+                    return Common::MakeFormattedError( "{}: {}", pass, filled.GetError() );
+                kept = std::span<const VkDescriptorSet>( fresh );
+            }
+            else
+                kept = memo->Keep( key, fresh );
+        }
+        const std::span<const VkDescriptorSet> sets = *kept;
 
-        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
-        if ( !sets.GetValue().empty() )
-            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout,
-                                     0, static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
-                                     nullptr );
+        // FPS-CPU2-VKRECORD (CPU-FRAME-6's skip, for compute): the pipeline and the sets are recorded only when
+        // the command buffer does not hold exactly these, bound with this layout and no foreign bind since.
+        VulkanBoundCompute& boundCompute = Recording().BoundCompute;
+        const bool          known        = boundCompute.On( cmd.GetValue() );
+        if ( !known || boundCompute.Pipeline != built.Pipeline )
+        {
+            vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
+            boundCompute.Pipeline = built.Pipeline;
+        }
+        if ( !sets.empty() &&
+             ( boundCompute.SetsLayout != built.Layout || !std::ranges::equal( boundCompute.Sets, sets ) ) )
+        {
+            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout, 0,
+                                     static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
+            boundCompute.SetsLayout = built.Layout;
+            boundCompute.Sets.assign( sets.begin(), sets.end() );
+        }
         const std::span<const std::byte> push = ChoosePushConstants( bindings, compute.GetBoundPushConstants() );
         if ( !push.empty() )
             vkCmdPushConstants( cmd.GetValue(), built.Layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -1363,7 +1408,8 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes(
          const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
          const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> drawPush,
-         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshRunDraw& draw )
+         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshRunDraw& draw,
+         MeshWalkBound* const bound )
     {
         const std::string_view pass = bindings.GetContext().GetPassName();
         // The push block is the per-submesh transform the material carries (written below for each submesh).
@@ -1393,18 +1439,43 @@ namespace Desert::Graphic::API::Vulkan
              drawsAnything && pushConstant.has_value() && pushConstant->size >= sizeof( glm::mat4 )
                   ? PassStatePush::CallerCoversRange
                   : PassStatePush::Record;
-        if ( const Common::BoolResultStr bound =
-                  BindGraphicsPassState( bindings, pipeline, &material, drawPush, bindPush, &built );
-             !bound || !bound.GetValue() )
-            return bound;
+        // FPS-CPU2-VKRECORD: a batch's walk whose pass state the walk before it bound (MeshWalkBound) binds none
+        // of it again - the same block, shader, layout and material are a memo hit, the pipeline and sets are
+        // bound already, and CallerCoversRange records no push. Anything else binds and remembers what it bound.
+        const bool passStateBound = bound != nullptr && bindPush == PassStatePush::CallerCoversRange &&
+                                    bound->Pipeline == &pipeline && bound->Built == &built &&
+                                    bound->Material == &material && bound->PushBytes == drawPush.size();
+        if ( !passStateBound )
+        {
+            if ( bound != nullptr )
+                *bound = {};
+            if ( const Common::BoolResultStr state =
+                      BindGraphicsPassState( bindings, pipeline, &material, drawPush, bindPush, &built );
+                 !state || !state.GetValue() )
+                return state;
+            if ( bound != nullptr && bindPush == PassStatePush::CallerCoversRange )
+                *bound = MeshWalkBound{
+                     .Pipeline = &pipeline, .Built = &built, .Material = &material, .PushBytes = drawPush.size() };
+        }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
 
         // The per-mesh bind: the geometry at this mesh's own offsets, so every submesh range stays mesh-relative.
-        if ( const Common::BoolResultStr buffers =
-                  BindMeshBuffers( pass, pipeline, geometry.MeshBinding(), visibleRows, false );
-             !buffers )
-            return buffers;
+        // A batch's walk of the geometry the walk before it bound for this pass state (no id stream) skips it.
+        const bool buffersBound = passStateBound && visibleRows == VK_NULL_HANDLE && bound->Geometry == &geometry;
+        if ( !buffersBound )
+        {
+            if ( const Common::BoolResultStr buffers =
+                      BindMeshBuffers( pass, pipeline, geometry.MeshBinding(), visibleRows, false );
+                 !buffers )
+            {
+                if ( bound != nullptr )
+                    *bound = {};
+                return buffers;
+            }
+            if ( bound != nullptr && bound->Pipeline != nullptr )
+                bound->Geometry = visibleRows == VK_NULL_HANDLE ? &geometry : nullptr;
+        }
         const uint32_t indexCount = geometry.Indices != nullptr ? geometry.IndexCount : 0u;
 
         // The push block of every submesh: the draw's (@p drawPush - the material's block with the draw's own
@@ -1456,8 +1527,17 @@ namespace Desert::Graphic::API::Vulkan
                                   .First      = si,
                                   .Count      = static_cast<uint32_t>( end - si ),
                                   .IndexCount = indexCount };
-            if ( auto recorded = draw( run ); !recorded )
+            const Common::BoolResultStr recorded = draw( run );
+            if ( !recorded )
+            {
+                if ( bound != nullptr )
+                    *bound = {};
                 return recorded;
+            }
+            // FPS-CPU2-VKRECORD: the draw is complete (a compacted bin's one call) - the runs after it would
+            // only push blocks no draw of this walk reads (the next draw pushes its own before drawing).
+            if ( !recorded.GetValue() )
+                break;
             drawn += run.Count;
             si = end;
         }
@@ -1606,143 +1686,264 @@ namespace Desert::Graphic::API::Vulkan
          const RDG::BufferRef args, const uint64_t offset, const RDG::BufferRef count, const uint64_t countOffset,
          const uint32_t maxDraws, const SubmeshMask hiddenSubmeshMask )
     {
-        DESERT_PROFILE_FUNC();
+        // A lone bin is a batch of one: one implementation of what a compacted bin records.
+        const BinDraw bin{ .Pipeline          = &pipeline,
+                           .Mesh              = &mesh,
+                           .Material          = &material,
+                           .Transform         = transform,
+                           .Push              = push,
+                           .Args              = args,
+                           .Offset            = offset,
+                           .Count             = count,
+                           .CountOffset       = countOffset,
+                           .MaxDraws          = maxDraws,
+                           .HiddenSubmeshMask = hiddenSubmeshMask };
+        return RenderMeshIndirectCountBins( bindings, std::span<const BinDraw>( &bin, 1 ) );
+    }
+
+    namespace
+    {
+        // FPS-CPU2-VKRECORD: an indirect argument buffer of a batch, resolved once. The bins / groups naming the
+        // buffer of the same pass context the one before them named reuse it: PassContext::GetBuffer scans the
+        // pass's declared uses and BufferOf checks the backend, both invariant over a pass.
+        struct ResolvedIndirectBuffer
+        {
+            const RDG::PassContext* Context = nullptr;
+            RDG::BufferRef          Ref{};
+            VkBuffer                Buffer = VK_NULL_HANDLE;
+            uint64_t                Bytes  = 0;
+            std::string_view        Name;
+        };
+
+        // @p resolved names @p ref of @p context (declared Access::IndirectArgs) afterwards. Error: GetBuffer's
+        // or BufferOf's text, for the caller to prefix with what the buffer is.
+        Common::BoolResultStr ResolveIndirectBuffer( const RDG::PassContext& context, const RDG::BufferRef ref,
+                                                     ResolvedIndirectBuffer& resolved )
+        {
+            if ( resolved.Context == &context && resolved.Ref == ref && resolved.Buffer != VK_NULL_HANDLE )
+                return Common::MakeSuccess( true );
+            resolved            = {};
+            const auto declared = context.GetBuffer( ref, RDG::Access::IndirectArgs );
+            if ( !declared )
+                return Common::MakeError( declared.GetError() );
+            const auto buffer = VulkanRdgBackend::BufferOf( declared.GetValue() );
+            if ( !buffer )
+                return Common::MakeError( buffer.GetError() );
+            resolved = ResolvedIndirectBuffer{ .Context = &context,
+                                               .Ref     = ref,
+                                               .Buffer  = buffer.GetValue()->GetBuffer(),
+                                               .Bytes   = declared.GetValue().Desc->Bytes,
+                                               .Name    = declared.GetValue().Name };
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectCountBins( const RDG::PassBindings& bindings,
+                                                                          const std::span<const BinDraw> bins )
+    {
+        // ONE row per batch, under the name the per-bin call had, so a profile before and after compares rows.
+        DESERT_PROFILE_SCOPE( "VulkanRendererAPI::RenderMeshIndirectCount" );
+        if ( bins.empty() )
+            return Common::MakeSuccess( true );
+        // Invariant over the batch (UE SubmitMeshDrawCommandsRange): the pass, the device limits, the stride.
         const RDG::PassContext& context      = bindings.GetContext();
         const std::string_view  pass         = context.GetPassName();
         const auto&             capabilities = EngineContext::GetInstance().GetCapabilities();
         if ( !capabilities.SupportsDrawIndirectCount )
             return Common::MakeFormattedError(
                  "{}: a compacted bin's draw needs drawIndirectCount, which this device lacks", pass );
-        if ( maxDraws == 0u )
-            return Common::MakeSuccess( true );
-        if ( offset % 4u != 0u || countOffset % 4u != 0u )
-            return Common::MakeFormattedError(
-                 "{}: a compacted bin at byte {}, its count at byte {}: both must be multiples of four", pass,
-                 offset, countOffset );
-        if ( maxDraws > capabilities.MaxDrawIndirectCount )
-            return Common::MakeFormattedError( "{}: a compacted bin of {} draws passes maxDrawIndirectCount ({})",
-                                               pass, maxDraws, capabilities.MaxDrawIndirectCount );
-        const auto declared = context.GetBuffer( args, RDG::Access::IndirectArgs );
-        if ( !declared )
-            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, declared.GetError() );
-        const auto commands = VulkanRdgBackend::BufferOf( declared.GetValue() );
-        if ( !commands )
-            return Common::MakeFormattedError( "{}: compacted commands: {}", pass, commands.GetError() );
         // The stride is a record (kGpuDrawBinCommandBytes = kMeshDrawArgumentsBytes = 20): at least a
         // VkDrawIndexedIndirectCommand and a multiple of four, as vkCmdDrawIndexedIndirectCount asks.
-        const uint64_t end = offset + ( uint64_t{ maxDraws } * kMeshDrawArgumentsBytes );
-        if ( end > declared.GetValue().Desc->Bytes )
-            return Common::MakeFormattedError(
-                 "{}: {} compacted commands at byte {} pass the end of '{}' ({} bytes)", pass, maxDraws, offset,
-                 declared.GetValue().Name, declared.GetValue().Desc->Bytes );
-        const auto countDeclared = context.GetBuffer( count, RDG::Access::IndirectArgs );
-        if ( !countDeclared )
-            return Common::MakeFormattedError( "{}: compacted count: {}", pass, countDeclared.GetError() );
-        const auto counts = VulkanRdgBackend::BufferOf( countDeclared.GetValue() );
-        if ( !counts )
-            return Common::MakeFormattedError( "{}: compacted count: {}", pass, counts.GetError() );
-        if ( countOffset + sizeof( uint32_t ) > countDeclared.GetValue().Desc->Bytes )
-            return Common::MakeFormattedError(
-                 "{}: the compacted count at byte {} passes the end of '{}' ({} bytes)", pass, countOffset,
-                 countDeclared.GetValue().Name, countDeclared.GetValue().Desc->Bytes );
-        const VkBuffer vkArgs  = commands.GetValue()->GetBuffer();
-        const VkBuffer vkCount = counts.GetValue()->GetBuffer();
-        const auto     stride  = static_cast<uint32_t>( kMeshDrawArgumentsBytes );
-        // The walk binds the pass state, the mesh's buffers and the push block of its first drawn run; the bin's
-        // commands name every record's own indices, so that run's call is the bin's only one.
-        bool issued = false;
-        return WalkMeshSubmeshes(
-             bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
-             [&]( const SubmeshRun& run ) -> Common::BoolResultStr
-             {
-                 if ( issued )
-                     return Common::MakeSuccess( true );
-                 if ( run.IndexCount == 0u )
-                     return Common::MakeFormattedError( "{}: a compacted bin's mesh is not indexed", pass );
-                 issued = true;
-                 // One CPU call of the mesh pass; its draws are the GPU's (RenderMeshIndirect likewise).
-                 DrawCounter::RecordCpuIndirect();
-                 vkCmdDrawIndexedIndirectCount( RecordingTarget(), vkArgs, offset, vkCount, countOffset, maxDraws,
-                                                stride );
-                 return Common::MakeSuccess( true );
-             } );
+        const auto             stride = static_cast<uint32_t>( kMeshDrawArgumentsBytes );
+        ResolvedIndirectBuffer commands;
+        ResolvedIndirectBuffer counts;
+        // UE FMeshDrawCommandStateCache: the pass state and mesh buffers the bin before bound (MeshWalkBound).
+        MeshWalkBound bound;
+        bool          allRecorded = true;
+        for ( size_t i = 0; i < bins.size(); ++i )
+        {
+            const BinDraw& bin = bins[i];
+            if ( bin.Pipeline == nullptr || bin.Mesh == nullptr || bin.Material == nullptr )
+                return Common::MakeFormattedError( "{}: compacted bin {} has no pipeline, mesh or material", pass,
+                                                   i );
+            if ( bin.MaxDraws == 0u )
+                continue;
+            if ( bin.Offset % 4u != 0u || bin.CountOffset % 4u != 0u )
+                return Common::MakeFormattedError(
+                     "{}: compacted bin {} at byte {}, its count at byte {}: both must be multiples of four", pass,
+                     i, bin.Offset, bin.CountOffset );
+            if ( bin.MaxDraws > capabilities.MaxDrawIndirectCount )
+                return Common::MakeFormattedError(
+                     "{}: compacted bin {} of {} draws passes maxDrawIndirectCount ({})", pass, i, bin.MaxDraws,
+                     capabilities.MaxDrawIndirectCount );
+            if ( const Common::BoolResultStr resolved = ResolveIndirectBuffer( context, bin.Args, commands );
+                 !resolved )
+                return Common::MakeFormattedError( "{}: compacted bin {}: commands: {}", pass, i,
+                                                   resolved.GetError() );
+            const uint64_t end = bin.Offset + ( uint64_t{ bin.MaxDraws } * kMeshDrawArgumentsBytes );
+            if ( end > commands.Bytes )
+                return Common::MakeFormattedError(
+                     "{}: compacted bin {}: {} commands at byte {} pass the end of '{}' ({} bytes)", pass, i,
+                     bin.MaxDraws, bin.Offset, commands.Name, commands.Bytes );
+            if ( const Common::BoolResultStr resolved = ResolveIndirectBuffer( context, bin.Count, counts );
+                 !resolved )
+                return Common::MakeFormattedError( "{}: compacted bin {}: count: {}", pass, i,
+                                                   resolved.GetError() );
+            if ( bin.CountOffset + sizeof( uint32_t ) > counts.Bytes )
+                return Common::MakeFormattedError(
+                     "{}: compacted bin {}: the count at byte {} passes the end of '{}' ({} bytes)", pass, i,
+                     bin.CountOffset, counts.Name, counts.Bytes );
+            const VkBuffer vkArgs  = commands.Buffer;
+            const VkBuffer vkCount = counts.Buffer;
+            // The walk binds what differs from the bin before (pass state, mesh buffers) and the push block of the
+            // first drawn run; the bin's commands name every record's own indices, so that run's call is the
+            // bin's only one and the walk ends with it (no push blocks for the runs after).
+            const Common::BoolResultStr walked = WalkMeshSubmeshes(
+                 bindings, *bin.Pipeline, *bin.Mesh, bin.Transform, *bin.Material, bin.Push, bin.HiddenSubmeshMask,
+                 VK_NULL_HANDLE,
+                 [&]( const SubmeshRun& run ) -> Common::BoolResultStr
+                 {
+                     if ( run.IndexCount == 0u )
+                         return Common::MakeFormattedError( "{}: compacted bin {}: its mesh is not indexed", pass,
+                                                            i );
+                     // One CPU call of the mesh pass; its draws are the GPU's (RenderMeshIndirect likewise).
+                     DrawCounter::RecordCpuIndirect();
+                     vkCmdDrawIndexedIndirectCount( RecordingTarget(), vkArgs, bin.Offset, vkCount,
+                                                    bin.CountOffset, bin.MaxDraws, stride );
+                     return Common::MakeSuccess( false );
+                 },
+                 &bound );
+            if ( !walked )
+                return Common::MakeFormattedError( "{}: compacted bin {}: {}", pass, i, walked.GetError() );
+            // Success(false): the bin's pipeline is still compiling (BindGraphicsPassState) - skipped, not drawn.
+            if ( !walked.GetValue() )
+                allRecorded = false;
+        }
+        return Common::MakeSuccess( allRecorded );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
-                                                                      const GraphicsPipeline&      pipeline,
-                                                                      const MeshGeometryBinding&   geometry,
-                                                                      const MeshIndirectGroupDraw& draw )
+    Common::BoolResultStr
+    VulkanRendererAPI::RenderMeshIndirectGroup( const std::span<const MeshIndirectGroupBatchEntry> groups )
     {
         DESERT_PROFILE_FUNC();
-        const RDG::PassContext& context = bindings.GetContext();
-        const std::string_view  pass    = context.GetPassName();
-        if ( draw.MaxDraws == 0u )
-            return Common::MakeSuccess( true );
-        if ( draw.Stride < sizeof( VkDrawIndexedIndirectCommand ) || draw.Stride % 4u != 0u ||
-             draw.ArgsOffset % 4u != 0u )
-            return Common::MakeFormattedError(
-                 "{}: indirect group of stride {} at byte {}: the stride holds a VkDrawIndexedIndirectCommand "
-                 "and both are multiples of four",
-                 pass, draw.Stride, draw.ArgsOffset );
-        if ( geometry.Indices == nullptr )
-            return Common::MakeFormattedError( "{}: an indirect group's geometry has no index buffer", pass );
-        const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
-        if ( !declared )
-            return Common::MakeFormattedError( "{}: indirect arguments: {}", pass, declared.GetError() );
-        const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
-        if ( !args )
-            return Common::MakeFormattedError( "{}: indirect arguments: {}", pass, args.GetError() );
-        const uint64_t end = draw.ArgsOffset + ( uint64_t{ draw.MaxDraws - 1u } * draw.Stride ) +
-                             sizeof( VkDrawIndexedIndirectCommand );
-        if ( end > declared.GetValue().Desc->Bytes )
-            return Common::MakeFormattedError(
-                 "{}: {} indirect records at byte {} (stride {}) pass the end of '{}' ({} bytes)", pass,
-                 draw.MaxDraws, draw.ArgsOffset, draw.Stride, declared.GetValue().Name,
-                 declared.GetValue().Desc->Bytes );
-        if ( draw.MaxDrawsPerCall == 0u )
-            return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
-        if ( !draw.SplitLabels.empty() && draw.SplitLabels.size() != draw.MaxDraws )
-            return Common::MakeFormattedError( "{}: {} draw split labels for an indirect group of {} records",
-                                               pass, draw.SplitLabels.size(), draw.MaxDraws );
-
-        if ( const Common::BoolResultStr bound =
-                  BindGraphicsPassState( bindings, pipeline, draw.Material, {}, PassStatePush::Record );
-             !bound || !bound.GetValue() )
-            return bound;
-        // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
-        // VisibleInstances the record's firstInstance points into (BindMeshBuffers refuses a pipeline reading
-        // a_VisibleRow without it, and a stream handed to one that does not).
-        const VkBuffer visibleRows =
-             draw.VisibleRows != 0u ? VisibleRowIdentity( draw.VisibleRows ) : VK_NULL_HANDLE;
-        // The group's shared binding (the pool arena at offset 0): bound once per pipeline switch, the records'
-        // FirstIndex / VertexOffset are pool-absolute (DrawCommandCache).
-        if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, geometry, visibleRows, true );
-             !buffers )
-            return buffers;
-
-        // Not counted by DrawCounter: the instance counts are the GPU's (RenderMeshIndirect likewise).
-        // One fixed table (decision 10-28): every bin's record is drawn, a culled one with InstanceCount 0.
-        const VkBuffer vkArgs = args.GetValue()->GetBuffer();
-        // The mesh pass's issued bins and calls (DrawCounter::LastFrameMeshPass).
-        // MaxDraws > 0 here; maxDrawIndirectCount may be 2^32 - 1, so no rounding-up sum.
-        // Under the mesh draw split every record is its own call inside its own timestamp pair (the bin's row);
-        // otherwise MaxDrawsPerCall records per call, as without the profiler.
-        const uint32_t perCall = draw.SplitLabels.empty() ? draw.MaxDrawsPerCall : 1u;
-        DrawCounter::RecordBins( draw.MaxDraws, ( ( draw.MaxDraws - 1u ) / perCall ) + 1u );
-        for ( uint32_t first = 0; first < draw.MaxDraws; first += perCall )
+        // FPS-CPU2-VKRECORD (UE FMeshDrawCommandStateCache): nothing records between two groups of one call but
+        // their geometry binds and draws, so what the group before bound stays bound - the argument buffer's
+        // resolution, the pass state of (block, pipeline, carrier) with its push, the geometry and id stream.
+        ResolvedIndirectBuffer     args;
+        const RDG::PassBindings*   boundBindings = nullptr; // null: no pass state known
+        const GraphicsPipeline*    boundPipeline = nullptr;
+        const MaterialExecutor*    boundMaterial = nullptr;
+        const MeshGeometryBinding* boundGeometry = nullptr; // null: no geometry known
+        VkBuffer                   boundRows     = VK_NULL_HANDLE;
+        uint32_t                   identityRows  = 0;
+        VkBuffer                   identity      = VK_NULL_HANDLE;
+        bool                       allRecorded   = true;
+        for ( size_t g = 0; g < groups.size(); ++g )
         {
-            const uint32_t                                      count = std::min( draw.MaxDraws - first, perCall );
-            std::optional<Common::Profiling::GpuDrawSplitScope> bin;
-            if ( !draw.SplitLabels.empty() )
+            const MeshIndirectGroupBatchEntry& entry = groups[g];
+            if ( entry.Bindings == nullptr || entry.Pipeline == nullptr || entry.Geometry == nullptr )
+                return Common::MakeFormattedError(
+                     "indirect group {} of the batch has no binding block, pipeline or geometry", g );
+            const RDG::PassBindings&     bindings = *entry.Bindings;
+            const GraphicsPipeline&      pipeline = *entry.Pipeline;
+            const MeshGeometryBinding&   geometry = *entry.Geometry;
+            const MeshIndirectGroupDraw& draw     = entry.Draw;
+            const RDG::PassContext&      context  = bindings.GetContext();
+            const std::string_view       pass     = context.GetPassName();
+            if ( draw.MaxDraws == 0u )
+                continue;
+            if ( draw.Stride < sizeof( VkDrawIndexedIndirectCommand ) || draw.Stride % 4u != 0u ||
+                 draw.ArgsOffset % 4u != 0u )
+                return Common::MakeFormattedError(
+                     "{}: indirect group {} of stride {} at byte {}: the stride holds a "
+                     "VkDrawIndexedIndirectCommand and both are multiples of four",
+                     pass, g, draw.Stride, draw.ArgsOffset );
+            if ( geometry.Indices == nullptr )
+                return Common::MakeFormattedError( "{}: indirect group {}: its geometry has no index buffer", pass,
+                                                   g );
+            if ( const Common::BoolResultStr resolved = ResolveIndirectBuffer( context, draw.Args, args );
+                 !resolved )
+                return Common::MakeFormattedError( "{}: indirect group {}: arguments: {}", pass, g,
+                                                   resolved.GetError() );
+            const uint64_t end = draw.ArgsOffset + ( uint64_t{ draw.MaxDraws - 1u } * draw.Stride ) +
+                                 sizeof( VkDrawIndexedIndirectCommand );
+            if ( end > args.Bytes )
+                return Common::MakeFormattedError(
+                     "{}: indirect group {}: {} records at byte {} (stride {}) pass the end of '{}' ({} bytes)",
+                     pass, g, draw.MaxDraws, draw.ArgsOffset, draw.Stride, args.Name, args.Bytes );
+            if ( draw.MaxDrawsPerCall == 0u )
+                return Common::MakeFormattedError( "{}: indirect group {} of zero draws per call", pass, g );
+            if ( !draw.SplitLabels.empty() && draw.SplitLabels.size() != draw.MaxDraws )
+                return Common::MakeFormattedError( "{}: indirect group {}: {} draw split labels for {} records",
+                                                   pass, g, draw.SplitLabels.size(), draw.MaxDraws );
+
+            // The pass state, unless the group before bound exactly it: the same block, pipeline and carrier are
+            // a memo hit, an already-bound pipeline and sets, and the same push block (Record pushes the
+            // carrier's, which nothing between the two groups overwrote).
+            if ( boundBindings != &bindings || boundPipeline != &pipeline || boundMaterial != draw.Material )
             {
-                const DrawSplitLabel& label = draw.SplitLabels[first];
-                bin.emplace( pass, label.Mesh, label.Material );
-                bin->Add( 1, label.TrianglesPerInstance, true );
+                boundBindings = nullptr;
+                boundGeometry = nullptr;
+                const Common::BoolResultStr bound =
+                     BindGraphicsPassState( bindings, pipeline, draw.Material, {}, PassStatePush::Record );
+                if ( !bound )
+                    return Common::MakeFormattedError( "{}: indirect group {}: {}", pass, g, bound.GetError() );
+                if ( !bound.GetValue() )
+                {
+                    allRecorded = false; // its pipeline is still compiling: not drawn this frame
+                    continue;
+                }
+                boundBindings = &bindings;
+                boundPipeline = &pipeline;
+                boundMaterial = draw.Material;
             }
-            vkCmdDrawIndexedIndirect( RecordingTarget(), vkArgs,
-                                      draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count, draw.Stride );
+            // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
+            // VisibleInstances the record's firstInstance points into (BindMeshBuffers refuses a pipeline reading
+            // a_VisibleRow without it, and a stream handed to one that does not).
+            if ( draw.VisibleRows != identityRows )
+            {
+                identityRows = draw.VisibleRows;
+                identity     = VK_NULL_HANDLE;
+                if ( draw.VisibleRows != 0u )
+                    identity = VisibleRowIdentity( draw.VisibleRows );
+            }
+            // The group's shared binding (the pool arena at offset 0): bound once per pipeline switch, the
+            // records' FirstIndex / VertexOffset are pool-absolute (DrawCommandCache).
+            if ( boundGeometry != &geometry || boundRows != identity )
+            {
+                boundGeometry = nullptr;
+                if ( const Common::BoolResultStr buffers =
+                          BindMeshBuffers( pass, pipeline, geometry, identity, true );
+                     !buffers )
+                    return Common::MakeFormattedError( "{}: indirect group {}: {}", pass, g, buffers.GetError() );
+                boundGeometry = &geometry;
+                boundRows     = identity;
+            }
+
+            // Not counted by DrawCounter: the instance counts are the GPU's (RenderMeshIndirect likewise).
+            // One fixed table (decision 10-28): every bin's record is drawn, a culled one with InstanceCount 0.
+            // The mesh pass's issued bins and calls (DrawCounter::LastFrameMeshPass).
+            // MaxDraws > 0 here; maxDrawIndirectCount may be 2^32 - 1, so no rounding-up sum.
+            // Under the mesh draw split every record is its own call inside its own timestamp pair (the bin's
+            // row); otherwise MaxDrawsPerCall records per call, as without the profiler.
+            const uint32_t perCall = draw.SplitLabels.empty() ? draw.MaxDrawsPerCall : 1u;
+            DrawCounter::RecordBins( draw.MaxDraws, ( ( draw.MaxDraws - 1u ) / perCall ) + 1u );
+            for ( uint32_t first = 0; first < draw.MaxDraws; first += perCall )
+            {
+                const uint32_t count = std::min( draw.MaxDraws - first, perCall );
+                std::optional<Common::Profiling::GpuDrawSplitScope> bin;
+                if ( !draw.SplitLabels.empty() )
+                {
+                    const DrawSplitLabel& label = draw.SplitLabels[first];
+                    bin.emplace( pass, label.Mesh, label.Material );
+                    bin->Add( 1, label.TrianglesPerInstance, true );
+                }
+                vkCmdDrawIndexedIndirect( RecordingTarget(), args.Buffer,
+                                          draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count,
+                                          draw.Stride );
+            }
         }
-        return Common::MakeSuccess( true );
+        return Common::MakeSuccess( allRecorded );
     }
 
     Common::BoolResultStr VulkanRendererAPI::RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
@@ -1897,6 +2098,9 @@ namespace Desert::Graphic::API::Vulkan
         std::optional<std::span<const VkDescriptorSet>> kept = memo.GetValue()->Find( key );
         if ( !kept.has_value() )
         {
+            // FPS-CPU2-VKRECORD: the miss's own row, so a draw's cost splits into memo hit (the caller's row
+            // minus this) and miss (resolve + write + descriptor cache).
+            DESERT_PROFILE_SCOPE( "VulkanRendererAPI::BindGraphicsPassState: set memo miss" );
             // CPU-FRAME-5: the other route's filled slots are read only by the resolution, so a draw the memo
             // serves builds none.
             for ( const uint32_t binding : materialSlots.Bindings )

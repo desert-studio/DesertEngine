@@ -124,6 +124,13 @@ namespace Desert::Runtime
         /// draw by render workers: no lock once nothing waits, the shared lock while something does.
         bool AwaitedBy( const Assets::AssetHandle& material ) const;
 
+        /// Some material waits for a texture (AwaitedBy can answer true). No lock: false = AwaitedBy is false
+        /// for every material, so a per-draw asker skips its own lookup of the material first.
+        [[nodiscard]] bool AnyAwaited() const noexcept
+        {
+            return m_AnyWaiting.load( std::memory_order_acquire );
+        }
+
         // Original source file of a texture (e.g. ".../foo.gif"), empty when the handle is unknown. The one
         // synchronous door: an unread shell is finished NOW through AsyncAssetLoader::FlushOne, which the
         // SyncLoadLedger counts.

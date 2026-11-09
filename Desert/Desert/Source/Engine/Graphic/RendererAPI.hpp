@@ -69,6 +69,34 @@ namespace Desert::Graphic
         std::span<const DrawSplitLabel> SplitLabels{};
     };
 
+    // One IndirectGroup of a batch (RendererAPI::RenderMeshIndirectGroup): the group's binding block, pipeline,
+    // shared geometry binding and draw. Every pointer is required and outlives the call.
+    struct MeshIndirectGroupBatchEntry
+    {
+        const RDG::PassBindings*   Bindings = nullptr;
+        const GraphicsPipeline*    Pipeline = nullptr;
+        const MeshGeometryBinding* Geometry = nullptr;
+        MeshIndirectGroupDraw      Draw{};
+    };
+
+    // One compacted bin of a batch (RendererAPI::RenderMeshIndirectCountBins): the arguments of one
+    // Renderer::RenderMeshIndirectCount, recorded in the span's order. Pipeline, Mesh and Material are required
+    // and outlive the call; Push views the draw's own push block (empty = the material's block).
+    struct BinDraw
+    {
+        const GraphicsPipeline*    Pipeline = nullptr;
+        const Desert::Mesh*        Mesh     = nullptr;
+        const MaterialExecutor*    Material = nullptr;
+        glm::mat4                  Transform{ 1.0f };
+        std::span<const std::byte> Push{};
+        RDG::BufferRef             Args{};
+        uint64_t                   Offset = 0;
+        RDG::BufferRef             Count{};
+        uint64_t                   CountOffset       = 0;
+        uint32_t                   MaxDraws          = 0;
+        SubmeshMask                HiddenSubmeshMask = {};
+    };
+
     // One material group of the virtual-geometry raster (VirtualGeometry::RasterBins): ONE non-indexed
     // VkDrawIndirectCommand at Args + ArgsOffset (vertexCount = kClusterMaxTriangles x 3, instanceCount = the
     // group's clusters, firstInstance = its first Rows entry), drawn with the group's `.VirtualGeometry` cell.
@@ -288,14 +316,19 @@ namespace Desert::Graphic
                                  std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
                                  RDG::BufferRef count, uint64_t countOffset, uint32_t maxDraws,
                                  SubmeshMask hiddenSubmeshMask ) = 0;
-        // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
-        // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream /
-        // index buffers (the group's shared binding: one bind per pipeline switch), then the indirect draws @p
-        // draw names. No push block is written: a binned draw reads its per-draw state from GpuScene through
-        // gl_InstanceIndex.
+        // A pass's compacted bins in one call (see Renderer::RenderMeshIndirectCountBins; UE
+        // SubmitMeshDrawCommandsRange): each bin exactly as RenderMeshIndirectCount records it, in @p bins' order.
         [[nodiscard]] virtual Common::BoolResultStr
-        RenderMeshIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                 const MeshGeometryBinding& geometry, const MeshIndirectGroupDraw& draw ) = 0;
+        RenderMeshIndirectCountBins( const RDG::PassBindings& bindings, std::span<const BinDraw> bins ) = 0;
+        // The IndirectGroups of a binned pass, in @p groups' order. Each: its pipeline's pass state (no per-draw
+        // material: binned materials are bindless rows; Draw.Material is the view's carrier of the scene blocks),
+        // its geometry's vertex / stream / index buffers (the group's shared binding: one bind per pipeline
+        // switch), then the indirect draws Draw names. No push block is written: a binned draw reads its
+        // per-draw state from GpuScene through gl_InstanceIndex. State a group shares with the one before it
+        // (block, pipeline, carrier, geometry, argument buffer) is resolved and bound once. Success(false): a
+        // group's pipeline is still compiling and was skipped; the rest are recorded.
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirectGroup( std::span<const MeshIndirectGroupBatchEntry> groups ) = 0;
         // One material group of the VG raster (ClusterIndirectGroupDraw): @p pipeline's pass state (the group's
         // `.VirtualGeometry` cell), the Rows stream at binding 2, one vkCmdDrawIndirect. Refused: a pipeline that
         // does not read the instance id stream, arguments past the end of their buffer.

@@ -646,6 +646,79 @@ namespace Desert::Graphic::System
             // a record nested on the thread between two draws never sees another record's bytes.
             thread_local std::vector<std::byte>                t_RecordPush;
             thread_local std::vector<const RDG::PassBindings*> t_RecordGroupBindings;
+            // FPS-CPU2-GRASS2 (UE FParallelMeshDrawCommandPass / SubmitMeshDrawCommandsRange: a run of the list's
+            // draws in one backend submit): the compacted bins a command record holds back until the run ends -
+            // consecutive bins of one binding block go to Renderer::RenderMeshIndirectCountBins as ONE batch. The
+            // bins, their push blocks end to end and each one's (offset, size) there (the spans are set at the
+            // flush, after the last append can move the bytes). A record takes them out of the thread (BinBatch)
+            // for its run, so a record nested on the thread inside the backend call cannot touch a pending batch.
+            struct RecordBinScratch
+            {
+                std::vector<BinDraw>                       Bins;
+                std::vector<std::byte>                     Push;
+                std::vector<std::pair<uint32_t, uint32_t>> PushAt;
+            };
+            thread_local RecordBinScratch t_RecordBins;
+
+            // The thread's RecordBinScratch for one RecordCommands: moved out on entry, back (emptied, its
+            // capacity kept) on exit - no heap allocation once the thread's vectors have grown.
+            class BinBatch
+            {
+            public:
+                BinBatch() noexcept : m_Scratch( std::move( t_RecordBins ) )
+                {
+                    Reset();
+                }
+                ~BinBatch()
+                {
+                    Reset();
+                    t_RecordBins = std::move( m_Scratch );
+                }
+                BinBatch( const BinBatch& )            = delete;
+                BinBatch& operator=( const BinBatch& ) = delete;
+
+                [[nodiscard]] bool Empty() const noexcept
+                {
+                    return m_Scratch.Bins.empty();
+                }
+                [[nodiscard]] uint32_t Block() const noexcept
+                {
+                    return m_Block;
+                }
+                // Holds @p bin of binding block @p block back, its push block a copy of @p push.
+                void Add( const uint32_t block, const BinDraw& bin, const std::span<const std::byte> push )
+                {
+                    m_Block = block;
+                    m_Scratch.PushAt.emplace_back( static_cast<uint32_t>( m_Scratch.Push.size() ),
+                                                   static_cast<uint32_t>( push.size() ) );
+                    m_Scratch.Push.insert( m_Scratch.Push.end(), push.begin(), push.end() );
+                    m_Scratch.Bins.push_back( bin );
+                }
+                // Records the held bins as one batch with @p bindings (their block's), then holds none.
+                Common::BoolResultStr Flush( const RDG::PassBindings& bindings )
+                {
+                    if ( m_Scratch.Bins.empty() )
+                        return BOOLSUCCESS;
+                    for ( size_t b = 0; b < m_Scratch.Bins.size(); ++b )
+                        m_Scratch.Bins[b].Push = std::span<const std::byte>(
+                             m_Scratch.Push.data() + m_Scratch.PushAt[b].first, m_Scratch.PushAt[b].second );
+                    Common::BoolResultStr drawn =
+                         Renderer::RenderMeshIndirectCountBins( bindings, m_Scratch.Bins );
+                    Reset();
+                    return drawn;
+                }
+
+            private:
+                void Reset() noexcept
+                {
+                    m_Scratch.Bins.clear();
+                    m_Scratch.Push.clear();
+                    m_Scratch.PushAt.clear();
+                }
+
+                RecordBinScratch m_Scratch;
+                uint32_t         m_Block = 0;
+            };
             // The depth pass's one sweep of its bins (RecordBinned under RecordBinnedFirst): per group the
             // pipeline this sweep draws it with, null = the other sweep's. Same kept-scratch rule as the two
             // above.
@@ -1097,6 +1170,10 @@ namespace Desert::Graphic::System
             // nothing and builds no label.
             const bool                                          split = Common::Profiling::MeshDrawSplitOn();
             std::optional<Common::Profiling::GpuDrawSplitScope> drawRun;
+            // FPS-CPU2-GRASS2: consecutive compacted bins of one block, recorded as one batch when the run ends (a
+            // draw of another kind or block, a viewport, the end of the list). The draw split times each bin on
+            // its own, so with it on every bin is its own call, as before.
+            BinBatch binBatch;
             const Mesh*                                         groupMesh     = nullptr;
             const MaterialExecutor*                             groupMaterial = nullptr;
             // The commands this call issues: all in build order, or one depth-sort bucket (indices into
@@ -1111,6 +1188,10 @@ namespace Desert::Graphic::System
             {
                 const size_t           i    = bucket != nullptr ? size_t{ ( *bucket )[k] } : k;
                 const MeshDrawCommand& draw = m_Commands[i];
+                const bool             held = !split && draw.IndirectCount.IsValid();
+                if ( !binBatch.Empty() && ( !held || draw.Viewport || m_BlockOf[i] != binBatch.Block() ) )
+                    if ( auto flushed = binBatch.Flush( blocks.At( binBatch.Block() ) ); !flushed.IsSuccess() )
+                        return flushed;
                 if ( split )
                 {
                     if ( !drawRun || draw.Mesh != groupMesh || draw.Material != groupMaterial )
@@ -1146,6 +1227,23 @@ namespace Desert::Graphic::System
                 if ( draw.IndirectCount.IsValid() )
                 {
                     static_assert( kGpuDrawBinCommandBytes == kMeshDrawArgumentsBytes );
+                    if ( held )
+                    {
+                        binBatch.Add( m_BlockOf[i],
+                                      BinDraw{ .Pipeline          = draw.Pipeline,
+                                               .Mesh              = draw.Mesh,
+                                               .Material          = draw.Material,
+                                               .Transform         = draw.Transform,
+                                               .Push              = {},
+                                               .Args              = draw.IndirectArgs,
+                                               .Offset            = draw.IndirectArgsOffset,
+                                               .Count             = draw.IndirectCount,
+                                               .CountOffset       = draw.IndirectCountOffset,
+                                               .MaxDraws          = draw.IndirectMaxDraws,
+                                               .HiddenSubmeshMask = draw.HiddenSubmeshMask },
+                                      push );
+                        continue;
+                    }
                     if ( auto drawn = Renderer::RenderMeshIndirectCount(
                               blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform,
                               *draw.Material, push, draw.IndirectArgs, draw.IndirectArgsOffset, draw.IndirectCount,
@@ -1184,6 +1282,9 @@ namespace Desert::Graphic::System
                      !drawn.IsSuccess() )
                     return drawn;
             }
+            if ( !binBatch.Empty() )
+                if ( auto flushed = binBatch.Flush( blocks.At( binBatch.Block() ) ); !flushed.IsSuccess() )
+                    return flushed;
             drawRun.reset();
             return BOOLSUCCESS;
         }
