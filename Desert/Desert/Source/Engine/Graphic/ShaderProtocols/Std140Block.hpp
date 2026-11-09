@@ -48,6 +48,16 @@ namespace Desert::Graphic::ShaderProtocols
     DESERT_STD140_TYPE( glm::mat4, "mat4", 64, 16 )
 #undef DESERT_STD140_TYPE
 
+    /// An array of vec4 (std140 §7.6.2.2 rule 4: the stride of a vec4 element is 16, the same as the C++ array's).
+    /// The field's GLSL name carries the `[N]` (FIELD( Graphic::..., Source, LocalWind[8], ... )).
+    template <std::size_t N>
+    struct Std140Type<std::array<glm::vec4, N>>
+    {
+        static constexpr std::string_view Glsl  = "vec4";
+        static constexpr std::size_t      Size  = 16 * N;
+        static constexpr std::size_t      Align = 16;
+    };
+
     /// One member of a uniform block: its GLSL type and name, where the C++ struct holds it, and where std140
     /// wants it.
     struct Std140Field

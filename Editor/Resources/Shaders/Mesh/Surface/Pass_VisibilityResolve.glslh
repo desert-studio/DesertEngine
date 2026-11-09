@@ -35,6 +35,7 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 // The Instanced path (GRASS-VIS-MESH-1): the mesh grass section's rows and its mesh's buffers.
 #include <Mesh/Surface/GrassMeshVisibility.glslh>
 #include <Common/FoliageWind.glslh>
+#include <Common/LocalWind.glslh>
 #include <Mesh/MeshVertexAccess.glslh>
 #endif
 
@@ -121,13 +122,18 @@ void main()
     vec2       corner[3];
     BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );
     const vec4 windPrev = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
+    // The local wind at the blade's root, now and one step before (the raster's, Vertex_GrassBlade.glslh).
+    const vec2 localAir     = LocalWindXZ( vec3( model[3] ), false );
+    const vec2 prevLocalAir = LocalWindXZ( vec3( model[3] ), true );
     BladePoint point[3];
     vec3       previous[3];
     vec4       jittered[3];
     for ( int k = 0; k < 3; ++k )
     {
-        point[k]    = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, m_PushConstants.WindB );
-        previous[k] = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev ).Position;
+        point[k]    = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA,
+                               m_PushConstants.WindB, cameraUB.WindGust, localAir );
+        previous[k] = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev,
+                               cameraUB.PrevWindGust, prevLocalAir ).Position;
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
     }
 
@@ -255,6 +261,9 @@ void main()
     const uint  vertexStride  = MeshRows.Geometry[1].z;
     const uint  streamStride  = MeshRows.Geometry[1].w;
     const vec4  windPrev      = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
+    // The local wind at the instance, now and one step before (the raster's, Vertex_Instanced.glslh).
+    const vec2  localAir      = LocalWindXZ( vec3( model[3] ), false );
+    const vec2  prevLocalAir  = LocalWindXZ( vec3( prevModel[3] ), true );
     const mat3  normalMatrix  = transpose( inverse( mat3( model ) ) );
     vec3        world[3];
     vec3        previous[3];
@@ -273,8 +282,10 @@ void main()
         const uvec2 at     = GrassMeshAddressAdd( vertexAddress, index * vertexStride );
         const uvec2 stream = GrassMeshAddressAdd( streamAddress, index * streamStride );
         const vec3  local3 = GrassMeshVec3( at, 0u );
-        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB );
-        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev );
+        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB,
+                                               cameraUB.WindGust, localAir );
+        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev,
+                                               cameraUB.PrevWindGust, prevLocalAir );
         jittered[k]  = cameraUB.JitteredViewProjection * vec4( world[k], 1.0 );
         normal[k]    = normalize( normalMatrix * GrassMeshVec3( at, 12u ) );
         tangent[k]   = normalize( normalMatrix * GrassMeshVec3( at, 24u ) );

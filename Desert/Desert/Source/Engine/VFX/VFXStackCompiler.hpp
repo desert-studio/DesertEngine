@@ -219,6 +219,14 @@ namespace Desert::VFX
     /// under it, so a PreOpaque program's layout never names them.
     inline constexpr std::string_view kVFXSceneDepthDefine = "VFX_READS_SCENE_DEPTH";
 
+    /// The contract host function that reads the scene's AIR (WIND-FIELD-GPU; UE Niagara Wind Force reading the
+    /// scene's wind sources): the directional wind and the local sources the foliage sways by. It needs nothing
+    /// of the frame's passes, so it moves no tick stage; a stack whose GLSL calls it binds the SceneWind block.
+    inline constexpr std::string_view kVFXSceneWindHostFunction = "VFX_SceneWind";
+    /// Defined (to 1) at the top of a wind-reading stack's generated GLSL: ParticleSimulate.shader declares the
+    /// SceneWind block and VFX_SceneWind only under it, so a stack that reads no air never names them.
+    inline constexpr std::string_view kVFXSceneWindDefine = "VFX_READS_SCENE_WIND";
+
     /**
      * EMITTERS LINKED BY EVENTS TICK IN ONE STAGE (PORT-VFX-MODULES, from int/vfx 76d3116b8). An Event Handler
      * reads the events its source raised in the previous fixed STEP (Common/VFXEvents.glslh: a channel's two
@@ -238,6 +246,7 @@ namespace Desert::VFX
     struct VFXCompiledEmitter
     {
         VFXTickStage              TickStage = VFXTickStage::PreOpaque; ///< from the host functions its GLSL calls
+        bool                      ReadsSceneWind = false; ///< its GLSL calls kVFXSceneWindHostFunction
         uint64_t                  Key = 0;    ///< FNV-64 of the stack STRUCTURE + the layout; no input value
         std::string               ShaderName; ///< "VFX/Emitter/<Key as 16 hex digits>"
         std::string               ShaderText; ///< a whole `.shader`: `Domain Particle` + one Particle block

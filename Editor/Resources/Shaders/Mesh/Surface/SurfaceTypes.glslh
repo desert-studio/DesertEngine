@@ -225,6 +225,8 @@ struct SingleLayerWaterOutput
     float ShoreFadeCm;            // the water column (cm) over which the surface fades in from where it meets
                                   // the ground (UE's water material depth fade): no hard intersection line
     float DebugFoamMask;          // 1 = draw only the foam mask (white foam, black water) - a debug material
+    float WindRippleMaxGain;      // the ripple tilt's factor under a local wind source at the frame's reference
+                                  // speed and above (1 = the local air leaves the ripples as they are)
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.

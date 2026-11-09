@@ -61,8 +61,8 @@ namespace Desert::Graphic
 
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
                            const double timeSeconds, const CascadeCasterBias& bias,
-                           const ParallaxQuality& parallax, const glm::vec4& casterWindOrigin,
-                           const glm::vec4& casterWindRing )
+                           const ParallaxQuality& parallax, const SceneWind& wind,
+                           const glm::vec4& casterWindOrigin, const glm::vec4& casterWindRing )
     {
         // A light camera is not a view: no jitter, no previous frame (MakeStillViewFrame); the camera block still
         // has its one writer. Its position is the light camera's eye, its clock the frame's. The constant bias
@@ -74,14 +74,19 @@ namespace Desert::Graphic
         frame.Parallax         = parallax;
         frame.CasterWindOrigin = casterWindOrigin;
         frame.CasterWindRing   = casterWindRing;
+        frame.WindGust         = wind.Gust; // a light view has no previous position: both steps alike
+        frame.PrevWindGust     = wind.Gust;
+        frame.LocalWind        = wind.Local;
+        frame.PrevLocalWind    = wind.Local;
         SceneCameraBind( &material, frame );
     }
 
     void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection,
                                          const double timeSeconds, const CascadeCasterBias& bias,
-                                         const ParallaxQuality& parallax, const glm::vec4& casterWindOrigin )
+                                         const ParallaxQuality& parallax, const SceneWind& wind,
+                                         const glm::vec4& casterWindOrigin )
     {
-        WriteLightCamera( *this, view, projection, timeSeconds, bias, parallax, casterWindOrigin );
+        WriteLightCamera( *this, view, projection, timeSeconds, bias, parallax, wind, casterWindOrigin );
     }
 
     void MaterialShadowSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )
