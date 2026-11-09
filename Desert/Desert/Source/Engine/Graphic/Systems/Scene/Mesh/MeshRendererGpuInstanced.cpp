@@ -771,9 +771,10 @@ namespace Desert::Graphic::System
             if ( maskedPrepass )
                 phasePrepassed.push_back( { .Key = gpu.Key, .Buckets = prepassBuckets } );
 
-            // THE RESOLVE (GRASS-VIS): one full-screen triangle per section - record 0 of the view's resolve table
-            // (VirtualGeometry::VisibilityBuffer: {3, 1, 0, 0, 0}, the strip's first three indices, which
-            // Vertex_GrassBlade.glslh's resolve branch places over the screen), every other submesh hidden. The
+            // THE RESOLVE (GRASS-VIS): two triangles per screen tile per section - record 0 of the view's resolve
+            // table (VirtualGeometry::VisibilityBuffer: {3, 2 x tiles, 0, 0, 0}, the strip's first three indices,
+            // which Vertex_GrassBlade.glslh's resolve branch places over a tile holding the section's rows and
+            // collapses elsewhere, FPS-GRASS-RESOLVE), every other submesh hidden. The
             // transforms are still the section's: the fragment stage rebuilds the blade its pixel's word names.
             if ( pass == MeshPass::VisibilityResolve )
             {
