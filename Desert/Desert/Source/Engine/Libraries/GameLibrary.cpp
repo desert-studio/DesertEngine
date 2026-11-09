@@ -8,6 +8,8 @@
 #include <Projects/GameSettings.hpp>
 #include <Projects/ProjectContext.hpp>
 
+#include <string_view>
+
 namespace Desert::Libraries
 {
     void LogLibrary::Info( const std::string& message )
@@ -51,14 +53,108 @@ namespace Desert::Libraries
         return Core::OpenLevel( level );
     }
 
-    void TimerLibrary::After( float seconds, const Reflection::Callable& callback )
+    namespace
     {
-        const Core::WorldContext* context = Core::WorldContext::Current();
-        if ( context == nullptr || context->Timers == nullptr )
+        /// The running script's world timers; nullptr, logged, outside a world with timers (no Play).
+        Core::TimerManager* WorldTimers( std::string_view function )
         {
-            LOG_ERROR( "[Script] Timer.after: no world with timers runs this call" );
-            return;
+            const Core::WorldContext* context = Core::WorldContext::Current();
+            if ( context == nullptr || context->Timers == nullptr )
+            {
+                LOG_ERROR( "[Script] Timer.{}: no world with timers runs this call", function );
+                return nullptr;
+            }
+            return context->Timers;
         }
-        context->Timers->After( seconds, callback );
+    } // namespace
+
+    Core::TimerHandle TimerLibrary::After( float seconds, const Reflection::Callable& callback )
+    {
+        Core::TimerManager* timers = WorldTimers( "after" );
+        if ( timers == nullptr )
+            return Core::TimerHandle();
+        return seconds > 0.0f ? timers->SetTimer( callback, seconds ) : timers->SetTimerForNextTick( callback );
+    }
+
+    Core::TimerHandle TimerLibrary::Every( float seconds, const Reflection::Callable& callback, float firstDelay,
+                                           bool maxOncePerFrame )
+    {
+        Core::TimerManager* timers = WorldTimers( "every" );
+        if ( timers == nullptr )
+            return Core::TimerHandle();
+        Core::TimerParameters parameters;
+        parameters.Loop            = true;
+        parameters.MaxOncePerFrame = maxOncePerFrame;
+        parameters.FirstDelay      = firstDelay;
+        const Core::TimerHandle handle = timers->SetTimer( callback, seconds, parameters );
+        if ( handle.Serial == 0 && seconds <= 0.0f )
+            LOG_ERROR( "[Script] Timer.every: a period of {} s sets nothing (it must be above 0)", seconds );
+        return handle;
+    }
+
+    Core::TimerHandle TimerLibrary::NextTick( const Reflection::Callable& callback )
+    {
+        Core::TimerManager* timers = WorldTimers( "nextTick" );
+        return timers != nullptr ? timers->SetTimerForNextTick( callback ) : Core::TimerHandle();
+    }
+
+    void TimerLibrary::Clear( const Core::TimerHandle& handle )
+    {
+        if ( Core::TimerManager* timers = WorldTimers( "clear" ) )
+            timers->ClearTimer( handle );
+    }
+
+    void TimerLibrary::Pause( const Core::TimerHandle& handle )
+    {
+        if ( Core::TimerManager* timers = WorldTimers( "pause" ) )
+            timers->PauseTimer( handle );
+    }
+
+    void TimerLibrary::UnPause( const Core::TimerHandle& handle )
+    {
+        if ( Core::TimerManager* timers = WorldTimers( "unpause" ) )
+            timers->UnPauseTimer( handle );
+    }
+
+    bool TimerLibrary::IsActive( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "isActive" );
+        return timers != nullptr && timers->IsTimerActive( handle );
+    }
+
+    bool TimerLibrary::IsPaused( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "isPaused" );
+        return timers != nullptr && timers->IsTimerPaused( handle );
+    }
+
+    bool TimerLibrary::IsPending( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "isPending" );
+        return timers != nullptr && timers->IsTimerPending( handle );
+    }
+
+    bool TimerLibrary::Exists( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "exists" );
+        return timers != nullptr && timers->TimerExists( handle );
+    }
+
+    float TimerLibrary::Rate( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "rate" );
+        return timers != nullptr ? timers->GetTimerRate( handle ) : -1.0f;
+    }
+
+    float TimerLibrary::Elapsed( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "elapsed" );
+        return timers != nullptr ? timers->GetTimerElapsed( handle ) : -1.0f;
+    }
+
+    float TimerLibrary::Remaining( const Core::TimerHandle& handle )
+    {
+        const Core::TimerManager* timers = WorldTimers( "remaining" );
+        return timers != nullptr ? timers->GetTimerRemaining( handle ) : -1.0f;
     }
 } // namespace Desert::Libraries
