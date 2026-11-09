@@ -87,6 +87,9 @@ namespace Desert::Graphic
     {
         None   = 0,
         Vulkan = 1,
+        // Windows only (Graphic/API/D3D12, DX12-RHI part 1): the device and swap chain exist, the RendererAPI
+        // that records frames on them is part 2, so nothing selects this value yet.
+        D3D12 = 2,
     };
 
     class RendererAPI
