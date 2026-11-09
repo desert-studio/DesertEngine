@@ -11,6 +11,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGScratch.hpp>
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -333,6 +334,13 @@ namespace Desert::Graphic::RDG
         // Writes @p sync's Cause in place (a rebound plan reuses the string's storage every frame).
         static void WriteSyncCause( const std::vector<PassRecord>&     passes,
                                     const std::vector<ResourceRecord>& resources, CrossPipeSync& sync );
+        // FPS-CPU2-RDG (DESERT_DEV_INSTRUMENTS): the check of stored @p plan under @p key as a job of its own - a
+        // copy of @p builder's declaration, of its externals' states and of the memory requirements the plan's
+        // transients asked of @p memory, compiled off the render thread and compared with a copy of @p plan.
+        [[nodiscard]] static CompileCache::Check MakeCheck( const Builder& builder, const CompileResult& plan,
+                                                            const IMemoryRequirementsProvider& memory,
+                                                            const PipeCapabilities& pipes, CompileCache& cache,
+                                                            uint64_t key );
 
         // Set by AddTransfers when a transfer's acquire would record before the join ordering it.
         const std::string& SyncError() const
@@ -3044,6 +3052,186 @@ namespace Desert::Graphic::RDG
         AssignExternalPoints( plan );
     }
 
+    namespace
+    {
+        // FPS-CPU2-RDG: the memory requirements a check's compile may ask, taken on the render thread from the
+        // backend's provider (its cache is a plain map, not for two threads) for every transient the stored plan
+        // places, with the usage it placed it with. A fresh compile asking anything else derived another usage:
+        // its compile fails and the check reports the difference.
+        class SnapshotMemory final : public IMemoryRequirementsProvider
+        {
+        public:
+            struct Known
+            {
+                bool               Texture    = true;
+                TextureDesc        TextureKey = {};
+                uint64_t           Bytes      = 0;
+                uint32_t           AccessMask = 0;
+                MemoryRequirements Requirements;
+            };
+            std::vector<Known> Table;
+
+            [[nodiscard]] Common::ResultStr<MemoryRequirements>
+            GetTextureRequirements( const TextureDesc& desc, uint32_t accessMask ) const override
+            {
+                for ( const Known& known : Table )
+                {
+                    const TextureDesc& k = known.TextureKey;
+                    if ( known.Texture && known.AccessMask == accessMask && k.Size.Width == desc.Size.Width &&
+                         k.Size.Height == desc.Size.Height && k.Size.Depth == desc.Size.Depth &&
+                         k.Format == desc.Format && k.Mips == desc.Mips && k.Layers == desc.Layers &&
+                         k.Dim == desc.Dim && k.Samples == desc.Samples )
+                        return Common::MakeSuccess( known.Requirements );
+                }
+                return Common::MakeFormattedError<MemoryRequirements>(
+                     "a texture usage {:#x} the stored plan never placed", accessMask );
+            }
+            [[nodiscard]] Common::ResultStr<MemoryRequirements>
+            GetBufferRequirements( const BufferDesc& desc, uint32_t accessMask ) const override
+            {
+                for ( const Known& known : Table )
+                {
+                    if ( !known.Texture && known.AccessMask == accessMask && known.Bytes == desc.Bytes )
+                        return Common::MakeSuccess( known.Requirements );
+                }
+                return Common::MakeFormattedError<MemoryRequirements>(
+                     "a buffer usage {:#x} the stored plan never placed", accessMask );
+            }
+        };
+
+        // FPS-CPU2-RDG: what a check compiles, owned by its job: the declaration copied into a graph of its own
+        // (records in that graph's arena, slot names in Names), the externals' states, the requirements.
+        struct CheckSnapshot
+        {
+            explicit CheckSnapshot( std::string name ) : Graph( std::move( name ) )
+            {
+            }
+            Builder                                       Graph;
+            std::vector<std::unique_ptr<ExternalTexture>> Textures;
+            std::vector<std::unique_ptr<ExternalBuffer>>  Buffers;
+            std::vector<std::string>                      Names; // reserved once: the views into it stay
+            SnapshotMemory                                Memory;
+            PipeCapabilities                              Pipes;
+            CompileResult                                 Stored;
+        };
+    } // namespace
+
+    CompileCache::Check Builder::Compiler::MakeCheck( const Builder& builder, const CompileResult& plan,
+                                                      const IMemoryRequirementsProvider& memory,
+                                                      const PipeCapabilities& pipes, CompileCache& cache,
+                                                      const uint64_t key )
+    {
+        const auto snapshot = std::make_shared<CheckSnapshot>( builder.m_Name );
+        Builder&   graph    = snapshot->Graph;
+        snapshot->Pipes     = pipes;
+        snapshot->Stored    = plan;
+        graph.m_PassCulling      = builder.m_PassCulling;
+        graph.m_AsyncCompute     = builder.m_AsyncCompute;
+        graph.m_UploadBatch      = builder.m_UploadBatch;
+        graph.m_FaultDefaults    = builder.m_FaultDefaults;
+        graph.m_DeclarationError = builder.m_DeclarationError;
+        graph.m_Resources.reserve( builder.m_Resources.size() );
+        for ( const ResourceRecord& from : builder.m_Resources )
+        {
+            ResourceRecord& to = graph.m_Resources.emplace_back( graph.m_Arena );
+            to.Name.assign( from.Name.data(), from.Name.size() );
+            to.Kind = from.Kind;
+            to.Texture = from.Texture;
+            to.Buffer  = from.Buffer;
+            if ( from.ExternalTex != nullptr )
+            {
+                auto copy               = std::make_unique<ExternalTexture>();
+                copy->Desc              = from.ExternalTex->Desc;
+                copy->SubresourceStates = from.ExternalTex->SubresourceStates;
+                copy->CreatedAccessMask = from.ExternalTex->CreatedAccessMask;
+                to.ExternalTex          = copy.get();
+                snapshot->Textures.push_back( std::move( copy ) );
+            }
+            if ( from.ExternalBuf != nullptr )
+            {
+                auto copy        = std::make_unique<ExternalBuffer>();
+                copy->Desc       = from.ExternalBuf->Desc;
+                copy->State      = from.ExternalBuf->State;
+                to.ExternalBuf   = copy.get();
+                snapshot->Buffers.push_back( std::move( copy ) );
+            }
+            // Compile reads only whether an extraction target is set, never the target.
+            to.ExtractTex      = from.ExtractTex;
+            to.ExtractBuf      = from.ExtractBuf;
+            to.ExtractOwner    = from.ExtractOwner;
+            to.HasFinalAccess  = from.HasFinalAccess;
+            to.FinalAccess     = from.FinalAccess;
+            to.LaterAccessMask = from.LaterAccessMask;
+            to.Default         = from.Default;
+            to.Policy          = from.Policy;
+            to.RoleListed      = from.RoleListed;
+            to.OpenUpload      = from.OpenUpload;
+            to.DeclaredByPass  = from.DeclaredByPass;
+            to.InUploadBatch   = from.InUploadBatch;
+        }
+        size_t entries = 0;
+        for ( const PassRecord& from : builder.m_Passes )
+            for ( const DeclaredBindingBlock& block : from.Blocks )
+                entries += block.Entries.size();
+        snapshot->Names.reserve( entries );
+        graph.m_Passes.reserve( builder.m_Passes.size() );
+        for ( const PassRecord& from : builder.m_Passes )
+        {
+            // Not the exec (Compile never runs one) nor the upload bytes and prerequisites (Compile reads neither).
+            PassRecord& to = graph.m_Passes.emplace_back( graph.m_Arena );
+            to.Name.assign( from.Name.data(), from.Name.size() );
+            to.Flags = from.Flags;
+            to.Uses.assign( from.Uses.begin(), from.Uses.end() );
+            to.Attachments.assign( from.Attachments.begin(), from.Attachments.end() );
+            to.AreaWidth        = from.AreaWidth;
+            to.AreaHeight       = from.AreaHeight;
+            to.External         = from.External;
+            to.DeclarationError = from.DeclarationError;
+            to.QueuedUpload     = from.QueuedUpload;
+            to.UploadBatch      = from.UploadBatch;
+            for ( const DeclaredBindingBlock& block : from.Blocks )
+            {
+                DeclaredBindingBlock& copy = to.Blocks.emplace_back(); // its entries on the heap
+                copy.Layout                = block.Layout;
+                copy.Other                 = block.Other;
+                copy.PushConstantBytes     = block.PushConstantBytes;
+                copy.Entries.reserve( block.Entries.size() );
+                for ( const DeclaredBindingEntry& entry : block.Entries )
+                {
+                    DeclaredBindingEntry& kept = copy.Entries.emplace_back( entry );
+                    kept.ShaderName            = snapshot->Names.emplace_back( entry.ShaderName );
+                }
+            }
+        }
+        for ( uint32_t l = 0; l < plan.Lifetimes.size() && l < plan.Usages.size(); ++l )
+        {
+            const ResourceRecord& record = builder.m_Resources[plan.Lifetimes[l].Resource];
+            if ( record.IsExtracted() )
+                continue;
+            SnapshotMemory::Known known;
+            known.Texture    = record.Kind == ResourceKind::Texture;
+            known.TextureKey = record.Texture;
+            known.Bytes      = record.Buffer.Bytes;
+            known.AccessMask = plan.Usages[l].AccessMask;
+            const Common::ResultStr<MemoryRequirements> asked =
+                 known.Texture ? memory.GetTextureRequirements( record.Texture, known.AccessMask )
+                               : memory.GetBufferRequirements( record.Buffer, known.AccessMask );
+            if ( !asked )
+                continue; // the fresh compile asks it, fails, and the check says so
+            known.Requirements = asked.GetValue();
+            snapshot->Memory.Table.push_back( known );
+        }
+        CompileCache* const target = &cache;
+        return [snapshot, target, key]()
+        {
+            Common::ResultStr<CompileResult> fresh = snapshot->Graph.Compile( snapshot->Memory, snapshot->Pipes );
+            std::string_view difference = "the fresh compile failed";
+            if ( fresh )
+                difference = FirstPlanDifference( snapshot->Stored, fresh.GetValue() );
+            target->Checked( snapshot->Graph.GetName(), key, difference );
+        };
+    }
+
     Common::ResultStr<std::shared_ptr<CompileResult>> Builder::CompileThroughCache( IBackend& backend ) const
     {
         using Plan                                = std::shared_ptr<CompileResult>;
@@ -3064,28 +3252,22 @@ namespace Desert::Graphic::RDG
             key = Compiler::HashDeclaration( *this, pipes );
         }
         bool check = false;
-        Plan plan  = cache->Find( key, check );
+        Plan plan  = cache->Find( m_Name, key, check );
         if ( plan )
         {
             DESERT_PROFILE_SCOPE( "RDG Compile: cache rebind" );
             Compiler::Rebind( *this, *plan );
 #if DESERT_DEV_INSTRUMENTS
             // Every kCheckEvery-th hit against a fresh compile: a key that misses an input the plan depends on
-            // shows here as a logged difference, and this frame records the fresh plan.
+            // shows as a logged difference and the stored plan is dropped. FPS-CPU2-RDG: compiled on a Background
+            // job from a snapshot, so this frame records the stored plan and pays only the copy.
             if ( check )
             {
-                Common::ResultStr<CompileResult> fresh = Compile( memory, pipes );
-                std::string_view                 difference = "the fresh compile failed";
-                if ( fresh )
-                    difference = FirstPlanDifference( *plan, fresh.GetValue() );
-                cache->Checked( m_Name, key, difference );
-                if ( !difference.empty() )
-                {
-                    if ( !fresh )
-                        return Common::MakeError<Plan>( fresh.GetError() );
-                    plan = std::make_shared<CompileResult>( fresh.ExtractValue() );
-                }
+                DESERT_PROFILE_SCOPE( "RDG Compile: check snapshot" );
+                cache->RunCheck( Compiler::MakeCheck( *this, *plan, memory, pipes, *cache, key ) );
             }
+#else
+            (void)check;
 #endif
             return Common::MakeSuccess( std::move( plan ) );
         }
@@ -3098,7 +3280,7 @@ namespace Desert::Graphic::RDG
                              !plan->Substitutions.empty() || !plan->InvalidatedExternals.empty() ||
                              plan->Frame.has_value();
         if ( !faulted )
-            cache->Store( key, plan, Compiler::PinnedObjects( *this ) );
+            cache->Store( m_Name, key, plan, Compiler::PinnedObjects( *this ) );
         return Common::MakeSuccess( std::move( plan ) );
     }
 
@@ -3141,75 +3323,228 @@ namespace Desert::Graphic::RDG
         return {};
     }
 
+    // ── FPS-CPU2-RDG: one graph's sub-cache ─────────────────────────────────────────────────────────────
+
+    size_t CompileCache::Graph::Home( const uint64_t key ) noexcept
+    {
+        return static_cast<size_t>( key ^ ( key >> 29 ) ^ ( key >> 47 ) ) & ( kIndexSize - 1 );
+    }
+
+    size_t CompileCache::Graph::Cell( const uint64_t key ) const noexcept
+    {
+        size_t cell = Home( key );
+        while ( Index[cell] != 0 && Entries[Index[cell] - 1].Key != key )
+            cell = ( cell + 1 ) & ( kIndexSize - 1 );
+        return cell;
+    }
+
+    CompileCache::Entry* CompileCache::Graph::Lookup( const uint64_t key ) noexcept
+    {
+        const size_t cell = Cell( key );
+        return Index[cell] == 0 ? nullptr : &Entries[Index[cell] - 1];
+    }
+
+    bool CompileCache::Graph::WasEvicted( const uint64_t key ) const noexcept
+    {
+        const size_t remembered = std::min( EvictedCount, kEvictedMemory );
+        for ( size_t i = 0; i < remembered; ++i )
+        {
+            if ( Evicted[i] == key )
+                return true;
+        }
+        return false;
+    }
+
+    CompileCache::Entry& CompileCache::Graph::Add( const uint64_t key )
+    {
+        const size_t cell = Cell( key );
+        Entries.emplace_back().Key = key;
+        Index[cell]                = static_cast<uint32_t>( Entries.size() );
+        return Entries.back();
+    }
+
+    void CompileCache::Graph::Remove( const size_t entry ) noexcept
+    {
+        // Backward-shift erase of the entry's cell: a later cell of the run moves up when its home is not
+        // cyclically within (hole, cell], so every key stays reachable from its home without a gap.
+        size_t hole = Cell( Entries[entry].Key );
+        Index[hole] = 0;
+        for ( size_t cell = ( hole + 1 ) & ( kIndexSize - 1 ); Index[cell] != 0;
+              cell        = ( cell + 1 ) & ( kIndexSize - 1 ) )
+        {
+            const size_t home     = Home( Entries[Index[cell] - 1].Key );
+            const size_t fromHome = ( cell - home ) & ( kIndexSize - 1 );
+            const size_t fromHole = ( cell - hole ) & ( kIndexSize - 1 );
+            if ( fromHome >= fromHole )
+            {
+                Index[hole] = Index[cell];
+                Index[cell] = 0;
+                hole        = cell;
+            }
+        }
+        const size_t last = Entries.size() - 1;
+        if ( entry != last )
+        {
+            Index[Cell( Entries[last].Key )] = static_cast<uint32_t>( entry + 1 );
+            Entries[entry]                   = std::move( Entries[last] );
+        }
+        Entries.pop_back();
+    }
+
+    void CompileCache::Graph::Evict( const size_t entry ) noexcept
+    {
+        Evicted[EvictedCount % kEvictedMemory] = Entries[entry].Key;
+        ++EvictedCount;
+        ++Evictions;
+        Remove( entry );
+    }
+
+    size_t CompileCache::Graph::LeastRecent() const noexcept
+    {
+        size_t oldest = 0;
+        for ( size_t i = 1; i < Entries.size(); ++i )
+        {
+            if ( Entries[i].LastUse < Entries[oldest].LastUse )
+                oldest = i;
+        }
+        return oldest;
+    }
+
+    // ── The cache ───────────────────────────────────────────────────────────────────────────────────────
+
     CompileCache::CompileCache( Sink sink ) : m_Sink( std::move( sink ) )
     {
     }
 
-    std::shared_ptr<CompileResult> CompileCache::Find( uint64_t key, bool& check )
+    CompileCache::~CompileCache() noexcept
     {
-        const std::lock_guard lock( m_Mutex );
-        check = false;
-        for ( Entry& entry : m_Entries )
+        if ( m_CheckJob.valid() )
+            m_CheckJob.wait();
+    }
+
+    CompileCache::Graph* CompileCache::FindGraph( const std::string_view graph ) noexcept
+    {
+        const uint64_t hash = std::hash<std::string_view>{}( graph );
+        for ( Graph& sub : m_Graphs )
         {
-            if ( entry.Key != key )
-                continue;
-            // Only the cache holds it: no Execute is recording it (the count only falls outside the lock).
-            if ( entry.Plan.use_count() != 1 )
-                break;
-            entry.LastUse = ++m_Clock;
-            ++m_Hits;
-            check = ++m_HitsSinceCheck >= kCheckEvery;
-            if ( check )
-                m_HitsSinceCheck = 0;
-            return entry.Plan;
+            if ( sub.NameHash == hash && sub.Name == graph )
+                return &sub;
         }
-        ++m_Misses;
         return nullptr;
     }
 
-    void CompileCache::Store( uint64_t key, std::shared_ptr<CompileResult> plan,
+    CompileCache::Graph& CompileCache::GraphFor( const std::string_view graph )
+    {
+        if ( Graph* const found = FindGraph( graph ) )
+            return *found;
+        if ( m_Graphs.size() >= kMaxGraphs )
+        {
+            const auto oldest = std::min_element( m_Graphs.begin(), m_Graphs.end(),
+                                                  []( const Graph& a, const Graph& b )
+                                                  { return a.LastUse < b.LastUse; } );
+            m_Stored -= oldest->Entries.size();
+            m_Graphs.erase( oldest );
+        }
+        Graph& added   = m_Graphs.emplace_back();
+        added.Name     = std::string( graph );
+        added.NameHash = std::hash<std::string_view>{}( graph );
+        added.Entries.reserve( kGraphCapacity );
+        return added;
+    }
+
+    std::shared_ptr<CompileResult> CompileCache::Find( const std::string_view graph, const uint64_t key,
+                                                       bool& check )
+    {
+        const std::lock_guard lock( m_Mutex );
+        check            = false;
+        Graph* const sub = FindGraph( graph );
+        Entry* const hit = sub != nullptr ? sub->Lookup( key ) : nullptr;
+        // Only the cache holds it: no Execute is recording it (the count only falls outside the lock).
+        if ( hit == nullptr || hit->Plan.use_count() != 1 )
+        {
+            ++m_Misses;
+            if ( hit == nullptr && sub != nullptr && sub->WasEvicted( key ) )
+                ++sub->CapacityMisses;
+            return nullptr;
+        }
+        hit->LastUse = ++m_Clock;
+        sub->LastUse = m_Clock;
+        ++m_Hits;
+        // A due check waits while the last one still runs: it is taken by the next hit after it ended.
+        if ( ++m_HitsSinceCheck >= kCheckEvery && !m_CheckRunning )
+        {
+            check            = true;
+            m_HitsSinceCheck = 0;
+            m_CheckRunning   = true;
+        }
+        return hit->Plan;
+    }
+
+    void CompileCache::Store( const std::string_view graph, const uint64_t key,
+                              std::shared_ptr<CompileResult> plan,
                               std::vector<std::shared_ptr<const void>> pinned )
     {
         const std::lock_guard lock( m_Mutex );
-        Entry*                slot = nullptr;
-        for ( Entry& entry : m_Entries )
-        {
-            if ( entry.Key == key )
-            {
-                slot = &entry;
-                break;
-            }
-        }
-        if ( slot == nullptr && m_Entries.size() >= kCapacity )
-        {
-            slot = &*std::min_element( m_Entries.begin(), m_Entries.end(),
-                                       []( const Entry& a, const Entry& b ) { return a.LastUse < b.LastUse; } );
-        }
+        Graph& sub  = GraphFor( graph );
+        Entry* slot = sub.Lookup( key );
         if ( slot == nullptr )
-            slot = &m_Entries.emplace_back();
-        slot->Key     = key;
+        {
+            if ( sub.Entries.size() >= kGraphCapacity )
+            {
+                sub.Evict( sub.LeastRecent() );
+                --m_Stored;
+            }
+            else if ( m_Stored >= kCapacity )
+            {
+                Graph* fullest = &sub;
+                for ( Graph& other : m_Graphs )
+                {
+                    if ( other.Entries.size() > fullest->Entries.size() )
+                        fullest = &other;
+                }
+                fullest->Evict( fullest->LeastRecent() );
+                --m_Stored;
+            }
+            slot = &sub.Add( key );
+            ++m_Stored;
+        }
         slot->LastUse = ++m_Clock;
+        sub.LastUse   = m_Clock;
         slot->Plan    = std::move( plan );
         slot->Pinned  = std::move( pinned );
     }
 
-    void CompileCache::Checked( std::string_view graph, uint64_t key, std::string_view difference )
+    void CompileCache::RunCheck( Check check )
+    {
+        // The last check has ended (Find hands out a check only then): its future is ready, waiting is free.
+        if ( m_CheckJob.valid() )
+            m_CheckJob.wait();
+        m_CheckJob = Common::JobSystem::Get().Async( [run = std::move( check )]() noexcept { run(); },
+                                                     Common::JobPriority::Background );
+    }
+
+    void CompileCache::Checked( const std::string_view graph, const uint64_t key, const std::string_view difference )
     {
         {
             const std::lock_guard lock( m_Mutex );
+            m_CheckRunning = false;
             ++m_Checks;
             if ( difference.empty() )
                 return;
             ++m_Mismatches;
-            const auto stored = std::find_if( m_Entries.begin(), m_Entries.end(),
-                                              [&]( const Entry& entry ) { return entry.Key == key; } );
-            if ( stored != m_Entries.end() )
-                m_Entries.erase( stored );
+            if ( Graph* const sub = FindGraph( graph ) )
+            {
+                if ( Entry* const stored = sub->Lookup( key ) )
+                {
+                    sub->Remove( static_cast<size_t>( stored - sub->Entries.data() ) );
+                    --m_Stored;
+                }
+            }
         }
         if ( m_Sink )
         {
             m_Sink( true, fmt::format( "compile cache: graph '{}' plan {:016x} differs from a fresh compile "
-                                       "in {}; the fresh plan records this frame and the stored one is dropped",
+                                       "in {}; the stored plan is dropped, the next frame compiles it afresh",
                                        graph, key, difference ) );
         }
     }
@@ -3256,8 +3591,16 @@ namespace Desert::Graphic::RDG
             if ( lookups != 0 )
                 share = 100.0 * static_cast<double>( m_Hits ) / static_cast<double>( lookups );
             line = fmt::format( "compile cache: {} hits, {} misses ({:.1f} % hits) over {} frames; {} plans "
-                                "stored; {} hits checked against a fresh compile, {} differed",
-                                m_Hits, m_Misses, share, m_Frames, m_Entries.size(), m_Checks, m_Mismatches );
+                                "stored; {} hits checked against a fresh compile, {} differed; per graph "
+                                "(plans/evicted/misses of an evicted plan):",
+                                m_Hits, m_Misses, share, m_Frames, m_Stored, m_Checks, m_Mismatches );
+            for ( Graph& sub : m_Graphs )
+            {
+                fmt::format_to( std::back_inserter( line ), " '{}' {}/{}/{}", sub.Name, sub.Entries.size(),
+                                sub.Evictions, sub.CapacityMisses );
+                sub.Evictions      = 0;
+                sub.CapacityMisses = 0;
+            }
             m_Frames     = 0;
             m_Hits       = 0;
             m_Misses     = 0;

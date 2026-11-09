@@ -2192,9 +2192,12 @@ namespace Desert::Graphic::RDG
 
         // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
         // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.
+        // FPS-CPU2-RDG: skipped when no pass was lost: then every writer survived, so the scan finds nothing.
         ScratchVector<uint32_t> lateFatal;
         std::vector<uint32_t> lateRoots;
-        for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+        const bool anyLost =
+             std::any_of( lostRoot.begin(), lostRoot.end(), []( int32_t root ) { return root >= 0; } );
+        for ( uint32_t r = 0; anyLost && r < m_Resources.size(); ++r )
         {
             const ResourceRecord& record = m_Resources[r];
             if ( !record.IsExternal() || record.Policy == ExternalFaultPolicy::KeepsContents )
