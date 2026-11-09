@@ -37,6 +37,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/HierarchyRevision.hpp>
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -847,6 +848,8 @@ namespace Desert::Core
         void OnTransformWorldPending( entt::registry& registry, entt::entity entity );
         void OnRelationshipConstructed( entt::registry& registry, entt::entity entity );
         void OnRenderStateChanged( entt::registry& registry, entt::entity entity );
+        // The hierarchy stamp's signal hook (ECS::HierarchyRevision): a relationship replaced or destroyed.
+        void OnRelationshipChanged( entt::registry& registry, entt::entity entity );
 
         // Creates every component pool a system may touch, serially, before any parallel group opens.
         // EnTT creates a pool on FIRST touch and that creation writes to the registry even through a
@@ -863,6 +866,9 @@ namespace Desert::Core
         // The retained render cache's feed of the dirty set (ECS::RenderStateDelta; the registry context links
         // it). Declared before the registry so it outlives every signal the registry's teardown may fire.
         ECS::RenderStateDelta m_RenderStateDelta;
+        // The parent/child graph's change stamp (ECS::HierarchyRevision; the registry context links it). Declared
+        // before the registry for the same reason.
+        ECS::HierarchyRevision m_HierarchyRevision;
         entt::registry m_Registry;
 
         // See MarkRenderStateDirty. A dirty set (dense + slot per index), not a node container: a transform

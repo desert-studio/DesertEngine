@@ -433,9 +433,9 @@ namespace Desert::ECS
 
                          // The entity itself only (a skinned mesh under a selected root stays unoutlined,
                          // as before): the subtree flag would widen it.
-                         const bool isSelected =
-                              registry.has<UUIDComponent>( entity ) &&
-                              Runtime::SelectionContext::Contains( registry.get<UUIDComponent>( entity ).UUID );
+                         // The flag SelectionOutlineMask refreshed on the selection / hierarchy change: no UUID
+                         // lookup per character per frame.
+                         const bool isSelected = m_Outline.IsSelectedRoot( entity );
 
                          // WORLD transform (the cached one) — a skinned mesh parented to e.g. the character
                          // controller must follow it; using the local transform left it behind at the origin
@@ -870,7 +870,7 @@ namespace Desert::ECS
             m_StaticDirty.clear();
             const auto* link = registry.try_ctx<RenderStateDeltaLink>();
             if ( link != nullptr && link->Delta != nullptr )
-                full = link->Delta->Drain( m_StaticDirty ) || full;
+                full = link->Delta->Drain( RenderStateConsumer::StaticScene, m_StaticDirty ) || full;
             else
                 full = true; // no feed: nothing tells this cache what changed, so it trusts none of it
             // A dropped or rebuilt mesh, a material invalidation (the instances are rebuilt): no component signal

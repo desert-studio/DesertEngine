@@ -1591,6 +1591,12 @@ namespace Desert::Core
         m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_construct<ECS::RelationshipComponent>().disconnect( this );
+        m_Registry.on_update<ECS::RelationshipComponent>().disconnect( this );
+        m_Registry.on_destroy<ECS::RelationshipComponent>().disconnect( this );
+        // The hierarchy stamp (ECS::HierarchyRevision): a relationship emplaced (OnRelationshipConstructed),
+        // replaced or destroyed; Attach / Detach edit it in place and bump it themselves.
+        m_Registry.on_update<ECS::RelationshipComponent>().connect<&Scene::OnRelationshipChanged>( this );
+        m_Registry.on_destroy<ECS::RelationshipComponent>().connect<&Scene::OnRelationshipChanged>( this );
         // The world-transform cache first, so the render-state listeners below already see the composed world.
         m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
         m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
@@ -1631,6 +1637,9 @@ namespace Desert::Core
         // The retained render cache rebuilds from the registry as it now stands (MeshECSSystem).
         m_RenderStateDelta.RequestFullRebuild();
         m_Registry.ctx_or_set<ECS::RenderStateDeltaLink>().Delta = &m_RenderStateDelta;
+        // A reload is a new hierarchy: every cache derived from the old one is dropped.
+        m_HierarchyRevision.Bump();
+        m_Registry.ctx_or_set<ECS::HierarchyRevisionLink>().Revision = &m_HierarchyRevision;
     }
 
     void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )
@@ -1645,6 +1654,12 @@ namespace Desert::Core
         // Unconditional: a root emplaced with its Children already listed (scene load restores children before
         // their parent's relationship) has to push its world down to them as well.
         ECS::UpdateWorldTransforms( registry, entity );
+        m_HierarchyRevision.Bump();
+    }
+
+    void Scene::OnRelationshipChanged( entt::registry&, entt::entity )
+    {
+        m_HierarchyRevision.Bump();
     }
 
     void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
@@ -1712,6 +1727,7 @@ namespace Desert::Core
 
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
+        m_HierarchyRevision.Bump(); // edited in place: no signal carries it
         // A new parent is a new world transform for the child and everything under it.
         ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
@@ -1742,6 +1758,7 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        m_HierarchyRevision.Bump(); // edited in place: no signal carries it
         ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
     }
