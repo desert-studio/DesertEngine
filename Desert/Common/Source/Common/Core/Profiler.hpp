@@ -22,10 +22,12 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <format>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -46,9 +48,73 @@ namespace Common::Profiling
         struct WindowState;
     } // namespace Detail
 
+    // A PUBLISHED ROW'S NAME (UE: FName read through its display string, never copied): a view of the name
+    // table's text (InternScopeName), which is never freed or moved, so the reference is valid for the
+    // process' life and a publication copies two words per row instead of allocating a std::string. It
+    // compares, orders and formats as its text - `row.Name == "literal"` compares characters, never pointers -
+    // and converts to std::string_view; c_str() is NUL-terminated (the table keeps std::string copies).
+    class ScopeNameRef
+    {
+    public:
+        constexpr ScopeNameRef() noexcept = default;
+        // @p text must outlive every reader: the name table's copy (Profiler) or a string literal.
+        constexpr ScopeNameRef( const char* text, std::size_t size ) noexcept : m_Text( text ), m_Size( size )
+        {
+        }
+
+        [[nodiscard]] constexpr std::string_view View() const noexcept
+        {
+            return { m_Text, m_Size };
+        }
+        constexpr operator std::string_view() const noexcept
+        {
+            return View();
+        }
+        [[nodiscard]] constexpr const char* c_str() const noexcept
+        {
+            return m_Text;
+        }
+        [[nodiscard]] constexpr const char* data() const noexcept
+        {
+            return m_Text;
+        }
+        [[nodiscard]] constexpr std::size_t size() const noexcept
+        {
+            return m_Size;
+        }
+        [[nodiscard]] constexpr bool empty() const noexcept
+        {
+            return m_Size == 0;
+        }
+
+        friend constexpr bool operator==( const ScopeNameRef a, const ScopeNameRef b ) noexcept
+        {
+            return a.View() == b.View();
+        }
+        // Covers a literal, a const char*, a std::string and a std::string_view on either side (C++20 rewrites
+        // the reversed order); text against text, as the std::string field compared.
+        friend constexpr bool operator==( const ScopeNameRef a, const std::string_view b ) noexcept
+        {
+            return a.View() == b;
+        }
+        friend constexpr auto operator<=>( const ScopeNameRef a, const ScopeNameRef b ) noexcept
+        {
+            return a.View() <=> b.View();
+        }
+
+    private:
+        const char* m_Text = "";
+        std::size_t m_Size = 0;
+    };
+    // fmt (spdlog's LOG_*) formats a ScopeNameRef as its text; std::format has the formatter below the namespace.
+    [[nodiscard]] constexpr std::string_view format_as( const ScopeNameRef name ) noexcept
+    {
+        return name.View();
+    }
+
     struct ScopeResult
     {
-        std::string Name;
+        ScopeNameRef Name;          // the name table's text (ScopeNameRef): valid for the process' life
         double      TotalMs = 0.0; // summed across all calls this frame; INCLUSIVE of every nested scope
         uint32_t    Calls   = 0;
         // TotalMs with every nested CPU scope subtracted: what ran in this scope's own lines. Unlike TotalMs it
@@ -88,10 +154,16 @@ namespace Common::Profiling
     inline constexpr std::size_t kMaxPublishedHitches = 8; // the slowest ones; LastHitchCount() counts them all
     struct HitchFrame
     {
-        double                                      FrameMs  = 0.0;
-        double                                      MedianMs = 0.0;
-        uint32_t                                    Frame    = 0; // its index in the window
-        std::vector<std::pair<std::string, double>> Top;          // row, self ms; largest first
+        double   FrameMs  = 0.0;
+        double   MedianMs = 0.0;
+        uint32_t Frame    = 0; // its index in the window
+        // Row, self ms; largest first. The first TopCount entries are filled (TopRows).
+        std::array<std::pair<ScopeNameRef, double>, kHitchTopScopes>   Top{};
+        uint32_t                                                       TopCount = 0;
+        [[nodiscard]] std::span<const std::pair<ScopeNameRef, double>> TopRows() const noexcept
+        {
+            return { Top.data(), TopCount };
+        }
     };
 
     // The row the backend publishes the whole-frame GPU bracket under. It is a DENOMINATOR, not a pass:
@@ -590,6 +662,17 @@ namespace Common::Profiling
         std::optional<ScopedTimer> m_Current;
     };
 } // namespace Common::Profiling
+
+// std::format of a published row's name: its text, with every string_view format spec ({:<60} in the dump).
+template <>
+struct std::formatter<Common::Profiling::ScopeNameRef, char> : std::formatter<std::string_view, char>
+{
+    template <class FormatContext>
+    auto format( const Common::Profiling::ScopeNameRef name, FormatContext& context ) const
+    {
+        return std::formatter<std::string_view, char>::format( name.View(), context );
+    }
+};
 
 // ── THE SHIPPING BOUNDARY, AND IT IS HERE BECAUSE THE MACROS ARE THE ONLY DOOR ──────────────────────
 //

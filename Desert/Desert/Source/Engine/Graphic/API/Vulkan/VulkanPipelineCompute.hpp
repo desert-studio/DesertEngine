@@ -17,8 +17,15 @@
 #include <span>
 #include <vector>
 
+namespace Desert::ShaderResources::API::Vulkan
+{
+    class VulkanStorageBuffer;
+} // namespace Desert::ShaderResources::API::Vulkan
+
 namespace Desert::Graphic::API::Vulkan
 {
+    class IVulkanImage;
+
     class VulkanPipelineCompute final : public ComputePipeline
     {
     public:
@@ -102,8 +109,6 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         void BindDescriptorSets( VkDescriptorSet descriptorSet, uint32_t frameIndex );
-        void UpdateDescriptorSet( uint32_t frameIndex, const std::vector<VkWriteDescriptorSet>& writes,
-                                  VkDescriptorSet descriptorSet, uint32_t setIndex = 0 );
 
         // The descriptor set layouts this pipeline's layout was built from, one per set.
         [[nodiscard]] const std::vector<DescriptorSetLayoutRef>& GetLayouts() const
@@ -111,8 +116,12 @@ namespace Desert::Graphic::API::Vulkan
             return GetBuilt().Layouts;
         }
         // The set-0 bindings the pipeline's own setters (SetInput / SetSampler / SetOutput / SetStorageBuffer)
-        // fill: the "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
-        [[nodiscard]] std::vector<uint32_t>      GetBoundBindings() const;
+        // fill: the "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique. Kept by
+        // the setters (a new key is inserted in place), so a dispatch reads it without building a list.
+        [[nodiscard]] std::span<const uint32_t> GetBoundBindings() const noexcept
+        {
+            return m_BoundBindingList;
+        }
         [[nodiscard]] std::span<const std::byte> GetBoundPushConstants() const
         {
             return m_BoundPushConstants;
@@ -125,7 +134,8 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] std::shared_ptr<const RDG::OtherRouteFill> GetRouteFill() const;
         // Writes the resources the setters bound into @p descriptorSet (set 0) of @p built (the record the caller
         // binds). Refused, naming the pipeline and the binding, when a bound resource has no view or copy to
-        // write.
+        // write. The writes and their infos live in fixed arrays on the stack (UE FVulkanDescriptorSetWriter):
+        // at most kMaxBoundWrites bindings, more is refused by name.
         Common::BoolResultStr WriteBoundResources( const BuiltCompute& built, VkDescriptorSet descriptorSet );
 
         VulkanMaterialBackend* GetVulkanMaterialBackend() const
@@ -152,25 +162,48 @@ namespace Desert::Graphic::API::Vulkan
 
         VkCommandBuffer m_ActiveComputeCommandBuffer = nullptr;
 
-        // Bound resources for the next Dispatch (set via SetInput/SetOutput/SetPushConstants).
+        // Bound resources for the next Dispatch (set via SetInput/SetOutput/SetPushConstants). The Vulkan object
+        // behind each is resolved ONCE, when it is set (UE: the RHI resource a parameter holds), never per write:
+        // Vulkan is null for an image / buffer of another backend (an output or a buffer is then not written, an
+        // input refuses the dispatch, as before).
         struct OutputBinding
         {
-            Image*   Image = nullptr;
-            uint32_t Mip   = 0;
+            Image*        Image  = nullptr;
+            IVulkanImage* Vulkan = nullptr;
+            uint32_t      Mip    = 0;
         };
         // A sampled input: the view of the subresource the caller declared (Range), in the layout its declared
         // access leaves the image in. There is no binding in the image's recorded layout.
         struct InputBinding
         {
             Image*                Image    = nullptr;
+            IVulkanImage*         Vulkan   = nullptr;
             RDG::Access           Declared = RDG::Access::SampledCompute;
             RDG::SubresourceRange Range    = RDG::SubresourceRange::All();
         };
-        std::unordered_map<uint32_t, InputBinding>                    m_BoundInputs;
-        std::unordered_map<uint32_t, OutputBinding>                   m_BoundOutputs;
-        std::unordered_map<uint32_t, RDG::SamplerDesc>                m_BoundSamplers;
-        std::unordered_map<uint32_t, ShaderResources::StorageBuffer*> m_BoundStorageBuffers;
-        std::vector<std::byte>                                        m_BoundPushConstants;
+        // A shared sampler state and the engine cache's sampler for it (acquired when the state changes; the
+        // cache keeps every sampler until the device's teardown). Null: the cache refused it - the write
+        // asks again for the reason and refuses the dispatch.
+        struct SamplerBinding
+        {
+            RDG::SamplerDesc Desc;
+            VkSampler        Sampler = VK_NULL_HANDLE;
+        };
+        struct StorageBufferBinding
+        {
+            ShaderResources::StorageBuffer*                    Buffer = nullptr;
+            ShaderResources::API::Vulkan::VulkanStorageBuffer* Vulkan = nullptr;
+        };
+        static constexpr size_t kMaxBoundWrites = 64;
+        // Adds @p binding to m_BoundBindingList (sorted, unique) and bumps m_BoundKeysVersion: a setter's new key.
+        void AddBoundKey( uint32_t binding );
+
+        std::unordered_map<uint32_t, InputBinding>         m_BoundInputs;
+        std::unordered_map<uint32_t, OutputBinding>        m_BoundOutputs;
+        std::unordered_map<uint32_t, SamplerBinding>       m_BoundSamplers;
+        std::unordered_map<uint32_t, StorageBufferBinding> m_BoundStorageBuffers;
+        std::vector<uint32_t>                              m_BoundBindingList; // GetBoundBindings
+        std::vector<std::byte>                             m_BoundPushConstants;
         // Raised when a setter adds a binding key no map held, or push constants appear / disappear: the only
         // changes of what GetRouteFill is made of on the setter side (no setter removes a key).
         uint64_t m_BoundKeysVersion = 0;
