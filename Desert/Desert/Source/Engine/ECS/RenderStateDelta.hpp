@@ -1,12 +1,27 @@
 #pragma once
 
+#include <Common/Core/DirtySet.hpp>
+
 #include <entt/entt.hpp>
 
+#include <cstdint>
 #include <mutex>
 #include <vector>
 
 namespace Desert::ECS
 {
+    // An entity's dense index (its version dropped) for Common::DirtySet: a recycled index re-marked with its new
+    // version is listed beside the old one, so a destroy + create within a frame reaches the consumer as both.
+    struct EntityIndexOf
+    {
+        [[nodiscard]] uint32_t operator()( const entt::entity entity ) const noexcept
+        {
+            return static_cast<uint32_t>( entt::to_integral( entt::registry::entity( entity ) ) );
+        }
+    };
+
+    using EntityDirtySet = Common::DirtySet<entt::entity, EntityIndexOf>;
+
     // THE RENDER-STATE DELTA (UE: the primitives UPrimitiveComponent::MarkRenderStateDirty queued for the next
     // SendAllEndOfFrameUpdates). The Scene's render-state dirty set (Scene::MarkRenderStateDirty) is latched and
     // emptied at the top of every frame for the control state; this is the SAME feed kept for a retained render
@@ -20,17 +35,19 @@ namespace Desert::ECS
     class RenderStateDelta
     {
     public:
+        // A mark of an entity already queued since the last drain is absorbed (an entity whose transform a
+        // script, the physics write-back and the animation all set in one frame is rebuilt once).
         void Mark( const entt::entity entity ) noexcept
         {
             std::lock_guard lock( m_Mutex );
-            m_Pending.push_back( entity );
+            (void)m_Pending.Mark( entity );
         }
 
         // Everything is to be rebuilt (a scene reload, a cleared registry): the queued marks are moot.
         void RequestFullRebuild() noexcept
         {
             std::lock_guard lock( m_Mutex );
-            m_Pending.clear();
+            m_Pending.Clear();
             m_Full = true;
         }
 
@@ -40,20 +57,20 @@ namespace Desert::ECS
             std::lock_guard lock( m_Mutex );
             if ( !m_DrainedSinceBoundary )
             {
-                m_Pending.clear();
+                m_Pending.Clear();
                 m_Full = true;
             }
             m_DrainedSinceBoundary = false;
         }
 
-        // The consumer's half: @p out receives the queued marks (duplicates possible; the consumer dedupes) and
-        // hands its buffer back for the next frame (capacities kept, no allocation in a steady state). Returns
-        // whether a full rebuild was requested since the last drain.
+        // The consumer's half: @p out receives the queued marks, each entity once (an index recycled within the
+        // frame: both versions), in mark order; both buffers keep their capacity, so a steady state allocates
+        // nothing. Returns whether a full rebuild was requested since the last drain.
         [[nodiscard]] bool Drain( std::vector<entt::entity>& out ) noexcept
         {
             std::lock_guard lock( m_Mutex );
             out.clear();
-            out.swap( m_Pending );
+            m_Pending.DrainInto( out );
             const bool full        = m_Full;
             m_Full                 = false;
             m_DrainedSinceBoundary = true;
@@ -62,7 +79,7 @@ namespace Desert::ECS
 
     private:
         std::mutex                m_Mutex;
-        std::vector<entt::entity> m_Pending;
+        EntityDirtySet            m_Pending;
         bool                      m_Full                 = true; // a new consumer starts from the whole scene
         bool                      m_DrainedSinceBoundary = true;
     };

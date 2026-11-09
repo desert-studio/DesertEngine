@@ -865,10 +865,13 @@ namespace Desert::Core
         ECS::RenderStateDelta m_RenderStateDelta;
         entt::registry m_Registry;
 
-        // See MarkRenderStateDirty.
-        std::unordered_set<entt::entity> m_RenderStateDirty;
-        std::size_t                      m_RenderStateDirtyLastFrame = 0;
-        std::mutex                       m_RenderStateDirtyMutex;
+        // See MarkRenderStateDirty. A dirty set (dense + slot per index), not a node container: a transform
+        // written every frame (a character, a simulated body) marks with no allocation; the subtree walk's stack
+        // is kept.
+        ECS::EntityDirtySet       m_RenderStateDirty;
+        std::vector<entt::entity> m_RenderStateWalk;
+        std::size_t               m_RenderStateDirtyLastFrame = 0;
+        std::mutex                m_RenderStateDirtyMutex;
 
         std::vector<std::unique_ptr<ECS::System>> m_Systems;
         // Each system's profiler row (its type's name), interned once when ExecuteSystems first meets it
