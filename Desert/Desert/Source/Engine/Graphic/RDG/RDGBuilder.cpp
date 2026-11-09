@@ -14,6 +14,8 @@
 #include <cassert>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <numeric>
@@ -418,47 +420,83 @@ namespace Desert::Graphic::RDG
     void Builder::QueueBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
     {
         CheckNotInSetupTask( m_Name, "QueueBufferUpload" );
-        // Copied at the call: the exec runs after the caller's storage is gone.
-        auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
-        const std::span<const std::byte> copied( *payload );
-        AddUploadPass( buffer, 0u, copied, std::move( payload ) );
+        // Copied at the call: the exec runs after the caller's storage is gone. FPS-CPU-UPLOAD: into the graph's
+        // arena (UE: FRDGAllocator), not a heap block per upload.
+        AddUploadPass( buffer, UploadRange{ buffer.Index, 0u, CopyToArena( bytes ) } );
     }
 
     void Builder::QueueBufferUpload( BufferRef buffer, const uint64_t offset, std::span<const std::byte> bytes )
     {
         CheckNotInSetupTask( m_Name, "QueueBufferUpload" );
-        auto payload = std::make_shared<const std::vector<std::byte>>( bytes.begin(), bytes.end() );
-        const std::span<const std::byte> copied( *payload );
-        AddUploadPass( buffer, offset, copied, std::move( payload ) );
+        AddUploadPass( buffer, UploadRange{ buffer.Index, offset, CopyToArena( bytes ) } );
+    }
+
+    void Builder::QueueBufferClear( BufferRef buffer, const uint32_t value )
+    {
+        CheckNotInSetupTask( m_Name, "QueueBufferClear" );
+        const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
+        const uint64_t        bytes  = record != nullptr ? record->Buffer.Bytes : 0u;
+        AddUploadPass( buffer, UploadRange{ buffer.Index, 0u, {}, bytes, value } );
+    }
+
+    Common::BoolResultStr Builder::RecordUploadRange( PassContext& context, const uint32_t resource,
+                                                      const UploadRange& range )
+    {
+        if ( range.Bytes.empty() )
+            return context.GetBackend().FillBuffer( resource, range.Offset, range.FillBytes, range.FillValue );
+        return context.GetBackend().UploadBuffer( resource, range.Offset, range.Bytes );
     }
 
     void Builder::QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes )
     {
         CheckNotInSetupTask( m_Name, "QueueStaticBufferUpload" );
-        AddUploadPass( buffer, 0u, bytes, nullptr );
+        AddUploadPass( buffer, UploadRange{ buffer.Index, 0u, bytes } );
     }
 
-    void Builder::AddUploadPass( BufferRef buffer, const uint64_t offset, std::span<const std::byte> bytes,
-                                 std::shared_ptr<const std::vector<std::byte>> owned )
+    std::span<const std::byte> Builder::CopyToArena( std::span<const std::byte> bytes ) noexcept
     {
-        const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
-        std::string           name;
-        if ( record != nullptr )
-            name.assign( record->Name.data(), record->Name.size() );
-        else
-            name = fmt::format( "#{}", buffer.Index );
-        std::string           error;
+        if ( bytes.empty() )
+            return {};
+        void* const storage = m_Arena.Allocate( bytes.size(), alignof( std::max_align_t ) );
+        if ( storage == nullptr )
+            return {};
+        std::memcpy( storage, bytes.data(), bytes.size() );
+        return { static_cast<const std::byte*>( storage ), bytes.size() };
+    }
+
+    void Builder::AddUploadPass( BufferRef buffer, const UploadRange& upload )
+    {
+        const uint64_t offset = upload.Offset;
+        const uint64_t size   = upload.Size();
+        const ResourceRecord*  record = FindResource( buffer.Index, ResourceKind::Buffer );
+        const std::string_view recordName =
+             record != nullptr ? std::string_view( record->Name.data(), record->Name.size() ) : std::string_view{};
+        std::string error;
         if ( record == nullptr )
             error = fmt::format( "graph '{}': upload into invalid buffer handle {}", m_Name, buffer.Index );
-        else if ( bytes.empty() )
-            error = fmt::format( "graph '{}': upload into buffer '{}' carries no bytes", m_Name, name );
-        else if ( offset > record->Buffer.Bytes || bytes.size() > record->Buffer.Bytes - offset )
-            error = fmt::format( "graph '{}': upload of {} bytes at {} into buffer '{}' of {} bytes", m_Name,
-                                 bytes.size(), offset, name, record->Buffer.Bytes );
-        else if ( bytes.size() % 4 != 0 || offset % 4 != 0 )
-            error = fmt::format(
-                 "graph '{}': upload of {} bytes at {} into buffer '{}' is not a multiple of 4 bytes", m_Name,
-                 bytes.size(), offset, name );
+        else if ( size == 0 )
+            error = fmt::format( "graph '{}': upload into buffer '{}' carries no bytes (or the frame arena could "
+                                 "not grow for their copy)",
+                                 m_Name, recordName );
+        else if ( offset > record->Buffer.Bytes || size > record->Buffer.Bytes - offset )
+            error = fmt::format( "graph '{}': upload of {} bytes at {} into buffer '{}' of {} bytes", m_Name, size,
+                                 offset, recordName, record->Buffer.Bytes );
+        else if ( size % 4 != 0 || offset % 4 != 0 )
+            error =
+                 fmt::format( "graph '{}': upload of {} bytes at {} into buffer '{}' is not a multiple of 4 bytes",
+                              m_Name, size, offset, recordName );
+
+        // FPS-CPU-UPLOAD (UE: FRDGBuilder::SubmitBufferUploads - every queued upload in ONE batch before the
+        // first pass). An upload into a buffer no pass declared yet has no reader or writer before it, so writing
+        // it in the graph's one upload batch - declared where the first such upload was called - is what writing
+        // it here would be: every pass that uses the buffer is added after this call, hence after the batch, and
+        // orders after it by the batch's Write(CopyDst). FIELD_Barn declared dozens of "Upload:" passes a frame,
+        // each paying its edges, barrier, hoist and cache key (MAP-cpu-frame item 1); they are one pass now. A
+        // faulted upload never joins (its fault is its own pass's), and a range overlapping one the batch already
+        // writes into the buffer is ordered after the batch by a pass of its own (WAW), as before.
+        if ( record != nullptr && error.empty() && !record->DeclaredByPass &&
+             AddToUploadBatch( buffer, upload ) )
+            return;
 
         // GPU-ASYNC-WAIT-2 (UE: SubmitBufferUploads records every queued upload in one batch). One pass per
         // upload ordered each range of a pooled buffer after the one before by its write (WAW), so the graph head
@@ -477,18 +515,27 @@ namespace Desert::Graphic::RDG
             bool        disjoint = open.DeclarationError.empty();
             for ( const UploadRange& range : open.Uploads )
             {
-                if ( offset < range.Offset + range.Bytes.size() && range.Offset < offset + bytes.size() )
+                if ( offset < range.Offset + range.Size() && range.Offset < offset + size )
                     disjoint = false;
             }
             if ( disjoint )
             {
-                open.Uploads.push_back( UploadRange{ offset, bytes, std::move( owned ) } );
+                open.Uploads.push_back( upload );
                 return;
             }
         }
 
+        // FPS-CPU-UPLOAD: the name formatted on the stack (no std::string per upload pass); BeginPass copies it
+        // into the arena.
+        char                           nameBuffer[160];
+        fmt::format_to_n_result<char*> named{};
+        if ( record != nullptr )
+            named = fmt::format_to_n( nameBuffer, sizeof( nameBuffer ), "Upload: {}", recordName );
+        else
+            named = fmt::format_to_n( nameBuffer, sizeof( nameBuffer ), "Upload: #{}", buffer.Index );
+        const std::string_view name( nameBuffer, std::min( named.size, sizeof( nameBuffer ) ) );
         AddPass(
-             std::format( "Upload: {}", name ), PassFlags::Copy,
+             name, PassFlags::Copy,
              [&]( PassBuilder& pass )
              {
                  // Declared even when the upload is refused: the faulted pass's write is what makes its readers
@@ -503,19 +550,73 @@ namespace Desert::Graphic::RDG
                      return Common::MakeFormattedError( "{}", target.GetError() );
                  for ( const UploadRange& range : context.m_Builder.m_Passes[context.m_Pass].Uploads )
                  {
-                     Common::BoolResultStr written = context.GetBackend().UploadBuffer(
-                          target.GetValue().Resource, range.Offset, range.Bytes );
+                     Common::BoolResultStr written =
+                          RecordUploadRange( context, target.GetValue().Resource, range );
                      if ( !written )
                          return written;
                  }
                  return Common::MakeSuccess( true );
              } );
         m_Passes.back().QueuedUpload = true;
-        m_Passes.back().Uploads.push_back( UploadRange{ offset, bytes, std::move( owned ) } );
+        m_Passes.back().Uploads.push_back( upload );
         if ( record != nullptr )
             m_Resources[buffer.Index].OpenUpload = static_cast<uint32_t>( m_Passes.size() - 1 );
         if ( !error.empty() )
             RecordPassError( static_cast<uint32_t>( m_Passes.size() - 1 ), std::move( error ) );
+    }
+
+    bool Builder::AddToUploadBatch( BufferRef buffer, const UploadRange& upload )
+    {
+        const uint64_t offset = upload.Offset;
+        const uint64_t size   = upload.Size();
+        if ( m_UploadBatch != kNoUploadBatch && m_Resources[buffer.Index].InUploadBatch )
+        {
+            // Ranges of one buffer in the batch are unordered against each other: only disjoint ones join.
+            for ( const UploadRange& range : m_Passes[m_UploadBatch].Uploads )
+            {
+                if ( range.Buffer == buffer.Index && offset < range.Offset + range.Size() &&
+                     range.Offset < offset + size )
+                    return false;
+            }
+        }
+        if ( m_UploadBatch == kNoUploadBatch )
+        {
+            AddPass(
+                 "RDG: Uploads", PassFlags::Copy, []( PassBuilder& ) {},
+                 []( PassContext& context ) -> Common::BoolResultStr
+                 {
+                     // One destination lookup per range, in call order; the copies of one pass are unordered
+                     // against each other, which the batch's disjoint ranges allow.
+                     for ( const UploadRange& range : context.m_Builder.m_Passes[context.m_Pass].Uploads )
+                     {
+                         const Common::ResultStr<BufferBinding> target =
+                              context.GetBuffer( BufferRef{ range.Buffer }, Access::CopyDst );
+                         if ( !target )
+                             return Common::MakeFormattedError( "{}", target.GetError() );
+                         Common::BoolResultStr written =
+                              RecordUploadRange( context, target.GetValue().Resource, range );
+                         if ( !written )
+                             return written;
+                     }
+                     return Common::MakeSuccess( true );
+                 } );
+            m_UploadBatch                = static_cast<uint32_t>( m_Passes.size() - 1 );
+            m_Passes.back().QueuedUpload = true;
+            m_Passes.back().UploadBatch  = true;
+        }
+        PassRecord& batch = m_Passes[m_UploadBatch];
+        if ( !batch.DeclarationError.empty() )
+            return false;
+        ResourceRecord& record = m_Resources[buffer.Index];
+        if ( !record.InUploadBatch )
+        {
+            // The batch's own write, declared directly: it is not a use by another pass (DeclaredByPass stays
+            // clear), and a Copy pass's CopyDst write of a buffer of this graph is always well formed.
+            batch.Uses.push_back( { buffer.Index, Access::CopyDst, SubresourceRange{ 0, 1, 0, 1 }, -1 } );
+            record.InUploadBatch = true;
+        }
+        batch.Uploads.push_back( upload );
+        return true;
     }
 
     void Builder::AddCopyBufferPass( const BufferRef source, const uint64_t sourceOffset, const BufferRef target,
@@ -700,6 +801,7 @@ namespace Desert::Graphic::RDG
         m_Passes.clear();
         m_Resources.clear();
         m_UploadRunStart = 0;
+        m_UploadBatch    = kNoUploadBatch;
         m_Prerequisites.clear();
         std::fill( m_PrerequisiteSlots.begin(), m_PrerequisiteSlots.end(), PrerequisiteSlot{} );
         m_DeclarationError.clear();
@@ -1104,6 +1206,7 @@ namespace Desert::Graphic::RDG
         }
 
         pass.Uses.push_back( { buffer.Index, access, SubresourceRange{ 0, 1, 0, 1 }, -1 } );
+        m_Builder.m_Resources[buffer.Index].DeclaredByPass = true;
     }
 
     void PassBuilder::DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access,

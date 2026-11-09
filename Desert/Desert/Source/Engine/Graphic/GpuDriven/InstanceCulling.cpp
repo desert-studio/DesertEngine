@@ -80,12 +80,12 @@ namespace Desert::Graphic::GpuDriven
         }
 
         // A zero-filled graph buffer for a slot the dispatch does not read (a pass with no bins, no VSM view):
-        // written by its upload, so the graph orders and accepts the bind.
+        // written by its clear, so the graph orders and accepts the bind. FPS-CPU-UPLOAD: a GPU fill in the
+        // graph's upload batch (QueueBufferClear), not a heap vector of zeros copied per frame.
         RDG::BufferRef ZeroBuffer( RDG::Builder& graph, const std::string& name, const uint64_t bytes = 16u )
         {
-            const RDG::BufferRef        buffer = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = bytes }, name );
-            const std::vector<uint32_t> zeros( static_cast<size_t>( bytes / 4u ), 0u );
-            graph.QueueBufferUpload( buffer, Bytes( zeros ) );
+            const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = bytes }, name );
+            graph.QueueBufferClear( buffer, 0u );
             return buffer;
         }
 

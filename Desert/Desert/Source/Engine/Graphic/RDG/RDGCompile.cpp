@@ -2768,7 +2768,13 @@ namespace Desert::Graphic::RDG
         marks |= pass.QueuedUpload ? 1u : 0u;
         marks |= pass.External.has_value() ? 2u : 0u;
         marks |= pass.DeclarationError.empty() ? 0u : 4u;
+        marks |= pass.UploadBatch ? 8u : 0u;
         hash.Add( marks );
+        // FPS-CPU-UPLOAD: the upload batch's writes grow after the next pass closed it into the key; its write set
+        // is keyed at Compile (HashDeclaration) - which buffers it writes, never its ranges or sizes, so a frame
+        // whose uploads only change size keeps the plan (MAP-cpu-frame Change B).
+        if ( pass.UploadBatch )
+            return;
         hash.Add( ( static_cast<uint64_t>( pass.AreaWidth ) << 32 ) | pass.AreaHeight );
         hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
         for ( const ResourceUse& use : pass.Uses )
@@ -2886,6 +2892,13 @@ namespace Desert::Graphic::RDG
         for ( size_t p = builder.m_PassesKeyed; p < builder.m_Passes.size(); ++p )
             AddPassKey( passes, builder.m_Passes[p] );
         hash.Add( passes.Finish() );
+        if ( builder.m_UploadBatch != kNoUploadBatch )
+        {
+            const PassRecord& batch = builder.m_Passes[builder.m_UploadBatch];
+            hash.Add( ( static_cast<uint64_t>( builder.m_UploadBatch ) << 32 ) | batch.Uses.size() );
+            for ( const ResourceUse& use : batch.Uses )
+                hash.Add( use.Resource );
+        }
         return hash.Finish();
     }
 
