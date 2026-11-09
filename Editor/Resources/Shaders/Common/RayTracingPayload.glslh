@@ -18,6 +18,13 @@
 //        own translucent inputs, as the raster's glass pass reads them (Pass_Forward_Translucent.glslh): the
 //        transmittance colour (its BaseColor, the tint) and the index of refraction (max(Refraction, 1)).
 //        Transmission > 0 = a dielectric interface the path tracer refracts through (PathTracer.shader).
+//   out  ShadingWord: the hit's shading model, its payload and its Specular, packed exactly as the G-buffer's word
+//        (ShadingModels/ShadingModelContract.glslh; DesertPackShadingWord of Generated/ShadingModels.glslh, the
+//        texture-count field 0). UE's FPackedMaterialClosestHitPayload carries the ShadingModelID and CustomData
+//        the same way, so hit lighting (Common/GIHitLighting.glslh GIHitLightResponse) and the path tracer
+//        (PathTracer.shader PathTracingBsdfCos) evaluate the model the raster evaluates. Every closest hit writes
+//        it: a surface template its own model (Mesh/Surface/Pass_RayHit.glslh), the landscape and text hit groups
+//        DefaultLit.
 struct DesertRayPayload
 {
     vec3  BaseColor;
@@ -34,6 +41,7 @@ struct DesertRayPayload
     uint  PrimitiveIndex;
     vec3  Transmission;
     float Ior;
+    uvec2 ShadingWord;
 };
 
 const uint kDesertRayPayloadFrontFace = 1u;

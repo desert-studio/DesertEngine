@@ -18,6 +18,8 @@
 // strength, emission, tangent-normal decode) — the same text the lit shaders compiled.
 #include <Common/TangentNormal.glslh>
 #include <Common/SurfaceInputs.glslh>
+// The Anisotropic model's tangent encoding, which its template writes into the payload (AnisotropicSurface.shader).
+#include <Common/AnisotropicTangent.glslh>
 
 // THE MATERIAL TEXTURE FETCH, in one place for every surface template and every graph surface. Only a stage
 // that evaluates the surface defines DESERT_SURFACE_SAMPLES_MATERIAL (DShaderParser): a bias argument is a

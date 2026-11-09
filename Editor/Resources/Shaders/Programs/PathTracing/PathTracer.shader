@@ -10,9 +10,10 @@
 // heuristic, Russian roulette on the throughput), Light/PathTracingLightSampling.ush:15-115 (TraceLight /
 // SampleLight / EstimateLight per light type), Light/PathTracingDirectionalLight.ush:10-60 (the sun as a cone of
 // SourceAngle), Light/PathTracingSkyLight.ush (the sky, Common/PathTracingSky.glslh), MonteCarlo.ush
-// MISWeightPower. Adapted: the material is the engine's one lit BRDF (Mesh/DirectLighting.glslh EvaluateDirectLight:
-// Lambert + GGX, metallic) sampled as a mixture of a cosine lobe and the GGX distribution of visible normals (Heitz
-// 2018) instead of UE's per-shading-model lobes; point and spot lights keep their authored falloff
+// MISWeightPower. Adapted: the material is the hit's shading model evaluated by the raster's own dispatch
+// (Generated/ShadingModels.glslh; ClearCoat, Cloth, Anisotropic as UE's per-model BxDFs), sampled as a mixture of
+// a cosine lobe, the GGX distribution of visible normals (Heitz 2018; anisotropic along the model's tangent) and
+// the clear coat's own GGX lobe (PathTracingMaterialOf); point and spot lights keep their authored falloff
 // (Mesh/LightSources.glslh) but are seen as UE's emitter spheres of SourceRadius (UE SampleSphereLight,
 // Common/LightSourceSampling.glslh): the light sample's direction is uniform in the cone the sphere subtends and its
 // light ray ends on the sphere, so a lamp whose centre sits inside its bulb's socket still shines through the rest of
@@ -52,6 +53,9 @@ Shader "PathTracer"
             #include <Common/LightSourceSampling.glslh>
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
+            // The hit's shading model (the payload's ShadingWord): its BSDF is the raster's dispatch, its
+            // sampler's lobes the model's own parameters (PathTracingMaterialOf).
+            #include <Generated/ShadingModels.glslh>
             #include <Common/EmissiveLights.glslh>
             #include <Common/PathTracingDenoise.glslh>
             #include <Common/PathTracingRandom.glslh>
@@ -175,28 +179,112 @@ Shader "PathTracer"
                 return mat3(t, cross(n, t), n);
             }
 
-            // ---- The material at a hit: the engine's lit BRDF, f * cos for one light direction. ----
+            // ---- The material at a hit: the hit's shading model, f * cos for one light direction. ----
+            // The closest hit packs its model, payload and Specular into the payload's word
+            // (Common/RayTracingPayload.glslh ShadingWord); the BSDF is that model's Evaluate through the dispatch
+            // the raster calls (Generated/ShadingModels.glslh DesertEvaluateShadingModel) - one formula for the
+            // raster, hit lighting and the path tracer, as UE's path tracer evaluates each shading model's BxDF
+            // (PathTracingMaterialSampling.ush). The sampler is UE's per-model lobe mixture (PathTracingDefaultLit
+            // / ClearCoat / Cloth .ush): a cosine lobe, the base GGX lobe's visible normals (isotropic, or along
+            // the Anisotropic model's tangent) and the ClearCoat model's coat lobe, each chosen by its estimated
+            // albedo at this view; Cloth's wide sheen lobe is sampled by the cosine lobe (UE samples the fuzz from
+            // the hemisphere). A model with no sampler of its own (subsurface, foliage, toon, water) is sampled as
+            // DefaultLit and still evaluated as itself, so the estimator stays unbiased (the light samples and the
+            // mixture cover the whole upper hemisphere).
             struct PathTracingMaterial
             {
-                vec3  BaseColor;
-                float Metallic;
-                float Roughness;
-                vec3  F0;
-                float SpecularProbability; // the mixture weight of the GGX lobe in the sampler
+                vec3          Position;
+                vec3          BaseColor;
+                float         Metallic;
+                float         Roughness;
+                float         Specular;        // UE's Specular pin (DesertSpecularF0)
+                int           Model;           // the shading model index (SHADING_MODEL_INDEX_<NAME>)
+                DesertPayload Payload;         // its CustomData, the 8-bit values the raster reads back
+                vec3          LobeProbability; // the mixture's weights: x = cosine, y = base GGX, z = coat GGX
+                float         CoatRoughness;   // the coat lobe's roughness (z > 0: ClearCoat)
+                vec2          Alphas;          // the base GGX lobe's alphas along Tangent and cross(N, Tangent)
+                vec3          Tangent;         // the base lobe's tangent (any one around N for an isotropic lobe)
             };
 
-            PathTracingMaterial PathTracingMaterialOf(vec3 N, vec3 V)
+            // The surface and the unit light a model is evaluated with, made as the raster makes them
+            // (DesertMakeSurface: unit N and V, the roughness floor); the shadow is the light ray's, already
+            // applied.
+            DesertSurface PathTracingSurfaceOf(PathTracingMaterial m, vec3 N, vec3 V)
+            {
+                return DesertMakeSurface(m.Position, N, V, m.BaseColor, m.Metallic, m.Roughness, m.Specular);
+            }
+
+            DesertLight PathTracingUnitLight(vec3 L)
+            {
+                DesertLight light;
+                light.L                  = L;
+                light.Radiance           = vec3(1.0);
+                light.Shadow             = 1.0;
+                light.TransmissionShadow = 1.0;
+                return light;
+            }
+
+            PathTracingMaterial PathTracingMaterialOf(vec3 P, vec3 N, vec3 V)
             {
                 PathTracingMaterial m;
-                m.BaseColor = payload.BaseColor;
-                m.Metallic  = payload.Metallic;
-                m.Roughness = max(payload.Roughness, kDesertMinRoughness);
-                m.F0        = mix(vec3(0.04), m.BaseColor, m.Metallic);
+                m.Position      = P;
+                m.BaseColor     = payload.BaseColor;
+                m.Metallic      = payload.Metallic;
+                m.Roughness     = max(payload.Roughness, kDesertMinRoughness);
+                m.Specular      = DesertShadingWordSpecular(payload.ShadingWord);
+                m.Model         = DesertShadingModelIndex(payload.ShadingWord);
+                m.Payload       = DesertUnpackPayload(payload.ShadingWord);
+                m.CoatRoughness = kDesertMinRoughness;
+                m.Alphas        = vec2(m.Roughness * m.Roughness);
+                m.Tangent       = PathTracingBasis(N)[0];
                 // Choose the lobes by their share of the reflected energy at this view (UE picks lobes by their
                 // estimated albedo, PathTracingMaterialSampling.ush).
-                const float specular = PathTracingLuminance(fresnelSchlick(m.F0, max(dot(N, V), 0.0)));
-                const float diffuse  = PathTracingLuminance(m.BaseColor) * (1.0 - m.Metallic) * (1.0 - specular);
-                m.SpecularProbability = diffuse > 0.0 ? clamp(specular / (specular + diffuse), 0.05, 0.95) : 1.0;
+                const float NoV = max(dot(N, V), 0.0);
+                const vec3  F0  = DesertSpecularF0(PathTracingSurfaceOf(m, N, V));
+                float specular  = PathTracingLuminance(fresnelSchlick(F0, NoV));
+                float diffuse   = PathTracingLuminance(m.BaseColor) * (1.0 - m.Metallic) * (1.0 - specular);
+                float coat      = 0.0;
+            #ifdef SHADING_MODEL_INDEX_CLEAR_COAT
+                if (m.Model == SHADING_MODEL_INDEX_CLEAR_COAT)
+                {
+                    // The coat reflects its Fresnel share first; the base under it sees the rest (ClearCoat
+                    // Evaluate).
+                    coat            = ClearCoatStrength(m.Payload) * fresnelSchlick(vec3(kClearCoatF0), NoV).x;
+                    specular       *= 1.0 - coat;
+                    diffuse        *= 1.0 - coat;
+                    m.CoatRoughness = ClearCoatRoughness(m.Payload);
+                }
+            #endif
+            #ifdef SHADING_MODEL_INDEX_CLOTH
+                if (m.Model == SHADING_MODEL_INDEX_CLOTH)
+                {
+                    // The fuzz takes the Cloth share of the specular (UE ClothBxDF: mix(GGX, fuzz, Cloth)); its
+                    // directional albedo is the model's own fit (ClothFuzzAlbedo, stored divided by pi).
+                    const float cloth = ClothAmount(m.Payload);
+                    diffuse += cloth * PathTracingLuminance(ClothFuzzColor(m.Payload)) *
+                               min(ClothFuzzAlbedo(NoV, m.Roughness) * PI, 1.0);
+                    specular *= 1.0 - cloth;
+                }
+            #endif
+            #ifdef SHADING_MODEL_INDEX_ANISOTROPIC
+                if (m.Model == SHADING_MODEL_INDEX_ANISOTROPIC)
+                {
+                    // The model's own alphas and tangent (UE GetAnisotropicRoughness, the payload's tangent
+                    // angle).
+                    m.Alphas  = AnisotropicAlphas(PathTracingSurfaceOf(m, N, V), m.Payload);
+                    m.Tangent = DesertDecodeAnisotropyTangent(N, m.Payload.CustomData1);
+                }
+            #endif
+                // Every lobe the BSDF has keeps at least 5 % of the samples (the two-lobe sampler's clamp), so no
+                // direction it reflects into has a vanishing density; a black surface samples its GGX lobe alone.
+                const vec3  weights = vec3(diffuse, specular, coat);
+                const float total   = weights.x + weights.y + weights.z;
+                m.LobeProbability   = vec3(0.0, 1.0, 0.0);
+                if (total > 0.0)
+                {
+                    const vec3 floored = max(weights / total, vec3(greaterThan(weights, vec3(0.0))) * 0.05);
+                    m.LobeProbability  = floored / (floored.x + floored.y + floored.z);
+                }
                 return m;
             }
 
@@ -204,39 +292,54 @@ Shader "PathTracer"
             // PathTracingSplitShare): the denoiser's lobe split of the first surface's light samples and bounce.
             vec3 gPathTracingSpecularShare = vec3(0.0);
 
+            // f * cos of the hit's model toward L; the model's specular lobe (EvaluateSpecular) is the share.
             vec3 PathTracingBsdfCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
-                const vec3 total = EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor);
-                gPathTracingSpecularShare =
-                     PathTracingSplitShare(EvaluateDirectLightSpecular(L, vec3(1.0), V, N, m.F0, m.Roughness), total);
+                const DesertSurface S     = PathTracingSurfaceOf(m, N, V);
+                const DesertLight   light = PathTracingUnitLight(L);
+                const vec3          total = DesertEvaluateShadingModel(m.Model, light, S, m.Payload);
+                const vec3          lobe  = DesertEvaluateShadingModelSpecular(m.Model, light, S, m.Payload);
+                gPathTracingSpecularShare = PathTracingSplitShare(lobe, total);
                 return total;
             }
 
-            float PathTracingSmithG1(float NoV, float alpha)
+            // The density of L under the visible-normal GGX lobe of @p alphas along @p T and cross(N, T):
+            // D(H) G1(V) / (4 NoV) (Heitz 2018 eq. 17 through the reflection's Jacobian; isotropic alphas give
+            // Mesh/BRDF.glslh DistributionGGX and the Smith G1 the two-lobe sampler used).
+            float PathTracingVisibleGGXPdf(vec2 alphas, vec3 T, vec3 N, vec3 V, vec3 L)
             {
-                const float a2 = alpha * alpha;
-                return 2.0 * NoV / max(NoV + sqrt(a2 + (1.0 - a2) * NoV * NoV), 1e-6);
+                const vec3  B   = cross(N, T);
+                const float NoV = max(dot(N, V), 1e-4);
+                const vec3  H   = normalize(V + L);
+                const vec3  h   = vec3(dot(T, H) / alphas.x, dot(B, H) / alphas.y, max(dot(N, H), 0.0));
+                const float s   = dot(h, h);
+                const float D   = 1.0 / max(PI * alphas.x * alphas.y * s * s, 1e-12);
+                const float lv  = length(vec3(alphas.x * dot(T, V), alphas.y * dot(B, V), NoV));
+                const float G1  = 2.0 * NoV / max(NoV + lv, 1e-6);
+                return D * G1 / (4.0 * NoV);
             }
 
-            // The sampler's solid-angle density of L: the mixture of the cosine lobe and the visible-normal GGX lobe.
+            // The sampler's solid-angle density of L: the mixture of the cosine lobe, the base GGX lobe and the
+            // coat.
             float PathTracingBsdfPdf(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
                 const float NoL = dot(N, L);
-                const float NoV = max(dot(N, V), 1e-4);
                 if (NoL <= 0.0)
                     return 0.0;
-                const vec3  H        = normalize(V + L);
-                const float alpha    = m.Roughness * m.Roughness;
-                const float specular = DistributionGGX(max(dot(N, H), 0.0), m.Roughness) *
-                                       PathTracingSmithG1(NoV, alpha) / (4.0 * NoV);
-                return m.SpecularProbability * specular + (1.0 - m.SpecularProbability) * NoL / PI;
+                float pdf = m.LobeProbability.x * NoL / PI +
+                            m.LobeProbability.y * PathTracingVisibleGGXPdf(m.Alphas, m.Tangent, N, V, L);
+                if (m.LobeProbability.z > 0.0)
+                    pdf += m.LobeProbability.z *
+                           PathTracingVisibleGGXPdf(vec2(m.CoatRoughness * m.CoatRoughness), m.Tangent, N, V, L);
+                return pdf;
             }
 
             // Heitz 2018, "Sampling the GGX Distribution of Visible Normals" (UE MonteCarlo.ush
-            // ImportanceSampleVisibleGGX): a half vector in the frame of N, seen from Ve.
-            vec3 PathTracingSampleVisibleGGX(vec3 Ve, float alpha, vec2 u)
+            // ImportanceSampleVisibleGGX, its anisotropic form): a half vector in the frame (T, B, N), seen from
+            // Ve, of the lobe with alphas .x along T and .y along B.
+            vec3 PathTracingSampleVisibleGGX(vec3 Ve, vec2 alpha, vec2 u)
             {
-                const vec3  Vh    = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+                const vec3  Vh    = normalize(vec3(alpha.x * Ve.x, alpha.y * Ve.y, Ve.z));
                 const float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
                 const vec3  T1    = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
                 const vec3  T2    = cross(Vh, T1);
@@ -246,17 +349,21 @@ Shader "PathTracer"
                 const float s     = 0.5 * (1.0 + Vh.z);
                 const float t2    = (1.0 - s) * sqrt(max(1.0 - t1 * t1, 0.0)) + s * r * sin(phi);
                 const vec3  Nh    = t1 * T1 + t2 * T2 + sqrt(max(1.0 - t1 * t1 - t2 * t2, 0.0)) * Vh;
-                return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(Nh.z, 0.0)));
+                return normalize(vec3(alpha.x * Nh.x, alpha.y * Nh.y, max(Nh.z, 0.0)));
             }
 
             vec3 PathTracingSampleBsdf(PathTracingMaterial m, vec3 N, vec3 V, inout uint rng)
             {
-                const mat3 basis = PathTracingBasis(N);
-                const vec2 u     = PathTracingRandom2(rng);
-                if (PathTracingRandom(rng) < m.SpecularProbability)
+                const mat3  basis = mat3(m.Tangent, cross(N, m.Tangent), N);
+                const vec2  u     = PathTracingRandom2(rng);
+                const float pick  = PathTracingRandom(rng);
+                if (pick < m.LobeProbability.y + m.LobeProbability.z)
                 {
+                    vec2 alphas = m.Alphas;
+                    if (pick >= m.LobeProbability.y)
+                        alphas = vec2(m.CoatRoughness * m.CoatRoughness);
                     const vec3 Ve = transpose(basis) * V;
-                    const vec3 H  = basis * PathTracingSampleVisibleGGX(Ve, m.Roughness * m.Roughness, u);
+                    const vec3 H  = basis * PathTracingSampleVisibleGGX(Ve, alphas, u);
                     return reflect(-V, H);
                 }
                 const float r   = sqrt(u.x);
@@ -491,8 +598,8 @@ Shader "PathTracer"
                 const vec3 L = toLight / dist;
                 if (dot(N, L) < -sourceRadius / dist)
                     return 0.0;
-                const float bsdf = PathTracingLuminance(
-                    EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor));
+                const float bsdf = PathTracingLuminance(DesertEvaluateShadingModel(
+                    m.Model, PathTracingUnitLight(L), PathTracingSurfaceOf(m, N, V), m.Payload));
                 return estimate * (max(bsdf, 0.0) + kPathTracingLightTargetFloor);
             }
 
@@ -1041,7 +1148,7 @@ Shader "PathTracer"
                         continue;
                     }
 
-                    const PathTracingMaterial m = PathTracingMaterialOf(N, V);
+                    const PathTracingMaterial m = PathTracingMaterialOf(P, N, V);
                     const bool firstSurface = !guided;
                     if (firstSurface)
                     {
