@@ -161,8 +161,13 @@ Shader "ScreenProbeTrace"
             uint screenProbeOutTexels[];
         };
         #endif
+        // The second list: the software far field's hits for the hit lighting; the near field's misses at the cache
+        // for the cache read (FPS-SP-TRACE-4: they have nothing left to march, so the far field never sees them).
         #if defined( SP_TRACE_FAR_FIELD ) && defined( DESERT_GI_TRACER_SOFTWARE )
         #define SP_TRACE_LISTS_HITS 1
+        #endif
+        #if defined( SP_TRACE_LISTS_HITS ) || defined( SP_TRACE_NEAR_FIELD )
+        #define SP_TRACE_LISTS_RAYS2 1
         Buffer(47) ScreenProbeOut2ArgsUB
         {
             uvec4 screenProbeOut2Args;
@@ -301,9 +306,10 @@ Shader "ScreenProbeTrace"
                 screenProbeOutTexels[start + subgroupBallotExclusiveBitCount( ballot )] = slot;
         }
 #endif
-#if defined( SP_TRACE_LISTS_HITS )
-        // The same into the second list (the far field's hits for the hit-lighting leg).
-        void SPListHit( const bool listed, const uint slot )
+#if defined( SP_TRACE_LISTS_RAYS2 )
+        // The same into the second list (the far field's hits for the hit-lighting leg, the near field's rays at the
+        // cache for the cache-read leg).
+        void SPListRay2( const bool listed, const uint slot )
         {
             const uvec4 ballot = subgroupBallot( listed );
             const uint  count  = subgroupBallotBitCount( ballot );
@@ -416,6 +422,7 @@ Shader "ScreenProbeTrace"
 #if defined( SP_TRACE_NEAR_FIELD )
             float               farStart;
             const GITraceResult near = GITraceNearField( ray, farStart );
+            const bool atCache = !near.hit && texel.coverage.valid && farStart >= texel.tMax;
             if ( near.hit )
             {
                 imageStore( ScreenProbeTracedTexture, at, vec4( GIHitRadiance( near.surface, dir ), near.surface.distance ) );
@@ -423,10 +430,12 @@ Shader "ScreenProbeTrace"
                      SPEncodeTraceHit( near.surface.distance, true, SPTraceHitMoving( probe, texel, near.surface ), false );
             }
             else
-                screenProbeTraceHit[slot] =
-                     SPEncodeTraceHit( farStart, false, false, texel.coverage.valid && farStart >= texel.tMax );
-            // Every ray it does not hit goes on in the far field (UE bCompactForSkyApply: all of them).
-            SPListRay( !near.hit, slot );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( farStart, false, false, atCache );
+            // FPS-SP-TRACE-4 (UE compacts the voxel trace's rays to those with distance left): a miss at the cache
+            // has walked to its tMax already, so it goes straight to the cache read; every other miss goes on in
+            // the far field.
+            SPListRay( !near.hit && !atCache, slot );
+            SPListRay2( atCache, slot );
 #elif defined( SP_TRACE_CACHE_MISS )
             // The rest of a ray the cache did not answer: from the cache's distance to the full trace distance.
             ray.tMin                 = ray.tMax;
@@ -534,7 +543,7 @@ Shader "ScreenProbeTrace"
             }
             SPListRay( atCache, slot );
 #if defined( SP_TRACE_LISTS_HITS )
-            SPListHit( deferredHit, slot );
+            SPListRay2( deferredHit, slot );
 #endif
 #endif
         }

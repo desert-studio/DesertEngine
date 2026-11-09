@@ -9,7 +9,8 @@
 // a surface, stopped by something thin) goes on from the last such point (UE bWriteDepthOnMiss), and one that walked
 // the whole way has reached the cache. Every texel's state goes to the trace hit buffer; the world legs
 // (ScreenProbeTrace.shader) run over the rays it left open, which it lists itself (THE LEGS' LISTS,
-// Common/ScreenProbeTracing.glslh): the near field's and the far field's, one run per probe in texel order.
+// Common/ScreenProbeTracing.glslh): the near field's, the far field's and (the rays it walked to the cache) the
+// cache read's, one run per probe in texel order.
 Shader "ScreenProbeTraceScreen"
 {
     Compute
@@ -58,8 +59,10 @@ Shader "ScreenProbeTraceScreen"
         };
         Uniform(10) texture2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp): a hit's world motion
         #define Velocity sampler2D(Velocity, PointClampSampler)
-        // The near field's list (no hit, not at the cache, before NearFieldEnd) and the far field's (every other
-        // ray with no hit): dispatch arguments, allocator, rays (probe * SP_RES² + texel).
+        // The near field's list (no hit, not at the cache, before NearFieldEnd), the far field's (no hit, not at
+        // the cache, past NearFieldEnd) and the cache read's (no hit, at the cache: nothing left to trace before the
+        // cache answers - FPS-SP-TRACE-4, UE compacts only the rays a voxel trace still has to march): dispatch
+        // arguments, allocator, rays (probe * SP_RES² + texel).
         Buffer(11) ScreenProbeOutArgsUB
         {
             uvec4 screenProbeOutArgs;
@@ -83,6 +86,18 @@ Shader "ScreenProbeTraceScreen"
         Buffer(16) ScreenProbeOut2TexelsUB
         {
             uint screenProbeOut2Texels[];
+        };
+        Buffer(17) ScreenProbeOut3ArgsUB
+        {
+            uvec4 screenProbeOut3Args;
+        };
+        Buffer(18) ScreenProbeOut3AllocatorUB
+        {
+            uint screenProbeOut3Allocator;
+        };
+        Buffer(19) ScreenProbeOut3TexelsUB
+        {
+            uint screenProbeOut3Texels[];
         };
 
         PushConstant ScreenProbeTraceScreenPush
@@ -225,16 +240,24 @@ Shader "ScreenProbeTraceScreen"
         shared uint s_Scan[2u * SP_LIST_TEXELS];
         shared uint s_NearStart;
         shared uint s_FarStart;
+        shared uint s_CacheStart;
 
-        // Append this probe's open rays to the near field's and the far field's lists, in texel order (UE
-        // ScreenProbeCompactTracesCS's GroupShared compaction): one atomic per list and probe.
+        // The three lists' counts packed in one scanned word: SP_LIST_TEXELS <= 256 fits SP_LIST_BITS each.
+        #define SP_LIST_BITS 10u
+        #define SP_LIST_MASK ( ( 1u << SP_LIST_BITS ) - 1u )
+
+        // Append this probe's open rays to the near field's, the far field's and the cache read's lists, in texel
+        // order (UE ScreenProbeCompactTracesCS's GroupShared compaction): one atomic per list and probe.
         void SPListOpenRays( const uint texel, const uint slot, const uint encoded )
         {
-            const bool hit      = ( encoded & SP_TRACE_HIT_BIT ) != 0u;
-            const bool reached  = ( encoded & SP_TRACE_REACHED_BIT ) != 0u;
-            const bool nearOpen = !hit && !reached && SPTraceHitDistance( encoded ) < NearFieldEnd;
-            const bool farOpen  = !hit && !nearOpen;
-            const uint own      = ( nearOpen ? 1u : 0u ) | ( farOpen ? 0x10000u : 0u );
+            const bool hit       = ( encoded & SP_TRACE_HIT_BIT ) != 0u;
+            const bool reached   = ( encoded & SP_TRACE_REACHED_BIT ) != 0u;
+            const bool nearOpen  = !hit && !reached && SPTraceHitDistance( encoded ) < NearFieldEnd;
+            // A ray at the cache has walked to its tMax: no distance left to march, the cache read answers it.
+            const bool cacheOpen = !hit && reached;
+            const bool farOpen   = !hit && !reached && !nearOpen;
+            const uint own       = ( nearOpen ? 1u : 0u ) | ( farOpen ? ( 1u << SP_LIST_BITS ) : 0u ) |
+                                   ( cacheOpen ? ( 1u << ( 2u * SP_LIST_BITS ) ) : 0u );
             s_Scan[texel]       = own;
             barrier();
             uint src = 0u;
@@ -251,10 +274,12 @@ Shader "ScreenProbeTraceScreen"
             const uint offset    = inclusive - own; // the open rays of the texels before this one, per list
             if ( texel == SP_LIST_TEXELS - 1u )
             {
-                const uint nearCount = inclusive & 0xFFFFu;
-                const uint farCount  = inclusive >> 16u;
-                s_NearStart          = 0u;
-                s_FarStart           = 0u;
+                const uint nearCount  = inclusive & SP_LIST_MASK;
+                const uint farCount   = ( inclusive >> SP_LIST_BITS ) & SP_LIST_MASK;
+                const uint cacheCount = inclusive >> ( 2u * SP_LIST_BITS );
+                s_NearStart           = 0u;
+                s_FarStart            = 0u;
+                s_CacheStart          = 0u;
                 if ( nearCount > 0u )
                 {
                     s_NearStart = atomicAdd( screenProbeOutAllocator, nearCount );
@@ -267,12 +292,21 @@ Shader "ScreenProbeTraceScreen"
                     atomicMax( screenProbeOut2Args.x, ( s_FarStart + farCount + SP_TRACE_LEG_GROUP_SIZE - 1u ) /
                                                            SP_TRACE_LEG_GROUP_SIZE );
                 }
+                if ( cacheCount > 0u )
+                {
+                    s_CacheStart = atomicAdd( screenProbeOut3Allocator, cacheCount );
+                    atomicMax( screenProbeOut3Args.x,
+                               ( s_CacheStart + cacheCount + SP_TRACE_LEG_GROUP_SIZE - 1u ) /
+                                    SP_TRACE_LEG_GROUP_SIZE );
+                }
             }
             barrier();
             if ( nearOpen )
-                screenProbeOutTexels[s_NearStart + ( offset & 0xFFFFu )] = slot;
+                screenProbeOutTexels[s_NearStart + ( offset & SP_LIST_MASK )] = slot;
             if ( farOpen )
-                screenProbeOut2Texels[s_FarStart + ( offset >> 16u )] = slot;
+                screenProbeOut2Texels[s_FarStart + ( ( offset >> SP_LIST_BITS ) & SP_LIST_MASK )] = slot;
+            if ( cacheOpen )
+                screenProbeOut3Texels[s_CacheStart + ( offset >> ( 2u * SP_LIST_BITS ) )] = slot;
         }
 
         void main()

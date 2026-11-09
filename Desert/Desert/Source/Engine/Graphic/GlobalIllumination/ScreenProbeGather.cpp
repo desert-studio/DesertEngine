@@ -93,6 +93,9 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut2ArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut2AllocatorUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut2TexelsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut3ArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut3AllocatorUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut3TexelsUB );
 #if DESERT_DEV_INSTRUMENTS
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeMissReasonsUB );
 #endif
@@ -822,7 +825,7 @@ namespace Desert::Graphic::GlobalIllumination
         if ( TraceLegExists( inputs.Tracer.Pipeline.Tracer, kTraceHitLightingDefine ) )
             hitLightingList = rayList( "hit lighting" );
 
-        // A pass's first and second output lists (ScreenProbeOut* / ScreenProbeOut2*).
+        // A pass's first, second and third output lists (ScreenProbeOut* / ScreenProbeOut2* / ScreenProbeOut3*).
         const auto bindOut = [&]( auto& block, const RayList& list )
         {
             block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOutArgsUB, list.Args, kW )
@@ -834,6 +837,12 @@ namespace Desert::Graphic::GlobalIllumination
             block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut2ArgsUB, list.Args, kW )
                  .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut2AllocatorUB, list.Allocator, kW )
                  .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut2TexelsUB, list.Texels, kW );
+        };
+        const auto bindOut3 = [&]( auto& block, const RayList& list )
+        {
+            block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut3ArgsUB, list.Args, kW )
+                 .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut3AllocatorUB, list.Allocator, kW )
+                 .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut3TexelsUB, list.Texels, kW );
         };
 
         {
@@ -865,9 +874,12 @@ namespace Desert::Graphic::GlobalIllumination
                           .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TraceScreenPush ) ) );
-                     // The near field's list and the far field's (the screen's misses past the near field).
+                     // The near field's list, the far field's (the screen's misses past the near field) and the
+                     // cache read's (FPS-SP-TRACE-4: the misses it walked to the cache have nothing left to
+                     // march).
                      bindOut( block, nearList );
                      bindOut2( block, farList );
+                     bindOut3( block, cacheReadList );
                  },
                  [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -878,7 +890,8 @@ namespace Desert::Graphic::GlobalIllumination
         }
 
         // One world leg over its list, one thread per ray (ScreenProbeTrace.shader's permutation), listing the
-        // rays it leaves for the next legs in @p out (and @p out2: the far field's hits for the hit lighting).
+        // rays it leaves for the next legs in @p out (and @p out2: the far field's hits for the hit lighting, the
+        // near field's misses at the cache for the cache read).
         const auto traceWorld = [&]( const Program program, const std::string_view name, const RayList& in,
                                      const RayList* const out, const RayList* const out2 )
         {
@@ -960,7 +973,10 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         const RayList* const hitLightingOut = hitLightingList ? &*hitLightingList : nullptr;
-        traceWorld( TraceNearField, "ScreenProbes: Trace Near Field", nearList, &farList, nullptr );
+        // FPS-SP-TRACE-4 (UE compacts the voxel trace's rays to those with distance left): the screen and the near
+        // field list a miss at the cache straight for the cache read, so the far field's dispatch holds only rays
+        // with distance left to march (a ray at the cache has walked to its tMax already).
+        traceWorld( TraceNearField, "ScreenProbes: Trace Near Field", nearList, &farList, &cacheReadList );
         traceWorld( TraceFarField, "ScreenProbes: Trace Far Field", farList, &cacheReadList, hitLightingOut );
         // GPU-FARFIELD-6: the rays the far field left at the radiance cache's coverage read the cache in a list of
         // their own (UE's trace / shading split), so the far field's waves hold no cache read on their march
