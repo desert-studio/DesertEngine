@@ -684,8 +684,8 @@ namespace Desert::Core
         // dirtied is latched for scene.renderDirty and the next frame starts from an empty set.
         {
             std::lock_guard lock( m_RenderStateDirtyMutex );
-            m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
-            m_RenderStateDirty.clear();
+            m_RenderStateDirtyLastFrame = m_RenderStateDirty.Size();
+            m_RenderStateDirty.Clear();
         }
         m_RenderStateDelta.FrameBoundary();
 
@@ -1625,7 +1625,7 @@ namespace Desert::Core
         retireOnDestroy.template operator()<ECS::TextComponent>();
         {
             std::lock_guard lock( m_RenderStateDirtyMutex );
-            m_RenderStateDirty.clear();
+            m_RenderStateDirty.Clear();
             m_RenderStateDirtyLastFrame = 0;
         }
         // The retained render cache rebuilds from the registry as it now stands (MeshECSSystem).
@@ -1662,19 +1662,22 @@ namespace Desert::Core
         std::lock_guard lock( m_RenderStateDirtyMutex );
         if ( !subtree )
         {
-            m_RenderStateDirty.insert( entity );
+            (void)m_RenderStateDirty.Mark( entity );
             m_RenderStateDelta.Mark( entity );
             return;
         }
-        // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
+        // Iterative, so a deep hierarchy cannot overflow the stack; the stack is a member kept under the lock,
+        // so a transform event allocates nothing once it has grown. An entity already in the set had its
         // subtree dirtied when it entered — unless it entered alone (a mesh / material / visibility change),
         // so the walk goes on below every entity regardless.
-        std::vector<entt::entity> pending{ entity };
+        std::vector<entt::entity>& pending = m_RenderStateWalk;
+        pending.clear();
+        pending.push_back( entity );
         while ( !pending.empty() )
         {
             const entt::entity current = pending.back();
             pending.pop_back();
-            m_RenderStateDirty.insert( current );
+            (void)m_RenderStateDirty.Mark( current );
             m_RenderStateDelta.Mark( current );
             if ( !m_Registry.valid( current ) )
                 continue;
