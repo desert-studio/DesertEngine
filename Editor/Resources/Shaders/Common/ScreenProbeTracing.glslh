@@ -24,9 +24,10 @@
 //                  hits, distance only)
 //   cache read  -> cache miss (no traced probe answered)
 // A list's dispatch is x = its groups of SP_TRACE_LEG_GROUP_SIZE rays (the largest end any run reached,
-// atomicMax), y = z = 1 (uploaded); its allocator counts the rays listed (0 uploaded). 256: a world leg's group
-// orders its rays by direction before tracing them (ScreenProbeTrace.shader THE GROUP'S RAYS BY DIRECTION), and
-// 256 listed rays come from a few neighbouring probes, so a subgroup holds rays of a few adjacent texels.
+// atomicMax), y = z = 1 (uploaded); its allocator counts the rays listed (0 uploaded). 256: the hit-lighting leg's
+// group orders its rays by direction before lighting them (ScreenProbeTrace.shader THE GROUP'S RAYS BY DIRECTION),
+// and 256 listed rays come from a few neighbouring probes, so a subgroup holds rays of a few adjacent texels; the
+// other legs trace in list order (probe by probe), where the size only sets the group count.
 #define SP_TRACE_LEG_GROUP_SIZE 256u
 
 // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).

@@ -29,8 +29,8 @@
 //                      surface must lie to count as the hit: the TRACER's own numbers (UE: the mesh-SDF and the
 //                      global-SDF surface biases, the hardware tracer's RayBias for both), so the shared hit
 //                      lighting below knows no distance field. A function of the point and its normal, never of
-//                      the ray's direction: every ray leaving one point shares it (a screen probe's rays read it
-//                      once per probe, ScreenProbeTrace.shader SPLegProbeBias).
+//                      the ray's direction: every ray leaving one point shares it (the screen probes' hit
+//                      lighting reads it once per probe, ScreenProbeTrace.shader SPLegProbeBias).
 //   GIMoveOutOfGeometry  a point pushed out of nearby geometry (a radiance-cache probe before it traces).
 //   GIHitInstanceRows  the instance-table rows (contract B3) the hit may belong to, nearest first, GI_NO_INSTANCE
 //                      after the last: the hardware hit's own instance; for a distance-field hit, which has no

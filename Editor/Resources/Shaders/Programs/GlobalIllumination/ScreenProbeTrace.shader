@@ -328,6 +328,19 @@ Shader "ScreenProbeTrace"
         }
 #endif
 
+        // FPS-SP-NEARFAR: only the hit-lighting leg orders its group's rays by direction. The near field walks
+        // the object list of the ray's origin froxel (GITraceNearField) and the far field marches the global field
+        // from the probe's point: in list order a subgroup holds one or two probes' rays, so its lanes walk one
+        // object list and fetch one neighbourhood (UE ScreenProbeTraceMeshSDFs / TraceVoxels: coherent per-wave
+        // probe access). Binned by direction a subgroup held several probes' froxels - a loop as long as the
+        // longest of their lists and scattered fetches - behind fifteen group barriers; the cache read and the
+        // cache miss read and trace from the probe's point the same way. Those legs take lane i = the list's ray,
+        // with the probe's bias inline and no barrier. The hit lighting lights surfaces the rays reached, where
+        // neighbouring probes' rays of one direction land together: it keeps the binning and the bias table.
+        #if defined( SP_TRACE_HIT_LIGHTING )
+        #define SP_TRACE_LEG_BINS_RAYS 1
+        #endif
+        #if defined( SP_TRACE_LEG_BINS_RAYS )
         // THE GROUP'S RAYS BY DIRECTION (ray binning: Frostbite / SEED "Hybrid real-time rendering", 2018; UE's
         // ScreenProbeTraceMeshSDFs / TraceVoxels take their compacted list in probe order). A leg's list holds a
         // probe's rays together: one subgroup marched the sky-bound rays and the ground-bound rays of one probe
@@ -393,7 +406,6 @@ Shader "ScreenProbeTrace"
             return mine;
         }
 
-#if !defined( SP_TRACE_CACHE_READ )
         // FPS-SP-TRACE-5 THE GROUP'S PROBES' BIAS (UE ScreenProbeGather: per-probe data computed once, read by
         // every trace of the probe). GIRayBias is a function of the probe's point and normal, never of the ray's
         // direction (Common/GITracing.glslh), and the software tracer's walks the froxel's object list: once for
@@ -448,17 +460,21 @@ Shader "ScreenProbeTrace"
                 index = s_LegProbeIndex[entry];
             return s_LegBias[index]; // an unlisted lane's is never read
         }
-#endif
+        #endif // SP_TRACE_LEG_BINS_RAYS
 
         void main()
         {
-            uint       slot;
-            const bool listed = SPLegSortedSlot( slot );
-#if !defined( SP_TRACE_CACHE_READ )
-            const GITraceBias bias = SPLegProbeBias( listed, slot / ( SP_RES * SP_RES ) );
-#endif
+#if defined( SP_TRACE_LEG_BINS_RAYS )
+            uint              slot;
+            const bool        listed = SPLegSortedSlot( slot );
+            const GITraceBias bias   = SPLegProbeBias( listed, slot / ( SP_RES * SP_RES ) );
             if ( !listed )
                 return; // past the list's end: after the sort's and the bias's barriers
+#else
+            if ( gl_GlobalInvocationID.x >= screenProbeCompactAllocator )
+                return;
+            const uint slot = screenProbeCompactTexels[gl_GlobalInvocationID.x]; // list order: by probe
+#endif
             const uint       probe = slot / ( SP_RES * SP_RES );
             const SPTexelRay texel = SPMakeTexelRay( probe, slot % ( SP_RES * SP_RES ) );
             const uint       state = screenProbeTraceHit[slot];
@@ -466,6 +482,10 @@ Shader "ScreenProbeTrace"
             const vec3       dir   = texel.direction;
             const ivec2       at     = SPAtlasOrigin( probe, SP_RES ) + texel.texel;
 #if !defined( SP_TRACE_CACHE_READ )
+#if !defined( SP_TRACE_LEG_BINS_RAYS )
+            // A function of the probe's point and normal (GIRayBias): its lanes share the probe, so they share it.
+            const GITraceBias bias   = GIRayBias( texel.position, N );
+#endif
             const vec3        origin = texel.position + N * bias.nearOffset;
 
             GITraceInput ray;
