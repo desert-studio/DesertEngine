@@ -125,10 +125,10 @@ namespace Desert::Graphic::API::Vulkan
                                                        std::span<const std::byte> push, RDG::BufferRef args,
                                                        uint64_t offset, RDG::BufferRef count, uint64_t countOffset,
                                                        uint32_t maxDraws, SubmeshMask hiddenSubmeshMask ) override;
-        Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
-                                                       const GraphicsPipeline&      pipeline,
-                                                       const MeshGeometryBinding&   geometry,
-                                                       const MeshIndirectGroupDraw& draw ) override;
+        Common::BoolResultStr RenderMeshIndirectCountBins( const RDG::PassBindings& bindings,
+                                                           std::span<const BinDraw> bins ) override;
+        Common::BoolResultStr
+        RenderMeshIndirectGroup( std::span<const MeshIndirectGroupBatchEntry> groups ) override;
         Common::BoolResultStr RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
                                                           const GraphicsPipeline&         pipeline,
                                                           const ClusterIndirectGroupDraw& draw ) override;
