@@ -683,12 +683,15 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<int>( m_ColorFormat ) );
         }
 
-        // The acquire is late (at the back-buffer import), so a frame whose present graph did not run holds no
-        // image, and the index left over names the previous frame's, already given back by its present.
+        // The acquire is late (at the back-buffer import), so a frame whose present graph has not run yet - the
+        // editor's interface graph is a render-task job, and its capture is a job queued behind it
+        // (ViewportCapture::RecordWindowCapture) - holds no image, and the index left over names the previous
+        // frame's, already given back by its present.
         if ( !m_Output->HasAcquiredImage() )
             return Common::MakeError<bool>(
-                 "this frame holds no acquired swapchain image (its present graph did not import the back "
-                 "buffer, or the acquire was out of date); there is nothing to copy." );
+                 "this frame holds no acquired swapchain image (its present graph has not imported the back "
+                 "buffer yet - the copy must be recorded behind that graph, in the frame's job order - did not "
+                 "import it, or the acquire was out of date); there is nothing to copy." );
         const uint32_t imageIndex = m_Output->GetImageIndex();
         if ( imageIndex >= m_SwapChainImages.Images.size() )
         {
@@ -701,6 +704,17 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t h = m_Height;
         if ( w == 0u || h == 0u )
             return Common::MakeError<bool>( "the window is zero-sized; there is no frame to capture." );
+
+        // The frame's CURRENT command buffer (its tail): the frame is split at every graph, and the present graph
+        // re-armed it. None when the frame's begin failed or the graph could not re-arm it (the back buffer is
+        // imported, and so acquired, before the graph records): refused by name rather than recorded into nothing.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) - this file is the Vulkan backend.
+        VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
+                                   .GetCurrentCommandBuffer();
+        if ( cmd == VK_NULL_HANDLE )
+            return Common::MakeError<bool>(
+                 "the frame has no open command buffer to record the copy into (its begin failed, or its present "
+                 "graph could not re-arm one; see the [Renderer] line above); there is nothing to copy with." );
 
         auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                                ->GetVulkanAllocator()
@@ -723,11 +737,7 @@ namespace Desert::Graphic::API::Vulkan
         // that MoltenVK tolerates silently — the picture comes out correct and only the validation layer
         // ever mentions it. ("vkQueueSubmit(): performs a layout transition on presentable VkImage, but the
         // image has not been acquired from VkSwapchainKHR." Measured, on the first capture this took.)
-        // The frame's CURRENT command buffer (its tail): the frame is split at every graph.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) - this file is the Vulkan backend.
-        VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
-                                   .GetCurrentCommandBuffer();
-        VkImage         image = m_SwapChainImages.Images[imageIndex];
+        VkImage image = m_SwapChainImages.Images[imageIndex];
 
         // The render pass left the image in PRESENT_SRC, and it must be put back: the present that follows
         // this submit expects to find it there.

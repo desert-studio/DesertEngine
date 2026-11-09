@@ -49,7 +49,11 @@ namespace Desert::Graphic
          */
         [[nodiscard]] virtual bool SupportsFrameReadback() const noexcept = 0;
 
-        /// Record the copy into this frame's command buffer, after the last pass and before the present.
+        /// Record the copy into this frame's command buffer, after the last pass and before the present. The image
+        /// is acquired late, by the present graph's back-buffer import (RendererAPI::ImportBackBuffer), so this is
+        /// called on the thread that executed that graph, after it: on the render task behind the job that ran it
+        /// (the editor's interface, ViewportCapture::RecordWindowCapture), inline right after it where the graph
+        /// runs inline (the runtime's present graph, RuntimeLayer::RecordShotIfDue).
         [[nodiscard]] virtual Common::BoolResultStr RecordFrameCapture() = 0;
 
         /// Collect what RecordFrameCapture asked for, tightly packed RGBA8. After the present that carried

@@ -117,8 +117,9 @@ namespace Desert::Graphic::API::Vulkan
          * when the copy has actually run.
          */
 
-        /// Record the copy into the frame's command buffer. Call after the last render pass of the frame
-        /// and before PresentFinalImage. Fails, naming the reason, if the surface cannot be read at all.
+        /// Record the copy into the frame's command buffer. Call after the frame's present graph (whose
+        /// back-buffer import is the late acquire), on the thread that executed it, and before PresentFinalImage
+        /// (see SwapChain::RecordFrameCapture). Fails, naming the reason, if the surface cannot be read at all.
         [[nodiscard]] Common::BoolResultStr RecordFrameCapture() override;
 
         [[nodiscard]] bool HasPendingCapture() const noexcept
