@@ -309,6 +309,22 @@ namespace Desert::Core::Rules
         float MaxZ = 0.0f;
     };
 
+    // WHAT A COMPOSITE OR A CELL HOLDS, VERTICALLY (WP-SRC-ALTITUDE): the lowest and the highest world Y, cm, of
+    // every point its footprint was built from - UE's cell content bounds in Z (UWorldPartitionRuntimeCell::
+    // GetContentBounds, which the spatial hash's Z culling reads). Height still does not PARTITION - a cell is a
+    // square on the ground - but it is MEASURED: the loading range reaches a cell in 3D, so a source 2 km up does
+    // not want the 25 m cells of the ground below it (WorldPartitionStreamingRules.hpp, THE RULE).
+    struct HeightSpan
+    {
+        float MinY = 0.0f;
+        float MaxY = 0.0f;
+    };
+
+    [[nodiscard]] inline HeightSpan UnionHeight( const HeightSpan& a, const HeightSpan& b )
+    {
+        return HeightSpan{ std::min( a.MinY, b.MinY ), std::max( a.MaxY, b.MaxY ) };
+    }
+
     // Edge of one cell of grid level @p level: CellSize·2^level. ldexp and not a loop of doublings, so a
     // level is exactly a power of two times the authored number with no accumulated rounding.
     [[nodiscard]] inline double LevelCellSize( float cellSize, int level )
@@ -399,6 +415,8 @@ namespace Desert::Core::Rules
         // nullopt when no member has a known position — only refused prefab instances
         // (UnplacedPrefabInstances). Such a composite is in NO cell and is not always loaded: it has no place.
         std::optional<CellBounds> Footprint;
+        // The Y span of the same points; set exactly when Footprint is (WP-SRC-ALTITUDE).
+        std::optional<HeightSpan> Height;
 
         AlwaysLoadedReason Reason  = AlwaysLoadedReason::None;
         std::size_t        Because = kNoRecord; // the member that made it Author/Component
@@ -423,6 +441,8 @@ namespace Desert::Core::Rules
         CellBounds               Square;
         CellBounds               Bounds;
         std::vector<std::size_t> Composites; // indices into WorldPartitionPlan::Composites
+        // The union of its composites' Height (UE's content bounds in Z): what a source's altitude is measured to.
+        HeightSpan Height;
     };
 
     struct WorldPartitionPlan
@@ -774,7 +794,7 @@ namespace Desert::Core::Rules
                    glm::scale( glm::mat4( 1.0f ), scale );
         }
 
-        // THE WORLD-SPACE GROUND POSITION OF EVERY INSTANCE AN InstancedStaticMesh RECORD DRAWS.
+        // THE WORLD-SPACE POSITION OF EVERY INSTANCE AN InstancedStaticMesh RECORD DRAWS.
         //
         // WORLD and not local, and the line that decides it is not the member's comment but the submit in
         // MeshECSSystem.hpp, which hands the snapshot of InstanceTransforms to the renderer without the
@@ -783,7 +803,7 @@ namespace Desert::Core::Rules
         //
         // A matrix that is not 16 numbers is an Issue and is skipped rather than guessed at; the loader
         // would reject the same block, so it cannot be drawn either.
-        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec2>& out,
+        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec3>& out,
                                           Common::Json::Issues& issues )
         {
             const auto block = BlockOf( record, kInstancePointsComponent, issues );
@@ -811,17 +831,20 @@ namespace Desert::Core::Rules
                      }
                      const std::size_t before = issues.size();
                      float             x      = 0.0f;
+                     float             y      = 0.0f;
                      float             z      = 0.0f;
                      matrix.ForEachElement(
                           [&]( std::size_t i, const Common::Json::Node& element )
                           {
                               if ( i == 12 )
                                   element.ReadValue( x, issues );
+                              else if ( i == 13 )
+                                  element.ReadValue( y, issues );
                               else if ( i == 14 )
                                   element.ReadValue( z, issues );
                           } );
                      if ( issues.size() == before )
-                         out.emplace_back( x, z );
+                         out.emplace_back( x, y, z );
                  } );
         }
 
@@ -877,8 +900,8 @@ namespace Desert::Core::Rules
             return AlwaysLoadedReason::None;
         }
 
-        // Appends the XZ of a local-space box's eight corners, through @p world.
-        inline void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec2>& out )
+        // Appends the world position of a local-space box's eight corners, through @p world.
+        inline void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec3>& out )
         {
             for ( int corner = 0; corner < 8; ++corner )
             {
@@ -886,13 +909,13 @@ namespace Desert::Core::Rules
                                        ( ( corner & 2 ) != 0 ) ? half.y : -half.y,
                                        ( ( corner & 4 ) != 0 ) ? half.z : -half.z, 1.0f );
                 const glm::vec4 placed = world * local;
-                out.emplace_back( placed.x, placed.z );
+                out.emplace_back( placed.x, placed.y, placed.z );
             }
         }
 
-        // Appends the XZ of a local-space AABB's eight corners, through @p world.
+        // Appends the world position of a local-space AABB's eight corners, through @p world.
         inline void AppendBoundsCorners( const glm::mat4& world, const Common::Math::AABB& box,
-                                         std::vector<glm::vec2>& out )
+                                         std::vector<glm::vec3>& out )
         {
             const glm::vec3 centre = ( box.Min + box.Max ) * 0.5f;
             const glm::vec3 half   = ( box.Max - box.Min ) * 0.5f;
@@ -1018,10 +1041,10 @@ namespace Desert::Core::Rules
         // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
         // the top of this file. Returns false when the record contributed its position and nothing more.
         inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out,
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
                                      Common::Json::Issues& issues )
         {
-            out.emplace_back( world[3].x, world[3].z );
+            out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
 
             ForEachLocalBox( record, bounds, issues,
@@ -1204,7 +1227,7 @@ namespace Desert::Core::Rules
 
         std::vector<Common::Math::AABB> Boxes;  // local boxes the record states itself (primitive, edit mesh)
         std::vector<DescriptorMesh>     Meshes; // mesh assets, answered by the bounds source
-        std::vector<glm::vec2>          InstancePoints;
+        std::vector<glm::vec3>          InstancePoints;
 
         AlwaysLoadedReason                     Reason = AlwaysLoadedReason::None; // None / Author / Component
         std::vector<DescriptorReference>       References;
@@ -1451,9 +1474,9 @@ namespace Desert::Core::Rules
         // the bounds source answers for its meshes, then its instance points. True when it had more than
         // the position (AppendFootprint over the record, the same points).
         inline bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out )
         {
-            out.emplace_back( world[3].x, world[3].z );
+            out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
             for ( const Common::Math::AABB& box : descriptor.Boxes )
                 AppendBoundsCorners( world, box, out );
@@ -1756,7 +1779,7 @@ namespace Desert::Core::Rules
         for ( const std::size_t record : plan.UnplacedLandscapeTiles )
             unplaced[record] = true;
 
-        std::vector<glm::vec2> points;
+        std::vector<glm::vec3> points;
         for ( PlannedComposite& group : plan.Composites )
         {
             for ( const std::size_t member : group.Members )
@@ -1778,22 +1801,28 @@ namespace Desert::Core::Rules
                 if ( const auto& rect = tileRect[member]; rect.has_value() )
                 {
                     // The four corners and NOT the entity's own position: nothing reads a tile's transform.
-                    points.emplace_back( rect->MinX, rect->MinZ );
-                    points.emplace_back( rect->MaxX, rect->MinZ );
-                    points.emplace_back( rect->MinX, rect->MaxZ );
-                    points.emplace_back( rect->MaxX, rect->MaxZ );
+                    points.emplace_back( rect->MinX, rect->MinY, rect->MinZ );
+                    points.emplace_back( rect->MaxX, rect->MinY, rect->MinZ );
+                    points.emplace_back( rect->MinX, rect->MaxY, rect->MaxZ );
+                    points.emplace_back( rect->MaxX, rect->MaxY, rect->MaxZ );
                 }
                 else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
                     ++plan.PointOnlyRecords;
-                for ( const glm::vec2& point : points )
+                for ( const glm::vec3& point : points )
                 {
                     if ( !group.Footprint.has_value() )
-                        group.Footprint = CellBounds{ point.x, point.y, point.x, point.y };
+                    {
+                        group.Footprint = CellBounds{ point.x, point.z, point.x, point.z };
+                        group.Height    = HeightSpan{ point.y, point.y };
+                    }
                     CellBounds& box = *group.Footprint;
                     box.MinX        = std::min( box.MinX, point.x );
-                    box.MinZ        = std::min( box.MinZ, point.y );
+                    box.MinZ        = std::min( box.MinZ, point.z );
                     box.MaxX        = std::max( box.MaxX, point.x );
-                    box.MaxZ        = std::max( box.MaxZ, point.y );
+                    box.MaxZ        = std::max( box.MaxZ, point.z );
+                    HeightSpan& height = *group.Height;
+                    height.MinY        = std::min( height.MinY, point.y );
+                    height.MaxY        = std::max( height.MaxY, point.y );
                 }
             }
         }
@@ -2015,6 +2044,10 @@ namespace Desert::Core::Rules
                                       static_cast<float>( static_cast<double>( cell.Square.MinZ ) - margin ),
                                       static_cast<float>( static_cast<double>( cell.Square.MaxX ) + margin ),
                                       static_cast<float>( static_cast<double>( cell.Square.MaxZ ) + margin ) };
+            // What the cell holds, vertically: the union of its composites' spans (each has one: it has a footprint).
+            cell.Height = *plan.Composites[composites.front()].Height;
+            for ( const std::size_t group : composites )
+                cell.Height = UnionHeight( cell.Height, *plan.Composites[group].Height );
             cell.Composites = std::move( composites );
             plan.Cells.push_back( std::move( cell ) );
         }
