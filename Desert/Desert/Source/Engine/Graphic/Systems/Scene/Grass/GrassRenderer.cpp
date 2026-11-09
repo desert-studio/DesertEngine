@@ -3436,9 +3436,9 @@ namespace Desert::Graphic::System
         table.Rows.clear();
         table.Slots = 0u;
         table.Bins  = 0u;
-        table.BinReads.clear();
-        table.BinReads.reserve( table.BinCapacity );
+        table.BinReads.Clear(); // the chunks keep their capacity (FPS-CPU2-GRASS)
         table.Verdicts.clear();
+        table.VerdictOf.Clear();
         table.Reserved = 0u;
         table.Open = true;
 

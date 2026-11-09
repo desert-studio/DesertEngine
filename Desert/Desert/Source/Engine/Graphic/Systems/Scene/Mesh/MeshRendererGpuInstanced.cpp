@@ -271,9 +271,9 @@ namespace Desert::Graphic::System
         // are never more than its slots), so no list bins it while a later one lacks the room. Refused, it takes
         // its own draws in every pass of the phase: past the table (Overflow, the producer grows it, bounded) or
         // for a buffer with no device address (its own reason, no growth).
-        for ( const GpuDrawBinFrame::SectionVerdict& asked : bins->Verdicts )
-            if ( asked.Key == gpu.Key )
-                return asked.Admitted ? bins : nullptr;
+        // FPS-CPU2-GRASS: the verdict by key (VerdictOf), not a scan of every verdict of the phase.
+        if ( const uint32_t* const asked = bins->VerdictOf.Find( gpu.Key ); asked != nullptr )
+            return bins->Verdicts[*asked].Admitted ? bins : nullptr;
         bool admitted = false;
         {
             const bool addressed = AddressOf( gpu.Instances ) != 0u &&
@@ -307,6 +307,7 @@ namespace Desert::Graphic::System
                 admitted = true;
             }
         }
+        bins->VerdictOf.Insert( gpu.Key, static_cast<uint32_t>( bins->Verdicts.size() ) );
         bins->Verdicts.push_back( { .Key = gpu.Key, .Admitted = admitted } );
         if ( !admitted )
             return nullptr;
@@ -528,6 +529,43 @@ namespace Desert::Graphic::System
         // (m_MaskedPrepassedPost, the same records the G-buffer post pass draws).
         std::vector<MaskedPrepassedSection>& phasePrepassed =
              postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
+        // FPS-CPU2-GRASS: the walk's per-section questions by key (GpuSectionKeyTable), filled once per walk from
+        // the lists they asked a find of per section: the GRASS-VIS set, and in a G-buffer walk the sections the
+        // phase's depth pass recorded (key -> its index in phasePrepassed, the first one as the find took it). No
+        // G-buffer walk records any (only the masked prepass pushes), so the table stands for the whole walk.
+        m_GpuInstancedViaVisibility.Clear();
+        for ( const uint32_t key : m_GrassVisibilitySections )
+            m_GpuInstancedViaVisibility.Insert( key, 0u );
+        m_GpuInstancedPrepassed.Clear();
+        if ( pass == MeshPass::GBuffer )
+            for ( size_t i = 0; i < phasePrepassed.size(); ++i )
+                m_GpuInstancedPrepassed.Insert( phasePrepassed[i].Key, static_cast<uint32_t>( i ) );
+        // FPS-CPU2-GRASS, THE FRAME STATE ONCE PER CELL (UE: the view's uniform buffer is set once per view, not
+        // per draw): every walk captures the view's state anew (CaptureFrameState), the same bytes all frame long
+        // for one view, and each record's cell is a section's own (a view copy per section x pass), which the
+        // phase-1 and phase-2 walks of a pass both draw. A cell written this frame for this view is not written
+        // again; the set starts over on another view, another frame of it, or a MaterialService invalidation
+        // (whose rebuilt cells may take a retired one's address). No view: every apply is made.
+        const auto* const materialService = Runtime::ResourceRegistry::GetMaterialService();
+        const uint32_t    materialVersion =
+             materialService != nullptr ? materialService->GetInvalidationVersion() : 0u;
+        if ( frameState.View == nullptr || frameState.View != m_GpuInstancedAppliedView ||
+             frameState.View->FrameIndex != m_GpuInstancedAppliedFrame ||
+             materialVersion != m_GpuInstancedAppliedVersion )
+        {
+            m_GpuInstancedApplied.Clear();
+            m_GpuInstancedAppliedView    = frameState.View;
+            m_GpuInstancedAppliedFrame   = frameState.View != nullptr ? frameState.View->FrameIndex : 0u;
+            m_GpuInstancedAppliedVersion = materialVersion;
+        }
+        const auto applyFrameState = [this, &frameState]( MaterialInstance* const instance )
+        {
+            if ( instance == nullptr )
+                return;
+            const auto cell = reinterpret_cast<uintptr_t>( instance->GetParentMaterial() );
+            if ( frameState.View == nullptr || m_GpuInstancedApplied.Insert( cell, 0u ) )
+                frameState.ApplyTo( instance );
+        };
         // The producer's buffers through a record's kept slots: the section's one Instances, the camera list's ids
         // (the kSurfaceInstanceIdsDefine cell's GpuInstanceIds), a blade's shape (MeshPathOwnBinding); the same
         // buffer again is no write (StorageBufferProperty::SetBuffer). The section's row is the scene material
@@ -578,17 +616,70 @@ namespace Desert::Graphic::System
         // order; after the walk each bin is ONE RenderMeshIndirectCount over its slots, the list's bins laid out
         // end to end after the phase table's earlier lists'. The gather (the producer's "Grass: Draw Gather")
         // copies the records into the slots before the draws run.
-        struct ListBin
+        // FPS-CPU2-GRASS: the list's bins, their entries and reads in the walk's kept scratch (GpuDrawBinWalk), a
+        // bin found by its (table, pipeline, template, mesh) through an open-addressing index, not a scan of the
+        // list's bins per section.
+        std::vector<GpuInstancedListBin>& listBins = m_GpuInstancedListBins;
+        GpuDrawBinWalk&                   binWalk  = m_GpuInstancedBinWalk;
+        listBins.clear();
+        binWalk.Clear();
+        std::fill( m_GpuInstancedListBinSlots.begin(), m_GpuInstancedListBinSlots.end(), 0u );
+        uint32_t   listSlots = 0; // the slots this list's bins asked so far
+        const auto binHash   = []( const GpuDrawBinFrame* const table, const GraphicsPipeline* const pipeline,
+                                 const DataDrivenMaterial* const parent,
+                                 const Desert::Mesh* const       mesh ) -> uint64_t
         {
-            const GpuInstancedDrawRecord* By    = nullptr; // the bin's first section's: pipeline, cell executor
-            Desert::Mesh*                 Mesh  = nullptr;
-            GpuDrawBinFrame*              Table = nullptr;
-            uint32_t                      Index = 0; // the table's bin
-            uint32_t                      Slots = 0;
-            std::vector<uint32_t>         Entries{}; // into Table->Entries, FirstSlot bin-local until laid out
+            uint64_t hash = 0xCBF29CE484222325ull;
+            for ( const uintptr_t word :
+                  { reinterpret_cast<uintptr_t>( table ), reinterpret_cast<uintptr_t>( pipeline ),
+                    reinterpret_cast<uintptr_t>( parent ), reinterpret_cast<uintptr_t>( mesh ) } )
+                hash = ( hash ^ static_cast<uint64_t>( word ) ) * 0x100000001B3ull;
+            return hash ^ ( hash >> 29u );
         };
-        std::vector<ListBin> listBins;
-        uint32_t             listSlots = 0; // the slots this list's bins asked so far
+        // The slot of bin @p b's index entry: the first empty one from its hash.
+        const auto placeBin = [this, &listBins, &binHash]( const uint32_t b )
+        {
+            std::vector<uint32_t>&     slots = m_GpuInstancedListBinSlots;
+            const GpuInstancedListBin& bin   = listBins[b];
+            const size_t               mask  = slots.size() - 1u;
+            size_t                     at =
+                 static_cast<size_t>( binHash( bin.Table, bin.By->Pipeline, bin.By->Parent, bin.Mesh ) ) & mask;
+            while ( slots[at] != 0u )
+                at = ( at + 1u ) & mask;
+            slots[at] = b + 1u;
+        };
+        // The list's bin of (@p table, @p by's pipeline and template, @p mesh), or null.
+        const auto findBin = [this, &listBins, &binHash]( const GpuDrawBinFrame&        table,
+                                                          const GpuInstancedDrawRecord& by,
+                                                          const Desert::Mesh* const mesh ) -> GpuInstancedListBin*
+        {
+            const std::vector<uint32_t>& slots = m_GpuInstancedListBinSlots;
+            if ( slots.empty() )
+                return nullptr;
+            const size_t mask = slots.size() - 1u;
+            size_t       at   = static_cast<size_t>( binHash( &table, by.Pipeline, by.Parent, mesh ) ) & mask;
+            for ( ; slots[at] != 0u; at = ( at + 1u ) & mask )
+            {
+                GpuInstancedListBin& candidate = listBins[slots[at] - 1u];
+                if ( candidate.Table == &table && candidate.By->Pipeline == by.Pipeline &&
+                     candidate.By->Parent == by.Parent && candidate.Mesh == mesh )
+                    return &candidate;
+            }
+            return nullptr;
+        };
+        // Indexes the bin just appended; past half full the index is rebuilt twice as large (kept across walks).
+        const auto indexNewBin = [this, &listBins, &placeBin]()
+        {
+            std::vector<uint32_t>& slots = m_GpuInstancedListBinSlots;
+            if ( listBins.size() * 2u > slots.size() )
+            {
+                slots.assign( std::max<size_t>( 64u, std::bit_ceil( listBins.size() * 4u ) ), 0u );
+                for ( uint32_t b = 0; b < static_cast<uint32_t>( listBins.size() ); ++b )
+                    placeBin( b );
+                return;
+            }
+            placeBin( static_cast<uint32_t>( listBins.size() - 1u ) );
+        };
 
         // THE WALK ORDER. Phase 1's masked depth prepass walks the sections NEAREST FIRST (m_PrepassSectionOrder;
         // UE sorts its depth pass so the occluders come first, and DrawRows bins draw their slots in walk order):
@@ -656,19 +747,14 @@ namespace Desert::Graphic::System
                 continue;
             const GpuInstanceRefs& refs     = cameraList ? *gpu.CameraRefs : *gpu.Refs;
             const RDG::BufferRef   drawArgs = postOcclusion ? gpu.PostRefs->Args : refs.Args;
-            const bool             viaVisibility =
-                 std::find( m_GrassVisibilitySections.begin(), m_GrassVisibilitySections.end(), gpu.Key ) !=
-                      m_GrassVisibilitySections.end();
+            const bool             viaVisibility = m_GpuInstancedViaVisibility.Contains( gpu.Key );
             if ( visibilityPass && !viaVisibility )
                 continue;
             if ( viaVisibility && ( maskedPrepass || pass == MeshPass::GBuffer ) )
                 continue;
-            auto recorded = phasePrepassed.end();
-            if ( pass == MeshPass::GBuffer )
-                recorded = std::find_if( phasePrepassed.begin(), phasePrepassed.end(),
-                                         [&gpu]( const MaskedPrepassedSection& section )
-                                         { return section.Key == gpu.Key; } );
-            const bool prepassed = recorded != phasePrepassed.end();
+            const uint32_t* const recorded =
+                 m_GpuInstancedPrepassed.Find( gpu.Key ); // empty but in a G-buffer walk
+            const bool prepassed = recorded != nullptr;
 
             // The kept record (GpuInstancedDrawOf); null: a texture of its material is in flight.
             GpuInstancedDrawRecord* const record =
@@ -682,7 +768,7 @@ namespace Desert::Graphic::System
             // prepass recorded (cut back to every bucket while that record was not Ready).
             uint32_t prepassBuckets = draw.Buckets;
             if ( prepassed )
-                prepassBuckets = std::min( recorded->Buckets, draw.Buckets );
+                prepassBuckets = std::min( phasePrepassed[*recorded].Buckets, draw.Buckets );
             if ( draw.Cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
@@ -767,7 +853,7 @@ namespace Desert::Graphic::System
             if ( !materialRow )
                 continue;
             const uint32_t row = *materialRow;
-            frameState.ApplyTo( draw.Instance.get() );
+            applyFrameState( draw.Instance.get() );
             if ( maskedPrepass )
                 phasePrepassed.push_back( { .Key = gpu.Key, .Buckets = prepassBuckets } );
 
@@ -830,25 +916,23 @@ namespace Desert::Graphic::System
                     sectionRow = static_cast<int64_t>( table.Rows.size() );
                     table.Rows.push_back( drawRow );
                 }
-                ListBin* bin = nullptr;
-                for ( ListBin& candidate : listBins )
-                    if ( candidate.Table == &table && candidate.By->Pipeline == by.Pipeline &&
-                         candidate.By->Parent == by.Parent && candidate.Mesh == gpu.Mesh )
-                        bin = &candidate;
+                GpuInstancedListBin* bin = findBin( table, by, gpu.Mesh );
                 if ( bin == nullptr )
                 {
                     if ( table.Bins >= table.BinCapacity )
                         return false;
+                    // The bin's first read, the slots (by address), is laid out with the rest after the walk.
                     listBins.push_back( { .By = &by, .Mesh = gpu.Mesh, .Table = &table, .Index = table.Bins } );
                     ++table.Bins;
-                    table.BinReads.emplace_back();
-                    table.BinReads.back().push_back( table.Refs.DrawRows ); // the slots, read by address
+                    static_cast<void>( binWalk.AddBin() ); // walk-local index = its index in listBins
+                    indexNewBin();
                     bin = &listBins.back();
                 }
-                std::vector<RDG::BufferRef>& reads = table.BinReads[bin->Index];
-                reads.push_back( refs.Instances ); // the transforms and the ids, read by address from the row
+                const auto local = static_cast<uint32_t>( bin - listBins.data() );
+                binWalk.AddRead( local,
+                                 refs.Instances ); // the transforms and the ids, read by address from the row
                 if ( refs.Ids.IsValid() )
-                    reads.push_back( refs.Ids );
+                    binWalk.AddRead( local, refs.Ids );
                 const uint64_t rowAddress =
                      table.RowsAddress + static_cast<uint64_t>( sectionRow ) * sizeof( GpuInstanceDrawRow );
                 const auto submeshes = static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() );
@@ -868,7 +952,8 @@ namespace Desert::Graphic::System
                          entry.FirstSlot = bin->Slots;
                          bin->Slots += count;
                          listSlots += count;
-                         bin->Entries.push_back( static_cast<uint32_t>( table.Entries.size() ) );
+                         binWalk.Entries.push_back(
+                              { .Bin = local, .Index = static_cast<uint32_t>( table.Entries.size() ) } );
                          table.Entries.push_back( entry );
                          return true;
                      } );
@@ -948,23 +1033,38 @@ namespace Desert::Graphic::System
                  GpuInstancedDrawOf( gpu, pass, instancedPipeline, companion, postOcclusion, false );
             if ( own == nullptr || own->Cell == nullptr || own->Pipeline == nullptr || !bindRecord( *own, gpu ) )
                 continue;
-            frameState.ApplyTo( own->Instance.get() );
+            applyFrameState( own->Instance.get() );
             addBuckets( *own, prepassBuckets, draw.Buckets );
         }
 
         // THE BINS' DRAWS: each bin's slots after the table's earlier ones, one indirect-count draw per bin (the
         // count the gather sums; the empty records are empty draws of the GPU's front end).
-        for ( ListBin& bin : listBins )
+        // FPS-CPU2-GRASS: the bins laid out after the walk - each bin's slots after the table's earlier lists',
+        // its entries moved past them, its reads (the slots first) one contiguous run of the table's read pool.
+        for ( GpuInstancedListBin& bin : listBins )
         {
             if ( bin.Slots == 0u )
                 continue;
-            GpuDrawBinFrame& table     = *bin.Table;
-            const uint32_t   firstSlot = table.Slots;
-            table.Slots += bin.Slots;
-            for ( const uint32_t e : bin.Entries )
-                table.Entries[e].FirstSlot += firstSlot;
-            const std::vector<RDG::BufferRef>& reads    = table.BinReads[bin.Index];
-            const uint64_t                     rowSlots =
+            const auto local = static_cast<size_t>( &bin - listBins.data() );
+            bin.FirstSlot    = bin.Table->Slots;
+            bin.Table->Slots += bin.Slots;
+            bin.Reads    = bin.Table->BinReads.Take( 1u + binWalk.ReadCounts[local] );
+            bin.Reads[0] = bin.Table->Refs.DrawRows; // the slots, read by address
+            bin.Filled   = 1u;
+        }
+        for ( const GpuDrawBinWalk::Entry& e : binWalk.Entries )
+            listBins[e.Bin].Table->Entries[e.Index].FirstSlot += listBins[e.Bin].FirstSlot;
+        for ( const GpuDrawBinWalk::Read& r : binWalk.Reads )
+            if ( GpuInstancedListBin& bin = listBins[r.Bin]; !bin.Reads.empty() )
+                bin.Reads[bin.Filled++] = r.Ref;
+        for ( const GpuInstancedListBin& bin : listBins )
+        {
+            if ( bin.Slots == 0u )
+                continue;
+            GpuDrawBinFrame&                      table     = *bin.Table;
+            const uint32_t                        firstSlot = bin.FirstSlot;
+            const std::span<const RDG::BufferRef> reads     = bin.Reads;
+            const uint64_t                        rowSlots =
                  table.SlotsAddress + static_cast<uint64_t>( firstSlot ) * kGpuDrawBinRowBytes;
             list.Add( { .Pipeline            = bin.By->Pipeline,
                         .Mesh                = bin.Mesh,
@@ -1064,6 +1164,9 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>     Entries{};
         };
         std::vector<CasterBin> casterBins;
+        // FPS-CPU2-GRASS: the bins' reads noted per walk-local bin, laid out after the walk (GpuDrawBinWalk).
+        GpuDrawBinWalk& casterWalk = m_GpuInstancedCasterWalk;
+        casterWalk.Clear();
         uint32_t               listSlots       = 0;
         uint32_t               binnedSections  = 0;
         uint32_t               perSectionDraws = 0;
@@ -1280,14 +1383,14 @@ namespace Desert::Graphic::System
                                             .Table      = &table,
                                             .Index      = table.Bins } );
                     ++table.Bins;
-                    table.BinReads.emplace_back();
-                    table.BinReads.back().push_back( table.Refs.DrawRows ); // the slots, read by address
+                    static_cast<void>( casterWalk.AddBin() ); // walk-local index = its index in casterBins
                     bin = &casterBins.back();
                 }
-                std::vector<RDG::BufferRef>& reads = table.BinReads[bin->Index];
-                reads.push_back( partRefs.Instances ); // the transforms and the ids, read by address from the row
+                const auto local = static_cast<uint32_t>( bin - casterBins.data() );
+                casterWalk.AddRead( local,
+                                    partRefs.Instances ); // the transforms and the ids, by address from the row
                 if ( partRefs.Ids.IsValid() )
-                    reads.push_back( partRefs.Ids );
+                    casterWalk.AddRead( local, partRefs.Ids );
                 const uint64_t base       = partRefs.ArgsAddress + setup.ArgsOffset;
                 const auto     addPartRow = [&]( const uint64_t shift, const InstanceWindPush& wind )
                 {
@@ -1412,7 +1515,14 @@ namespace Desert::Graphic::System
             table.Slots += bin.Slots;
             for ( const uint32_t e : bin.Entries )
                 table.Entries[e].FirstSlot += firstSlot;
-            const std::vector<RDG::BufferRef>& reads = table.BinReads[bin.Index];
+            // The bin's reads, the slots first, one contiguous run of the table's read pool (FPS-CPU2-GRASS).
+            const auto                      local = static_cast<uint32_t>( &bin - casterBins.data() );
+            const std::span<RDG::BufferRef> reads = table.BinReads.Take( 1u + casterWalk.ReadCounts[local] );
+            reads[0]                              = table.Refs.DrawRows; // the slots, read by address
+            size_t filled                         = 1u;
+            for ( const GpuDrawBinWalk::Read& r : casterWalk.Reads )
+                if ( r.Bin == local )
+                    reads[filled++] = r.Ref;
             const uint64_t                     rowSlots =
                  table.SlotsAddress + static_cast<uint64_t>( firstSlot ) * kGpuDrawBinRowBytes;
             list.Add( { .Pipeline            = bin.Pipeline,
