@@ -1329,6 +1329,25 @@ namespace Desert::Graphic::API::Vulkan
         const VkBuffer ibuffer = geometry.Indices != nullptr
                                       ? static_cast<const VulkanIndexBuffer*>( geometry.Indices )->GetVulkanBuffer()
                                       : VK_NULL_HANDLE;
+        // Binding 3, last frame's positions (ShaderProtocols::kMeshPreviousPositionBinding, float3 a vertex): only
+        // a pipeline whose vertex stage reads a_PrevPosition (a skinned view-pass cell) has it. Geometry without
+        // them binds its own vertices there - every fetch in bounds (12 bytes a vertex never pass its own stride),
+        // the values unread: its row lacks GpuDriven::PrimitiveFlags::kPreviousPositions.
+        VkBuffer     pbuffer = VK_NULL_HANDLE;
+        VkDeviceSize poffset = 0;
+        if ( graphics->ReadsPreviousPositions() )
+        {
+            if ( geometry.PreviousVertices != nullptr )
+            {
+                pbuffer = static_cast<const VulkanVertexBuffer*>( geometry.PreviousVertices )->GetVulkanBuffer();
+                poffset = geometry.PreviousVertexOffset;
+            }
+            else
+            {
+                pbuffer = vbuffer;
+                poffset = geometry.VertexOffset;
+            }
+        }
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
 
         // THE BIND-SKIP (GeometryPool::RecordBind): the same buffers at the same offsets for the same pipeline on
@@ -1337,7 +1356,7 @@ namespace Desert::Graphic::API::Vulkan
         // growth must bind the new one. Every pooled mesh's shared binding is its arena at offset 0, so the binned
         // passes bind once per pipeline switch.
         const BoundGeometry key{ RecordingTarget(), &pipeline, vbuffer, geometry.VertexOffset, sbuffer,
-                                 soffset,                ibuffer,   geometry.IndexOffset };
+                                 soffset,           ibuffer,   geometry.IndexOffset, pbuffer, poffset };
         if ( !Recording().BoundGeometry.has_value() || *Recording().BoundGeometry != key )
         {
             const VkDeviceSize voffset = geometry.VertexOffset;
@@ -1346,6 +1365,9 @@ namespace Desert::Graphic::API::Vulkan
                 vkCmdBindVertexBuffers( RecordingTarget(), 1, 1, &sbuffer, &soffset );
             if ( ibuffer != VK_NULL_HANDLE )
                 vkCmdBindIndexBuffer( RecordingTarget(), ibuffer, geometry.IndexOffset, VK_INDEX_TYPE_UINT32 );
+            if ( pbuffer != VK_NULL_HANDLE )
+                vkCmdBindVertexBuffers( RecordingTarget(), ShaderProtocols::kMeshPreviousPositionBinding, 1,
+                                        &pbuffer, &poffset );
             Recording().BoundGeometry = key;
             GeometryPool::Get().RecordBind( shared );
         }

@@ -117,7 +117,10 @@ void main()
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( tangent, -side, facing );
     v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
-    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    // The particle's own motion (UE Particles.Previous.Position): this end moved back by its particle's
+    // displacement since the tick drawn last frame; the side vector is this frame's.
+    const vec3 prevWorldPos = worldPos + ( ParticlePreviousWorldPosition( at ) - position );
+    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( prevWorldPos, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
     v_Surface.ObjectMoved = 1.0;
 

@@ -114,7 +114,13 @@ void main()
                           DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
         const mat3 skin3 = mat3( skin );
         posed            = ( skin * vec4( a_Position, 1.0 ) ).xyz;
-        prevPosed        = ( prevSkin * vec4( a_Position, 1.0 ) ).xyz;
+        // Last frame's pose of last frame's vertices: a morphed twin's previous blend (binding 3, VertexInputs.hpp
+        // kMeshPreviousPositionBinding, float3 a vertex) when its row says it has one, every other mesh's own
+        // a_Position (binding 3 then aliases its vertices, unread) - so a morph target moving under a still
+        // skeleton has velocity here as it has through the skin cache (UE PreviousMorph stream).
+        const bool ownPrevious = ( row.Flags & DESERT_GPU_PRIMITIVE_PREVIOUS_POSITIONS ) != 0u;
+        const vec3 prevBind    = ownPrevious ? a_PrevPosition : a_Position;
+        prevPosed              = ( prevSkin * vec4( prevBind, 1.0 ) ).xyz;
         skinnedNormal    = skin3 * a_Normal;
         skinnedTangent   = skin3 * a_Tangent;
         skinnedBitangent = skin3 * a_Bitangent;

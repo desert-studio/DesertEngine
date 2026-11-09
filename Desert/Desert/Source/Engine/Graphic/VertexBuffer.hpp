@@ -10,6 +10,7 @@
 // Geometry/Mesh.hpp by translation units that never include Core.hpp on their own.
 #include <Common/Core/Core.hpp>
 
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -105,6 +106,18 @@ namespace Desert::Graphic
                     DESERT_VERIFY( field.Location == layout.m_Elements.size(),
                                    "a vertex format's binding-0 attributes are not at consecutive locations" );
                     layout.m_Elements.push_back( element );
+                    continue;
+                }
+                if ( field.Binding == ShaderProtocols::kMeshPreviousPositionBinding )
+                {
+                    // The previous positions: their own buffer of one float3 per vertex, offset 0, read at
+                    // ShaderProtocols::kMeshPreviousPositionStride (UE's previous position stream).
+                    DESERT_VERIFY( !layout.m_PreviousPositionLocation.has_value() &&
+                                        field.Type == ShaderDataType::Float3,
+                                   "a vertex format's previous positions are not one Float3" );
+                    layout.m_PreviousPositionLocation = field.Location;
+                    element.Offset                    = 0;
+                    layout.m_PreviousPosition         = element;
                     continue;
                 }
                 if ( layout.m_StreamElements.empty() )
@@ -203,10 +216,27 @@ namespace Desert::Graphic
             return m_StreamFirstLocation;
         }
 
+        // THE PREVIOUS-POSITION BINDING (ShaderProtocols::kMeshPreviousPositionBinding, the skinned format only):
+        // one Float3 per vertex, the position the vertex had last frame, read at GetPreviousPositionLocation(),
+        // offset 0, at kMeshPreviousPositionStride - its own buffer, never this layout's vertices. A mesh without
+        // one (MeshGeometry::PreviousVertices null) binds its own vertices there and its row says the stage must
+        // not read them (GpuDriven::PrimitiveFlags::kPreviousPositions clear).
+        [[nodiscard]] std::optional<uint32_t> GetPreviousPositionLocation() const
+        {
+            return m_PreviousPositionLocation;
+        }
+        // Meaningful only when GetPreviousPositionLocation() has a value.
+        [[nodiscard]] const VertexBufferElement& GetPreviousPositionElement() const
+        {
+            return m_PreviousPosition;
+        }
+
     private:
         std::vector<VertexBufferElement> m_StreamElements;
         std::uint32_t                    m_StreamStride        = 0;
         std::uint32_t                    m_StreamFirstLocation = 0;
+        std::optional<uint32_t>          m_PreviousPositionLocation;
+        VertexBufferElement              m_PreviousPosition;
     };
 
     class VertexBuffer : public DynamicResources

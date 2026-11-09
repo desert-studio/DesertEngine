@@ -49,6 +49,9 @@ namespace Desert::Graphic::System
     struct ParticleCompactPush
     {
         glm::uvec4 Range;
+        // Compact 0's motion start (ParticleCompact.shader PreviousCopy): x = Position's first float column,
+        // y = the PreviousPosition column (kParticleAttrNone: no copy; every later compact), zw 0.
+        glm::uvec4 PreviousCopy = glm::uvec4( 0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u );
     };
     // Compact 0 of an emitter that restarts: its range is killed before the scan.
     constexpr uint32_t kParticleCompactReset = 1u;
@@ -178,6 +181,11 @@ namespace Desert::Graphic::System
         // The emitter's Ribbon row (Vertex_ParticleRibbon.glslh): x = Width (cm), y = UV mode (0 Stretch,
         // 1 TileByDistance), z = UVTileDistance (cm); zero without a Ribbon row.
         glm::vec4 Ribbon = glm::vec4( 0.0f );
+        // The entity's transform of the tick before (UE PrevLocalToWorld): a Local emitter's previous positions
+        // are drawn through it; a first tick's is LocalToWorld.
+        glm::mat4 PrevLocalToWorld = glm::mat4( 1.0f );
+        // x = the PreviousPosition column (UE Particles.Previous.Position; PreviousPositionColumn), yzw none.
+        glm::uvec4 Columns3 = glm::uvec4( kParticleAttrNone );
     };
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
@@ -259,6 +267,9 @@ namespace Desert::Graphic::System
         // (ParticleFrameEmitter::PreviousHalf).
         uint32_t LastHalf    = 0;
         bool     HasLastHalf = false;
+        // The entity transform the last scheduled tick drew through: this tick's PrevLocalToWorld.
+        glm::mat4 LastLocalToWorld    = glm::mat4( 1.0f );
+        bool      HasLastLocalToWorld = false;
 
         // VFX-16: the debugger's per-frame-in-flight readback (made on the first debugged tick, dropped when the
         // emitter is rebuilt) and what its rows mean.

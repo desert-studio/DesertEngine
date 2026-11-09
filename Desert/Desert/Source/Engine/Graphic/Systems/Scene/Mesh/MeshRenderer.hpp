@@ -3544,6 +3544,9 @@ namespace Desert::Graphic::System
             SkinnedMesh*                  Base = nullptr;
             std::shared_ptr<SkinnedMesh>  Twin;
             std::shared_ptr<VertexBuffer> Vertices;
+            // Last frame's positions, float3 a vertex (MeshGeometry::PreviousVertices of the twin,
+            // MeshRendererMorph.cpp header); null while the skin cache keeps the history (Effects.SkinCache).
+            std::shared_ptr<VertexBuffer> Previous;
             // The base content the twin blends from: its render revision and its geometry (held, so its span
             // and buffers outlive the twin's reads; the binding is part of the identity, a re-upload into a new
             // span is a new twin).
@@ -3555,6 +3558,11 @@ namespace Desert::Graphic::System
             std::vector<float>            PendingWeights;
             uint64_t                      PendingRevision = 0;
             uint64_t                      LastDrawn       = 0;
+            bool                          DrawnLastFrame  = false; // decided by the frame's first draw of it
+            bool                          PendingHistory  = false; // the output holds last frame's shape
+            bool                          PendingMoves    = false; // the pending blend changes the shape
+            bool                          PreviousBehind  = false; // Previous lags the output: one more blend
+            RDG::ExternalBuffer           PreviousImport;
             RDG::ExternalBuffer           BaseImport;
             RDG::ExternalBuffer           DeltasImport;
             RDG::ExternalBuffer           OutputImport;

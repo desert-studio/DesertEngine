@@ -45,6 +45,11 @@ namespace Desert::Graphic::GpuDriven
         // maps: movable primitives go to the dynamic depths). The cull's layer flags below split on it, per
         // instance: a swaying instance past the shadow wind distance stands still there (ShadowWind.glslh).
         inline constexpr uint32_t kMovableCaster = 1u << 5;
+        // Skinned: the mesh's binding 3 holds its own last-frame positions (a morphed twin without a skin cache,
+        // MeshGeometry::PreviousVertices): the vertex stage that skins without a skin-cache entry reads
+        // a_PrevPosition; clear = the vertices did not move under the mesh, it reads a_Position (UE's previous
+        // position stream bound only where one exists).
+        inline constexpr uint32_t kPreviousPositions = 1u << 6;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
