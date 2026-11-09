@@ -951,13 +951,41 @@ Shader "CloudRaymarch"
             int   censusFullLightRays    = 0;
             // Left by the stretch's end or by the transmittance, not by the iteration ceiling.
             bool  laneFinished           = false;
+            // Still marching. A lane that is done stays in the loop, idle, until every lane of its ray is done:
+            // the lanes of one ray read each other's transmittance at the top of every iteration below.
+            bool  laneActive             = true;
 
             for (int i = 0; i < iterationTotal; ++i)
             {
-                if (t >= laneEndKm)
+                // THE RAY STOPS WHERE ITS COMPOSED TRANSMITTANCE DOES, not where each lane's own does
+                // (FPS-CLOUDS-MARCH). Lane k's light reaches the eye through P_k = prod_{j<k} T_j, the lanes in
+                // front of it, and a single march - Unreal's - ends once P_k * T_k falls under the stop. Judged by
+                // its local T alone a back lane kept marching, and lighting, a stretch behind a front that had
+                // already gone opaque. The front's T is read WHILE it still marches, and it only falls, so the
+                // product here is an upper bound on the final one and a lane stopped by it is past the stop.
+                //
+                // Every lane of the ray is in this loop on every iteration (the bound and the exits are per ray),
+                // so each shuffle reads an active lane. A lane that stops here or below goes idle; the ray leaves
+                // the loop on the iteration after its last lane did, seen through the activity read here.
+                float frontT    = 1.0f;
+                bool  rayActive = false;
+                vec2  ownState  = vec2(transmittance, float(laneActive));
+                for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                {
+                    vec2 laneState = subgroupShuffle(ownState, laneBase + lane);
+                    if (lane < segmentLane)
+                        frontT *= laneState.x;
+                    rayActive = rayActive || laneState.y > 0.5f;
+                }
+                if (!rayActive)
+                    break;
+                if (!laneActive)
+                    continue;
+                if (t >= laneEndKm || frontT * transmittance < stopT)
                 {
                     laneFinished = true;
-                    break;
+                    laneActive   = false;
+                    continue;
                 }
 
                 // The step this sample is integrated over and advances by: the fine step, grown with the texel
@@ -1150,7 +1178,7 @@ Shader "CloudRaymarch"
 
                         // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
                         // able to contribute, not how much is left after it. Also the guide's front (above),
-                        // and placed before the break below so a ray stopped on transmittance keeps it.
+                        // and placed before the stop below so a ray stopped on transmittance keeps it.
                         aerialWeightedT += t * transmittance;
                         aerialWeightSum += transmittance;
 
@@ -1158,10 +1186,13 @@ Shader "CloudRaymarch"
                         // of scattering INTO this ray, not extra material along it.
                         transmittance *= CloudBeerTransmittance(sigmaT, litStepKm);
 
+                        // The lane's own stop, the one test above that needs no other lane; it goes idle
+                        // rather than leaving, so its ray's lanes keep reading it.
                         if (transmittance < stopT)
                         {
                             laneFinished = true;
-                            break;
+                            laneActive   = false;
+                            continue;
                         }
                     }
                 }

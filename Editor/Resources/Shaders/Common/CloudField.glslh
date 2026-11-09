@@ -783,6 +783,13 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
         winner = slot;
     }
 
+    // NO SPECIES HOLDS A BODY HERE, so the weather cannot make one: CloudCoverRemap answers zero for a profile
+    // of zero whatever the reach is. Returning before CloudLocalWeather spares the weather or layout fetch on
+    // every empty sample — the coarse search, the fine tail after a body and the shadow ray's air — and it is
+    // the same answer to the bit (FPS-CLOUDS-MARCH).
+    if ( best <= 0.0f )
+        return result;
+
     // THE BAKE CHOSE THE CLUSTERS; THE WEATHER IS APPLIED HERE (CUT-AT-BAKE). The winning species' profile is
     // the form, cut by the Coverage slider in CloudSampleProceduralVolume (WTH-CLOUDS); the weather the world (or the painting) leaves
     // this column remaps it, as Nubis's weather map does — continuous in both factors, so the seam between a
