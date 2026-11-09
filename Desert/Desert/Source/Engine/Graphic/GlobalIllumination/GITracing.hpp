@@ -48,7 +48,7 @@
 //   * the shader permutation — TracerVariant( Pipeline ): the one place Pipeline::Tracer becomes a define;
 //   * the tracer's graph reads — TracerFrame + DeclareTracerReads( block, frame ): a consumer pass declares its
 //     own reads and then this, never a distance-field texture or a TLAS by name;
-//   * the ray biases and the screen-match tolerance — GIRayBias( position, normal, direction ), defined by the
+//   * the ray biases and the screen-match tolerance — GIRayBias( position, normal ), defined by the
 //     tracer: a near offset (the ray's origin; the software walk's mesh-SDF near field: a few cm) and a far offset
 //     the ray must have risen to before the far field counts a hit (GIFarFieldTMin -> GITraceInput.farTMin; the
 //     global SDF's voxel) (UE: the mesh-SDF and global-SDF surface biases vs. the hardware tracer's RayBias for

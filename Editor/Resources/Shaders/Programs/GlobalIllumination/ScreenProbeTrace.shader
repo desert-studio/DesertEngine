@@ -393,11 +393,72 @@ Shader "ScreenProbeTrace"
             return mine;
         }
 
+#if !defined( SP_TRACE_CACHE_READ )
+        // FPS-SP-TRACE-5 THE GROUP'S PROBES' BIAS (UE ScreenProbeGather: per-probe data computed once, read by
+        // every trace of the probe). GIRayBias is a function of the probe's point and normal, never of the ray's
+        // direction (Common/GITracing.glslh), and the software tracer's walks the froxel's object list: once for
+        // each distinct probe among the group's rays, not once a ray. Each listed lane enters its probe into a
+        // groupshared open-addressing table (SP_LEG_BINS entries >= the group's rays: it never fills); the lane
+        // that enters a probe gives it the next dense index, lanes 0 .. probes - 1 compute one probe's bias each
+        // side by side (one or two subgroups' work, not all eight), and every ray reads its probe's. The same
+        // function of the same inputs as before: the same bias, bit for bit.
+        #define SP_LEG_NO_PROBE 0xFFFFFFFFu
+        shared uint        s_LegProbeKey[SP_LEG_BINS];          // the table: a probe, or SP_LEG_NO_PROBE
+        shared uint        s_LegProbeIndex[SP_LEG_BINS];        // the table: that probe's dense index
+        shared uint        s_LegProbe[SP_TRACE_LEG_GROUP_SIZE]; // dense index -> probe
+        shared GITraceBias s_LegBias[SP_TRACE_LEG_GROUP_SIZE];  // dense index -> its probe's bias
+        shared uint        s_LegProbes;                         // the group's distinct probes
+
+        // Called by every thread of the group in uniform control flow (it holds the barriers), with what
+        // SPLegSortedSlot returned and the probe of its slot. The bias of @p probe's rays when @p listed.
+        GITraceBias SPLegProbeBias( const bool listed, const uint probe )
+        {
+            const uint lane     = gl_LocalInvocationIndex;
+            s_LegProbeKey[lane] = SP_LEG_NO_PROBE;
+            if ( lane == 0u )
+                s_LegProbes = 0u;
+            barrier();
+            uint entry = probe % SP_LEG_BINS; // a group's probes are mostly consecutive: consecutive entries
+            uint index = 0u;
+            if ( listed )
+            {
+                for ( uint tries = 0u; tries < SP_LEG_BINS; ++tries )
+                {
+                    const uint held = atomicCompSwap( s_LegProbeKey[entry], SP_LEG_NO_PROBE, probe );
+                    if ( held == SP_LEG_NO_PROBE )
+                    {
+                        const uint dense       = atomicAdd( s_LegProbes, 1u );
+                        s_LegProbe[dense]      = probe;
+                        s_LegProbeIndex[entry] = dense;
+                        break;
+                    }
+                    if ( held == probe )
+                        break;
+                    entry = ( entry + 1u ) % SP_LEG_BINS;
+                }
+            }
+            barrier();
+            if ( lane < s_LegProbes )
+            {
+                const ScreenProbe state = screenProbes[s_LegProbe[lane]];
+                s_LegBias[lane]         = GIRayBias( state.position.xyz, state.normal.xyz );
+            }
+            barrier();
+            if ( listed )
+                index = s_LegProbeIndex[entry];
+            return s_LegBias[index]; // an unlisted lane's is never read
+        }
+#endif
+
         void main()
         {
-            uint slot;
-            if ( !SPLegSortedSlot( slot ) )
-                return; // past the list's end: after the sort's barriers
+            uint       slot;
+            const bool listed = SPLegSortedSlot( slot );
+#if !defined( SP_TRACE_CACHE_READ )
+            const GITraceBias bias = SPLegProbeBias( listed, slot / ( SP_RES * SP_RES ) );
+#endif
+            if ( !listed )
+                return; // past the list's end: after the sort's and the bias's barriers
             const uint       probe = slot / ( SP_RES * SP_RES );
             const SPTexelRay texel = SPMakeTexelRay( probe, slot % ( SP_RES * SP_RES ) );
             const uint       state = screenProbeTraceHit[slot];
@@ -405,7 +466,6 @@ Shader "ScreenProbeTrace"
             const vec3       dir   = texel.direction;
             const ivec2       at     = SPAtlasOrigin( probe, SP_RES ) + texel.texel;
 #if !defined( SP_TRACE_CACHE_READ )
-            const GITraceBias bias   = GIRayBias( texel.position, N, dir );
             const vec3        origin = texel.position + N * bias.nearOffset;
 
             GITraceInput ray;

@@ -28,7 +28,9 @@
 //                      field counts: GIFarFieldTMin -> GITraceInput.farTMin) — and how close the view's pixel
 //                      surface must lie to count as the hit: the TRACER's own numbers (UE: the mesh-SDF and the
 //                      global-SDF surface biases, the hardware tracer's RayBias for both), so the shared hit
-//                      lighting below knows no distance field.
+//                      lighting below knows no distance field. A function of the point and its normal, never of
+//                      the ray's direction: every ray leaving one point shares it (a screen probe's rays read it
+//                      once per probe, ScreenProbeTrace.shader SPLegProbeBias).
 //   GIMoveOutOfGeometry  a point pushed out of nearby geometry (a radiance-cache probe before it traces).
 //   GIHitInstanceRows  the instance-table rows (contract B3) the hit may belong to, nearest first, GI_NO_INSTANCE
 //                      after the last: the hardware hit's own instance; for a distance-field hit, which has no
@@ -120,7 +122,7 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart );
 GITraceResult GITraceFarField( GITraceInput ray );
 float         GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT );
 float         GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, float maxT );
-GITraceBias   GIRayBias( vec3 position, vec3 normal, vec3 direction );
+GITraceBias   GIRayBias( vec3 position, vec3 normal );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 uvec4         GIHitInstanceRows( GIHit hit );
 float         GIHitSurfaceCacheBias( GIHit hit );

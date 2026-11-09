@@ -344,7 +344,7 @@ float GITraceVoxelAt( vec3 position )
 // position, at least DF_MESH_SDF_SURFACE_BIAS (UE starts its mesh-SDF rays a few cm off the surface) - nearOffset; it
 // is a voxel off it only by the time the global field takes over (GIFarFieldTMin). Outside the grid the global field
 // is the whole trace: both offsets are its voxel.
-GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
+GITraceBias GIRayBias( vec3 position, vec3 normal )
 {
     const float voxel = GITraceVoxelAt( position );
     GITraceBias bias;

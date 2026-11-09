@@ -129,7 +129,7 @@ vec4 RadiosityTraceTexel( ivec2 atlasTexel, uint cardIndex, vec4 cardUVRect, vec
     const vec2  u = ( vec2( stratum ) + StratumJitter( uvec2( atlasTexel ), RadiosityFrame.x ) ) / vec2( tile.zw );
     const vec3  direction = RadiosityHemisphereDirection( u, N );
 
-    const GITraceBias bias = GIRayBias( position, N, direction );
+    const GITraceBias bias = GIRayBias( position, N );
     GITraceInput ray;
     ray.origin    = position + N * bias.nearOffset;
     ray.tMin      = 0.0;

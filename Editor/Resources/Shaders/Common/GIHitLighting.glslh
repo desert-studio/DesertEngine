@@ -65,7 +65,7 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     const float depth = textureLod( GBufferDepthTexture, uv, 0.0 ).r;
     const vec3  seen  = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
     // The pixel's surface counts as the hit within the tracer's tolerance.
-    if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance )
+    if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal ).screenTolerance )
         return;
     albedo   = textureLod( GBufferATexture, uv, 0.0 ).rgb;
 #if defined( GI_HIT_EXCLUDES_EMISSION )
@@ -169,7 +169,7 @@ vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surfac
 {
     const vec3        N      = hit.normal;
     const vec3        V      = -rayDirection;
-    const GITraceBias bias   = GIRayBias( hit.position, N, rayDirection );
+    const GITraceBias bias   = GIRayBias( hit.position, N );
     const vec3        origin = hit.position + N * bias.nearOffset;
     vec3 direct =
          GIHitDirectionalGlobalField( surface, N, V, origin, bias, giFrame.sunTravel, giFrame.sunRadiance );
@@ -201,7 +201,7 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
     const vec3 N = hit.normal;
     const vec3 V = -rayDirection;
     // Visibility rays leave the hit by the tracer's offsets, so they do not re-enter the surface they start on.
-    const GITraceBias bias   = GIRayBias( hit.position, N, rayDirection );
+    const GITraceBias bias   = GIRayBias( hit.position, N );
     const vec3        origin = hit.position + N * bias.nearOffset;
 
     vec3 direct = vec3( 0.0 );
