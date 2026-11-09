@@ -2,7 +2,7 @@
 #define SCREEN_PROBE_TRACING_GLSLH
 
 // THE SCREEN PROBE TRACE'S SHARED PIECES (UE LumenScreenProbeTracingCommon.ush): the passes of the trace
-// (ScreenProbeTraceScreen, ScreenProbeCompactTraces, ScreenProbeTrace's near and far field) each rebuild a texel's
+// (ScreenProbeTraceScreen, ScreenProbeTrace's world legs) each rebuild a texel's
 // ray from its probe, its texel and the frame, and hand one another the ray's state in the TRACE HIT buffer: one uint
 // per traced texel (probe * SP_RES² + texel), UE's EncodeProbeRayDistance - the distance the ray has been answered to
 // (a hit's, or how far the legs so far found nothing), bit 0 = a hit (its radiance is in ScreenProbes.Traced), bit
@@ -12,7 +12,20 @@
 //
 // Needs Common/ScreenProbes.glslh read (SCREEN_PROBES_DECLARED: screenProbeParams, screenProbeIndex, screenProbes).
 // The texel's ray (SPMakeTexelRay) is defined when Common/RadianceCache.glslh was included before, with
-// `radianceCache` declared (the compaction builds no ray and reads no cache).
+// `radianceCache` declared.
+//
+// THE LEGS' LISTS (UE ScreenProbeCompactTracesCS, folded into the passes that decide them): no leg rescans the
+// trace hit buffer. Each pass that answers or leaves a ray appends it to the list of the leg that goes on with it, the
+// screen one run per probe (a groupshared prefix sum, texel order), a world leg one run per subgroup (lane order):
+//   screen      -> near field (no hit, not at the cache, before the near field's end) and far field (the other
+//                  rays with no hit: at the cache, or past the near field's end)
+//   near field  -> far field (every ray it does not hit)
+//   far field   -> cache read (no hit, at the cache) and, with the software tracer, hit lighting (its global-field
+//                  hits, distance only)
+//   cache read  -> cache miss (no traced probe answered)
+// A list's dispatch is x = its groups of SP_TRACE_LEG_GROUP_SIZE rays (the largest end any run reached,
+// atomicMax), y = z = 1 (uploaded); its allocator counts the rays listed (0 uploaded).
+#define SP_TRACE_LEG_GROUP_SIZE 64u
 
 // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).
 #define SP_TRACE_DISTANCE 20000.0

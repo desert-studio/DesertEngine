@@ -8,7 +8,8 @@
 // crossed in front of the depth buffer is certain, so a ray it does not answer (off the screen, out of steps, behind
 // a surface, stopped by something thin) goes on from the last such point (UE bWriteDepthOnMiss), and one that walked
 // the whole way has reached the cache. Every texel's state goes to the trace hit buffer; the world legs
-// (ScreenProbeTrace.shader) run over the rays it left open (ScreenProbeCompactTraces.shader).
+// (ScreenProbeTrace.shader) run over the rays it left open, which it lists itself (THE LEGS' LISTS,
+// Common/ScreenProbeTracing.glslh): the near field's and the far field's, one run per probe in texel order.
 Shader "ScreenProbeTraceScreen"
 {
     Compute
@@ -57,6 +58,37 @@ Shader "ScreenProbeTraceScreen"
         };
         Uniform(10) texture2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp): a hit's world motion
         #define Velocity sampler2D(Velocity, PointClampSampler)
+        // The near field's list (no hit, not at the cache, before NearFieldEnd) and the far field's (every other
+        // ray with no hit): dispatch arguments, allocator, rays (probe * SP_RES² + texel).
+        Buffer(11) ScreenProbeOutArgsUB
+        {
+            uvec4 screenProbeOutArgs;
+        };
+        Buffer(12) ScreenProbeOutAllocatorUB
+        {
+            uint screenProbeOutAllocator;
+        };
+        Buffer(13) ScreenProbeOutTexelsUB
+        {
+            uint screenProbeOutTexels[];
+        };
+        Buffer(14) ScreenProbeOut2ArgsUB
+        {
+            uvec4 screenProbeOut2Args;
+        };
+        Buffer(15) ScreenProbeOut2AllocatorUB
+        {
+            uint screenProbeOut2Allocator;
+        };
+        Buffer(16) ScreenProbeOut2TexelsUB
+        {
+            uint screenProbeOut2Texels[];
+        };
+
+        PushConstant ScreenProbeTraceScreenPush
+        {
+            float NearFieldEnd; // a ray the screen took this far has nothing left in the near field (cm)
+        };
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
@@ -186,16 +218,78 @@ Shader "ScreenProbeTraceScreen"
             return result;
         }
 
+        // The probe's two open-ray prefix sums at once (near field in the low 16 bits, far field in the high: a
+        // probe has at most SP_RES² rays), ping-ponged between two halves (Hillis-Steele: log2(SP_RES²) steps, each
+        // thread reading only the step before's half).
+        #define SP_LIST_TEXELS ( SP_RES * SP_RES )
+        shared uint s_Scan[2u * SP_LIST_TEXELS];
+        shared uint s_NearStart;
+        shared uint s_FarStart;
+
+        // Append this probe's open rays to the near field's and the far field's lists, in texel order (UE
+        // ScreenProbeCompactTracesCS's GroupShared compaction): one atomic per list and probe.
+        void SPListOpenRays( const uint texel, const uint slot, const uint encoded )
+        {
+            const bool hit      = ( encoded & SP_TRACE_HIT_BIT ) != 0u;
+            const bool reached  = ( encoded & SP_TRACE_REACHED_BIT ) != 0u;
+            const bool nearOpen = !hit && !reached && SPTraceHitDistance( encoded ) < NearFieldEnd;
+            const bool farOpen  = !hit && !nearOpen;
+            const uint own      = ( nearOpen ? 1u : 0u ) | ( farOpen ? 0x10000u : 0u );
+            s_Scan[texel]       = own;
+            barrier();
+            uint src = 0u;
+            for ( uint stride = 1u; stride < SP_LIST_TEXELS; stride <<= 1u )
+            {
+                uint sum = s_Scan[src * SP_LIST_TEXELS + texel];
+                if ( texel >= stride )
+                    sum += s_Scan[src * SP_LIST_TEXELS + texel - stride];
+                s_Scan[( src ^ 1u ) * SP_LIST_TEXELS + texel] = sum;
+                barrier();
+                src ^= 1u;
+            }
+            const uint inclusive = s_Scan[src * SP_LIST_TEXELS + texel];
+            const uint offset    = inclusive - own; // the open rays of the texels before this one, per list
+            if ( texel == SP_LIST_TEXELS - 1u )
+            {
+                const uint nearCount = inclusive & 0xFFFFu;
+                const uint farCount  = inclusive >> 16u;
+                s_NearStart          = 0u;
+                s_FarStart           = 0u;
+                if ( nearCount > 0u )
+                {
+                    s_NearStart = atomicAdd( screenProbeOutAllocator, nearCount );
+                    atomicMax( screenProbeOutArgs.x, ( s_NearStart + nearCount + SP_TRACE_LEG_GROUP_SIZE - 1u ) /
+                                                          SP_TRACE_LEG_GROUP_SIZE );
+                }
+                if ( farCount > 0u )
+                {
+                    s_FarStart = atomicAdd( screenProbeOut2Allocator, farCount );
+                    atomicMax( screenProbeOut2Args.x, ( s_FarStart + farCount + SP_TRACE_LEG_GROUP_SIZE - 1u ) /
+                                                           SP_TRACE_LEG_GROUP_SIZE );
+                }
+            }
+            barrier();
+            if ( nearOpen )
+                screenProbeOutTexels[s_NearStart + ( offset & 0xFFFFu )] = slot;
+            if ( farOpen )
+                screenProbeOut2Texels[s_FarStart + ( offset >> 16u )] = slot;
+        }
+
         void main()
         {
             const uint probe = gl_WorkGroupID.x;
+            // The workgroup's own probe: the whole group leaves together, before any barrier, and lists nothing.
             if ( !SPProbeTraced( probe ) )
                 return;
             const uint       texel = gl_LocalInvocationIndex;
             const SPTexelRay ray   = SPMakeTexelRay( probe, texel );
             const uint       slot  = probe * SP_RES * SP_RES + texel;
 
-            float distance = 0.0;
+            // The world legs go on from where the screen left off along the same ray (UE VoxelTraceStartDistance);
+            // a ray the screen walked all the way has reached the radiance cache.
+            float distance  = 0.0;
+            bool  screenHit = false;
+            uint  encoded   = 0u;
             if ( ( screenProbeParams.atlas.z & SP_FLAG_SCREEN_TRACE ) != 0u )
             {
                 const SPScreenTrace screen =
@@ -206,15 +300,16 @@ Shader "ScreenProbeTraceScreen"
                                 vec4( screen.radiance, screen.distance ) );
                     const float probeDepth = ( giFrame.viewProjection * vec4( ray.position, 1.0 ) ).w;
                     const bool  moving = SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, screen.velocity );
-                    screenProbeTraceHit[slot] = SPEncodeTraceHit( screen.distance, true, moving, false );
-                    return;
+                    encoded            = SPEncodeTraceHit( screen.distance, true, moving, false );
+                    screenHit          = true;
                 }
-                distance = min( screen.distance, ray.tMax );
+                else
+                    distance = min( screen.distance, ray.tMax );
             }
-            // The world legs go on from here along the same ray (UE VoxelTraceStartDistance); a ray the screen walked
-            // all the way has reached the radiance cache.
-            screenProbeTraceHit[slot] =
-                 SPEncodeTraceHit( distance, false, false, ray.coverage.valid && distance >= ray.tMax );
+            if ( !screenHit )
+                encoded = SPEncodeTraceHit( distance, false, false, ray.coverage.valid && distance >= ray.tMax );
+            screenProbeTraceHit[slot] = encoded;
+            SPListOpenRays( texel, slot, encoded );
         }
     }
 }

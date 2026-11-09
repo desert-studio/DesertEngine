@@ -1,8 +1,9 @@
 // DesertAsset {"Kind":"Shader","Guid":"1d3e01f044e7489da669573cc6e7a7b4","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCREEN PROBE TRACE, 3/3 — THE WORLD (UE LumenScreenProbeTracing.usf ScreenProbeTraceMeshSDFsCS, then
 // ScreenProbeTraceVoxelsCS with the radiance cache's far field): one thread per ray the screen
-// (ScreenProbeTraceScreen.shader) left open, read from the compacted list (ScreenProbeCompactTraces.shader) and
-// rebuilt from its probe and texel (Common/ScreenProbeTracing.glslh). Three permutations, three passes, each going on from
+// (ScreenProbeTraceScreen.shader) left open, read from its leg's list and rebuilt from its probe and texel
+// (Common/ScreenProbeTracing.glslh); a leg lists the rays it leaves for the next one itself (THE LEGS' LISTS there).
+// Three permutations, three passes, each going on from
 // where the previous leg left off along the same ray (the trace hit buffer's distance; UE VoxelTraceStartDistance):
 //   SP_TRACE_NEAR_FIELD  the GI ray contract's near field (Common/GITracing.glslh GITraceNearField: the software
 //             tracer's mesh SDFs of the view's near-field froxel grid, UE LumenMeshSDFCulling; a hit reads its
@@ -36,14 +37,15 @@ Shader "ScreenProbeTrace"
 {
     Compute
     {
-#if defined( SP_TRACE_MISS_REASONS )
-        // The dev counter's atomics: one per subgroup and reason (subgroupBallot / subgroupElect), the step totals
-        // summed per subgroup (subgroupAdd).
+        // The legs' list appends (SPListRay: subgroupBallot / subgroupElect / subgroupBroadcastFirst).
         #extension GL_KHR_shader_subgroup_basic : require
         #extension GL_KHR_shader_subgroup_ballot : require
+#if defined( SP_TRACE_MISS_REASONS )
+        // The dev counter's atomics: one per subgroup and reason, the step totals summed per subgroup
+        // (subgroupAdd).
         #extension GL_KHR_shader_subgroup_arithmetic : require
 #endif
-        LocalSize(64, 1, 1);
+        LocalSize(64, 1, 1); // SP_TRACE_LEG_GROUP_SIZE (Common/ScreenProbeTracing.glslh)
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
@@ -140,6 +142,39 @@ Shader "ScreenProbeTrace"
         #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
         #define SP_TRACE_CACHE_READ 1 // the registered default compile (no pass dispatches it; no tracer, no hits)
         #endif
+        #endif
+        // THE LEGS' LISTS (Common/ScreenProbeTracing.glslh): the near field lists its misses for the far field,
+        // the far field its rays at the cache for the cache read (and, with the software tracer, its hits for the
+        // hit lighting: the second list), the cache read the rays it could not answer for the cache miss.
+        #if defined( SP_TRACE_NEAR_FIELD ) || defined( SP_TRACE_FAR_FIELD ) || defined( SP_TRACE_CACHE_READ )
+        #define SP_TRACE_LISTS_RAYS 1
+        Buffer(44) ScreenProbeOutArgsUB
+        {
+            uvec4 screenProbeOutArgs;
+        };
+        Buffer(45) ScreenProbeOutAllocatorUB
+        {
+            uint screenProbeOutAllocator;
+        };
+        Buffer(46) ScreenProbeOutTexelsUB
+        {
+            uint screenProbeOutTexels[];
+        };
+        #endif
+        #if defined( SP_TRACE_FAR_FIELD ) && defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_LISTS_HITS 1
+        Buffer(47) ScreenProbeOut2ArgsUB
+        {
+            uvec4 screenProbeOut2Args;
+        };
+        Buffer(48) ScreenProbeOut2AllocatorUB
+        {
+            uint screenProbeOut2Allocator;
+        };
+        Buffer(49) ScreenProbeOut2TexelsUB
+        {
+            uint screenProbeOut2Texels[];
+        };
         #endif
         #if defined( SP_TRACE_NEAR_FIELD ) || defined( SP_TRACE_CACHE_MISS )
         #define SP_TRACE_LIGHTS_HITS 1
@@ -244,6 +279,49 @@ Shader "ScreenProbeTrace"
         }
 #endif
 
+#if defined( SP_TRACE_LISTS_RAYS )
+        // Append the lanes that list their ray to the next leg's list (UE ScreenProbeCompactTracesCS's wave-ops
+        // path): in lane order, one atomic on the allocator and one on the dispatch per subgroup. Called once by
+        // every lane still running.
+        void SPListRay( const bool listed, const uint slot )
+        {
+            const uvec4 ballot = subgroupBallot( listed );
+            const uint  count  = subgroupBallotBitCount( ballot );
+            if ( count == 0u )
+                return;
+            uint start = 0u;
+            if ( subgroupElect() )
+            {
+                start = atomicAdd( screenProbeOutAllocator, count );
+                atomicMax( screenProbeOutArgs.x,
+                           ( start + count + SP_TRACE_LEG_GROUP_SIZE - 1u ) / SP_TRACE_LEG_GROUP_SIZE );
+            }
+            start = subgroupBroadcastFirst( start );
+            if ( listed )
+                screenProbeOutTexels[start + subgroupBallotExclusiveBitCount( ballot )] = slot;
+        }
+#endif
+#if defined( SP_TRACE_LISTS_HITS )
+        // The same into the second list (the far field's hits for the hit-lighting leg).
+        void SPListHit( const bool listed, const uint slot )
+        {
+            const uvec4 ballot = subgroupBallot( listed );
+            const uint  count  = subgroupBallotBitCount( ballot );
+            if ( count == 0u )
+                return;
+            uint start = 0u;
+            if ( subgroupElect() )
+            {
+                start = atomicAdd( screenProbeOut2Allocator, count );
+                atomicMax( screenProbeOut2Args.x,
+                           ( start + count + SP_TRACE_LEG_GROUP_SIZE - 1u ) / SP_TRACE_LEG_GROUP_SIZE );
+            }
+            start = subgroupBroadcastFirst( start );
+            if ( listed )
+                screenProbeOut2Texels[start + subgroupBallotExclusiveBitCount( ballot )] = slot;
+        }
+#endif
+
         void main()
         {
             if ( gl_GlobalInvocationID.x >= screenProbeCompactAllocator )
@@ -282,6 +360,8 @@ Shader "ScreenProbeTrace"
             else
                 screenProbeTraceHit[slot] =
                      SPEncodeTraceHit( farStart, false, false, texel.coverage.valid && farStart >= texel.tMax );
+            // Every ray it does not hit goes on in the far field (UE bCompactForSkyApply: all of them).
+            SPListRay( !near.hit, slot );
 #elif defined( SP_TRACE_CACHE_MISS )
             // The rest of a ray the cache did not answer: from the cache's distance to the full trace distance.
             ray.tMin                 = ray.tMax;
@@ -328,6 +408,7 @@ Shader "ScreenProbeTrace"
                 imageStore( ScreenProbeTracedTexture, at, vec4( cache.rgb, SP_TRACE_DISTANCE ) );
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( SP_TRACE_DISTANCE, false, false, false );
             }
+            SPListRay( !( cache.a > 0.0 ), slot ); // the cache-miss leg's list
 #else
             // The far field, then the radiance cache's far field, then the sky.
             vec4                result;
@@ -347,6 +428,8 @@ Shader "ScreenProbeTrace"
             SPCountSteps( SP_FAR_FIELD_STEPS );
 #endif
             bool                hit    = far.hit;
+            bool atCache     = false; // left for the cache-read leg (its list)
+            bool deferredHit = false; // left for the hit-lighting leg (its list)
             if ( far.hit )
             {
 #if defined( SP_TRACE_MISS_REASONS )
@@ -361,7 +444,7 @@ Shader "ScreenProbeTrace"
                 SPCountFarFieldRays( SP_FAR_FIELD_RAYS_DEFERRED );
 #endif
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( far.surface.distance, true, false, true );
-                return;
+                deferredHit               = true;
 #else
                 // The hardware far field's hits are triangles (never global-field): lit here.
                 result = vec4( GIHitRadiance( far.surface, dir ), far.surface.distance );
@@ -373,14 +456,21 @@ Shader "ScreenProbeTrace"
                 // At the cache: the cache-read leg reads it in its own compacted list (UE's trace / shading split),
                 // so this leg's waves wait on no eight-cell cache read and carry none of its registers.
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
-                return;
+                atCache                   = true;
             }
             else
                 result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
-            imageStore( ScreenProbeTracedTexture, at, result );
-            // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the filter
-            // reads its moving bit.
-            screenProbeTraceHit[slot] = SPEncodeTraceHit( result.a, hit, moving, false );
+            if ( !atCache && !deferredHit )
+            {
+                imageStore( ScreenProbeTracedTexture, at, result );
+                // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the
+                // filter reads its moving bit.
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( result.a, hit, moving, false );
+            }
+            SPListRay( atCache, slot );
+#if defined( SP_TRACE_LISTS_HITS )
+            SPListHit( deferredHit, slot );
+#endif
 #endif
         }
     }

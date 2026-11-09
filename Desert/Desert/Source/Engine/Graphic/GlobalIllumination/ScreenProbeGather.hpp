@@ -34,11 +34,13 @@
 //              CalculateUpsampleInterpolationWeights).
 //   Trace ×5   8x8 rays per probe, in UE's passes (LumenScreenProbeTracing.cpp TraceScreenProbes): the SCREEN over
 //              the view's HZB, a hit returning last frame's lit scene (ScreenProbeTraceScreenTexturesCS); the rays
-//              it left open COMPACTED into a dense list with its indirect arguments (ScreenProbeCompactTracesCS);
+//              it left open listed densely with their indirect arguments by the pass that left them (UE
+//              ScreenProbeCompactTracesCS folded into the legs, no pass rescans the rays: THE LEGS' LISTS,
+//              Common/ScreenProbeTracing.glslh);
 //              from where the screen left off, the GI ray contract's NEAR field over that list (TracerVariant /
 //              DeclareTracerReads: the passes name no tracer resource; software: the mesh SDFs of the view's
 //              near-field froxel grid, ScreenProbeTraceMeshSDFsCS over LumenMeshSDFCulling's grid,
-//              GlobalDistanceField::AddNearFieldCullPasses); every ray still without a hit compacted again; its
+//              GlobalDistanceField::AddNearFieldCullPasses); every ray still without a hit listed again; its
 //              FAR field (software: the global field) out to the world radiance cache's minimum trace distance,
 //              past which the cache's radiance answers (RadianceCacheRadianceAt; ScreenProbeTraceVoxelsCS). The
 //              legs hand one another each ray's state in a trace hit buffer (Common/ScreenProbeTracing.glslh).
@@ -382,7 +384,6 @@ namespace Desert::Graphic::GlobalIllumination
             Place = 0,
             ShortRangeAO,
             TraceScreen,
-            CompactTraces,
             TraceNearField,   // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
             TraceFarField,    // the same program's far-field leg
             TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer

@@ -21,6 +21,7 @@
 #include <cstring>
 #include <format>
 #include <limits>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -84,9 +85,14 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeTraceHitUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeSpeedUB );
         DESERT_SHADER_PARAMETER( Texture, Velocity );
-        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeCompactArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeCompactAllocatorUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeCompactTexelsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOutArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOutAllocatorUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOutTexelsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut2ArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut2AllocatorUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut2TexelsUB );
 #if DESERT_DEV_INSTRUMENTS
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeMissReasonsUB );
 #endif
@@ -196,20 +202,18 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 17> kScreenProbeShaderNames{
-             "ScreenProbePlace",         "ScreenProbeShortRangeAO",  "ScreenProbeTraceScreen",
-             "ScreenProbeCompactTraces", "ScreenProbeTrace",         "ScreenProbeTrace",
-             "ScreenProbeTrace",         "ScreenProbeTrace",         "ScreenProbeTrace",
-             "ScreenProbeDisocclusion",  "ScreenProbeSpatialFilter", "ScreenProbeFilter",
-             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",     "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",
+        constexpr std::array<std::string_view, 16> kScreenProbeShaderNames{
+             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeDisocclusion",
+             "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
              "ScreenProbeTemporal" };
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
         // integrate's tile classification, its simple-diffuse permutation and its uncovered-pixel pass
         // (ScreenProbeIntegrate.shader).
         constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
-             "",
              "",
              "",
              "",
@@ -271,31 +275,24 @@ namespace Desert::Graphic::GlobalIllumination
             return false; // SP_TRACE_CACHE_READ: the radiance cache only
         }
 
-        // ScreenProbeCompactTraces' list (CompactPush::FarField): must match the shader's SP_COMPACT_*.
-        constexpr uint32_t kCompactNearField = 0u; // no hit, not at the cache, before MaxDistance
-        constexpr uint32_t kCompactFarField  = 1u; // no hit
-        // no hit, at the cache and unanswered so far: after the far field the cache-read leg's list, after that
-        // leg the cache-miss leg's (the rays no traced probe answered)
-        constexpr uint32_t kCompactCacheMiss   = 2u;
-        constexpr uint32_t kCompactHitLighting = 3u; // a far-field global-field hit no card holds, left to be lit
-
-        // ScreenProbeCompactArgsUB: x = groups, y = z = 1 (a dispatch's three counts; w unused); the allocator: 0.
+        // A trace leg's list (THE LEGS' LISTS, Common/ScreenProbeTracing.glslh): its dispatch x = groups, y = z =
+        // 1 (a dispatch's three counts; w unused), counted up by the pass that lists the rays; the allocator: 0.
         constexpr std::array<uint32_t, 4> kCompactArgsReset{ 0u, 1u, 1u, 0u };
         constexpr uint32_t                kCompactAllocatorReset = 0u;
 
-        // The near field's end along a ray (ScreenProbeCompactTraces' MaxDistance for the near-field list): the
-        // software tracer's mesh SDFs trace up to DF_MESH_SDF_TRACE_DISTANCE (GITraceNearField); a ray the screen
-        // took past it has nothing left there.
+        // The near field's end along a ray (ScreenProbeTraceScreen's NearFieldEnd: the screen lists a ray past it
+        // for the far field): the software tracer's mesh SDFs trace up to DF_MESH_SDF_TRACE_DISTANCE
+        // (GITraceNearField); a ray the screen took past it has nothing left there.
         [[nodiscard]] float NearFieldEnd( const Tracer tracer )
         {
             return tracer == Tracer::SoftwareDistanceField ? DistanceField::DFShared::DF_MESH_SDF_TRACE_DISTANCE
                                                            : std::numeric_limits<float>::max();
         }
 
-        struct CompactPush
+        // ScreenProbeTraceScreen's push constant.
+        struct TraceScreenPush
         {
-            float    MaxDistance;
-            uint32_t FarField;
+            float NearFieldEnd;
         };
 
         constexpr std::array<std::string_view, ScreenProbeLayout::kMaxLevels> kPlaceNames{
@@ -782,10 +779,12 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        // TRACE (UE LumenScreenProbeTracing.cpp TraceScreenProbes): the screen; the rays it left open compacted;
-        // the tracer's near field over them; every ray still without a hit compacted; the far field, the radiance
-        // cache and the sky over those. Each ray's state between the legs: the trace hit buffer
-        // (Common/ScreenProbeTracing.glslh).
+        // TRACE (UE LumenScreenProbeTracing.cpp TraceScreenProbes): the screen; the near field over the rays it
+        // left before the near field's end; the far field over every ray still without a hit, out to the radiance
+        // cache's coverage and the sky; the cache read, the hit lighting and the cache miss over the rays the far
+        // field and the cache read left them. Each ray's state between the legs: the trace hit buffer; each leg's
+        // list: written by the pass that left its rays (THE LEGS' LISTS, Common/ScreenProbeTracing.glslh), so no
+        // pass rescans the rays (UE's compaction passes, folded in).
         const uint32_t       probeGroups = layout.Probes();
         const uint32_t       kTexels     = layout.TracedTexels * layout.TracedTexels;
         const uint64_t       rayBytes    = static_cast<uint64_t>( probeGroups ) * kTexels * sizeof( uint32_t );
@@ -795,8 +794,51 @@ namespace Desert::Graphic::GlobalIllumination
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( kMissReasonsReset ) }, "ScreenProbes.MissReasons" );
         graph.QueueBufferUpload( missReasons, std::as_bytes( std::span( kMissReasonsReset ) ) );
 #endif
+        // One leg's list and its dispatch arguments.
+        struct RayList
+        {
+            RDG::BufferRef Args;      // the leg's dispatch (IndirectArgs)
+            RDG::BufferRef Allocator; // the rays listed
+            RDG::BufferRef Texels;    // probe * SP_RES² + texel
+        };
+        const auto rayList = [&]( const std::string_view name ) -> RayList
+        {
+            const RayList list{ graph.CreateBuffer( RDG::BufferDesc{ sizeof( kCompactArgsReset ) },
+                                                    std::format( "ScreenProbes.ListArgs ({})", name ) ),
+                                graph.CreateBuffer( RDG::BufferDesc{ sizeof( kCompactAllocatorReset ) },
+                                                    std::format( "ScreenProbes.ListAllocator ({})", name ) ),
+                                graph.CreateBuffer( RDG::BufferDesc{ rayBytes },
+                                                    std::format( "ScreenProbes.ListTexels ({})", name ) ) };
+            graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kCompactArgsReset ) ) );
+            graph.QueueBufferUpload( list.Allocator, std::as_bytes( std::span( &kCompactAllocatorReset, 1 ) ) );
+            return list;
+        };
+        const RayList nearList      = rayList( "near field" );
+        const RayList farList       = rayList( "far field" );
+        const RayList cacheReadList = rayList( "cache read" );
+        const RayList cacheMissList = rayList( "cache miss" );
+        // The hardware far field lights its hits in place: no hit-lighting leg (TraceLegExists), no list.
+        std::optional<RayList> hitLightingList;
+        if ( TraceLegExists( inputs.Tracer.Pipeline.Tracer, kTraceHitLightingDefine ) )
+            hitLightingList = rayList( "hit lighting" );
+
+        // A pass's first and second output lists (ScreenProbeOut* / ScreenProbeOut2*).
+        const auto bindOut = [&]( auto& block, const RayList& list )
+        {
+            block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOutArgsUB, list.Args, kW )
+                 .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOutAllocatorUB, list.Allocator, kW )
+                 .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOutTexelsUB, list.Texels, kW );
+        };
+        const auto bindOut2 = [&]( auto& block, const RayList& list )
+        {
+            block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut2ArgsUB, list.Args, kW )
+                 .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut2AllocatorUB, list.Allocator, kW )
+                 .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut2TexelsUB, list.Texels, kW );
+        };
+
         {
             ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
+            const TraceScreenPush  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
             graph.AddPass(
                  "ScreenProbes: Trace Screen", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -821,50 +863,11 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR )
                           .Texture( ScreenProbeGatherTraceShaderParameters::Velocity, inputs.Velocity, kS, all )
                           .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() );
-                 },
-                 [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
-                 } );
-        }
-
-        // One compaction: the open rays' list and its dispatch arguments (ScreenProbeCompactTraces.shader).
-        struct Compacted
-        {
-            RDG::BufferRef Args;      // the world leg's dispatch (IndirectArgs)
-            RDG::BufferRef Allocator; // the rays listed
-            RDG::BufferRef Texels;
-        };
-        const auto compact = [&]( const std::string_view name, const CompactPush push ) -> Compacted
-        {
-            const Compacted list{ graph.CreateBuffer( RDG::BufferDesc{ sizeof( kCompactArgsReset ) },
-                                                      std::format( "ScreenProbes.CompactArgs ({})", name ) ),
-                                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( kCompactAllocatorReset ) },
-                                                      std::format( "ScreenProbes.CompactAllocator ({})", name ) ),
-                                  graph.CreateBuffer( RDG::BufferDesc{ rayBytes },
-                                                      std::format( "ScreenProbes.CompactTexels ({})", name ) ) };
-            graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kCompactArgsReset ) ) );
-            graph.QueueBufferUpload( list.Allocator, std::as_bytes( std::span( &kCompactAllocatorReset, 1 ) ) );
-            ComputePipeline* const pipeline = m_Pipelines[CompactTraces].get();
-            graph.AddPass(
-                 std::format( "ScreenProbes: Compact Traces ({})", name ), kAsyncPass,
-                 [&]( RDG::PassBuilder& builder )
-                 {
-                     auto block = builder.Bindings( m_Layouts[CompactTraces].Get( m_Shaders[CompactTraces] ),
-                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeParamsUB, paramsBuffer, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeIndexUB, index, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbesUB, probes, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTraceHitUB, traceHit, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactArgsUB, list.Args,
-                                    kW )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactAllocatorUB,
-                                    list.Allocator, kW )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactTexelsUB,
-                                    list.Texels, kW )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( CompactPush ) ) );
+                                    RDG::SamplerDesc::PointClamp() )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( TraceScreenPush ) ) );
+                     // The near field's list and the far field's (the screen's misses past the near field).
+                     bindOut( block, nearList );
+                     bindOut2( block, farList );
                  },
                  [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -872,11 +875,12 @@ namespace Desert::Graphic::GlobalIllumination
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
                  } );
-            return list;
-        };
+        }
 
-        // One world leg over a compacted list, one thread per ray (ScreenProbeTrace.shader's permutation).
-        const auto traceWorld = [&]( const Program program, const std::string_view name, const Compacted list )
+        // One world leg over its list, one thread per ray (ScreenProbeTrace.shader's permutation), listing the
+        // rays it leaves for the next legs in @p out (and @p out2: the far field's hits for the hit lighting).
+        const auto traceWorld = [&]( const Program program, const std::string_view name, const RayList& in,
+                                     const RayList* const out, const RayList* const out2 )
         {
             ComputePipeline* const pipeline = m_Pipelines[program].get();
             // the declaration's own rule (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
@@ -887,7 +891,7 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
-                     builder.Read( list.Args, RDG::Access::IndirectArgs );
+                     builder.Read( in.Args, RDG::Access::IndirectArgs );
                      block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeParamsUB, paramsBuffer, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeIndexUB, index, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbesUB, probes, kR )
@@ -906,10 +910,15 @@ namespace Desert::Graphic::GlobalIllumination
                                     inputs.RadianceCache.Probes, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTraceHitUB, traceHit, kW )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactAllocatorUB,
-                                    list.Allocator, kR )
+                                    in.Allocator, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactTexelsUB,
-                                    list.Texels, kR )
+                                    in.Texels, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR );
+                     // The lists of the legs after it (ScreenProbeTrace.shader SP_TRACE_LISTS_RAYS / _HITS).
+                     if ( out )
+                         bindOut( block, *out );
+                     if ( out2 )
+                         bindOut2( block, *out2 );
                      // The cache-read leg traces nothing (ScreenProbeTrace.shader includes no tracer); a leg that
                      // lights no hit samples nothing point-clamped (the object grid is fetched).
                      const TracerPointClamp pointClamp = lightsHits ? TracerPointClamp::Bind : TracerPointClamp::Skip;
@@ -943,35 +952,28 @@ namespace Desert::Graphic::GlobalIllumination
                                     inputs.RadianceCache.Radiance, kS, all )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW );
                  },
-                 [pipeline, args = list.Args]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = in.Args]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         };
 
-        traceWorld( TraceNearField, "ScreenProbes: Trace Near Field",
-                    compact( "near field",
-                             CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), kCompactNearField } ) );
-        traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
-                    compact( "far field", CompactPush{ std::numeric_limits<float>::max(), kCompactFarField } ) );
+        const RayList* const hitLightingOut = hitLightingList ? &*hitLightingList : nullptr;
+        traceWorld( TraceNearField, "ScreenProbes: Trace Near Field", nearList, &farList, nullptr );
+        traceWorld( TraceFarField, "ScreenProbes: Trace Far Field", farList, &cacheReadList, hitLightingOut );
         // GPU-FARFIELD-6: the rays the far field left at the radiance cache's coverage read the cache in a list of
         // their own (UE's trace / shading split), so the far field's waves hold no cache read on their march
         // lanes.
-        traceWorld( TraceCacheRead, "ScreenProbes: Trace Cache Read",
-                    compact( "cache read", CompactPush{ std::numeric_limits<float>::max(), kCompactCacheMiss } ) );
+        traceWorld( TraceCacheRead, "ScreenProbes: Trace Cache Read", cacheReadList, &cacheMissList, nullptr );
         // GPU-FARFIELD-3: the far field's global-field hits no card holds, lit in a list of their own (UE's hit
-        // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches. The
-        // hardware far field lights its hits in place: no such leg (TraceLegExists), no list.
-        if ( TraceLegExists( inputs.Tracer.Pipeline.Tracer, kTraceHitLightingDefine ) )
-            traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting",
-                        compact( "hit lighting",
-                                 CompactPush{ std::numeric_limits<float>::max(), kCompactHitLighting } ) );
+        // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches.
+        if ( hitLightingOut )
+            traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting", *hitLightingOut, nullptr, nullptr );
         // The rays the far field took to the radiance cache's coverage and no traced probe answered (cells the view
         // just reached: allocated this frame past the trace budget, or not yet marked) go on to the full trace
         // distance in a list of their own, so the far field's waves stay as short as its own leg.
-        traceWorld( TraceCacheMiss, "ScreenProbes: Trace Cache Miss",
-                    compact( "cache miss", CompactPush{ std::numeric_limits<float>::max(), kCompactCacheMiss } ) );
+        traceWorld( TraceCacheMiss, "ScreenProbes: Trace Cache Miss", cacheMissList, nullptr, nullptr );
 #if DESERT_DEV_INSTRUMENTS
         m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
 #endif
