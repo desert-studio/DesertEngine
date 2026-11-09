@@ -260,14 +260,18 @@ namespace Common::Profiling
     {
         // The @p q quantile (nearest rank) of a row's per-frame cost over @p frames frames: @p sorted holds the
         // frames it ran in, ascending; every other frame of the window cost it 0.
-        double QuantileWithIdle( const std::vector<float>& sorted, const uint32_t frames, const double q )
+        // The same nearest-rank element a full sort would index, found by selection (nth_element, O(n)) and not by
+        // sorting the row's frames at every publish: @p values is reordered, its contents kept.
+        double QuantileWithIdle( std::vector<float>& values, const uint32_t frames, const double q )
         {
-            const uint64_t n    = std::max<uint64_t>( frames, sorted.size() );
+            const uint64_t n    = std::max<uint64_t>( frames, values.size() );
             const auto     rank = std::max<uint64_t>( 1, static_cast<uint64_t>( std::ceil( q * double( n ) ) ) );
-            const uint64_t idle = n - sorted.size();
+            const uint64_t idle = n - values.size();
             if ( rank <= idle )
                 return 0.0;
-            return static_cast<double>( sorted[static_cast<size_t>( rank - idle - 1 )] );
+            const auto nth = values.begin() + static_cast<std::ptrdiff_t>( rank - idle - 1 );
+            std::nth_element( values.begin(), nth, values.end() );
+            return static_cast<double>( *nth );
         }
 
         // The calling thread's buffer (Profiler::LocalStats). Trivially destructible, so it can be read at any
@@ -462,8 +466,8 @@ namespace Common::Profiling
                 std::vector<float>& perFrame = window.RowFrames[id];
                 if ( !perFrame.empty() )
                 {
-                    std::sort( perFrame.begin(), perFrame.end() );
-                    avg.MaxMs = static_cast<double>( perFrame.back() );
+                    // Max by one pass and p99 by selection: the same two numbers the full sort gave.
+                    avg.MaxMs = static_cast<double>( *std::max_element( perFrame.begin(), perFrame.end() ) );
                     avg.P99Ms = QuantileWithIdle( perFrame, frames, 0.99 );
                     perFrame.clear();
                 }

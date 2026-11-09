@@ -5,6 +5,7 @@
 
 #include <Engine/Assets/ContentDirectoryWatch.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <future>
 #include <memory>
@@ -15,6 +16,7 @@
 namespace Desert::Assets
 {
     class AssetManager;
+    class AssetBase;
 }
 namespace Desert::Core
 {
@@ -120,10 +122,15 @@ namespace Desert::Runtime
             std::unordered_map<std::string, std::vector<std::filesystem::path>> ShaderFiles;
             // The .shadingmodel files on disk.
             std::vector<std::filesystem::path> ShadingModelFiles;
+            // The content directories whose stamp moved (ContentDirectoryWatch::ProbeMoved, stat'ed on the
+            // worker); the apply relists them on the game thread.
+            std::vector<std::filesystem::path> MovedDirectories;
         };
 
         // The game-thread half of launching a probe: the paths of every loaded watched asset.
         void LaunchProbe( Assets::AssetManager& assetManager );
+        // The watched assets, re-derived from the registry only when its RegistrationRevision moved.
+        void RefreshWatchedAssets( Assets::AssetManager& assetManager );
         // Runs on the worker.
         Probe RunProbe( std::vector<std::filesystem::path> watched, std::vector<std::filesystem::path> shaders );
         void  ApplyProbe( Assets::AssetManager& assetManager, Core::Scene* scene );
@@ -138,6 +145,12 @@ namespace Desert::Runtime
         // Files that appeared or went away with no loaded object to report them: their rows follow here.
         Assets::ContentDirectoryWatch m_ContentWatch;
         std::future<Probe>            m_ProbeInFlight;
+        // Every loaded asset a Poll* reloads, and the shaders, as of m_WatchedRevision (RefreshWatchedAssets): the
+        // registry is append-only, so the lists are walked from it once per registration, not once per probe.
+        // The paths are read from each asset when a probe launches (a renamed asset is watched at its new path).
+        std::vector<std::shared_ptr<Assets::AssetBase>> m_WatchedAssets;
+        std::vector<std::shared_ptr<Assets::AssetBase>> m_ShaderAssets;
+        uint64_t                                        m_WatchedRevision = ~uint64_t{ 0 }; // none derived yet
         Probe                         m_Probe; // the one being applied, empty otherwise
         float                         m_Accum       = 0.0f;
         bool                          m_FirstScan   = true;

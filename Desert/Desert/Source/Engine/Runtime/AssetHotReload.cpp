@@ -105,29 +105,53 @@ namespace Desert::Runtime
     namespace
     {
         template <typename TAsset>
-        void AppendLoadedPaths( Assets::AssetManager& assetManager, std::vector<std::filesystem::path>& out )
+        void AppendLoaded( Assets::AssetManager&                           assetManager,
+                           std::vector<std::shared_ptr<Assets::AssetBase>>& out )
         {
-            for ( const auto& [handle, asset] : assetManager.FindAllByType<TAsset>() )
+            for ( auto& [handle, asset] : assetManager.FindAllByType<TAsset>() )
                 if ( asset )
-                    out.push_back( asset->GetMetadata().Filepath );
+                    out.push_back( std::move( asset ) );
+        }
+
+        void AppendPaths( const std::vector<std::shared_ptr<Assets::AssetBase>>& assets,
+                          std::vector<std::filesystem::path>&                    out )
+        {
+            out.reserve( assets.size() );
+            for ( const std::shared_ptr<Assets::AssetBase>& asset : assets )
+                out.push_back( asset->GetMetadata().Filepath );
         }
     } // namespace
 
+    void AssetHotReload::RefreshWatchedAssets( Assets::AssetManager& assetManager )
+    {
+        if ( assetManager.RegistrationRevision() == m_WatchedRevision )
+            return;
+        m_WatchedRevision = assetManager.RegistrationRevision();
+        // THE SAME SET THE APPLY WALKS: every asset type a Poll* below reloads, by the path it reloads from.
+        m_WatchedAssets.clear();
+        AppendLoaded<Assets::SurfaceMaterialAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::CloudNoiseVolumeAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::CloudTypeAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::CloudModellingVolumeAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::UIThemeAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::LandscapeLayerInfoAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::LandscapeGrassTypeAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::PrefabAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::VFXEffectTypeAsset>( assetManager, m_WatchedAssets );
+        // PollVFXSystems reloads these too; a .dfx no probe observed could never read as Changed.
+        AppendLoaded<Assets::VFXSystemAsset>( assetManager, m_WatchedAssets );
+        m_ShaderAssets.clear();
+        AppendLoaded<Assets::ShaderAsset>( assetManager, m_ShaderAssets );
+    }
+
     void AssetHotReload::LaunchProbe( Assets::AssetManager& assetManager )
     {
-        // THE SAME SET THE APPLY WALKS: every asset type a Poll* below reloads, by the path it reloads from.
+        // The asset lists only when the registry grew; the paths from the assets themselves, every probe.
+        RefreshWatchedAssets( assetManager );
         std::vector<std::filesystem::path> watched;
-        AppendLoadedPaths<Assets::SurfaceMaterialAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::CloudNoiseVolumeAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::CloudTypeAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::CloudModellingVolumeAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::UIThemeAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::LandscapeLayerInfoAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::LandscapeGrassTypeAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::PrefabAsset>( assetManager, watched );
-        AppendLoadedPaths<Assets::VFXEffectTypeAsset>( assetManager, watched );
+        AppendPaths( m_WatchedAssets, watched );
         std::vector<std::filesystem::path> shaders;
-        AppendLoadedPaths<Assets::ShaderAsset>( assetManager, shaders );
+        AppendPaths( m_ShaderAssets, shaders );
 
         m_ProbeInFlight = Common::JobSystem::Get().Async(
              [this, watched = std::move( watched ), shaders = std::move( shaders )]() mutable noexcept
@@ -173,6 +197,10 @@ namespace Desert::Runtime
             observe( file );
             probe.ShadingModelFiles.push_back( file );
         }
+
+        // The content directories' stamps, here on the worker and not on the game thread: the apply only relists
+        // the ones that moved (ContentDirectoryWatch::ProbeMoved; no apply runs while this probe is in flight).
+        probe.MovedDirectories = m_ContentWatch.ProbeMoved();
         return probe;
     }
 
@@ -184,18 +212,26 @@ namespace Desert::Runtime
         for ( const auto& [key, path] : m_Probe.Changed )
             Assets::ContentRegistry::Update( path );
 
-        PollMaterials( assetManager, scene );
-        PollShaders( assetManager );
-        PollCloudNoiseVolumes( assetManager );
-        PollCloudTypes( assetManager );
-        PollCloudModellingVolumes( assetManager );
-        PollUIThemes( assetManager );
-        PollLandscapeLayerInfos( assetManager );
-        PollLandscapeGrassTypes( assetManager );
-        PollPrefabs( assetManager );
-        PollVFXEffectTypes( assetManager );
-        PollVFXSystems( assetManager );
-        m_ContentWatch.Poll();
+        // NOTHING CHANGED, NOTHING TO WALK. Every Poll* below acts only on a file the probe found Changed
+        // (TouchWatched), and that includes the shading-model manifest PollShaders re-reads: its .shadingmodel
+        // files are observed by the same probe (RunProbe) and land in the same Changed map. So an empty map is
+        // exactly "no Poll* would reload anything", and the eleven registry walks are skipped (the common case,
+        // every 0.7 s in the editor).
+        if ( !m_Probe.Changed.empty() || m_FirstScan )
+        {
+            PollMaterials( assetManager, scene );
+            PollShaders( assetManager );
+            PollCloudNoiseVolumes( assetManager );
+            PollCloudTypes( assetManager );
+            PollCloudModellingVolumes( assetManager );
+            PollUIThemes( assetManager );
+            PollLandscapeLayerInfos( assetManager );
+            PollLandscapeGrassTypes( assetManager );
+            PollPrefabs( assetManager );
+            PollVFXEffectTypes( assetManager );
+            PollVFXSystems( assetManager );
+        }
+        m_ContentWatch.RelistMoved( m_Probe.MovedDirectories );
         m_FirstScan = false;
     }
 
