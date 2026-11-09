@@ -1,7 +1,10 @@
 # BOOLEAN: Boolean is a tool session as UE UCSGMeshesTool - the result of a 100 cm Box and a radius-50 Sphere previews on the Box (the Sphere hidden), a change of operation recomputes it, Cancel leaves both inputs, Accept writes it as one undo step
 # The Box is red (CB_Red), the Sphere green (CB_Green): the preview and the result carry both inputs' materials (UE
 # UCSGMeshesTool's combined material set, B's material IDs shifted past A's slots).
-# The Sphere sits over the Box's +X top edge (Translation 40,60,40): Difference leaves a spherical bite, Union a bulge.
+# The Box spans -50..50 x 0..100 x -50..50 (base pivot). The Sphere's pivot is its base, set on the Box's +X face, so
+# Translation 40,60,40 puts its centre at 90,60,40 (triangulated from three views of run scn-1108-191215):
+# it cuts the +X face in a 30 cm circle round (y 60, z 40), crosses the near vertical edge (x 50, z 50) at heights 32
+# and 88 and bites a sliver into the +Z face. Difference leaves a spherical bite there, Union a bulge.
 Дано run Panel "Open Modeling"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 230,260,300
@@ -25,7 +28,7 @@
 Дано run Modeling "Boolean operation: Difference A - B"
 Дано run Modeling "Boolean write to: Input"
 Дано run Modeling "Boolean inputs: Delete Inputs"
-Тогда-вид 0_inputs the red Box with the green Sphere sunk into its near top corner
+Тогда-вид 0_inputs the red Box with the green Sphere sunk into its +X face across the near vertical edge, below the top
 Когда run Modeling "Boolean tool: Boolean"
 Тогда 1_preview_diff the red Box shows a smooth spherical bite (its inner wall green, from the Sphere) where the Sphere was; the Sphere itself is hidden; the tool bar at the viewport bottom reads Boolean with Accept and Cancel; Outliner still lists both Box and Sphere
 Когда run Modeling "Boolean operation: Union"
@@ -40,3 +43,29 @@
 Тогда 4_accept the red Box with a spherical bite whose inner wall stays green (Details: Material Slots CB_Red, CB_Green), the Sphere gone from viewport and Outliner (one mesh entity, Box); no tool bar
 Когда run Action Undo
 Тогда 5_undo the Box is whole again and the Sphere is back in its corner; Outliner lists both
+# Union of the same pair: the cut seam (a sphere over a cube corner) welds shut as UE FMeshBoolean + FBooleanMeshesOp hole fix
+Когда run Entity Box
+Когда run Entity "Add to selection Sphere"
+Когда run Modeling "Boolean operation: Union"
+Когда run Modeling "Boolean tool: Boolean"
+Тогда 6_union_colors the preview is one fused surface: the Box red, the Sphere's dome bulging out of its corner green; no error in the tool bar, which reads Boolean with Accept and Cancel
+Когда run Modeling "Active tool: Accept"
+Тогда 7_union_accept one closed mesh (Box) with both colours, no holes or dark slits along the red-green seam; the Sphere gone from viewport and Outliner; no tool bar
+# Close-ups of the accepted seam, each from inside the wedge between a red face and the dome (both facing the camera),
+# aimed at where the seam crosses the near vertical edge - the corners where MergeEdges left the cracks.
+Когда --subject viewport set Camera.Position 23,142,117
+Когда --subject viewport set Camera.Direction 0.298,-0.596,-0.745
+Тогда-вид 9_union_seam_upper from above the +Z face, left of the near vertical edge: the green dome rises out of the red +Z face along one continuous crease that comes down from the vertical edge 12 cm below the top corner - no light slit, hole or step along it or where it meets the edge
+Когда --subject viewport set Camera.Position 29,7,112
+Когда --subject viewport set Camera.Direction 0.3,0.35,-0.89
+Тогда-вид 10_union_seam_lower low under the dome, left of the near vertical edge: the dome's green underside meets the red +Z face in one closed crease that runs up to the vertical edge - no slit or hole along it or where it meets the edge
+Когда --subject viewport set Camera.Position 81.5,73.5,-73
+Когда --subject viewport set Camera.Direction -0.35,-0.15,0.92
+Тогда-вид 11_union_seam_back from behind (-Z), outside the +X face: the red +X face at a grazing angle with the green dome bulging out of it; the curved crease between them is unbroken - no slit, hole or dark gap
+Когда run View "View mode: Wireframe"
+Тогда-вид 12_union_seam_wire the same back view in wireframe: the dome's triangles and the +X face's triangles share the seam curve - no gap between the two meshes along it
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position 150,190,180
+Когда --subject viewport set Camera.Direction -0.5,-0.45,-0.74
+Когда run Action Undo
+Тогда 8_union_undo the whole Box and the Sphere in its corner again; Outliner lists both
