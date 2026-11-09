@@ -156,6 +156,10 @@ namespace Desert::Assets
     // contract header owns. v2 (ANIM-FMT): a key's mode shapes the segment LEAVING it; v1 is read by
     // SceneMigrator only.
     inline constexpr uint32_t kTimelineSchemaTag = Common::Content::FourCC( "TMLN" );
+    // A .desound (UE USoundWave): Source, and since v1 (AUD-CORE) the Class its voices play in and its Loading
+    // (Resident / Streamed). v0 stated no version at all; SoundAsset::Upgrade (Tools/SceneMigrator) raises it.
+    inline constexpr uint32_t kSoundSchemaTag     = Common::Content::FourCC( "SNDW" );
+    inline constexpr uint32_t kSoundSchemaVersion = 1;
     // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );

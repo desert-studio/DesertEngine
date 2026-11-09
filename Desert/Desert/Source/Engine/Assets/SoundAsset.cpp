@@ -21,17 +21,16 @@ namespace Desert::Assets
         }
     }
 
-    Common::ResultStr<std::filesystem::path>
-    SoundAsset::ResolveSourceFile( const Common::Content::AssetGuid& guid )
+    Common::ResultStr<Audio::SoundSource> SoundAsset::Resolve( const Common::Content::AssetGuid& guid )
     {
         if ( guid.IsNull() )
-            return Common::MakeError<std::filesystem::path>( "no sound: the null GUID names none" );
-        return ResolveSourceFile( Common::Content::HandleForGuid( guid ) );
+            return Common::MakeError<Audio::SoundSource>( "no sound: the null GUID names none" );
+        return Resolve( Common::Content::HandleForGuid( guid ) );
     }
 
-    Common::ResultStr<std::filesystem::path> SoundAsset::ResolveSourceFile( AssetHandle handle )
+    Common::ResultStr<Audio::SoundSource> SoundAsset::Resolve( AssetHandle handle )
     {
-        using Result = std::filesystem::path;
+        using Result = Audio::SoundSource;
         if ( static_cast<uint64_t>( handle ) == 0 )
             return Common::MakeError<Result>( "no sound: the slot is unset" );
         const Common::Utils::AssetRegistry&      registry = ContentRegistry::Get();
@@ -46,7 +45,9 @@ namespace Desert::Assets
         const auto                  parsed  = ReadFile( desound );
         if ( !parsed )
             return Common::MakeError<Result>( parsed.GetError() );
-        return Common::MakeSuccess( desound.parent_path() / parsed.GetValue().Source );
+        const Parsed& sound = parsed.GetValue();
+        return Common::MakeSuccess(
+             Result{ ( desound.parent_path() / sound.Source ).string(), sound.Class, sound.Loading } );
     }
 
     Common::ResultStr<SoundAsset::Parsed> SoundAsset::ReadFile( const std::filesystem::path& desound )
@@ -78,6 +79,8 @@ namespace Desert::Assets
         }
         m_Guid       = parsed.GetValue().Guid;
         m_SourceFile = m_Metadata.Filepath.parent_path() / parsed.GetValue().Source;
+        m_Class      = parsed.GetValue().Class;
+        m_Loading    = parsed.GetValue().Loading;
         m_Ready      = true;
         return BOOLSUCCESS;
     }
@@ -89,9 +92,10 @@ namespace Desert::Assets
     }
 
     Common::BoolResultStr SoundAsset::Save( const Common::Filepath&           filepath,
-                                            const Common::Content::AssetGuid& guid, std::string_view source )
+                                            const Common::Content::AssetGuid& guid, std::string_view source,
+                                            Audio::SoundClass soundClass, Audio::SoundLoading loading )
     {
-        const auto text = Write( guid, source );
+        const auto text = Write( guid, source, soundClass, loading );
         if ( !text )
             return Common::MakeFormattedError<bool>( "sound '{}' was not written: {}", filepath.string(),
                                                      text.GetError() );

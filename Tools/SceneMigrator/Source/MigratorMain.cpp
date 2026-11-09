@@ -63,6 +63,8 @@
 #include "ShaderLocatorFollow.hpp"
 #include "ClipInterpShift.hpp"
 #include "ClipMigration.hpp"
+#include <Engine/Assets/SoundAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
 #include "MaterialMaskClipParam.hpp"
@@ -199,7 +201,7 @@ namespace
                   std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
                   std::vector<std::filesystem::path>& shaders, std::vector<std::filesystem::path>& tiles,
                   std::vector<std::filesystem::path>& sequences, std::vector<std::filesystem::path>& textures,
-                  std::ostream& out )
+                  std::vector<std::filesystem::path>& sounds, std::ostream& out )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -245,6 +247,8 @@ namespace
                     tiles.push_back( entry.path() );
                 else if ( entry.path().extension() == Desert::Assets::kTextureAssetExtension )
                     textures.push_back( entry.path() );
+                else if ( entry.path().extension() == Desert::Assets::kSoundExtension )
+                    sounds.push_back( entry.path() );
             }
             return;
         }
@@ -275,6 +279,8 @@ namespace
             tiles.push_back( root );
         else if ( root.extension() == Desert::Assets::kTextureAssetExtension )
             textures.push_back( root );
+        else if ( root.extension() == Desert::Assets::kSoundExtension )
+            sounds.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -699,13 +705,14 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> tiles;
         std::vector<std::filesystem::path> sequences;
         std::vector<std::filesystem::path> textures;
+        std::vector<std::filesystem::path> sounds;
         for ( const auto& root : roots )
             Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders,
-                     tiles, sequences, textures, out );
+                     tiles, sequences, textures, sounds, out );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && sequences.empty() &&
              texts.empty() && meshes.empty() && layouts.empty() && noises.empty() && models.empty() &&
-             shaders.empty() && tiles.empty() && textures.empty() )
+             shaders.empty() && tiles.empty() && textures.empty() && sounds.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
@@ -1996,6 +2003,34 @@ namespace Desert::Migration
             }
         }
 
+        // THE SOUNDS (AUD-CORE): SNDW 0 -> 1 states the Class every voice plays in and the Loading (Resident /
+        // Streamed). The step is the engine's own SoundAsset::Upgrade (one statement of the format): nullopt =
+        // already current, a file it cannot read FAILS by name and is left untouched.
+        int soundsRaised = 0;
+        for ( const auto& path : sounds )
+        {
+            const auto raised = Desert::Assets::SoundAsset::Upgrade( ReadAll( path ) );
+            if ( !raised )
+            {
+                err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !raised.GetValue() )
+                continue;
+            ++soundsRaised;
+            out << ( check ? "would raise " : "raised " ) << path.string() << " SNDW 0 -> "
+                << Desert::Assets::kSoundSchemaVersion << "\n";
+            if ( check )
+                continue;
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path, *raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
+        }
+
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << materialsRaised << ( check ? " would be raised, " : " raised, " )
@@ -2011,7 +2046,8 @@ namespace Desert::Migration
             << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
             << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
-            << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << recordsStated
+            << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << soundsRaised
+            << ( check ? " sound(s) would be raised, " : " sound(s) raised, " ) << recordsStated
             << ( check ? " import record(s) would state their source hash, "
                        : " import record(s) stated their source hash, " )
             << failed << " failed\n";
@@ -2022,7 +2058,7 @@ namespace Desert::Migration
         return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
                             foliageRaised > 0 || cloudTypesRaised > 0 || weatherPresetsRaised > 0 ||
                             vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
-                            recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+                            recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 || soundsRaised > 0 ) )
                     ? 1
                     : 0;
     }

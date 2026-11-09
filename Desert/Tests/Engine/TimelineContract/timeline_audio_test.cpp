@@ -211,15 +211,18 @@ TEST( TimelineAudio, SoundDocumentRoundTripsAndRefusesByName )
     using Desert::Assets::SoundAsset;
     const decltype( SoundAsset::Parsed::Guid ) guid{ 0x4b929a7a753845f0ULL, 0xbfc66441fce02ab6ULL };
 
-    const auto text = SoundAsset::Write( guid, "DesertStudio.wav" );
+    const auto text = SoundAsset::Write( guid, "DesertStudio.wav", Desert::Audio::SoundClass::Music,
+                                         Desert::Audio::SoundLoading::Streamed );
     ASSERT_TRUE( text ) << text.GetError();
     const auto parsed = SoundAsset::Parse( text.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     EXPECT_EQ( parsed.GetValue().Guid, guid );
     EXPECT_EQ( parsed.GetValue().Source, "DesertStudio.wav" );
 
-    EXPECT_FALSE( SoundAsset::Write( {}, "DesertStudio.wav" ) );
-    EXPECT_FALSE( SoundAsset::Write( guid, "" ) );
+    EXPECT_FALSE( SoundAsset::Write( {}, "DesertStudio.wav", Desert::Audio::SoundClass::Music,
+                                     Desert::Audio::SoundLoading::Streamed ) );
+    EXPECT_FALSE(
+         SoundAsset::Write( guid, "", Desert::Audio::SoundClass::Music, Desert::Audio::SoundLoading::Streamed ) );
 
     std::string otherKind = text.GetValue();
     otherKind.replace( otherKind.find( "\"Sound\"" ), 7, "\"Video\"" );

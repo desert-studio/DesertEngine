@@ -34,7 +34,8 @@ namespace
             fs::remove_all( Root );
             fs::create_directories( Root / "Audio" );
             std::ofstream( Root / "Audio" / "Hit.wav", std::ios::binary ) << "RIFF";
-            const auto text = Desert::Assets::SoundAsset::Write( Guid, "Hit.wav" );
+            const auto text = Desert::Assets::SoundAsset::Write(
+                 Guid, "Hit.wav", Desert::Audio::SoundClass::Effects, Desert::Audio::SoundLoading::Resident );
             EXPECT_TRUE( text );
             std::ofstream( Root / "Audio" / "Hit.desound", std::ios::binary ) << text.GetValue();
         }

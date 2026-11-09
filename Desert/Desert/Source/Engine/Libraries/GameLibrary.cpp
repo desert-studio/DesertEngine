@@ -29,7 +29,10 @@ namespace Desert::Libraries
 
     void AudioLibrary::Play( const std::string& clip, float volume )
     {
-        Audio::AudioEngine::Get().PlayOneShot( clip, Audio::SoundClass::Effects, volume );
+        // A path names no `.desound`, so it states no class or loading: Effects, decoded whole (AUD-API moves
+        // Audio.play to a sound GUID and takes both from the asset).
+        Audio::AudioEngine::Get().PlayOneShot(
+             Audio::SoundSource{ clip, Audio::SoundClass::Effects, Audio::SoundLoading::Resident }, volume );
     }
 
     void AudioLibrary::StopAll()

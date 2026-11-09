@@ -2,8 +2,12 @@
     "Header": {
         "Kind": "Sound",
         "Guid": "184c756ca2b741b6b228dbb306a6a145",
-        "Versions": {},
+        "Versions": {
+            "SNDW": 1
+        },
         "Dependencies": []
     },
-    "Source": "Tone440.wav"
+    "Source": "Tone440.wav",
+    "Class": "Effects",
+    "Loading": "Resident"
 }
