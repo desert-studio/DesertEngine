@@ -501,6 +501,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<VkDescriptorPool> Pools; // Pools[Current] allocates; a full one is followed by a new one
             size_t                        Current = 0;
+            // FPS-CPU2-VKFRAME: a set was allocated from Pools[0 .. Current] since the last reset. Pools past
+            // Current and the pools of an arena no chunk drew from hold nothing: resetting them changes nothing.
+            bool Used = false;
         };
 
         Common::ResultStr<VkDescriptorPool> AddPool( SlotPools& slot );
