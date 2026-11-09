@@ -1491,7 +1491,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RenderMaskedDepthManual( const RDG::PassContext& context ) const;
         // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite's raster into VisBuffer64 and its material pass).
         // SceneRenderer sets it per frame BEFORE "Deferred: Masked Depth Prepass": PostProcessSettings::
-        // GrassVisibilityBuffer on a device with SupportsVisibilityBuffer64. While on, every blade section whose
+        // GrassRaster (or its Scalability default) on a device with SupportsVisibilityBuffer64. While on, every blade section whose
         // (GrassBlade x Visibility) and (GrassBlade x VisibilityResolve) pipelines are Ready (m_GrassVisibilitySections,
         // decided in DeclareMaskedDepthDraws) leaves the masked depth prepass and the G-buffer and is drawn by the two
         // nodes below instead; one still compiling keeps the G-buffer path that frame.

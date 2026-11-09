@@ -339,7 +339,8 @@ namespace Desert::Graphic::System
             // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic). The far
             // LOD of a blade (GPU-FRAME-4) or a mesh (GPU-FRAME-6): z = the distance at which its bounding radius
             // at scale 1 stands at the Foliage quality's LodScreenPixels (0: none; GrassFieldShare.glslh
-            // GrassBladeLodAt, GrassMeshFarLod).
+            // GrassBladeLodAt, GrassMeshFarLod). w, a blade: the distance its coarsest level's instances draw
+            // from as the small bucket (BladeStrip's BladeSmall; 0: none); a mesh: 0.
             glm::vec4 Lod;
             // The variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = the noise seed's
             // bits (shared by a Group).
@@ -645,6 +646,17 @@ namespace Desert::Graphic::System
             if ( level == 1u )
                 break;
         }
+        // THE SMALL BUCKET (FPS-GRASS-RASTER; UE r.MinScreenRadiusForDepthPrepass over the grass HISM's
+        // per-instance LOD): one more submesh over the coarsest level's own ranges - the same one-segment blade,
+        // no new vertex - so the coarsest level's instances past the distance where every blade stands below
+        // kMinScreenRadiusForDepthPrepass of the screen (GrassCull: p.Lod.w) draw as a bucket of their own, one
+        // indirect draw, which the masked depth prepass leaves to the G-buffer (VarietyGpu::PrepassBuckets).
+        // Without it the coarsest level runs from 2 x LodDistance to the field's end and is never small.
+        {
+            Submesh smallBucket = submeshes.back();
+            smallBucket.Name    = "BladeSmall";
+            submeshes.push_back( std::move( smallBucket ) );
+        }
         strip = std::make_shared<StaticMesh>( vertices, indices, submeshes, std::vector<MeshVertexStreams>{} );
         if ( const auto uploaded = strip->Invalidate(); !uploaded.IsSuccess() )
         {
@@ -669,6 +681,7 @@ namespace Desert::Graphic::System
         GrassFieldLens          FieldLens{};
         float                   Cell = 0.0f, Lens = 0.0f, Radius = 0.0f, KeepShare = 0.0f, LodDistance = 0.0f;
         float                   FarLodDistance = 0.0f, BoundsRadius = 0.0f, BoundsHeight = 0.0f, SnowDepth = 0.0f;
+        float                   SmallDistance = 0.0f; // a blade's small bucket's start (GrassCull p.Lod.w)
         double                  Moved    = 0.0;
         uint32_t                Capacity = 0u, Buckets = 0u, Records = 0u;
         uint64_t                FieldRevision = 0u;
@@ -760,6 +773,8 @@ namespace Desert::Graphic::System
                                          2.0 * variety.Blade->Scatter * cell
                                    : 0.0;
         VarietyGpu&  gpu    = m_Varieties[variety.Key];
+        // The distance past which a blade's coarsest level is its small bucket (BladeStrip's BladeSmall).
+        float        smallDistance = 0.0f;
         {
             const GrassPlacement& placement = variety.Placement;
             const float maxScale = std::max( { placement.ScaleX.y, placement.ScaleY.y, placement.ScaleZ.y, 1.0e-3f } );
@@ -774,7 +789,17 @@ namespace Desert::Graphic::System
             gpu.PrepassBuckets = buckets;
             const float screenMultiple =
                  std::max( 0.5f * std::abs( frame.Projection[0][0] ), 0.5f * std::abs( frame.Projection[1][1] ) );
-            for ( uint32_t b = 1; perspective && b < buckets; ++b )
+            // A blade's last bucket is the small one (BladeStrip's BladeSmall): the coarsest level's instances
+            // from the distance where the largest blade - the bounding radius at the largest scale - stands below
+            // kMinScreenRadiusForDepthPrepass of the screen in the same measure (GrassCull p.Lod.w). 0: none (an
+            // orthographic lens) - the bucket stays empty and in the pair. Its levels' buckets keep their rings.
+            if ( variety.Blade && perspective && buckets > 1u )
+            {
+                smallDistance = screenMultiple * boundsRadius * maxScale / kMinScreenRadiusForDepthPrepass;
+                gpu.PrepassBuckets = buckets - 1u;
+            }
+            const uint32_t stripLevels = variety.Blade && buckets > 1u ? buckets - 1u : buckets;
+            for ( uint32_t b = 1; perspective && b < stripLevels; ++b )
             {
                 float largest = 1.0f;
                 if ( variety.Blade && lodDistance > 0.0f )
@@ -854,17 +879,23 @@ namespace Desert::Graphic::System
         {
             // A blade's level is a ring of distance; a mesh level's screen size reaches anywhere in the disc (a
             // large instance keeps its detail farther than a small one), so it is bounded by the whole disc.
-            const bool ring  = variety.Blade && buckets > 1u;
-            double     inner = ring ? static_cast<double>( b ) * lodDistance : 0.0;
+            // A blade's last bucket is its small one (BladeStrip's BladeSmall): the coarsest level's instances
+            // from SmallDistance out (none without it); the levels before it are rings.
+            const uint32_t levels = variety.Blade && buckets > 1u ? buckets - 1u : buckets;
+            const bool     tail   = variety.Blade && buckets > 1u && b == levels; // the small bucket
+            const bool     ring   = variety.Blade && levels > 1u && !tail;
+            double         inner  = ring ? static_cast<double>( b ) * lodDistance : 0.0;
+            if ( tail )
+                inner = static_cast<double>( smallDistance > 0.0f ? smallDistance : radius );
             // The coarsest level also holds the far LOD's instances (GrassBladeLodAt), from where the smallest
             // blade's radius stands at its screen size.
-            if ( ring && b + 1u == buckets && farLodDistance > 0.0f )
+            if ( ring && b + 1u == levels && farLodDistance > 0.0f )
             {
                 const float minScale = std::min( { p.ScaleX.x, p.ScaleY.x, p.ScaleZ.x } );
                 inner = std::min( inner, static_cast<double>( farLodDistance ) * std::max( minScale, 0.0f ) );
             }
-            const double outer = !ring || b + 1u == buckets ? static_cast<double>( radius )
-                                                            : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
+            const double outer = !ring || b + 1u == levels ? static_cast<double>( radius )
+                                                           : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
             uint32_t       needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
             const uint32_t bound  = needed;
             const uint32_t target = fedBack ? std::min( bound, counted[b] + counted[b] / 4u + 64u ) : 0u;
@@ -1323,6 +1354,7 @@ namespace Desert::Graphic::System
         plan.LodDistance    = lodDistance;
         plan.FarLodDistance = farLodDistance;
         plan.BoundsRadius   = boundsRadius;
+        plan.SmallDistance  = smallDistance;
         plan.BoundsHeight   = boundsHeight;
         plan.Moved          = moved;
         plan.Capacity       = capacity;
@@ -1460,7 +1492,7 @@ namespace Desert::Graphic::System
                                     std::abs( frame.Projection[2][3] ), farLodDistance, 0.0f );
         }
         else
-            params.Lod = glm::vec4( 0.0f, 0.0f, farLodDistance, 0.0f );
+            params.Lod = glm::vec4( 0.0f, 0.0f, farLodDistance, plan.SmallDistance ); // w: the small bucket
         // GRASS-TILE-1, THE VARIETY'S TILES AROUND THE EYE (UpdateTiles). The build reads the placement's params
         // alone - the grid and its jitter, the layer and its seed, the density range and the scales, a blade's
         // clump, scatter, patchiness and lean, the patches - and the field (its revision); the share its tiles

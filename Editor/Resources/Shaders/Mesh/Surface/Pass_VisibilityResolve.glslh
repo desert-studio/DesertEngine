@@ -41,6 +41,11 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
 #endif
+// The view's decals (DECALS-DBUFFER, Common/DBuffer.glslh), folded in by the one writer as the raster G-buffer
+// cell does: a view that draws decals rasters the words' depth before "Deferred: Decals"
+// (SceneRenderer::AddFrameGBuffer, FPS-GRASS-VISBUF-DECALS), so the DBuffer at this pixel is the blade's. A view
+// without one binds System.Black and the writer reads nothing (DesertViewHasDBuffer).
+#define DESERT_SURFACE_DBUFFER_RECEIVE
 #include <Mesh/Surface/GBufferOutputs.glslh>
 layout( depth_any ) out float gl_FragDepth;
 

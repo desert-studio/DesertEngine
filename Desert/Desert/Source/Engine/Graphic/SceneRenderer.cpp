@@ -359,11 +359,13 @@ namespace Desert::Graphic
                                "grow: {}",
                                init.GetError() );
                 }
-                // Its visibility buffer (GRASS-VIS): without it the view refuses GrassVisibilityBuffer by this error.
+                // Its visibility buffer (GRASS-VIS): without it the view refuses the grass visibility buffer path
+                // (Core::GrassRasterPath) by this error.
                 if ( const auto init = m_GrassVisibility.Initialize(); !init )
-                    LOG_ERROR( "[SceneRenderer] no grass visibility buffer; GrassVisibilityBuffer keeps the G-buffer "
-                               "grass path: {}",
+                {
+                    LOG_ERROR( "[SceneRenderer] no grass visibility buffer; the grass keeps the G-buffer path: {}",
                                init.GetError() );
+                }
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
@@ -1160,18 +1162,41 @@ namespace Desert::Graphic
              quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
-        // The grass visibility buffer is what the view asks for; it runs only on a device with 64-bit storage-buffer
-        // atomics in the fragment stage. Asked for without them it is refused by name once and the grass keeps
-        // the G-buffer path (masked depth prepass + GBuffer) - never a silent fallback.
+        // The grass visibility buffer (FPS-GRASS-VISBUF): what the view's volume asks for (Core::GrassRasterPath),
+        // and for a volume that leaves it to Scalability (the default) the level's Foliage.GrassVisibilityBuffer.
+        // It runs only on a device with 64-bit storage-buffer atomics in the fragment stage. Asked for without
+        // them it is refused by name once and the grass keeps the G-buffer path (masked depth prepass + GBuffer) -
+        // never a silent fallback. The path the view settles on is logged each time it changes.
         {
             const bool supported =
                  EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64;
-            m_GrassVisibilityBuffer = post.GrassVisibilityBuffer && supported;
-            if ( post.GrassVisibilityBuffer && !supported && !m_GrassVisibilityRefusal )
+            bool wanted = post.GrassRaster == Core::GrassRasterPath::VisibilityBuffer;
+            if ( post.GrassRaster == Core::GrassRasterPath::Scalability )
+                wanted = quality.As<int>( Parameter::FoliageGrassVisibilityBuffer ) != 0;
+            m_GrassVisibilityBuffer = wanted && supported;
+            if ( wanted && !supported && !m_GrassVisibilityRefusal )
             {
                 m_GrassVisibilityRefusal = true;
-                LOG_ERROR( "[SceneRenderer] GrassVisibilityBuffer refused: the device has no shaderInt64 + "
-                           "shaderBufferInt64Atomics + fragmentStoresAndAtomics; grass draws through the G-buffer." );
+                LOG_ERROR(
+                     "[SceneRenderer] the grass visibility buffer refused: the device has no shaderInt64 + "
+                     "shaderBufferInt64Atomics + fragmentStoresAndAtomics; grass draws through the G-buffer." );
+            }
+            const uint8_t chosen = m_GrassVisibilityBuffer ? uint8_t{ 2 } : uint8_t{ 1 };
+            if ( chosen != m_GrassRasterLogged )
+            {
+                m_GrassRasterLogged = chosen;
+                std::string_view by = "Foliage.GrassVisibilityBuffer";
+                if ( post.GrassRaster != Core::GrassRasterPath::Scalability )
+                    by = "the volume's GrassRaster";
+                if ( m_GrassVisibilityBuffer )
+                {
+                    LOG_INFO( "[SceneRenderer] grass path: visibility buffer (raster once + tiled resolve), by {}",
+                              by );
+                }
+                else
+                {
+                    LOG_INFO( "[SceneRenderer] grass path: masked depth prepass + G-buffer, by {}", by );
+                }
             }
         }
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -2528,13 +2553,15 @@ namespace Desert::Graphic
             m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
                                    GetPipelineCache() );
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
-            AddFrameGBuffer( graph, textures, meshRenderer );
+            // A view with decals rasters the grass's phase 1 inside AddFrameGBuffer, before "Deferred: Decals".
+            const bool grassRasteredBeforeDecals =
+                 AddFrameGBuffer( graph, textures, meshRenderer, grassVisibility );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
             // face view draws no particles (AddFrameParticlesSimulate above).
             if ( auto* particles = m_Systems.Particle.get(); particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
-            if ( grassVisibility.IsValid() )
+            if ( grassVisibility.IsValid() && !grassRasteredBeforeDecals )
                 AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).

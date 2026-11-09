@@ -450,7 +450,15 @@ namespace Desert::Migration
     //       default (MigrateFilmicDefaultV73ToV74). Scenes and prefabs alike, the record and every override.
     inline constexpr int kSceneVersionFilmicDefault = 74;
 
-    static_assert( kSceneVersionFilmicDefault == kSceneVersion,
+    //  75 - THE GRASS RASTER PATH IS THE RENDERER'S (FPS-GRASS-VISBUF; UE 5 Nanite foliage). The volume's bool
+    //       PostProcessSettings.GrassVisibilityBuffer becomes GrassRaster, a Core::GrassRasterPath (Scalability 0,
+    //       GBuffer 1, VisibilityBuffer 2): false - the former default, which every volume serialised - is
+    //       Scalability (the level's Foliage.GrassVisibilityBuffer decides), true is VisibilityBuffer. A value
+    //       that is not a bool is refused, naming the entity (MigrateGrassRasterPathV74ToV75). Scenes and
+    //       prefabs alike, the record and every prefab override.
+    inline constexpr int kSceneVersionGrassRasterPath = 75;
+
+    static_assert( kSceneVersionGrassRasterPath == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -887,6 +895,18 @@ namespace Desert::Migration
     // prefab override (kSceneVersionFilmicDefault). PURE.
     FilmicDefaultReport MigrateFilmicDefaultV73ToV74( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateGrassRasterPathV74ToV75 did to one file.
+    struct GrassRasterPathReport
+    {
+        std::size_t              Restated = 0; // GrassVisibilityBuffer bools re-stated as GrassRaster
+        std::vector<std::string> Refused;      // a Settings block that is not an object, or a non-bool value
+    };
+
+    // Re-states every PostProcessVolume.Settings GrassVisibilityBuffer (bool) as GrassRaster: false ->
+    // Scalability (0), true -> VisibilityBuffer (2), in the record and in every prefab override
+    // (kSceneVersionGrassRasterPath). PURE.
+    GrassRasterPathReport MigrateGrassRasterPathV74ToV75( std::vector<Assets::EntityData>& entities );
+
     // What MigrateLightRotationV0ToV1 did to one file.
     struct SunRotationReport
     {
@@ -1320,6 +1340,8 @@ namespace Desert::Migration
         ComposedGIReport    ComposedGI;
         bool                FilmicDefaultRaised = false; // below kSceneVersionFilmicDefault
         FilmicDefaultReport FilmicDefault;
+        bool                  GrassRasterPathRaised = false; // below kSceneVersionGrassRasterPath
+        GrassRasterPathReport GrassRasterPath;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1339,7 +1361,7 @@ namespace Desert::Migration
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised;
+                   FilmicDefaultRaised || GrassRasterPathRaised;
         }
     };
 

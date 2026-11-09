@@ -467,6 +467,15 @@ namespace Common::Scalability
         // SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack. Key
         // "Effects.CloudLightLocalSamples".
         CloudLightLocalSamples,
+        // 0/1: the view's grass blades and mesh grass rasterise ONCE into a 64-bit visibility buffer and their
+        // material is resolved once per pixel (FPS-GRASS-VISBUF; UE 5 Nanite foliage), instead of the masked depth
+        // prepass + the EQUAL G-buffer pass that rasterise them twice. The same G-buffer texel either way (one
+        // writer, Mesh/Surface/GBufferOutputs.glslh): a cost, not a quality step. What a volume's
+        // Core::GrassRasterPath::Scalability (its default) renders; a volume stating GBuffer / VisibilityBuffer
+        // overrides it. Read by SceneRenderer::OnUpdate (m_GrassVisibilityBuffer). Key
+        // "Foliage.GrassVisibilityBuffer": 1 at every level, so only a machine override names it (0 = the A/B and
+        // the rollback).
+        FoliageGrassVisibilityBuffer,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

@@ -487,6 +487,11 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack "
                "(the ceiling on VolumetricCloudData::LightMarchLocalSamples, the near sun ray's samples)",
                16, Vis::Advanced },
+             { P::FoliageGrassVisibilityBuffer, G::Foliage, "Foliage.GrassVisibilityBuffer", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate (m_GrassVisibilityBuffer: the grass rasterised once into the visibility "
+               "buffer and resolved per pixel, for a volume's GrassRasterPath::Scalability; 0 = masked depth "
+               "prepass + EQUAL G-buffer)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

@@ -1629,7 +1629,13 @@ namespace Desert::Graphic
         // nothing forces it later, and its consumer forces it earlier.
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
-        void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // A view that draws decals (FPS-GRASS-VISBUF-DECALS; UE: the DBuffer runs after every opaque depth writer,
+        // Nanite's included) runs @p grassVisibility's phase-1 "Grass: Visibility Raster" + "Grass: Visibility
+        // Depth" here, after the full early-Z and BEFORE "Deferred: Decals", so the decals project onto the
+        // blades and the resolve receives them. True when it did: the caller adds no second phase-1 raster.
+        [[nodiscard]] bool AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
+                                            System::MeshRenderer*                         meshRenderer,
+                                            const VirtualGeometry::VisibilityBufferFrame& grassVisibility );
         // "Deferred: Decals" (UE RenderDBuffer), from AddFrameGBuffer between the full early-Z and the base pass:
         // m_Decals' prepared boxes over @p sceneDepth into DBufferA/B/C, published as FrameTransients::DBuffer*
         // for every G-buffer writer after it; no node and no DBuffer when this view draws no decal.
@@ -1640,9 +1646,10 @@ namespace Desert::Graphic
         void AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                            System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
-        // GRASS-VIS (after the G-buffer, the terrain and the particles, BEFORE the draw bins' HZB, so this frame's
-        // HZB still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
-        // "Grass: Visibility Resolve" into the G-buffer. Nothing when the mesh renderer chose no section.
+        // GRASS-VIS (after the G-buffer, the terrain and the particles - or, in a view with decals, from
+        // AddFrameGBuffer before "Deferred: Decals" - and always BEFORE the draw bins' HZB, so this frame's HZB
+        // still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
+        // "Grass: Visibility Depth". Nothing when the mesh renderer chose no section.
         // @p postOcclusion (AddFrameGrassPostOcclusion): the two nodes over the grass's phase-2 records.
         void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                                       const VirtualGeometry::VisibilityBufferFrame& visibility, bool postOcclusion );
@@ -2160,10 +2167,13 @@ namespace Desert::Graphic
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
         bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
-        // Grass through the 64-bit visibility buffer this frame: PostProcessSettings::GrassVisibilityBuffer AND the
-        // device's SupportsVisibilityBuffer64 (refreshed in BeginScene). The refusal is logged once per renderer.
+        // Grass through the 64-bit visibility buffer this frame: what PostProcessSettings::GrassRaster asks for
+        // (GrassRasterPath::Scalability: the level's Foliage.GrassVisibilityBuffer) AND the device's
+        // SupportsVisibilityBuffer64. The refusal is logged once per renderer; the chosen path each time it
+        // changes (m_GrassRasterLogged: 0 none yet, 1 G-buffer, 2 visibility buffer).
         bool                    m_GrassVisibilityBuffer  = false;
         bool                    m_GrassVisibilityRefusal = false;
+        uint8_t                 m_GrassRasterLogged      = 0;
         // The view's visibility buffer (GRASS-VIS): initialised with the grass system; the last error its frame
         // returned, logged when it changes (a view that cannot allocate it keeps the G-buffer grass path).
         VirtualGeometry::VisibilityBuffer m_GrassVisibility;
