@@ -512,12 +512,13 @@ namespace Desert::Graphic
         textures.Transients.DBufferC = dbufferC;
     }
 
-    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer )
+    bool SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
+                                         System::MeshRenderer*                         meshRenderer,
+                                         const VirtualGeometry::VisibilityBufferFrame& grassVisibility )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
         if ( !targets || meshRenderer == nullptr )
-            return;
+            return false;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
         // The shading word target (slot 2, RG32_UINT) takes the same clear: the bits of 0.0f are uint 0, which is
@@ -559,6 +560,19 @@ namespace Desert::Graphic
              { return meshRenderer->RenderMaskedDepthManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
+        // THE GRASS VISIBILITY BUFFER'S DEPTH BEFORE THE DECALS (FPS-GRASS-VISBUF-DECALS; UE: Nanite emits its
+        // depth before RenderDBuffer, so a decal lands on Nanite geometry as on any opaque mesh). A view that
+        // draws decals runs the full early-Z (OnUpdate: EarlyZPassMode::All), so this depth already holds every
+        // opaque occluder and the ground: phase 1's raster tests it, "Grass: Visibility Depth" writes the blades'
+        // depth, and "Deferred: Decals" below reconstructs its receivers from it - the resolve folds the DBuffer
+        // in like the G-buffer cells (Pass_VisibilityResolve.glslh). The base pass, the ground and the particles
+        // after it then test the blades' depth (EQUAL / LESS as ever), and the resolve's CloserOrEqual keeps what
+        // lies in front of a blade. A view without a decal keeps the raster after them (SceneRenderer::OnUpdate):
+        // the masked early-Z alone leaves the opaque meshes out of this depth, the raster would lose their
+        // occlusion.
+        const bool grassBeforeDecals = grassVisibility.IsValid() && m_Decals.HasDraws();
+        if ( grassBeforeDecals )
+            AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
         AddFrameDecals( graph, textures, targets->Depth );
         // The view's inputs below are taken AFTER "Deferred: Decals": the G-buffer reads the DBuffer it wrote.
         AddRaster(
@@ -569,6 +583,7 @@ namespace Desert::Graphic
              { return meshRenderer->RenderGBufferManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareGBufferDraws( pass, view ); } );
+        return grassBeforeDecals;
     }
 
     void SceneRenderer::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
@@ -608,7 +623,8 @@ namespace Desert::Graphic
                                                  const bool                                    postOcclusion )
     {
         // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material
-        // pass). The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it
+        // pass). The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles - in a view
+        // with decals the full early-Z's, before "Deferred: Decals", AddFrameGBuffer), tests it
         // and writes none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins
         // whatever order the draws ran in and no overdraw is shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets):
         // after phase 1's raster "Grass: Visibility Depth" writes the words' depth WITHOUT the material, so the

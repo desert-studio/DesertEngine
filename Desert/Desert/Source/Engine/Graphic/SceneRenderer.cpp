@@ -2553,13 +2553,15 @@ namespace Desert::Graphic
             m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
                                    GetPipelineCache() );
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
-            AddFrameGBuffer( graph, textures, meshRenderer );
+            // A view with decals rasters the grass's phase 1 inside AddFrameGBuffer, before "Deferred: Decals".
+            const bool grassRasteredBeforeDecals =
+                 AddFrameGBuffer( graph, textures, meshRenderer, grassVisibility );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
             // face view draws no particles (AddFrameParticlesSimulate above).
             if ( auto* particles = m_Systems.Particle.get(); particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
-            if ( grassVisibility.IsValid() )
+            if ( grassVisibility.IsValid() && !grassRasteredBeforeDecals )
                 AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).

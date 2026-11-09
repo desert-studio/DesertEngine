@@ -5,8 +5,8 @@
 // the visibility resolve (Pass_VisibilityResolve.glslh, GRASS-VIS), so a texel means the same whichever wrote it.
 // Needs SurfaceInput / SurfaceOutput (SurfaceTypes.glslh) and DESERT_SHADING_MODEL_INDEX (the parser).
 #include <Generated/ShadingModels.glslh>
-// The raster G-buffer cell receives the view's DBuffer (DECALS-DBUFFER, Pass_GBuffer.glslh defines it); the
-// visibility resolve does not: the grass it resolves is not in the prepass depth the decals project onto.
+// The raster G-buffer cell and the visibility resolve receive the view's DBuffer (DECALS-DBUFFER; defined by
+// Pass_GBuffer.glslh and Pass_VisibilityResolve.glslh): the resolved grass's depth is rastered before the decals.
 #ifdef DESERT_SURFACE_DBUFFER_RECEIVE
 #include <Common/DBuffer.glslh>
 #endif
