@@ -271,14 +271,31 @@ namespace Desert::Graphic::API::Vulkan
             const void* m_Recorder                                              = nullptr;
             Common::BoolResultStr ( *m_Call )( const void*, const SubmeshRun& ) = nullptr;
         };
+        // FPS-CPU2-VKRECORD (UE FMeshDrawCommandStateCache): what the walk before this one IN THE SAME BATCH
+        // (RenderMeshIndirectCountBins) left bound on the recording command buffer - the pass state of Pipeline /
+        // Built / Material with a draw push of PushBytes, bound with PassStatePush::CallerCoversRange, and the
+        // buffers of Geometry with no id stream. Nothing records between two walks of one batch, so a walk whose
+        // pass state equals it skips BindGraphicsPassState (a memo hit, an already-bound pipeline and sets) and
+        // one whose geometry equals it too skips BindMeshBuffers. Pipeline null = nothing known.
+        struct MeshWalkBound
+        {
+            const GraphicsPipeline*    Pipeline  = nullptr;
+            const VulkanBuiltPipeline* Built     = nullptr;
+            const MaterialExecutor*    Material  = nullptr;
+            size_t                     PushBytes = 0;
+            const MeshGeometry*        Geometry  = nullptr;
+        };
         // RenderMesh's walk, shared by the direct and the indirect mesh draw: the pass state, the mesh's vertex,
         // stream and index buffers, then for every run of drawn submeshes (SubmeshRun) its push block (the
         // draw's @p push, transform * submesh.Transform over the first mat4) once before @p draw records the run.
+        // @p draw's value: true = walk on, false = the draw is complete (a compacted bin's one call), so the runs
+        // after it get no push block. @p bound: the batch's bound state (MeshWalkBound), null for a lone draw.
         Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings,
                                                  const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                  const glm::mat4& transform, const MaterialExecutor& material,
                                                  std::span<const std::byte> push, SubmeshMask hiddenSubmeshMask,
-                                                 VkBuffer visibleRows, const SubmeshRunDraw& draw );
+                                                 VkBuffer visibleRows, const SubmeshRunDraw& draw,
+                                                 MeshWalkBound* bound = nullptr );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
