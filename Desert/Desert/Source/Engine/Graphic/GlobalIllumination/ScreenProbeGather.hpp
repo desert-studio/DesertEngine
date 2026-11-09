@@ -393,6 +393,7 @@ namespace Desert::Graphic::GlobalIllumination
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
             IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
             Integrate,              // the full permutation: the tiles that evaluate GGX samples
+            IntegrateUncovered,     // ScreenProbeIntegrate SP_INTEGRATE_UNCOVERED: the pixels no probe holds
             Temporal,
             ProgramCount
         };

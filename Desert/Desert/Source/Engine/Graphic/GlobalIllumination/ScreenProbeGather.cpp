@@ -142,6 +142,9 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateTilesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredMaskUB );
     };
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
@@ -193,24 +196,46 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 15> kScreenProbeShaderNames{
+        constexpr std::array<std::string_view, 16> kScreenProbeShaderNames{
              "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
              "ScreenProbeCompactTraces", "ScreenProbeTrace",        "ScreenProbeTrace",
              "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeDisocclusion",
              "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeTemporal" };
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
+             "ScreenProbeTemporal" };
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
-        // integrate's tile classification and its simple-diffuse permutation (ScreenProbeIntegrate.shader).
+        // integrate's tile classification, its simple-diffuse permutation and its uncovered-pixel pass
+        // (ScreenProbeIntegrate.shader).
         constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
-             "", "", "", "", "", "", "", "", "", "", "", "SP_INTEGRATE_CLASSIFY", "SP_INTEGRATE_SIMPLE_DIFFUSE",
-             "", "" };
+             "",
+             "",
+             "",
+             "",
+             "",
+             "",
+             "",
+             "",
+             "",
+             "",
+             "",
+             "SP_INTEGRATE_CLASSIFY",
+             "SP_INTEGRATE_SIMPLE_DIFFUSE",
+             "",
+             "SP_INTEGRATE_UNCOVERED",
+             "" };
 
         // ScreenProbeIntegrateArgsUB: the simple-diffuse tiles' dispatch, then the full tiles' (x, y = a 2D grid
         // of SP_INTEGRATE_GROUPS_X groups a row, z = 1, w = the list's count), counted by the classification.
         // Static storage: QueueStaticBufferUpload copies nothing.
         constexpr std::array<uint32_t, 8> kIntegrateArgsReset{ 0u, 0u, 1u, 0u, 0u, 0u, 1u, 0u };
         constexpr uint64_t                kIntegrateFullArgsOffset = 4u * sizeof( uint32_t );
+        // ScreenProbeIntegrateUncoveredArgsUB: the uncovered tiles' dispatch (x, y = the same 2D grid, z = 1,
+        // w = the list's count), listed by both integrate permutations (THE UNCOVERED PIXELS,
+        // ScreenProbeIntegrate.shader). The mask: SP_UNCOVERED_MASK_WORDS words a tile, zeroed by the
+        // classification.
+        constexpr std::array<uint32_t, 4> kIntegrateUncoveredArgsReset{ 0u, 0u, 1u, 0u };
+        constexpr uint64_t                kIntegrateUncoveredMaskWords = 3u;
 
         // UE r.Lumen.ScreenProbeGather.SpatialFilterNumPasses.
         constexpr uint32_t kSpatialFilterPasses = 3;
@@ -1039,6 +1064,17 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef integrateTileList = graph.CreateBuffer(
              RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
              "ScreenProbes.IntegrateTiles" );
+        // THE UNCOVERED PIXELS (ScreenProbeIntegrate.shader): the tiles holding a pixel no probe holds, their
+        // dispatch and the per-tile pixel masks.
+        const uint64_t       integrateTileCount = static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y;
+        const RDG::BufferRef uncoveredArgs      = graph.CreateBuffer(
+             RDG::BufferDesc{ sizeof( kIntegrateUncoveredArgsReset ) }, "ScreenProbes.IntegrateUncoveredArgs" );
+        graph.QueueStaticBufferUpload( uncoveredArgs, std::as_bytes( std::span( kIntegrateUncoveredArgsReset ) ) );
+        const RDG::BufferRef uncoveredTiles = graph.CreateBuffer(
+             RDG::BufferDesc{ integrateTileCount * sizeof( uint32_t ) }, "ScreenProbes.IntegrateUncoveredTiles" );
+        const RDG::BufferRef uncoveredMask = graph.CreateBuffer(
+             RDG::BufferDesc{ integrateTileCount * kIntegrateUncoveredMaskWords * sizeof( uint32_t ) },
+             "ScreenProbes.IntegrateUncoveredMask" );
         {
             ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
             graph.AddPass(
@@ -1052,7 +1088,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Texture( IntegrateSlots::GBufferBTexture, inputs.GBufferB, kS, all )
                           .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                           .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW );
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredMaskUB, uncoveredMask, kW );
                  },
                  [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -1097,21 +1134,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeBackfaceOutTexture,
                                     backface, kW )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeMovingUB, moving, kR )
-                          // A pixel no screen probe holds reads the world radiance cache in place.
-                          .Storage( ScreenProbeGatherIntegrateShaderParameters::RadianceCacheParamsUB,
-                                    inputs.RadianceCache.Params, kR )
-                          .Storage( ScreenProbeGatherIntegrateShaderParameters::RadianceCacheIndirectionUB,
-                                    inputs.RadianceCache.Indirection, kR )
-                          .Storage( ScreenProbeGatherIntegrateShaderParameters::RadianceCacheProbesUB,
-                                    inputs.RadianceCache.Probes, kR )
-                          .Texture( ScreenProbeGatherIntegrateShaderParameters::RadianceCacheIrradianceTexture,
-                                    inputs.RadianceCache.Irradiance, kS, all )
-                          .Sampler( ScreenProbeGatherIntegrateShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Texture( ScreenProbeGatherIntegrateShaderParameters::RadianceCacheDepthTexture,
-                                    inputs.RadianceCache.Depth, kS, all )
-                          .Sampler( ScreenProbeGatherIntegrateShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
+                          // A pixel no screen probe holds: its tile's mask bit, the tile listed.
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredArgsUB, uncoveredArgs, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredUB, uncoveredTiles, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredMaskUB, uncoveredMask, kW )
                           .Texture( ScreenProbeGatherIntegrateShaderParameters::ShortRangeAoTexture, shortRangeAO,
                                     kS, all )
                           .Sampler( ScreenProbeGatherIntegrateShaderParameters::PointClampSampler,
@@ -1126,6 +1152,43 @@ namespace Desert::Graphic::GlobalIllumination
         };
         integrate( IntegrateSimpleDiffuse, "ScreenProbes: Integrate Simple Diffuse", 0u );
         integrate( Integrate, "ScreenProbes: Integrate", kIntegrateFullArgsOffset );
+        // THE UNCOVERED PIXELS: one group a listed tile, the radiance cache for its masked pixels only.
+        {
+            ComputePipeline* const pipeline = m_Pipelines[IntegrateUncovered].get();
+            graph.AddPass(
+                 "ScreenProbes: Integrate Uncovered", kAsyncPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block =
+                          builder.Bindings( m_Layouts[IntegrateUncovered].Get( m_Shaders[IntegrateUncovered] ),
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
+                     builder.Read( uncoveredArgs, RDG::Access::IndirectArgs );
+                     block.Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredArgsUB, uncoveredArgs, kR )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredUB, uncoveredTiles, kR )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredMaskUB, uncoveredMask, kR )
+                          .Storage( IntegrateSlots::ScreenProbeParamsUB, paramsBuffer, kR )
+                          .Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
+                          .Sampler( IntegrateSlots::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                          .Storage( IntegrateSlots::ScreenProbeDiffuseOutTexture, diffuse, kW )
+                          .Storage( IntegrateSlots::ScreenProbeSpecularOutTexture, specular, kW )
+                          .Storage( IntegrateSlots::ScreenProbeBackfaceOutTexture, backface, kW )
+                          .Storage( IntegrateSlots::RadianceCacheParamsUB, inputs.RadianceCache.Params, kR )
+                          .Storage( IntegrateSlots::RadianceCacheIndirectionUB, inputs.RadianceCache.Indirection,
+                                    kR )
+                          .Storage( IntegrateSlots::RadianceCacheProbesUB, inputs.RadianceCache.Probes, kR )
+                          .Texture( IntegrateSlots::RadianceCacheIrradianceTexture, inputs.RadianceCache.Irradiance,
+                                    kS, all )
+                          .Texture( IntegrateSlots::RadianceCacheDepthTexture, inputs.RadianceCache.Depth, kS, all )
+                          .Texture( IntegrateSlots::ShortRangeAoTexture, shortRangeAO, kS, all )
+                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+                     gbuf( block );
+                 },
+                 [pipeline, args = uncoveredArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
+                 } );
+        }
 
         if ( !inputs.Denoise )
             return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,
