@@ -11,9 +11,16 @@
 #include <optick.h>
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <memory>
 #include <string>
+
+#if defined( _M_X64 ) || defined( _M_IX86 ) || defined( __x86_64__ ) || defined( __i386__ )
+#include <immintrin.h> // _mm_pause: the record-phase spin (SpinForHighWork)
+#elif defined( _M_ARM64 )
+#include <intrin.h> // __yield
+#endif
 
 namespace Common
 {
@@ -64,6 +71,69 @@ namespace Common
         Shutdown();
     }
 
+    namespace
+    {
+        // THE RECORD PHASE'S SPIN (UE LowLevelTasks FWaitingQueue: spin, then park). A worker that just ran a High
+        // job - the frame's record chunks and setup tasks are the only High work (JobPriority) - pause-spins this
+        // long on the queued-work hint before it parks, so the next chunk of the same burst is taken without an
+        // OS wake (a condition-variable wake costs 5-30 us on Windows, as long as a small chunk). Bounded and
+        // gated: after a Normal or Background job a worker parks at once, and the spin never outlasts this.
+        constexpr std::chrono::microseconds kHighSpinMicros{ 30 };
+        // Pauses between two clock reads: ~1-2 us of spin on x64, so the clock is not the spin's cost.
+        constexpr int kPausesPerClockRead = 32;
+
+        inline void CpuRelax() noexcept
+        {
+#if defined( _M_X64 ) || defined( _M_IX86 ) || defined( __x86_64__ ) || defined( __i386__ )
+            _mm_pause();
+#elif defined( _M_ARM64 )
+            __yield();
+#elif defined( __aarch64__ ) || defined( __arm__ )
+            __asm__ __volatile__( "yield" );
+#else
+            std::this_thread::yield();
+#endif
+        }
+
+        constexpr size_t kBackgroundQueue = static_cast<size_t>( JobPriority::Background );
+        constexpr size_t kHighQueue       = static_cast<size_t>( JobPriority::High );
+        // The first ring a priority allocates; it doubles from there and never shrinks.
+        constexpr size_t kRingInitialCapacity = 64;
+    } // namespace
+
+    void JobSystem::JobRing::Reserve( const size_t extra )
+    {
+        const size_t size     = Size();
+        const size_t capacity = m_Slots ? m_Mask + 1 : 0;
+        if ( size + extra <= capacity )
+            return;
+        size_t grown = capacity > 0 ? capacity : kRingInitialCapacity;
+        while ( grown < size + extra )
+            grown *= 2;
+        std::unique_ptr<QueuedJob[]> slots( new QueuedJob[grown] );
+        for ( size_t i = 0; i < size; ++i )
+            slots[i] = std::move( m_Slots[( m_Head + i ) & m_Mask] ); // FIFO order kept across the grow
+        m_Slots = std::move( slots );
+        m_Mask  = grown - 1;
+        m_Head  = 0;
+        m_Tail  = size;
+    }
+
+    void JobSystem::JobRing::PushBack( QueuedJob&& job )
+    {
+        Reserve( 1 );
+        m_Slots[m_Tail & m_Mask] = std::move( job );
+        ++m_Tail;
+    }
+
+    JobSystem::QueuedJob JobSystem::JobRing::PopFront() noexcept
+    {
+        // The slot keeps a moved-from (empty) job until a push overwrites it: no captures linger in it.
+        QueuedJob job = std::move( m_Slots[m_Head & m_Mask] );
+        ++m_Head;
+        return job;
+    }
+
     void JobSystem::WorkerLoop( const size_t index ) noexcept
     {
         // Held for the worker's whole life: without it a stack overflow in a job dies with no crash
@@ -78,34 +148,42 @@ namespace Common
 #if DESERT_DEV_INSTRUMENTS
         OPTICK_THREAD( "JobSystem Worker" );
 #endif
+        bool afterHigh = false;
         for ( ;; )
         {
+            if ( afterHigh )
+                SpinForHighWork();
             QueuedJob queued;
             bool      background = false;
             {
                 std::unique_lock<std::mutex> lk( m_Mutex );
                 // A Background job past the cap is not taken, so the wait ends on a queue this worker may take
-                // from; at Stop every queue drains, the cap aside (nothing else is left to run then).
-                size_t from = kPriorityCount;
-                m_CV.wait( lk,
-                           [this, &from]
-                           {
-                               from = NextQueueLocked();
-                               return from != kPriorityCount || m_Stop;
-                           } );
+                // from; at Stop every queue drains, the cap aside (nothing else is left to run then). The worker
+                // counts itself parked (m_Sleeping) around the wait, under the lock a submitter reads it under,
+                // so a submit that sees nobody parked skips the notify and still cannot be missed: this worker
+                // reads the queues under that lock before it parks.
+                size_t from = NextQueueLocked();
+                while ( from == kPriorityCount && !m_Stop )
+                {
+                    ++m_Sleeping;
+                    m_CV.wait( lk );
+                    --m_Sleeping;
+                    from = NextQueueLocked();
+                }
                 if ( from == kPriorityCount )
                 {
-                    const auto backgroundQueue = static_cast<size_t>( JobPriority::Background );
-                    if ( m_Queues[backgroundQueue].empty() )
+                    if ( m_Queues[kBackgroundQueue].Empty() )
                         return; // stopping, every queue drained
-                    from = backgroundQueue;
+                    from = kBackgroundQueue;
                 }
-                queued = std::move( m_Queues[from].front() );
-                m_Queues[from].pop_front();
-                ++m_Running;
-                background = from == static_cast<size_t>( JobPriority::Background );
+                queued = m_Queues[from].PopFront();
+                m_Running.fetch_add( 1, std::memory_order_relaxed );
+                background = from == kBackgroundQueue;
                 if ( background )
-                    ++m_RunningBackground;
+                    m_RunningBackground.fetch_add( 1, std::memory_order_relaxed );
+                else
+                    m_QueuedHint.fetch_sub( 1, std::memory_order_relaxed );
+                afterHigh = from == kHighQueue;
             }
             InlineJob& job = queued.Job;
             // THE SUBMITTER'S FRAME for the job's run (RecordingFrame): a worker is unbound between jobs.
@@ -122,20 +200,37 @@ namespace Common
             // the render task after a job.
             queued = QueuedJob{};
 
+            // A High or Normal job ends WITHOUT THE LOCK: nothing waits on m_Running (PendingJobs only reads it).
+            m_Running.fetch_sub( 1, std::memory_order_relaxed );
+            if ( !background )
+                continue;
+            // A Background slot came free: the cap is read under the lock, so the slot is returned under it, and a
+            // worker parked on the cap may take the next one. This worker loops back and may take it itself; the
+            // wake covers a queue it leaves for a High job that came first.
             bool backgroundWaits = false;
             {
                 std::lock_guard<std::mutex> lk( m_Mutex );
-                --m_Running;
-                if ( background )
-                {
-                    --m_RunningBackground;
-                    backgroundWaits = !m_Queues[static_cast<size_t>( JobPriority::Background )].empty();
-                }
+                m_RunningBackground.fetch_sub( 1, std::memory_order_relaxed );
+                backgroundWaits = !m_Queues[kBackgroundQueue].Empty() && m_Sleeping > 0;
             }
-            // A Background slot came free: a worker parked on the cap may take the next one. This worker loops
-            // back and may take it itself; the wake covers a queue it leaves for a High job that came first.
             if ( backgroundWaits )
                 m_CV.notify_one();
+        }
+    }
+
+    void JobSystem::SpinForHighWork() const noexcept
+    {
+        const auto start = std::chrono::steady_clock::now();
+        for ( ;; )
+        {
+            for ( int i = 0; i < kPausesPerClockRead; ++i )
+            {
+                if ( m_QueuedHint.load( std::memory_order_relaxed ) != 0 )
+                    return;
+                CpuRelax();
+            }
+            if ( std::chrono::steady_clock::now() - start >= kHighSpinMicros )
+                return;
         }
     }
 
@@ -143,25 +238,71 @@ namespace Common
     {
         for ( size_t p = 0; p < kPriorityCount; ++p )
         {
-            if ( m_Queues[p].empty() )
+            if ( m_Queues[p].Empty() )
                 continue;
-            if ( p == static_cast<size_t>( JobPriority::Background ) && m_RunningBackground >= m_BackgroundCap )
+            if ( p == kBackgroundQueue &&
+                 m_RunningBackground.load( std::memory_order_relaxed ) >= m_BackgroundCap )
                 return kPriorityCount;
             return p;
         }
         return kPriorityCount;
     }
 
+    size_t JobSystem::WakesForLocked( const size_t jobs ) const noexcept
+    {
+        return std::min( jobs, m_Sleeping );
+    }
+
+    void JobSystem::Wake( const size_t wakes ) noexcept
+    {
+        if ( wakes == 0 )
+            return;
+        if ( wakes >= m_Workers.size() )
+        {
+            m_CV.notify_all();
+            return;
+        }
+        for ( size_t w = 0; w < wakes; ++w )
+            m_CV.notify_one();
+    }
+
     bool JobSystem::Submit( InlineJob job, const JobPriority priority )
     {
+        size_t wakes = 0;
         {
             std::lock_guard<std::mutex> lk( m_Mutex );
             if ( m_Stop )
                 return false; // shutting down: dropped, and the caller is told so
             const size_t queue = std::min( static_cast<size_t>( priority ), kPriorityCount - 1u );
-            m_Queues[queue].push_back( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
+            m_Queues[queue].PushBack( QueuedJob{ std::move( job ), RecordingFrame::OfThisThread() } );
+            if ( queue != kBackgroundQueue )
+                m_QueuedHint.fetch_add( 1, std::memory_order_relaxed );
+            wakes = WakesForLocked( 1 );
         }
-        m_CV.notify_one();
+        Wake( wakes );
+        return true;
+    }
+
+    bool JobSystem::SubmitBatch( const std::span<InlineJob> jobs, const JobPriority priority )
+    {
+        if ( jobs.empty() )
+            return true;
+        const RecordingFrame recording = RecordingFrame::OfThisThread();
+        size_t               wakes     = 0;
+        {
+            std::lock_guard<std::mutex> lk( m_Mutex );
+            if ( m_Stop )
+                return false; // shutting down: no job taken, the caller still owns every one
+            const size_t queue = std::min( static_cast<size_t>( priority ), kPriorityCount - 1u );
+            JobRing&     ring  = m_Queues[queue];
+            ring.Reserve( jobs.size() );
+            for ( InlineJob& job : jobs )
+                ring.PushBack( QueuedJob{ std::move( job ), recording } );
+            if ( queue != kBackgroundQueue )
+                m_QueuedHint.fetch_add( jobs.size(), std::memory_order_relaxed );
+            wakes = WakesForLocked( jobs.size() );
+        }
+        Wake( wakes );
         return true;
     }
 
@@ -169,9 +310,9 @@ namespace Common
     {
         std::lock_guard<std::mutex> lk( m_Mutex );
         size_t                      queued = 0;
-        for ( const std::deque<QueuedJob>& queue : m_Queues )
-            queued += queue.size();
-        return queued + m_Running;
+        for ( const JobRing& queue : m_Queues )
+            queued += queue.Size();
+        return queued + m_Running.load( std::memory_order_relaxed );
     }
 
     namespace
@@ -258,9 +399,14 @@ namespace Common
         // caller has returned — see RangeShare.
         const std::function<void( size_t, size_t )>* bodyPtr = &body;
 
+        // The helpers go to the pool in batches under one lock each (SubmitBatch), not one lock and one wake per
+        // helper. A refused batch (shutting down) owes nothing: the caller below claims every range itself.
+        constexpr size_t kHelperBatch = 64;
+        InlineJob        batch[kHelperBatch];
+        size_t           filled = 0;
         for ( size_t h = 0; h < helpers; ++h )
         {
-            Submit(
+            batch[filled++] = InlineJob(
                  [share, bodyPtr, count, grain]() noexcept
                  {
                      size_t index = 0;
@@ -271,8 +417,12 @@ namespace Common
                          RunRange( *bodyPtr, begin, std::min( count, begin + grain ) );
                          share->Finish();
                      }
-                 },
-                 priority );
+                 } );
+            if ( filled == kHelperBatch || h + 1 == helpers )
+            {
+                (void)SubmitBatch( std::span<InlineJob>( batch, filled ), priority );
+                filled = 0;
+            }
         }
 
         // THE CALLER WORKS TOO, and it is what makes the loop independent of the pool: if every worker is
@@ -335,9 +485,9 @@ namespace Common
     {
         struct Task
         {
-            const char*           Name = nullptr;
-            std::function<void()> Body;
-            bool                  Claimed = false;
+            const char* Name = nullptr;
+            InlineJob   Body; // noexcept by type, inline up to InlineJob::kInlineSize: no heap per task
+            bool        Claimed = false;
         };
 
         std::mutex              Mutex;
@@ -346,7 +496,7 @@ namespace Common
         size_t                  Active = 0; // tasks a WORKER runs right now
 
         /// Under the lock: task @p index, unless someone has it. @p helper counts the claim as active.
-        bool Claim( const size_t index, std::function<void()>& body, const char*& name, const bool helper )
+        bool Claim( const size_t index, InlineJob& body, const char*& name, const bool helper )
         {
             std::lock_guard<std::mutex> lk( Mutex );
             if ( index >= Tasks.size() || Tasks[index].Claimed )
@@ -360,7 +510,7 @@ namespace Common
         }
 
         /// A task body is noexcept by contract: no catch here, a throw terminates at its own site.
-        void Run( const char* name, std::function<void()>& body ) noexcept
+        void Run( const char* name, InlineJob& body ) noexcept
         {
 #if DESERT_DEV_INSTRUMENTS
             OPTICK_EVENT_DYNAMIC( name );
@@ -370,7 +520,7 @@ namespace Common
             ++t_TaskDepth;
             body();
             --t_TaskDepth;
-            body = nullptr; // the task's captures die on the thread that ran it, before the join returns
+            body = InlineJob{}; // the task's captures die on the thread that ran it, before the join returns
         }
 
         void Finish()
@@ -384,6 +534,9 @@ namespace Common
     TaskGroup::TaskGroup( const bool parallel )
          : m_Shared( std::make_shared<Shared>() ), m_Parallel( parallel && JobSystem::Get().WorkerCount() > 0 )
     {
+        // A group of one task per participant (the common shape, LaunchSlices) appends without a regrow.
+        if ( m_Parallel )
+            m_Shared->Tasks.reserve( JobSystem::Get().WorkerCount() + 1 );
     }
 
     TaskGroup::~TaskGroup()
@@ -397,7 +550,19 @@ namespace Common
         return t_TaskDepth > 0;
     }
 
-    void TaskGroup::Launch( const char* name, std::function<void()> task )
+    size_t TaskGroup::SliceCount( const size_t count, const size_t minBatch ) noexcept
+    {
+        const size_t floor        = std::max<size_t>( 1, minBatch );
+        const size_t participants = JobSystem::Get().WorkerCount() + 1;
+        return std::clamp<size_t>( count / floor, 1, participants );
+    }
+
+    void TaskGroup::RunHere( const char* name, InlineJob& task ) noexcept
+    {
+        m_Shared->Run( name, task );
+    }
+
+    void TaskGroup::Launch( const char* name, InlineJob task )
     {
         m_Joined = false;
         if ( !m_Parallel )
@@ -407,25 +572,38 @@ namespace Common
             m_Shared->Run( name, task );
             return;
         }
-        size_t index = 0;
+        LaunchBatch( name, std::span<InlineJob>( &task, 1 ) );
+    }
+
+    void TaskGroup::LaunchBatch( const char* name, const std::span<InlineJob> tasks )
+    {
+        m_Joined    = false;
+        size_t base = 0;
         {
             std::lock_guard<std::mutex> lk( m_Shared->Mutex );
-            index = m_Shared->Tasks.size();
-            m_Shared->Tasks.push_back( Shared::Task{ name, std::move( task ), false } );
+            base = m_Shared->Tasks.size();
+            for ( InlineJob& task : tasks )
+                m_Shared->Tasks.push_back( Shared::Task{ name, std::move( task ), false } );
         }
-        // A job the pool refuses (shutting down) owes nothing: the task stays unclaimed and Join runs it.
-        std::shared_ptr<Shared> shared = m_Shared;
-        JobSystem::Get().Submit(
-             [shared, index]() noexcept
-             {
-                 std::function<void()> body;
-                 const char*           taskName = nullptr;
-                 if ( !shared->Claim( index, body, taskName, true ) )
-                     return;
-                 shared->Run( taskName, body );
-                 shared->Finish();
-             },
-             JobPriority::High );
+        // The span's slots are empty now (moved into the group); they carry the claim jobs to the pool, in launch
+        // order, under one lock (SubmitBatch). A batch the pool refuses (shutting down) owes nothing: the tasks
+        // stay unclaimed and Join runs them.
+        for ( size_t i = 0; i < tasks.size(); ++i )
+        {
+            std::shared_ptr<Shared> shared = m_Shared;
+            const size_t            index  = base + i;
+            tasks[i]                       = InlineJob(
+                 [shared, index]() noexcept
+                 {
+                     InlineJob   body;
+                     const char* taskName = nullptr;
+                     if ( !shared->Claim( index, body, taskName, true ) )
+                         return;
+                     shared->Run( taskName, body );
+                     shared->Finish();
+                 } );
+        }
+        (void)JobSystem::Get().SubmitBatch( tasks, JobPriority::High );
     }
 
     void TaskGroup::Join() noexcept
@@ -440,8 +618,8 @@ namespace Common
                 if ( index >= m_Shared->Tasks.size() )
                     break;
             }
-            std::function<void()> body;
-            const char*           name = nullptr;
+            InlineJob   body;
+            const char* name = nullptr;
             if ( m_Shared->Claim( index, body, name, false ) )
                 m_Shared->Run( name, body );
         }
