@@ -20,6 +20,8 @@
 #include <Engine/Graphic/Render/Commands/DrawSkinnedMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawSlotMaterialMeshCommand.hpp>
+#include <Engine/Graphic/Render/Commands/WindGustCommand.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -62,6 +64,35 @@ namespace Desert::ECS
             // under --play, zero while editing - accumulated, never a wall clock, so one time is one pose.
             m_PrevWindSeconds = m_WindSeconds;
             m_WindSeconds += static_cast<double>( ts.GetSeconds() );
+            // THE GUST FRONTS (WIND-FIELD-GPU): carried downwind by the same gameplay step as the sway's clock,
+            // sent to every view (Render::WindGustCommand -> CameraUB::WindGust, Common/WindGust.glslh).
+            {
+                const ECS::WindGustAir air      = ECS::WindGust( registry );
+                const glm::vec4        prevGust = Graphic::PackWindGust( m_WindGustOffset, air.Gustiness,
+                                                                         air.GustSize, air.VelocityXZ );
+                m_WindGustOffset = Graphic::AdvanceWindGust( m_WindGustOffset, air.GustSize, air.VelocityXZ,
+                                                             static_cast<double>( ts.GetSeconds() ) );
+                renderCommandBuffer.Emplace<Graphic::Render::WindGustCommand>(
+                     Graphic::PackWindGust( m_WindGustOffset, air.Gustiness, air.GustSize, air.VelocityXZ ),
+                     prevGust, air.VelocityXZ );
+                // The per-draw wind below is the DIRECTIONAL air's; the point sources reach each instance through
+                // the camera block (Render::LocalWindSourceCommand -> Graphic::SelectLocalWind ->
+                // Common/LocalWind.glslh), so a field sways per instance by the sources around it.
+                m_DirectionalWindXZ = air.VelocityXZ;
+                m_LocalWind         = false;
+                for ( const entt::entity source : registry.view<WindSourceComponent>() )
+                {
+                    const ECS::WindSourceData& data = registry.get<WindSourceComponent>( source ).Data;
+                    if ( !data.PointWind || !( data.Speed > 0.0f ) || !( data.Radius > 0.0f ) )
+                        continue;
+                    m_LocalWind = true;
+                    renderCommandBuffer.Emplace<Graphic::Render::LocalWindSourceCommand>(
+                         Graphic::LocalWindCandidate{
+                              static_cast<uint32_t>( source ),
+                              glm::vec3( Entity( source, registry ).GetWorldTransform()[3] ), data.Radius,
+                              data.Speed } );
+                }
+            }
 
             // Frame-constant invalidation stamp: cached instance sets built against an older stamp
             // rebuild below (their parent Material may have been graveyarded by Invalidate()).
@@ -250,9 +281,9 @@ namespace Desert::ECS
                          // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
                          // (one source: the paint panel's edit re-reads into the same asset). A type still being
                          // read culls nothing for those frames; one that failed says why once, in the service.
-                         // Its wind response (FO-7) comes from the same file; the wind itself is the scene's
-                         // one query, ECS::WindAt, at the field entity's world origin (one push per draw, so one
-                         // sample per field), at this frame's gameplay time.
+                         // Its wind response (FO-7) comes from the same file; the push carries the scene's
+                         // directional air (one push per draw) at this frame's gameplay time, and each instance
+                         // adds the local sources around it from the camera block (Common/LocalWind.glslh).
                          Graphic::InstanceCullDistance cullDistance;
                          Graphic::InstanceWind         wind;
                          if ( const auto* foliage = registry.try_get<FoliageComponent>( entity );
@@ -261,12 +292,9 @@ namespace Desert::ECS
                                        foliage->FoliageType ) )
                              {
                                  cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
-                                 const glm::vec3 fieldOrigin =
-                                      glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
-                                 const glm::vec3 air = ECS::WindAt( registry, fieldOrigin ).Velocity;
                                  wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
-                                                                   type->Wind.Height, glm::vec2( air.x, air.z ),
-                                                                   m_WindSeconds, m_PrevWindSeconds );
+                                                                   type->Wind.Height, m_DirectionalWindXZ,
+                                                                   m_WindSeconds, m_PrevWindSeconds, m_LocalWind );
                              }
                          // Each section group is a row of the retained ISM list (StageInstancedRow: compared by
                          // handle identity, assigned only on a change) and an entry of this frame's values.
@@ -1199,6 +1227,12 @@ namespace Desert::ECS
         // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
         double m_WindSeconds = 0.0;
         double m_PrevWindSeconds = 0.0; // the clock one gameplay step ago: the instances' velocity
+        // The gust fronts' offset, gust cells, wrapped to the lattice's period (Graphic::AdvanceWindGust).
+        glm::dvec2 m_WindGustOffset{ 0.0 };
+        // This step's directional air (ECS::WindGust's VelocityXZ, cm/s): the per-draw wind direction of every
+        // field. And whether any point source blows: then a field sways even in still directional air.
+        glm::vec2 m_DirectionalWindXZ{ 0.0f };
+        bool      m_LocalWind = false;
 
         // The retained static scene's state (RecordStaticScene).
         const entt::registry*                                              m_StaticRegistry         = nullptr;

@@ -5,6 +5,7 @@
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 
 #include <glm/glm.hpp>
 
@@ -275,6 +276,23 @@ namespace Desert::Graphic
         // GPU cull selects with it (Geometry::LODView::Temporal) and CameraUB::LodTransition carries the fade to
         // the dithered cells (Mesh/Surface/LODTransition.glslh). Inactive for every other view.
         Geometry::LODTemporalSamples TemporalLOD{};
+        // EVERY VIEW of a scene: the gust fronts the foliage sway is scaled by (Graphic::PackWindGust,
+        // Common/WindGust.glslh) at this gameplay step and the previous one, the ECS's (Render::WindGustCommand).
+        // Written by the frame's owner with the grass lens (SceneRenderer::OnUpdate); a light view carries its
+        // scene's (WriteLightCamera), so a plant's shadow sways with the plant. 0 = no gusts (a still preview).
+        glm::vec4 WindGust{ 0.0f };
+        glm::vec4 PrevWindGust{ 0.0f };
+        // EVERY VIEW of a scene: the local (point) wind sources nearest the main camera (Graphic::SelectLocalWind,
+        // Common/LocalWind.glslh) at this step and the previous one, written with the gusts by the same owner; a
+        // light view carries its scene's current ones as both (WriteLightCamera). Empty = no local wind.
+        LocalWindSources LocalWind;
+        LocalWindSources PrevLocalWind;
+        // THE SCENE VIEW: the directional air at this gameplay step (cm/s, world XZ, the ECS's
+        // ECS::WindGustAir::VelocityXZ) and the speed (cm/s) LocalWind's units stand for
+        // (LocalWindSelection::ReferenceSpeed): what the particle simulation turns the scene's air back into a
+        // velocity with (ParticleRenderer's SceneWind block, VFX_SceneWind). 0 = still air / no local sources.
+        glm::vec2 WindVelocityXZ{ 0.0f };
+        float     LocalWindReferenceSpeed = 0.0f;
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

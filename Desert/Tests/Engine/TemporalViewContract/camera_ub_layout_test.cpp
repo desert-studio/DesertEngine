@@ -72,7 +72,9 @@ namespace
              { "float", { 4, 4 } },  { "vec2", { 8, 8 } },   { "vec3", { 12, 16 } },
              { "vec4", { 16, 16 } }, { "mat4", { 64, 16 } },
         };
-        const std::regex member( R"(\b(float|vec2|vec3|vec4|mat4|[A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*;)" );
+        // A member is `type name;` or an array `type name[N];` (std140: an array of vec4 strides 16 per element).
+        const std::regex member(
+             R"(\b(float|vec2|vec3|vec4|mat4|[A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\[\s*(\d+)\s*\])?\s*;)" );
         size_t           offset = 0;
         for ( auto it = std::sregex_iterator( body.begin(), body.end(), member ); it != std::sregex_iterator();
               ++it )
@@ -82,9 +84,14 @@ namespace
             EXPECT_NE( info, kSizeAlign.end() ) << "unhandled std140 type " << type;
             if ( info == kSizeAlign.end() )
                 return block;
-            offset = AlignUp( offset, info->second.second );
+            const bool array = ( *it )[3].matched;
+            EXPECT_TRUE( !array || type == "vec4" ) << "unhandled std140 array of " << type;
+            if ( array && type != "vec4" )
+                return block;
+            const size_t count = array ? static_cast<size_t>( std::stoul( ( *it )[3].str() ) ) : 1u;
+            offset             = AlignUp( offset, info->second.second );
             block.Members.push_back( { ( *it )[2], offset } );
-            offset += info->second.first;
+            offset += info->second.first * count;
         }
         block.Size = AlignUp( offset, 16 );
         return block;
@@ -144,6 +151,12 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "GrassLens", offsetof( Camera, GrassLens ) },
          { "CasterWindRing", offsetof( Camera, CasterWindRing ) },
          { "LodTransition", offsetof( Camera, LodTransition ) },
+         { "WindGust", offsetof( Camera, WindGust ) },
+         { "PrevWindGust", offsetof( Camera, PrevWindGust ) },
+         { "LocalWind", offsetof( Camera, LocalWind ) },
+         { "LocalWindSpeed", offsetof( Camera, LocalWindSpeed ) },
+         { "PrevLocalWind", offsetof( Camera, PrevLocalWind ) },
+         { "PrevLocalWindSpeed", offsetof( Camera, PrevLocalWindSpeed ) },
     };
 
     ASSERT_EQ( block.Members.size(), cpp.size() )
@@ -154,7 +167,7 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
         EXPECT_EQ( block.Members[i].Offset, cpp[i].Offset ) << cpp[i].Name;
     }
     EXPECT_EQ( block.Size, sizeof( Camera ) );
-    EXPECT_EQ( sizeof( Camera ), 544u );
+    EXPECT_EQ( sizeof( Camera ), 896u );
 }
 
 TEST( CameraUBLayout, MakeCameraUBCopiesTheViewFrame )
