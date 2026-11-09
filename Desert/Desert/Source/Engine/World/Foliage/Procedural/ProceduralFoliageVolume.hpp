@@ -15,6 +15,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
@@ -41,12 +42,52 @@ namespace Desert::World::Foliage::Procedural
         glm::vec3                  TraceEnd{ 0.0f };
     };
 
+    /// UE FFoliagePlacementUtil::GetRandomSeedForPosition's rule: a seed from the position (world X, Z) rounded to
+    /// whole centimetres (a spatial hash of the two), so a position draws the same number whatever order it is
+    /// visited in.
+    [[nodiscard]] int32_t RandomSeedForPosition( glm::vec2 position );
+
+    /// UE FFoliageDensityFalloff::IsInstanceFiltered: whether @p falloff drops the instance at @p position (world
+    /// X, Z) around @p origin, the distance normalized by @p maxDistance (cm) and clamped to 1. Never with the
+    /// curve off; drawn from RandomSeedForPosition's stream otherwise.
+    [[nodiscard]] bool IsInstanceFilteredByFalloff( const Assets::Serialization::FoliageDensityFalloff& falloff,
+                                                    glm::vec2 position, glm::vec2 origin, float maxDistance );
+
     /**
-     * @brief Every placement of the simulated @p spawner whose location lies in the volume's ground rectangle,
-     *        with its trace (UE GenerateProceduralContent + ExtractDesiredInstances).
+     * @brief A PROCEDURAL FOLIAGE BLOCKING VOLUME as resimulation sees it (UE AProceduralFoliageBlockingVolume):
+     *        a box procedural foliage does not grow in.
+     *
+     * DensityFalloff (around the box's centre, over its largest horizontal half extent) turns the hard edge into
+     * a clearing that fades: its curve's Value is the share of instances KEPT there, so (0, 0) -> (1, 1) clears
+     * the centre and lets the rim through.
+     */
+    struct ProceduralFoliageBlocker
+    {
+        ProceduralFoliageBox Box;
+        /// The procedural volume it blocks (UE ProceduralFoliageVolume); Null blocks every volume.
+        Common::UUID                                 Volume = Common::UUID::Null();
+        Assets::Serialization::FoliageDensityFalloff DensityFalloff;
+    };
+
+    /**
+     * @brief UE AInstancedFoliageActor::FoliageTrace's blocking-volume test: whether @p blocker refuses the
+     *        instance of @p volume whose vertical trace from @p traceStart found the ground at @p ground.
+     *
+     * The trace meets the box before the ground when the ground point lies in the box's footprint and the box
+     * reaches above the ground and below the trace's start. A blocker of another volume never refuses; with its
+     * falloff on, the instance is refused only when the falloff drops it.
+     */
+    [[nodiscard]] bool BlocksProceduralInstance( const ProceduralFoliageBlocker& blocker, const Common::UUID& volume,
+                                                 const glm::vec3& traceStart, const glm::vec3& ground );
+
+    /**
+     * @brief Every placement of the simulated @p spawner whose location lies in the volume's ground rectangle and
+     *        survives its type's DensityFalloff, with its trace (UE GenerateProceduralContent +
+     *        ExtractDesiredInstances).
      *
      * The tiles are anchored to the world (tile (i, j) covers [i, i+1) x [j, j+1) TileSizes), so two volumes with
-     * the same spawner grow the same forest where they meet.
+     * the same spawner grow the same forest where they meet. The falloff is measured from the volume's centre
+     * over its largest horizontal half extent (UE ActorVolumeLocation, ActorVolumeMaxExtent).
      */
     [[nodiscard]] std::vector<ProceduralFoliageDesired>
     DesiredInstancesInVolume( const ProceduralFoliageSpawner& spawner, const ProceduralFoliageBox& volume,

@@ -136,6 +136,23 @@ namespace Desert::Assets::Serialization
         LockXY,  ///< X and Y share ScaleX's draw, Z (up) draws ScaleZ
     };
 
+    /// The foliage rule's mode for a grass mode: the grass's three are the first three of UE EFoliageScaling, so a
+    /// variety's scale follows the same rule as a foliage type's (FoliageScaleFromDraws). The GPU generator
+    /// (GrassGenerate) draws the three on its own; LockXZ / LockYZ are foliage-only until it reads them.
+    [[nodiscard]] constexpr FoliageScaling ToFoliageScaling( GrassScaling scaling )
+    {
+        switch ( scaling )
+        {
+            case GrassScaling::Uniform:
+                return FoliageScaling::Uniform;
+            case GrassScaling::Free:
+                return FoliageScaling::Free;
+            case GrassScaling::LockXY:
+                return FoliageScaling::LockXY;
+        }
+        return FoliageScaling::Uniform;
+    }
+
     /**
      * @brief Where in the world a variety grows: broad noise patches with open ground between (wildflowers in
      * drifts, tussocks in clumps). UE draws this with a noise term in the landscape material's grass output

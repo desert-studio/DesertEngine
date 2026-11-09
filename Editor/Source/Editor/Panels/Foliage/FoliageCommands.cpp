@@ -149,6 +149,38 @@ namespace Desert::Editor
                                       Core::FoliagePaint::EraseDensity() = static_cast<float>( tenth ) / 10.0f;
                                       return BOOLSUCCESS;
                                   } } );
+        // The edited type's Scaling and scale ranges (FOLIAGE-SCALING), as the Details panel sets them: a mode,
+        // and a range dragged to one value from the steps a hand picks.
+        {
+            using Assets::Serialization::FoliageFloatInterval;
+            using Assets::Serialization::FoliageScaling;
+            using Assets::Serialization::FoliageTypeData;
+            const auto editType = [&scene, &assets]( std::function<void( FoliageTypeData& )> edit )
+            {
+                return [&scene, &assets, edit]() -> Common::BoolResultStr
+                {
+                    const auto editing = Core::FoliagePaint::EditingType();
+                    if ( !scene || !assets || !editing )
+                        return PaletteCommandOutcome( false, "no scene, asset manager or edited type" );
+                    return Tools::FoliagePaintTool::EditType( *scene, *assets, *editing, edit );
+                };
+            };
+            for ( const auto& [name, mode] :
+                  { std::pair{ "Uniform", FoliageScaling::Uniform }, std::pair{ "Free", FoliageScaling::Free },
+                    std::pair{ "Lock XY", FoliageScaling::LockXY }, std::pair{ "Lock XZ", FoliageScaling::LockXZ },
+                    std::pair{ "Lock YZ", FoliageScaling::LockYZ } } )
+                commands.push_back( { "Foliage", std::format( "Edited type scaling: {}", name ),
+                                      editType( [mode]( FoliageTypeData& t ) { t.Scaling = mode; } ) } );
+            constexpr float kSteps[] = { 0.1f, 0.2f, 0.25f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.75f, 0.8f,
+                                         0.9f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f, 4.0f, 5.0f };
+            for ( const auto& [axis, member] :
+                  { std::pair{ "X", &FoliageTypeData::ScaleX }, std::pair{ "Y", &FoliageTypeData::ScaleY },
+                    std::pair{ "Z", &FoliageTypeData::ScaleZ } } )
+                for ( const float value : kSteps )
+                    commands.push_back( { "Foliage", std::format( "Edited type Scale {}: {:g}", axis, value ),
+                                          editType( [member, value]( FoliageTypeData& t )
+                                                    { t.*member = FoliageFloatInterval{ value, value }; } ) } );
+        }
         commands.push_back( { "Foliage", "Fill the selected mesh", [&scene, &assets]() -> Common::BoolResultStr
                               {
                                   if ( !scene || !assets )
