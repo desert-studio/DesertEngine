@@ -137,7 +137,11 @@ namespace Desert::Core
     // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,
     // kWorldPartitionVersionTagged) states the tag and changes nothing else. The next World Partition change is
     // v2 HERE, with its step in SceneMigrator's World Partition chain, never a kSceneVersion bump.
-    inline constexpr int kWorldPartitionVersion = 1;
+    // v2 (WP-DATA-LAYERS): the block may state `DataLayers` (DataLayerSerialized) and a record a `DataLayers`
+    // component. Additive - a v1 file states neither and reads the same - so the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionDataLayers) states the tag and changes nothing else; the number moves so an older
+    // build refuses a world whose layers it would silently ignore.
+    inline constexpr int kWorldPartitionVersion = 2;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -178,14 +182,14 @@ namespace Desert::Core
     // several - per-record grid choice, e.g. a coarse grid for distant landmarks - are WP22, and a list
     // now means that step adds entries rather than reshaping the block.
     //
-    // DATA LAYERS HAVE A PLACE, AND NOT A FIELD (O4: deferred). They will be a SIBLING of `Grids` in this
-    // object - `DataLayers`, a list of named layers - plus a membership list on the record, and the cell a
-    // composite lands in gains the layer as a third coordinate beside level and square. Every piece of
-    // that is ADDITIVE to this shape, which is the reservation: nothing here has to move for it. It is not
-    // an empty field today because an empty field is a setting nothing reads, and because what it would
-    // not buy is the one real hazard - an OLDER build reading a newer file and loading every layer at
-    // once. That is closed the way every schema step is closed: the step that adds `DataLayers` raises
-    // kSceneVersion, and an older build refuses the file by name (SceneIsAtCurrentVersion).
+    // DATA LAYERS (WP-DATA-LAYERS, the O4 reservation taken up) are a SIBLING of `Grids` in this object -
+    // `DataLayers`, a list of named layers (DataLayerSerialized) - plus a membership list on the record (the
+    // `DataLayers` component, ECS::DataLayersComponent). This step brings UE's EDITOR data layers: they decide
+    // what of the world the editor holds and nothing of the cook or Play. A RUNTIME layer - one whose cells
+    // stream by the layer's runtime state - makes the cell a composite lands in gain the layer as a third
+    // coordinate beside level and square; that is additive to this shape (a `Type` beside `Name`), and it is
+    // kWorldPartitionVersion's next step, so an older build refuses such a file by name instead of loading
+    // every layer at once.
     struct WorldPartitionGridSerialized
     {
         // UE FSpatialHashRuntimeGrid::GridName. What a record names in its RuntimeGrid block to stream on this
@@ -270,6 +274,30 @@ namespace Desert::Core
         bool operator==( const HLODLayerSerialized& ) const = default;
     };
 
+    // ONE DATA LAYER OF A WORLD - UE's UDataLayerInstance (WorldPartition/DataLayer/DataLayerInstance.h), the
+    // pattern and not the letter: UE names a layer by a UDataLayerAsset and keeps an instance of it per world;
+    // here the world states the layer by name, and an entity names the layers it belongs to (its `DataLayers`
+    // component), as an actor lists its DataLayerAssets.
+    //
+    // AN EDITOR LAYER (UE EDataLayerType::Editor): it organises the world while it is authored and is nothing to
+    // the cook or to Play - every member is cooked and streams as if the layer were not there. What the editor
+    // holds of the world follows it: a composite whose anchor belongs to layers, none of them loaded in the
+    // editor, stays on disk wherever the loaded regions are (UE UDataLayerManager::ResolveIsLoadedInEditor - an
+    // actor is loaded when ANY of its valid layers is; an actor in no layer is never held back by one).
+    struct DataLayerSerialized
+    {
+        // UE UDataLayerInstance::GetDataLayerShortName. What an entity's DataLayers component names; required,
+        // non-empty and unique within the world (Rules::CheckDataLayers refuses the list otherwise).
+        std::string Name;
+
+        // UE UDataLayerInstance::bIsInitiallyLoadedInEditor: whether the layer is loaded when the world opens in
+        // the editor. The WORLD's default; what one user loaded or unloaded since is that user's state
+        // (EditorRegions::DataLayerOverrides, kept beside the loaded regions - never in the world).
+        bool InitiallyLoadedInEditor = true;
+
+        bool operator==( const DataLayerSerialized& ) const = default;
+    };
+
     struct WorldPartitionSerialized
     {
         std::vector<WorldPartitionGridSerialized> Grids;
@@ -283,6 +311,10 @@ namespace Desert::Core
         // ABSENT = the world ships in the base chunk, as before - no migrator, the key is simply not written.
         // Present must be > 0 and finite (ChunkLayoutOf refuses anything else).
         std::optional<float> ChunkRegionSize;
+        // The world's data layers (UE: the UDataLayerInstance list of the world's AWorldDataLayers, one per
+        // UDataLayerAsset). Which layers an entity belongs to is its own `DataLayers` component. Optional, so a
+        // world with no layers writes no key and an empty list is not a second spelling of "none".
+        std::optional<std::vector<DataLayerSerialized>> DataLayers;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };

@@ -555,6 +555,11 @@ namespace
         if ( report.WorldPartitionTagRaised )
             out << " world partition v" << report.StatedWorldPartitionVersion << "->v"
                 << Desert::Migration::kWorldPartitionVersionTagged << " (the WPAR tag is stated)";
+        if ( report.DataLayersRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionTagged )
+                << "->v" << Desert::Migration::kWorldPartitionVersionDataLayers
+                << " (data layers: additive, nothing restated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

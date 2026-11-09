@@ -87,6 +87,22 @@ namespace Desert::Editor
                                            WorldPartitionPanel::RegionRequest{ {}, which == 2 } );
                                   } } );
 
+        // The Data Layers section's Loaded toggle (UE's Data Layer Outliner), one pair per layer of the world the
+        // window follows: what the editor holds of the world again, under this user's changed layer state.
+        if ( WorldPartition() != nullptr )
+            for ( const std::string& layer : WorldPartition()->DataLayerNames() )
+                for ( const bool load : { true, false } )
+                    commands.push_back( { "Scene",
+                                          std::format( "World Partition: {} data layer {}",
+                                                       load ? "Load" : "Unload", layer ),
+                                          [this, layer, load]
+                                          {
+                                              if ( WorldPartition() == nullptr )
+                                                  return Common::MakeError( "data layer: the World Partition "
+                                                                            "window does not exist" );
+                                              return WorldPartition()->SetDataLayerLoaded( layer, load );
+                                          } } );
+
         // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
         // same dialog F2 opens.
         commands.push_back( { "Assets", "Rename the selected asset", [this]

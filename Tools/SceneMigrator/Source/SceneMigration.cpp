@@ -5359,6 +5359,10 @@ namespace Desert::Migration
             report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
                 report.WorldPartitionTagRaised = true; // the stamp only: v1 is the v70 block under its own tag
+            // v1 -> v2 is additive (no transform), but it IS a step: without its own flag a v1 file would read as
+            // unchanged and the tool would print "already at v2" over it.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDataLayers )
+                report.DataLayersRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

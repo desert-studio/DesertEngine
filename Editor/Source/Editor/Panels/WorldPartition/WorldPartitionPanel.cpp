@@ -121,6 +121,25 @@ namespace Desert::Editor
         m_FocusPending  = true;
         m_Selection.reset();
         m_DragFrom.reset();
+        m_Held     = {};
+        m_HeldRead = false;
+        m_DataLayerStatus.clear();
+    }
+
+    const ::Desert::Core::EditorRegions::HeldRegions& WorldPartitionPanel::Held()
+    {
+        if ( m_HeldRead || !m_Scene )
+            return m_Held;
+        m_HeldRead = true;
+        if ( const auto& baseline = m_Scene->Packages()->BaselinePath() )
+        {
+            auto remembered = EditorLoadedRegions::Remembered( *baseline );
+            if ( remembered )
+                m_Held = remembered.ExtractValue();
+            else
+                m_DataLayerStatus = "The loaded regions could not be read: " + remembered.GetError();
+        }
+        return m_Held;
     }
 
     void WorldPartitionPanel::RebuildEditPlan()
@@ -309,6 +328,7 @@ namespace Desert::Editor
         {
             DrawRuntimeGrids();
             DrawGridHLODLayers();
+            DrawDataLayers();
         }
 
         if ( plan == nullptr || partition->Grids.empty() )
@@ -521,11 +541,14 @@ namespace Desert::Editor
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
         auto* assets = m_Assets;
-        auto  changed =
+        // The user's data-layer state goes with every region change: Load All does not load an unloaded layer.
+        const ::Desert::Core::EditorRegions::DataLayerOverrides layers = Held().DataLayers;
+        auto                                                    changed =
              request.Whole
-                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets )
+                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets, layers )
                    : ::Desert::Core::EditorRegions::LoadRegions(
-                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ) );
+                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ),
+                         layers );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
@@ -533,18 +556,159 @@ namespace Desert::Editor
             CommandHistory::Get().Clear();
         m_RegionStatus =
              std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
-                          "({} composite(s) in the region, {} always loaded, {} without a place).",
+                          "({} composite(s) in the region, {} always loaded, {} without a place, {} in unloaded "
+                          "data layers).",
                           outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
-                          outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced );
+                          outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
+                          outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
         // The next open of this world holds what it holds now (UE's EditorLoadedRegions). The change itself
         // stands either way; a refusal here is the status line's, so the user knows the next open will differ.
+        m_Held.Regions = request.Regions;
+        m_Held.Whole   = request.Whole;
         if ( const auto& baseline = m_Scene->Packages()->BaselinePath() )
-            if ( const auto kept = EditorLoadedRegions::Remember(
-                      *baseline, ::Desert::Core::EditorRegions::HeldRegions{ request.Regions, request.Whole } );
-                 !kept )
+            if ( const auto kept = EditorLoadedRegions::Remember( *baseline, m_Held ); !kept )
                 m_RegionStatus += " The loaded regions were not kept for the next open: " + kept.GetError();
         return BOOLSUCCESS;
+    }
+
+    std::vector<std::string> WorldPartitionPanel::DataLayerNames() const
+    {
+        std::vector<std::string> names;
+        if ( m_Scene && m_Scene->GetWorldPartition().has_value() && m_Scene->GetWorldPartition()->DataLayers )
+            for ( const ::Desert::Core::DataLayerSerialized& layer : *m_Scene->GetWorldPartition()->DataLayers )
+                names.push_back( layer.Name );
+        return names;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetDataLayerLoaded( const std::string& name, const bool loaded )
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return Common::MakeError<bool>( std::string( "Data Layers: the world is not partitioned." ) );
+        const ::Desert::Core::WorldPartitionSerialized& partition = *m_Scene->GetWorldPartition();
+        if ( !::Desert::Core::Rules::DataLayerIndexOf( partition, name ).has_value() )
+            return Common::MakeError<bool>( std::format( "Data Layers: the world states no layer '{}'.", name ) );
+        const ::Desert::Core::EditorRegions::DataLayerOverrides before = Held().DataLayers;
+        m_Held.DataLayers = ::Desert::Core::EditorRegions::WithDataLayerLoaded( partition, before, name, loaded );
+        if ( m_Held.DataLayers == before )
+            return Common::MakeSuccess( false );
+        // The same regions (or the whole world) again, under the new layer state; LoadRegion remembers it.
+        const RegionRequest again{ m_Held.Regions, m_Held.Whole };
+        if ( auto reloaded = LoadRegion( again ); !reloaded )
+        {
+            m_Held.DataLayers = before;
+            return reloaded;
+        }
+        m_DataLayerStatus = std::format( "{} '{}': {}", loaded ? "Loaded" : "Unloaded", name, m_RegionStatus );
+        return BOOLSUCCESS;
+    }
+
+    // UE's Data Layer Outliner, the pattern and not the letter: one row per layer of the world, its Loaded state
+    // for this user and the world's Initially Loaded; New and Delete edit the world's list through
+    // EditWorldPartition (one undo step, refused by Rules::CheckDataLayers as the planner would refuse it).
+    void WorldPartitionPanel::DrawDataLayers()
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() || !ImGui::CollapsingHeader( "Data Layers" ) )
+            return;
+        const ::Desert::Core::WorldPartitionSerialized current = *m_Scene->GetWorldPartition();
+        static const std::vector<::Desert::Core::DataLayerSerialized> kNoLayers;
+        const std::vector<::Desert::Core::DataLayerSerialized>&       layers =
+             current.DataLayers ? *current.DataLayers : kNoLayers;
+        const bool       heldFromFiles = m_Scene->Packages()->BaselinePath().has_value();
+        const std::vector<bool> loaded =
+             ::Desert::Core::EditorRegions::DataLayersLoadedInEditor( current, Held().DataLayers );
+
+        // Members per layer, from the plan the map draws (the world on disk, or the scene): what Delete refuses.
+        std::vector<std::size_t> members( layers.size(), 0 );
+        if ( m_EditPlan )
+            for ( const ::Desert::Core::Rules::PlannedComposite& composite : m_EditPlan->Composites )
+                for ( const std::size_t layer : composite.DataLayers )
+                    if ( layer < members.size() )
+                        members[layer] += composite.Members.size();
+
+        const auto commit = [this]( std::string label, ::Desert::Core::WorldPartitionSerialized after )
+        {
+            const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( after ) );
+            m_DataLayerStatus = edited.IsSuccess() ? std::string() : edited.GetError();
+            m_EditPlanStale   = true;
+        };
+
+        if ( layers.empty() )
+            ImGui::TextDisabled( "This world has no data layers." );
+        else if ( ImGui::BeginTable( "##datalayers", 4,
+                                     ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                                          ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Data Layer" );
+            ImGui::TableSetupColumn( "Loaded" );
+            ImGui::TableSetupColumn( "Initially Loaded" );
+            ImGui::TableSetupColumn( "Entities" );
+            ImGui::TableHeadersRow();
+            for ( std::size_t index = 0; index < layers.size(); ++index )
+            {
+                const ::Desert::Core::DataLayerSerialized& layer = layers[index];
+                ImGui::PushID( static_cast<int>( index ) );
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted( layer.Name.c_str() );
+                ImGui::TableNextColumn();
+                bool on = index < loaded.size() && loaded[index];
+                ImGui::BeginDisabled( !heldFromFiles );
+                if ( ImGui::Checkbox( "##loaded", &on ) )
+                    if ( const auto set = SetDataLayerLoaded( layer.Name, on ); !set )
+                        m_DataLayerStatus = set.GetError();
+                ImGui::EndDisabled();
+                ImGui::TableNextColumn();
+                bool initially = layer.InitiallyLoadedInEditor;
+                if ( ImGui::Checkbox( "##initially", &initially ) )
+                {
+                    ::Desert::Core::WorldPartitionSerialized after = current;
+                    ( *after.DataLayers )[index].InitiallyLoadedInEditor = initially;
+                    commit( std::format( "Data layer '{}': Initially Loaded {}", layer.Name, initially ), after );
+                }
+                ImGui::TableNextColumn();
+                ImGui::Text( "%zu", members[index] );
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "Delete" ) )
+                {
+                    if ( members[index] > 0 )
+                        m_DataLayerStatus = std::format(
+                             "Delete '{}': {} entit{} of the world belong to it - remove it from their Data "
+                             "Layers first.",
+                             layer.Name, members[index], members[index] == 1 ? "y" : "ies" );
+                    else
+                    {
+                        ::Desert::Core::WorldPartitionSerialized after = current;
+                        after.DataLayers->erase( after.DataLayers->begin() + static_cast<std::ptrdiff_t>( index ) );
+                        if ( after.DataLayers->empty() )
+                            after.DataLayers.reset(); // no layers is no key, never an empty list
+                        commit( std::format( "Delete data layer '{}'", layer.Name ), std::move( after ) );
+                        ImGui::PopID();
+                        break; // the list moved under `layers`; drawn again next frame
+                    }
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+
+        ImGui::SetNextItemWidth( 200.0f );
+        ImGui::InputTextWithHint( "##newdatalayer", "New data layer name", m_NewDataLayer.data(),
+                                  m_NewDataLayer.size() );
+        ImGui::SameLine();
+        if ( ImGui::Button( "New Data Layer" ) )
+        {
+            ::Desert::Core::WorldPartitionSerialized after = current;
+            if ( !after.DataLayers )
+                after.DataLayers.emplace();
+            const std::string name( m_NewDataLayer.data() );
+            after.DataLayers->push_back( ::Desert::Core::DataLayerSerialized{ name, true } );
+            commit( std::format( "New data layer '{}'", name ), std::move( after ) );
+            if ( m_DataLayerStatus.empty() )
+                m_NewDataLayer.fill( '\0' );
+        }
+        if ( !m_DataLayerStatus.empty() )
+            ImGui::TextWrapped( "%s", m_DataLayerStatus.c_str() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::BuildHLODs()
