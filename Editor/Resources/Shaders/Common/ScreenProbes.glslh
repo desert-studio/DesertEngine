@@ -334,16 +334,7 @@ ScreenProbe SPNeighbourProbe( ivec2 tile, uint slot, uint id )
 }
 #endif
 
-// The first uniform tile of @p pixel's four corners (corner i: + (i & 1, i >> 1)).
-ivec2 SPInterpolateBase( ivec2 pixel )
-{
-    return ivec2( floor( vec2( pixel - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE ) ) );
-}
-
-// SPInterpolate, and per corner the SLOT of its tile the picked probe came from (0 = the uniform probe), so a pass
-// that holds the neighbourhood (SP_INTERPOLATE_NEIGHBOURHOOD) finds the probe's own copy without searching it.
-void SPInterpolateSlots( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint levels, out uvec4 ids,
-                         out uvec4 slots, out vec4 weights )
+void SPInterpolate( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint levels, out uvec4 ids, out vec4 weights )
 {
     const vec2  c = vec2( pixel - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE );
     const ivec2 b = ivec2( floor( c ) );
@@ -353,7 +344,6 @@ void SPInterpolateSlots( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint l
         const ivec2 tile     = b + ivec2( i & 1, i >> 1 );
         const vec2  bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
         uint        id       = SPNeighbourUniform( tile );
-        uint        picked   = 0u;
         float       w        = 0.0;
         if ( id != SP_INVALID )
             w = bilinear.x * bilinear.y * SPProbeWeight( SPNeighbourProbe( tile, 0u, id ), p, n, viewDistance );
@@ -376,23 +366,15 @@ void SPInterpolateSlots( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint l
                     const float candidateW = corner * SPProbeWeight( probe, p, n, viewDistance );
                     if ( candidateW > w )
                     {
-                        w      = candidateW;
-                        id     = candidate;
-                        picked = slot;
+                        w  = candidateW;
+                        id = candidate;
                     }
                 }
             }
         }
         ids[i]     = w > 0.0 ? id : SP_INVALID;
-        slots[i]   = picked;
         weights[i] = w > 0.0 ? w : 0.0;
     }
-}
-
-void SPInterpolate( ivec2 pixel, vec3 p, vec3 n, float viewDistance, uint levels, out uvec4 ids, out vec4 weights )
-{
-    uvec4 slots;
-    SPInterpolateSlots( pixel, p, n, viewDistance, levels, ids, slots, weights );
 }
 
 #endif // SCREEN_PROBES_DECLARED
