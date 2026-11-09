@@ -1452,9 +1452,14 @@ namespace Desert::Graphic::RDG
     // barrier's After state, then the owner's record hook sees the new states at once. The image's own layout
     // record (read by descriptor binds and by code outside the graph) therefore follows the GPU barrier by
     // barrier instead of catching up at the end of Execute.
+    // FPS-CPU2-RDG2: the hook is called only for a texture one of whose subresources changed LAYOUT in this batch.
+    // Mid-graph the owner's record is a layout record (VulkanRenderer ImportImage: graphEnded=false re-records
+    // layouts only), so a barrier that changes only access or stages (a UAV-to-UAV hazard, a read after a read in
+    // another stage) has nothing to write back; the full states still reach the hook at the end of the graph
+    // (graphEnded=true, Execute's write-back of every external).
     Common::BoolResultStr Builder::RecordExternalStates( std::span<const Barrier> barriers )
     {
-        ScratchVector<uint32_t> touched; // resources, one per external texture
+        ScratchVector<uint32_t> touched; // resources, one per external texture whose layout changed
         for ( const Barrier& barrier : barriers )
         {
             if ( barrier.Kind != ResourceKind::Texture )
@@ -1469,10 +1474,15 @@ namespace Desert::Graphic::RDG
             const uint32_t     layers = barrier.Range.LayerCount == kAllRemaining
                                              ? desc.Layers - barrier.Range.BaseLayer
                                              : barrier.Range.LayerCount;
+            bool layoutChanged = false;
             for ( uint32_t layer = barrier.Range.BaseLayer; layer < barrier.Range.BaseLayer + layers; ++layer )
                 for ( uint32_t mip = barrier.Range.BaseMip; mip < barrier.Range.BaseMip + mips; ++mip )
-                    external->SubresourceStates[desc.SubresourceIndex( mip, layer )] = barrier.After;
-            if ( std::find( touched.begin(), touched.end(), barrier.Resource ) == touched.end() )
+                {
+                    AccessState& state = external->SubresourceStates[desc.SubresourceIndex( mip, layer )];
+                    layoutChanged      = layoutChanged || state.Layout != barrier.After.Layout;
+                    state              = barrier.After;
+                }
+            if ( layoutChanged && std::find( touched.begin(), touched.end(), barrier.Resource ) == touched.end() )
                 touched.push_back( barrier.Resource );
         }
         for ( const uint32_t resource : touched )
