@@ -100,6 +100,9 @@ namespace Desert::Editor
         const auto& scene = m_Workspace.ActiveScene();
         if ( scene->GetState() != SceneState::Edit )
             return;
+        // Play is a structural change of the edit world (entities completed from disk, the pawn, a refusal's
+        // restore): every pointer-based record goes now, as around every structural command (OnStructuralChange).
+        CommandHistory::Get().DropVolatile();
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded). Timed
         // like a load: it is the other half of the round trip Stop pays.
         Desert::Core::SceneLoadPhases       phases( "Play start" );
@@ -188,8 +191,9 @@ namespace Desert::Editor
                       ShotOptions::Get().StreamDelayTicks );
         }
 #endif
-        // An undo stack recorded against the authored scene must not fire into Play or the restored state.
-        CommandHistory::Get().Clear();
+        // THE EDIT WORLD'S HISTORY IS FENCED, NOT ERASED (PIE-UNDO-KEEP; UE: SetUndoBarrier when PIE starts,
+        // PlayLevel.cpp:2972): no record of it may fire into the played world, and Stop gives it back.
+        CommandHistory::Get().SetUndoBarrier();
         m_State = State::Play;
         if ( request.Simulate )
             LOG_INFO( "[Play] Simulate In Editor: the world runs with no player; Stop restores the level" );
@@ -209,9 +213,13 @@ namespace Desert::Editor
         // one that Play spawned (the pawn) is not in the restored world and drops out.
         const std::vector<Common::UUID> selectedBeforeStop = Core::SelectionManager::GetSelection();
         EngineContext::GetInstance().GetDevice()->WaitIdle();
-        CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
-        m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
-        phases.Lap( "wait for the GPU, drop the undo history and the streamer", 0 );
+        // THE EDIT WORLD'S HISTORY COMES BACK (UEditorEngine::EndPlayMap -> RemoveUndoBarrier, PlayLevel.cpp:677):
+        // what Play recorded against the played world goes before that world does; the edits made before Play are
+        // undoable again once the snapshot below has rebuilt the entities they name, under the same UUIDs.
+        if ( !CommandHistory::Get().RemoveUndoBarrier() )
+            LOG_ERROR( "[Play] Stop found no undo barrier: this Play session never fenced the history" );
+        m_WorldStreamer.reset(); // before Clear: the snapshot below brings every cell back
+        phases.Lap( "wait for the GPU, close the Play undo session, drop the streamer", 0 );
 
         // Whatever map Play ended on -- the authored one or one a travel loaded -- the snapshot taken when Play
         // began is what comes back (UEditorEngine::EndPlayMap: the PIE world goes, the editor's level stays).
@@ -313,6 +321,12 @@ namespace Desert::Editor
         Desert::Core::SceneLoadPhases phases( std::format( "PIE travel '{}'", path ) );
         EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
         m_WorldStreamer.reset();                              // streams the world about to be cleared
+        // The level left takes its Play records with it - they name the world about to be cleared (UE's travel in
+        // PIE makes a new PIE world) - and the edit world's history stays parked behind a fresh barrier.
+        if ( CommandHistory::Get().RemoveUndoBarrier() )
+            CommandHistory::Get().SetUndoBarrier();
+        else
+            LOG_ERROR( "[Play] travel found no undo barrier: this Play session never fenced the history" );
         const std::size_t outgoing = scene->GetAllEntities().size();
         scene->Clear();
         // A notification of the level being left names one of ITS overlay canvases (RuntimeLayer's switch).
@@ -376,6 +390,10 @@ namespace Desert::Editor
         m_PlayWorld.Discard();
         m_EditPackages.reset();
         m_WorldStreamer.reset();
+        // The session ends here, not in Stop: its records go with the closed view's world, the parked history
+        // comes back.
+        if ( !CommandHistory::Get().RemoveUndoBarrier() )
+            LOG_ERROR( "[Play] the closed view's Play session found no undo barrier: it never fenced the history" );
     }
 
     bool PlaySession::TickStreaming( Desert::Core::Scene& scene, const Common::Timestep& ts )
