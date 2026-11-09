@@ -81,9 +81,12 @@ namespace Desert::Graphic::System
         constexpr uint32_t kMarchWorkGroupSize = 8;
 
         // GPU-FARFIELD-4: lanes per view ray, CloudRaymarch.shader CLOUD_MARCH_SEGMENT_LANES. Each lane marches
-        // one contiguous quarter of the ray's segment and the four are composed front to back, so the dispatch
-        // is four times as wide for the same rays (see the shader for why).
-        constexpr uint32_t kMarchSegmentLanes = 4;
+        // one contiguous eighth of the ray's segment and the eight are composed front to back, so the dispatch
+        // is eight times as wide for the same rays and one 8-wide group row is one ray (FPS-CLOUDS-MARCH-2: four
+        // left the pass bound by its serial chain; see the shader for why).
+        constexpr uint32_t kMarchSegmentLanes = 8;
+        static_assert( kMarchWorkGroupSize % kMarchSegmentLanes == 0,
+                       "a ray's lanes must sit in one group row, aligned, for the shader's subgroup shuffles" );
 
         // One spelling with the material schema's own — the march program IS the cloud material shader.
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
