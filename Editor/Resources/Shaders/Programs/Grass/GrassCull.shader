@@ -248,11 +248,14 @@ Shader "GrassCull"
             // instance kept at a share is kept at every larger one), so the field thins one blade at a time and
             // never reshuffles; its survivors widen by 1 / Share below, past the floor's lift.
             GrassBladeLod lod = GrassBladeLod( 0u, 1.0, 1.0 );
+            // A blade's strip levels: every bucket but the last, its small one (GrassRenderer::BladeStrip's
+            // BladeSmall, the coarsest level's submesh again).
+            const uint bladeLevels = max( p.Buckets.x, 2u ) - 1u;
             if ( blade )
             {
-                uint  ring = p.Blade.x > 0.0 ? min( uint( distance / p.Blade.x ), p.Buckets.x - 1u ) : 0u;
+                uint  ring = p.Blade.x > 0.0 ? min( uint( distance / p.Blade.x ), bladeLevels - 1u ) : 0u;
                 float size = p.Lod.z > 0.0 ? p.Lod.z * scale.y / max( distance, 1.0 ) : 0.0;
-                lod        = GrassBladeLodAt( size, ring, p.Buckets.x );
+                lod        = GrassBladeLodAt( size, ring, bladeLevels );
                 float share = min( kept, field.Floor ) * lod.Share;
                 if ( fade >= share )
                     return false;
@@ -300,7 +303,15 @@ Shader "GrassCull"
 
             uint bucket = 0u;
             if ( blade )
+            {
+                // THE SMALL BUCKET (FPS-GRASS-RASTER; UE r.MinScreenRadiusForDepthPrepass): the coarsest level's
+                // instances from p.Lod.w out, where every blade stands below kMinScreenRadiusForDepthPrepass of the
+                // screen, draw the same strip level as a bucket of their own, which the masked depth prepass leaves
+                // to the G-buffer (GrassRenderer VarietyGpu::PrepassBuckets). The level and the share are the LOD's.
                 bucket = lod.Level;
+                if ( p.Lod.w > 0.0 && lod.Level + 1u == bladeLevels && distance >= p.Lod.w )
+                    bucket = bladeLevels;
+            }
             else if ( p.Buckets.x > 1u )
             {
                 // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
