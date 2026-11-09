@@ -2431,6 +2431,25 @@ namespace Desert::Graphic
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
         DESERT_PROFILE_PHASE_END( lightGridPhases );
+        // THE LUMEN SCENE'S LIGHTING BEFORE THE G-BUFFER (UE: the async Lumen scene lighting overlapping the base
+        // pass; an async pass is declared as early as its inputs allow, since RDGCompile never moves one). The
+        // surface cache's capture, direct lighting and lighting tiles read the cascades and the local shadow atlas
+        // (AddFrameShadowDepths), the light buffers and the world grid (AddFrameLightGrid,
+        // AddFrameLightGridWorld), the distance fields (AddFrameGlobalDistanceField), the TLAS and the cloud map
+        // (the graph head) - no G-buffer texel - so its async run forks here and gathers while the graphics queue
+        // rasters the G-buffer, instead of forking after it and lengthening the GI chain the composite joins. Its
+        // radiosity stays in AddFrameTracedGI, after the radiance cache update that marks its probes from the
+        // G-buffer's depth. Under virtual local pages its cards read the pages AddFrameVirtualShadows draws from
+        // the G-buffer's depth (LocalLightsReadVirtualPages picks the lighting program): declared after them,
+        // below.
+        const bool deferredLighting =
+             m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && !PathTraced( m_RenderMethods );
+        const bool surfaceCacheBeforeGBuffer = deferredLighting && !LocalLightsReadVirtualPages();
+        if ( surfaceCacheBeforeGBuffer )
+        {
+            DESERT_PROFILE_PHASE( addPhases, "Add passes: Surface cache" );
+            AddFrameSurfaceCache( graph, textures, frame );
+        }
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Base pass" );
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
@@ -2585,7 +2604,10 @@ namespace Desert::Graphic
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: SSAO + surface cache" );
                 AddFrameTileClassify( graph, textures, gbuffer );
                 AddFrameSSAO( graph, textures, gbuffer, frame );
-                AddFrameSurfaceCache( graph, textures, frame );
+                // The cards lit through the virtual local pages just drawn (AddFrameVirtualShadows); otherwise the
+                // surface cache was declared before the G-buffer (surfaceCacheBeforeGBuffer).
+                if ( !surfaceCacheBeforeGBuffer )
+                    AddFrameSurfaceCache( graph, textures, frame );
 
                 // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
                 // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history,
@@ -2610,7 +2632,8 @@ namespace Desert::Graphic
                 // THE GRAPHICS QUEUE'S WORK WHILE THE GI GATHERS (UE FDeferredShadingSceneRenderer::Render:
                 // Lumen's gather on the async pipe while the graphics pipe renders what reads none of it - the
                 // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache and the
-                // screen probes above fork after the surface cache and join at their first readers (the
+                // screen probes above fork after the screen trace (the surface cache's run forked before the
+                // G-buffer, surfaceCacheBeforeGBuffer) and join at their first readers (the
                 // reflections, the composite: RDGCompile CutRunsAtConsumers), so every node declared between the
                 // two that reads nothing the runs write - and writes nothing they read - fills the graphics
                 // queue's wait instead of sitting after the join. The volumetric fog's froxels: the light grid,
