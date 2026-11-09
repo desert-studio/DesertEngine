@@ -30,6 +30,18 @@ namespace Desert::Graphic::VirtualGeometry
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
         };
+        // ... and the ones "Grass: Visibility Classify" binds (VisibilityClassify.shader): the words read, the
+        // tiles' records written after them, and the resolve's record 0 written.
+        struct VisibilityClassifyShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
+            DESERT_SHADER_PARAMETER( StorageBuffer, ResolveArgs );
+        };
+
+        // Common/VisibilityTiles.glslh kVisTileSize (VisibilityClassify.shader's LocalSize is one group per tile)
+        // and the bytes of one tile's record (four 32-bit words).
+        inline constexpr uint32_t kTileSize        = 16u;
+        inline constexpr uint64_t kTileRecordBytes = 16u;
 
         // VisibilityClear.shader's LocalSize and the row of groups one dispatch row covers: a 4K view is ~130k
         // groups of 64, past the 65535 a dispatch dimension guarantees, so the groups are laid out 2D and the
@@ -53,6 +65,16 @@ namespace Desert::Graphic::VirtualGeometry
         if ( !made )
             return Common::MakeError( std::format( "VisibilityBuffer: {}", made.GetError() ) );
         m_Clear = made.GetValue();
+
+        // FPS-GRASS-RESOLVE: the tile classification the resolve's draws are culled by (UE Nanite material tiles).
+        const auto classifyShader = shaders->GetByName( "VisibilityClassify" );
+        if ( !classifyShader )
+            return Common::MakeError( "VisibilityBuffer: missing shader 'VisibilityClassify'" );
+        const auto classify =
+             ComputePipeline::Create( { .Shader = classifyShader, .DebugName = "VisibilityClassify" } );
+        if ( !classify )
+            return Common::MakeError( std::format( "VisibilityBuffer: {}", classify.GetError() ) );
+        m_Classify = classify.GetValue();
 
         // "Grass: Visibility Depth": the G-buffer depth alone (single-sample DEPTH32F, the target of the raster
         // it follows), tested CloserOrEqual and written; no colour, no blending, both faces of the full-screen
@@ -85,11 +107,12 @@ namespace Desert::Graphic::VirtualGeometry
         words[1] = 1u;
         words[2] = kResolveRecords;
         words[3] = 1u;
-        // Record 0 (VkDrawIndexedIndirectCommand): 3 indices, 1 instance, first index 0, vertex offset 0, instance
-        // 0.
+        // Record 0 (VkDrawIndexedIndirectCommand): 3 indices, no instance until "Grass: Visibility Classify"
+        // writes the frame's two per tile (it runs before every resolve), first index 0, vertex offset 0,
+        // instance 0.
         const auto record0  = static_cast<size_t>( GpuInstanceArgsOffset( 0 ) / 4u );
         words[record0 + 0u] = 3u;
-        words[record0 + 1u] = 1u;
+        words[record0 + 1u] = 0u;
         if ( const auto wrote = m_ResolveArgs->SetData( words.data(), kResolveArgBytes ); !wrote.IsSuccess() )
         {
             m_ResolveArgs.reset();
@@ -106,7 +129,10 @@ namespace Desert::Graphic::VirtualGeometry
             return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: not initialised" );
         if ( width == 0u || height == 0u )
             return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: the view has no extent" );
-        const uint64_t bytes = 16u + 8ull * width * height;
+        // The header, a 64-bit word per pixel, then a record per tile (Common/VisibilityTiles.glslh).
+        const uint64_t tiles =
+             uint64_t{ ( width + kTileSize - 1u ) / kTileSize } * ( ( height + kTileSize - 1u ) / kTileSize );
+        const uint64_t bytes = 16u + 8ull * width * height + kTileRecordBytes * tiles;
         if ( bytes > UINT32_MAX )
             return Common::MakeError<VisibilityBufferFrame>( std::format(
                  "VisibilityBuffer: {}x{} needs {} bytes, past one storage buffer", width, height, bytes ) );
@@ -154,6 +180,32 @@ namespace Desert::Graphic::VirtualGeometry
                  return Renderer::DispatchCompute( bindings, *m_Clear, groupsX, groupsY, 1 );
              } );
         return Common::MakeSuccess( frame );
+    }
+
+    void VisibilityBuffer::AddClassify( RDG::Builder& graph, const VisibilityBufferFrame& frame ) const
+    {
+        if ( !m_Classify || !frame.IsValid() || frame.Width == 0u || frame.Height == 0u )
+            return;
+        const uint32_t tilesX = ( frame.Width + kTileSize - 1u ) / kTileSize;
+        const uint32_t tilesY = ( frame.Height + kTileSize - 1u ) / kTileSize;
+        graph.AddPass(
+             "Grass: Visibility Classify", RDG::PassFlags::Compute,
+             [this, words = frame.Words, args = frame.ResolveArgs]( RDG::PassBuilder& pass )
+             {
+                 const auto& layout = m_ClassifyLayout.Get( m_Classify->GetSpecification().Shader );
+                 pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Classify ) )
+                      .Storage( VisibilityClassifyShaderParameters::Visibility, words, RDG::Access::StorageWrite )
+                      .Storage( VisibilityClassifyShaderParameters::ResolveArgs, args, RDG::Access::StorageWrite )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+             },
+             [this, width = frame.Width, height = frame.Height, tilesX,
+              tilesY]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 const glm::uvec4  extent( width, height, tilesX, tilesY );
+                 bindings.PushConstants( &extent, sizeof( extent ) );
+                 return Renderer::DispatchCompute( bindings, *m_Classify, tilesX, tilesY, 1 );
+             } );
     }
 
     void VisibilityBuffer::DeclareDepthBindings( RDG::PassBuilder& pass, const RDG::BufferRef words ) const

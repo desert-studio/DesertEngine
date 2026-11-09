@@ -16,15 +16,54 @@
 #extension GL_EXT_shader_atomic_int64 : require
 
 #include <Generated/SceneBindings.glslh>
+#include <Common/VisibilityTiles.glslh>
 
 #define kVisTriangleBits 7u
 #define kVisTriangleMask 0x7Fu
 
+// The resolve (FPS-GRASS-RESOLVE) only reads the buffer, and its vertex stage reads the tiles: an includer that
+// defines DESERT_VISIBILITY_READ_ONLY gets the buffer NonWritable (a vertex-stage storage buffer must be, without
+// vertexPipelineStoresAndAtomics) and no writer.
+#ifdef DESERT_VISIBILITY_READ_ONLY
+layout( std430, binding = kVgRasterVisibilityBinding ) restrict readonly buffer VisibilityBuffer
+#else
 layout( std430, binding = kVgRasterVisibilityBinding ) restrict buffer VisibilityBuffer
+#endif
 {
     uvec4    VisibilityHeader; // x = width, y = height (pixels), z, w = 0
-    uint64_t VisibilityWords[];
+    uint64_t VisibilityWords[]; // the pixels' words, then the tiles' records (Common/VisibilityTiles.glslh)
 };
+
+// THE RESOLVE'S TILE TRIANGLE (FPS-GRASS-RESOLVE; UE 5 Nanite material tile culling): vertex @p vertex (0..2) of
+// instance @p instance of a resolve draw - two triangles per tile, tile instance / 2 (VisibilityClassify.shader
+// counts them into the draw) - placed over its tile when the tile holds a row of the section's [@p first,
+// @p first + @p count), else collapsed to one point outside the view (no fragment). Pixel coordinates map to NDC
+// through the renderer's Y-up viewport (VulkanRendererAPI::SetViewportAndScissor: negative height, so framebuffer
+// row y is NDC 1 - 2 y / H), the mapping gl_FragCoord of the fragment stage reads back.
+vec4 DesertVisibilityTilePosition( const uint instance, const uint vertex, const uint first, const uint count )
+{
+    const vec4  outside = vec4( -2.0, -2.0, 0.0, 1.0 );
+    const uvec2 extent  = VisibilityHeader.xy;
+    const uvec2 grid    = DesertVisibilityTileGrid( extent );
+    const uint  tile    = instance >> 1u;
+    if ( extent.x == 0u || extent.y == 0u || tile >= grid.x * grid.y )
+        return outside;
+    const uint64_t bounds = VisibilityWords[extent.x * extent.y + 2u * tile];
+    const uint64_t mask   = VisibilityWords[extent.x * extent.y + 2u * tile + 1u];
+    if ( !DesertVisibilityTileHolds( uint( bounds & uint64_t( 0xFFFFFFFFu ) ), uint( bounds >> 32 ),
+                                     uvec2( uint( mask & uint64_t( 0xFFFFFFFFu ) ), uint( mask >> 32 ) ), first,
+                                     count ) )
+        return outside;
+    // Triangle 0: corners (0,0) (1,0) (0,1) of the tile; triangle 1 the opposite three, sharing the diagonal (the
+    // fill rule rasterises each pixel centre of the tile once).
+    vec2 corner = vec2( vertex == 1u ? 1.0 : 0.0, vertex == 2u ? 1.0 : 0.0 );
+    if ( ( instance & 1u ) != 0u )
+        corner = vec2( 1.0 ) - corner;
+    const uvec2 cell  = uvec2( tile % grid.x, tile / grid.x );
+    const vec2  pixel = min( ( vec2( cell ) + corner ) * float( kVisTileSize ), vec2( extent ) );
+    const vec2  ndc   = pixel / vec2( extent ) * 2.0 - 1.0;
+    return vec4( ndc.x, -ndc.y, 0.0, 1.0 );
+}
 
 uint64_t DesertPackVisibility( const float reversedDepth, const uint row, const uint triangle )
 {
@@ -42,12 +81,14 @@ bool DesertVisibilityPixel( const ivec2 pixel, out uint index )
     return true;
 }
 
+#ifndef DESERT_VISIBILITY_READ_ONLY
 void DesertWriteVisibility( const ivec2 pixel, const float reversedDepth, const uint row, const uint triangle )
 {
     uint index;
     if ( DesertVisibilityPixel( pixel, index ) )
         atomicMax( VisibilityWords[index], DesertPackVisibility( reversedDepth, row, triangle ) );
 }
+#endif
 
 // The pixel's word: false where nothing was drawn. @p depth is the reversed-Z depth, @p row / @p triangle the payload.
 bool DesertReadVisibility( const ivec2 pixel, out float depth, out uint row, out uint triangle )

@@ -146,13 +146,18 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 
 #ifdef DESERT_SURFACE_PASS_VisibilityResolve
 // THE VISIBILITY RESOLVE (GRASS-VIS-MESH-1, Mesh/Surface/Pass_VisibilityResolve.glslh): no instance is placed here -
-// the draw is one full-screen triangle (the first three indices, 0 1 2, of the producer's resolve mesh,
-// GpuInstancedRenderData::ResolveMesh, as Vertex_GrassBlade.glslh's), the fragment stage fetches the mesh triangle
-// its pixel's visibility word names.
+// the draw is two triangles per screen tile (the first three indices, 0 1 2, of the producer's resolve mesh,
+// GpuInstancedRenderData::ResolveMesh, as Vertex_GrassBlade.glslh's); a tile whose rows miss the section's
+// [Visibility.x, + Slots.x x Visibility.y) collapses (FPS-GRASS-RESOLVE, Common/VisibilityBuffer.glslh
+// DesertVisibilityTilePosition), so the fragment stage fetches the mesh triangle its pixel's visibility word names
+// only over the tiles that hold the section's rows.
+#include <Mesh/Surface/GrassMeshVisibility.glslh>
+#define DESERT_VISIBILITY_READ_ONLY
+#include <Common/VisibilityBuffer.glslh>
 void main()
 {
-    const vec2 corner = vec2( float( ( gl_VertexIndex << 1 ) & 2 ), float( gl_VertexIndex & 2 ) );
-    gl_Position       = vec4( corner * 2.0 - 1.0, 0.0, 1.0 );
+    gl_Position = DesertVisibilityTilePosition( uint( gl_InstanceIndex ), uint( gl_VertexIndex ),
+                                                MeshRows.Visibility.x, MeshRows.Slots.x * MeshRows.Visibility.y );
 }
 #else
 #ifdef DESERT_SURFACE_HAS_VARYINGS

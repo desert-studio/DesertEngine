@@ -643,7 +643,10 @@ namespace Desert::Graphic
                                                         System::MeshRenderer*                         meshRenderer,
                                                         const VirtualGeometry::VisibilityBufferFrame& visibility )
     {
-        // One full-screen triangle per blade section over the camera's list: phase 2 appended its slots to the
+        // Two triangles per screen tile per blade section over the camera's list, the tiles that hold none of the
+        // section's rows collapsed in its vertex stage (FPS-GRASS-RESOLVE; UE 5 Nanite material tile culling):
+        // "Grass: Visibility Classify" reads every word once after phase 2's raster and writes the tiles' records
+        // and the draws' instance count. Phase 2 appended its slots to the
         // same ids (GrassGenerate PostOcclusion), so phase 1's draws name every word's row. The G-buffer depth
         // holds the phase-1 words' depth ("Grass: Visibility Depth") and phase 2's meshes; the resolve writes each
         // word's own depth CloserOrEqual, so a phase-2 mesh in front keeps its texel.
@@ -658,6 +661,7 @@ namespace Desert::Graphic
             const char*    Name;
             MeshVertexPath Path;
         };
+        m_GrassVisibility.AddClassify( graph, visibility );
         constexpr std::array<ResolvePass, 2> kResolvePasses{
              ResolvePass{ "Grass: Visibility Resolve", MeshVertexPath::GrassBlade },
              ResolvePass{ "Grass: Mesh Visibility Resolve", MeshVertexPath::Instanced } };

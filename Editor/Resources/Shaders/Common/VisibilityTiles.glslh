@@ -1,0 +1,67 @@
+#ifndef DESERT_VISIBILITY_TILES_GLSLH
+#define DESERT_VISIBILITY_TILES_GLSLH
+// THE VISIBILITY BUFFER'S TILE CLASSIFICATION (FPS-GRASS-RESOLVE; UE 5 Nanite's material tile culling,
+// r.Nanite.MaterialCulling: classify the screen's tiles by what the visibility buffer holds, then shade a material
+// only over the tiles it covers). Written by "Grass: Visibility Classify" (Programs/VirtualGeometry/
+// VisibilityClassify.shader) after the last raster, read by the resolve's vertex stage
+// (Common/VisibilityBuffer.glslh DesertVisibilityTilePosition): each section's resolve draws two triangles per
+// tile, and a tile whose rows miss the section's collapses to a point, so the fragment stage runs only over the
+// tiles that hold the section's pixels.
+//
+// A tile is kVisTileSize x kVisTileSize pixels; its record lies after the pixels' words in the same buffer (the
+// view's VisibilityBuffer, VisibilityBuffer.cpp sizes it), four 32-bit words per tile, tile t of a view W x H
+// pixels at 32-bit word 4 + 2 W H + 4 t (64-bit word W H + 2 t):
+//   0  the smallest row the tile's pixels hold (0xFFFFFFFF: none drawn)
+//   1  the largest row
+//   2  bits 0..31 of the row mask, 3 bits 32..63: bit b set = a pixel's row falls in bucket b of
+//      [smallest, largest] (DesertVisibilityTileBucket), so a section whose rows lie between two others present
+//      is still told apart.
+// 32-bit only: the classify program has no 64-bit type (as VisibilityClear.shader / VisibilityDepth.shader).
+
+#define kVisTileSize 16u
+#define kVisTileBuckets 64u
+#define kVisTileEmpty 0xFFFFFFFFu
+
+// The tiles across @p extent pixels (x = columns, y = rows).
+uvec2 DesertVisibilityTileGrid( const uvec2 extent )
+{
+    return ( extent + uvec2( kVisTileSize - 1u ) ) / kVisTileSize;
+}
+
+// The first 32-bit word of tile @p tile's record in a buffer of @p extent pixels.
+uint DesertVisibilityTileWord( const uvec2 extent, const uint tile )
+{
+    return 4u + 2u * ( extent.x * extent.y ) + 4u * tile;
+}
+
+// The bucket of @p row in a tile whose rows span [@p smallest, @p smallest + @p span). A row is below 2^25 (32
+// bits less kVisTriangleBits), so ( row - smallest ) * 64 stays inside 32 bits.
+uint DesertVisibilityTileBucket( const uint row, const uint smallest, const uint span )
+{
+    return ( ( row - smallest ) * kVisTileBuckets ) / span;
+}
+
+// True when a tile (@p smallest, @p largest, @p mask) holds a row of [@p first, @p first + @p count): conservative
+// to the bucket - a bucket the range touches that holds any pixel's row keeps the tile.
+bool DesertVisibilityTileHolds( const uint smallest, const uint largest, const uvec2 mask, const uint first,
+                                const uint count )
+{
+    if ( smallest == kVisTileEmpty || count == 0u )
+        return false;
+    const uint last = first + ( count - 1u );
+    if ( last < smallest || first > largest )
+        return false;
+    const uint span = largest - smallest + 1u;
+    const uint lo   = DesertVisibilityTileBucket( max( first, smallest ), smallest, span );
+    const uint hi   = DesertVisibilityTileBucket( min( last, largest ), smallest, span );
+    for ( uint word = lo >> 5u; word <= ( hi >> 5u ); ++word )
+    {
+        const uint from = word == ( lo >> 5u ) ? ( lo & 31u ) : 0u;
+        const uint to   = word == ( hi >> 5u ) ? ( hi & 31u ) : 31u;
+        const uint bits = ( 0xFFFFFFFFu >> ( 31u - to ) ) & ( 0xFFFFFFFFu << from );
+        if ( ( mask[word] & bits ) != 0u )
+            return true;
+    }
+    return false;
+}
+#endif
