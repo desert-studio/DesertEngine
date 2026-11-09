@@ -240,10 +240,14 @@ namespace Desert::Graphic::SurfaceCache
         // relight over what the frame's earlier graph reads.
         // @p lighting is the frame's directional lights: a significant change from those the lit pages were last
         // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
-        // frame.
+        // frame. @p localLighting is the frame's point and spot lights (ascending Key,
+        // SceneRenderer::GatherFrameLocalLighting): one that changed significantly since its region was last relit
+        // (GlobalIllumination::UpdateLocalLightingHistory) relights every visible page its region - before and
+        // after the change - reaches, this frame; a frame where no light changed relights only the budget's.
         [[nodiscard]] Common::ResultStr<SceneUpdate>
         UpdateScene( std::span<const SceneGroup> groups, uint64_t engineFrame,
-                     const GlobalIllumination::DirectionalLighting& lighting );
+                     const GlobalIllumination::DirectionalLighting&     lighting,
+                     std::span<const GlobalIllumination::LocalLighting> localLighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const
         {
@@ -360,6 +364,11 @@ namespace Desert::Graphic::SurfaceCache
         ProgramRefusals m_Refusals;
         // The directional lighting of the last full relight (empty until the first update).
         std::optional<GlobalIllumination::DirectionalLighting>                m_LitBy;
+        // Each local light as its region was last relit (ascending Key; UpdateLocalLightingHistory), the next
+        // frame's history being made and the regions to relight this frame - kept, so a frame allocates nothing.
+        std::vector<GlobalIllumination::LocalLighting>                        m_LocalLitBy;
+        std::vector<GlobalIllumination::LocalLighting>                        m_LocalLitByNext;
+        std::vector<glm::vec4>                                                m_LocalRelightRegions;
         uint32_t                                                              m_AtlasSize = 0;
         std::array<std::shared_ptr<Image2D>, kCapturedLayers.size()>          m_Layers;
         std::array<std::shared_ptr<Image2D>, 3>                               m_LitLayers;

@@ -407,7 +407,8 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
     SurfaceCacheRenderer::UpdateScene( const std::span<const SceneGroup> groups, const uint64_t engineFrame,
-                                       const GlobalIllumination::DirectionalLighting& lighting )
+                                       const GlobalIllumination::DirectionalLighting&     lighting,
+                                       std::span<const GlobalIllumination::LocalLighting> localLighting )
     {
         // The frame's update already ran (another view of the scene, earlier this frame): this graph reads the
         // same cache - the records that view's graph wrote the atlases from - and nothing is updated. Its own
@@ -428,6 +429,13 @@ namespace Desert::Graphic::SurfaceCache
             m_LitBy          = lighting;
             m_ResetRadiosity = true;
         }
+        // THE LOCAL LIGHTS (UE Lumen: the cards a changed light touches are relit): the regions of the point and
+        // spot lights switched, moved, recoloured or re-aimed since their last relight are relit this frame
+        // instead of when the direct lighting budget reaches them. No light changed: no region, the budget alone.
+        GlobalIllumination::UpdateLocalLightingHistory( m_LocalLitBy, localLighting, m_LocalLitByNext,
+                                                        m_LocalRelightRegions );
+        m_LocalLitBy.swap( m_LocalLitByNext );
+        m_Scene.InvalidateLightingIn( m_LocalRelightRegions );
         SceneFrame scene = m_Scene.Update( groups, views->Origins );
         m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Scene = scene };
         return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
