@@ -4,6 +4,8 @@
 
 #include <entt/entt.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <vector>
@@ -22,66 +24,90 @@ namespace Desert::ECS
 
     using EntityDirtySet = Common::DirtySet<entt::entity, EntityIndexOf>;
 
+    // The retained render caches fed by the delta, one CHANNEL each: every channel receives every mark and is
+    // drained by its own consumer, so one consumer's drain never hides a mark from another.
+    enum class RenderStateConsumer : uint8_t
+    {
+        StaticScene, // MeshECSSystem::RecordStaticScene
+        Count
+    };
+
     // THE RENDER-STATE DELTA (UE: the primitives UPrimitiveComponent::MarkRenderStateDirty queued for the next
     // SendAllEndOfFrameUpdates). The Scene's render-state dirty set (Scene::MarkRenderStateDirty) is latched and
-    // emptied at the top of every frame for the control state; this is the SAME feed kept for a retained render
-    // cache: every entity the set receives is appended here, and the one consumer (MeshECSSystem's retained static
-    // scene) drains it at its update. Marks made after the drain (a script past the collectors, an editor edit
-    // between frames) are drained by the next update, so nothing is lost across the Scene's frame boundary.
+    // emptied at the top of every frame for the control state; this is the SAME feed kept for the retained render
+    // caches: every entity the set receives is appended to every channel, and each consumer drains its channel at
+    // its update. Marks made after a drain (a script past the collectors, an editor edit between frames) are
+    // drained by the next update, so nothing is lost across the Scene's frame boundary.
     //
-    // ONE CONSUMER, BOUNDED: a frame whose boundary finds the queue not drained since the previous boundary (a
-    // scene whose systems did not run) drops the marks and asks for a full rebuild instead, so the queue never
-    // holds more than one frame of marks and a consumer that missed marks never trusts its cache.
+    // ONE CONSUMER PER CHANNEL, BOUNDED: a frame whose boundary finds a channel not drained since the previous
+    // boundary (a scene whose systems did not run, a consumer that skipped its update) drops that channel's marks
+    // and asks it for a full rebuild instead, so no channel holds more than one frame of marks and a consumer
+    // that missed marks never trusts its cache.
     class RenderStateDelta
     {
     public:
-        // A mark of an entity already queued since the last drain is absorbed (an entity whose transform a
-        // script, the physics write-back and the animation all set in one frame is rebuilt once).
+        static constexpr size_t kChannels = static_cast<size_t>( RenderStateConsumer::Count );
+
+        // A mark of an entity already queued in a channel since its last drain is absorbed (an entity whose
+        // transform a script, the physics write-back and the animation all set in one frame is rebuilt once).
         void Mark( const entt::entity entity ) noexcept
         {
             std::lock_guard lock( m_Mutex );
-            (void)m_Pending.Mark( entity );
+            for ( Channel& channel : m_Channels )
+                (void)channel.Pending.Mark( entity );
         }
 
         // Everything is to be rebuilt (a scene reload, a cleared registry): the queued marks are moot.
         void RequestFullRebuild() noexcept
         {
             std::lock_guard lock( m_Mutex );
-            m_Pending.Clear();
-            m_Full = true;
+            for ( Channel& channel : m_Channels )
+            {
+                channel.Pending.Clear();
+                channel.Full = true;
+            }
         }
 
         // The Scene's frame boundary (Scene::OnUpdate, where the dirty set is latched). See the class comment.
         void FrameBoundary() noexcept
         {
             std::lock_guard lock( m_Mutex );
-            if ( !m_DrainedSinceBoundary )
+            for ( Channel& channel : m_Channels )
             {
-                m_Pending.Clear();
-                m_Full = true;
+                if ( !channel.DrainedSinceBoundary )
+                {
+                    channel.Pending.Clear();
+                    channel.Full = true;
+                }
+                channel.DrainedSinceBoundary = false;
             }
-            m_DrainedSinceBoundary = false;
         }
 
-        // The consumer's half: @p out receives the queued marks, each entity once (an index recycled within the
-        // frame: both versions), in mark order; both buffers keep their capacity, so a steady state allocates
-        // nothing. Returns whether a full rebuild was requested since the last drain.
-        [[nodiscard]] bool Drain( std::vector<entt::entity>& out ) noexcept
+        // @p consumer's half: @p out receives its channel's queued marks, each entity once (an index recycled
+        // within the frame: both versions), in mark order; both buffers keep their capacity, so a steady state
+        // allocates nothing. Returns whether a full rebuild was requested for the channel since its last drain.
+        [[nodiscard]] bool Drain( const RenderStateConsumer consumer, std::vector<entt::entity>& out ) noexcept
         {
             std::lock_guard lock( m_Mutex );
+            Channel&        channel = m_Channels[static_cast<size_t>( consumer )];
             out.clear();
-            m_Pending.DrainInto( out );
-            const bool full        = m_Full;
-            m_Full                 = false;
-            m_DrainedSinceBoundary = true;
+            channel.Pending.DrainInto( out );
+            const bool full              = channel.Full;
+            channel.Full                 = false;
+            channel.DrainedSinceBoundary = true;
             return full;
         }
 
     private:
-        std::mutex                m_Mutex;
-        EntityDirtySet            m_Pending;
-        bool                      m_Full                 = true; // a new consumer starts from the whole scene
-        bool                      m_DrainedSinceBoundary = true;
+        struct Channel
+        {
+            EntityDirtySet Pending;
+            bool           Full                 = true; // a new consumer starts from the whole scene
+            bool           DrainedSinceBoundary = true;
+        };
+
+        std::mutex                      m_Mutex;
+        std::array<Channel, kChannels> m_Channels;
     };
 
     // The registry context's link to its Scene's RenderStateDelta (registry.ctx: a pointer, so the context holds
