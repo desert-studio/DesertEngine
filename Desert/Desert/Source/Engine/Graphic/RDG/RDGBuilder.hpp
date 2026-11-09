@@ -422,8 +422,11 @@ namespace Desert::Graphic::RDG
         //   3. ownership: one QueueOwnershipTransfer per (resource, range) whose contents cross pipes;
         //   4. lifetimes: AliasFirst/LastPosition widened over the fork..join window.
         // The single-pipe result equals Compile(memory) on the same graph, except DemotedAsyncPasses.
-        [[nodiscard]] Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory,
-                                                                const PipeCapabilities&            pipes ) const;
+        // @p balancedToGraphics (FPS-ASYNC-BALANCE, RDGAsyncBalance.hpp): sorted AsyncBalancePassKey of the
+        // AsyncCompute passes that run on Graphics anyway (they keep the flag; not DemotedAsyncPasses).
+        [[nodiscard]] Common::ResultStr<CompileResult>
+        Compile( const IMemoryRequirementsProvider& memory, const PipeCapabilities& pipes,
+                 std::span<const uint64_t> balancedToGraphics = {} ) const;
 
         // Pass culling is on by default. Off, every pass is live and CulledPasses stays empty: the debug switch
         // DebugViewState::DisablePassCulling, so that a picture which changes with it names a pass whose effect

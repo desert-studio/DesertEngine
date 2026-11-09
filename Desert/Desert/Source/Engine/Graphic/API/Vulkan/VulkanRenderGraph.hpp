@@ -31,6 +31,7 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
+#include <Engine/Graphic/RDG/RDGAsyncBalance.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <unordered_map>
 
@@ -1038,6 +1039,8 @@ namespace Desert::Graphic::API::Vulkan
         RDG::PassFaultReporter&       GetPassFaultReporter() override;
         // RDG-RECORD-COMPILE-CACHE: nullptr while RenderConfig::RdgCompileCache is off.
         RDG::CompileCache*            GetCompileCache() override;
+        // FPS-ASYNC-BALANCE: m_AsyncBalance's list (RDGAsyncBalance.hpp).
+        [[nodiscard]] std::span<const uint64_t> GetAsyncBalance() const override;
         Common::BoolResultStr         BeginPipeSegment( const RDG::PipeSegment& segment ) override;
         Common::BoolResultStr         EndPipeSegment( const RDG::PipeSegment& segment ) override;
         // Vulkan 1.0 queue family ownership transfer: a VkImage/BufferMemoryBarrier with srcQueueFamilyIndex =
@@ -1212,6 +1215,11 @@ namespace Desert::Graphic::API::Vulkan
         RDG::PassFaultReporter m_FaultReporter;
         // RDG-RECORD-COMPILE-CACHE: the compiled plans of this backend's graphs; counts its frames in BeginFrame.
         RDG::CompileCache m_CompileCache;
+        // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): the queue of each AsyncCompute pass from measured GPU times.
+        // BeginGraph notes each graph's plan; BeginFrame rebalances once per published profiler window (the
+        // window the profiler averaged, m_BalanceWindow: its PublishCount), from the passes' GPU self times.
+        RDG::AsyncBalance m_AsyncBalance;
+        uint64_t          m_BalanceWindow = 0;
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
         uint32_t                     m_FrameSlot   = 0;
         const VulkanRdgQueueSet*     m_Queues      = nullptr;
