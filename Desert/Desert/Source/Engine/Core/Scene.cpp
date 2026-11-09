@@ -182,6 +182,13 @@ namespace Desert::Core
         return Trace( ray, outHit, accept, GatherRaycastLandscape(), true );
     }
 
+    bool Scene::RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                const std::function<bool( const Common::UUID& )>& accept,
+                                const RaycastLandscapeSet&                        landscape ) const
+    {
+        return Trace( ray, outHit, accept, landscape, true );
+    }
+
     bool Scene::Trace( const Common::Math::Ray& ray, RaycastHit& outHit,
                        const std::function<bool( const Common::UUID& )>& accept,
                        const RaycastLandscapeSet& landscape, bool complex ) const
@@ -216,6 +223,22 @@ namespace Desert::Core
             const glm::mat4 xf       = entity.GetWorldTransform();
             const auto      localRay = ray.ToLocalSpace( xf );
 
+            // The complex trace's broad phase before the triangles: a mesh whose submesh boxes the ray's line does
+            // not cross is not asked for its CPU triangles (reading them is an explicit CPU-access request that
+            // keeps the arrays resident, StaticMeshAsset::GetVertices), so one foliage dab does not make every
+            // static mesh of the scene resident.
+            const auto lineCrossesABox = [&]()
+            {
+                for ( const auto& sm : mesh->GetSubmeshes() )
+                {
+                    float t = 0.0f;
+                    if ( localRay.IntersectsAABB( sm.BoundingBox, t ) )
+                        return true;
+                }
+                return false;
+            };
+            if ( complex && !skinned && !lineCrossesABox() )
+                continue;
             const auto triangles = complex && !skinned
                                         ? StaticTriangles( entity.GetComponent<ECS::StaticMeshComponent>() )
                                         : std::nullopt;

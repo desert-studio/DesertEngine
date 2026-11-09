@@ -1362,7 +1362,7 @@ namespace Desert::Editor::Tools
             if ( len <= 0.0f )
                 return std::nullopt;
             ::Desert::Core::RaycastHit hit;
-            if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet ) ||
+            if ( !scene.RaycastComplex( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet ) ||
                  hit.Distance > len )
                 return std::nullopt;
             FoliageTraceHit out;
@@ -1576,8 +1576,10 @@ namespace Desert::Editor::Tools
             return;
         }
 
+        // UE FoliageBrushTrace: the brush lands on the surface itself (AInstancedFoliageActor::FoliageTrace,
+        // bTraceComplex), not on a static mesh's bounding box.
         ::Desert::Core::RaycastHit centre;
-        if ( !scene.Raycast( ray, centre ) )
+        if ( !scene.RaycastComplex( ray, centre ) )
             return; // UE: no surface under the cursor, no application this tick
 
         if ( m_StrokeTool == Core::FoliageTool::Fill )
@@ -1693,7 +1695,7 @@ namespace Desert::Editor::Tools
                         ::Desert::Core::RaycastHit hit;
                         const auto                 rayAt = Clock::now();
                         const bool                 found =
-                             scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet );
+                             scene.RaycastComplex( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet );
                         raycastMs += msSince( rayAt );
                         if ( !found || hit.Distance > len )
                             return std::nullopt;
@@ -2065,8 +2067,9 @@ namespace Desert::Editor::Tools
 
     Common::BoolResultStr FoliagePaintTool::SnapSelectedToGround( ::Desert::Core::Scene& scene )
     {
-        // UE FEdModeFoliage::SnapSelectedInstancesToGround: a vertical trace from the instance; the brush's
-        // surface filter decides what counts as ground and foliage is traced through, as the brush traces.
+        // UE FEdModeFoliage::SnapSelectedInstancesToGround: a vertical complex trace from the instance (the
+        // ground is the mesh's triangles, as UE FoliageTrace); the brush's surface filter decides what counts as
+        // ground and foliage is traced through, as the brush traces.
         // Below the instance first, then above it (an instance pushed under the ground comes back up).
         const LandscapeTileIndex   tiles( scene );
         const auto                 landscapeSet = scene.GatherRaycastLandscape();
@@ -2081,11 +2084,11 @@ namespace Desert::Editor::Tools
         const auto ground = [&]( const glm::vec3& from ) -> std::optional<glm::vec3>
         {
             ::Desert::Core::RaycastHit hit;
-            if ( scene.Raycast( Common::Math::Ray( from, glm::vec3( 0.0f, -1.0f, 0.0f ) ), hit, accept,
-                                landscapeSet ) )
+            if ( scene.RaycastComplex( Common::Math::Ray( from, glm::vec3( 0.0f, -1.0f, 0.0f ) ), hit, accept,
+                                       landscapeSet ) )
                 return hit.Point;
-            if ( scene.Raycast( Common::Math::Ray( from, glm::vec3( 0.0f, 1.0f, 0.0f ) ), hit, accept,
-                                landscapeSet ) )
+            if ( scene.RaycastComplex( Common::Math::Ray( from, glm::vec3( 0.0f, 1.0f, 0.0f ) ), hit, accept,
+                                       landscapeSet ) )
                 return hit.Point;
             return std::nullopt;
         };

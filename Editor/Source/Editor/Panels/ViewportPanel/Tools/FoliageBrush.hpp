@@ -7,7 +7,9 @@
 // 1550-1568 (AddSingleInstanceForBrush), 1718-1760 (SelectInstanceAtLocation, SelectInstancesForBrush),
 // 1980-2120 (TransformSelectedInstances, RemoveSelectedInstances), 2292-2560 (ReapplyInstancesForBrush) and
 // 261-285 (FFoliagePaintingGeometryFilter), adapted: no UWorld / IFA / FHitResult — the world is two
-// callbacks (a segment trace and a layer weight at a point) so the brush is a pure function of its inputs;
+// callbacks (a segment trace and a layer weight at a point) so the brush is a pure function of its inputs; the
+// editor's trace is complex as UE FoliageTrace's (bTraceComplex: a static mesh is met on its triangles,
+// Scene::RaycastComplex, never on its bounding boxes);
 // instances are the field's InstancedStaticMesh transforms; Y is up and units are centimetres; FMath::FRand
 // is a seeded PCG32 stream (one per stroke) so a stroke replays to the same instances on every platform;
 // the geometry filter keeps Landscape and StaticMesh and is applied by the trace (no BSP in this engine;
