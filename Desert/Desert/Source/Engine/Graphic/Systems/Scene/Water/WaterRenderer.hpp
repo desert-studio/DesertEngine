@@ -96,10 +96,32 @@ namespace Desert::Graphic::System
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
         // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes, the
-        // view's fog), and the imported WaterInfo ground @p waterInfo (GetWaterInfo) the surf reads its depth from.
+        // view's fog), and the imported WaterInfo ground @p waterInfo (GetWaterInfo) the surf reads its depth
+        // from.
+        // @p frontReflection / @p frontDepth: this frame's front layer reflection and the depth it belongs to
+        // (SceneRenderer::FrameFrontLayer; the graph's black texture for both when no front layer was traced),
+        // bound as FrontLayerReflectionTexture / FrontLayerDepthTexture where the cell has the slots
+        // (Mesh/Surface/FrontLayerReflection.glslh: the water's traced reflection where it IS the front layer).
         void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
+                           RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
                            const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
+
+        // THE WATER'S FRONT LAYER (UE: single layer water writes the G-buffer its SSR / Lumen reflections trace
+        // from): this frame's `WaterMesh.FrontLayer` cell over the same tile rows, drawn into the translucent
+        // front layer's targets ("Translucency: Front Layer G-buffer (Water)",
+        // SceneRenderer::AddFrameFrontLayerSurface). True after PrepareFrame when the water draws and its
+        // template's front layer cell built.
+        [[nodiscard]] bool HasFrontLayerDraws() const
+        {
+            return !m_FrameDraws.empty() && m_FrameFrontLayer != nullptr;
+        }
+        // SETUP of the front layer node: the cell's material route (frame block, tile rows, material row and
+        // ripple maps), the scene/view inputs it has slots for and the WaterInfo ground @p waterInfo its waves
+        // damp by.
+        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo,
+                                     const SceneViewInputs& view, const SceneFrameBinding& frame );
+        [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context );
 
         // By reference, as GrassRenderer::Submit: @p zone is the recorded command's, held until ClearQueue.
         void Submit( WaterZoneDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
@@ -158,6 +180,12 @@ namespace Desert::Graphic::System
             // material: the frame's values and rows are written into the program that draws.
             std::unique_ptr<WaterProgram> VirtualLocal;
             bool                          VirtualLocalTried = false;
+            // The template's `WaterMesh.FrontLayer` cell (FrontLayerProgramFor), built on first use; its own
+            // material, written every frame from the same `.demat` and tile rows as the program it belongs to.
+            std::unique_ptr<WaterProgram> FrontLayer;
+            bool                          FrontLayerTried = false;
+            // The template's compile name, the prefix of every cell of it (set by ProgramFor).
+            std::string CompileName;
         };
 
         // The program of @p material's template, built on first use; null (said once per handle) when the handle
@@ -167,6 +195,12 @@ namespace Desert::Graphic::System
         // the permutation does not build - the water is then not drawn under VirtualMaps rather than drawn with
         // every point and spot light unshadowed.
         WaterProgram* VirtualLocalProgramFor( const Assets::AssetHandle& material, WaterProgram& program );
+        // @p program's front layer cell (WaterProgram::FrontLayer); null (said once per handle) when the template
+        // has no such cell or it does not build - the water then reflects its captures and sky without the trace.
+        WaterProgram* FrontLayerProgramFor( const Assets::AssetHandle& material, WaterProgram& program );
+        // The draws of m_FrameDraws with @p program, inside the node's open render pass.
+        [[nodiscard]] Common::BoolResultStr RecordDraws( const RDG::PassContext& context,
+                                                         const WaterProgram&     program );
         // The pipeline of @p shader into @p program; the build's refusal otherwise.
         [[nodiscard]] Common::BoolResultStr BuildProgram( const std::shared_ptr<Shader>& shader,
                                                           const std::string& debugName, WaterProgram& program );
@@ -184,6 +218,8 @@ namespace Desert::Graphic::System
             TemplateDoesNotBuild,
             NoVirtualLocalPermutation,
             VirtualLocalDoesNotBuild,
+            NoFrontLayerCell,
+            FrontLayerDoesNotBuild,
             MixedMaterials,
             NoWavesService,
             WavesRefused,
@@ -195,6 +231,7 @@ namespace Desert::Graphic::System
 
         std::unordered_map<std::string, WaterProgram> m_Programs;        // by template compile name
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
+        WaterProgram* m_FrameFrontLayer = nullptr; // this frame's front layer cell (null: not drawn)
         ShaderBindingLayoutCache                      m_Layout;
         std::unordered_set<uint64_t>                  m_Warned; // FirstWarning's (material, cause) keys
         // ProgramFor's last answer (UE: the proxy's cached FMaterial), while the material and the stamp stand.

@@ -831,7 +831,8 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
-    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy )
+    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                                       const FrameFrontLayer& frontLayer )
     {
         auto* water = m_Systems.Water.get();
         if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
@@ -856,12 +857,16 @@ namespace Desert::Graphic
              textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
         if ( !waterInfo.IsValid() )
             return;
+        // No front layer this frame: the graph's black texture for both (as the glass), "no trace".
+        const RDG::TextureRef black           = textures.GraphRefs().System.Black;
+        const RDG::TextureRef frontReflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black;
+        const RDG::TextureRef frontDepth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black;
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
-             [water, sceneCopy, waterInfo, view, frame]( RDG::PassBuilder& pass )
-             { water->DeclareDraws( pass, sceneCopy, waterInfo, view, frame ); } );
+             [water, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

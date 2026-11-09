@@ -59,20 +59,8 @@ skyLook;
 layout( binding = 19 ) uniform texture2D SceneColorTexture;
 #define SceneColorTexture sampler2D(SceneColorTexture, LinearRepeatSampler)
 
-// THE FRONT LAYER'S REFLECTION (UE FrontLayerTranslucencyShared.ush, Reflections.TranslucentFrontLayer): the nearest
-// translucent surface of each pixel wrote its normal, roughness and depth ("Translucency: Front Layer G-buffer"), and
-// the opaque surfaces' tracer and denoiser reflected it ("Translucency: Front Layer Reflections"). rgb = the
-// reflected radiance, a = how much of it the trace answered (the sky's cube fills the rest, as the deferred composite
-// fills SSR's, Mesh/AmbientIBL.glslh DesertComposeTracedReflection). Both are the graph's black texture when the
-// frame has no front layer: a = 0 and a depth that matches no surface, so the sky alone reflects.
-layout( binding = 11 ) uniform texture2D FrontLayerReflectionTexture;
-#define FrontLayerReflectionTexture sampler2D(FrontLayerReflectionTexture, LinearClampSampler)
-layout( binding = 12 ) uniform texture2D FrontLayerDepthTexture;
-#define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, LinearClampSampler)
-// UE r.FrontLayerTranslucency.DepthThreshold: a fragment IS the front layer when its device depth is within this many
-// float ULPs of the front layer's - the two cells transform the same vertices in two programs, so the depths agree to
-// rounding, while a surface behind the front layer lies orders of magnitude more ULPs away.
-const int kFrontLayerDepthThresholdUlps = 1024;
+// The front layer's traced reflection (Reflections.TranslucentFrontLayer), shared with the water.
+#include <Mesh/Surface/FrontLayerReflection.glslh>
 
 // The cloud layer's shadow on the world: it takes the sun's highlight away with it.
 layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
@@ -158,19 +146,9 @@ void main()
     const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, V, s.BaseColor, 0.0, 0.0, s.Specular );
     vec3 envRefl = DesertSampleViewAmbient( surface, vec3( 0.0 ), 1.0, gl_FragCoord.xy ).Prefiltered;
     // The traced reflection where this fragment is the front layer (a glass behind the nearest one keeps the
-    // environment). The graph's black texture (no front layer this frame) is 1x1: a texel outside it is no front
-    // layer, never a fetch out of bounds.
-    const ivec2 frontTexel = ivec2( gl_FragCoord.xy );
-    const bool  frontInside =
-         all( lessThan( frontTexel, textureSize( FrontLayerDepthTexture, 0 ) ) ) &&
-         all( lessThan( frontTexel, textureSize( FrontLayerReflectionTexture, 0 ) ) );
-    const float frontDepth = frontInside ? texelFetch( FrontLayerDepthTexture, frontTexel, 0 ).r : 0.0;
-    if ( frontInside &&
-         abs( floatBitsToInt( frontDepth ) - floatBitsToInt( gl_FragCoord.z ) ) <= kFrontLayerDepthThresholdUlps )
-    {
-        const vec4 traced = texelFetch( FrontLayerReflectionTexture, frontTexel, 0 );
-        envRefl           = mix( envRefl, traced.rgb, traced.a );
-    }
+    // environment): it answers its share of the lobe, the environment the rest.
+    envRefl = DesertComposeTracedReflection( DesertFrontLayerTracedReflection( gl_FragCoord.xy, gl_FragCoord.z ),
+                                             envRefl );
 
     // The local lights' hotspot under Shadows Stochastic: the volume's dominant light with the same tight lobe as the
     // sun's (its isotropic rest has no highlight to give clear glass). Otherwise the froxel's lights are in `spec`.

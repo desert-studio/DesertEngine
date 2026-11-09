@@ -1,0 +1,40 @@
+#ifndef DESERT_FRONT_LAYER_REFLECTION_GLSLH
+#define DESERT_FRONT_LAYER_REFLECTION_GLSLH
+
+// THE FRONT LAYER'S REFLECTION (UE FrontLayerTranslucencyShared.ush, Reflections.TranslucentFrontLayer; UE's single
+// layer water reflections read their own trace the same way): the nearest translucent or water surface of each pixel
+// wrote its normal, roughness and depth ("Translucency: Front Layer G-buffer"), and the opaque surfaces' tracer and
+// denoiser reflected it ("Translucency: Front Layer Reflections"). rgb = the reflected radiance, a = how much of it
+// the trace answered (the reflection environment fills the rest, as the deferred composite fills SSR's,
+// Mesh/AmbientIBL.glslh DesertComposeTracedReflection). Both are the graph's black texture when the frame has no
+// front layer: a = 0 and a depth that matches no surface, so the environment alone reflects. Read by the glass
+// (Pass_Forward_Translucent.glslh) and the water (Pass_SingleLayerWater.glslh), each fetched by texel through the
+// includer's LinearClampSampler (declared before this file).
+layout( binding = 11 ) uniform texture2D FrontLayerReflectionTexture;
+#define FrontLayerReflectionTexture sampler2D(FrontLayerReflectionTexture, LinearClampSampler)
+layout( binding = 12 ) uniform texture2D FrontLayerDepthTexture;
+#define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, LinearClampSampler)
+// UE r.FrontLayerTranslucency.DepthThreshold: a fragment IS the front layer when its device depth is within this many
+// float ULPs of the front layer's - the two cells transform the same vertices in two programs, so the depths agree to
+// rounding, while a surface behind the front layer lies orders of magnitude more ULPs away.
+const int kFrontLayerDepthThresholdUlps = 1024;
+
+// The traced reflection of the fragment at @p fragCoord (gl_FragCoord.xy) with device depth @p fragDepth
+// (gl_FragCoord.z) where it is the front layer; vec4( 0.0 ) - nothing answered - for a surface behind the nearest one,
+// which keeps the environment. The graph's black texture (no front layer this frame) is 1x1: a texel outside it is
+// no front layer, never a fetch out of bounds.
+vec4 DesertFrontLayerTracedReflection( vec2 fragCoord, float fragDepth )
+{
+    const ivec2 frontTexel = ivec2( fragCoord );
+    const bool  frontInside =
+         all( lessThan( frontTexel, textureSize( FrontLayerDepthTexture, 0 ) ) ) &&
+         all( lessThan( frontTexel, textureSize( FrontLayerReflectionTexture, 0 ) ) );
+    if ( !frontInside )
+        return vec4( 0.0 );
+    const float frontDepth = texelFetch( FrontLayerDepthTexture, frontTexel, 0 ).r;
+    if ( abs( floatBitsToInt( frontDepth ) - floatBitsToInt( fragDepth ) ) > kFrontLayerDepthThresholdUlps )
+        return vec4( 0.0 );
+    return texelFetch( FrontLayerReflectionTexture, frontTexel, 0 );
+}
+
+#endif // DESERT_FRONT_LAYER_REFLECTION_GLSLH
