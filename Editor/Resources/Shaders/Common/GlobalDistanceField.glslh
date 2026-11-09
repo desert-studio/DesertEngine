@@ -217,18 +217,25 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
                 result.T   = t;
                 return result;
             }
-            float lo = previousT;
-            float hi = t;
+            // The excess at hi is carried, not re-read: at t it is this step's own (the same point, level and
+            // fetch GlobalDistanceFieldExcess would take), at a mid the one just read.
+            float lo       = previousT;
+            float hi       = t;
+            float hiExcess = distance - GlobalDistanceFieldExpand(t, voxel, coverage);
             for (int i = 0; i < 6 && step > 0 && !previousInBand; ++i)
             {
-                const float mid = 0.5 * (lo + hi);
-                if (GlobalDistanceFieldExcess(origin, direction, mid, levels) < 0.0)
-                    hi = mid;
+                const float mid       = 0.5 * (lo + hi);
+                const float midExcess = GlobalDistanceFieldExcess(origin, direction, mid, levels);
+                if (midExcess < 0.0)
+                {
+                    hi       = mid;
+                    hiExcess = midExcess;
+                }
                 else
                     lo = mid;
             }
             result.Hit   = true;
-            result.T     = max(hi + min(GlobalDistanceFieldExcess(origin, direction, hi, levels), 0.0), 0.0);
+            result.T     = max(hi + min(hiExcess, 0.0), 0.0);
             result.Level = GlobalDistanceFieldLevelAt(origin + direction * hi, levels);
             return result;
         }
