@@ -364,6 +364,25 @@ namespace Common::Profiling
         {
             return m_DisplayFrameNamedMs;
         }
+        // THE HEAP ROW (ARCH-AUDIT C; Common/Core/Memory/AllocationCounter.hpp): C++ heap allocations, their bytes
+        // and frees per frame, every thread, averaged over the published window like LastFrameMs; the max is the
+        // window's costliest frame by allocation count.
+        [[nodiscard]] double LastFrameAllocations() const
+        {
+            return m_DisplayAllocations;
+        }
+        [[nodiscard]] double LastFrameAllocatedBytes() const
+        {
+            return m_DisplayAllocatedBytes;
+        }
+        [[nodiscard]] double LastFrameFrees() const
+        {
+            return m_DisplayFrees;
+        }
+        [[nodiscard]] uint64_t LastFrameAllocationsMax() const
+        {
+            return m_DisplayAllocationsMax;
+        }
 
         bool& Enabled()
         {
@@ -434,6 +453,19 @@ namespace Common::Profiling
         uint64_t                                         m_PublishCount        = 0;
         double                                       m_DisplayFrameMs = 0.0;
         double                                           m_DisplayFrameNamedMs = 0.0; // see LastFrameNamedMs
+        // The heap row: the counter's last read (BeginFrame), the open window's sums and max, the published ones.
+        uint64_t m_AllocLastAllocations   = 0;
+        uint64_t m_AllocLastBytes         = 0;
+        uint64_t m_AllocLastFrees         = 0;
+        bool     m_AllocHaveLast          = false;
+        uint64_t m_WindowAllocations      = 0;
+        uint64_t m_WindowAllocatedBytes   = 0;
+        uint64_t m_WindowFrees            = 0;
+        uint64_t m_WindowAllocationsMax   = 0;
+        double   m_DisplayAllocations     = 0.0;
+        double   m_DisplayAllocatedBytes  = 0.0;
+        double   m_DisplayFrees           = 0.0;
+        uint64_t m_DisplayAllocationsMax  = 0;
         Clock::time_point                            m_WindowStart;
         uint32_t                                     m_WindowFrames  = 0;
         uint32_t                                     m_DisplayWindowFrames = 0; // the published window's

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "Profiler.hpp"
+#include <Common/Core/Memory/AllocationCounter.hpp>
 
 #include <algorithm>
 #include <array>
@@ -379,6 +380,23 @@ namespace Common::Profiling
         }
         ++m_WindowFrames;
 
+        // THE HEAP ROW: the frame that just ended is the difference of two reads of the process' counter.
+        {
+            const ::Common::Memory::AllocationCounts counts = ::Common::Memory::ReadAllocationCounts();
+            if ( m_AllocHaveLast )
+            {
+                const uint64_t allocations = counts.Allocations - m_AllocLastAllocations;
+                m_WindowAllocations += allocations;
+                m_WindowAllocatedBytes += counts.Bytes - m_AllocLastBytes;
+                m_WindowFrees += counts.Frees - m_AllocLastFrees;
+                m_WindowAllocationsMax = std::max( m_WindowAllocationsMax, allocations );
+            }
+            m_AllocLastAllocations = counts.Allocations;
+            m_AllocLastBytes       = counts.Bytes;
+            m_AllocLastFrees       = counts.Frees;
+            m_AllocHaveLast        = true;
+        }
+
         // THE FRAME DRAIN (UE FThreadStats: per-thread packets merged at the frame's end): every thread's half
         // of the frame that just ended, by name id - once a frame, not once a window, so a row knows each frame's
         // cost and a frame its own largest rows. A thread that exited since the last drain left both halves
@@ -522,6 +540,14 @@ namespace Common::Profiling
 
         m_DisplayFrameMs      = windowMs * inv; // avg frame time over the window
         m_DisplayFrameNamedMs = window.NamedMs * inv;
+        m_DisplayAllocations    = static_cast<double>( m_WindowAllocations ) * inv;
+        m_DisplayAllocatedBytes = static_cast<double>( m_WindowAllocatedBytes ) * inv;
+        m_DisplayFrees          = static_cast<double>( m_WindowFrees ) * inv;
+        m_DisplayAllocationsMax = m_WindowAllocationsMax;
+        m_WindowAllocations     = 0;
+        m_WindowAllocatedBytes  = 0;
+        m_WindowFrees           = 0;
+        m_WindowAllocationsMax  = 0;
         window.NamedMs        = 0.0;
 
         // The mesh draw split's groups, averaged over the same frames (empty when the split was off all window).
