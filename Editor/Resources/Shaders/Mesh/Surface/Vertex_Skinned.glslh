@@ -189,6 +189,7 @@ void main()
 #endif
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
     v_Surface.PrimitiveFlags = draw.Flags;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS

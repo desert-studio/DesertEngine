@@ -295,6 +295,7 @@ void main()
 #ifdef DESERT_SURFACE_BINNED
     v_Surface.MaterialRow    = draw.MaterialRow;
     v_Surface.PrimitiveFlags = draw.Flags;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
 #endif
 #else // the full cell
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -313,6 +314,7 @@ void main()
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.MaterialRow    = draw.MaterialRow;
     v_Surface.PrimitiveFlags = draw.Flags;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The instance's previous world: transforms[i + offset], the offset in WindB.w's bits

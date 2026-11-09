@@ -5,6 +5,7 @@
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -29,10 +30,12 @@ namespace Desert::Graphic::GpuDriven
     public:
         // Reports the slot of @p frameIndex (the words it was handed slots-in-flight frames ago), then hands it
         // this frame's @p carry.Visibility and @p vsmDirtyMask (invalid = no VSM level culled) with copies of
-        // @p scene's tables and @p views. @p viewNames: one per view, the log's name of it.
+        // @p scene's tables and @p views. @p viewNames: one per view, the log's name of it. @p passTables: the
+        // per-pass draw tables the cull ran with (a pass without bins binds none: its slots are not read).
         void AddFrame( RDG::Builder& graph, uint64_t frameIndex, const GpuScene& scene,
                        std::span<const CullViewInput> views, std::span<const std::string> viewNames,
-                       const OcclusionCarry& carry, RDG::BufferRef vsmDirtyMask );
+                       std::span<const PassDrawTable, kMeshPassCount> passTables, const OcclusionCarry& carry,
+                       RDG::BufferRef vsmDirtyMask );
 
     private:
         struct View
@@ -40,6 +43,14 @@ namespace Desert::Graphic::GpuDriven
             GpuCullView   Gpu{};
             Core::Frustum Frustum{};
             std::string   Name;
+        };
+
+        // A pass's draw table as the cull read it (InstanceCull.shader PrimitiveDraws / DrawSlots): empty when
+        // the pass bound no bins.
+        struct PassSlots
+        {
+            std::vector<GpuPrimitivePassDraws> PrimitiveDraws;
+            std::vector<GpuDrawSlot>           DrawSlots;
         };
 
         // One frame-in-flight: the readbacks and the CPU state they were culled from.
@@ -51,8 +62,9 @@ namespace Desert::Graphic::GpuDriven
             std::vector<GpuSceneInstance>    Instances;
             std::vector<float>               LodScreenSizes;
             std::vector<GpuSceneWorldBounds> WorldBounds;
-            std::vector<View>                Views;
-            uint32_t                         InstanceCount = 0;
+            std::vector<View>                     Views;
+            std::array<PassSlots, kMeshPassCount> Passes{};
+            uint32_t                              InstanceCount = 0;
         };
 
         void Report( const Slot& slot );

@@ -56,6 +56,18 @@ namespace Desert::Graphic
             input.View.CullOrigin         = glm::vec4( lod.Origin, lensScale );
             input.View.Pass               = static_cast<uint32_t>( pass );
             input.View.Flags              = flags;
+            // THE DITHERED LOD TRANSITION (Geometry::LODView::Temporal): a scene view's views select from its two
+            // eye samples, the cascades' caster views too (UE: the shadow depth pass draws a mesh batch with the
+            // view's DitheredLODTransition): the caster of a fading instance clips with the main view's mask
+            // (its light camera carries the view's fade, WriteLightCamera), and the cascade cache keeps it out of
+            // its static layer while it fades (InstanceCull.shader). A VSM level selects from the live eye: its
+            // clusters carry no fade side and its cached pages no mover rule for a fade.
+            const bool dither = lod.Temporal.Active && ( !caster || pass == GpuDriven::MeshPass::ShadowCascade );
+            for ( uint32_t sample = 0; sample < 2u; ++sample )
+                input.View.LodTemporalOrigins[sample] =
+                     glm::vec4( dither ? lod.Temporal.Origins[sample] : lod.Origin, 0.0f );
+            if ( dither )
+                input.View.Flags |= GpuDriven::CullViewFlags::kLodDither;
             input.Frustum                 = frustum;
             return input;
         }
@@ -273,7 +285,8 @@ namespace Desert::Graphic
         const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = Common::MakeSuccess( *m_FrameGpuSceneTables );
 
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
-                                     .Projection = camera->GetProjectionMatrix() };
+                                     .Projection = camera->GetProjectionMatrix(),
+                                     .Temporal   = frame.TemporalLOD };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
         const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
         const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
@@ -739,8 +752,8 @@ namespace Desert::Graphic
         RDG::BufferRef vsmDirtyMask{};
         if ( m_FrameVsmPages )
             vsmDirtyMask = m_FrameVsmPages->DirtyMask;
-        m_GpuCullValidation.AddFrame( graph, frame.FrameIndex, *gpuScene, views, viewNames, mainPhase.GetValue().Carry,
-                                      vsmDirtyMask );
+        m_GpuCullValidation.AddFrame( graph, frame.FrameIndex, *gpuScene, views, viewNames, tables,
+                                      mainPhase.GetValue().Carry, vsmDirtyMask );
         m_GpuCullLastError.clear();
     }
 } // namespace Desert::Graphic

@@ -535,6 +535,11 @@ namespace Desert::Graphic
         f.HistoryReset = reset;
         f.Parallax     = inputs.Parallax;
         f.SunDirection = inputs.SunDirection;
+        // THE DITHERED LOD TRANSITION's samples (Geometry::TemporalLODState): a cut or a first frame starts no
+        // fade from where the eye was; a resize or a method change keeps the fades running (the eye did not jump).
+        m_TemporalLOD.Update( f.CameraPosition, f.TimeSeconds,
+                              reset == HistoryResetReason::CameraCut || reset == HistoryResetReason::FirstFrame );
+        f.TemporalLOD = m_TemporalLOD.Samples();
 
         m_Pending               = f;
         m_PendingCameraIdentity = inputs.CameraIdentity;

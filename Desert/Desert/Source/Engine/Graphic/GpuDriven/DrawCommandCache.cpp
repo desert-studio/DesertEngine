@@ -149,8 +149,10 @@ namespace Desert::Graphic::GpuDriven
         {
             auto& pipelines = record.Pipelines[pass];
             auto& fallbacks = record.Fallbacks[pass];
+            auto& dithered  = record.DitheredLod[pass];
             pipelines.assign( submeshes, nullptr );
             fallbacks.assign( submeshes, BinFallback::None );
+            dithered.assign( submeshes, uint8_t{ 0 } );
             // UE bCastShadow: a primitive that does not cast is no shadow pass's draw at all.
             if ( IsShadowPass( static_cast<MeshPass>( pass ) ) &&
                  ( record.PrimitiveFlags & PrimitiveFlags::kCastsShadow ) == 0u )
@@ -164,6 +166,7 @@ namespace Desert::Graphic::GpuDriven
                                  static_cast<uint32_t>( si ), record.MaterialRows[si] );
                 pipelines[si] = resolved.Pipeline;
                 fallbacks[si] = resolved.Pipeline != nullptr ? BinFallback::None : resolved.Fallback;
+                dithered[si]  = static_cast<uint8_t>( resolved.Pipeline != nullptr && resolved.DitheredLod );
             }
         }
     }
@@ -310,9 +313,11 @@ namespace Desert::Graphic::GpuDriven
                 continue;
             const auto before          = record->Pipelines;
             const auto fallbacksBefore = record->Fallbacks;
+            const auto ditheredBefore  = record->DitheredLod;
             ResolvePipelines( static_cast<PrimitiveIndex>( primitive ), *record );
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
-                if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] )
+                if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] ||
+                     ditheredBefore[pass] != record->DitheredLod[pass] )
                     m_Dirty[pass] = true;
         }
         // The groups' VG twins are asked again too (a dirty pass re-asks them when it is rebuilt).
@@ -444,6 +449,11 @@ namespace Desert::Graphic::GpuDriven
                         }
                         drafts[it->second].Capacity += record->InstanceCount;
                         slot.Bin = it->second; // the draft's ordinal; remapped to the sorted row below
+                        if ( record->DitheredLod[passIndex][si] != 0u )
+                        {
+                            slot.Flags |= kDrawSlotDitheredLod;
+                            ++table.DitheredLodSlots;
+                        }
                     }
                     table.DrawSlots.push_back( slot );
                 }
