@@ -10,7 +10,13 @@
                 "AntiAliasing.TSR.ShadingRejectionFlickering": 0,
                 "AntiAliasing.TSR.RejectionAntiAliasingQuality": 0,
                 "AntiAliasing.TSR.ReprojectionField": 0,
-                "AntiAliasing.TSR.Resurrection": 0
+                "AntiAliasing.TSR.Resurrection": 0,
+                "AntiAliasing.DLSSRRPreset.Native": "D",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "D",
+                "AntiAliasing.DLSSRRPreset.Quality": "D",
+                "AntiAliasing.DLSSRRPreset.Balanced": "D",
+                "AntiAliasing.DLSSRRPreset.Performance": "D",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "D"
             },
             "Medium": {
                 "AntiAliasing.Method": "TSR",
@@ -19,7 +25,13 @@
                 "AntiAliasing.TSR.HistoryUpdateQuality": 1,
                 "AntiAliasing.TSR.ShadingRejectionFlickering": 0,
                 "AntiAliasing.TSR.RejectionAntiAliasingQuality": 1,
-                "AntiAliasing.TSR.ReprojectionField": 0
+                "AntiAliasing.TSR.ReprojectionField": 0,
+                "AntiAliasing.DLSSRRPreset.Native": "D",
+                "AntiAliasing.DLSSRRPreset.UltraQuality": "D",
+                "AntiAliasing.DLSSRRPreset.Quality": "D",
+                "AntiAliasing.DLSSRRPreset.Balanced": "D",
+                "AntiAliasing.DLSSRRPreset.Performance": "D",
+                "AntiAliasing.DLSSRRPreset.UltraPerformance": "D"
             },
             "High": {
                 "AntiAliasing.TSR.HistoryScreenPercentage": 100,
