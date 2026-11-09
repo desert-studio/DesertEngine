@@ -133,11 +133,29 @@ namespace Desert::Editor
         }
         using SelectionOp = Core::MeshElementSelection::Op;
         for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
-                                       SelectionOp::Shrink, SelectionOp::Invert, SelectionOp::Clear } )
+                                       SelectionOp::Shrink, SelectionOp::Invert, SelectionOp::Clear,
+                                       SelectionOp::SelectEdgeLoops, SelectionOp::SelectEdgeRings } )
         {
             commands.push_back( { "Modeling",
                                   std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
                                   [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
+        }
+        // UE's Select Edge Loops / Select Edge Rings pick settings (UPolygonSelectionMechanicProperties): the
+        // panel's two checkboxes. Tool settings like the level, not undo steps.
+        for ( const bool on : { true, false } )
+        {
+            commands.push_back( { "Modeling", std::string( "Mesh selection: pick edge loops" ) + ( on ? ": on" : ": off" ),
+                                  [on]
+                                  {
+                                      Core::MeshElementSelection::Get().SetPickEdgeLoops( on );
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Mesh selection: pick edge rings" ) + ( on ? ": on" : ": off" ),
+                                  [on]
+                                  {
+                                      Core::MeshElementSelection::Get().SetPickEdgeRings( on );
+                                      return PaletteCommandDone();
+                                  } } );
         }
         // The plain pick replaces the selection (a click); "add" keeps it and adds (a Shift-click).
         for ( const auto& [name, add] : { std::pair{ "Mesh selection: pick at the viewport centre", false },

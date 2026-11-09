@@ -5,7 +5,9 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace Desert::Editor::Core
 {
@@ -63,6 +65,10 @@ namespace Desert::Editor::Core
                 return "Invert Selection";
             case Op::Clear:
                 return "Clear Selection";
+            case Op::SelectEdgeLoops:
+                return "Select Edge Loops";
+            case Op::SelectEdgeRings:
+                return "Select Edge Rings";
         }
         return "Unknown";
     }
@@ -167,9 +173,58 @@ namespace Desert::Editor::Core
                 break;
             case Op::Clear:
                 break;
+            case Op::SelectEdgeLoops:
+            case Op::SelectEdgeRings:
+            {
+                if ( m_Selection.Mode() != Geometry::ElementMode::Edge )
+                    return Common::MakeFormattedError<bool>(
+                         "Mesh Selection: {} works on an Edge selection; the selection is in {} mode", ToString( op ),
+                         Geometry::ToString( m_Selection.Mode() ) );
+                const Geometry::EdgeExpansion expansion = op == Op::SelectEdgeLoops
+                                                               ? Geometry::EdgeExpansion::Loops
+                                                               : Geometry::EdgeExpansion::Rings;
+                auto grown = Geometry::ExpandEdges( mesh, *m_Topology, m_Level, expansion, m_Selection.Ids() );
+                if ( !grown.IsSuccess() )
+                    return Common::MakeError<bool>( grown.GetError() );
+                for ( const int edge : grown.GetValue() )
+                    if ( auto added = next.Add( mesh, edge ); !added.IsSuccess() )
+                        return added;
+                // The count is the proof a scenario reads: a ring that cannot step (TriEdit) leaves it unchanged.
+                LOG_INFO( "[Mesh Selection] {}: {} -> {} edge(s) at the {} level", ToString( op ), m_Selection.Size(),
+                          next.Size(), Geometry::ToString( m_Level ) );
+                break;
+            }
         }
         Commit( std::move( next ), std::string( "Mesh Selection: " ) + ToString( op ) );
         return Common::MakeSuccess( true );
+    }
+
+    std::vector<int> MeshElementSelection::PickedElements( const Geometry::ElementHit& hit ) const
+    {
+        if ( !m_Mesh || !m_Topology )
+            return {};
+        std::vector<int> picked = Geometry::HitElements( *m_Topology, m_Selection.Mode(), m_Level, hit );
+        if ( picked.empty() || m_Selection.Mode() != Geometry::ElementMode::Edge ||
+             ( !m_PickEdgeLoops && !m_PickEdgeRings ) )
+            return picked;
+        std::vector<int> out = picked;
+        for ( const auto& [on, expansion] : { std::pair{ m_PickEdgeLoops, Geometry::EdgeExpansion::Loops },
+                                              std::pair{ m_PickEdgeRings, Geometry::EdgeExpansion::Rings } } )
+        {
+            if ( !on )
+                continue;
+            auto grown = Geometry::ExpandEdges( *m_Mesh, *m_Topology, m_Level, expansion, picked );
+            // The hit came from this very mesh, so a refusal is a defect worth seeing.
+            if ( !grown.IsSuccess() )
+            {
+                LOG_ERROR( "[Mesh Selection] {}", grown.GetError() );
+                continue;
+            }
+            out.insert( out.end(), grown.GetValue().begin(), grown.GetValue().end() );
+        }
+        std::sort( out.begin(), out.end() );
+        out.erase( std::unique( out.begin(), out.end() ), out.end() );
+        return out;
     }
 
     std::unique_ptr<ICommand> MeshElementSelection::MakeSelectionChange( const Common::UUID&        entity,

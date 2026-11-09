@@ -292,8 +292,8 @@ namespace Desert::Editor::Tools
             if ( hover.IsHit() )
             {
                 // A group edge is all of its mesh edges (HitElements), added or removed together.
-                const std::vector<int> picked =
-                     Geometry::HitElements( topology, state.Mode(), state.Level(), hover );
+                // With Pick Edge Loops / Rings on, an edge brings its loops / rings (UE's selection mechanic).
+                const std::vector<int> picked = state.PickedElements( hover );
                 if ( !pickCentre && io.KeyCtrl )
                 {
                     for ( const int id : picked )
@@ -354,7 +354,7 @@ namespace Desert::Editor::Tools
         if ( hover.IsHit() && !pickCentre )
         {
             Geometry::ElementSelection one( state.Mode() );
-            for ( const int id : Geometry::HitElements( topology, state.Mode(), state.Level(), hover ) )
+            for ( const int id : state.PickedElements( hover ) )
                 (void)one.Add( mesh, id );
             DrawSelection( paint, one, 0, kHilightColour );
         }
