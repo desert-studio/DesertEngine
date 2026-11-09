@@ -62,6 +62,8 @@ namespace Desert::Editor::Control
         ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
+        ModelingPreview,    ///< a modeling tool's preview is not yet on screen (just opened, setting changed,
+                            ///< computing)
         Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
         SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
         HLODBuild, ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
@@ -89,6 +91,7 @@ namespace Desert::Editor::Control
          "the reflection captures are still being filled for the first time",
          "textures are still streaming in",
          "a modeling tool's Accept is waiting for its background compute",
+         "a modeling tool's preview is still being computed (the frame shows the input or the last preview)",
          "displaced geometry is still being tessellated (the frame drew the base mesh)",
          "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
          "Build HLODs is still baking its landscape tiles (its HLOD files are not written yet)",

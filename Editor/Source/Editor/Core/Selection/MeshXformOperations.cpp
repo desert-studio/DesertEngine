@@ -103,6 +103,29 @@ namespace Desert::Editor::Core
             return remap;
         }
 
+        Common::ResultStr<MergeInputs> GatherFrom( const std::vector<Target>& targets )
+        {
+            if ( targets.size() < 2 )
+                return Common::MakeFormattedError<MergeInputs>( "{}: select at least two entities, not {}",
+                                                                ToString( XformOperation::Merge ),
+                                                                targets.size() );
+            const Target&   into   = targets.front();
+            const glm::mat4 toInto = glm::inverse( into.Entity.GetWorldTransform() );
+            MergeInputs     out;
+            out.IntoName      = into.Name;
+            out.MaterialSlots = into.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
+            for ( const Target& t : targets )
+            {
+                out.Entities.push_back( t.Id );
+                out.Parts.push_back(
+                     { t.Mesh, toInto * t.Entity.GetWorldTransform(),
+                       RemapInto( out.MaterialSlots,
+                                  t.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots(),
+                                  *t.Mesh ) } );
+            }
+            return Common::MakeSuccess( std::move( out ) );
+        }
+
         void SelectResult( const std::vector<Target>& kept, const std::vector<Common::UUID>& created )
         {
             std::vector<Common::UUID> ids;
@@ -142,6 +165,23 @@ namespace Desert::Editor::Core
         args.Pattern         = ms.XformPattern;
         args.PatternSeparate = ms.XformPatternSeparate;
         return args;
+    }
+
+    Common::ResultStr<MergeInputs> GatherMergeInputs( ::Desert::Core::Scene& scene )
+    {
+        auto selected = SelectedTargets( scene, XformOperation::Merge, true );
+        if ( !selected.IsSuccess() )
+            return Common::MakeError<MergeInputs>( selected.GetError() );
+        return GatherFrom( selected.GetValue() );
+    }
+
+    Common::ResultStr<Geometry::MergeOutcome> MergeGathered( const MergeInputs& inputs )
+    {
+        std::vector<Geometry::MergePart> parts;
+        parts.reserve( inputs.Parts.size() );
+        for ( const MergeInputs::Part& p : inputs.Parts )
+            parts.push_back( { *p.Mesh, p.ToInto, p.MaterialRemap } );
+        return Geometry::MergeMeshes( parts );
     }
 
     Common::BoolResultStr ApplyXformOperation( ::Desert::Core::Scene& scene, XformOperation op,
@@ -197,27 +237,19 @@ namespace Desert::Editor::Core
                 break;
             case XformOperation::Merge:
             {
-                if ( targets.size() < 2 )
-                    return Common::MakeFormattedError<bool>( "{}: select at least two entities, not {}", name,
-                                                             targets.size() );
-                const Target&                    into   = targets.front();
-                const glm::mat4                  toInto = glm::inverse( into.Entity.GetWorldTransform() );
-                std::vector<Common::AssetHandle> table =
-                     into.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
-                std::vector<Geometry::MergePart> parts;
-                for ( const Target& t : targets )
-                    parts.push_back(
-                         { *t.Mesh, toInto * t.Entity.GetWorldTransform(),
-                           RemapInto( table, t.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots(),
-                                      *t.Mesh ) } );
-                auto merged = Geometry::MergeMeshes( parts );
+                auto gathered = GatherFrom( targets );
+                if ( !gathered.IsSuccess() )
+                    return Common::MakeError<bool>( gathered.GetError() );
+                MergeInputs   inputs = gathered.ExtractValue();
+                const Target& into   = targets.front();
+                auto          merged = MergeGathered( inputs );
                 if ( !merged.IsSuccess() )
                     return refuse( into, merged.GetError() );
                 if ( !merged.GetValue().Report.empty() )
                     LOG_WARN( "[Modeling] {0} into '{1}': {2}", name, into.Name, merged.GetValue().Report );
                 changes.push_back(
                      StateOf( into.Id, Share( std::move( merged.ExtractValue().Mesh ) ), into.Local ) );
-                changes.back().MaterialSlots = std::move( table );
+                changes.back().MaterialSlots = std::move( inputs.MaterialSlots );
                 for ( size_t i = 1; i < targets.size(); ++i )
                     deletes.push_back( targets[i].Id );
                 kept.resize( 1 );

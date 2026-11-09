@@ -385,6 +385,15 @@ namespace Desert::Editor
         return false;
     }
 
+    bool ViewportPanel::ModelingPreviewOutstanding()
+    {
+        // Only the viewport the user works in: the tool runs in every modeling viewport, but the panel's
+        // settings and the scene the scenario shoots are the active one's.
+        const ViewportPanel* viewport = ActiveViewport();
+        return viewport != nullptr && Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
+               viewport->m_MeshProcessingTool.PreviewOutstanding();
+    }
+
     Common::BoolResultStr ViewportPanel::DropPrefabIntoActiveViewport( const std::string&              path,
                                                                        const std::optional<glm::vec3>& surface )
     {
@@ -2830,6 +2839,8 @@ namespace Desert::Editor
             case T::Boolean:
             case T::Trim:
             case T::Pattern:
+            case T::Merge:
+            case T::Split:
             case T::PaintGroups:                // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }

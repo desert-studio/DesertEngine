@@ -565,7 +565,8 @@ namespace Desert::Editor
 
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
                                                 const bool texturesStreaming, const bool hlodBuildRunning,
-                                                const bool meshDropsLoading )
+                                                const bool meshDropsLoading,
+                                                const bool modelingPreviewOutstanding )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -580,6 +581,9 @@ namespace Desert::Editor
             quiescence.Set( Control::PendingWork::ModelingAccept,
                             modeling.ReqAccept && modeling.ActiveTool != Core::ModelingState::Tool::None );
         }
+        // UE UMeshOpPreviewWithBackgroundCompute: the preview is valid only once its compute has landed. Sampled
+        // before the viewport pass, so a tool opened or a setting changed by this frame's command already counts.
+        quiescence.Set( Control::PendingWork::ModelingPreview, modelingPreviewOutstanding );
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneFiles.HasPendingLoad() );
         quiescence.Set( Control::PendingWork::NewScene, m_SceneFiles.HasPendingNew() );
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame

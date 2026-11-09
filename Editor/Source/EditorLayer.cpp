@@ -698,11 +698,11 @@ namespace Desert::Editor
     // `quit` whose reply has gone out comes back as the status to close with.
     void EditorLayer::SampleControlQuiescence()
     {
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
-                                         m_Startup.ReflectionCapturesFilling(),
-                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
-                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
-                                         ViewportPanel::AnyMeshDropLoading() );
+        m_Control.SampleFrameQuiescence(
+             m_Startup.StartupLoading() || m_Startup.ContentSettling(), m_Startup.ReflectionCapturesFilling(),
+             Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
+             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
+             ViewportPanel::AnyMeshDropLoading(), ViewportPanel::ModelingPreviewOutstanding() );
     }
 
     bool EditorLayer::AdmitShotFrame()

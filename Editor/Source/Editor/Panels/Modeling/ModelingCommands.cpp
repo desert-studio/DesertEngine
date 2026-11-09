@@ -237,8 +237,7 @@ namespace Desert::Editor
         }
         // XForm (UE's XForm tab) on the scene selection's entities, at the panel's values.
         for ( const Core::XformOperation op :
-              { Core::XformOperation::EditPivot, Core::XformOperation::BakeTransform, Core::XformOperation::Merge,
-                Core::XformOperation::Split } )
+              { Core::XformOperation::EditPivot, Core::XformOperation::BakeTransform } )
         {
             commands.push_back( { "Modeling", std::string( "XForm: " ) + Core::ToString( op ), [&scene, op]
                                   {
@@ -248,17 +247,21 @@ namespace Desert::Editor
                                                                         Core::XformArgsFromModelingState() );
                                   } } );
         }
-        // Pattern (UE's Pattern tool): opens the tool session on the selected entity (MeshProcessingTool previews
-        // the copies at the panel's values; the tool bar's Accept writes them).
-        commands.push_back( { "Modeling",
-                              std::string( "XForm: " ) + Core::ToString( Core::XformOperation::Pattern ), [&scene]
-                              {
-                                  if ( !scene )
-                                      return PaletteCommandOutcome( false, "no scene is open" );
-                                  Core::ModelingState::Get().ActiveTool = Core::ModelingState::Tool::Pattern;
-                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
-                                  return PaletteCommandDone();
-                              } } );
+        // Pattern, Merge, Split (UE's Pattern / Combine Meshes / Split Meshes tools): open the tool session on the
+        // scene selection (MeshProcessingTool previews at the panel's values; the tool bar's Accept writes it).
+        for ( const auto& [op, tool] :
+              std::initializer_list<std::pair<Core::XformOperation, Core::ModelingState::Tool>>{
+                   { Core::XformOperation::Pattern, Core::ModelingState::Tool::Pattern },
+                   { Core::XformOperation::Merge, Core::ModelingState::Tool::Merge },
+                   { Core::XformOperation::Split, Core::ModelingState::Tool::Split } } )
+            commands.push_back( { "Modeling", std::string( "XForm: " ) + Core::ToString( op ), [&scene, tool]
+                                  {
+                                      if ( !scene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      Core::ModelingState::Get().ActiveTool = tool;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
         // Boolean and Trim (UE's Boolean / Trim tools): opens the tool session on the scene selection's two
         // entities (MeshProcessingTool previews at the panel's values; the tool bar's Accept writes the result).
         for ( const Core::BooleanTool tool : { Core::BooleanTool::Boolean, Core::BooleanTool::Trim } )
