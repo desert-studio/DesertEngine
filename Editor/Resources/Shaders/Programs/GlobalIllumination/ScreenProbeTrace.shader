@@ -45,7 +45,7 @@ Shader "ScreenProbeTrace"
         // (subgroupAdd).
         #extension GL_KHR_shader_subgroup_arithmetic : require
 #endif
-        LocalSize(64, 1, 1); // SP_TRACE_LEG_GROUP_SIZE (Common/ScreenProbeTracing.glslh)
+        LocalSize(256, 1, 1); // SP_TRACE_LEG_GROUP_SIZE (Common/ScreenProbeTracing.glslh)
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
@@ -322,11 +322,76 @@ Shader "ScreenProbeTrace"
         }
 #endif
 
+        // THE GROUP'S RAYS BY DIRECTION (ray binning: Frostbite / SEED "Hybrid real-time rendering", 2018; UE's
+        // ScreenProbeTraceMeshSDFs / TraceVoxels take their compacted list in probe order). A leg's list holds a
+        // probe's rays together: one subgroup marched the sky-bound rays and the ground-bound rays of one probe
+        // side by side and waited on its longest march every time. The group's 256 listed rays are counted into
+        // bins by their texel (a direction in the probe's hemisphere: neighbouring probes' frames nearly agree), the bins
+        // laid out by a prefix sum, and lane i traces the i-th ray in bin order - so a subgroup holds a few
+        // adjacent texels of several neighbouring probes. A permutation within the group: every ray is traced by
+        // exactly one lane, with the same inputs; only which lane does it, and so the order of the next leg's
+        // list (SPListRay: any order is a valid list), changes.
+        // The key: the Morton order of the texel's (x, y) (SP_RES <= 16: four bits each, below 256), so adjacent
+        // keys are adjacent texels in both axes.
+        #define SP_LEG_BINS 256u // == SP_TRACE_LEG_GROUP_SIZE: one bin a lane to clear and to scan
+        shared uint s_LegBinCount[SP_LEG_BINS];
+        shared uint s_LegBinScan[2u * SP_LEG_BINS]; // ping-pong halves of the inclusive prefix sum
+        shared uint s_LegSorted[SP_TRACE_LEG_GROUP_SIZE];
+
+        uint SPLegMortonNibble( uint v )
+        {
+            v = ( v | ( v << 2u ) ) & 0x33u;
+            return ( v | ( v << 1u ) ) & 0x55u;
+        }
+
+        uint SPLegDirectionKey( uint slot )
+        {
+            const uint texel = slot % ( SP_RES * SP_RES );
+            return SPLegMortonNibble( texel % SP_RES ) | ( SPLegMortonNibble( texel / SP_RES ) << 1u );
+        }
+
+        // Called by every thread of the group in uniform control flow (it holds the barriers). False for a lane
+        // past the list's end; otherwise @p slot is the ray this lane traces.
+        bool SPLegSortedSlot( out uint slot )
+        {
+            const uint lane   = gl_LocalInvocationIndex;
+            const uint first  = gl_WorkGroupID.x * SP_TRACE_LEG_GROUP_SIZE;
+            const uint listed = min( screenProbeCompactAllocator - min( first, screenProbeCompactAllocator ),
+                                     SP_TRACE_LEG_GROUP_SIZE ); // this group's rays: lanes 0 .. listed - 1
+            const bool mine   = lane < listed;
+            const uint read   = mine ? screenProbeCompactTexels[first + lane] : 0u;
+            const uint key    = SPLegDirectionKey( read );
+            s_LegBinCount[lane] = 0u;
+            barrier();
+            uint rank = 0u;
+            if ( mine )
+                rank = atomicAdd( s_LegBinCount[key], 1u );
+            barrier();
+            // The bins' inclusive prefix sum (Hillis-Steele, the screen leg's SPListOpenRays scan).
+            uint source = 0u;
+            s_LegBinScan[lane] = s_LegBinCount[lane];
+            barrier();
+            for ( uint offset = 1u; offset < SP_LEG_BINS; offset <<= 1u )
+            {
+                uint sum = s_LegBinScan[source * SP_LEG_BINS + lane];
+                if ( lane >= offset )
+                    sum += s_LegBinScan[source * SP_LEG_BINS + lane - offset];
+                source ^= 1u;
+                s_LegBinScan[source * SP_LEG_BINS + lane] = sum;
+                barrier();
+            }
+            if ( mine )
+                s_LegSorted[s_LegBinScan[source * SP_LEG_BINS + key] - s_LegBinCount[key] + rank] = read;
+            barrier();
+            slot = mine ? s_LegSorted[lane] : 0u;
+            return mine;
+        }
+
         void main()
         {
-            if ( gl_GlobalInvocationID.x >= screenProbeCompactAllocator )
-                return;
-            const uint       slot  = screenProbeCompactTexels[gl_GlobalInvocationID.x];
+            uint slot;
+            if ( !SPLegSortedSlot( slot ) )
+                return; // past the list's end: after the sort's barriers
             const uint       probe = slot / ( SP_RES * SP_RES );
             const SPTexelRay texel = SPMakeTexelRay( probe, slot % ( SP_RES * SP_RES ) );
             const uint       state = screenProbeTraceHit[slot];
