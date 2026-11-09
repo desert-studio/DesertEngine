@@ -13,7 +13,7 @@
 
 struct GrassVarietyRow
 {
-    uvec2 Instances;   // mat4 per kept instance after the law: three regions of Args' capacity (THE ROWS below)
+    uvec2 Instances;   // mat4 per law slot, LawCapacity of them: the law's rows (THE ROWS below)
     uvec2 Args;        // GpuInstances.hpp: header (bucket count, capacity, record count, drawn), the draw records,
                        // then per bucket count, first, capacity, half screen size
     uvec2 CameraIds;   // the camera's list: per slot the row of Instances (GPU-COST-22)
@@ -29,7 +29,8 @@ struct GrassVarietyRow
                        // sway past its bounds), w = 0
     // GRASS-CULL-UNIFY-1: the cascades' lists are culled per frame from the view-independent Instances by
     // GrassCull.shader (CascadeCull), no longer by the tile cull. CascadeIds: per cascade list k the slots of
-    // Instances at k x capacity; CascadeWords: x = one list's words in CascadeArgs (Args' layout and its rest twin),
+    // CascadeIds at k x capacity (ids of Instances' rows); CascadeWords: x = one list's words in CascadeArgs
+    // (Args' layout and its rest twin),
     // y = the first of a list's rest counts (one per bucket); CascadeRings: list k's movers' ring at [k / 2].xy
     // (k even) / .zw (k odd): x = inner, y = wind distance (0: no mover), cm.
     uvec2 CascadeIds;
@@ -47,11 +48,10 @@ struct GrassVarietyRow
     uvec2 TilePool;
     uvec2 FullIds;
     // GRASS-CULL-COST-3, THE LAW'S SLOTS (UE GPU Scene: an instance's data is written once when it changes, the views
-    // only cull it): LawScales holds, per slot, the scale the view law gave a record (three floats; GrassCull.shader
-    // LawChunk), LawCapacity slots of it. LawGeneration is the generation of the law's inputs (GrassRenderer
-    // VarietyGpu::LawGeneration: the params with the field eye, the field, the pool, Args, LawScales; never 0): a
-    // chunk whose law word carries it was lawed from the same inputs, so its slots, codes and kept box stand.
-    uvec2 LawScales;
+    // only cull it): Instances holds, per slot, the row the view law made of a record (GrassCull.shader LawChunk),
+    // LawCapacity slots of it. LawGeneration is the generation of the law's inputs (GrassRenderer
+    // VarietyGpu::LawGeneration: the params with the field eye, the field, the pool, Args, Instances; never 0): a
+    // chunk whose law word carries it was lawed from the same inputs, so its slots, rows, codes and box stand.
     uint  LawGeneration;
     uint  LawCapacity;
     // CPU-GRASS-POOL-5: Instances and the id lists are ranges of shared pools (GrassRenderer m_InstancesPool,
@@ -93,16 +93,17 @@ const uint kGrassRowCameraHeld = 4u;
 //   0: never), 11..13 / 14..16 the box of the reach of every instance the law kept (min / max xyz, floats: its root
 //   after the snow, +- ( |centre height| + radius ) x its largest axis scale + pad; inverted when none is kept),
 //   17..24 each record's bucket + 1 (0: the law drops it) in four bit planes - plane b's bit i at word 17 + 2b
-//   (records 0..31) / 18 + 2b (32..63), 25 the chunk's first slot of LawScales: record i's lawed scale is slot
+//   (records 0..31) / 18 + 2b (32..63), 25 the chunk's first slot of Instances: record i's lawed row is slot
 //   word 25 + i (the slots cover the run's records before its cut; kGrassLawNoSlot: none).
 // Chunks' header y counts the slots handed out in the law generation header w names (GrassCull.shader mode 0
 // restarts it, LawChunk adds each lawed chunk's run, the camera finalize copies it, uncapped, into Feedback:
-// GrassRenderer sizes LawScales from it).
-// THE ROWS (REGRESS-CACHE-1; UE: the culled instances' compacted buffer): Instances holds the instances the views
-// keep, after the law, in three regions of Args' capacity (word 1) laid out as the lists - 0 the full list's slots
-// (the cascades' lists share them), 1 the camera's own, 2 its HZB candidates' (GrassCull.shader CullInstance). Every
-// list (CameraIds, CascadeIds, FullIds, Candidates) holds rows; no frame whose lists hold writes region 0, so a held
-// list still names the rows the frame that culled it wrote.
+// GrassRenderer sizes Instances from it).
+// THE ROWS (FPS-ARCH-GRASSROWS; UE GPU Scene: an instance's data is persistent, written when it changes, and the
+// instance cull emits compact id lists): Instances holds one mat4 per law slot, written by LawChunk once per law
+// generation and only read after it. Every list (CameraIds, CascadeIds, FullIds) holds ids - a row +
+// InstancesBase - and Candidates rows; the cull writes 4 bytes per list, never a row. A held list keeps naming the rows of the
+// generation that culled it: the law generation is part of the hold's key (GrassRenderer CascadeKey), and no slot
+// is handed out twice within a generation.
 const uint kGrassChunkHeader    = 4u;
 const uint kGrassChunkWords     = 26u;
 const uint kGrassChunkBoxWord   = 0u;
@@ -117,7 +118,7 @@ const uint kGrassChunkSlotWord  = 25u;
 // Chunks' header words: the law's slots handed out (y) in the law generation w.
 const uint kGrassChunkSlotsUsedWord = 1u;
 const uint kGrassChunkSlotsGenWord  = 3u;
-// A lawed chunk whose run found no room in LawScales: the law keeps none of it (GrassRenderer grows LawScales).
+// A lawed chunk whose run found no room in Instances: the law keeps none of it (GrassRenderer grows the rows).
 const uint kGrassLawNoSlot = 0xFFFFFFFFu;
 // The buckets a record's code holds: four bit planes, 0 for a dropped record (GrassRenderer kLawBuckets).
 const uint kGrassLawBuckets = 15u;
@@ -141,16 +142,15 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
 {
     mat4 Transforms[];
 };
+// THE ROWS as LawChunk writes them (GrassCull mode 1) and as the camera cull's instance pass reads them (mode 5, a
+// later pass of the frame graph).
 layout( buffer_reference, std430, buffer_reference_align = 16 ) writeonly buffer GrassInstanceRows
 {
     mat4 Rows[];
 };
-// GRASS-CULL-COST-3: the law's slots as GrassCull's camera cull writes them (LawChunk) and its lanes read them back
-// in the same pass (coherent: a subgroup's lanes read the slots its other lanes wrote, after a subgroup memory
-// barrier). Slot s's scale at 3s..3s+2.
-layout( buffer_reference, std430, buffer_reference_align = 4 ) coherent buffer GrassLawScales
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassLawRows
 {
-    float Scales[];
+    mat4 Rows[];
 };
 layout( buffer_reference, std430, buffer_reference_align = 16 ) buffer GrassQuads
 {

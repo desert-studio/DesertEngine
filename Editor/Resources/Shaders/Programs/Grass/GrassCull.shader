@@ -21,15 +21,17 @@
 //     (a) THE LAW, once per law generation
 //     (LawGeneration: the params with the field eye, the field, the pool - a still or turning camera keeps it): a
 //     chunk a view may meet whose law word carries another generation is lawed by its subgroup
-//     (LawChunk) - each kept record's scale into its slot of LawScales, its bucket + 1 into the chunk's code planes,
+//     (LawChunk) - each kept record's row (GrassLawInstance, the law's one statement of it) into its slot of
+//     Instances (FPS-ARCH-GRASSROWS: the 64-byte rows are written once per law generation), its bucket + 1 into
+//     the chunk's code planes,
 //     the box of the kept instances' reach into its law words. (b) The kept box meets the views: each cascade
 //     list's caster box (none while the row's lists hold, kGrassRowCascadesHeld), the camera's side planes and the
 //     previous frame's HZB.
 //   5 THE CAMERA CULL'S INSTANCES (after mode 1, indirect by the met chunks' list): a group per met chunk, lane j
 //     the j-th record of the kept mask (a chunk holds at most 64, kCullGroupThreads; FPS-GRASS-CULL: the kept
-//     records compacted onto the first lanes, so a subgroup past them does no work). (c) Each builds its
-//     row from its pool record and its slot's scale (GrassLawInstance, the law's one statement of a row) and is
-//     tested only by the views its chunk met: into each cascade list whose box met the chunk (CascadeCull), and -
+//     records compacted onto the first lanes, so a subgroup past them does no work). (c) Each reads its law
+//     row and is tested only by the views its chunk met; a list that takes it gets its 4-byte id (row +
+//     InstancesBase), never a copy of the row: into each cascade list whose box met the chunk (CascadeCull), and -
 //     the camera's planes met - by its own bounding sphere. Its bounding sphere - from its transform: the bounds centre along its up axis, the bounds radius at
 //     its largest axis scale plus a mesh's sway - inside the camera's side planes enters the camera's list in the
 //     same bucket, or, hidden by the previous frame's furthest HZB (Hzb.z != 0; Common/GpuCullTests.glslh
@@ -335,7 +337,7 @@ Shader "GrassCull"
         }
 
         // THE LAWED ROW (GRASS-CULL-COST-3; the one statement of it - LawChunk's kept box and the camera cull's rows):
-        // record @p r's instance at the scale the view law gave it (@p scale, GrassViewLaw / its slot of LawScales).
+        // record @p r's instance at the scale the view law gave it (@p scale, GrassViewLaw): LawChunk's row.
         // The world's snow (Common/WeatherSnow.glslh) lies @p snow deep over the ground: the root sinks by it, so the
         // instance shows only what stands above the snow and one shorter than it is buried whole. A blade's forward
         // axis carries the height multiplier (its lean is a share of its height) and the columns' w its three draws
@@ -410,13 +412,13 @@ Shader "GrassCull"
 
         // Mode 5, a lane's instance of a met chunk.
         // GRASS-CULL-UNIFY-1, THE CASCADES' LISTS (moved here from GrassGenerate's tile cull, which no longer sees any
-        // view): the instance at row @p slot of Instances (REGRESS-CACHE-1: its full list's slot) of row @p r, in
-        // bucket @p b (its table word @p table), goes into each cascade list of @p holds (CascadeHolds).
+        // view): the instance of id @p id (its law row of Instances + InstancesBase, FPS-ARCH-GRASSROWS) of row
+        // @p r, in bucket @p b (its table word @p table), goes into each cascade list of @p holds (CascadeHolds).
         // MeshRenderer::BuildGpuInstancedShadowDraws' rule on the root @p root: a mover inside the
         // list's ring [inner, wind distance), else its rest pose (Common/ShadowWind.glslh, the one rule). A mover is
         // appended from the bucket's first slot, a rest caster from its last; a list's bucket never passes the room
         // the full list's bucket has, so the lists share its capacity.
-        void CascadeCull( uint r, uint b, uint table, uint slot, vec3 root, uint holds )
+        void CascadeCull( uint r, uint b, uint table, uint id, vec3 root, uint holds )
         {
             uint       words   = VarietyRows[r].CascadeWords.x;
             uint       rests   = VarietyRows[r].CascadeWords.y;
@@ -439,7 +441,7 @@ Shader "GrassCull"
                 if ( index < room )
                 {
                     uint offset = mover ? index : room - 1u - index;
-                    ids.Words[cascade.Words[at + 1u] + offset] = slot + VarietyRows[r].InstancesBase;
+                    ids.Words[cascade.Words[at + 1u] + offset] = id;
                 }
             }
         }
@@ -502,20 +504,20 @@ Shader "GrassCull"
             return dot( plane.xyz, centre ) + plane.w >= -dot( abs( plane.xyz ), extent );
         }
 
-        const uint kNoGrassRow = 0xFFFFFFFFu;
-
-        // Mode 5, one lane: row @p r's instance @p instance (its row, GrassLawInstance) in bucket @p b, of a
-        // chunk that met the cascade lists @p met (bit k: list k), the camera's side planes (@p seen) and - inside
-        // them - was hidden whole by the previous frame's HZB (@p chunkHidden); @p held: the row's cascades and its
-        // full list hold from an earlier frame. A view that keeps it gets its ROW (REGRESS-CACHE-1; UE: the culled
-        // instances' compacted buffer, sized by what the views keep): Instances is three regions of Args' capacity
-        // (word 1; GrassRenderer kGrassRowRegions) laid out as the lists - the full list's slot, else the camera's
-        // own or its candidates' slot - and every list holds that row, not the pool record. The cascades and the
-        // full list (the union of the cascades and the camera's planes - RT and the list-less cascades draw it, so
-        // grass the camera cannot see still casts and reflects) take the full slot; the camera takes it too when the
-        // full list took the instance this frame. A held full list keeps the rows of the frame that culled it, as
-        // its cascades keep their depth.
-        void CullInstance( uint r, uint b, mat4 instance, uint met, bool seen, bool chunkHidden, bool held )
+        // Mode 5, one lane: row @p r's instance @p instance, the law's row @p row of Instances
+        // (FPS-ARCH-GRASSROWS; UE GPU Scene / InstanceCulling: an instance's data is written once when it
+        // changes, the views' lists hold ids), in bucket @p b, of a chunk that met the cascade lists @p met (bit k:
+        // list k), the camera's side planes (@p seen) and - inside them - was hidden whole by the previous frame's
+        // HZB (@p chunkHidden); @p held: the row's cascades and its full list hold from an earlier frame. A view
+        // that keeps it appends the row's id (row + InstancesBase) to its list - the cull writes 4 bytes per list,
+        // never the 64-byte row, which LawChunk wrote once this law generation. The cascades and the full list (the
+        // union of the cascades
+        // and the camera's planes - RT and the list-less cascades draw it, so grass the camera cannot see still
+        // casts and reflects) take a slot of the full list's bucket; the camera's list and its candidates their
+        // own. A held full list keeps the ids of the frame that culled it, as its cascades keep their depth: the
+        // law generation is in their key (GrassRenderer CascadeKey), so the rows they name stand.
+        void CullInstance( uint r, uint b, uint row, mat4 instance, uint met, bool seen, bool chunkHidden,
+                           bool held )
         {
             uint       tables   = VarietyRows[r].Info.y;
             uint       buckets  = VarietyRows[r].Info.x;
@@ -523,7 +525,7 @@ Shader "GrassCull"
             GrassWords args     = GrassWords( VarietyRows[r].Args );
             uint       first    = args.Words[table + 1u];
             uint       capacity = args.Words[table + 2u];
-            uint       room     = args.Words[1u];
+            uint       id       = row + VarietyRows[r].InstancesBase;
             vec4       bounds   = VarietyRows[r].Bounds;
             float scale  = InstanceScale( instance );
             float radius = bounds.x * scale + bounds.z;
@@ -538,16 +540,13 @@ Shader "GrassCull"
             }
             if ( holds == 0u && !inside )
                 return;
-            uint row = kNoGrassRow;
             if ( !held )
             {
                 uint full = WaveAppend( args, table );
                 if ( full < capacity )
                 {
-                    row = first + full;
-                    GrassInstanceRows( VarietyRows[r].Instances ).Rows[row] = instance;
-                    GrassWords( VarietyRows[r].FullIds ).Words[row] = row + VarietyRows[r].InstancesBase;
-                    CascadeCull( r, b, table, row, instance[3].xyz, holds );
+                    GrassWords( VarietyRows[r].FullIds ).Words[first + full] = id;
+                    CascadeCull( r, b, table, id, instance[3].xyz, holds );
                 }
             }
             if ( !inside )
@@ -566,14 +565,6 @@ Shader "GrassCull"
             uint index = WaveAppend( GrassWords( VarietyRows[r].CameraArgs ), at );
             if ( index >= capacity )
                 return;
-            if ( row == kNoGrassRow )
-            {
-                uint region = 1u;
-                if ( hidden )
-                    region = 2u;
-                row = region * room + first + index;
-                GrassInstanceRows( VarietyRows[r].Instances ).Rows[row] = instance;
-            }
             if ( hidden )
             {
                 GrassQuads candidates = GrassQuads( VarietyRows[r].Candidates );
@@ -581,7 +572,7 @@ Shader "GrassCull"
                 candidates.Quads[2u * ( first + index ) + 1u] = uvec4( row, 0u, 0u, 0u );
             }
             else
-                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = row + VarietyRows[r].InstancesBase;
+                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = id;
         }
 
         // A box (@p lo..@p hi) against the views (bit k < kGrassCascadeLists: cascade list k's caster box, none while
@@ -638,11 +629,12 @@ Shader "GrassCull"
         // law generation (LawGeneration). The chunk at word @p at of row @p r, @p count records, lawed by ONE whole
         // subgroup, a lane per record: the run past the cut at the box's nearest point is never kept (the run ascends
         // by fade draw and the share only falls with distance), the whole chunk past the cull radius. The run before
-        // the cut gets its slots of LawScales, one per record (Chunks' header y; none when they would pass
+        // the cut gets its slots of Instances, one per record (Chunks' header y; none when they would pass
         // LawCapacity - the law then keeps nothing of the chunk this generation, and the renderer, fed the uncapped
-        // count, grows LawScales, which is a new generation). Every kept record's scale goes into its slot, its bucket
-        // + 1 into the code planes (@p outLow: records 0..31, @p outHigh: 32..63, plane b at [b]) and the reach of its
-        // cascade sphere about its root - which holds its camera sphere - into the kept box (@p outLo .. @p outHi;
+        // count, grows the law's rows, which is a new generation). Every kept record's row (GrassLawInstance;
+        // 64 B, FPS-ARCH-GRASSROWS: written here once per law generation, the views' lists only name it) goes
+        // into its slot, its bucket + 1 into the code planes (@p outLow: records 0..31, @p outHigh: 32..63, plane
+        // b at [b]) and the reach of its cascade sphere about its root - which holds its camera sphere - into the kept box (@p outLo .. @p outHi;
         // inverted when nothing is kept). They become the chunk's law words, stamped with the generation; @p outSlot:
         // the chunk's first slot.
         void LawChunk( uint r, uint at, uint count, GrassParams p, out vec3 outLo, out vec3 outHi, out uvec4 outLow,
@@ -684,9 +676,9 @@ Shader "GrassCull"
                 slot = kGrassLawNoSlot;
 
             g_Field               = GrassWords( VarietyRows[r].Field );
-            GrassWords     args   = GrassWords( VarietyRows[r].Args );
-            GrassLawScales scales = GrassLawScales( VarietyRows[r].LawScales );
-            vec4           bounds = VarietyRows[r].Bounds;
+            GrassWords        args   = GrassWords( VarietyRows[r].Args );
+            GrassInstanceRows rows   = GrassInstanceRows( VarietyRows[r].Instances );
+            vec4              bounds = VarietyRows[r].Bounds;
             bool           blade  = ( floatBitsToUint( p.ScaleX.w ) & kFlagBlade ) != 0u;
             vec3           keptLo = vec3( 1.0e30 );
             vec3           keptHi = vec3( -1.0e30 );
@@ -710,11 +702,8 @@ Shader "GrassCull"
                         uint b;
                         if ( GrassViewLaw( p, args, tile, scale, b ) )
                         {
-                            uint word                = 3u * ( slot + i );
-                            scales.Scales[word]      = scale.x;
-                            scales.Scales[word + 1u] = scale.y;
-                            scales.Scales[word + 2u] = scale.z;
                             mat4  instance = GrassLawInstance( tile, scale, blade, p.Lean.z );
+                            rows.Rows[slot + i] = instance;
                             float reach    = ( ( abs( bounds.y ) + bounds.x ) * InstanceScale( instance ) + bounds.z ) *
                                           ( 1.0 + kChunkReachSlack );
                             keptLo = min( keptLo, instance[3].xyz - vec3( reach ) );
@@ -891,9 +880,9 @@ Shader "GrassCull"
         // pass's list, its instances compacted before any work): a group per met chunk, lane j the j-th record the
         // chunk's law kept (records ascending, so a subgroup's appends keep the records' order), so the kept
         // records fill the group's first lanes and a subgroup past them leaves at once instead of running with a
-        // few live lanes. A kept record builds its row from its pool record and its slot's scale
-        // (GrassLawInstance, the law's one statement of a row) and goes to CullInstance, tested only by the views
-        // its chunk met, which writes it to the row of the list that takes it.
+        // few live lanes. A kept record reads its row from its slot of Instances (FPS-ARCH-GRASSROWS: LawChunk
+        // wrote it once this law generation; the pool records and params are not read here) and goes to
+        // CullInstance, tested only by the views its chunk met, which appends its id to each list that takes it.
         void CameraInstances()
         {
             uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -923,23 +912,11 @@ Shader "GrassCull"
             uvec4 planes = i < 32u ? low : high;
             uint  code   = ( ( planes.x >> bit ) & 1u ) | ( ( ( planes.y >> bit ) & 1u ) << 1u ) |
                            ( ( ( planes.z >> bit ) & 1u ) << 2u ) | ( ( ( planes.w >> bit ) & 1u ) << 3u );
-            GrassParams    p      = GrassParamsRef( VarietyRows[r].Params ).Data[0];
-            float          snow   = p.Lean.z;
-            bool           blade  = ( floatBitsToUint( p.ScaleX.w ) & kFlagBlade ) != 0u;
-            bool           held   = ( VarietyRows[r].Info.z & kGrassRowCascadesHeld ) != 0u;
-            GrassSegments  pool   = GrassSegments( VarietyRows[r].TilePool );
-            GrassLawScales scales = GrassLawScales( VarietyRows[r].LawScales );
-            uint record = GrassChunkRecord( chunks.Words[at + kGrassChunkFirstWord],
-                                            chunks.Words[at + kGrassChunkPageWord], i );
-            uint word   = 3u * ( slot + i );
-            // The pool record's root, rotation and draws (its scale and clump are the law's inputs, which the
-            // slot's scale replaces).
-            GrassQuads quads    = GrassPoolSegment( pool, record );
-            uint       quad     = GrassSegmentRecord( record ) * kGrassTilePoolWords;
-            TileRecord tile     = GrassUnpackRecord( quads.Quads[quad], uvec4( 0u ), quads.Quads[quad + 2u] );
-            vec3       scale    = vec3( scales.Scales[word], scales.Scales[word + 1u], scales.Scales[word + 2u] );
-            mat4       instance = GrassLawInstance( tile, scale, blade, snow );
-            CullInstance( r, code - 1u, instance, met & kCascadeViews, ( met & kCameraView ) != 0u,
+            bool held = ( VarietyRows[r].Info.z & kGrassRowCascadesHeld ) != 0u;
+            // The record's row as LawChunk wrote it this law generation (its slot: the chunk's first + i).
+            uint row      = slot + i;
+            mat4 instance = GrassLawRows( VarietyRows[r].Instances ).Rows[row];
+            CullInstance( r, code - 1u, row, instance, met & kCascadeViews, ( met & kCameraView ) != 0u,
                           ( met & kChunkHidden ) != 0u, held );
         }
 
@@ -1108,7 +1085,7 @@ Shader "GrassCull"
             GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
             feedback.Words[buckets + 2u] = drawn;
             feedback.Words[buckets + 3u] = 0u;
-            // The law's slots handed out this law generation, uncapped: the renderer sizes LawScales from them.
+            // The law's slots handed out this law generation, uncapped: the renderer sizes the rows by them.
             feedback.Words[buckets + kFeedbackLawWord] =
                  GrassWords( VarietyRows[r].Chunks ).Words[kGrassChunkSlotsUsedWord];
             return candidates;
