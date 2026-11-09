@@ -87,6 +87,8 @@ namespace Desert::Editor::ThumbnailProducers
               "UE (UStateTree): the class icon; states and transitions have no picture" },
          Row{ FileType::VFXModule, Producer::TypeIcon,
               "UE (UNiagaraScript, Usage Module): the class icon; a module is text and has no picture" },
+         Row{ FileType::IesProfile, Producer::TypeIcon,
+              "the class icon: the asset keeps the photometric data, not the texture UE's thumbnail draws" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

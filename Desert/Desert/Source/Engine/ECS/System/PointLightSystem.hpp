@@ -6,6 +6,7 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 
 #include <Engine/Graphic/Render/Commands/PointLightCommand.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::ECS
 {
@@ -55,10 +56,18 @@ namespace Desert::ECS
 
                      Graphic::ShaderProtocols::PointLightPayload light{};
                      light.Color     = pointlight.Data.Color;
-                     // The authored value in its units, as the multiplier the shader's falloff scales (UE
-                     // ULocalLightComponent::ComputeLightBrightness).
+                     // The IES profile: its atlas row and, under Use IES Brightness, its peak candela.
+                     Runtime::IesProfileService* const ies = Runtime::ResourceRegistry::GetIesProfileService();
+                     const Runtime::IesProfileService::Slot profile = ies->Acquire( pointlight.Data.IesProfile );
+                     // The authored value in its units (or the profile's brightness), as the multiplier the
+                     // shader's falloff scales (UE ULocalLightComponent::ComputeLightBrightness).
+                     const ECS::LightPhotometry::LightBrightness brightness =
+                          ECS::LightPhotometry::EffectiveBrightness(
+                               pointlight.Data.Intensity, pointlight.Data.IntensityUnits,
+                               pointlight.Data.UseIesBrightness, pointlight.Data.IesBrightnessScale,
+                               profile.PeakCandela );
                      light.Intensity = ECS::LightPhotometry::ShaderIntensity(
-                          pointlight.Data.Intensity, pointlight.Data.IntensityUnits, pointlight.Data.Falloff,
+                          brightness.Intensity, brightness.Units, pointlight.Data.Falloff,
                           pointlight.Data.MinRadius, ECS::LightPhotometry::kPointLightCosHalfCone );
                      light.Position  = glm::vec3(worldTransform[3]); // Extract translation from world matrix
                      light.Radius    = pointlight.Data.Radius;
@@ -72,6 +81,12 @@ namespace Desert::ECS
                      light.ContactShadowCastingIntensity = pointlight.Data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = pointlight.Data.ContactShadowNonCastingIntensity;
                      light.VolumetricScatteringIntensity    = pointlight.Data.VolumetricScatteringIntensity;
+                     // The light's frame (forward = the entity's -Z, as a spot's) orients its IES profile; the
+                     // atlas slot is stamped by SceneRenderer::AddPointLight on the main thread.
+                     const glm::vec3 forward = glm::normalize( -glm::vec3( worldTransform[2] ) );
+                     light.AxisX             = glm::normalize( glm::vec3( worldTransform[0] ) );
+                     light.AxisY             = glm::cross( forward, light.AxisX );
+                     light.IesProfileRow     = profile.Row;
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).

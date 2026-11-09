@@ -221,11 +221,8 @@ void main()
     // reflection of a surface seen from above is of the upper hemisphere).
     const DesertSurface S = DesertMakeSurface( i.WorldPosition, N, V, vec3( 0.0 ), 0.0, s.Roughness, s.Specular );
     const DesertPayload P = DesertQuantizePayload( DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
-    DesertLight         sunLight;
-    sunLight.L                  = L;
-    sunLight.Radiance           = sunLit;
-    sunLight.Shadow             = sunShadow;
-    sunLight.TransmissionShadow = sunShadow;
+    // L points toward the sun; DesertSunLight takes the direction its light travels.
+    const DesertLight   sunLight = DesertSunLight( -L, sunLit, sunShadow, sunShadow );
     // ...and each point and spot light of the froxel under its shadow (or the MegaLights volume's), through the same
     // model. The volume's scattering stays the sun's and the sky's (UE SingleLayerWater's), so the local lights'
     // isotropic remainder (Indirect) has no diffuse surface to light here.

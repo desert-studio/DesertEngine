@@ -68,6 +68,10 @@ namespace Desert::Editor
                                     float height );
         void RenderSpotLights( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
                                float xpos, float ypos );
+        // Rect lights (UE URectLightComponent): billboard + the emitting rect (ECS::RectLightGeometryOf, the frame
+        // the renderer lights by); selected: barn doors, the facing line, the attenuation shell and the width /
+        // height / radius handles.
+        void RenderRectLights( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
         // Camera entities (CameraComponent): billboard icon + wireframe view frustum.
         void RenderCameras( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height,
                             float xpos, float ypos );
@@ -142,6 +146,9 @@ namespace Desert::Editor
             PointRadius,
             SpotRange,
             SpotOuterAngle,
+            RectWidth,
+            RectHeight,
+            RectRange,
         };
 
         // A round grab dot at @p handle. Dragging scales @p value by the RATIO of the pointer's distance

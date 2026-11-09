@@ -14,6 +14,7 @@ Inputs
 
 #include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
+#include <Mesh/RectLight.glslh> // a rect source's area response (DesertLight::RectCenter)
 // The pure half of the ambient text. A lighting pass has already included the whole file (its samplers too);
 // a G-buffer pass, which only packs the shading word, has not, and gets the half that declares no binding.
 #ifndef AMBIENT_IBL_GLSLH
@@ -28,12 +29,16 @@ vec3 DefaultLitF0( DesertSurface S )
 
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
+    if ( DesertIsRectLight( L ) )
+        return EvaluateRectLight( L, S.V, S.N, DefaultLitF0( S ), S.Metallic, S.Roughness, S.BaseColor ) * L.Shadow;
     return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, DefaultLitF0( S ), S.Metallic, S.Roughness, S.BaseColor ) *
            L.Shadow;
 }
 
 vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 {
+    if ( DesertIsRectLight( L ) )
+        return EvaluateRectLightSpecular( L, S.V, S.N, DefaultLitF0( S ), S.Roughness ) * L.Shadow;
     return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DefaultLitF0( S ), S.Roughness ) * L.Shadow;
 }
 

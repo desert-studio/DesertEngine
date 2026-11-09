@@ -1,0 +1,67 @@
+#ifndef RECT_LIGHT_GLSLH
+#define RECT_LIGHT_GLSLH
+
+// THE SURFACE'S SIDE OF A RECT LIGHT (DesertLight::RectCenter; the source's side is Mesh/LightSources.glslh
+// DesertRectLightAt): the Cook-Torrance response of DefaultLit to an area, not a point.
+//
+//   diffuse  — Lambert on the rect's vector irradiance: Radiance * dot( N, L ) is the exact irradiance of the
+//              visible rect (wholly above the surface's horizon), so the lobe is EvaluateDirectLight's diffuse
+//              half at L.
+//   specular — the GGX lobe aimed at the rect's "representative point" (Karis 2013, "Real Shading in Unreal
+//              Engine 4", area lights): the point of the rect nearest the mirror direction, the lobe's energy
+//              renormalised for the solid angle the rect widens it by, (alpha / alpha')^2 with
+//              alpha' = saturate( alpha + r / ( 2 d ) ), r the radius of the disc of the rect's area, d its distance.
+//
+// UE 5 integrates the rect's specular against a linearly transformed cosine (RectGGXApproxLTC, two 64x64 LUTs
+// fitted to GGX); that is the reference this approximates, and the next step of LIGHTS-RECT-IES.
+//
+// Requires Mesh/BRDF.glslh (PI, DistributionGGX, VisibilitySmith, fresnelSchlick), Mesh/DirectLighting.glslh and
+// ShadingModels/ShadingModelContract.glslh (DesertLight) first. No binding.
+
+// The unit direction from the surface toward the rect's representative point, and in .w the distance to it.
+vec4 RectLightRepresentativePoint( DesertLight light, vec3 view, vec3 N )
+{
+    const vec3  R          = reflect( -view, N );
+    const float halfWidth  = length( light.RectExtentX );
+    const float halfHeight = length( light.RectExtentY );
+    const vec3  axisX      = light.RectExtentX / halfWidth;
+    const vec3  axisY      = light.RectExtentY / halfHeight;
+    const vec3  normal     = cross( axisX, axisY );
+    // The mirror ray meets the rect's plane where it runs against the face's normal; a ray that runs along or
+    // away from the plane is followed far out, so the clamp below takes the rect's edge in its direction.
+    const float facing     = dot( R, normal );
+    const float reach      = facing < -1e-4 ? dot( light.RectCenter, normal ) / facing
+                                            : 1e4 * length( light.RectCenter );
+    const vec3  onPlane    = R * reach - light.RectCenter;
+    const vec3  closest    = light.RectCenter + axisX * clamp( dot( onPlane, axisX ), -halfWidth, halfWidth ) +
+                             axisY * clamp( dot( onPlane, axisY ), -halfHeight, halfHeight );
+    const float reachDist  = max( length( closest ), 1e-3 );
+    return vec4( closest / reachDist, reachDist );
+}
+
+// The specular lobe of a rect light (EvaluateDirectLightSpecular's lobe at the representative point).
+vec3 EvaluateRectLightSpecular( DesertLight light, vec3 view, vec3 N, vec3 F0, float roughness )
+{
+    const vec4  point       = RectLightRepresentativePoint( light, view, N );
+    const float alpha       = roughness * roughness;
+    const float area        = 4.0 * length( light.RectExtentX ) * length( light.RectExtentY );
+    const float discRadius  = sqrt( area / PI );
+    const float widened     = clamp( alpha + discRadius / ( 2.0 * point.w ), 1e-4, 1.0 );
+    const float energy      = ( alpha / widened ) * ( alpha / widened );
+    return EvaluateDirectLightSpecular( point.xyz, light.Radiance * energy, view, N, F0, roughness );
+}
+
+// DefaultLit's whole response to a rect light: the diffuse half of EvaluateDirectLight at the vector
+// irradiance's direction, plus the specular lobe above.
+vec3 EvaluateRectLight( DesertLight light, vec3 view, vec3 N, vec3 F0, float metalness, float roughness,
+                        vec3 albedo )
+{
+    const float cosLi = max( dot( N, light.L ), 0.0 );
+    const vec3  H     = normalize( view + light.L );
+    // EvaluateDirectLight's energy split: what Fresnel reflects is not diffused, and a conductor diffuses none.
+    const vec3  kd      = ( 1.0 - fresnelSchlick( F0, max( dot( H, view ), 0.0 ) ) ) * ( 1.0 - metalness );
+    const vec3  diffuse = kd * albedo / PI * light.Radiance * cosLi;
+    return diffuse + EvaluateRectLightSpecular( light, view, N, F0, roughness );
+}
+
+#endif // RECT_LIGHT_GLSLH

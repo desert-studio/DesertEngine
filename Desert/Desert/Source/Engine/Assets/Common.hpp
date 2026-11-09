@@ -148,6 +148,9 @@ namespace Desert::Assets
         // attributes it touches, its GLSL, the stages it may run in) that a system's stack names by GUID. See
         // Engine/Assets/VFXModuleAsset.hpp.
         VFXModule,
+        // AN IES LIGHT PROFILE (`.dies`): UE UTextureLightProfile - the photometric data a point, spot or rect
+        // light is shaped by, imported from a `.ies`. See Engine/Assets/IesProfileAsset.hpp.
+        IesProfile,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -278,6 +281,9 @@ namespace Desert::Assets
             // compiler reads the file through the registry row of its GUID (VFX::RegistryModuleResolver), and a
             // module asset object exists only while an editor document holds one.
             case AssetTypeID::VFXModule:
+            // AN IES PROFILE IS SCENE-SCOPED: a light names it by handle, and Runtime::IesProfileService reads the
+            // file into its atlas on the first ask; no asset object is held.
+            case AssetTypeID::IesProfile:
             case AssetTypeID::Count:
                 return false;
         }
@@ -372,6 +378,8 @@ namespace Desert::Assets
                 return "SubsurfaceProfile";
             case AssetTypeID::VFXModule:
                 return "VFXModule";
+            case AssetTypeID::IesProfile:
+                return "IesProfile";
             case AssetTypeID::Count:
                 return "Count";
         }

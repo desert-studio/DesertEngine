@@ -91,6 +91,8 @@ namespace Desert::Tests::CornellSymmetryRef
         using uint = std::uint32_t;
         using glm::abs;
         using glm::length;
+        using glm::cross;       // the rect source's vector irradiance (LightSources.glslh RectLightEdge)
+        using glm::inversesqrt;
         uint floatBitsToUint( float value )
         {
             return std::bit_cast<uint>( value );
@@ -98,6 +100,14 @@ namespace Desert::Tests::CornellSymmetryRef
         float uintBitsToFloat( uint value )
         {
             return std::bit_cast<float>( value );
+        }
+        // No textures here: the IES profile atlas (Mesh/IesProfile.glslh) is bindless, and the walls' lights
+        // name no profile, which the shader answers with 1.
+#define DESERT_LIGHT_SOURCES_CPU
+        float DesertIesProfileFactor( int /*atlasTexture*/, int /*profileRow*/, vec3 /*fromLight*/,
+                                      vec3 /*forward*/, vec3 /*tangent*/ )
+        {
+            return 1.0f;
         }
 #include <Mesh/LightSources.glslh>
         DESERT_GLSL_AS_CPP_END

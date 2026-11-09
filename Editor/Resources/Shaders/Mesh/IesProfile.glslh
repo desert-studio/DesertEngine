@@ -1,0 +1,35 @@
+#ifndef DESERT_IES_PROFILE_GLSLH
+#define DESERT_IES_PROFILE_GLSLH
+
+// THE IES LIGHT PROFILE (UE ComputeLightProfileMultiplier, LightData.ush). Runtime::IesProfileService packs every
+// profile a light names into one R32F atlas in the bindless table: a block of IES_PROFILE_ROWS rows per profile,
+// columns over the vertical angle (0 = along the light's forward .. 180 = straight back), rows over the horizontal
+// angle about the forward (0 along the bitangent, 90 along the tangent), the last row repeating the first.
+// Normalised to the profile's peak, so it shapes the light and the light's Intensity stays its brightness.
+#include <Common/BindlessTextures.glslh>
+
+const float IES_PROFILE_COLUMNS = 256.0; // Graphic::kIesProfileColumns
+const float IES_PROFILE_ROWS    = 32.0;  // Graphic::kIesProfileRows
+
+// `fromLight` the unit direction from the light to the shaded point; `forward` and `tangent` the light's frame
+// (unit, orthogonal). 1 when the light names no profile (row < 0).
+float DesertIesProfileFactor( int atlasTexture, int profileRow, vec3 fromLight, vec3 forward, vec3 tangent )
+{
+    if ( profileRow < 0 || atlasTexture <= 0 )
+        return 1.0;
+    const vec3  bitangent  = cross( forward, tangent );
+    const float vertical   = acos( clamp( dot( fromLight, forward ), -1.0, 1.0 ) ) * ( 1.0 / 3.14159265 );
+    float       horizontal = atan( dot( fromLight, tangent ), dot( fromLight, bitangent ) ) * ( 0.5 / 3.14159265 );
+    horizontal             = fract( horizontal + 1.0 );
+
+    const uint  slot   = uint( atlasTexture );
+    const float height = float( textureSize( sampler2D( BindlessTextures[nonuniformEXT( slot )],
+                                                        BindlessSamplers[BINDLESS_SAMPLER_LINEAR_CLAMP] ),
+                                             0 ).y );
+    // Texel centres: the first column / row of the block is angle 0, the last the range's end.
+    const vec2 uv = vec2( ( 0.5 + vertical * ( IES_PROFILE_COLUMNS - 1.0 ) ) / IES_PROFILE_COLUMNS,
+                          ( float( profileRow ) + 0.5 + horizontal * ( IES_PROFILE_ROWS - 1.0 ) ) / height );
+    return SampleBindless( slot, BINDLESS_SAMPLER_LINEAR_CLAMP, uv, 0.0 ).r;
+}
+
+#endif // DESERT_IES_PROFILE_GLSLH

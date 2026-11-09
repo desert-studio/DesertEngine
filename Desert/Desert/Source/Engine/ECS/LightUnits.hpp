@@ -48,6 +48,11 @@ namespace Desert::ECS
         // A point light radiates over the whole sphere: the cone whose half-angle cosine is -1.
         inline constexpr float kPointLightCosHalfCone = -1.0f;
 
+        // A RECT light is a Lambertian emitter: I(theta) = I cos(theta), so its flux is pi x the candelas along
+        // its normal (UE URectLightComponent's lumens) - the solid angle 2 pi (1 - c) of the cone with c = 1/2.
+        // The lumen conversions take this as their cone; it is no cone of the light's.
+        inline constexpr float kRectLightLumensCosHalfCone = 0.5f;
+
         // The short label a readout prints after an Intensity ("" for Unitless).
         inline const char* UnitsLabel( LightUnits units )
         {
@@ -121,6 +126,34 @@ namespace Desert::ECS
             const float reference = InverseSquareReferenceCm( minRadiusCm );
             return ToCandelas( intensity, units, cosHalfCone ) * kSquareCentimetresPerSquareMetre /
                    ( reference * reference );
+        }
+
+        // A local light's brightness before ShaderIntensity / RectShaderLuminance: the authored Intensity in its
+        // units, or under UE bUseIESBrightness the profile's peak candela x IESBrightnessScale, in candelas (UE
+        // ULocalLightComponent::ComputeLightBrightness). A light with no usable profile (peak 0) keeps Intensity.
+        struct LightBrightness
+        {
+            float      Intensity = 0.0f;
+            LightUnits Units     = LightUnits::Candelas;
+        };
+
+        inline LightBrightness EffectiveBrightness( float intensity, LightUnits units, bool useIesBrightness,
+                                                    float iesBrightnessScale, float iesPeakCandela )
+        {
+            if ( useIesBrightness && iesPeakCandela > 0.0f )
+                return { iesPeakCandela * iesBrightnessScale, LightUnits::Candelas };
+            return { intensity, units };
+        }
+
+        // A RECT light's authored Intensity as the payload's emitted LUMINANCE (Mesh/LightSources.glslh
+        // DesertRectLightAt: irradiance = luminance x the rect's vector irradiance, a solid angle). A rect of area
+        // A radiating I candelas along its normal has luminance I / A; in the point lights' scale (E = cd x 1e4 /
+        // d^2 with d in cm) that is cd x 1e4 / A in cm^2, so a small rect far away lights as a point light of I
+        // cd. A rect is physical by construction: Unitless is read as candelas.
+        inline float RectShaderLuminance( float intensity, LightUnits units, float widthCm, float heightCm )
+        {
+            const float candelas = ToCandelas( intensity, units, kRectLightLumensCosHalfCone );
+            return candelas * kSquareCentimetresPerSquareMetre / std::max( widthCm * heightCm, 1e-4f );
         }
 
         // UE ULocalLightComponent::PostEditChangeProperty on IntensityUnits: the value re-stated in the new units

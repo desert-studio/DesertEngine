@@ -879,10 +879,14 @@ namespace Desert::Editor
                     break;
                 }
 
-                // Sound slot (UE's USoundWave picker): every `.desound` the content registry lists; the slot
-                // holds the sound's GUID handle, and the audio file is the asset's to name.
-                if ( field.Meta.AssetType == "SoundAsset" )
+                // Sound and IES profile slots (UE's USoundWave / UTextureLightProfile pickers): every `.desound` /
+                // `.dies` the content registry lists; the slot holds the asset's GUID handle, and the source file
+                // (the audio, the .ies) is the asset's to name.
+                if ( field.Meta.AssetType == "SoundAsset" || field.Meta.AssetType == "IesProfileAsset" )
                 {
+                    const Common::Content::ContentKind kind = field.Meta.AssetType == "SoundAsset"
+                                                                   ? Common::Content::ContentKind::Sound
+                                                                   : Common::Content::ContentKind::IesProfile;
                     uint64_t*         handle   = static_cast<uint64_t*>( p );
                     const auto&       registry = Assets::ContentRegistry::Get();
                     const auto*       current  = *handle == 0 ? nullptr : registry.FindByHandle( *handle );
@@ -890,15 +894,14 @@ namespace Desert::Editor
                                                  : current == nullptr
                                                       ? "(missing)"
                                                       : std::filesystem::path( current->Key ).stem().string();
-                    if ( ImGui::BeginCombo( "##sound", display.c_str() ) )
+                    if ( ImGui::BeginCombo( "##assetrow", display.c_str() ) )
                     {
                         if ( ImGui::Selectable( "None", *handle == 0 ) && *handle != 0 )
                         {
                             *handle = 0;
                             changed = true;
                         }
-                        for ( const auto* row :
-                              registry.OfKind( Common::Content::KindName( Common::Content::ContentKind::Sound ) ) )
+                        for ( const auto* row : registry.OfKind( Common::Content::KindName( kind ) ) )
                         {
                             if ( !row->Guid.has_value() )
                                 continue;

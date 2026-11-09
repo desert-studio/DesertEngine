@@ -419,6 +419,9 @@ Shader "PathTracer"
                 return s2 < 0.01 ? s2 * (0.5 + 0.125 * s2) : 1.0 - sqrt(1.0 - s2);
             }
 
+            // Defined with the area emitters below (the local light sample reaches it first).
+            vec3 PathTracingSampleRectLight(PathTracingMaterial m, vec3 N, vec3 V, vec3 origin, PointLight source, vec2 u);
+
             // UE EstimateLight: the light's share in the choice at P.
             float PathTracingEstimate(uint light, vec3 P)
             {
@@ -621,6 +624,8 @@ Shader "PathTracer"
                            (pickPdf * s.Pdf);
                 }
                 const uint  i = chosen - kPathTracingFirstLocalLight;
+                if (i < Counts.x && pointLights[i].rectHalfWidth > 0.0)
+                    return PathTracingSampleRectLight(m, N, V, origin, pointLights[i], u) / pickPdf;
                 DesertLight light;
                 vec3        position;
                 float       sourceRadius;
@@ -643,6 +648,51 @@ Shader "PathTracer"
                     return vec3(0.0);
                 const vec3 transmittance = PathTracingTransmittance(origin, toLight, reach);
                 return PathTracingBsdfCos(m, N, V, toLight) * light.Radiance * transmittance / pickPdf;
+            }
+
+            // ---- A rect light as an area emitter (UE PathTracing RectLight_SampleLight). ----
+            // A point drawn uniformly on the part of the rect the barn doors let the vertex see (the same clip as
+            // the raster's DesertRectLightAt, Mesh/LightSources.glslh), its area density turned into solid angle
+            // by dist^2 / cos at the emitter. The payload's intensity is the emitted luminance, the IES profile is
+            // read by the direction from the rect's centre and the attenuation radius windows it, as in the raster.
+            // A rect is not in the TLAS, so no material ray meets it: the light sample carries the whole weight.
+            vec3 PathTracingSampleRectLight(PathTracingMaterial m, vec3 N, vec3 V, vec3 origin, PointLight source, vec2 u)
+            {
+                const vec3  normal    = cross(source.axisX, source.axisY);
+                const vec3  fromLight = origin - source.position;
+                const float depth     = dot(fromLight, normal);
+                const float lateralX  = dot(fromLight, source.axisX);
+                const float lateralY  = dot(fromLight, source.axisY);
+                const float x1 = RectLightBarnDoorLimit(source.rectHalfWidth, lateralX, depth, source.rectBarnReach,
+                                                        source.rectBarnDepth);
+                const float x0 = -RectLightBarnDoorLimit(source.rectHalfWidth, -lateralX, depth, source.rectBarnReach,
+                                                         source.rectBarnDepth);
+                const float y1 = RectLightBarnDoorLimit(source.rectHalfHeight, lateralY, depth, source.rectBarnReach,
+                                                        source.rectBarnDepth);
+                const float y0 = -RectLightBarnDoorLimit(source.rectHalfHeight, -lateralY, depth, source.rectBarnReach,
+                                                         source.rectBarnDepth);
+                const float centreDist = length(fromLight);
+                if (depth <= 0.0 || x1 <= x0 || y1 <= y0 || centreDist >= source.radius)
+                    return vec3(0.0);
+                const vec3  onRect  = source.position + source.axisX * mix(x0, x1, u.x) + source.axisY * mix(y0, y1, u.y);
+                const vec3  toPoint = onRect - origin;
+                const float dist    = length(toPoint);
+                if (dist <= 0.0)
+                    return vec3(0.0);
+                const vec3  L         = toPoint / dist;
+                const float cosEmit   = -dot(L, normal);
+                if (cosEmit <= 0.0 || dot(N, L) <= 0.0)
+                    return vec3(0.0);
+                const vec3 transmittance = PathTracingTransmittance(origin, L, dist);
+                if (all(lessThanEqual(transmittance, vec3(0.0))))
+                    return vec3(0.0);
+                const float area   = (x1 - x0) * (y1 - y0);
+                const float window = 1.0 - centreDist / source.radius;
+                const float ies    = DesertIesProfileFactor(source.iesAtlasTexture, source.iesProfileRow,
+                                                            fromLight / centreDist, normal, source.axisX);
+                // radiance / pdf: luminance x (area x cos at the emitter / dist^2), the sample's solid angle.
+                const vec3 radiance = source.color * (source.intensity * window * ies);
+                return PathTracingBsdfCos(m, N, V, L) * radiance * transmittance * (area * cosEmit / (dist * dist));
             }
 
             // ---- The emissive triangles. ----
