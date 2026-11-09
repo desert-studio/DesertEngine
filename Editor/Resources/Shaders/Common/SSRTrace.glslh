@@ -385,6 +385,7 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 	const float maxDistance = SsrParams2.x;
 	const vec2  rotation    = vec2(hash12(vec2(gPix)), hash12(vec2(gPix) + 17.17));
 	const uint  seed        = uint(CameraPosition.w);
+	const ivec2 vSize       = textureSize(VelocityTexture, 0); // where a hit reads its velocity
 #if defined( DESERT_REFLECTIONS_TRACED )
 	// UE MaxRoughnessToTrace: the share of this texel's rays that go past the screen, dithered per ray.
 	const float worldShare = TracedReflectionsAlpha(roughness);
@@ -447,7 +448,6 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 					// View/Velocity.hpp). The velocity carries the object's own motion as well as the camera's,
 					// so a car passing in a shop window is read where the car was, not where the street behind
 					// it was: no trail behind moving objects.
-					const ivec2 vSize  = textureSize(VelocityTexture, 0);
 					const ivec2 vTexel = clamp(ivec2(walk.Position.xy * vec2(vSize)), ivec2(0), vSize - 1);
 					const vec2  prevUV = walk.Position.xy - texelFetch(VelocityTexture, vTexel, 0).xy * vec2(0.5, -0.5);
 					if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0))))
