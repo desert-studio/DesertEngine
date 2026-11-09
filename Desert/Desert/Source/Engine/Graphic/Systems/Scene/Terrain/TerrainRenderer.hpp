@@ -18,6 +18,7 @@
 #include <Common/Settings/CapabilityCatalog.hpp>
 
 #include <glm/glm.hpp>
+#include <array>
 #include <memory>
 #include <optional>
 #include <span>
@@ -52,6 +53,32 @@ namespace Desert::Graphic::System
         // material revision, shared by every tile of the root (LandscapeECSSystem::m_RootOverrides), so its
         // pointer is the revision the tile proxies (TileProxy) compare.
         std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
+    };
+
+    // The surface row values a tile reads (TerrainRenderer.cpp kTerrainRowSlotNames): the material's nine, the
+    // displacement's four, and four per weight layer.
+    inline constexpr size_t   kTerrainRowSlotCount = 13u + ( 4u * World::Landscape::kLandscapeMaxWeightLayers );
+    inline constexpr uint32_t kNoTerrainRowSlot    = ~0u;
+
+    // What a surface row resolves to for the frame material and the displacement (TerrainRowValuesOf): the
+    // material's Tint and LandscapeMaterialValues, and the displacement's (DisplacementMagnitude,
+    // DisplacementCenter, DisplacementFadeStart, DisplacementFadeEnd) as the row holds them.
+    struct TerrainRowValues
+    {
+        glm::vec4               Tint{ 0.0f };
+        LandscapeMaterialValues Values;
+        glm::vec4               Displacement{ 0.0f };
+    };
+
+    // One tile's section LODs for one view (TerrainRenderer's flat tile LOD tables): which landscape (its origin)
+    // and which tile of it, and the LODs.
+    struct TerrainTileLodEntry
+    {
+        float                    OriginX = 0.0f;
+        float                    OriginZ = 0.0f;
+        int32_t                  X       = 0;
+        int32_t                  Z       = 0;
+        LandscapeSectionLodArray Lods{};
     };
 
     // GPU landscape renderer. Draws each tile as a triangle grid over its samples into the scene framebuffer's
@@ -296,8 +323,7 @@ namespace Desert::Graphic::System
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_ViewDraws.clear();
-            m_LocalLightDraws.clear();
-            m_CascadeDraws.clear();
+            ReleaseShadowDrawLists();
         }
 
     private:
@@ -327,6 +353,47 @@ namespace Desert::Graphic::System
             // its group with no key.
             uint64_t GroupFrame = 0u;
             size_t   GroupIndex = 0u;
+
+            // THE SURFACE ROW'S SLOTS (UE FMaterialRenderProxy: a parameter's offset is resolved once per shader
+            // map): the row slot of every value the frame material and the displacement read
+            // (TerrainRenderer.cpp kTerrainRowSlotNames), found by name once per surface program layout - the
+            // program, its identity and code generation, the layout and the row's size - never per tile.
+            // kNoTerrainRowSlot: the program declares no such numeric parameter (MaterialBinder::ReadRowParam's
+            // empty), read as zero.
+            struct RowSlots
+            {
+                bool                                       Resolved   = false;
+                const DataDrivenMaterial*                  Surface    = nullptr;
+                uint64_t                                   Serial     = 0u;
+                uint64_t                                   Generation = 0u;
+                const Core::Formats::MaterialLayout*       Layout     = nullptr;
+                const Core::Formats::MaterialLayoutParam*  Params     = nullptr;
+                size_t                                     ParamCount = 0u;
+                size_t                                     RowSize    = 0u;
+                std::array<uint32_t, kTerrainRowSlotCount> Slots{};
+            } Slots;
+            // What the surface row's values resolve to (TerrainRowValuesOf), cached by the row's revision
+            // (DataDrivenMaterial::GetParamRowView: process-unique, it moves with every value and texture slot
+            // written) and the slot table it was read through: recomputed only when one of them moved.
+            bool                      ValuesValid    = false;
+            const DataDrivenMaterial* ValuesSurface  = nullptr;
+            uint64_t                  ValuesRevision = 0u;
+            TerrainRowValues          Values;
+
+            // THE GROUP'S BOUND TEXTURES (UE FLandscapeComponentSceneProxy: its bindings persist): every input the
+            // group's SetTexture block binds from, as it last bound them. A group whose inputs equal these binds
+            // nothing (every SetTexture of an equal image is no write: Texture2DProperty::SetImage).
+            struct BoundTextures
+            {
+                bool                                              Valid   = false;
+                const DataDrivenMaterial*                         Surface = nullptr;
+                std::shared_ptr<const MaterialOverrides>          Overrides;
+                std::vector<const Image2D*>                       Samplers; // per TileProxy::Samplers entry
+                std::array<const Image2D*, kTerrainLayerMapKinds> Arrays{};
+                std::array<std::string, kTerrainLayerMapKinds>    ArrayNames{};
+                const Image2D*                                    Heightmap = nullptr;
+                const Image2D*                                    Weightmap = nullptr;
+            } Bound;
         };
 
         // A frame's terrains sharing one texture set. m_Materials owns the set; the group points at it and at its
@@ -566,6 +633,24 @@ namespace Desert::Graphic::System
         // The previous frame's group slots between ClearQueue and the next PrepareFrame: their vectors keep their
         // capacity, so a frame opens its groups with no allocation.
         std::vector<FrameGroup> m_FrameGroupPool;
+        // PrepareFrame's per-frame scratch, cleared and refilled with its capacity kept (no allocation on a frame
+        // whose counts did not grow): the group's resolved sampler images (compared with
+        // ProgramMaterials::Bound), each landscape's dice slab (OriginX, OriginZ, BaseY, SpacingCm -> lowest and
+        // highest sample), and the tiles' section LODs (camera and per light; TileLodTable in the .cpp).
+        std::vector<const Image2D*>                             m_GroupSamplerScratch;
+        std::vector<std::pair<std::array<float, 4>, glm::vec2>> m_DiceSlabs;
+        std::vector<TerrainTileLodEntry> m_TileLods;
+        std::vector<TerrainTileLodEntry> m_LightTileLods;
+        // The shadow views' draw lists of earlier frames (cascades', lights'), cleared, kept for their capacity:
+        // PrepareLocalShadowViews takes one per list instead of growing a fresh vector.
+        std::vector<std::vector<FrameDraw>> m_DrawListPool;
+        // Returns every cascade's and light's draw list to m_DrawListPool and empties both.
+        void                                 ReleaseShadowDrawLists();
+        [[nodiscard]] std::vector<FrameDraw> TakeDrawList();
+        // The surface row's values for this tile (TerrainRowValuesOf): the slot table resolved once per layout,
+        // the values once per row revision, both kept in @p materials.
+        const TerrainRowValues& RowValuesOf( ProgramMaterials& materials, const DataDrivenMaterial& surface,
+                                             const DataDrivenMaterial::ParamRowView& row );
         // Every tile's persistent proxy (TileProxy), by entity.
         std::unordered_map<uint32_t, TileProxy> m_TileProxies;
         // Counts PrepareFrame calls: ProgramMaterials::GroupFrame names the frame a set's group opened in.
