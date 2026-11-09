@@ -13,8 +13,13 @@
 
 #include <glm/vec2.hpp>
 
+#include <glm/trigonometric.hpp>
+
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::World::Landscape
@@ -30,8 +35,14 @@ namespace Desert::World::Landscape
      * sample is the same global index seen from both tiles, so the two copies cannot receive different weights:
      * the seam is correct by construction, not by a second evaluation that happens to agree.
      *
-     * Alpha and Pattern brushes (FLandscapeBrushAlphaBase, :1140) are not here: they sample an alpha texture,
-     * and the landscape has no brush-texture asset to sample.
+     * THE ALPHA AND PATTERN SETS (FLandscapeBrushAlphaBase / FLandscapeBrushAlpha / FLandscapeBrushAlphaPattern,
+     * :1139-1600) are the same function with LandscapeBrushSettings::Type set: they weigh the lattice by one channel
+     * of a texture asset's SOURCE image (UE reads UTexture::Source, never the platform data), read once by the
+     * editor when the texture is chosen (ReadLandscapeAlphaTexture) and carried here as plain bytes, so the stroke
+     * maths stays pure and the runtime decodes no image. UE's alpha brushes stamp at LastMousePosition only; here
+     * the LAST position of the step. The stamp's Auto-Rotate is the stroke's state (LandscapeAlphaBrushRotation),
+     * resolved by the tool into AlphaRotationDeg before the call, as UE's brush resolves LastMouseAngle.
+     * BrushSet_Component is not here: it selects whole components, and the landscape has no component selection.
      */
 
     /// UE's four circle falloffs: Circle_Linear, Circle_Smooth, Circle_Spherical, Circle_Tip.
@@ -52,6 +63,52 @@ namespace Desert::World::Landscape
      */
     float LandscapeBrushFalloffWeight( LandscapeBrushFalloff shape, float distance, float radius, float falloff );
 
+    /// UE's painting brush sets, in its order (LandscapeEdModeBrushes.cpp:1660-1676).
+    enum class LandscapeBrushType : uint8_t
+    {
+        /// BrushSet_Circle: the four falloffs above.
+        Circle,
+        /// BrushSet_Alpha (FLandscapeBrushAlpha): the texture stamped once, centred on the brush, its longer side
+        /// fitted into the square inscribed in the radius, rotated by AlphaRotationDeg; no falloff.
+        Alpha,
+        /// BrushSet_Pattern (FLandscapeBrushAlphaPattern): the texture tiled over the landscape, multiplied by the
+        /// circle's Smooth falloff.
+        Pattern,
+    };
+
+    /// UE's ELandscapeTextureColorChannel: which channel of the alpha texture weighs the brush.
+    enum class LandscapeAlphaChannel : uint8_t
+    {
+        Red,
+        Green,
+        Blue,
+        Alpha,
+    };
+
+    /**
+     * @brief UE's AlphaTextureData / AlphaTextureSizeX / AlphaTextureSizeY: one channel of the alpha texture's
+     *        source mip 0, 8-bit, row-major with X fastest. Immutable once read; brushes share it.
+     */
+    struct LandscapeBrushAlphaTexture
+    {
+        /// The texture asset it was read from: the panel names it, a channel change reads it again.
+        std::string           Source;
+        LandscapeAlphaChannel Channel = LandscapeAlphaChannel::Red;
+        uint32_t              Width   = 0u;
+        uint32_t              Height  = 0u;
+        std::vector<uint8_t>  Values;
+    };
+
+    /**
+     * @brief UE's FLandscapeBrushAlphaBase::GetAlphaSample: the texture at texel position (@p x, @p y), 0..1,
+     *        bilinear, neighbours wrapping.
+     *
+     * UE lerps texel (X0, Y0) towards (X0, Y1) by the X fraction (its two inner lerps have the neighbours
+     * transposed), which shears every stamp by half a texel along the diagonal; here the true bilinear. Integer
+     * coordinates are wrapped too, so a position a float rounding leaves exactly on the far edge stays in range.
+     */
+    float LandscapeBrushAlphaSample( const LandscapeBrushAlphaTexture& texture, float x, float y );
+
     /// What the brush UI hands over. The same four numbers UE reads from ULandscapeEditorObject.
     struct LandscapeBrushSettings
     {
@@ -64,6 +121,25 @@ namespace Desert::World::Landscape
         /// Multiplies every weight. UE multiplies by ToolStrength in the tool; it is here so a tool reads one
         /// number per sample.
         float Strength = 1.0f;
+        /// UE's brush set. Alpha and Pattern need AlphaTexture.
+        LandscapeBrushType Type = LandscapeBrushType::Circle;
+        /// UE's AlphaTexture as the stroke reads it (AlphaTextureData); shared, never edited in place.
+        std::shared_ptr<const LandscapeBrushAlphaTexture> AlphaTexture;
+        /// UE's AlphaBrushRotation ("Texture Rotation", degrees): the stamp's (Alpha) or the pattern's (Pattern)
+        /// turn. With Auto-Rotate the tool writes the stroke's angle here for the step.
+        float AlphaRotationDeg = 0.0f;
+        /// UE's AlphaBrushScale ("Texture Scale", Pattern): one lattice step covers 1 / scale texels.
+        float PatternScale = 0.5f;
+        /// UE's AlphaBrushPanU / AlphaBrushPanV (Pattern): the pattern's offset, in texture widths / heights.
+        float PatternPanU = 0.5f;
+        float PatternPanV = 0.5f;
+        /// UE's bUseWorldSpacePatternBrush: the pattern is pinned to the world instead of the lattice, with UE's
+        /// FLandscapePatternBrushWorldSpaceSettings below (Origin is world X / Z in cm, RepeatSize in cm).
+        bool      PatternWorldSpace = false;
+        glm::vec2 PatternOriginCm{ 0.0f, 0.0f };
+        float     PatternWorldRotationDeg = 0.0f;
+        bool      PatternCenterOnOrigin   = false;
+        float     PatternRepeatCm         = 3200.0f;
     };
 
     /// Refuses settings the maths cannot honour: a radius that is not positive and finite, a falloff fraction
@@ -127,4 +203,29 @@ namespace Desert::World::Landscape
     /// The weight of local sample (@p x, @p z) of tile (@p tileX, @p tileZ).
     float LandscapeBrushTileWeight( const LandscapeRoot& root, const LandscapeBrushWeights& weights, int32_t tileX,
                                     int32_t tileZ, uint32_t x, uint32_t z );
+
+    /**
+     * @brief UE's FLandscapeBrushAlpha Auto-Rotate (MouseMove, LandscapeEdModeBrushes.cpp:1586-1604): the stamp
+     *        turns towards the direction the brush moves.
+     *
+     * A move shorter than half a lattice step is ignored; a longer one turns the angle towards atan2(-dz, dx) by
+     * min(10 · t, 1), t being the time since the last turn (UE: "lerp over 100ms"). UE reads the wall clock; here
+     * the tool hands each frame's seconds in, so an unattended stroke turns the same way every run. UE skips the
+     * very first application of a brush whose old position is still the zero vector it was built with; here the
+     * first position only seeds the state and that step stamps at the angle held.
+     */
+    struct LandscapeAlphaBrushRotation
+    {
+        float AngleRadians = 0.0f;
+        /// The last position a turn was measured from, in lattice units; none before the first move.
+        std::optional<glm::vec2> OldPosition;
+        float                    SecondsSinceTurn = 0.0f;
+
+        void Move( const LandscapeRoot& root, glm::vec2 positionCm, float deltaSeconds );
+
+        [[nodiscard]] float AngleDegrees() const
+        {
+            return glm::degrees( AngleRadians );
+        }
+    };
 } // namespace Desert::World::Landscape

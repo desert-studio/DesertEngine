@@ -235,29 +235,35 @@ namespace Desert::Editor::Tools
             return Common::MakeSuccess( true ); // UE: no landscape under the cursor, no application this frame
         const auto&                    settings  = Core::LandscapeSculptState::Get().Settings;
         const std::array<glm::vec2, 1> positions = { glm::vec2( point->x, point->z ) };
-        auto weights = World::Landscape::ComputeLandscapeBrush( m_Target->Root, settings.Brush, positions );
+        // UE's FLandscapeBrushAlpha Auto-Rotate: the stamp turns with the stroke (MouseMove); the step's copy of the
+        // brush carries the angle, the panel's setting keeps the user's rotation.
+        m_AlphaRotation.Move( m_Target->Root, positions[0], deltaSeconds );
+        World::Landscape::LandscapeBrushSettings brush = settings.Brush;
+        if ( brush.Type == World::Landscape::LandscapeBrushType::Alpha && settings.AlphaAutoRotate )
+            brush.AlphaRotationDeg = m_AlphaRotation.AngleDegrees();
+        auto weights = World::Landscape::ComputeLandscapeBrush( m_Target->Root, brush, positions );
         if ( !weights.IsSuccess() )
             return Common::MakeError( weights.GetError() );
         switch ( settings.Tool )
         {
             case Core::LandscapeTool::Sculpt:
-                return m_Stroke->ApplySculpt( weights.GetValue(), settings.Brush, { invert, deltaSeconds } );
+                return m_Stroke->ApplySculpt( weights.GetValue(), brush, { invert, deltaSeconds } );
             case Core::LandscapeTool::Smooth:
-                return m_Stroke->ApplySmooth( weights.GetValue(), settings.Brush, settings.Smooth );
+                return m_Stroke->ApplySmooth( weights.GetValue(), brush, settings.Smooth );
             case Core::LandscapeTool::Flatten:
-                return m_Stroke->ApplyFlatten( weights.GetValue(), settings.Brush, settings.Flatten,
+                return m_Stroke->ApplyFlatten( weights.GetValue(), brush, settings.Flatten,
                                                positions[0] );
             case Core::LandscapeTool::Noise:
-                return m_Stroke->ApplyNoise( weights.GetValue(), settings.Brush, settings.Noise );
+                return m_Stroke->ApplyNoise( weights.GetValue(), brush, settings.Noise );
             case Core::LandscapeTool::Erase:
-                return m_Stroke->ApplyErase( weights.GetValue(), settings.Brush );
+                return m_Stroke->ApplyErase( weights.GetValue(), brush );
             case Core::LandscapeTool::Ramp:
                 return Common::MakeError( "landscape ramp: the ramp is not stroked; set its two points and run "
                                           "'Landscape: Ramp: apply'" );
             case Core::LandscapeTool::Erosion:
-                return m_Stroke->ApplyErosion( weights.GetValue(), settings.Brush, settings.Erosion );
+                return m_Stroke->ApplyErosion( weights.GetValue(), brush, settings.Erosion );
             case Core::LandscapeTool::HydroErosion:
-                return m_Stroke->ApplyHydroErosion( weights.GetValue(), settings.Brush, settings.HydroErosion );
+                return m_Stroke->ApplyHydroErosion( weights.GetValue(), brush, settings.HydroErosion );
             case Core::LandscapeTool::Mirror:
             case Core::LandscapeTool::CopyPaste:
                 return Common::MakeError( "landscape mirror / copy-paste: not stroked; use their rows" );

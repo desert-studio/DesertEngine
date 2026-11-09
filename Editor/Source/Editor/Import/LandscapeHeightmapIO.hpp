@@ -2,6 +2,7 @@
 // Editor-only (UE: LandscapeEditor's heightmap file formats): it decodes a SOURCE PNG through stb_image, and the
 // runtime reads cooked landscape data only (Tests/Engine/RuntimeSourceDecoders holds that line).
 
+#include <Engine/World/Landscape/LandscapeBrush.hpp>
 #include <Engine/World/Landscape/LandscapeEditCache.hpp>
 #include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
@@ -77,6 +78,19 @@ namespace Desert::World::Landscape
 
     /// Decodes a PNG; refuses anything that is not 16-bit single-channel greyscale, naming what it is.
     Common::ResultStr<LandscapeHeightmap> DecodeLandscapeHeightmapPng( std::span<const unsigned char> bytes );
+
+    /**
+     * @brief UE's ULandscapeEditorObject::SetAlphaTexture / LoadAlphaTextureSourceData: one channel of a texture
+     *        asset's carried SOURCE image (Assets::ReadTextureSourceImage), 8-bit, as the Alpha and Pattern
+     *        brushes sample it.
+     *
+     * The values are the source's stored bytes, no colour-space conversion (UE: ChangeFormat(BGRA8, Linear)). A
+     * 16-bit source is read at 8 bits, as UE's BGRA8 conversion does. WHAT IS REFUSED THAT UE PAPERS OVER: a
+     * channel the image does not have (UE falls back to Red) and an unreadable texture (UE falls back to its
+     * default alpha texture) — each names the asset and what it holds.
+     */
+    Common::ResultStr<LandscapeBrushAlphaTexture> ReadLandscapeAlphaTexture( const std::filesystem::path& textureAsset,
+                                                                           LandscapeAlphaChannel        channel );
 
     /// Little-endian uint16, row-major. Refuses an empty map or a sample count that is not Width · Height.
     Common::ResultStr<std::vector<unsigned char>> EncodeLandscapeHeightmapRaw( const LandscapeHeightmap& map );

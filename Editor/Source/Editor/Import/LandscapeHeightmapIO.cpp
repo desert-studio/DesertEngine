@@ -10,6 +10,9 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <stb_image/stb_image.h>
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
+#include <limits>
 
 #include <algorithm>
 #include <array>
@@ -379,5 +382,52 @@ namespace Desert::World::Landscape
         whole.SamplesZ = map.Height;
         whole.Samples  = map.Samples;
         return CutLandscapeMap( settings, whole );
+    }
+    Common::ResultStr<LandscapeBrushAlphaTexture> ReadLandscapeAlphaTexture( const std::filesystem::path& textureAsset,
+                                                                           LandscapeAlphaChannel        channel )
+    {
+        const std::string name  = textureAsset.generic_string();
+        auto              bytes = Assets::ReadTextureSourceImage( textureAsset );
+        if ( !bytes.IsSuccess() )
+            return Common::MakeFormattedError<LandscapeBrushAlphaTexture>( "landscape alpha texture '{}': {}", name,
+                                                                           bytes.GetError() );
+        const std::vector<std::byte>& source = bytes.GetValue();
+        if ( source.empty() || source.size() > static_cast<size_t>( std::numeric_limits<int>::max() ) )
+            return Common::MakeFormattedError<LandscapeBrushAlphaTexture>(
+                 "landscape alpha texture '{}': its source image is {} bytes", name, source.size() );
+        int      w        = 0;
+        int      h        = 0;
+        int      channels = 0;
+        stbi_uc* pixels   = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( source.data() ),
+                                                   static_cast<int>( source.size() ), &w, &h, &channels, 4 );
+        if ( pixels == nullptr )
+        {
+            const char* reason = stbi_failure_reason();
+            return Common::MakeFormattedError<LandscapeBrushAlphaTexture>(
+                 "landscape alpha texture '{}': its source image does not decode ({})", name,
+                 reason ? reason : "no reason reported" );
+        }
+        const bool hasColour = channels >= 3;
+        const bool hasAlpha  = channels == 2 || channels == 4;
+        if ( ( ( channel == LandscapeAlphaChannel::Green || channel == LandscapeAlphaChannel::Blue ) && !hasColour ) ||
+             ( channel == LandscapeAlphaChannel::Alpha && !hasAlpha ) )
+        {
+            stbi_image_free( pixels );
+            return Common::MakeFormattedError<LandscapeBrushAlphaTexture>(
+                 "landscape alpha texture '{}': the source image has {} channel(s) and no {} channel", name, channels,
+                 channel == LandscapeAlphaChannel::Alpha ? "alpha" : "colour" );
+        }
+        LandscapeBrushAlphaTexture out;
+        out.Source  = name;
+        out.Channel = channel;
+        out.Width   = static_cast<uint32_t>( w );
+        out.Height  = static_cast<uint32_t>( h );
+        out.Values.resize( static_cast<size_t>( out.Width ) * out.Height );
+        // stb expands every image to RGBA, so the channel is the byte at its index in each texel.
+        const size_t offset = static_cast<size_t>( channel );
+        for ( size_t i = 0; i < out.Values.size(); ++i )
+            out.Values[i] = pixels[i * 4u + offset];
+        stbi_image_free( pixels );
+        return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::World::Landscape

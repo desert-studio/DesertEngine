@@ -18,6 +18,8 @@
 #include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
+#include <Editor/Import/TextureImporter.hpp>
+#include <memory>
 #include <algorithm>
 #include <initializer_list>
 #include <utility>
@@ -34,6 +36,29 @@ namespace Desert::Editor
         auto made = Commands::ImportLandscapeHeightmapAsNew( scene, file,
                                                              Core::LandscapeSculptState::Get().NewLandscape );
         return made.IsSuccess() ? PaletteCommandDone() : PaletteCommandOutcome( false, made.GetError() );
+    }
+
+    // UE's "Texture" row of the Alpha / Pattern brush (ULandscapeEditorObject::SetAlphaTexture): @p file is a texture
+    // asset, or a loose image under Assets/Landscape/Alphas that is imported into its asset first (UE: a texture is
+    // imported before it can be picked). The brush then holds the asset's source channel; nothing falls back.
+    static Common::BoolResultStr ChooseLandscapeAlphaTexture( const std::filesystem::path&            file,
+                                                              World::Landscape::LandscapeAlphaChannel channel )
+    {
+        std::filesystem::path asset = file;
+        if ( file.extension() != ".detex" )
+        {
+            auto imported = ::Desert::Editor::TextureImporter::ImportSourceAsset( file );
+            if ( !imported.IsSuccess() )
+                return PaletteCommandOutcome( false, std::format( "landscape alpha texture '{}': {}",
+                                                                  file.generic_string(), imported.GetError() ) );
+            asset = imported.GetValue();
+        }
+        auto texture = World::Landscape::ReadLandscapeAlphaTexture( asset, channel );
+        if ( !texture.IsSuccess() )
+            return PaletteCommandOutcome( false, texture.GetError() );
+        Core::LandscapeSculptState::Get().Settings.Brush.AlphaTexture =
+             std::make_shared<const World::Landscape::LandscapeBrushAlphaTexture>( texture.ExtractValue() );
+        return PaletteCommandDone();
     }
 
     void AppendLandscapeCommands( std::vector<PaletteCommand>&                  commands,
@@ -121,6 +146,53 @@ namespace Desert::Editor
                                                : std::format( "Export heightmap: {}", rel ),
                                       std::bind_front( &Commands::ExportLandscapeHeightmap, std::cref( scene ),
                                                        file, selected ) } );
+            }
+        }
+        // ALPHA / PATTERN BRUSH TEXTURE: one entry per texture asset under Assets/Landscape/Alphas (and per image
+        // there not imported yet), as the heightmap entries name each file; then the channel of the current one.
+        {
+            const std::filesystem::path alphas = Common::Constants::Path::ASSETS_PATH / "Landscape" / "Alphas";
+            std::vector<std::filesystem::path> files;
+            std::error_code                    ec;
+            for ( const auto& entry : std::filesystem::directory_iterator( alphas, ec ) )
+            {
+                if ( !entry.is_regular_file() )
+                    continue;
+                const std::string ext = entry.path().extension().string();
+                const bool        image =
+                     ext == ".png" || ext == ".tga" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
+                if ( ext == ".detex" ||
+                     ( image && !std::filesystem::exists(
+                                     ::Desert::Editor::TextureImporter::AssetPathFor( entry.path() ), ec ) ) )
+                    files.push_back( entry.path() );
+            }
+            std::sort( files.begin(), files.end() );
+            for ( const auto& file : files )
+                commands.push_back(
+                     { "Landscape",
+                       std::format( "Alpha texture: {}",
+                                    file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string() ),
+                       std::bind_front( &ChooseLandscapeAlphaTexture, file,
+                                        World::Landscape::LandscapeAlphaChannel::Red ) } );
+            using World::Landscape::LandscapeAlphaChannel;
+            for ( const auto& [channel, name] : std::initializer_list<std::pair<LandscapeAlphaChannel, const char*>>{
+                       { LandscapeAlphaChannel::Red, "Red" },
+                       { LandscapeAlphaChannel::Green, "Green" },
+                       { LandscapeAlphaChannel::Blue, "Blue" },
+                       { LandscapeAlphaChannel::Alpha, "Alpha" } } )
+            {
+                commands.push_back( { "Landscape", std::format( "Alpha texture channel: {}", name ),
+                                      [channel]() -> Common::BoolResultStr
+                                      {
+                                          const auto& current =
+                                               Core::LandscapeSculptState::Get().Settings.Brush.AlphaTexture;
+                                          if ( !current )
+                                              return PaletteCommandOutcome(
+                                                   false, "landscape alpha brush: no alpha texture is chosen; run "
+                                                          "'Landscape: Alpha texture: <name>' first" );
+                                          return ChooseLandscapeAlphaTexture(
+                                               std::filesystem::path( current->Source ), channel );
+                                      } } );
             }
         }
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
