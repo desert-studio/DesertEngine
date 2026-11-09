@@ -10,20 +10,26 @@
 //             miss hands the far field where it goes on.
 //   SP_TRACE_FAR_FIELD   over every ray with no hit: the contract's far field (GITraceFarField: the global field) only
 //             as far as the world radiance cache's coverage asks (minTraceDistanceBeforeCache: past it the cache's
-//             probes see what the ray would); a ray that gets there without a hit reads the cache's RADIANCE in its
-//             direction at the probe, from the probes that see it (RadianceCacheRadianceAt, UE
-//             SampleRadianceCacheInterpolated). Outside the cache the ray goes on to the full trace distance and the
-//             sky here (tMax is that distance). Where the cache covers the ray but no traced probe answers (cells the
-//             view just reached), nothing is traced here: the ray is left at the cache, reached and unanswered.
+//             probes see what the ray would); a ray that gets there without a hit is left at the cache (reached, no
+//             hit, nothing stored) for the cache-read leg. Outside the cache the ray goes on to the full trace
+//             distance and the sky here (tMax is that distance).
+//   SP_TRACE_CACHE_READ  over the rays the far field left at the cache (GPU-FARFIELD-6; their own compacted list,
+//             UE's trace / shading split): each reads the cache's RADIANCE in its direction at the probe, from the
+//             probes that see it (RadianceCacheRadianceAt, UE SampleRadianceCacheInterpolated). The far field's
+//             waves no longer hold the cache read's eight-cell latency on their march lanes, and this leg's waves
+//             are all cache reads (no march registers). Where no traced probe answers (cells the view just
+//             reached), nothing is stored: the ray stays at the cache, reached and unanswered.
 //   SP_TRACE_CACHE_MISS  over those rays only (their own compacted list, so a few full-length rays no longer hold
 //             the far field's every wave): the rest of the ray, from the cache's distance to the full trace distance
 //             and the sky, so a new cell is neither black nor sky.
-//   SP_TRACE_HIT_LIGHTING over the far field's global-field hits no card holds (GPU-FARFIELD-3; UE defers hit
-//             lighting to a compacted pass of its own): the far field keeps only such a hit's distance (hit and
-//             reached bits both set, nothing stored) and this leg rebuilds the surface on the ray and lights it in
-//             place (GIHitRadianceGlobalFieldInPlace: the directional lights' global-field shadow marches, the
-//             cache's bounce). The far field's waves no longer wait on the shadow marches of their few hit lanes;
-//             here every lane is such a hit. The software tracer only - no other tracer makes a global-field hit.
+//   SP_TRACE_HIT_LIGHTING over the far field's global-field hits (GPU-FARFIELD-3/5; UE defers hit lighting to a
+//             compacted pass of its own): the far field marches with GI_TRACE_DISTANCE_ONLY and keeps only a hit's
+//             distance (hit and reached bits both set, nothing stored); this leg rebuilds the surface on the ray and
+//             lights it - the cards first (GIHitRadianceNeedsGlobalFieldInPlace), else in place
+//             (GIHitRadianceGlobalFieldInPlace: the directional lights' global-field shadow marches, the cache's
+//             bounce). The far field's waves no longer wait on the gradient, card search and shadow marches of their
+//             few hit lanes; here every lane is such a hit. The software tracer only - no other tracer makes a
+//             global-field hit.
 // The program is compiled per tracer (GlobalIllumination::TracerVariant) and per leg; it names no tracer. .a keeps the
 // distance the ray's radiance came from (the filter's angle test).
 Shader "ScreenProbeTrace"
@@ -122,15 +128,37 @@ Shader "ScreenProbeTrace"
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
         Uniform sampler LinearClampSampler;
-        Uniform sampler PointClampSampler;
         Uniform(16) textureCube EnvironmentSpecularTexture;
         #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        // GPU-FARFIELD-7 (UE shared samplers: a permutation declares the samplers its code samples through): the
+        // legs that LIGHT a hit read the cards (Common/SurfaceCacheSampling.glslh), the G-buffer (GIHitMaterial)
+        // and the software field's object grid (GIHitObjectGridRows), all through PointClampSampler. One switch
+        // per leg, SP_TRACE_LIGHTS_HITS, guards the sampler, the G-buffer textures and (GI_HIT_LIGHTING_NONE)
+        // those readers in the headers; the pass binds them under the same rule (ScreenProbeGather.cpp
+        // TraceLegLightsHits). The software far field defers its hits, the cache read reads the cache alone.
+        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
+        #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
+        #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
+        #endif
+        #endif
+        #if defined( SP_TRACE_NEAR_FIELD ) || defined( SP_TRACE_CACHE_MISS )
+        #define SP_TRACE_LIGHTS_HITS 1
+        #elif defined( SP_TRACE_HIT_LIGHTING ) && defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_LIGHTS_HITS 1
+        #elif defined( SP_TRACE_FAR_FIELD ) && !defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_LIGHTS_HITS 1
+        #endif
+        #if defined( SP_TRACE_LIGHTS_HITS )
+        Uniform sampler PointClampSampler;
         Uniform(17) texture2D GBufferDepthTexture;
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
         Uniform(18) texture2D GBufferATexture;
         #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
         Uniform(19) texture2D GBufferEmissiveTexture;
         #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+        #else
+        #define GI_HIT_LIGHTING_NONE 1
+        #endif
         Uniform(20) texture2D RadianceCacheIrradianceTexture;
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(21) texture2D RadianceCacheDepthTexture;
@@ -155,11 +183,6 @@ Shader "ScreenProbeTrace"
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 25
         #include <Common/GIHitLighting.glslh>
-        #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
-        #if !defined( SP_TRACE_HIT_LIGHTING )
-        #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
-        #endif
-        #endif
 
         // UE IsTraceMoving on a world hit: only a hit whose tracer knows its object's motion (GIHit.motionKnown:
         // the mesh SDF near field) can be moving; a global-field hit is not (UE TraceVoxels writes bMoving false).
@@ -170,7 +193,7 @@ Shader "ScreenProbeTrace"
         }
 
 #if defined( SP_TRACE_MISS_REASONS )
-        // One atomic per subgroup and reason: the far field reads the cache on most of its rays.
+        // One atomic per subgroup and reason: the cache-read leg reads the cache on every one of its rays.
         void SPCountCacheRead( uint why )
         {
             for ( uint reason = 0u; reason < RADIANCE_CACHE_READ_REASONS; ++reason )
@@ -184,7 +207,7 @@ Shader "ScreenProbeTrace"
 
         // GPU-FARFIELD-1: the far-field leg's rays by what its own trace did, after the cache-read words
         // (ScreenProbeGather.hpp ScreenProbeMissReasons, same order): every ray listed, the rays the global field hit
-        // (each lit by GIHitRadiance: the cards, or by the directional lights, one global-field test each), the
+        // (software: each lit by the hit-lighting leg; hardware: by GIHitRadiance here), the
         // rays outside the cache's coverage (marched to SP_TRACE_DISTANCE). One atomic per subgroup: the active lanes are the class.
         #define SP_FAR_FIELD_RAYS_LISTED  ( RADIANCE_CACHE_READ_REASONS + 0u )
         #define SP_FAR_FIELD_RAYS_HIT     ( RADIANCE_CACHE_READ_REASONS + 1u )
@@ -195,6 +218,9 @@ Shader "ScreenProbeTrace"
         #define SP_FAR_FIELD_STEPS        ( RADIANCE_CACHE_READ_REASONS + 3u )
         #define SP_FAR_FIELD_RAYS_DEFERRED ( RADIANCE_CACHE_READ_REASONS + 4u )
         #define SP_HIT_LIGHTING_STEPS     ( RADIANCE_CACHE_READ_REASONS + 5u )
+        // GPU-FARFIELD-5: every software far-field hit is handed over (DEFERRED = HIT); the hit-lighting leg's hits
+        // a card holds (lit by the cards, no shadow march), the rest lit in place.
+        #define SP_HIT_LIGHTING_CARD_HELD ( RADIANCE_CACHE_READ_REASONS + 6u )
         void SPCountFarFieldRays( uint word )
         {
             const uint count = subgroupBallotBitCount( subgroupBallot( true ) );
@@ -258,18 +284,40 @@ Shader "ScreenProbeTrace"
                  SPEncodeTraceHit( result.a, rest.hit, rest.hit && SPTraceHitMoving( probe, texel, rest.surface ), false );
 #elif defined( SP_TRACE_HIT_LIGHTING )
 #if defined( DESERT_GI_TRACER_SOFTWARE )
-            // A far-field hit no card holds (the far field left it with the hit and reached bits): its surface rebuilt
-            // on the same ray at the same distance, lit in place.
+            // A far-field hit (the far field left it with the hit and reached bits): its surface rebuilt on the same
+            // ray at the same distance (the finest clipmap's gradient), lit by the cards, else in place.
             const float distance = SPTraceHitDistance( state );
-            const GIHit hitAt    = GIFarFieldSurface( origin + dir * distance, dir, distance, -1 );
-            const vec3  radiance = GIHitRadianceGlobalFieldInPlace( hitAt, dir );
+            const GIHit hitAt = GIFarFieldSurface( origin + dir * distance, dir, distance, -1 );
+            vec3        radiance;
+            if ( GIHitRadianceNeedsGlobalFieldInPlace( hitAt, dir, radiance ) )
+                radiance = GIHitRadianceGlobalFieldInPlace( hitAt, dir );
 #if defined( SP_TRACE_MISS_REASONS )
+            else
+                SPCountFarFieldRays( SP_HIT_LIGHTING_CARD_HELD );
             SPCountSteps( SP_HIT_LIGHTING_STEPS );
 #endif
             imageStore( ScreenProbeTracedTexture, at, vec4( radiance, distance ) );
             // A global-field hit is never moving (UE TraceVoxels writes bMoving false).
             screenProbeTraceHit[slot] = SPEncodeTraceHit( distance, true, false, false );
 #endif
+#elif defined( SP_TRACE_CACHE_READ )
+            // A ray the far field left at the cache (reached, no hit; only covered rays get there). The coverage's
+            // point and clipmap (UE SampleRadianceCacheInterpolated with FRadianceCacheCoverage): the probe's own
+            // pixel, seen from the camera, so the eight cells read are the ones RadianceCacheMark stamped for that
+            // pixel (RadianceCacheReadPoint), in the clipmap tMax was cut for.
+            const vec3 V     = normalize( giFrame.camera.xyz - texel.position );
+            uint       why   = RADIANCE_CACHE_READ_EMPTY;
+            const vec4 cache = RadianceCacheRadianceAt( texel.position, N, V, dir, texel.coverage.clipmap, why );
+#if defined( SP_TRACE_MISS_REASONS )
+            SPCountCacheRead( why );
+#endif
+            // No traced probe answers, in the coverage's clipmap or a coarser one (RadianceCacheRadianceAt's
+            // fallback): the state stays reached and unanswered, and the cache-miss leg traces the rest of the ray.
+            if ( cache.a > 0.0 )
+            {
+                imageStore( ScreenProbeTracedTexture, at, vec4( cache.rgb, SP_TRACE_DISTANCE ) );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( SP_TRACE_DISTANCE, false, false, false );
+            }
 #else
             // The far field, then the radiance cache's far field, then the sky.
             vec4                result;
@@ -278,6 +326,11 @@ Shader "ScreenProbeTrace"
             SPCountFarFieldRays( SP_FAR_FIELD_RAYS_LISTED );
             if ( !texel.coverage.valid )
                 SPCountFarFieldRays( SP_FAR_FIELD_RAYS_OUTSIDE );
+#endif
+#if defined( DESERT_GI_TRACER_SOFTWARE )
+            // GPU-FARFIELD-5: the march keeps the hit's distance only (no gradient normal here: the hit-lighting
+            // leg rebuilds the surface where it lights it).
+            ray.flags |= GI_TRACE_DISTANCE_ONLY;
 #endif
             const GITraceResult far    = GITraceFarField( ray );
 #if defined( SP_TRACE_MISS_REASONS )
@@ -289,47 +342,31 @@ Shader "ScreenProbeTrace"
 #if defined( SP_TRACE_MISS_REASONS )
                 SPCountFarFieldRays( SP_FAR_FIELD_RAYS_HIT );
 #endif
-                vec3 radiance;
-                if ( GIHitRadianceNeedsGlobalFieldInPlace( far.surface, dir, radiance ) )
-                {
-                    // No card holds it: the hit-lighting leg lights it (its own compacted list, so this leg's
-                    // waves do not wait on its shadow marches). Nothing stored yet; hit + reached marks it.
+#if defined( DESERT_GI_TRACER_SOFTWARE )
+                // Every software far-field hit is a global-field hit (UE TraceVoxels): the hit-lighting leg lights
+                // it - the cards first, else in place - in its own compacted list (UE's hit lighting pass), so this
+                // leg's waves wait neither on a card search (99.5 % of these hits find no card) nor on a shadow
+                // march of their few hit lanes. Nothing stored yet; hit + reached marks it.
 #if defined( SP_TRACE_MISS_REASONS )
-                    SPCountFarFieldRays( SP_FAR_FIELD_RAYS_DEFERRED );
+                SPCountFarFieldRays( SP_FAR_FIELD_RAYS_DEFERRED );
 #endif
-                    screenProbeTraceHit[slot] = SPEncodeTraceHit( far.surface.distance, true, false, true );
-                    return;
-                }
-                result = vec4( radiance, far.surface.distance );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( far.surface.distance, true, false, true );
+                return;
+#else
+                // The hardware far field's hits are triangles (never global-field): lit here.
+                result = vec4( GIHitRadiance( far.surface, dir ), far.surface.distance );
                 moving = SPTraceHitMoving( probe, texel, far.surface );
+#endif
+            }
+            else if ( texel.coverage.valid )
+            {
+                // At the cache: the cache-read leg reads it in its own compacted list (UE's trace / shading split),
+                // so this leg's waves wait on no eight-cell cache read and carry none of its registers.
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
+                return;
             }
             else
-            {
-                // The coverage's point and clipmap (UE SampleRadianceCacheInterpolated with FRadianceCacheCoverage):
-                // the probe's own pixel, seen from the camera, so the eight cells read are the ones RadianceCacheMark
-                // stamped for that pixel (RadianceCacheReadPoint), in the clipmap tMax was cut for.
-                vec4 cache = vec4( 0.0, 0.0, 0.0, -1.0 );
-                uint why   = RADIANCE_CACHE_READ_EMPTY;
-                if ( texel.coverage.valid )
-                {
-                    const vec3 V = normalize( giFrame.camera.xyz - texel.position );
-                    cache        = RadianceCacheRadianceAt( texel.position, N, V, dir, texel.coverage.clipmap, why );
-#if defined( SP_TRACE_MISS_REASONS )
-                    SPCountCacheRead( why );
-#endif
-                }
-                if ( cache.a > 0.0 )
-                    result = vec4( cache.rgb, SP_TRACE_DISTANCE );
-                else if ( texel.coverage.valid )
-                {
-                    // No traced probe answers, in the coverage's clipmap or a coarser one (RadianceCacheRadianceAt's
-                    // fallback): the cache-miss leg traces the rest of this ray.
-                    screenProbeTraceHit[slot] = SPEncodeTraceHit( ray.tMax, false, false, true );
-                    return;
-                }
-                else
-                    result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
-            }
+                result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
             imageStore( ScreenProbeTracedTexture, at, result );
             // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the filter
             // reads its moving bit.

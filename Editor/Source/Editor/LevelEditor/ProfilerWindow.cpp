@@ -430,15 +430,16 @@ namespace Desert::Editor
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
             // GPU-FARFIELD-1: what the far-field leg's own trace did with its rays (ScreenProbeMissReasons
             // [6..8]); GPU-FARFIELD-3: the global field's steps of its marches and of the hit-lighting leg
-            // [9..11].
+            // [9..11]; GPU-FARFIELD-5: that leg's card-held hits [12].
             const double stepsPerRay = rays[6] > 0u ? static_cast<double>( rays[9] ) / rays[6] : 0.0;
             const double stepsPerHit = rays[10] > 0u ? static_cast<double>( rays[11] ) / rays[10] : 0.0;
             LOG_INFO(
                  "[Profiler] ScreenProbes far field rays: listed {} global-field hit {} outside the cache {} | "
-                 "steps {} ({:.1f} a ray) | lit in place {} (hit-lighting leg, steps {}, {:.1f} a hit) (a frame, "
-                 "frames in flight late; a hit is lit by the cards, or in place by the hit-lighting leg with one "
-                 "global-field shadow march per directional light; outside = marched to the full trace distance)",
-                 rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[11], stepsPerHit );
+                 "steps {} ({:.1f} a ray) | hit-lighting leg {} (card-held {}, steps {}, {:.1f} a hit) (a frame, "
+                 "frames in flight late; a hit is lit in the hit-lighting leg by the cards, else in place with "
+                 "one global-field shadow march per directional light; outside = marched to the full trace "
+                 "distance)",
+                 rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[12], rays[11], stepsPerHit );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the

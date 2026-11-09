@@ -295,10 +295,10 @@ namespace Desert::Graphic::GlobalIllumination
         // GPU-FARFIELD-1: then the far-field leg's own rays (ScreenProbeTrace.shader SP_FAR_FIELD_RAYS_*): [6]
         // every ray listed, [7] the rays the global field hit (lit by GIHitRadiance), [8] the rays outside the
         // cache's coverage (marched to the full trace distance). GPU-FARFIELD-3: [9] the global field's
-        // sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the hits no
-        // card holds, handed to the hit-lighting leg, [11] that leg's steps (its shadow marches: a hit = [11] /
-        // [10]).
-        static constexpr uint32_t kFarFieldClasses = 6;
+        // sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the hits
+        // handed to the hit-lighting leg (GPU-FARFIELD-5: every software hit, = [7]), [11] that leg's steps (its
+        // shadow marches: a hit = [11] / [10]), [12] that leg's hits a card holds (lit by the cards).
+        static constexpr uint32_t kFarFieldClasses = 7;
         static constexpr uint32_t kWords           = kReasons + kFarFieldClasses;
         // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected
         // (every traced probe's visibility 0), nan (a NaN weight), coarser (the coverage's clipmap had no traced
@@ -387,6 +387,8 @@ namespace Desert::Graphic::GlobalIllumination
             TraceFarField,    // the same program's far-field leg
             TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
+            TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
+                              // there
             Disocclusion,
             SpatialFilter,
             Filter,
@@ -397,6 +399,14 @@ namespace Desert::Graphic::GlobalIllumination
             Temporal,
             ProgramCount
         };
+
+        // ScreenProbeTrace's world legs, each a permutation of one program (EnsureTraceProgram, ProgramVariants).
+        static constexpr std::array<Program, 5> kTracePrograms{ TraceNearField, TraceFarField, TraceCacheMiss,
+                                                                TraceHitLighting, TraceCacheRead };
+
+        // A trace leg's permutation define (SP_TRACE_*): the one key TraceLegExists / TraceLegLightsHits decide
+        // on.
+        [[nodiscard]] static std::string_view TraceLegDefine( Program program );
 
         [[nodiscard]] Common::BoolResultStr EnsureImages( glm::uvec2 extent, const ScreenProbeLayout& layout );
 

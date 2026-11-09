@@ -249,6 +249,12 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface.distance      = globalStart + march.T;
     if ( anyHit )
         return result;
+    if ( ( ray.flags & GI_TRACE_DISTANCE_ONLY ) != 0u )
+    {
+        // The caller rebuilds the surface where it lights the hit (GIFarFieldSurface with level -1).
+        result.surface.globalField = true;
+        return result;
+    }
     result.surface = GIFarFieldSurface( start + ray.direction * march.T, ray.direction, result.surface.distance,
                                         march.Level );
     return result;
@@ -387,6 +393,7 @@ vec3 GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset )
 // The rows of the object grid cell at @p hit (UE EvaluateGlobalDistanceFieldHit): the cell is looked up half a voxel
 // off the surface along the normal, in the finest clipmap holding that point, so a thin wall's two sides read the
 // cells in front of them. A slot holds the row in its low 24 bits (the distance above them only sorted the cell).
+#if !defined( GI_HIT_LIGHTING_NONE ) // GPU-FARFIELD-7: the hit readers (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
 uvec4 GIHitObjectGridRows( GIHit hit )
 {
     const vec3 probe = hit.position + hit.normal * ( 0.5 * GITraceVoxelAt( hit.position ) );
@@ -429,6 +436,7 @@ uvec4 GIHitInstanceRows( GIHit hit )
 // mesh field's bricks are coarser than the mesh, so its surface stands off the captured one by up to a voxel of a
 // large mesh. A global-field hit: DISTANCE_FIELD_OBJECT_GRID_CARD_INTERPOLATION_RANGE_IN_VOXELS (3) x the hit
 // clipmap's ClipmapVoxelExtent (half a voxel), UE GlobalDistanceFieldObjectGrid.ush.
+#endif // GI_HIT_LIGHTING_NONE
 #define GI_MESH_SDF_SURFACE_CACHE_BIAS 20.0
 #define GI_GDF_CARD_INTERPOLATION_RANGE_IN_VOXELS 3.0
 float GIHitSurfaceCacheBias( GIHit hit )

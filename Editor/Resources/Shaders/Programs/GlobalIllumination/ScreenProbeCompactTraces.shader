@@ -4,14 +4,15 @@
 // (ScreenProbeTrace.shader, one thread per listed ray) run no lane for a ray an earlier leg answered. One workgroup per
 // probe, one thread per texel (Common/ScreenProbeTracing.glslh's trace hit buffer); the list keeps a probe's rays
 // together and in texel order (one group appends them as one run), so neighbouring threads of the world legs trace neighbouring directions
-// of one probe. Three compactions a frame (the push constant):
+// of one probe. Five compactions a frame (the push constant; the cache-miss selection serves two):
 //   near field   the rays with no hit that have not reached the radiance cache and are not past MaxDistance (the
 //                near field's end: UE CompactionMaxTraceDistance = MaxMeshSDFTraceDistance);
 //   far field    every ray with no hit (UE bCompactForSkyApply: the cache's radiance and the sky apply to all of
 //                them).
-//   cache miss   after the far field: the rays it left at the radiance cache with no traced probe answering (no
-//                hit, the reached bit still set - the far field clears it on every ray it answers).
-//   hit lighting the far field's global-field hits no card holds (hit AND reached: no other leg writes both),
+//   cache miss   no hit, the reached bit set: after the far field, the rays it left at the radiance cache (the
+//                cache-read leg's list, ScreenProbeTrace.shader SP_TRACE_CACHE_READ); after that leg, the ones no
+//                traced probe answered (it clears the bit on every ray it answers) - the cache-miss leg's list.
+//   hit lighting the far field's global-field hits, every one (hit AND reached: no other leg writes both),
 //                lit by their own leg (ScreenProbeTrace.shader SP_TRACE_HIT_LIGHTING), which clears the bit.
 // The indirect arguments are written here rather than by UE's separate one-thread pass: the list's group count is the
 // largest end any probe's run reached (atomicMax), so the dispatch needs no pass of its own.
@@ -67,7 +68,7 @@ Shader "ScreenProbeCompactTraces"
         #define SP_COMPACT_NEAR_FIELD 0u // no hit, not at the cache, before MaxDistance
         #define SP_COMPACT_FAR_FIELD  1u // no hit
         #define SP_COMPACT_CACHE_MISS 2u // no hit, left at the cache unanswered by the far field
-        #define SP_COMPACT_HIT_LIGHTING 3u // a far-field hit no card holds, left to be lit (hit and reached)
+        #define SP_COMPACT_HIT_LIGHTING 3u // a far-field global-field hit, left to be lit (hit and reached)
         #include <Common/ScreenProbeTracing.glslh>
 
         #define SP_COMPACT_TEXELS ( SP_RES * SP_RES )

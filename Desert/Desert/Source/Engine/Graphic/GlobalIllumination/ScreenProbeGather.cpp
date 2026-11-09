@@ -196,18 +196,20 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 16> kScreenProbeShaderNames{
-             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
-             "ScreenProbeCompactTraces", "ScreenProbeTrace",        "ScreenProbeTrace",
-             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeDisocclusion",
-             "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
+        constexpr std::array<std::string_view, 17> kScreenProbeShaderNames{
+             "ScreenProbePlace",         "ScreenProbeShortRangeAO",  "ScreenProbeTraceScreen",
+             "ScreenProbeCompactTraces", "ScreenProbeTrace",         "ScreenProbeTrace",
+             "ScreenProbeTrace",         "ScreenProbeTrace",         "ScreenProbeTrace",
+             "ScreenProbeDisocclusion",  "ScreenProbeSpatialFilter", "ScreenProbeFilter",
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",     "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate",
              "ScreenProbeTemporal" };
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
         // integrate's tile classification, its simple-diffuse permutation and its uncovered-pixel pass
         // (ScreenProbeIntegrate.shader).
         constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
+             "",
              "",
              "",
              "",
@@ -245,11 +247,36 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr std::string_view kTraceFarFieldDefine  = "SP_TRACE_FAR_FIELD";
         constexpr std::string_view kTraceCacheMissDefine = "SP_TRACE_CACHE_MISS";
         constexpr std::string_view kTraceHitLightingDefine = "SP_TRACE_HIT_LIGHTING";
+        constexpr std::string_view kTraceCacheReadDefine   = "SP_TRACE_CACHE_READ";
+
+        // Whether a tracer has the leg at all: hit lighting is the software far field's deferred pass (its far
+        // field defers global-field hits no card holds); the hardware far field lights its hits in place, so the
+        // leg would be an empty dispatch over an empty list.
+        [[nodiscard]] constexpr bool TraceLegExists( const Tracer tracer, const std::string_view leg )
+        {
+            return leg != kTraceHitLightingDefine || tracer == Tracer::SoftwareDistanceField;
+        }
+
+        // Whether the leg lights a hit (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS - the same rule): only such a
+        // leg declares PointClampSampler, the G-buffer textures and (GIHitLighting.glslh) the surface-cache reads,
+        // so the pass binds them exactly then (UE: a pass binds the parameters its permutation declares).
+        [[nodiscard]] constexpr bool TraceLegLightsHits( const Tracer tracer, const std::string_view leg )
+        {
+            if ( leg == kTraceNearFieldDefine || leg == kTraceCacheMissDefine )
+                return true;
+            if ( leg == kTraceHitLightingDefine )
+                return tracer == Tracer::SoftwareDistanceField;
+            if ( leg == kTraceFarFieldDefine )
+                return tracer != Tracer::SoftwareDistanceField;
+            return false; // SP_TRACE_CACHE_READ: the radiance cache only
+        }
 
         // ScreenProbeCompactTraces' list (CompactPush::FarField): must match the shader's SP_COMPACT_*.
         constexpr uint32_t kCompactNearField = 0u; // no hit, not at the cache, before MaxDistance
         constexpr uint32_t kCompactFarField  = 1u; // no hit
-        constexpr uint32_t kCompactCacheMiss = 2u; // the far field reached the cache and no traced probe answered
+        // no hit, at the cache and unanswered so far: after the far field the cache-read leg's list, after that
+        // leg the cache-miss leg's (the rays no traced probe answered)
+        constexpr uint32_t kCompactCacheMiss   = 2u;
         constexpr uint32_t kCompactHitLighting = 3u; // a far-field global-field hit no card holds, left to be lit
 
         // ScreenProbeCompactArgsUB: x = groups, y = z = 1 (a dispatch's three counts; w unused); the allocator: 0.
@@ -297,6 +324,25 @@ namespace Desert::Graphic::GlobalIllumination
     ScreenProbeGather::ScreenProbeGather()  = default;
     ScreenProbeGather::~ScreenProbeGather() = default;
 
+    std::string_view ScreenProbeGather::TraceLegDefine( const Program program )
+    {
+        switch ( program )
+        {
+            case TraceNearField:
+                return kTraceNearFieldDefine;
+            case TraceFarField:
+                return kTraceFarFieldDefine;
+            case TraceCacheMiss:
+                return kTraceCacheMissDefine;
+            case TraceHitLighting:
+                return kTraceHitLightingDefine;
+            case TraceCacheRead:
+                return kTraceCacheReadDefine;
+            default:
+                return {}; // not a trace leg: no SP_TRACE_* permutation
+        }
+    }
+
     namespace
     {
         // The layout permutation every screen-probe program is compiled under (Common/ScreenProbes.glslh
@@ -332,16 +378,17 @@ namespace Desert::Graphic::GlobalIllumination
         }
 
 #if DESERT_DEV_INSTRUMENTS
-        // PROBE-TURN-1: the far-field leg - the one that decides a cache miss - counts every radiance cache read by
-        // why it answered or not (ScreenProbeTrace.shader SP_TRACE_MISS_REASONS, ScreenProbes.MissReasons). Dev
-        // builds compile it in that permutation; the cook ships both.
+        // PROBE-TURN-1: the cache-read leg - the one that decides a cache miss (GPU-FARFIELD-6; the far field's
+        // before) - counts every radiance cache read by why it answered or not, the far-field and hit-lighting
+        // legs their ray classes (ScreenProbeTrace.shader SP_TRACE_MISS_REASONS, ScreenProbes.MissReasons). Dev
+        // builds compile them in that permutation; the cook ships both.
         constexpr std::string_view kTraceMissReasonsDefine = "SP_TRACE_MISS_REASONS";
 
         Core::ShaderVariant CountedTraceVariant( const Pipeline& pipeline, const std::string_view leg,
                                                  const uint32_t downsample, const uint32_t tracedTexels )
         {
             Core::ShaderVariant variant = TraceVariant( pipeline, leg, downsample, tracedTexels );
-            if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine )
+            if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine || leg == kTraceCacheReadDefine )
                 variant.Defines.emplace_back( kTraceMissReasonsDefine );
             return variant;
         }
@@ -371,7 +418,7 @@ namespace Desert::Graphic::GlobalIllumination
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
             if ( program == TraceNearField || program == TraceFarField || program == TraceCacheMiss ||
-                 program == TraceHitLighting )
+                 program == TraceHitLighting || program == TraceCacheRead )
                 continue; // tracer permutations, EnsureTraceProgram
             const std::string         name( kScreenProbeShaderNames[program] );
             const std::string_view    permutation = kScreenProbeProgramDefines[program];
@@ -454,16 +501,23 @@ namespace Desert::Graphic::GlobalIllumination
 
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
     {
-        if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && m_Pipelines[TraceCacheMiss] &&
-             m_Pipelines[TraceHitLighting] &&
-             pipeline == m_TraceProgramFor &&
-             m_TraceProgramDownsample == m_ProgramDownsample && m_TraceProgramTracedTexels == m_ProgramTracedTexels )
+        bool current = pipeline == m_TraceProgramFor && m_TraceProgramDownsample == m_ProgramDownsample &&
+                       m_TraceProgramTracedTexels == m_ProgramTracedTexels;
+        for ( const Program program : kTracePrograms )
+            if ( TraceLegExists( pipeline.Tracer, TraceLegDefine( program ) ) && !m_Pipelines[program] )
+                current = false;
+        if ( current )
             return BOOLSUCCESS;
-        for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
-                                             std::pair{ TraceFarField, kTraceFarFieldDefine },
-                                             std::pair{ TraceCacheMiss, kTraceCacheMissDefine },
-                                             std::pair{ TraceHitLighting, kTraceHitLightingDefine } } )
+        for ( const Program program : kTracePrograms )
         {
+            const std::string_view leg = TraceLegDefine( program );
+            if ( !TraceLegExists( pipeline.Tracer, leg ) )
+            {
+                // the tracer has no such leg: no program, nothing dispatched (Execute)
+                m_Shaders[program].reset();
+                m_Pipelines[program].reset();
+                continue;
+            }
             const std::string name( kScreenProbeShaderNames[program] );
 #if DESERT_DEV_INSTRUMENTS
             const Core::ShaderVariant variant =
@@ -499,20 +553,21 @@ namespace Desert::Graphic::GlobalIllumination
         std::vector<Core::CookedProgramVariant> variants;
         for ( uint32_t program = 0; program < ProgramCount; ++program )
             if ( program != TraceNearField && program != TraceFarField && program != TraceCacheMiss &&
-                 program != TraceHitLighting )
+                 program != TraceHitLighting && program != TraceCacheRead )
                 variants.push_back(
                      { std::string( kScreenProbeShaderNames[program] ),
                        LayoutVariant( downsample, tracedTexels, kScreenProbeProgramDefines[program] ) } );
         for ( const Pipeline& tracer : kTracerPermutations )
-            for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
-                                                 std::pair{ TraceFarField, kTraceFarFieldDefine },
-                                                 std::pair{ TraceCacheMiss, kTraceCacheMissDefine },
-                                                 std::pair{ TraceHitLighting, kTraceHitLightingDefine } } )
+            for ( const Program program : kTracePrograms )
             {
+                const std::string_view leg = TraceLegDefine( program );
+                if ( !TraceLegExists( tracer.Tracer, leg ) )
+                    continue; // the leg EnsureTraceProgram never acquires for this tracer
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                       TraceVariant( tracer, leg, downsample, tracedTexels ) } );
 #if DESERT_DEV_INSTRUMENTS
-                if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine )
+                if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine ||
+                     leg == kTraceCacheReadDefine )
                     variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                           CountedTraceVariant( tracer, leg, downsample, tracedTexels ) } );
 #endif
@@ -824,6 +879,8 @@ namespace Desert::Graphic::GlobalIllumination
         const auto traceWorld = [&]( const Program program, const std::string_view name, const Compacted list )
         {
             ComputePipeline* const pipeline = m_Pipelines[program].get();
+            // the declaration's own rule (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
+            const bool lightsHits = TraceLegLightsHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             graph.AddPass(
                  name, kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -854,26 +911,27 @@ namespace Desert::Graphic::GlobalIllumination
                                     list.Texels, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR );
                      DeclareTracerReads( block, inputs.Tracer );
-                     if ( readsCards )
+                     if ( readsCards && lightsHits )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
 #if DESERT_DEV_INSTRUMENTS
-                     if ( program == TraceFarField || program == TraceHitLighting )
+                     if ( program == TraceFarField || program == TraceHitLighting || program == TraceCacheRead )
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
                      block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
                                     inputs.EnvSpecular, kS, all )
                           .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::GBufferDepthTexture,
-                                    inputs.GBufferDepth, kS, all )
-                          .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::GBufferATexture, inputs.GBufferA, kS,
-                                    all )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::GBufferEmissiveTexture,
-                                    inputs.GBufferEmissive, kS, all )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheIrradianceTexture,
+                                    RDG::SamplerDesc::LinearClamp() );
+                     if ( lightsHits )
+                         block.Texture( ScreenProbeGatherTraceShaderParameters::GBufferDepthTexture,
+                                        inputs.GBufferDepth, kS, all )
+                              .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::GBufferATexture, inputs.GBufferA,
+                                        kS, all )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::GBufferEmissiveTexture,
+                                        inputs.GBufferEmissive, kS, all );
+                     block.Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheIrradianceTexture,
                                     inputs.RadianceCache.Irradiance, kS, all )
                           .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheDepthTexture,
                                     inputs.RadianceCache.Depth, kS, all )
@@ -893,11 +951,18 @@ namespace Desert::Graphic::GlobalIllumination
                              CompactPush{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ), kCompactNearField } ) );
         traceWorld( TraceFarField, "ScreenProbes: Trace Far Field",
                     compact( "far field", CompactPush{ std::numeric_limits<float>::max(), kCompactFarField } ) );
+        // GPU-FARFIELD-6: the rays the far field left at the radiance cache's coverage read the cache in a list of
+        // their own (UE's trace / shading split), so the far field's waves hold no cache read on their march
+        // lanes.
+        traceWorld( TraceCacheRead, "ScreenProbes: Trace Cache Read",
+                    compact( "cache read", CompactPush{ std::numeric_limits<float>::max(), kCompactCacheMiss } ) );
         // GPU-FARFIELD-3: the far field's global-field hits no card holds, lit in a list of their own (UE's hit
-        // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches.
-        traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting",
-                    compact( "hit lighting",
-                             CompactPush{ std::numeric_limits<float>::max(), kCompactHitLighting } ) );
+        // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches. The
+        // hardware far field lights its hits in place: no such leg (TraceLegExists), no list.
+        if ( TraceLegExists( inputs.Tracer.Pipeline.Tracer, kTraceHitLightingDefine ) )
+            traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting",
+                        compact( "hit lighting",
+                                 CompactPush{ std::numeric_limits<float>::max(), kCompactHitLighting } ) );
         // The rays the far field took to the radiance cache's coverage and no traced probe answered (cells the view
         // just reached: allocated this frame past the trace budget, or not yet marked) go on to the full trace
         // distance in a list of their own, so the far field's waves stay as short as its own leg.
