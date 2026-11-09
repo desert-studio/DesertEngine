@@ -138,7 +138,7 @@ Shader "ScreenProbeTrace"
         // TraceLegLightsHits). The software far field defers its hits, the cache read reads the cache alone.
         #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
         #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
-        #define SP_TRACE_FAR_FIELD 1 // the registered default compile (no pass dispatches it)
+        #define SP_TRACE_CACHE_READ 1 // the registered default compile (no pass dispatches it; no tracer, no hits)
         #endif
         #endif
         #if defined( SP_TRACE_NEAR_FIELD ) || defined( SP_TRACE_CACHE_MISS )

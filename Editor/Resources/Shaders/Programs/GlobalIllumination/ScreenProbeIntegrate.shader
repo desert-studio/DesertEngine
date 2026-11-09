@@ -174,7 +174,9 @@ Shader "ScreenProbeIntegrate"
         {
             GIFrame giFrame;
         };
-        Uniform sampler LinearClampSampler;
+#if defined( SP_INTEGRATE_UNCOVERED ) || !defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+        Uniform sampler LinearClampSampler; // sampled by the cache (UNCOVERED) or the filtered probes only
+#endif
         Uniform sampler PointClampSampler;
         Uniform(6) texture2D GBufferDepthTexture;
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
