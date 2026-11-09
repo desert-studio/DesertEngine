@@ -1179,6 +1179,7 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
+        m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
         // asked for again this frame (a fixed program draws, one still broken is refused again without a new
@@ -5052,7 +5053,8 @@ namespace Desert::Graphic
     {
         m_Systems.VolumetricCloud->SetCloudSettings(
              present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection, m_CloudQuality,
-             m_CloudFootprintSteps, heroClouds ); // a profile without clouds never allocates their targets
+             m_CloudFootprintSteps, m_CloudLightLocalSamples,
+             heroClouds ); // a profile without clouds never allocates their targets
     }
 
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,

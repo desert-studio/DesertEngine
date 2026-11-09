@@ -404,7 +404,7 @@ namespace Desert::ECS
         // OE-FIX table above found converged (13.9 m at 500 m / six samples). This is Unreal's
         // arrangement — a short secondary trace near the sample plus the Beer shadow map for the rest
         // (r.VolumetricCloud.ShadowMap, ShadowSampleCount) — and the price is linear in this number
-        // instead of in LightMarchSamples. A quality tier lowers it (Graphic::CloudQualityScale).
+        // instead of in LightMarchSamples. An Effects level caps it (Effects.CloudLightLocalSamples).
         int32_t LightMarchLocalSamples = 8;
 
         PROPERTY( DisplayName( "Aerial Perspective Start Distance" ), Category( "Lighting" ), Length,

@@ -2132,6 +2132,9 @@ namespace Desert::Graphic
         Common::Settings::CloudQuality m_CloudQuality = Common::Settings::CloudQuality::High;
         // Scalability Effects.CloudFootprintSteps, refreshed with m_CloudQuality and handed with it.
         bool m_CloudFootprintSteps = true;
+        // Scalability Effects.CloudLightLocalSamples, refreshed with m_CloudQuality and handed with it: the
+        // ceiling on the clouds' near sun ray (VolumetricCloudRenderer::SetCloudSettings); identity until then.
+        int32_t m_CloudLightLocalSamples = ECS::kCloudLightMarchLocalMaxSamples;
         // WHAT THIS MACHINE CAN AFFORD. NOT read from the scene — pushed in by whoever owns the view
         // (SetQuality). See Common/Settings/MachineSettings.hpp for why it stopped being scene data.
         //

@@ -1587,6 +1587,7 @@ namespace Desert::Graphic::System
                                                     const glm::vec3& windOffset, const glm::vec3& windDirection,
                                                     Common::Settings::CloudQuality        quality,
                                                     bool                                  footprintSteps,
+                                                    int32_t lightLocalSampleCeiling,
                                                     const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Present    = present;
@@ -1595,6 +1596,7 @@ namespace Desert::Graphic::System
         m_WindDirection = windDirection;
         m_Quality    = quality;
         m_FootprintSteps = footprintSteps;
+        m_LightLocalSampleCeiling = lightLocalSampleCeiling;
 
         // RE-ARM THE WARNINGS WHEN THE ARRANGEMENT CHANGES. A latch that is never released says a thing
         // once and then lies for the rest of the session: an artist who moves a body back inside the
@@ -2199,7 +2201,7 @@ namespace Desert::Graphic::System
         const bool                  selfShadowMap = HasShadowMap() && m_ShadowMap != nullptr;
         const CloudSelfShadowParams selfShadow =
              CloudSelfShadowPack( selfShadowMap, m_ShadowMapView, m_Data.LightMarchLocalSamples,
-                                  CloudQualityFor( m_Quality ).LightMarchLocalSampleCeiling );
+                                  m_LightLocalSampleCeiling );
         const auto traceSelfShadow =
              m_SelfShadowParamsBuffer->SetData( &selfShadow, static_cast<uint32_t>( sizeof( selfShadow ) ) );
 

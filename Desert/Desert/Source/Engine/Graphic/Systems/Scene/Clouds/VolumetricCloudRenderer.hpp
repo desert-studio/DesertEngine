@@ -173,10 +173,13 @@ namespace Desert::Graphic::System
          * @param footprintSteps Scalability Effects.CloudFootprintSteps, taken with @p quality: the march's lit
          *                   step grows with the trace texel's footprint (CloudFootprintStepKm); false = the
          *                   fixed fine step, the A/B reference.
+         * @param lightLocalSampleCeiling Scalability Effects.CloudLightLocalSamples, taken with @p quality: the
+         *                   ceiling on VolumetricCloudData::LightMarchLocalSamples (CloudSelfShadowPack).
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
                                const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
-                               bool footprintSteps, const std::vector<HeroCloudInstance>& heroClouds );
+                               bool footprintSteps, int32_t lightLocalSampleCeiling,
+                               const std::vector<HeroCloudInstance>& heroClouds );
 
         /**
          * @brief Stages S0, S1 and S2 as compute nodes of @p graph, after the scene depth is final.
@@ -910,6 +913,9 @@ namespace Desert::Graphic::System
         Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
         // Scalability Effects.CloudFootprintSteps for this view (SetCloudSettings), CloudPush::Visualize.z.
         bool m_FootprintSteps = true;
+        // Scalability Effects.CloudLightLocalSamples for this view (SetCloudSettings): the near sun ray's
+        // sample ceiling. The identity, ECS::kCloudLightMarchLocalMaxSamples, until the first BeginScene.
+        int32_t m_LightLocalSampleCeiling = ECS::kCloudLightMarchLocalMaxSamples;
         float              m_ShadowMapScaleInUse = 0.0f;
 
         // The HALF-resolution grid, which is what the sub-pixel jitter and the reconstruction are both
