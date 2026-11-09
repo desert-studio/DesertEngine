@@ -276,7 +276,6 @@ namespace Desert::Graphic::System
             glm::uvec2 CameraArgs{ 0u };
             glm::uvec2 PostArgs{ 0u };
             glm::uvec2 Candidates{ 0u };
-            glm::uvec2 LawScales{ 0u };
             uint32_t   CameraIdsBase = 0;
             uint32_t   InstancesBase = 0;
             uint64_t   Builds        = 0;
@@ -460,19 +459,16 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>                           ChunkInit;
             uint64_t                                        ChunksEpoch = 0;
             uint32_t                                        ChunkRoom = 0;
-            // GRASS-CULL-COST-3, THE LAW'S SLOTS (Common/GrassVarietyRows.glslh GrassVarietyRow::LawScales; UE GPU
-            // Scene: an instance's data is written once when it changes, the views only cull it): the scale the
-            // view law gave each record before its chunk's cut, written once per law generation by GrassCull's
-            // LawChunk and read by every frame's camera cull; LawCapacity slots, sized by what the law handed out
-            // (LawLowFrames: the frames in a row at half of it). CPU-GRASS-POOL-1: a range of m_LawScalesPool;
-            // LawPoolEpoch the pool's Epoch the range was last lawed in - a remade pool moved it, so it is a new
-            // law generation.
-            PoolRange                                       LawScales;
+            // GRASS-CULL-COST-3, THE LAW'S SLOTS (Common/GrassVarietyRows.glslh THE ROWS; UE GPU Scene: an
+            // instance's data is written once when it changes, the views only cull it): Instances holds the row
+            // the view law made of each record before its chunk's cut, written once per law generation by
+            // GrassCull's LawChunk and read by id by every frame's culls and draws (FPS-ARCH-GRASSROWS);
+            // LawCapacity slots, sized by what the law handed out (LawLowFrames: the frames in a row at half of
+            // it). A remade instances pool is a new law generation (CommitListPools).
             uint32_t                                        LawCapacity  = 0;
             uint32_t                                        LawLowFrames = 0;
-            uint64_t                                        LawPoolEpoch = 0;
             // What the view law reads this frame (LawKey: the params with the field eye, the pool's identity, Args,
-            // LawScales and its room, the field's revision) and what the chunks were last lawed from (LawedKey);
+            // Instances and its room, the field's revision) and what the chunks were last lawed from (LawedKey);
             // LawGeneration counts its changes - a chunk whose law word carries another generation is lawed anew. A
             // turn, a still camera or a tile built keeps it.
             std::vector<uint32_t> LawKey;
@@ -806,9 +802,8 @@ namespace Desert::Graphic::System
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Table;
         RDG::ExternalBuffer                             m_TableImport;
-        // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates / LawScales), committed by CommitListPools.
+        // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates), committed by CommitListPools.
         BufferPool m_CandidatesPool{ "GrassCandidates", 7u };
-        BufferPool m_LawScalesPool{ "GrassLawScales", 2u };
         // CPU-GRASS-POOL-5: the rows, the id lists and the draw records of every variety (VarietyGpu::Instances,
         // FullIds / CameraIds / CascadeIds, Args / CameraArgs / PostArgs / CascadeArgs), committed by AddFrame
         // before any variety's refs are set (CommitListPools), so each is imported and registered once a frame.

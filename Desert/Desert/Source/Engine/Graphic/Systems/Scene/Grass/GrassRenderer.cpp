@@ -123,7 +123,7 @@ namespace Desert::Graphic::System
         // written mark, the full list's drawn count, the camera's phase-1 drawn count, phase 2's appended count.
         // GPU-COST-21: then one drawn count per cascade view's list (GrassCull.shader FinalizeCascades).
         // GRASS-CULL-COST-3: then the law's slots handed out this law generation, uncapped (GrassCull.shader
-        // kFeedbackLawWord; LawScales is sized from it).
+        // kFeedbackLawWord; Instances is sized from it).
         constexpr uint32_t kFeedbackLawWord   = 4u + kGrassCascadeLists;
         constexpr uint32_t kFeedbackTailWords = kFeedbackLawWord + 1u;
         static_assert(
@@ -174,9 +174,8 @@ namespace Desert::Graphic::System
             glm::uvec2 Field;
             glm::uvec2 TilePool;
             glm::uvec2 FullIds;
-            // GRASS-CULL-COST-3, THE LAW'S SLOTS (GrassCull.shader LawChunk): LawScales' address, the law generation
-            // (VarietyGpu::LawGeneration, never 0: a chunk the build wrote carries 0) and LawScales' slots.
-            glm::uvec2 LawScales;
+            // GRASS-CULL-COST-3, THE LAW'S SLOTS (GrassCull.shader LawChunk): the law generation
+            // (VarietyGpu::LawGeneration, never 0: a chunk the build wrote carries 0) and the slots of Instances.
             uint32_t   LawGeneration = 0u;
             uint32_t   LawCapacity   = 0u;
             // CPU-GRASS-POOL-5: the ranges' first row of Instances and first slot of each id list in their pools
@@ -187,15 +186,15 @@ namespace Desert::Graphic::System
             uint32_t   CascadeIdsBase = 0u;
             // CPU-GRASS-POOL-7: the mark FinalizeFull writes into Feedback (VarietyGpu::FeedbackMark).
             uint32_t   FeedbackMark = 0u;
-            uint32_t   Pad          = 0u;
+            uint32_t   Pad[3]       = {};
         };
         static_assert(
              sizeof( GrassVarietyRowGpu ) == 256,
              "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
              "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
-             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, LawScales at 216, uint LawGeneration at "
-             "224, uint LawCapacity at 228, uint InstancesBase at 232, FullIdsBase at 236, CameraIdsBase at 240, "
-             "CascadeIdsBase at 244, FeedbackMark at 248, std430's 4 bytes of padding at 252" );
+             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, uint LawGeneration at 216, uint "
+             "LawCapacity at 220, uint InstancesBase at 224, FullIdsBase at 228, CameraIdsBase at 232, "
+             "CascadeIdsBase at 236, FeedbackMark at 240, std430's 12 bytes of padding at 244" );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
@@ -220,7 +219,7 @@ namespace Desert::Graphic::System
         // generation; GrassCull writes y and w) and the words of one chunk.
         constexpr uint32_t kChunkHeaderWords = 4u;
         // GRASS-CULL-COST-3: words 10..25 are the camera cull's law words (the generation, the kept box, the codes,
-        // the first slot of LawScales).
+        // the first slot of Instances).
         constexpr uint32_t kChunkWords = 26u;
         // GrassVarietyRows.glslh kGrassLawBuckets: a chunk's law words keep each record's bucket + 1 in four bits.
         constexpr uint32_t kLawBuckets = 15u;
@@ -926,7 +925,7 @@ namespace Desert::Graphic::System
         // GRASS-CULL-COST-3, THE LAW'S SLOTS (UE GPU Scene: sized by the instances the law keeps, never by the pool's
         // candidates): one per record before its chunk's cut that LawChunk lawed this law generation - what the GPU
         // handed out (Feedback, uncapped) plus a quarter, grown at once, shrunk only after kShrinkFrames frames in a
-        // row at half. A new LawScales is a new law generation (LawKey: its address), so every chunk is lawed into it;
+        // row at half. A new Instances is a new law generation (LawKey: its address), so every chunk is lawed into it;
         // the frames the old one was short drew a truncated field (InstancesSettling, below).
         const uint32_t lawUsed     = fedBack ? counted[buckets + kFeedbackLawWord] : 0u;
         const bool     lawOverflow = fedBack && lawUsed > gpu.LawCapacity;
@@ -945,14 +944,18 @@ namespace Desert::Graphic::System
             }
             else if ( 2u * lawStep > gpu.LawCapacity )
                 gpu.LawLowFrames = 0u;
-            if ( gpu.LawScales.Bytes == 0u || lawNext != gpu.LawCapacity )
+            // FPS-ARCH-GRASSROWS (UE GPU Scene: an instance's data persists, the views' lists hold ids): THE ROWS
+            // are the law's - one mat4 per slot, written by LawChunk once per law generation; the culled lists
+            // only name them. A row's index is its offset in 64-byte rows (InstancesBase): the pool's 256-byte
+            // alignment keeps every range on a whole row.
+            if ( gpu.Instances.Bytes == 0u || lawNext != gpu.LawCapacity )
             {
-                const uint64_t lawBytes = static_cast<uint64_t>( lawNext ) * 3u * sizeof( float );
+                const uint64_t lawBytes = static_cast<uint64_t>( lawNext ) * sizeof( glm::mat4 );
                 gpu.LawCapacity         = 0u;
-                if ( !m_LawScalesPool.Allocate( gpu.LawScales, lawBytes ) )
+                if ( !m_InstancesPool.Allocate( gpu.Instances, lawBytes ) )
                 {
                     LOG_ERROR(
-                         "[Grass] variety {:016x}: the view law's slots ({} bytes; the pool of every "
+                         "[Grass] variety {:016x}: the view law's rows ({} bytes; the pool of every "
                          "variety's at most a storage buffer's 4 GB) were not handed out; asked anew next frame",
                          variety.Key, lawBytes );
                     return nullptr;
@@ -982,7 +985,7 @@ namespace Desert::Graphic::System
         {
             if ( !gpu.Truncated )
                 LOG_INFO( "[Grass] variety {:016x} (layer {}) truncated: the view law handed out {} slots, past "
-                          "LawScales' room; the field drew without the rest until it grows",
+                          "the rows' room; the field drew without the rest until it grows",
                           variety.Key, variety.Layer, lawUsed );
             gpu.Truncated   = true;
             gpu.SettleReads = settleReads;
@@ -1072,19 +1075,7 @@ namespace Desert::Graphic::System
                 bool           handed  = m_IdsPool.Allocate( gpu.CameraIds, idBytes );
                 // The full list (GrassCull.shader CullInstance): the records the views keep, in Args' buckets.
                 handed = handed && m_IdsPool.Allocate( gpu.FullIds, idBytes );
-                // REGRESS-CACHE-1, THE ROWS (UE: the culled instances' compacted buffer, sized by what the views
-                // keep, never by every built instance): the view law's mat4 of each KEPT instance, in three
-                // regions of the lists' layout - the full list's (row = its slot in FullIds), the camera's own and
-                // its HZB candidates' (for an instance the full list holds no slot for this frame: its cascades
-                // held, or its bucket full). Every list holds rows, not pool records (GrassCull.shader
-                // CullInstance). One row per pool record had spent 64 B on every resident record (~1.7 GB on
-                // FIELD_Barn, past the VRAM budget).
-                constexpr uint32_t kGrassRowRegions = 3u; // the full list's, the camera's own, its candidates'
-                const uint64_t     rowBytes =
-                     static_cast<uint64_t>( kGrassRowRegions ) * std::max( capacity, 1u ) * sizeof( glm::mat4 );
-                // A row's index is its offset in 64-byte rows (InstancesBase): the pool's 256-byte alignment
-                // keeps every range on a whole row.
-                handed                            = handed && m_InstancesPool.Allocate( gpu.Instances, rowBytes );
+                // The lists hold ids of the law's rows (FPS-ARCH-GRASSROWS; Instances, sized by LawCapacity).
                 std::vector<uint32_t>& cameraArgs = gpu.CameraArgsWords;
                 cameraArgs.assign( args.begin(), args.end() );
                 cameraArgs.resize( args.size() + static_cast<size_t>( buckets ) * kPhaseWords, 0u );
@@ -1092,10 +1083,10 @@ namespace Desert::Graphic::System
                 if ( !handed )
                 {
                     // No Args: this block runs again next frame, as a pool that was not made is (UpdateTiles).
-                    LOG_ERROR( "[Grass] variety {:016x}: its id lists, rows ({} bytes) or camera records were not "
+                    LOG_ERROR( "[Grass] variety {:016x}: its id lists ({} bytes) or camera records were not "
                                "handed out (a pool is at a storage buffer's 4 GB); they are handed out anew next "
                                "frame",
-                               variety.Key, rowBytes );
+                               variety.Key, idBytes );
                     return refuse();
                 }
             }
@@ -1563,18 +1554,18 @@ namespace Desert::Graphic::System
             gpu.FrameKey.push_back( static_cast<uint32_t>( identity >> 32u ) );
         }
         // GRASS-CULL-COST-3: what the view law reads (VarietyGpu::LawKey) - the params (the field eye among them), the
-        // pool's identity, Args (a mesh level's half screen size) and LawScales; AddFrame adds the field's revision. A
+        // pool's identity, Args (a mesh level's half screen size) and Instances; AddFrame adds the field's revision. A
         // tile built or freed is no new law generation: the build writes its chunks unlawed (law word 0).
         gpu.LawKey.assign( gpu.FrameKey.begin(),
                            gpu.FrameKey.begin() +
                                 static_cast<std::ptrdiff_t>( sizeof( GrassParamsGpu ) / sizeof( uint32_t ) ) );
         gpu.LawKey.push_back( gpu.PoolGeneration );
-        // LawScales' room too: a range handed out anew may land on the freed one's offset, and every new range
+        // The rows' room too: a range handed out anew may land on the freed one's offset, and every new range
         // changes the room. CPU-GRASS-POOL-1: and its offset in the pool; a remade pool, which moves every range
         // after this key is taken, is a new generation by the pool's Epoch (WriteVarietyTable).
         gpu.LawKey.push_back( gpu.LawCapacity );
-        gpu.LawKey.push_back( static_cast<uint32_t>( gpu.LawScales.Offset ) );
-        gpu.LawKey.push_back( static_cast<uint32_t>( gpu.LawScales.Offset >> 32u ) );
+        gpu.LawKey.push_back( static_cast<uint32_t>( gpu.Instances.Offset ) );
+        gpu.LawKey.push_back( static_cast<uint32_t>( gpu.Instances.Offset >> 32u ) );
         for ( const uint64_t identity : { gpu.Builds, gpu.Args.Offset } ) // the Epoch: CommitListPools
         {
             gpu.LawKey.push_back( static_cast<uint32_t>( identity ) );
@@ -1736,7 +1727,7 @@ namespace Desert::Graphic::System
         if ( m_Frame.empty() )
             return BOOLSUCCESS; // nothing reads the pools this frame
         for ( BufferPool* pool :
-              { &m_InstancesPool, &m_IdsPool, &m_ArgsPool, &m_CandidatesPool, &m_LawScalesPool } )
+              { &m_InstancesPool, &m_IdsPool, &m_ArgsPool, &m_CandidatesPool } )
             if ( const Common::BoolResultStr committed = pool->Commit( graph ); !committed )
                 return committed;
         // GPU-COST-22: every list reads the one Instances through its ids (GpuInstanceRefs::Ids); the ids are
@@ -1759,7 +1750,8 @@ namespace Desert::Graphic::System
             // level's half screen size the law reads).
             if ( gpu->InstancesPoolEpoch != instancesEpoch || gpu->ArgsPoolEpoch != epoch )
                 ++gpu->Generation;
-            if ( gpu->ArgsPoolEpoch != epoch )
+            // ...and the law's rows (FPS-ARCH-GRASSROWS: Instances holds them) are lawed anew.
+            if ( gpu->InstancesPoolEpoch != instancesEpoch || gpu->ArgsPoolEpoch != epoch )
                 ++gpu->LawGeneration;
             gpu->InstancesPoolEpoch = instancesEpoch;
             gpu->ArgsPoolEpoch      = epoch;
@@ -3042,8 +3034,8 @@ namespace Desert::Graphic::System
                      // The chunk pass: the law and the chunks' views; it appends the met chunks.
                      BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageWrite );
                      pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
-                     // CPU-GRASS-POOL-1: every variety's law slots, one pool.
-                     pass.Write( m_LawScalesPool.Ref(), RDG::Access::StorageWrite );
+                     // FPS-ARCH-GRASSROWS: every variety's law rows (LawChunk), one pool.
+                     pass.Write( m_InstancesPool.Ref(), RDG::Access::StorageWrite );
                      // The view law's records: every held segment, declared once (CPU-GRASS-POOL-2).
                      DeclareTileSegments( pass, RDG::Access::StorageRead );
                      for ( const VarietyGpu* gpu : m_FrameCull )
@@ -3071,15 +3063,12 @@ namespace Desert::Graphic::System
                      // The instance pass: a group per met chunk, its kept records into the lists.
                      BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead );
                      pass.Read( m_FrameMet, RDG::Access::IndirectArgs );
-                     pass.Read( m_LawScalesPool.Ref(), RDG::Access::StorageRead );
+                     // FPS-ARCH-GRASSROWS: the law's rows, read by id (no pool record or params is read here).
+                     pass.Read( m_InstancesPool.Ref(), RDG::Access::StorageRead );
                      pass.Write( m_CandidatesPool.Ref(), RDG::Access::StorageWrite );
-                     DeclareTileSegments( pass, RDG::Access::StorageRead );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
                          pass.Read( m_ChunksPool.Ref(), RDG::Access::StorageRead ); // the law words
-                         pass.Read( m_SegmentTablesPool.Ref(), RDG::Access::StorageRead );
-                         pass.Read( m_ParamsPool.Ref(), RDG::Access::StorageRead );
-                         pass.Write( gpu->Refs.Instances, RDG::Access::StorageWrite ); // the lists' rows
                          pass.Write( gpu->Refs.Ids, RDG::Access::StorageWrite );       // the full list
                          pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->CameraRefs.Ids, RDG::Access::StorageWrite );
@@ -3169,7 +3158,7 @@ namespace Desert::Graphic::System
                 row.Feedback     = split( m_FeedbackPool.Address( gpu->Feedback ) );
                 row.FeedbackMark = gpu->FeedbackMark;
                 // CPU-GRASS-POOL-1: the pooled kinds, at the variety's range of their pool.
-                if ( gpu->Candidates.Bytes == 0u || gpu->LawScales.Bytes == 0u || gpu->Args.Bytes == 0u )
+                if ( gpu->Candidates.Bytes == 0u || gpu->Instances.Bytes == 0u || gpu->Args.Bytes == 0u )
                     return Common::MakeError( "a variety's pool range was not handed out" );
                 // CPU-GRASS-POOL-5: the rows, ids and records at their ranges; the bases make the ids GrassCull
                 // writes and the records' firstInstance absolute in the pools (GrassVarietyRowGpu).
@@ -3186,13 +3175,6 @@ namespace Desert::Graphic::System
                 row.CameraIdsBase  = static_cast<uint32_t>( gpu->CameraIds.Offset / kGrassIdBytes );
                 row.CascadeIdsBase = static_cast<uint32_t>( gpu->CascadeIds.Offset / kGrassIdBytes );
                 row.Candidates = split( m_CandidatesPool.Address( gpu->Candidates ) );
-                row.LawScales  = split( m_LawScalesPool.Address( gpu->LawScales ) );
-                // A remade pool moved the law's slots (what they held is gone): every chunk is lawed anew.
-                if ( gpu->LawPoolEpoch != m_LawScalesPool.Epoch() )
-                {
-                    gpu->LawPoolEpoch = m_LawScalesPool.Epoch();
-                    ++gpu->LawGeneration;
-                }
                 uint32_t flags = 0u;
                 if ( gpu->Shape )
                     flags = kRowBlade;
@@ -3236,8 +3218,8 @@ namespace Desert::Graphic::System
                     append( row.CascadeWords );
                     append( row.CascadeRings );
                     append( gpu->Generation );
-                    // GRASS-CULL-COST-3: and the view law's generation - a frame whose law ran out of LawScales' slots
-                    // culled the lists without those chunks (kGrassLawNoSlot), so the grown LawScales (a new law
+                    // GRASS-CULL-COST-3: and the view law's generation - a frame whose law ran out of the rows' slots
+                    // culled the lists without those chunks (kGrassLawNoSlot), so the grown rows (a new law
                     // generation) culls them anew instead of holding the short lists.
                     append( row.LawGeneration );
                     if ( key != gpu->CascadeKey )
@@ -3250,7 +3232,7 @@ namespace Desert::Graphic::System
                     gpu->CascadesCulled = true;
                     // GPU-GRASS-CULL-1, THE CAMERA'S LISTS FOLLOW CHANGE TOO (UE grass / instanced foliage: a
                     // cluster's cull results stand until the cluster or the view changes): a frame whose cascades
-                    // hold (the instances, the law, the rows' region 0 unchanged) and whose camera planes, HZB
+                    // hold (the instances, the law and its rows unchanged) and whose camera planes, HZB
                     // matrix and camera buffers equal the frame that last culled the camera holds that frame's
                     // phase-1 list and candidates - no camera cull runs for the row. Phase 2 still retests the
                     // held candidates against this frame's HZB, so grass an occluder uncovers is drawn; grass one
@@ -3268,7 +3250,6 @@ namespace Desert::Graphic::System
                     camera.CameraArgs    = row.CameraArgs;
                     camera.PostArgs      = row.PostArgs;
                     camera.Candidates    = row.Candidates;
-                    camera.LawScales     = row.LawScales;
                     camera.CameraIdsBase = row.CameraIdsBase;
                     camera.InstancesBase = row.InstancesBase;
                     camera.Builds        = gpu->Builds;
