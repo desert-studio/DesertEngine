@@ -2702,7 +2702,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferEqualMaterial;
         MaterialInstancePtr                          m_InstancedGBufferEqualInstance;
         // This frame's EarlyZPass (SetEarlyZPass); the half being built is the builders' DrawBuildMode.
-        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::All;
+        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::Masked;
         // GRASS-VIS's two pass states (carriers: CellPipeline swaps in the section's cell): the visibility raster
         // (the masked prepass's depth state with depth writes off) and the resolve (the G-buffer's instanced state,
         // CullMode None - a full-screen triangle). Null: no grass visibility path, the sections keep the G-buffer.

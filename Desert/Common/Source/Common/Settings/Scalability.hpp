@@ -391,8 +391,9 @@ namespace Common::Scalability
         // EarlyZPassMode (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate ->
         // MeshRenderer::SetEarlyZPass
         // ("Deferred: Masked Depth Prepass", then "Deferred: GBuffer" EQUAL for what it drew). Key
-        // "RenderPipeline.EarlyZPass": equal at every level (a renderer choice, not a quality step: All costs a
-        // depth-only draw per opaque mesh and saves the G-buffer's overdraw), so only a machine override names it;
+        // "RenderPipeline.EarlyZPass": Masked at every level (a renderer choice, not a quality step: All costs a
+        // depth-only draw per opaque mesh, more than the G-buffer overdraw it saves; a frame with a DBuffer decal
+        // runs All whatever the value, SceneRenderer::OnUpdate), so only a machine override names it;
         // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
         EarlyZPass,
         // 0/1: graph passes record on task workers (RDG-PARALLEL-3; UE r.RDG.ParallelExecute): a Graphics segment

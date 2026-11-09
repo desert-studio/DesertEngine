@@ -166,13 +166,14 @@ namespace Desert::Graphic::System
         void                                DeclareDepthDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderDepthManual( const RDG::PassContext& context );
 
-        // THE DEFERRED EARLY-Z PASS (UE r.EarlyZPass; Scalability EarlyZPass, MeshRenderer::SetEarlyZPass): set
-        // per frame by SceneRenderer before "Deferred: Masked Depth Prepass", the mode the meshes get. The ground
-        // is a masked surface (its visibility layer clips), so it joins the prepass under Masked and All; Off
-        // leaves "TerrainGBuffer" writing its own depth.
-        void SetEarlyZPass( const ::Common::Scalability::EarlyZPassMode mode )
+        // THE GROUND'S DEFERRED DEPTH PREPASS (UE: the landscape is an occluder the depth pass draws under every
+        // r.EarlyZPass mode that runs one, whatever that mode admits of the meshes). Set per frame by
+        // SceneRenderer before "Deferred: Masked Depth Prepass" from its own rule (SceneRenderer::OnUpdate), not
+        // from the meshes' mode: the meshes' Masked and All both leave the ground in the prepass. false leaves
+        // "TerrainGBuffer" writing its own depth.
+        void SetDepthPrepass( const bool prepass )
         {
-            m_EarlyZPass = mode;
+            m_DepthPrepass = prepass;
         }
         // Whether this frame's deferred G-buffer draws the ground over its own depth prepass: the early-Z pass
         // runs and both prepassed pipelines exist. "Deferred: Terrain Depth Prepass" is added exactly then.
@@ -504,7 +505,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_WireframeVsmPipeline; // twin of m_PipelineVsm
         bool                              m_WireframeRefused = false;
 #endif
-        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline; // writes its own depth (EarlyZPass Off)
+        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline; // writes its own depth (no depth prepass)
         // The G-buffer program over the ground's own depth prepass: CloserOrEqual, no depth write
         // (PrepassesGBuffer).
         std::shared_ptr<GraphicsPipeline> m_GBufferPrepassedPipeline;
@@ -520,7 +521,7 @@ namespace Desert::Graphic::System
         // Whether a tile of this frame's m_Queue has a visibility layer (PrepareFrame): the discarding prepass.
         bool                                  m_FrameHasHoles = true;
         void                                  EnsureDepthNoHolesPipelines();
-        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::Off;
+        bool                                  m_DepthPrepass = false; // SetDepthPrepass
         // The pipeline the view's depth prepass records with this frame: the forward one, the deferred one under
         // PrepassesGBuffer, or nullptr when the frame's path does not prepass the ground.
         [[nodiscard]] const GraphicsPipeline* ViewDepthPipeline() const;

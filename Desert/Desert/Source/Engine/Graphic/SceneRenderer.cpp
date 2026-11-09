@@ -2494,9 +2494,12 @@ namespace Desert::Graphic
                                m_ViewResources.GetName(), m_GrassVisibilityError );
                 }
             }
-            // UE DBuffer decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals"
-            // runs between the prepass and the base pass and reconstructs every receiver from that depth, so the
-            // prepass must hold every opaque mesh and the ground, not only the masked ones.
+            // THE MESHES' EARLY-Z MODE (UE r.EarlyZPass; RenderPipeline.EarlyZPass, default Masked). UE DBuffer
+            // decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals" runs between
+            // the prepass and the base pass and reconstructs every receiver from that depth, so a frame with a
+            // decal prepasses every opaque mesh too. Without one the alpha-tested meshes alone pay a depth-only
+            // draw (their clip once, then EQUAL in the G-buffer); an opaque mesh's own depth write in the G-buffer
+            // is cheaper than a second draw of it.
             Common::Scalability::EarlyZPassMode earlyZ =
                  m_Quality.As<Common::Scalability::EarlyZPassMode>( Common::Scalability::Parameter::EarlyZPass );
             if ( m_Decals.HasDecals() && meshRenderer != nullptr )
@@ -2507,15 +2510,16 @@ namespace Desert::Graphic
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
             }
-            // The ground joins the same early-Z pass ("Deferred: Terrain Depth Prepass", AddFrameGBuffer), which
-            // exists only beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer"
-            // writes its own depth.
+            // THE GROUND'S DEPTH PREPASS, by its own rule (UE: the landscape is an occluder of every depth pass,
+            // whatever r.EarlyZPass admits of the meshes): "Deferred: Terrain Depth Prepass" (AddFrameGBuffer)
+            // runs whenever the frame runs an early-Z pass at all - the meshes' Masked as much as All - and only
+            // beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer" writes its
+            // own depth.
             if ( auto* ground = m_Systems.Terrain.get(); ground != nullptr )
             {
-                Common::Scalability::EarlyZPassMode terrainEarlyZ = Common::Scalability::EarlyZPassMode::Off;
-                if ( meshRenderer != nullptr )
-                    terrainEarlyZ = earlyZ;
-                ground->SetEarlyZPass( terrainEarlyZ );
+                const bool groundPrepass =
+                     meshRenderer != nullptr && earlyZ != Common::Scalability::EarlyZPassMode::Off;
+                ground->SetDepthPrepass( groundPrepass );
             }
             // This view's decals (fade, cull, program, sort, rows) before AddFrameGBuffer declares "Deferred:
             // Decals"; the box matrices are the jittered ones the prepass depth was rastered with, so a depth
