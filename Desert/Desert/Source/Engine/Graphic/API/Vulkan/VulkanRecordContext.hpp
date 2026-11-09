@@ -95,12 +95,53 @@ namespace Desert::Graphic::API::Vulkan
     // dispatch / copy entry points, the graph backend's pass bracket, the GPU profiler's timestamps - asks Bound()
     // first and records into the bound context's CommandBuffer when there is one. Nothing in a context is shared
     // with another thread.
+    // FPS-CPU2-VKRECORD (the compute twin of VulkanBoundGraphics): the compute pipeline and sets
+    // VulkanRendererAPI::BindComputePassState last bound on CommandBuffer, so an equal dispatch after it binds
+    // neither again. A compute bind made anywhere else on this thread (VulkanPipelineCompute's legacy dispatch,
+    // a material backend's sets) calls ForeignBind, which makes every thread's-context state of it stale:
+    // Matches compares the epoch it was bound at.
+    struct VulkanBoundCompute
+    {
+        VkCommandBuffer              CommandBuffer = VK_NULL_HANDLE;
+        VkPipeline                   Pipeline      = VK_NULL_HANDLE;
+        VkPipelineLayout             SetsLayout    = VK_NULL_HANDLE;
+        std::vector<VkDescriptorSet> Sets; // bound at set 0 on; the capacity is kept across forgets
+        uint64_t                     Epoch = 0;
+
+        static void ForeignBind() noexcept
+        {
+            ++t_ForeignBinds;
+        }
+        // Whether @p commandBuffer holds this state as it was bound (no foreign compute bind since); when it does
+        // not, the state is forgotten and recorded as @p commandBuffer's.
+        [[nodiscard]] bool On( VkCommandBuffer commandBuffer ) noexcept
+        {
+            if ( CommandBuffer == commandBuffer && Epoch == t_ForeignBinds )
+                return true;
+            Forget();
+            CommandBuffer = commandBuffer;
+            Epoch         = t_ForeignBinds;
+            return false;
+        }
+        void Forget() noexcept
+        {
+            CommandBuffer = VK_NULL_HANDLE;
+            Pipeline      = VK_NULL_HANDLE;
+            SetsLayout    = VK_NULL_HANDLE;
+            Sets.clear();
+        }
+
+    private:
+        static inline thread_local uint64_t t_ForeignBinds = 0;
+    };
+
     struct VulkanRecordContext
     {
         // The command buffer the context records into now (a chunk: its own primary).
         VkCommandBuffer                    CommandBuffer = VK_NULL_HANDLE;
         std::optional<VulkanBoundGeometry> BoundGeometry;
         VulkanBoundGraphics                BoundGraphics;
+        VulkanBoundCompute                 BoundCompute;
         VulkanBoundVisibleRows             BoundVisibleRows;
         std::vector<std::byte>             SubmeshPush; // VulkanRendererAPI::WalkMeshSubmeshes' block, reused
         // VulkanGpuProfiler: the scopes this context has open (a chunk's scopes nest under each other, and the
@@ -122,6 +163,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             BoundGeometry.reset();
             BoundGraphics.Forget();
+            BoundCompute.Forget();
             BoundVisibleRows.Forget();
         }
 

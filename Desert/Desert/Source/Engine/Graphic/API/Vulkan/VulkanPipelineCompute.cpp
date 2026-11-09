@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <utility>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -256,6 +257,8 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
+        // A compute bind outside VulkanRendererAPI::BindComputePassState: its bind-skip state is stale.
+        VulkanBoundCompute::ForeignBind();
         vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
         vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout, 0, 1, &descriptorSet, 0,
                                  nullptr );
@@ -604,6 +607,7 @@ namespace Desert::Graphic::API::Vulkan
         const BuiltCompute& built = GetBuilt();
         if ( !built.Backend )
             return;
+        VulkanBoundCompute::ForeignBind(); // compute sets bound outside BindComputePassState
         if ( !built.Backend->BindDescriptorSets( m_ActiveComputeCommandBuffer, built.Layout,
                                                  VK_PIPELINE_BIND_POINT_COMPUTE, frameIndex ) )
         {
