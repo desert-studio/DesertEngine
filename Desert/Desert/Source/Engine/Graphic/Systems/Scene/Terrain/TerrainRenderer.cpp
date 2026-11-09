@@ -26,6 +26,7 @@
 #include <Common/Core/Units.hpp>
 
 #include <algorithm>
+#include <tuple>
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -326,31 +327,25 @@ namespace Desert::Graphic::System
         // screen. A grid past LOD 0 is never diced: its vertices are past LOD 1, where the relief is zero
         // (LandscapeDisplacementLodScale).
         void ApplyLandscapeDisplacement( TerrainInstance& instance, const LandscapeTileDraw& l,
-                                         const DataDrivenMaterial& surface, const glm::vec3& camera,
+                                         const TerrainRowValues& values, const glm::vec3& camera,
                                          const glm::mat4& projection, const glm::mat4& viewProjection,
                                          const std::optional<glm::vec2>& slab, uint32_t viewHeight,
                                          int dicingRate )
         {
-            // The row ONCE (CPU-FRAME-4): GetParamRow rewrites every texture slot of the row from the material's
-            // texture properties on each call, and this reads 23 values of it per tile.
-            const auto& layout = surface.GetMaterialLayout();
-            const auto& row    = surface.GetParamRow();
-            const auto  read   = [&]( const std::string& name )
-            { return MaterialBinder::ReadRowParam( layout, row, name ).value_or( glm::vec4( 0.0f ) ).x; };
+            // The surface row's values, read once per row revision (TerrainRowValuesOf, CPU-FRAME-4):
+            // LayerKTileSize and LayerKBlend (an Int: its bits, MaterialRowSlotValue) are the layer params' x and
+            // y.
             for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
             {
-                const std::string layer                                            = std::format( "Layer{}", k );
-                instance.InputTileSize[k / 4][static_cast<glm::length_t>( k % 4 )] = read( layer + "TileSize" );
-                // LayerKBlend is an Int: the row holds its bits (MaterialRowSlotValue).
-                instance.InputBlend[k / 4][static_cast<glm::length_t>( k % 4 )] =
-                     static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ) ) );
+                instance.InputTileSize[k / 4][static_cast<glm::length_t>( k % 4 )] =
+                     values.Values.LayerParams[k].x;
+                instance.InputBlend[k / 4][static_cast<glm::length_t>( k % 4 )] = values.Values.LayerParams[k].y;
             }
-            instance.DisplacementTiling =
-                 glm::vec4( read( "FarTilingDistance" ), read( "FarTilingScale" ), 0.0f, 0.0f );
-            const float magnitude     = dicingRate > 0 ? read( "DisplacementMagnitude" ) : 0.0f;
-            const float fadeStart     = std::max( read( "DisplacementFadeStart" ), 1.0f );
-            const float fadeEnd       = std::max( read( "DisplacementFadeEnd" ), fadeStart + 1.0f );
-            instance.Displacement     = glm::vec4( magnitude, read( "DisplacementCenter" ), fadeStart, fadeEnd );
+            instance.DisplacementTiling = glm::vec4( values.Values.Tiling.x, values.Values.Tiling.y, 0.0f, 0.0f );
+            const float magnitude       = dicingRate > 0 ? values.Displacement.x : 0.0f;
+            const float fadeStart       = std::max( values.Displacement.z, 1.0f );
+            const float fadeEnd         = std::max( values.Displacement.w, fadeStart + 1.0f );
+            instance.Displacement       = glm::vec4( magnitude, values.Displacement.y, fadeStart, fadeEnd );
             instance.DisplacementView = glm::vec4( camera, 0.0f );
             instance.DiceWindow       = glm::vec4( 0.0f );
             instance.DiceRings        = glm::vec4( -1.0f );
@@ -515,38 +510,155 @@ namespace Desert::Graphic::System
         // each input's maps as the bindless slots of the images @p layers' arrays copied. Terrain.shader and
         // TerrainGBuffer.shader declare every one of these parameters (the ShaderCacheKey suite holds the two
         // Properties blocks equal); a cell without one is a broken shader, said, and its hits read zero for it.
-        TerrainFrameMaterial FrameMaterialOf( const DataDrivenMaterial& surface, const TerrainLayerInputs& layers )
+        // THE SURFACE ROW'S NAMES, in TerrainRowValues' read order: the material's nine, the displacement's four
+        // (kTerrainRowDisplacement..), then per weight layer k LayerKTint, LayerKTileSize, LayerKBlend,
+        // LayerKNormalStrength (kTerrainRowLayers + 4k ..). Resolved to row slots once per surface layout
+        // (ResolveTerrainRowSlots), never spelled per tile.
+        enum TerrainRowSlot : uint32_t
         {
-            std::string missing;
-            // The row ONCE (CPU-FRAME-4): GetParamRow rewrites every texture slot of the row from the material's
-            // texture properties on each call, and this reads 41 values of it per tile.
-            const auto& layout = surface.GetMaterialLayout();
-            const auto& row    = surface.GetParamRow();
-            const auto  read   = [&]( const std::string& name ) -> glm::vec4
-            {
-                const std::optional<glm::vec4> value = MaterialBinder::ReadRowParam( layout, row, name );
-                if ( !value )
-                    missing += ( missing.empty() ? "" : ", " ) + name;
-                return value.value_or( glm::vec4( 0.0f ) );
-            };
+            kTerrainRowTint = 0,
+            kTerrainRowFarTilingDistance,
+            kTerrainRowFarTilingScale,
+            kTerrainRowMacroVariationSize,
+            kTerrainRowMacroVariationStrength,
+            kTerrainRowDetailNormalScale,
+            kTerrainRowDetailNormalStrength,
+            kTerrainRowMacroHueSize,
+            kTerrainRowMacroHueStrength,
+            kTerrainRowDisplacementMagnitude,
+            kTerrainRowDisplacementFadeStart,
+            kTerrainRowDisplacementFadeEnd,
+            kTerrainRowDisplacementCenter,
+            kTerrainRowLayers,
+        };
+        constexpr std::array<std::string_view, kTerrainRowSlotCount> kTerrainRowSlotNames{
+             "Tint",
+             "FarTilingDistance",
+             "FarTilingScale",
+             "MacroVariationSize",
+             "MacroVariationStrength",
+             "DetailNormalScale",
+             "DetailNormalStrength",
+             "MacroHueSize",
+             "MacroHueStrength",
+             "DisplacementMagnitude",
+             "DisplacementFadeStart",
+             "DisplacementFadeEnd",
+             "DisplacementCenter",
+             "Layer0Tint",
+             "Layer0TileSize",
+             "Layer0Blend",
+             "Layer0NormalStrength",
+             "Layer1Tint",
+             "Layer1TileSize",
+             "Layer1Blend",
+             "Layer1NormalStrength",
+             "Layer2Tint",
+             "Layer2TileSize",
+             "Layer2Blend",
+             "Layer2NormalStrength",
+             "Layer3Tint",
+             "Layer3TileSize",
+             "Layer3Blend",
+             "Layer3NormalStrength",
+             "Layer4Tint",
+             "Layer4TileSize",
+             "Layer4Blend",
+             "Layer4NormalStrength",
+             "Layer5Tint",
+             "Layer5TileSize",
+             "Layer5Blend",
+             "Layer5NormalStrength",
+             "Layer6Tint",
+             "Layer6TileSize",
+             "Layer6Blend",
+             "Layer6NormalStrength",
+             "Layer7Tint",
+             "Layer7TileSize",
+             "Layer7Blend",
+             "Layer7NormalStrength",
+        };
+        static_assert( kTerrainRowLayers == 13u && kTerrainRowSlotCount == kTerrainRowLayers + 4u * 8u,
+                       "kTerrainRowSlotNames spells eight weight layers after the thirteen material values" );
+        // Whether the frame material reads slot @p index (the displacement's four are the displacement's only).
+        constexpr bool FrameMaterialReads( const size_t index )
+        {
+            return index < kTerrainRowDisplacementMagnitude || index >= kTerrainRowLayers;
+        }
 
-            TerrainFrameMaterial material;
-            material.Tint = read( "Tint" );
-            material.Values.Tiling =
-                 glm::vec4( read( "FarTilingDistance" ).x, read( "FarTilingScale" ).x,
-                            read( "MacroVariationSize" ).x, read( "MacroVariationStrength" ).x );
-            material.Values.Detail =
-                 glm::vec4( read( "DetailNormalScale" ).x, read( "DetailNormalStrength" ).x, read( "MacroHueSize" ).x,
-                            read( "MacroHueStrength" ).x );
+        // Each name's row slot in @p surface's layout (MaterialBinder::ReadRowParam's rule: a numeric parameter
+        // whose slot lies in the row; else kNoTerrainRowSlot, read as zero). A name the frame material reads that
+        // is missing is a broken shader - Terrain.shader and TerrainGBuffer.shader declare every one (the
+        // ShaderCacheKey suite holds the two Properties blocks equal) - said here, once per resolve, since the
+        // landscape's ray tracing hits read zero for it.
+        void ResolveTerrainRowSlots( const DataDrivenMaterial& surface, const size_t rowSize,
+                                     std::array<uint32_t, kTerrainRowSlotCount>& slots )
+        {
+            const auto& layout = surface.GetMaterialLayout();
+            std::string missing;
+            for ( size_t index = 0; index < kTerrainRowSlotCount; ++index )
+            {
+                const auto*    p    = layout.FindParam( kTerrainRowSlotNames[index] );
+                const uint32_t slot = p != nullptr ? p->Offset / Core::Formats::kMaterialParamSlotSize : 0u;
+                if ( p == nullptr || p->IsTexture || slot >= rowSize )
+                {
+                    slots[index] = kNoTerrainRowSlot;
+                    if ( FrameMaterialReads( index ) )
+                    {
+                        if ( !missing.empty() )
+                            missing += ", ";
+                        missing += kTerrainRowSlotNames[index];
+                    }
+                    continue;
+                }
+                slots[index] = slot;
+            }
+            if ( !missing.empty() )
+            {
+                LOG_ERROR(
+                     "[TerrainRenderer] '{}' has no {} parameter(s): the landscape's ray tracing hits read zero "
+                     "for them",
+                     surface.GetShaderName(), missing );
+            }
+        }
+
+        // The values of @p row the frame material and the displacement read, through its resolved @p slots.
+        TerrainRowValues TerrainRowValuesOf( const std::array<uint32_t, kTerrainRowSlotCount>& slots,
+                                             const Core::Formats::MaterialParamRow&            row )
+        {
+            const auto read = [&]( const size_t index ) -> glm::vec4
+            { return slots[index] == kNoTerrainRowSlot ? glm::vec4( 0.0f ) : row[slots[index]]; };
+
+            TerrainRowValues values;
+            values.Tint = read( kTerrainRowTint );
+            values.Values.Tiling =
+                 glm::vec4( read( kTerrainRowFarTilingDistance ).x, read( kTerrainRowFarTilingScale ).x,
+                            read( kTerrainRowMacroVariationSize ).x, read( kTerrainRowMacroVariationStrength ).x );
+            values.Values.Detail =
+                 glm::vec4( read( kTerrainRowDetailNormalScale ).x, read( kTerrainRowDetailNormalStrength ).x,
+                            read( kTerrainRowMacroHueSize ).x, read( kTerrainRowMacroHueStrength ).x );
             for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
             {
-                const std::string layer      = std::format( "Layer{}", k );
-                material.Values.LayerTint[k] = read( layer + "Tint" );
+                const size_t layer         = kTerrainRowLayers + ( 4u * k );
+                values.Values.LayerTint[k] = read( layer );
                 // LayerKBlend is an Int: the row holds its bits (MaterialRowSlotValue).
-                material.Values.LayerParams[k] = glm::vec4(
-                     read( layer + "TileSize" ).x,
-                     static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ).x ) ),
-                     read( layer + "NormalStrength" ).x, 0.0f );
+                values.Values.LayerParams[k] = glm::vec4(
+                     read( layer + 1u ).x, static_cast<float>( std::bit_cast<int32_t>( read( layer + 2u ).x ) ),
+                     read( layer + 3u ).x, 0.0f );
+            }
+            values.Displacement =
+                 glm::vec4( read( kTerrainRowDisplacementMagnitude ).x, read( kTerrainRowDisplacementCenter ).x,
+                            read( kTerrainRowDisplacementFadeStart ).x, read( kTerrainRowDisplacementFadeEnd ).x );
+            return values;
+        }
+
+        TerrainFrameMaterial FrameMaterialOf( const TerrainRowValues& values, const TerrainLayerInputs& layers )
+        {
+            TerrainFrameMaterial material;
+            material.Tint   = values.Tint;
+            material.Values = values.Values;
+            for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
+            {
                 for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
                 {
                     const float slice = layers.Slices[k][static_cast<glm::length_t>( kind )];
@@ -556,11 +668,6 @@ namespace Desert::Graphic::System
                     material.LayerMaps[k][static_cast<glm::length_t>( kind )] = source->GetBindlessSlot().Index;
                 }
             }
-            if ( !missing.empty() )
-                LOG_ERROR(
-                     "[TerrainRenderer] '{}' has no {} parameter(s): the landscape's ray tracing hits read zero "
-                     "for them",
-                     surface.GetShaderName(), missing );
             return material;
         }
 
@@ -674,15 +781,6 @@ namespace Desert::Graphic::System
             bool    operator==( const TileKey& ) const = default;
         };
 
-        struct TileKeyHash
-        {
-            size_t operator()( const TileKey& k ) const
-            {
-                const size_t h = std::hash<float>{}( k.OriginX ) ^ ( std::hash<float>{}( k.OriginZ ) << 1u );
-                return h ^ ( std::hash<int64_t>{}( ( static_cast<int64_t>( k.X ) << 32 ) ^ k.Z ) << 2u );
-            }
-        };
-
         TileKey KeyOf( const LandscapeTileDraw& l, int32_t dx, int32_t dz )
         {
             const auto quads = static_cast<int32_t>( std::max( l.QuadsPerTile, 1u ) );
@@ -734,18 +832,51 @@ namespace Desert::Graphic::System
             return glm::dot( d, d ) <= radius * radius;
         }
 
-        using TileLodMap = std::unordered_map<TileKey, LandscapeSectionLodArray, TileKeyHash>;
+        // ONE VIEW'S TILE LODS, FLAT (CPU-AUDIT2 TERRAIN): a tile's section LODs by its key, in a vector the
+        // renderer keeps (TerrainRenderer::m_TileLods, m_LightTileLods) so a frame fills it with no allocation.
+        // Filled with SetTileLods, then SealTileLods sorts it by key once; a key set twice keeps the last LODs, as
+        // a map's assignment did. FindTileLods is a binary search.
+        bool TileKeyBefore( const TileKey& a, const TileKey& b )
+        {
+            return std::tie( a.OriginX, a.OriginZ, a.X, a.Z ) < std::tie( b.OriginX, b.OriginZ, b.X, b.Z );
+        }
+        TileKey KeyOfEntry( const TerrainTileLodEntry& e )
+        {
+            return { e.OriginX, e.OriginZ, e.X, e.Z };
+        }
+        void SetTileLods( std::vector<TerrainTileLodEntry>& lods, const TileKey& key,
+                          const LandscapeSectionLodArray& value )
+        {
+            lods.push_back( { .OriginX = key.OriginX, .OriginZ = key.OriginZ, .X = key.X, .Z = key.Z, .Lods = value } );
+        }
+        void SealTileLods( std::vector<TerrainTileLodEntry>& lods )
+        {
+            std::stable_sort( lods.begin(), lods.end(), []( const TerrainTileLodEntry& a, const TerrainTileLodEntry& b )
+                              { return TileKeyBefore( KeyOfEntry( a ), KeyOfEntry( b ) ); } );
+            // Of each run of one key (in fill order, the sort is stable) the last entry stays.
+            size_t kept = 0;
+            for ( size_t i = 0; i < lods.size(); ++i )
+            {
+                if ( i + 1 < lods.size() && KeyOfEntry( lods[i] ) == KeyOfEntry( lods[i + 1] ) )
+                    continue;
+                lods[kept++] = lods[i];
+            }
+            lods.resize( kept );
+        }
+        const LandscapeSectionLodArray* FindTileLods( const std::vector<TerrainTileLodEntry>& lods, const TileKey& key )
+        {
+            const auto n = std::lower_bound( lods.begin(), lods.end(), key,
+                                             []( const TerrainTileLodEntry& e, const TileKey& k )
+                                             { return TileKeyBefore( KeyOfEntry( e ), k ); } );
+            return n != lods.end() && KeyOfEntry( *n ) == key ? &n->Lods : nullptr;
+        }
 
         // A tile's section table for one view, from that view's section LODs of every tile it draws (a neighbour
-        // the view does not draw has nothing to agree with: no ring entry).
-        LandscapeSectionLodTable TileLodsOf( const LandscapeTileDraw& l, const TileLodMap& lods )
+        // the view does not draw has nothing to agree with: no ring entry). @p lods is sealed (SealTileLods).
+        LandscapeSectionLodTable TileLodsOf( const LandscapeTileDraw& l, const std::vector<TerrainTileLodEntry>& lods )
         {
-            return LandscapeSectionLodsOf( l.QuadsPerTile,
-                                           [&]( int dx, int dz ) -> const LandscapeSectionLodArray*
-                                           {
-                                               const auto n = lods.find( KeyOf( l, dx, dz ) );
-                                               return n == lods.end() ? nullptr : &n->second;
-                                           } );
+            return LandscapeSectionLodsOf( l.QuadsPerTile, [&]( int dx, int dz ) -> const LandscapeSectionLodArray*
+                                           { return FindTileLods( lods, KeyOf( l, dx, dz ) ); } );
         }
 
         // The tile proxy's map is still the one it was built from: the same owner (a freed image whose address came
@@ -1092,7 +1223,7 @@ namespace Desert::Graphic::System
         m_FrameDraws.clear();
         m_ViewDraws.clear();
         // The lights' draws are PrepareLocalShadowViews' (after UpdateLocalShadows gave the lights their views).
-        m_LocalLightDraws.clear();
+        ReleaseShadowDrawLists();
         m_FrameInstances.clear();
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
@@ -1169,12 +1300,13 @@ namespace Desert::Graphic::System
         m_FrameMaterials.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
-        TileLodMap tileLods;
+        m_TileLods.clear();
         {
             DESERT_PROFILE_SCOPE( "Terrain: Tile LODs" );
             for ( const auto& t : m_Queue )
-                tileLods[KeyOf( t.Landscape, 0, 0 )] =
-                     TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
+                SetTileLods( m_TileLods, KeyOf( t.Landscape, 0, 0 ),
+                             TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } ) );
+            SealTileLods( m_TileLods );
         }
 
         // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
@@ -1182,7 +1314,7 @@ namespace Desert::Graphic::System
         // reaches a tile past it.
         const uint32_t                            viewHeight = m_SceneRenderer->GetViewExtent().Height;
         const int                                 dicingRate = m_SceneRenderer->GetDisplacementDicingRate();
-        std::map<std::array<float, 4>, glm::vec2> diceSlabs;
+        m_DiceSlabs.clear();
         const auto                                slabKey = []( const LandscapeTileDraw& l )
         { return std::array<float, 4>{ l.OriginX, l.OriginZ, l.BaseY, l.SpacingCm }; };
         for ( const auto& t : m_Queue )
@@ -1199,8 +1331,12 @@ namespace Desert::Graphic::System
             const float dz = std::max( { 0.0f, z0 - frame.CameraPosition.z, frame.CameraPosition.z - z0 - size } );
             if ( std::max( dx, dz ) > ring2 + l.SpacingCm )
                 continue;
-            const auto [slab, fresh] = diceSlabs.try_emplace( slabKey( l ), glm::vec2( l.MinY, l.MaxY ) );
-            if ( !fresh )
+            const auto key  = slabKey( l );
+            const auto slab = std::find_if( m_DiceSlabs.begin(), m_DiceSlabs.end(),
+                                            [&]( const auto& entry ) { return entry.first == key; } );
+            if ( slab == m_DiceSlabs.end() )
+                m_DiceSlabs.emplace_back( key, glm::vec2( l.MinY, l.MaxY ) );
+            else
                 slab->second = glm::vec2( std::min( slab->second.x, l.MinY ), std::max( slab->second.y, l.MaxY ) );
         }
 
@@ -1245,34 +1381,66 @@ namespace Desert::Graphic::System
                 // white fallback, so this is purely additive. Which overrides are samplers is the proxy's (once
                 // per revision); the image each names is resolved here, since a texture that lands swaps it.
                 DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+                // Each sampler's image as it resolves NOW (a texture that lands or streams swaps it).
+                m_GroupSamplerScratch.clear();
                 for ( const uint32_t index : proxy.Samplers )
                 {
-                    const auto& [name, handle] = t.Overrides->Textures[index];
-                    auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
-                    if ( tex == nullptr )
-                        continue;
+                    auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get(
+                         Common::UUID( t.Overrides->Textures[index].second ) );
                     // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
-                    auto* img = static_cast<Image2D*>(
-                         Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
+                    const auto* img = tex == nullptr ? nullptr
+                                                     : static_cast<const Image2D*>(
+                                                            Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                                                 tex->GetImageHandle() ) );
                     // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-                    if ( img != nullptr && !surface->SetTexture( name, img ) )
-                        LogRefusedTextureOverride( surface->GetShaderName(), name );
+                    m_GroupSamplerScratch.push_back( img );
                 }
-                for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
-                    if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
-                         !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
-                        LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                materials.Depth->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                if ( t.Weights.Weightmap != nullptr )
+                // THE GROUP'S BINDINGS PERSIST (UE FLandscapeComponentSceneProxy): every input below equal to what
+                // the set last bound binds nothing - each SetTexture of it would be an equal image, no write
+                // (Texture2DProperty::SetImage) - so the block runs only when one of them moved.
+                ProgramMaterials::BoundTextures& bound = materials.Bound;
+                bool unchanged = bound.Valid && bound.Surface == surface && bound.Overrides == t.Overrides &&
+                                 bound.Samplers == m_GroupSamplerScratch && bound.Heightmap == t.Heightmap.get() &&
+                                 bound.Weightmap == t.Weights.Weightmap.get();
+                for ( uint32_t kind = 0; unchanged && kind < kTerrainLayerMapKinds; ++kind )
+                    unchanged = bound.Arrays[kind] == layers.Arrays[kind].get() &&
+                                bound.ArrayNames[kind] == layers.ArrayNames[kind];
+                if ( !unchanged )
                 {
-                    surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
-                    // The casters read the visibility channel too: a hole must not cast a shadow.
-                    materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
-                    materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
-                    materials.Depth->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                    for ( size_t s = 0; s < proxy.Samplers.size(); ++s )
+                    {
+                        const std::string& name = t.Overrides->Textures[proxy.Samplers[s]].first;
+                        const Image2D*     img  = m_GroupSamplerScratch[s];
+                        if ( img != nullptr && !surface->SetTexture( name, img ) )
+                            LogRefusedTextureOverride( surface->GetShaderName(), name );
+                    }
+                    for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
+                        if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
+                             !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
+                            LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
+                    surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                    materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                    materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                    materials.Depth->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                    if ( t.Weights.Weightmap != nullptr )
+                    {
+                        surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                        // The casters read the visibility channel too: a hole must not cast a shadow.
+                        materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                        materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                        materials.Depth->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                    }
+                    bound.Valid     = true;
+                    bound.Surface   = surface;
+                    bound.Overrides = t.Overrides;
+                    bound.Samplers.assign( m_GroupSamplerScratch.begin(), m_GroupSamplerScratch.end() );
+                    bound.Heightmap = t.Heightmap.get();
+                    bound.Weightmap = t.Weights.Weightmap.get();
+                    for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
+                    {
+                        bound.Arrays[kind]     = layers.Arrays[kind].get();
+                        bound.ArrayNames[kind] = layers.ArrayNames[kind];
+                    }
                 }
             }
             FrameGroup&         group   = m_FrameGroups[materials.GroupIndex];
@@ -1296,14 +1464,23 @@ namespace Desert::Graphic::System
                 }
             }
 
-            TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
-            const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
+            // One GetParamRow per tile (it rewrites the row's texture slots on every call), and the row's values
+            // read through slots resolved once per surface layout and cached by the row's revision (UE: the
+            // uniform expression cache, re-evaluated on invalidation).
+            const DataDrivenMaterial::ParamRowView rowView   = surface->GetParamRowView();
+            const TerrainRowValues&                rowValues = RowValuesOf( materials, *surface, rowView );
+
+            TerrainInstance instance      = LandscapeInstance( t, TileLodsOf( t.Landscape, m_TileLods ), layers );
+            const auto      slabKeyOfTile = slabKey( t.Landscape );
+            const auto      slab          = std::find_if( m_DiceSlabs.begin(), m_DiceSlabs.end(),
+                                                          [&]( const auto& entry ) { return entry.first == slabKeyOfTile; } );
             {
                 DESERT_PROFILE_SCOPE( "Terrain: Displacement" );
-                ApplyLandscapeDisplacement(
-                     instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
-                     slab != diceSlabs.end() ? std::optional<glm::vec2>( slab->second ) : std::nullopt, viewHeight,
-                     dicingRate );
+                std::optional<glm::vec2> tileSlab;
+                if ( slab != m_DiceSlabs.end() )
+                    tileSlab = slab->second;
+                ApplyLandscapeDisplacement( instance, t.Landscape, rowValues, frame.CameraPosition, frame.Projection,
+                                            frame.ViewProjection, tileSlab, viewHeight, dicingRate );
             }
             // The tile's displaced sub-vertices, evaluated once this frame (AddDicePoolPass) for every view's
             // draw.
@@ -1340,14 +1517,13 @@ namespace Desert::Graphic::System
                 m_ViewDraws.push_back( view );
             }
 
-            // One GetParamRow (it rewrites the row's texture slots on every call).
-            const auto& paramRow = surface->GetParamRow();
+            const auto& paramRow = *rowView.Row;
             group.ParamRows.insert( group.ParamRows.end(), paramRow.begin(), paramRow.end() );
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
             {
                 DESERT_PROFILE_SCOPE( "Terrain: Frame material" );
-                m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers ) );
+                m_FrameMaterials.push_back( FrameMaterialOf( rowValues, layers ) );
             }
         }
 
@@ -1447,6 +1623,68 @@ namespace Desert::Graphic::System
         }
     }
 
+    void TerrainRenderer::ReleaseShadowDrawLists()
+    {
+        for ( LocalLightDraws& local : m_LocalLightDraws )
+        {
+            local.Draws.clear();
+            m_DrawListPool.push_back( std::move( local.Draws ) );
+        }
+        for ( std::vector<FrameDraw>& draws : m_CascadeDraws )
+        {
+            draws.clear();
+            m_DrawListPool.push_back( std::move( draws ) );
+        }
+        m_LocalLightDraws.clear();
+        m_CascadeDraws.clear();
+    }
+
+    std::vector<TerrainRenderer::FrameDraw> TerrainRenderer::TakeDrawList()
+    {
+        if ( m_DrawListPool.empty() )
+            return {};
+        std::vector<FrameDraw> draws = std::move( m_DrawListPool.back() );
+        m_DrawListPool.pop_back();
+        draws.clear();
+        return draws;
+    }
+
+    const TerrainRowValues& TerrainRenderer::RowValuesOf( ProgramMaterials& materials, const DataDrivenMaterial& surface,
+                                                          const DataDrivenMaterial::ParamRowView& row )
+    {
+        // The slot table: once per surface program layout (its identity, code generation, layout and row size).
+        ProgramMaterials::RowSlots& slots      = materials.Slots;
+        const auto&                 layout     = surface.GetMaterialLayout();
+        const MaterialExecutor*     executor   = surface.GetMaterialExecutor();
+        const Shader*               shader     = executor != nullptr ? executor->GetShader().get() : nullptr;
+        const uint64_t              serial     = shader != nullptr ? shader->GetSerial() : 0u;
+        const uint64_t              generation = shader != nullptr ? shader->GetCodeGeneration() : 0u;
+        if ( !slots.Resolved || slots.Surface != &surface || slots.Serial != serial || slots.Generation != generation ||
+             slots.Layout != &layout || slots.Params != layout.Params.data() ||
+             slots.ParamCount != layout.Params.size() || slots.RowSize != row.Row->size() )
+        {
+            ResolveTerrainRowSlots( surface, row.Row->size(), slots.Slots );
+            slots.Resolved        = true;
+            slots.Surface         = &surface;
+            slots.Serial          = serial;
+            slots.Generation      = generation;
+            slots.Layout          = &layout;
+            slots.Params          = layout.Params.data();
+            slots.ParamCount      = layout.Params.size();
+            slots.RowSize         = row.Row->size();
+            materials.ValuesValid = false;
+        }
+        // The values: once per row revision (process-unique, NextMaterialRevision) of this surface.
+        if ( !materials.ValuesValid || materials.ValuesSurface != &surface || materials.ValuesRevision != row.Revision )
+        {
+            materials.Values         = TerrainRowValuesOf( slots.Slots, *row.Row );
+            materials.ValuesValid    = true;
+            materials.ValuesSurface  = &surface;
+            materials.ValuesRevision = row.Revision;
+        }
+        return materials.Values;
+    }
+
     const TerrainRenderer::TileProxy& TerrainRenderer::ProxyOf( const TerrainDrawData& t, const bool deferred )
     {
         TileProxy& proxy = m_TileProxies[t.Landscape.Entity];
@@ -1533,11 +1771,13 @@ namespace Desert::Graphic::System
                                                    const std::span<const float>               cascadeWorldPerTexel )
     {
         // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
-        m_LocalLightDraws.clear();
+        // The lists of earlier frames go back to the pool and come out of it with their capacity.
+        ReleaseShadowDrawLists();
         for ( const LocalShadowCasterLight& light : localLights )
             m_LocalLightDraws.push_back(
-                 { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
-        m_CascadeDraws.assign( cascadeWorldPerTexel.size(), {} );
+                 { .Light = light, .Draws = TakeDrawList(), .Signature = ShadowSignatureHash{}.Value } );
+        for ( size_t v = 0; v < cascadeWorldPerTexel.size(); ++v )
+            m_CascadeDraws.push_back( TakeDrawList() );
         if ( m_Queue.empty() )
             return;
 
@@ -1588,22 +1828,24 @@ namespace Desert::Graphic::System
         // only — the shadow program reads no param row.
         for ( LocalLightDraws& local : m_LocalLightDraws )
         {
-            TileLodMap lightLods;
+            m_LightTileLods.clear();
             for ( const auto& t : m_Queue )
                 if ( TileMeetsDisc( t.Landscape, local.Light.Lod.Origin, local.Light.Reach ) )
-                    lightLods[KeyOf( t.Landscape, 0, 0 )] = TileSectionLods( t.Landscape, local.Light.Lod );
+                    SetTileLods( m_LightTileLods, KeyOf( t.Landscape, 0, 0 ),
+                                 TileSectionLods( t.Landscape, local.Light.Lod ) );
+            SealTileLods( m_LightTileLods );
 
             ShadowSignatureHash hash;
             for ( std::size_t i = 0; i < m_Queue.size(); ++i )
             {
                 const TerrainDrawData&   t = m_Queue[i];
                 const LandscapeTileDraw& l = t.Landscape;
-                if ( !lightLods.contains( KeyOf( l, 0, 0 ) ) )
+                if ( FindTileLods( m_LightTileLods, KeyOf( l, 0, 0 ) ) == nullptr )
                     continue;
                 FrameGroup&           group    = m_FrameGroups[m_FrameDraws[i].Group];
                 // The same layer inputs as the camera's row (resolved above this frame); the shadow program
                 // reads none of them, the row is whole.
-                const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( l, lightLods ), *group.Layers );
+                const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( l, m_LightTileLods ), *group.Layers );
 
                 FrameDraw draw;
                 draw.Group = m_FrameDraws[i].Group;

@@ -13,6 +13,8 @@
 #include <glm/glm.hpp>
 
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -105,6 +107,20 @@ namespace Desert::Graphic
             return m_RowRevision;
         }
 
+        // GetParamRow and GetParamRowRevision with ONE texture-slot refresh: the row's bytes and the revision they
+        // are at, for a consumer that caches what it derives from the row by that revision (TerrainRenderer's
+        // row values) and must not refresh the slots twice per draw.
+        struct ParamRowView
+        {
+            const Core::Formats::MaterialParamRow* Row      = nullptr;
+            uint64_t                               Revision = 0;
+        };
+        [[nodiscard]] ParamRowView GetParamRowView() const
+        {
+            WriteTextureSlots();
+            return { &m_Row, m_RowRevision };
+        }
+
         // Write a scalar/vector param by name. The whole slot is written whatever the parameter's
         // declared width: the components past it are the generated struct's own padding, so there is
         // nothing there to damage, and the alternative — a per-type byte count — is a second statement of
@@ -162,15 +178,66 @@ namespace Desert::Graphic
         }
 
     private:
-        void WriteTextureSlots() const
+        // One row texture of the layout: its row slot, its parameter's index in the layout's Params (for the name
+        // the report says) and the property its slot is written from.
+        struct TextureSlot
         {
-            for ( const auto& p : GetMaterialLayout().Params )
+            uint32_t                 Slot     = 0;
+            uint32_t                 Param    = 0;
+            const Texture2DProperty* Property = nullptr;
+        };
+
+        // THE SLOT TABLE, RESOLVED ONCE PER LAYOUT (UE: FMaterialRenderProxy's uniform expression cache resolves
+        // a parameter's offset once per shader map, a draw reads it by index): the layout's row textures and their
+        // properties, found by name only when the layout is another one - the program's identity and code
+        // generation (a recompile replaces the layout, Shader::GetSerial), the layout object and its Params - not
+        // on every GetParamRow. The properties are the executor's for its whole life (InitializeProperties runs
+        // once, in its constructor, and the material keeps its executor), so a pointer here never outlives its
+        // property. Caller holds m_TextureSlotsLock.
+        void ResolveTextureSlots() const
+        {
+            const auto&    layout     = GetMaterialLayout();
+            const Shader*  shader     = m_MaterialExecutor ? m_MaterialExecutor->GetShader().get() : nullptr;
+            const uint64_t serial     = shader != nullptr ? shader->GetSerial() : 0u;
+            const uint64_t generation = shader != nullptr ? shader->GetCodeGeneration() : 0u;
+            if ( m_TextureSlotsResolved && m_TextureSlotsSerial == serial &&
+                 m_TextureSlotsGeneration == generation && m_TextureSlotsLayout == &layout &&
+                 m_TextureSlotsParams == layout.Params.data() && m_TextureSlotsParamCount == layout.Params.size() )
+                return;
+            m_TextureSlots.clear();
+            for ( size_t index = 0; index < layout.Params.size(); ++index )
             {
+                const auto& p = layout.Params[index];
                 if ( !p.IsTexture )
                     continue;
-                const uint32_t           slot    = p.Offset / Core::Formats::kMaterialParamSlotSize;
-                const Texture2DProperty* texture = m_MaterialExecutor->GetTexture2DProperty( p.Name ).get();
-                if ( slot >= m_Row.size() || texture == nullptr )
+                const Texture2DProperty* texture = m_MaterialExecutor->FindTexture2DProperty( p.Name );
+                if ( texture == nullptr )
+                    continue;
+                m_TextureSlots.push_back( { .Slot     = p.Offset / Core::Formats::kMaterialParamSlotSize,
+                                            .Param    = static_cast<uint32_t>( index ),
+                                            .Property = texture } );
+            }
+            m_TextureSlotsResolved   = true;
+            m_TextureSlotsSerial     = serial;
+            m_TextureSlotsGeneration = generation;
+            m_TextureSlotsLayout     = &layout;
+            m_TextureSlotsParams     = layout.Params.data();
+            m_TextureSlotsParamCount = layout.Params.size();
+        }
+
+        void WriteTextureSlots() const
+        {
+            // Serialised: the table and the row are rewritten from a const read, and one material's row may be
+            // read by several threads' draw walks.
+            const std::lock_guard<std::mutex> lock( m_TextureSlotsLock );
+            ResolveTextureSlots();
+            const auto& params = GetMaterialLayout().Params;
+            for ( const TextureSlot& entry : m_TextureSlots )
+            {
+                const uint32_t           slot    = entry.Slot;
+                const Texture2DProperty* texture = entry.Property;
+                const auto&              p       = params[entry.Param];
+                if ( slot >= m_Row.size() )
                     continue;
                 const BindlessTextureSlot image = texture->GetBindlessSlot();
                 // Slot 0 is the table's magenta "missing" texture: an image with no slot (a render target, a
@@ -208,5 +275,14 @@ namespace Desert::Graphic
         mutable Core::Formats::MaterialParamRow m_Row;
         mutable uint64_t                        m_RowRevision = NextMaterialRevision(); // GetParamRowRevision
         mutable bool                            m_ReportedTextureSlot = false;
+        // ResolveTextureSlots' table and the layout identity it was resolved for.
+        mutable std::mutex                                m_TextureSlotsLock;
+        mutable std::vector<TextureSlot>                  m_TextureSlots;
+        mutable bool                                      m_TextureSlotsResolved   = false;
+        mutable uint64_t                                  m_TextureSlotsSerial     = 0;
+        mutable uint64_t                                  m_TextureSlotsGeneration = 0;
+        mutable const Core::Formats::MaterialLayout*      m_TextureSlotsLayout     = nullptr;
+        mutable const Core::Formats::MaterialLayoutParam* m_TextureSlotsParams     = nullptr;
+        mutable size_t                                    m_TextureSlotsParamCount = 0;
     };
 } // namespace Desert::Graphic
