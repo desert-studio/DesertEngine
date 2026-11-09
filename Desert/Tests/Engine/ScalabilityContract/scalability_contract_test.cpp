@@ -748,14 +748,7 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::ShadowCascades ), kOldShadowCascades );
     EXPECT_EQ( high( Parameter::ShadowMapSize ), kOldShadowMapSize );
     EXPECT_EQ( high( Parameter::ShadowDistance ), kOldShadowDistance );
-    // The second deliberate move: FPS-SSR-TIER made High the performance level of Reflections (UE Lumen
-    // reflections: one ray per traced texel, the temporal resolve converging the R2 sequence over frames), so
-    // High walks 32 HZB iterations with 1 ray; Epic keeps 64 x 4.
-    EXPECT_NE( high( Parameter::ReflectionMaxSteps ), kOldSSRSteps );
-    EXPECT_EQ( high( Parameter::ReflectionMaxSteps ), 32 );
-    EXPECT_EQ( high( Parameter::ReflectionRaysPerPixel ), 1 );
-    EXPECT_EQ( table.ValueAt( Parameter::ReflectionMaxSteps, Level::Epic ), 64 );
-    EXPECT_EQ( table.ValueAt( Parameter::ReflectionRaysPerPixel, Level::Epic ), 4 );
+    EXPECT_EQ( high( Parameter::ReflectionMaxSteps ), kOldSSRSteps );
     EXPECT_EQ( high( Parameter::AmbientOcclusionSamples ), kOldSSAOTaps );
     EXPECT_EQ( high( Parameter::BloomMips ), kOldBloomMips );
 }

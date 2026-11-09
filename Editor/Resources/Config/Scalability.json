@@ -103,7 +103,6 @@
                 "Effects.VolumetricFogGridSizeZ": 64
             },
             "High": {
-                "Effects.CloudLightLocalSamples": 6,
                 "Effects.SpawnCountScalePercent": 75,
                 "Effects.QualityLevel": 2,
                 "Effects.MaxWorldParticles": 65536,
@@ -314,8 +313,8 @@
                 "Reflections.TranslucentFrontLayer": 0
             },
             "High": {
-                "Reflections.MaxSteps": 32,
-                "Reflections.RaysPerPixel": 1,
+                "Reflections.MaxSteps": 48,
+                "Reflections.RaysPerPixel": 2,
                 "Reflections.Method": "SoftwareTraced"
             },
             "Epic": {},
