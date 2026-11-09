@@ -427,13 +427,12 @@ TEST( ProceduralEnvironmentCube, AFreedCubeIsNotResolvableAndItsNeighbourIsUntou
 }
 
 // ------------------------------------------------------------------------------------------------
-// 4. A cache miss is convolved on the GPU AFTER `Create` returns (AL1-3c), so the skybox must not be
-//    handed out to be sampled before that batch's fence. Three links carry it, and dropping any one
-//    samples unwritten cubes: `Create` hands the submitted batch out instead of dropping (and so
-//    waiting on) it, MaterialSkybox keeps it, SkyboxService publishes the material only from the
-//    loader's await on it.
+// 4. A cache miss is converted IN THE FRAME GRAPH (SKY-ENV-RDG), never by a batch outside it: `Create`
+//    hands the panorama back without recording any GPU work, MaterialSkybox records the conversion at
+//    the head of the first graph that draws the skybox (through the sky capture), and SkyboxService
+//    publishes the material at once -- there is no fence to wait on, so nothing may await one.
 // ------------------------------------------------------------------------------------------------
-TEST( ProceduralEnvironmentCube, AMissIsHandedOutOnlyAfterItsConvolutionFence )
+TEST( ProceduralEnvironmentCube, AMissIsConvertedInTheFrameGraph )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -441,36 +440,26 @@ TEST( ProceduralEnvironmentCube, AMissIsHandedOutOnlyAfterItsConvolutionFence )
     const std::string env    = StripComments( ReadAll( root + kSceneEnvironment ) );
     const std::string create = BodyOf( env, "Environment EnvironmentManager::Create(" );
     ASSERT_FALSE( create.empty() );
-    const std::size_t submit  = create.find( "batch->Submit()" );
-    const std::size_t handOut = create.find( "convolving = std::move( batch );" );
-    ASSERT_NE( submit, std::string::npos ) << "the HDR miss no longer submits its convolution batch";
-    EXPECT_NE( handOut, std::string::npos )
-         << "EnvironmentManager::Create no longer hands its running batch to the caller: the batch is "
-            "dropped on return, which either waits on the main thread (the 211 ms AL1-3c removed) or lets "
-            "nobody know when the cubes are written.";
-    EXPECT_GT( handOut, submit ) << "the batch is handed out before it is submitted";
+    EXPECT_EQ( create.find( "GpuBatch" ), std::string::npos ) << "the HDR miss records a GpuBatch again";
     EXPECT_EQ( create.find( "->Wait()" ), std::string::npos ) << "the HDR miss waits for its GPU work again";
+    EXPECT_NE( create.find( "convolution = EnvironmentConvolution{" ), std::string::npos )
+         << "EnvironmentManager::Create no longer hands the miss's panorama to the frame graph";
 
     const std::string material = StripComments(
          ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Materials/Skybox/MaterialSkybox.cpp" ) );
-    EXPECT_NE( material.find( "EnvironmentManager::Create( baseAsset, m_Convolving )" ), std::string::npos )
-         << "MaterialSkybox does not keep the convolution batch, so IsConvolving() can never say yes";
+    EXPECT_NE( material.find( "EnvironmentManager::Create( baseAsset, m_Convolution )" ), std::string::npos )
+         << "MaterialSkybox does not keep the miss's conversion, so no graph ever records it";
+    const std::string passes = BodyOf( material, "void MaterialSkybox::AddConvolutionPasses(" );
+    ASSERT_FALSE( passes.empty() );
+    EXPECT_NE( passes.find( "->BeginPanorama(" ), std::string::npos )
+         << "the miss is not converted by the sky capture's graph passes";
 
     const std::string service = StripComments(
          ReadAll( root + "Desert/Desert/Source/Engine/Runtime/Services/Skybox/SkyboxService.cpp" ) );
     const std::string request = BodyOf( service, "void SkyboxService::Request(" );
     ASSERT_FALSE( request.empty() );
-    const std::size_t convolving = request.find( "if ( !material->IsConvolving() )" );
-    const std::size_t await      = request.find( "AsyncAssetLoader::Get().Await(" );
-    const std::size_t published  = request.find( "m_Skyboxes[handle] = material;" );
-    ASSERT_NE( convolving, std::string::npos )
-         << "SkyboxService no longer asks whether the GPU is still convolving";
-    ASSERT_NE( await, std::string::npos )
-         << "a convolving skybox is not held outstanding in the loader (ContentGate)";
-    ASSERT_NE( published, std::string::npos );
-    EXPECT_GT( published, await ) << "the convolving material is published outside the await's completion";
-    EXPECT_LT( convolving, request.find( "m_Skyboxes[handle]" ) )
-         << "a material is published before SkyboxService asked whether the GPU is still convolving it";
+    EXPECT_EQ( request.find( "IsConvolving" ), std::string::npos )
+         << "SkyboxService waits on a convolution fence again";
 }
 
 // ------------------------------------------------------------------------------------------------
