@@ -529,13 +529,14 @@ namespace Desert::Graphic
         // THE GROUND IN THE SAME EARLY-Z PASS (UE: the depth pass draws the landscape, an opaque occluder, under
         // every r.EarlyZPass mode that runs one; TERRAIN-GBUFFER-COST-1): the camera's tiles through
         // TerrainDepth.shader whenever the frame runs an early-Z pass (TerrainRenderer::PrepassesGBuffer).
-        // "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground under the grass and the meshes
-        // is rejected before its layers are fetched - with its own depth write, its pixel shader's hole discard
-        // left early-Z to the driver and every covered texel was shaded. The meshes' G-buffer tests it too.
-        // FIRST, and it clears the depth (GPU-MASKED-PREPASS; UE's depth pass draws the opaque occluders before
-        // the masked draws): the alpha-tested grass and foliage of the mesh pass below then fail the early depth
-        // test where the ground or a hill hides them instead of running their clip on every layer. The depth the
-        // two passes leave is the nearest fragment whatever their order, so the picture does not move.
+        // "TerrainGBuffer" then tests EQUAL, writes none and does not repeat the hole discard (its
+        // DESERT_TERRAIN_DEPTH_EQUAL permutation, early fragment tests), so the ground under the grass and the
+        // meshes is rejected before its layers are fetched - with its own depth write, its pixel shader's hole
+        // discard left early-Z to the driver and every covered texel was shaded. The meshes' G-buffer tests it
+        // too. FIRST, and it clears the depth (GPU-MASKED-PREPASS; UE's depth pass draws the opaque occluders
+        // before the masked draws): the alpha-tested grass and foliage of the mesh pass below then fail the early
+        // depth test where the ground or a hill hides them instead of running their clip on every layer. The depth
+        // the two passes leave is the nearest fragment whatever their order, so the picture does not move.
         RDG::LoadOp meshDepthLoad = RDG::LoadOp::ClearDepth( Core::kDepthClear );
         auto* const terrain       = m_Systems.Terrain.get();
         if ( terrain != nullptr && terrain->PrepassesGBuffer() )
