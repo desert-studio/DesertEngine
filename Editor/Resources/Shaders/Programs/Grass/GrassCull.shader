@@ -25,8 +25,9 @@
 //     the box of the kept instances' reach into its law words. (b) The kept box meets the views: each cascade
 //     list's caster box (none while the row's lists hold, kGrassRowCascadesHeld), the camera's side planes and the
 //     previous frame's HZB.
-//   5 THE CAMERA CULL'S INSTANCES (after mode 1, indirect by the met chunks' list): a group per met chunk, lane i
-//     its record i of the kept mask (a chunk holds at most 64, kCullGroupThreads). (c) Each builds its
+//   5 THE CAMERA CULL'S INSTANCES (after mode 1, indirect by the met chunks' list): a group per met chunk, lane j
+//     the j-th record of the kept mask (a chunk holds at most 64, kCullGroupThreads; FPS-GRASS-CULL: the kept
+//     records compacted onto the first lanes, so a subgroup past them does no work). (c) Each builds its
 //     row from its pool record and its slot's scale (GrassLawInstance, the law's one statement of a row) and is
 //     tested only by the views its chunk met: into each cascade list whose box met the chunk (CascadeCull), and -
 //     the camera's planes met - by its own bounding sphere. Its bounding sphere - from its transform: the bounds centre along its up axis, the bounds radius at
@@ -858,11 +859,30 @@ Shader "GrassCull"
                 MetData[index] = uvec2( c, ( r << kMetViewBits ) | views );
         }
 
-        // Mode 5 (GRASS-CULL-COST-4; UE foliage culling's instance pass, indirect by the chunk pass's list): a
-        // group per met chunk, lane i its record i. A record the chunk's law kept builds its row from its pool
-        // record and its slot's scale (GrassLawInstance, the law's one statement of a row) and goes to
-        // CullInstance, tested only by the views its chunk met, which writes it to the row of the list that takes
-        // it.
+        // The bit index of the @p n-th set bit (from 0, lowest first) of @p word; @p n < bitCount( word ). A
+        // binary search by the set bits of each window's lower half: five counts, no loop over the bits.
+        uint NthSetBit( uint word, uint n )
+        {
+            uint pos = 0u;
+            for ( uint width = 16u; width != 0u; width >>= 1u )
+            {
+                uint below = uint( bitCount( ( word >> pos ) & ( ( 1u << width ) - 1u ) ) );
+                if ( n >= below )
+                {
+                    n -= below;
+                    pos += width;
+                }
+            }
+            return pos;
+        }
+
+        // Mode 5 (GRASS-CULL-COST-4, FPS-GRASS-CULL; UE foliage culling's instance pass, indirect by the chunk
+        // pass's list, its instances compacted before any work): a group per met chunk, lane j the j-th record the
+        // chunk's law kept (records ascending, so a subgroup's appends keep the records' order), so the kept
+        // records fill the group's first lanes and a subgroup past them leaves at once instead of running with a
+        // few live lanes. A kept record builds its row from its pool record and its slot's scale
+        // (GrassLawInstance, the law's one statement of a row) and goes to CullInstance, tested only by the views
+        // its chunk met, which writes it to the row of the list that takes it.
         void CameraInstances()
         {
             uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -879,13 +899,19 @@ Shader "GrassCull"
             uvec4      high;
             uint       slot;
             ChunkLawWords( chunks, at, lo, hi, low, high, slot );
-            uint  i      = gl_LocalInvocationIndex;
+            // The kept records: a record is kept when any of its code planes holds its bit (its bucket + 1 != 0).
+            uvec2 kept    = uvec2( low.x | low.y | low.z | low.w, high.x | high.y | high.z | high.w );
+            uint  keptLow = uint( bitCount( kept.x ) );
+            uint  j       = gl_LocalInvocationIndex;
+            if ( j >= keptLow + uint( bitCount( kept.y ) ) )
+                return;
+            uint i = 32u + NthSetBit( kept.y, j - keptLow );
+            if ( j < keptLow )
+                i = NthSetBit( kept.x, j );
             uint  bit    = i % 32u;
             uvec4 planes = i < 32u ? low : high;
             uint  code   = ( ( planes.x >> bit ) & 1u ) | ( ( ( planes.y >> bit ) & 1u ) << 1u ) |
                            ( ( ( planes.z >> bit ) & 1u ) << 2u ) | ( ( ( planes.w >> bit ) & 1u ) << 3u );
-            if ( code == 0u )
-                return;
             GrassParams    p      = GrassParamsRef( VarietyRows[r].Params ).Data[0];
             float          snow   = p.Lean.z;
             bool           blade  = ( floatBitsToUint( p.ScaleX.w ) & kFlagBlade ) != 0u;
