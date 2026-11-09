@@ -251,28 +251,26 @@ float SurfaceCacheBackFaceMeshCards( uint meshCardsIndex, vec3 position, vec3 no
     return weight;
 }
 
-void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float bias, inout SurfaceCacheHitSample acc )
+// Whether the cards of instance-table row @p row can say anything of a hit at @p position: the row has cards and
+// the point lies in its bounds widened by the cards' bias (@p meshCards, @p meshBias: what they are read with).
+bool SurfaceCacheRowHolds( uint row, vec3 position, float bias, out uint meshCards, out float meshBias )
 {
     const SurfaceCacheInstance instance = surfaceCacheInstances[row];
-    if ( instance.cards.x == GI_NO_MESH_CARDS )
-        return;
-    const float meshBias = SurfaceCacheMeshCardsBias( instance.cards.x, bias );
-    if ( any( lessThan( position, instance.boundsMin.xyz - meshBias ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + meshBias ) ) )
-        return;
-    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, meshBias, acc );
+    meshCards                           = instance.cards.x;
+    meshBias                            = 0.0;
+    if ( meshCards == GI_NO_MESH_CARDS )
+        return false;
+    meshBias = SurfaceCacheMeshCardsBias( meshCards, bias );
+    return all( greaterThanEqual( position, instance.boundsMin.xyz - meshBias ) ) &&
+           all( lessThanEqual( position, instance.boundsMax.xyz + meshBias ) );
 }
 
-float SurfaceCacheBackFaceRow( uint row, vec3 position, vec3 normal, float bias )
+void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float bias, inout SurfaceCacheHitSample acc )
 {
-    const SurfaceCacheInstance instance = surfaceCacheInstances[row];
-    if ( instance.cards.x == GI_NO_MESH_CARDS )
-        return 0.0;
-    const float meshBias = SurfaceCacheMeshCardsBias( instance.cards.x, bias );
-    if ( any( lessThan( position, instance.boundsMin.xyz - meshBias ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + meshBias ) ) )
-        return 0.0;
-    return SurfaceCacheBackFaceMeshCards( instance.cards.x, position, normal, meshBias );
+    uint  meshCards;
+    float meshBias;
+    if ( SurfaceCacheRowHolds( row, position, bias, meshCards, meshBias ) )
+        SurfaceCacheSampleMeshCards( meshCards, position, normal, meshBias, acc );
 }
 
 // What the surface cache says of a hit (SurfaceCacheHitLighting).
@@ -290,13 +288,27 @@ uint SurfaceCacheHitLighting( GIHit hit, float bias, out vec3 lighting )
     acc.lighting = vec3( 0.0 );
     acc.weight   = 0.0;
     lighting     = vec3( 0.0 );
-    const uvec4 rows = GIHitInstanceRows( hit );
+    // The rows whose cards can hold the hit (SurfaceCacheRowHolds), kept from the sampling walk for the back-face
+    // walk: it read the same instance and bounds again, and a hit near no carded instance (most global-field hits:
+    // terrain, far meshes without cards) now skips that walk outright. A row that does not hold the hit added 0.
+    const uvec4 rows      = GIHitInstanceRows( hit );
+    uint        held      = 0u;
+    uvec4       heldCards = uvec4( GI_NO_MESH_CARDS );
+    vec4        heldBias  = vec4( 0.0 );
     for ( int i = 0; i < 4; ++i )
     {
         if ( rows[i] == GI_NO_INSTANCE )
             break;
-        if ( rows[i] < uint( surfaceCacheInstances.length() ) )
-            SurfaceCacheSampleRow( rows[i], hit.position, hit.normal, bias, acc );
+        uint  meshCards;
+        float meshBias;
+        if ( rows[i] < uint( surfaceCacheInstances.length() ) &&
+             SurfaceCacheRowHolds( rows[i], hit.position, bias, meshCards, meshBias ) )
+        {
+            held |= 1u << uint( i );
+            heldCards[i] = meshCards;
+            heldBias[i]  = meshBias;
+            SurfaceCacheSampleMeshCards( meshCards, hit.position, hit.normal, meshBias, acc );
+        }
         if ( acc.weight >= SURFACE_CACHE_ENOUGH_HIT_WEIGHT )
             break;
     }
@@ -305,13 +317,13 @@ uint SurfaceCacheHitLighting( GIHit hit, float bias, out vec3 lighting )
         lighting = acc.lighting / acc.weight;
         return SURFACE_CACHE_HIT_LIT;
     }
+    // Under SURFACE_CACHE_ENOUGH_HIT_WEIGHT the sampling walk visited every row, so `held` names them all.
     float behind = 0.0;
-    for ( int i = 0; i < 4 && behind < SURFACE_CACHE_MIN_HIT_WEIGHT; ++i )
+    while ( held != 0u && behind < SURFACE_CACHE_MIN_HIT_WEIGHT )
     {
-        if ( rows[i] == GI_NO_INSTANCE )
-            break;
-        if ( rows[i] < uint( surfaceCacheInstances.length() ) )
-            behind += SurfaceCacheBackFaceRow( rows[i], hit.position, hit.normal, bias );
+        const int i = findLSB( held );
+        held &= held - 1u;
+        behind += SurfaceCacheBackFaceMeshCards( heldCards[i], hit.position, hit.normal, heldBias[i] );
     }
     return behind >= SURFACE_CACHE_MIN_HIT_WEIGHT ? SURFACE_CACHE_HIT_BACK_FACE : SURFACE_CACHE_HIT_UNCOVERED;
 }

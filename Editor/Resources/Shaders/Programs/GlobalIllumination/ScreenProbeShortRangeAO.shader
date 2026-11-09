@@ -130,22 +130,38 @@ Shader "ScreenProbeShortRangeAO"
                                               0.5 * distance );
                 const float stepJitter = AONoise( uvec2( pixel ), uint( k ) + 5u, frameIdx ).y;
 
-                bool occluded = false;
-                for ( int s = 0; s < SR_AO_STEPS && !occluded; ++s )
+                // Every step's depth is fetched before the first is tested (UE's screen traces issue a ray's
+                // HZB reads together): the march stopped at its first occluder, so each step's fetch waited
+                // on the previous step's test - eight dependent round trips a ray. The fetches go out at
+                // once; the test walks them in the same order with the same arithmetic and stops where the
+                // march stopped, so the AO and the bent normal are unchanged. A step off the screen ends the
+                // ray there, as before (its texel is clamped only to keep the fetch in the image).
+                ivec2 stepTexel[SR_AO_STEPS];
+                float stepDepth[SR_AO_STEPS];
+                int   steps = SR_AO_STEPS;
+                for ( int s = 0; s < SR_AO_STEPS; ++s )
                 {
                     const float t   = rayLength * ( float( s ) + stepJitter ) / float( SR_AO_STEPS );
-                    const vec3  q   = origin + l * t;
                     const vec3  uvS = ClipToScreen( clipO + clipL * t );
-                    if ( uvS.z <= 0.0 || any( lessThan( uvS.xy, vec2( 0.0 ) ) ) ||
-                         any( greaterThanEqual( uvS.xy, vec2( 1.0 ) ) ) )
-                        break;
-                    const ivec2 texel = ivec2( uvS.xy * extent );
+                    if ( steps == SR_AO_STEPS &&
+                         ( uvS.z <= 0.0 || any( lessThan( uvS.xy, vec2( 0.0 ) ) ) ||
+                           any( greaterThanEqual( uvS.xy, vec2( 1.0 ) ) ) ) )
+                        steps = s;
+                    stepTexel[s] = clamp( ivec2( uvS.xy * extent ), ivec2( 0 ), ivec2( extent ) - 1 );
+                    stepDepth[s] = texelFetch( GBufferDepthTexture, stepTexel[s], 0 ).r;
+                }
+
+                bool occluded = false;
+                for ( int s = 0; s < steps && !occluded; ++s )
+                {
+                    const float t     = rayLength * ( float( s ) + stepJitter ) / float( SR_AO_STEPS );
+                    const vec3  q     = origin + l * t;
+                    const ivec2 texel = stepTexel[s];
                     if ( texel == pixel )
                         continue;
                     // Both points lie on the same pixel's view ray: their distances to the camera compare.
                     const vec3  scene     = ReconstructWorldPosition( ( vec2( texel ) + 0.5 ) * giFrame.screen.zw,
-                                                                      texelFetch( GBufferDepthTexture, texel, 0 ).r,
-                                                                      giFrame.invViewProjection );
+                                                                      stepDepth[s], giFrame.invViewProjection );
                     // An occluder is the depth buffer's surface where the ray passes behind it, and only while that
                     // surface is within the ray's reach of the shaded point: farther away it is a foreground object
                     // the short ray passes behind (the gap between a crown and the wall), which the probes' own
