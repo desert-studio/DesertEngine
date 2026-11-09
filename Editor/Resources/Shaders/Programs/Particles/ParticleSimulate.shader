@@ -195,6 +195,42 @@ Shader "ParticleSimulate"
             return PointSetsData[first + lo].xyz;
         }
 
+        // WIND-FIELD-GPU (UE Niagara Wind Force reading the scene's wind sources): the scene view's air, the one
+        // the foliage sways by, only in a stack that reads it (VFX::kVFXSceneWindDefine), so no other program's
+        // layout names it. ParticleRenderer ImportSceneWind fills it from the view's frame.
+        #ifdef VFX_READS_SCENE_WIND
+        #include <Common/WindGust.glslh>
+        #include <Common/LocalWindField.glslh>
+
+        ReadBuffer(16) SceneWind
+        {
+            vec4 SceneWindDirectional; // xz the directional velocity (cm/s), w = cm/s per local unit
+            vec4 SceneWindGust;        // CameraUB::WindGust: the gust fronts (Common/WindGust.glslh)
+            vec4 SceneWindSource[8];   // CameraUB::LocalWind: (world position cm, 1 / Radius)
+            vec4 SceneWindSpeed[2];    // CameraUB::LocalWindSpeed: slot i at [i / 4][i % 4], 0 = empty
+        };
+
+        vec3 VFX_SceneWind( in VFXSim sim, vec3 position )
+        {
+            // The stack's frames (the contract): a Local particle and every newborn sit in the placement frame,
+            // and a Local emitter's velocity is in it too; the air is stated in the world.
+            const bool placed = Counts.w == 1u || sim.Spawned;
+            const vec3 world  = placed ? ( LocalToWorld * vec4( position, 1.0 ) ).xyz : position;
+            vec2       local  = vec2( 0.0 );
+            for ( int s = 0; s < kMaxLocalWindSources; ++s )
+            {
+                const float speed = SceneWindSpeed[s / 4][s % 4];
+                if ( !( speed > 0.0 ) )
+                    break;
+                local += LocalWindSourceXZ( world, SceneWindSource[s], speed );
+            }
+            const vec2  airXZ = SceneWindDirectional.xz + local * SceneWindDirectional.w;
+            const float gust  = WindGustScale( world.x, world.z, SceneWindGust );
+            const vec3  air   = vec3( airXZ.x, 0.0, airXZ.y ) * gust;
+            return Counts.w == 1u ? inverse( mat3( LocalToWorld ) ) * air : air;
+        }
+        #endif
+
         // PORT-VFX-MODULES: the PostOpaque scene inputs and the scene-reading host functions exist only in a
         // stack that reads the scene (VFX::kVFXSceneDepthDefine, defined by the generated stack above), so a
         // PreOpaque program's layout never names them.

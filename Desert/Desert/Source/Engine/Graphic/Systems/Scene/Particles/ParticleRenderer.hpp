@@ -413,6 +413,10 @@ namespace Desert::Graphic::System
         VFX::VFXTickStage DrawSortPhase( const ViewEmitter& ve, bool gbuffer ) const;
         // Whether the Debug Readback node dispatches @p ve.
         bool RunsDebug( const ViewEmitter& ve ) const;
+        // WIND-FIELD-GPU (UE Niagara Wind Force reading the scene's wind): writes the scene view's air into the
+        // SceneWind block and registers it in @p graph when the simulating view has a wind-reading emitter
+        // (ParticleEmitterGpu::ReadsSceneWind). An error: such an emitter sits the frame out (ImportFrameBuffers).
+        [[nodiscard]] Common::BoolResultStr ImportSceneWind( RDG::Builder& graph );
         // Whether the Light Readback node dispatches @p ve.
         bool RunsLight( const ViewEmitter& ve ) const;
         // The draws of one pass (@p gbuffer: GBufferPass's, else DrawPass's): the exec and the Declare walk the
@@ -467,6 +471,11 @@ namespace Desert::Graphic::System
         RDG::BufferRef                                  m_CollisionViewRef;
         RDG::TextureRef                                 m_CollisionDepthRef;
         bool m_CollisionReady = false; // both are in this frame's graph: the PostOpaque chain runs
+        // WIND-FIELD-GPU: the scene view's air for the wind-reading stacks (ImportSceneWind), simulating view
+        // only.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_SceneWind;
+        RDG::ExternalBuffer                             m_SceneWindImport;
+        RDG::BufferRef                                  m_SceneWindRef;
         // PORT-VFX-MODULES (UE emitter Event Handlers): each placed system's event buffer, imported ONCE per frame
         // for all its emitters (ParticleEmitterGpu::Events is shared), keyed by the buffer.
         struct EventImport

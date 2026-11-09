@@ -613,8 +613,8 @@ TEST_F( MeshVertexPathShaderRoot, EveryInstancedVertexStagePositionsThroughTheOn
                       vertex.end() );
 
         EXPECT_NE( vertex.find( "#include<Common/FoliageWind.glslh>" ), std::string::npos ) << name;
-        EXPECT_NE( vertex.find( "InstancedWorldPosition(model,a_Position,m_PushConstants.WindA,"
-                                "m_PushConstants.WindB)" ),
+        EXPECT_NE( vertex.find( "InstancedWorldPosition(model,a_Position,windA,windB,cameraUB.WindGust,"
+                                "localAir)" ),
                    std::string::npos )
              << name << " does not position its vertex through the shared wind function";
         EXPECT_NE( vertex.find( "gl_Position=cameraUB.JitteredViewProjection*vec4(worldPosition,1.0);" ),

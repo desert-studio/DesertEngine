@@ -191,8 +191,12 @@ namespace Desert::Graphic::GpuDriven
         // Its row in DrawCommandCache::SubmeshTransforms[]: the submesh's node transform relative to the
         // primitive (Submesh::Transform). World = LocalToWorld x InstanceToPrimitive x this.
         uint32_t SubmeshTransform = 0; // 8
-        uint32_t Pad1             = 0; // 12
+        // kDrawSlot* bits. kDrawSlotDitheredLod: the slot's cell clips (a Masked surface), so an instance in a
+        // dithered LOD transition draws both its levels here (CullViewFlags::kLodDither); a cell without a
+        // fragment clip would draw both levels whole, so it switches to the newer level at once.
+        uint32_t Flags            = 0; // 12
     };
+    inline constexpr uint32_t kDrawSlotDitheredLod = 1u << 0;
     static_assert( sizeof( GpuDrawSlot ) == 16, "std430 twin in Common/GpuScene.glslh" );
     static_assert( offsetof( GpuDrawSlot, SubmeshTransform ) == 8, "Common/GpuScene.glslh" );
 
@@ -240,6 +244,11 @@ namespace Desert::Graphic::GpuDriven
     // The top bit of GpuVisibleInstance::DrawSlot (GLSL DESERT_GPU_VISIBLE_REST_POSE): the cull drew this swaying
     // instance in its rest pose (GpuCull_CastsRestPose), the vertex stage bends it by no wind.
     inline constexpr uint32_t kVisibleRestPose = 1u << 31;
+    // The next two bits (GLSL DESERT_GPU_VISIBLE_LOD_FADE_OUT / _IN): the entry is the older / the newer level of
+    // a dithered LOD transition (CullViewFlags::kLodDither); the cell clips it by DesertClipLODTransition.
+    inline constexpr uint32_t kVisibleLodFadeOut = 1u << 30;
+    inline constexpr uint32_t kVisibleLodFadeIn  = 1u << 29;
+    inline constexpr uint32_t kVisibleSlotMask   = kVisibleLodFadeIn - 1u; // the DrawSlots[] row
 
     // Phase 1 of the two-phase HZB cull appends here what the PREVIOUS frame's HZB rejected; phase 2 re-tests
     // them against the HZB of this frame's phase-1 depth (UE InstanceCulling two-pass occlusion).
@@ -282,11 +291,15 @@ namespace Desert::Graphic::GpuDriven
         // CascadePlacement::TexelOrigin, z = a cell's side in texels (CascadeContentHash::kCellsPerMap cells per
         // map side), w = its region
         glm::ivec4 ContentCells{ 0 };
+        // THE DITHERED LOD TRANSITION's two eye samples (Geometry::LODView::Temporal; kLodDither): xyz = [0] the
+        // older, [1] the newer; w = 0. Each equals LodOrigin.xyz when the view does not fade its level changes.
+        glm::vec4  LodTemporalOrigins[2]{};    // 592
     };
-    static_assert( sizeof( GpuCullView ) == 592, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 624, "std430 twin in Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, ContentCells ) == 576, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, StripPlanes ) == 368, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, Strips ) == 560, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, LodTemporalOrigins ) == 592, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, CasterRing ) == 352, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, FrustumPlanes ) == 192, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, HzbExtent ) == 320, "Common/GpuScene.glslh" );
@@ -308,6 +321,10 @@ namespace Desert::Graphic::GpuDriven
         // GPU): culled as the static layer (with kCasterStaticLayer), it fills no bin; every instance the layer
         // would draw adds (instance row, rest pose, LOD) into the CascadeContentHash cells it covers.
         inline constexpr uint32_t kContentHash = 1u << 7;
+        // THE DITHERED LOD TRANSITION (Geometry::SelectDitheredLODFromBounds): an instance whose two temporal
+        // samples select different levels draws both in each draw slot marked kDrawSlotDitheredLod, its
+        // entries tagged kVisibleLodFadeOut / kVisibleLodFadeIn. A scene view's opaque-pass views only.
+        inline constexpr uint32_t kLodDither = 1u << 8;
     } // namespace CullViewFlags
 
     // THE CASCADE CONTENT HASH (CPU-ISM-SHADOW): per sun cascade a region of cells anchored to the map's texel

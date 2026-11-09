@@ -58,6 +58,35 @@ namespace Desert::Graphic::GpuDriven
                  std::clamp( std::floor( page ), -1.0f, static_cast<float>( System::kVsmLevelPages ) ) );
         }
 
+        // InstanceCull.shader DrawsLodDithered: an instance of @p primitiveRow in a transition @p older -> @p lod
+        // draws it dithered when some submesh's slots at both levels clip (kDrawSlotDitheredLod).
+        bool DrawsLodDithered( std::span<const GpuPrimitivePassDraws> primitiveDraws,
+                               std::span<const GpuDrawSlot> drawSlots, const uint32_t primitiveRow,
+                               const uint32_t lod, const uint32_t older )
+        {
+            if ( older == lod || primitiveRow >= primitiveDraws.size() )
+                return false;
+            const GpuPrimitivePassDraws& pd = primitiveDraws[primitiveRow];
+            if ( pd.SubmeshCount == 0u || pd.LodCount == 0u )
+                return false;
+            const uint32_t level      = std::min( lod, pd.LodCount - 1u );
+            const uint32_t olderLevel = std::min( older, pd.LodCount - 1u );
+            if ( level == olderLevel )
+                return false;
+            for ( uint32_t s = 0; s < pd.SubmeshCount; ++s )
+            {
+                const uint64_t slot      = pd.FirstDrawSlot + static_cast<uint64_t>( level ) * pd.SubmeshCount + s;
+                const uint64_t olderSlot =
+                     pd.FirstDrawSlot + static_cast<uint64_t>( olderLevel ) * pd.SubmeshCount + s;
+                if ( slot >= drawSlots.size() || olderSlot >= drawSlots.size() )
+                    continue;
+                if ( drawSlots[slot].Bin != kInvalidIndex && drawSlots[olderSlot].Bin != kInvalidIndex &&
+                     ( drawSlots[slot].Flags & drawSlots[olderSlot].Flags & kDrawSlotDitheredLod ) != 0u )
+                    return true;
+            }
+            return false;
+        }
+
         // InstanceCull.shader CoversDrawnVsmCell (:138-171), over the host copy of "VSM: Dirty Mask".
         bool CoversDrawnVsmCell( const GpuCullView& view, const glm::vec3& boxMin, const glm::vec3& boxMax,
                                  std::span<const uint32_t> mask )
@@ -115,8 +144,9 @@ namespace Desert::Graphic::GpuDriven
 
     void InstanceCullValidation::AddFrame( RDG::Builder& graph, const uint64_t frameIndex, const GpuScene& scene,
                                            std::span<const CullViewInput> views,
-                                           std::span<const std::string> viewNames, const OcclusionCarry& carry,
-                                           const RDG::BufferRef vsmDirtyMask )
+                                           std::span<const std::string>                   viewNames,
+                                           std::span<const PassDrawTable, kMeshPassCount> passTables,
+                                           const OcclusionCarry& carry, const RDG::BufferRef vsmDirtyMask )
     {
         // The pattern of VirtualShadowMapRenderer::ReportOverflow: the slot's previous frame has completed (the
         // frame start waited its fence), so it is read first, then handed this frame's words in its place.
@@ -159,6 +189,13 @@ namespace Desert::Graphic::GpuDriven
         slot.LodScreenSizes.assign( sizes.begin(), sizes.end() );
         slot.WorldBounds.assign( worldBounds.begin(), worldBounds.end() );
         slot.InstanceCount = carry.InstanceCount;
+        for ( std::size_t p = 0; p < kMeshPassCount; ++p )
+        {
+            if ( passTables[p].Bins.empty() )
+                continue; // InstanceCulling: a pass without bins binds no draw tables (Params2.z = 0)
+            slot.Passes[p].PrimitiveDraws = passTables[p].PrimitiveDraws;
+            slot.Passes[p].DrawSlots      = passTables[p].DrawSlots;
+        }
         slot.Views.reserve( views.size() );
         for ( std::size_t v = 0; v < views.size(); ++v )
             slot.Views.push_back(
@@ -255,11 +292,6 @@ namespace Desert::Graphic::GpuDriven
                         restPose = ShadowWindCastsRestPose( windPoint, windOrigin, view.Gpu.LodOrigin.w ) ||
                                    ShadowWindInsideRing( windPoint, windOrigin, ringInner );
                     }
-                    const bool movableCaster =
-                         ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose;
-                    if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
-                         ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
-                        return 0u;
                     const InstanceCullDistance cull  = ScaledByLens(
                          { instance.CullDistanceStart, instance.CullDistanceEnd }, view.Gpu.CullOrigin.w );
                     if ( !KeepsInstanceAtDistance( cull, row - primitive.FirstInstance, glm::vec3( world[3] ),
@@ -307,7 +339,9 @@ namespace Desert::Graphic::GpuDriven
                     }
 
                     // MeshRenderer::ComputeLOD's order: forced level, the renderer's LOD toggle, then the policy.
-                    uint32_t lod = 0;
+                    uint32_t lod      = 0;
+                    uint32_t older    = 0;     // the older temporal sample's level (SelectLodMask's @p older)
+                    bool     temporal = false; // older was selected; otherwise it is lod (no transition)
                     if ( primitive.ForcedLod >= 0 )
                     {
                         lod = static_cast<uint32_t>( primitive.ForcedLod );
@@ -325,14 +359,41 @@ namespace Desert::Graphic::GpuDriven
                     }
                     else
                     {
-                        const Geometry::LODView lodView{ .Origin     = glm::vec3( view.Gpu.LodOrigin ),
-                                                         .Projection = view.Gpu.LodProjection };
-                        lod = Geometry::SelectLODFromBounds(
+                        // A kLodDither view selects at its two temporal samples (InstanceCull.shader
+                        // SelectLodMask); the word carries the newer sample's level, the older one only adds a
+                        // second (FADE_OUT) entry in the bins.
+                        Geometry::LODView lodView{ .Origin     = glm::vec3( view.Gpu.LodOrigin ),
+                                                   .Projection = view.Gpu.LodProjection };
+                        if ( ( view.Gpu.Flags & CullViewFlags::kLodDither ) != 0u )
+                        {
+                            lodView.Temporal.Active = true;
+                            for ( uint32_t sample = 0; sample < 2u; ++sample )
+                                lodView.Temporal.Origins[sample] =
+                                     glm::vec3( view.Gpu.LodTemporalOrigins[sample] );
+                        }
+                        const Geometry::LODMask levels = Geometry::SelectDitheredLODFromBounds(
                              world, localBox, lodView,
                              std::span<const float>( slot.LodScreenSizes )
                                   .subspan( primitive.FirstLodScreenSize, primitive.LodCount ),
                              -1, primitive.LodBias );
+                        lod      = levels.Levels[1];
+                        older    = levels.Levels[0];
+                        temporal = true;
                     }
+                    if ( !temporal )
+                        older = lod;
+                    // InstanceCull.shader's cascade-cache layer split, per instance: a mover, or (a kLodDither
+                    // caster view) an instance whose LOD fades dithered in this pass's slots, is the movable
+                    // layer's.
+                    const PassSlots& passSlots =
+                         slot.Passes[std::min<std::size_t>( view.Gpu.Pass, kMeshPassCount - 1u )];
+                    const bool movableCaster =
+                         ( ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose ) ||
+                         DrawsLodDithered( passSlots.PrimitiveDraws, passSlots.DrawSlots, instance.Primitive, lod,
+                                           older );
+                    if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
+                         ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
+                        return 0u;
                     return CullVisibility::kInView | std::min( lod, CullVisibility::kLodMask );
                 }();
 

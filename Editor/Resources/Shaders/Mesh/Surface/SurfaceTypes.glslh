@@ -227,6 +227,8 @@ struct SingleLayerWaterOutput
     float ShoreFadeCm;            // the water column (cm) over which the surface fades in from where it meets
                                   // the ground (UE's water material depth fade): no hard intersection line
     float DebugFoamMask;          // 1 = draw only the foam mask (white foam, black water) - a debug material
+    float WindRippleMaxGain;      // the ripple tilt's factor under a local wind source at the frame's reference
+                                  // speed and above (1 = the local air leaves the ripples as they are)
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -305,6 +307,20 @@ SurfaceOutput DefaultSurfaceOutput()
 #else
 #define DESERT_SURFACE_BINNED_VARYINGS
 #endif
+// A binned draw's side of a dithered LOD transition (DesertMeshDraw::LodFadeSide,
+// Mesh/Surface/LODTransition.glslh).
+// A grass id list's rows (DESERT_SURFACE_INSTANCE_IDS, neither binned nor by GpuScene id) carry it in the row's
+// column 0 w (GrassCull.shader GrassLawInstance; 0 in every affine row): the vertex stage forwards it.
+#if defined( DESERT_SURFACE_INSTANCE_IDS ) && !defined( DESERT_SURFACE_BINNED )
+#ifndef DESERT_SURFACE_SCENE_INSTANCES
+#define DESERT_SURFACE_ROW_LOD_FADE 1
+#endif
+#endif
+#if defined( DESERT_SURFACE_BINNED ) || defined( DESERT_SURFACE_ROW_LOD_FADE )
+#define DESERT_SURFACE_LOD_FADE_VARYINGS flat float LodFadeSide;
+#else
+#define DESERT_SURFACE_LOD_FADE_VARYINGS
+#endif
 
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
 // What only the vertex can know; what the view knows (camera position, time) the fragment reads from the view block.
@@ -322,6 +338,7 @@ SurfaceOutput DefaultSurfaceOutput()
         flat float ObjectMoved; \
         flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
+        DESERT_SURFACE_LOD_FADE_VARYINGS \
     } v_Surface;
 
 // The material row the generated `Material` reads (DShaderParser: `MaterialRows[DESERT_SURFACE_MATERIAL_ROW]`): the
@@ -428,19 +445,37 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 }
 
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
+// A Masked cell also clips the other level of a dithered LOD transition (Mesh/Surface/LODTransition.glslh), first:
+// a pixel the transition takes away samples no mask. The side is the binned draw's (its vertex stage forwards
+// DesertMeshDraw::LodFadeSide) or the CPU-recorded draw's push field (MaterialTransport.glslh LodFadeSide, the
+// block the fragment stage reads MaterialIndex from).
+#include <Mesh/Surface/LODTransition.glslh>
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, v_Surface.LodFadeSide, cameraUB.LodTransition.x )
+#elif defined( DESERT_SURFACE_ROW_LOD_FADE )
+// The row's side, else the CPU-recorded draw's push field (a grass list's draw pushes 0, a row of an ISM 0).
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, \
+        v_Surface.LodFadeSide != 0.0 ? v_Surface.LodFadeSide : m_PushConstants.LodFadeSide, \
+        cameraUB.LodTransition.x )
+#else
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
+#endif
 #if defined( DESERT_SURFACE_OPACITY_DITHER )
 // A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
 // probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
 // the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
 // and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
+    if ( DESERT_SURFACE_LOD_CLIPPED() || DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
                                                ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
                                                : Material.OpacityMaskClipValue ) ) \
         discard
 #else
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
+    if ( DESERT_SURFACE_LOD_CLIPPED() || DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
         discard
 #endif
 #else

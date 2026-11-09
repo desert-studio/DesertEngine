@@ -66,17 +66,38 @@
     /* light views only: the shadow wind rule's caster ring (ViewFrame::CasterWindRing, x the inner distance; */  \
     /* y, z, w the block's tail pad) */                                                                           \
     FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
-    /* block size 528 */
+    /* scene views: the dithered LOD transition (ViewFrame::TemporalLOD; Mesh/Surface/LODTransition.glslh): */    \
+    /* x how far the fade has come (0..1), y 1 while the view fades its level changes; a cascade's light */       \
+    /* view carries its scene view's (WriteLightCamera): its casters clip the view's dither */                    \
+    FIELD( glm::vec4, LodTransition, LodTransition, { 0.0f } ) /* offset 528 */                                   \
+    /* every view: the gust fronts the foliage sway is scaled by (ViewFrame::WindGust, Common/WindGust.glslh: */  \
+    /* xy the fronts' offset, gust cells; z 1 / GustSize; w Gustiness, 0 = none), now and one step before */      \
+    FIELD( glm::vec4, WindGust, WindGust, { 0.0f } )         /* offset 544 */                                     \
+    FIELD( glm::vec4, PrevWindGust, PrevWindGust, { 0.0f } ) /* offset 560 */                                     \
+    /* every view: the local wind sources nearest the main camera (ViewFrame::LocalWind, */                       \
+    /* Graphic::SelectLocalWind, Common/LocalWind.glslh: [i] = position, 1 / Radius; the speeds four to a */      \
+    /* vec4, in reference-speed units), now and one step before */                                                \
+    FIELD( CameraLocalWindSources, LocalWind, LocalWind[8], {} )                  /* offset 576 */                \
+    FIELD( CameraLocalWindSpeeds, LocalWindSpeed, LocalWindSpeed[2], {} )         /* offset 704 */                \
+    FIELD( CameraLocalWindSources, PrevLocalWind, PrevLocalWind[8], {} )          /* offset 736 */                \
+    FIELD( CameraLocalWindSpeeds, PrevLocalWindSpeed, PrevLocalWindSpeed[2], {} ) /* offset 864 */                \
+    /* block size 896 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
+    // The local wind arrays' C++ types (a FIELD's type is one macro argument: no comma). Their GLSL names spell
+    // the same lengths: LocalWind[8], LocalWindSpeed[2].
+    using CameraLocalWindSources = decltype( LocalWindSources::Source );
+    using CameraLocalWindSpeeds  = decltype( LocalWindSources::Speed );
+    static_assert( kMaxLocalWindSources == 8, "CameraUB spells LocalWind[8] and LocalWindSpeed[2]" );
+
     /// Camera and kCameraFields — the block's std140 fields, what Common/CameraUB.glslh is generated from
     /// (Std140Block.hpp).
     DESERT_SHADER_STRUCT( Camera, DESERT_CAMERA_UB_FIELDS, static constexpr RDG::UniformBufferParameter Parameter{ "CameraUB" }; inline const static std::string Name = std::string( Parameter.Name ); )
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 528 );
+    static_assert( sizeof( Camera ) == 896 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -123,6 +144,14 @@ namespace Desert::Graphic::ShaderProtocols
         ub.CasterWindOrigin          = frame.CasterWindOrigin;
         ub.CasterWindRing            = frame.CasterWindRing;
         ub.GrassLens                 = frame.GrassLens;
+        ub.LodTransition             = glm::vec4( frame.TemporalLOD.Transition,
+                                                  frame.TemporalLOD.Active ? 1.0f : 0.0f, 0.0f, 0.0f );
+        ub.WindGust                  = frame.WindGust;
+        ub.PrevWindGust              = frame.PrevWindGust;
+        ub.LocalWind                 = frame.LocalWind.Source;
+        ub.LocalWindSpeed            = frame.LocalWind.Speed;
+        ub.PrevLocalWind             = frame.PrevLocalWind.Source;
+        ub.PrevLocalWindSpeed        = frame.PrevLocalWind.Speed;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

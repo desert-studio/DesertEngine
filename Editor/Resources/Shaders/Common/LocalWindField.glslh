@@ -1,0 +1,23 @@
+// THE LOCAL WIND FIELD (WIND-FIELD-GPU): what ONE point wind source blows at a world point, the one statement of
+// it on the GPU, with no view block of its own. Common/LocalWind.glslh sums it over the camera block's sources
+// (CameraUB::LocalWind, every mesh pass); the particle simulation sums it over the same sources bound in its own
+// SceneWind block (Programs/Particles/ParticleSimulate.shader VFX_SceneWind), so a smoke column and a plant bend
+// by the same air. @p source = (world position cm, 1 / Radius), @p speed in units of the frame's reference speed.
+// The source blows radially AWAY from its centre, linearly falling to 0 at Radius. The C++ twin is the loop body
+// of
+// Graphic::LocalWindXZ (Engine/Graphic/WindGust.hpp): the same expressions in the same order; change one, change
+// both. The result is world XZ.
+#ifndef DESERT_LOCAL_WIND_FIELD_GLSLH
+#define DESERT_LOCAL_WIND_FIELD_GLSLH
+
+const int kMaxLocalWindSources = 8; // Graphic::kMaxLocalWindSources, CameraUB's LocalWind[8]
+
+vec2 LocalWindSourceXZ(vec3 point, vec4 source, float speed)
+{
+    vec3  away    = point - source.xyz;
+    float range   = length(away);
+    float falloff = max(1.0 - range * source.w, 0.0);
+    return away.xz * (speed * falloff / max(range, 1e-6));
+}
+
+#endif

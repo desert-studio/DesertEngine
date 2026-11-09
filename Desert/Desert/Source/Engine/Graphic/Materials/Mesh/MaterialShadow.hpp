@@ -17,13 +17,21 @@ namespace Desert::Graphic
     // (MaterialService::GetViewVariant). The clock is the frame's (UE's shadow view shares View.GameTime): a
     // Masked surface whose mask reads SurfaceInput.Time clips its shadow at the same instant it clips itself.
     // @p parallax is the scene view's (ViewFrame::Parallax): a parallax caster marches the relief with the steps
-    // the view marches it with. @p casterWindOrigin is the shadow wind rule's measure (ViewFrame::CasterWindOrigin:
-    // the main camera, Shadows.WindAnimationDistance), the one the caster cull views carry as LodOrigin.
+    // the view marches it with. @p casterWindOrigin is the shadow wind rule's measure
+    // (ViewFrame::CasterWindOrigin: the main camera, Shadows.WindAnimationDistance), the one the caster cull views
+    // carry as LodOrigin.
     // @p casterWindRing is the movers' ring of a draw whose vertex stage splits its instances (ViewFrame::
     // CasterWindRing, GPU-FRAME-6: x the inner distance; 0 = none, every other caster draw).
+    // @p temporalLod is the scene view's dithered LOD transition (ViewFrame::TemporalLOD): a binned caster of a
+    // fading instance clips its half of the dither with the fade the view clips with (CameraUB::LodTransition,
+    // Mesh/Surface/LODTransition.glslh), so the shadow is whole while the level changes.
+    // @p wind is the scene view's air (ViewFrame::WindGust, ViewFrame::LocalWind): a swaying caster sways as it is
+    // drawn.
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
                            double timeSeconds, const CascadeCasterBias& bias, const ParallaxQuality& parallax,
-                           const glm::vec4& casterWindOrigin, const glm::vec4& casterWindRing = glm::vec4( 0.0f ) );
+                           const Geometry::LODTemporalSamples& temporalLod, const SceneWind& wind,
+                           const glm::vec4& casterWindOrigin,
+                           const glm::vec4& casterWindRing = glm::vec4( 0.0f ) );
 
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
@@ -37,6 +45,7 @@ namespace Desert::Graphic
 
         void SetLightMatrix( const glm::mat4& view, const glm::mat4& projection, double timeSeconds,
                              const CascadeCasterBias& bias, const ParallaxQuality& parallax,
+                             const Geometry::LODTemporalSamples& temporalLod, const SceneWind& wind,
                              const glm::vec4& casterWindOrigin );
 
     protected:

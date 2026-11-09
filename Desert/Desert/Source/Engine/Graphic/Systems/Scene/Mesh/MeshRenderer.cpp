@@ -526,6 +526,31 @@ namespace Desert::Graphic::System
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
+    Geometry::LODMask MeshRenderer::ComputeDitheredLOD( const glm::mat4& transform, const Mesh* mesh,
+                                                        const int forcedLOD, const int lodBias ) const
+    {
+        Geometry::LODMask levels;
+        if ( forcedLOD >= 0 )
+        {
+            levels.Levels[0] = levels.Levels[1] = static_cast<uint32_t>( forcedLOD );
+            return levels;
+        }
+        if ( !m_LODEnabled || !mesh )
+            return levels;
+        const auto* camera = m_SceneRenderer->GetMainCamera();
+        if ( !camera )
+            return levels;
+        const Geometry::LODView view{ .Origin     = camera->GetPosition(),
+                                      .Projection = camera->GetProjectionMatrix(),
+                                      .Temporal   = m_ViewTemporalLOD };
+        levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
+                                                        view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
+        const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
+        levels.Levels[0]        = std::min( levels.Levels[0], maxLevel );
+        levels.Levels[1]        = std::min( levels.Levels[1], maxLevel );
+        return levels;
+    }
+
     uint64_t MeshRenderer::GetViewTrianglesDrawn() const
     {
         // The same path test the forward list's build makes: on Deferred the forward list is cleared and the
@@ -1815,7 +1840,8 @@ namespace Desert::Graphic::System
         frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
         if ( viewKey != kBinnedMainView )
             WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, CasterWindOrigin( viewKey ) );
+                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, m_ViewTemporalLOD, m_SceneWind,
+                              CasterWindOrigin( viewKey ) );
         if ( !LendMaterialTable( *carrier.Material ) )
         {
             error = std::format( "binned carrier '{}' has no material table", shader->GetName() );
@@ -2145,6 +2171,19 @@ namespace Desert::Graphic::System
         const std::string_view templ    = std::string_view( surface ).substr( 0, surface.find( '/' ) );
         const bool             parallax = IsParallaxCell( surface );
         const bool twoSided = row.Instance != nullptr ? row.Instance->IsTwoSided() : row.Surface->IsTwoSided();
+        // THE DITHERED LOD TRANSITION (UE FMeshBatch::bDitheredLODTransition): a view cell that clips per pixel
+        // (Masked: DESERT_SURFACE_CLIP; under early-Z its depth twin clips, the equal twin keeps what that kept)
+        // draws both levels of a fading instance, each keeping its half of the dither (Mesh/Surface/
+        // LODTransition.glslh); an opaque cell has no clip and switches level at once. The cascades' Masked
+        // caster cell clips the same half with the view's fade (UE: the shadow depth pass's mesh batch keeps
+        // bDitheredLODTransition; the light camera carries the view's fade, WriteLightCamera).
+        const bool ditheredLod  = row.Surface->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Masked;
+        const auto ditherBinned = [&]( const GraphicsPipeline* pipeline )
+        {
+            GpuDriven::PassPipelineResolution resolved = binned( pipeline );
+            resolved.DitheredLod                       = pipeline != nullptr && ditheredLod;
+            return resolved;
+        };
         const auto viewCell = [&]( const MeshPass meshPass ) -> std::optional<std::string>
         {
             auto cell = MeshShaderFor( templ, path, meshPass );
@@ -2162,7 +2201,7 @@ namespace Desert::Graphic::System
                 const std::array<const GraphicsPipeline*, 3> states{ m_StaticGBufferPipeline.get(),
                                                                      m_InstancedGBufferPipeline.get(),
                                                                      m_SkinnedGBufferPipeline.get() };
-                return binned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                return ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
             }
             case GpuDriven::MeshPass::Forward:
             {
@@ -2174,7 +2213,7 @@ namespace Desert::Graphic::System
                 const std::array<const GraphicsPipeline*, 3> states{
                      WireframePipelineOr( m_StaticPipeline.get() ),
                      WireframePipelineOr( m_StaticInstancedPipeline.get() ), m_SkinnedPipeline.get() };
-                return binned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                return ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
             }
             case GpuDriven::MeshPass::ShadowCascade:
             {
@@ -2192,7 +2231,7 @@ namespace Desert::Graphic::System
                 if ( !cell )
                     return fallback( BinFallback::NoBinnedCell );
                 // The casters' state culls nothing already: a two-sided material changes no state there.
-                return binned( BinnedCellPipeline( BinnedCellOf( *cell ), casterStates[pathIndex], false ) );
+                return ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), casterStates[pathIndex], false ) );
             }
             case GpuDriven::MeshPass::DepthPrepass:
                 return {}; // a surface is in the G-buffer; this pass holds the generic programs (above)

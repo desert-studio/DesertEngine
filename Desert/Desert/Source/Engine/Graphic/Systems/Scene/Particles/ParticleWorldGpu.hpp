@@ -262,6 +262,9 @@ namespace Desert::Graphic::System
         // SceneDepth). TickStage is PostOpaque then, and also when an emitter linked to it by events reads it
         // (VFX::UnifyEventTickStages) - the stage, not the slots, is what the link moves.
         bool ReadsSceneDepth = false;
+        // Its own stack reads the scene's air (VFX_READS_SCENE_WIND: the program declares the SceneWind block,
+        // ParticleRenderer binds it). No stage of its own: the air is the frame's, known before any pass.
+        bool ReadsSceneWind = false;
         // The alive half / draw slot the last scheduled tick's last compact fills (its StepCount & 1), and whether
         // there was such a tick: what a PostOpaque emitter's draws recorded before this frame's simulation read
         // (ParticleFrameEmitter::PreviousHalf).

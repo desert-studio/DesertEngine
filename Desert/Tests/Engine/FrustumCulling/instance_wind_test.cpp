@@ -18,6 +18,11 @@ using Desert::Graphic::FoliageWindOffset;
 using Desert::Graphic::InstanceWind;
 using Desert::Graphic::MakeInstanceWind;
 using Desert::Graphic::PackInstanceWind;
+
+namespace
+{
+    const glm::vec4 kNoGust( 0.0f ); // no gust fronts: WindGustScale = 1
+}
 using Desert::Graphic::WindBoundsPad;
 using Desert::Graphic::WindExpandedBounds;
 
@@ -48,17 +53,17 @@ namespace
 
 TEST( InstanceWind, TheSameTimeIsTheSamePoseAndAnotherTimeMovesTheTip )
 {
-    const glm::vec3 a = FoliageWindOffset( kTip, kOrigin, Grass( 3.25 ) );
-    const glm::vec3 b = FoliageWindOffset( kTip, kOrigin, Grass( 3.25 ) );
+    const glm::vec3 a = FoliageWindOffset( kTip, kOrigin, Grass( 3.25 ), kNoGust );
+    const glm::vec3 b = FoliageWindOffset( kTip, kOrigin, Grass( 3.25 ), kNoGust );
     EXPECT_EQ( a, b );
 
     // A quarter of a second later the tip is elsewhere: the offset depends on time, not only on the vertex.
-    const glm::vec3 c = FoliageWindOffset( kTip, kOrigin, Grass( 3.50 ) );
+    const glm::vec3 c = FoliageWindOffset( kTip, kOrigin, Grass( 3.50 ), kNoGust );
     EXPECT_GT( glm::length( a - c ), 1.0f ) << "the tip did not move between 3.25 s and 3.50 s";
 
     // The clock wraps to the sway's period (10 fundamental cycles), and the pose does not notice.
     const double    period = 10.0 / 0.7;
-    const glm::vec3 later  = FoliageWindOffset( kTip, kOrigin, Grass( 3.25 + 7.0 * period ) );
+    const glm::vec3 later  = FoliageWindOffset( kTip, kOrigin, Grass( 3.25 + 7.0 * period ), kNoGust );
     EXPECT_NEAR( glm::length( a - later ), 0.0f, 1e-2f );
 }
 
@@ -68,15 +73,16 @@ TEST( InstanceWind, TheRootNeverMovesAndTheTipDoes )
     for ( int frame = 0; frame < 600; ++frame )
     {
         const InstanceWind wind = Grass( frame / 60.0 );
-        EXPECT_EQ( FoliageWindOffset( glm::vec3( 0.0f ), kOrigin, wind ), glm::vec3( 0.0f ) ) << "frame " << frame;
-        EXPECT_EQ( FoliageWindOffset( glm::vec3( 5.0f, -3.0f, 5.0f ), kOrigin, wind ), glm::vec3( 0.0f ) )
+        EXPECT_EQ( FoliageWindOffset( glm::vec3( 0.0f ), kOrigin, wind, kNoGust ), glm::vec3( 0.0f ) )
+             << "frame " << frame;
+        EXPECT_EQ( FoliageWindOffset( glm::vec3( 5.0f, -3.0f, 5.0f ), kOrigin, wind, kNoGust ), glm::vec3( 0.0f ) )
              << "below the pivot, frame " << frame;
-        tipMax = std::max( tipMax, glm::length( FoliageWindOffset( kTip, kOrigin, wind ) ) );
+        tipMax = std::max( tipMax, glm::length( FoliageWindOffset( kTip, kOrigin, wind, kNoGust ) ) );
     }
     EXPECT_GT( tipMax, 0.9f * 40.0f ) << "the tip never swung near its Strength";
 
     // Horizontal only: the plant leans, it does not stretch.
-    EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, Grass( 1.0 ) ).y, 0.0f );
+    EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, Grass( 1.0 ), kNoGust ).y, 0.0f );
 }
 
 // WIND-SRC: the direction is the scene's (ECS::WindAt), never the type's. Mutation: MakeInstanceWind ignoring
@@ -99,7 +105,7 @@ TEST( InstanceWind, TheDirectionIsTheScenesWindAndStillAirSwaysNothing )
 
     const InstanceWind still = MakeInstanceWind( 40.0f, 0.7f, 120.0f, glm::vec2( 0.0f ), 3.0, 3.0 );
     EXPECT_FALSE( still.Sways() ) << "a scene with no WindSource is still air: no sway, whatever the type says";
-    EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, still ), glm::vec3( 0.0f ) );
+    EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, still, kNoGust ), glm::vec3( 0.0f ) );
     EXPECT_EQ( WindBoundsPad( still ), 0.0f );
 }
 
@@ -107,7 +113,7 @@ TEST( InstanceWind, AStillTypeMovesNothingAndPushesZeros )
 {
     const InstanceWind still = MakeInstanceWind( 0.0f, 0.7f, 120.0f, kSceneWindXZ, 12.0, 12.0 );
     EXPECT_FALSE( still.Sways() );
-    EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, still ), glm::vec3( 0.0f ) );
+    EXPECT_EQ( FoliageWindOffset( kTip, kOrigin, still, kNoGust ), glm::vec3( 0.0f ) );
     EXPECT_EQ( WindBoundsPad( still ), 0.0f );
     const auto push = PackInstanceWind( still );
     EXPECT_EQ( push.A, glm::vec4( 0.0f ) );
@@ -132,7 +138,7 @@ TEST( InstanceWind, TheWidenedBoxHoldsEveryDisplacedVertex )
             {
                 const glm::vec3 v( ( corner & 1 ) ? local.Max.x : local.Min.x, y,
                                    ( corner & 4 ) ? local.Max.z : local.Min.z );
-                const glm::vec3 offset = FoliageWindOffset( v, glm::vec3( model[3] ), wind );
+                const glm::vec3 offset = FoliageWindOffset( v, glm::vec3( model[3] ), wind, kNoGust );
                 EXPECT_LE( glm::length( offset ), WindBoundsPad( wind ) + 1e-3f );
                 const glm::vec3 world = glm::vec3( model * glm::vec4( v, 1.0f ) ) + offset;
                 for ( int axis = 0; axis < 3; ++axis )

@@ -396,6 +396,7 @@ namespace Desert::Graphic
         bool            m_PendingFaultReset       = false;
         uint32_t        m_JitterIndex             = 0;
         TemporalHistory m_History;
+        Geometry::TemporalLODState m_TemporalLOD; // the view's dithered LOD transition (BeginFrame)
         std::shared_ptr<ITemporalUpscalerHistory> m_UpscalerHistory;
     };
 } // namespace Desert::Graphic

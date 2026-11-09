@@ -119,6 +119,7 @@ void main()
 #ifdef DESERT_SURFACE_BINNED
     v_Surface.MaterialRow    = draw.MaterialRow;
     v_Surface.PrimitiveFlags = draw.Flags;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
 #endif
 #else // every other cell
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -137,6 +138,7 @@ void main()
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.MaterialRow    = draw.MaterialRow;
     v_Surface.PrimitiveFlags = draw.Flags;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh DesertVelocity).

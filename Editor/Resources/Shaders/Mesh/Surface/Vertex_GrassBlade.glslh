@@ -71,6 +71,7 @@ GpuInstanceDrawRow g_GrassDrawRow; // set first thing in main()
 
 // The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
 #include <Mesh/Surface/GrassBlade.glslh>
+#include <Common/LocalWind.glslh>
 
 // The variety's shape (GrassBladeShapeGpu), std430.
 #ifndef DESERT_SURFACE_DRAW_ROWS
@@ -144,6 +145,10 @@ void main()
     v_Surface.PrimitiveFlags = g_GrassDrawRow.PrimitiveFlags;
 #endif
 #endif
+#if defined( DESERT_SURFACE_ROW_LOD_FADE ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    // A blade row's column w carries its draws, not a LOD side: a blade never cross-fades its strip levels.
+    v_Surface.LodFadeSide = 0.0;
+#endif
 #ifdef DESERT_SURFACE_PASS_Visibility
     v_VisibilityRow = Blade.Visibility.x + ( uint( gl_InstanceIndex ) - Blade.Lists.x ); // the variety's slot
 #endif
@@ -195,7 +200,9 @@ void main()
         }
     }
 #endif
-    const BladePoint blade = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B );
+    const BladePoint blade =
+         BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B, cameraUB.WindGust,
+                  LocalWindXZ( vec3( model[3] ), false ) );
 #if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
 #define GRASS_BLADE_DEPTH_CELL 1
 #endif
@@ -242,7 +249,8 @@ void main()
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
     const BladePoint previous = BladeAt( Blade, model, side, t, windA,
-                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ) );
+                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ),
+                                         cameraUB.PrevWindGust, LocalWindXZ( vec3( model[3] ), true ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a blade never moves, only the wind bends it.

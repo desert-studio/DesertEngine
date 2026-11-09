@@ -587,13 +587,15 @@ namespace Desert::ECS
         }
         if ( draw.Field != cache.Field )
             draw.Field = cache.Field;
-        const glm::vec3 air = ECS::WindAt( registry, root.Origin ).Velocity;
+        // The directional air per draw; each blade adds the local sources around it from the camera block
+        // (Common/LocalWind.glslh).
+        const glm::vec2 air       = ECS::WindGust( registry ).VelocityXZ;
+        const bool      localWind = ECS::AnyLocalWind( registry );
         for ( size_t i = 0; i < draw.Varieties.size(); ++i )
         {
             const glm::vec3& response = draws.WindResponse[i];
-            draw.Varieties[i].Wind    = Graphic::MakeInstanceWind( response.x, response.y, response.z,
-                                                                   glm::vec2( air.x, air.z ), m_WindSeconds,
-                                                                   m_PrevWindSeconds );
+            draw.Varieties[i].Wind    = Graphic::MakeInstanceWind( response.x, response.y, response.z, air,
+                                                                   m_WindSeconds, m_PrevWindSeconds, localWind );
         }
         std::shared_ptr<const Graphic::System::GrassFieldDraw> frozen = slot->Draw;
         renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( frozen ) );

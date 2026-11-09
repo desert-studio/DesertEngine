@@ -40,6 +40,7 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
@@ -804,6 +805,27 @@ namespace Desert::Graphic
         void SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
                                   const glm::vec3&                      windDirection,
                                   const std::vector<HeroCloudInstance>& heroClouds );
+
+        // This gameplay step's gust fronts and the previous step's (Graphic::PackWindGust), from the ECS, which
+        // advances them with the timestep (Render::WindGustCommand). Every view's frame carries them
+        // (ViewFrame::WindGust, OnUpdate), and the light cameras the current ones (MeshRenderer::SetSceneWind).
+        // It opens the step's local wind list: the step's point sources follow it (AddLocalWindSource), and a
+        // step that sends none leaves none.
+        void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust,
+                          const glm::vec2& directionalVelocityXZ )
+        {
+            m_WindGust                   = gust;
+            m_PrevWindGust               = prevGust;
+            m_DirectionalWindVelocityXZ  = directionalVelocityXZ;
+            m_LocalWindCandidates.clear();
+        }
+
+        // One point wind source of this gameplay step (Render::LocalWindSourceCommand), a candidate for the
+        // camera block's local sources (Graphic::SelectLocalWind, BeginScene).
+        void AddLocalWindSource( const LocalWindCandidate& source )
+        {
+            m_LocalWindCandidates.push_back( source );
+        }
 
         // The evaluated per-frame sky: sun direction and radiance, ambient above/below, night factor, the
         // planet radius, and an OPAQUE handle to the packed sky-parameter buffer. Consumers never see the
@@ -2364,6 +2386,21 @@ namespace Desert::Graphic
         int   m_ContactShadowSteps                  = 12;
         // Shading.Parallax*Steps, read in BeginScene; every view's frame carries them (ViewFrame::Parallax).
         ParallaxQuality m_ParallaxQuality;
+        // The ECS's gust fronts (SetWindGust): 0 = no gusts until a scene's systems say otherwise.
+        glm::vec4 m_WindGust{ 0.0f };
+        glm::vec4 m_PrevWindGust{ 0.0f };
+        // The directional wind's horizontal velocity (cm/s, world XZ; SetWindGust): its length is the speed the
+        // per-draw direction stands for and the local sources' reference speed (SelectLocalWind), and the scene
+        // view carries it to the particle simulation (ViewFrame::WindVelocityXZ). 0 = no directional wind.
+        glm::vec2 m_DirectionalWindVelocityXZ{ 0.0f };
+        // This step's point sources (AddLocalWindSource): retained storage, cleared by SetWindGust, so a steady
+        // scene allocates nothing per frame.
+        std::vector<LocalWindCandidate> m_LocalWindCandidates;
+        // The sources BeginScene picked (SelectLocalWind) this frame and the frame before, and what every view's
+        // frame and the light cameras carry (ViewFrame::LocalWind / PrevLocalWind, MeshRenderer::SetSceneWind).
+        LocalWindSelection m_LocalWindSelection;
+        LocalWindSources   m_LocalWind;
+        LocalWindSources   m_PrevLocalWind;
         // Foliage.GrassCullDistanceScalePercent (and the density), read in BeginScene; the scene view's frame
         // carries the lens it makes (ViewFrame::GrassLens, OnUpdate).
         System::GrassQuality m_GrassQuality;
