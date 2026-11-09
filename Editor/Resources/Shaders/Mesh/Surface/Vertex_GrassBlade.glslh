@@ -144,6 +144,10 @@ void main()
     v_Surface.PrimitiveFlags = g_GrassDrawRow.PrimitiveFlags;
 #endif
 #endif
+#if defined( DESERT_SURFACE_ROW_LOD_FADE ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    // A blade row's column w carries its draws, not a LOD side: a blade never cross-fades its strip levels.
+    v_Surface.LodFadeSide = 0.0;
+#endif
 #ifdef DESERT_SURFACE_PASS_Visibility
     v_VisibilityRow = Blade.Visibility.x + ( uint( gl_InstanceIndex ) - Blade.Lists.x ); // the variety's slot
 #endif
