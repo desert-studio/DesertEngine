@@ -1198,6 +1198,8 @@ namespace Desert::Graphic::RDG
 
         buildAdjacency();
         ScratchVector<bool>     sunk( m_ExecutedCount, false );
+        ScratchVector<bool>     early( m_ExecutedCount, false );
+        ScratchVector<bool>     need( m_ExecutedCount, false );
         ScratchVector<uint32_t> order;
         uint32_t              settled  = 0;
         uint32_t              position = 0;
@@ -1235,53 +1237,104 @@ namespace Desert::Graphic::RDG
                         forkEnd = std::max( forkEnd, preds[k] + 1 );
                 }
             }
-            if ( join == nextFirst || keepsOrder( join ) )
-                continue;
-            uint32_t insertAt = join;
-            while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
-                    isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
-                --insertAt;
-            // Nothing moves across an order-keeping pass, nor out of an earlier window's settled positions.
-            uint32_t scanStart = settled;
-            for ( uint32_t q = settled; q < insertAt; ++q )
+            // Nothing moves across an order-keeping pass, nor out of an earlier window's settled positions: the
+            // fork's own range for the early move, up to the insertion point for the sink.
+            uint32_t earlyStart = settled;
+            for ( uint32_t q = settled; q < forkEnd; ++q )
             {
                 if ( keepsOrder( q ) )
-                    scanStart = q + 1;
+                    earlyStart = q + 1;
             }
-            settled = insertAt;
-            if ( forkEnd <= scanStart )
-                continue;
+            const bool hasWindow = join != nextFirst && !keepsOrder( join );
+            uint32_t   insertAt  = forkEnd;
+            uint32_t   scanStart = earlyStart;
+            if ( hasWindow )
+            {
+                insertAt = join;
+                while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
+                        isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
+                    --insertAt;
+                scanStart = settled;
+                for ( uint32_t q = settled; q < insertAt; ++q )
+                {
+                    if ( keepsOrder( q ) )
+                        scanStart = q + 1;
+                }
+                settled = insertAt;
+            }
             // From the fork back: a pass sinks when each of its successors is at or after the insertion point
             // or sinks itself (positions from the fork on never sink, so a successor there keeps it).
             std::fill( sunk.begin(), sunk.end(), false );
-            bool any = false;
-            for ( uint32_t q = forkEnd; q-- > scanStart; )
+            std::fill( early.begin(), early.end(), false );
+            bool sinking = false;
+            if ( hasWindow && forkEnd > scanStart )
             {
-                if ( m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload )
-                    continue;
-                bool free = true;
-                for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
-                    free = succs[k] >= insertAt || sunk[succs[k]];
-                sunk[q] = free;
-                any     = any || free;
+                for ( uint32_t q = forkEnd; q-- > scanStart; )
+                {
+                    if ( m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload )
+                        continue;
+                    bool free = true;
+                    for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
+                        free = succs[k] >= insertAt || sunk[succs[k]];
+                    sunk[q] = free;
+                    sinking = sinking || free;
+                }
             }
-            if ( !any )
+            // THE FORK AT ITS PRODUCERS (UE: the async dispatch right after the depth / G-buffer it reads). From
+            // the fork back, a pass the fork needs stays before it: the fork itself, an async pass and a queued
+            // upload, a pass any async pass reads (moving it later would move that pass's fork later) and a pass
+            // with a staying successor before the fork. Every other graphics pass that does not sink moves, in
+            // its order, to right after the fork: the fork signals once the work it needs is done, not behind
+            // work only later graphics passes read. Every dependency edge keeps its direction.
+            // A fork a raster pass continues (a render-pass merge across it) takes nothing after it.
+            bool hoisting = false;
+            if ( forkEnd > earlyStart + 1 &&
+                 !( isRaster( forkEnd - 1 ) && isRaster( forkEnd ) && dependsOn( forkEnd, forkEnd - 1 ) ) )
+            {
+                std::fill( need.begin() + earlyStart, need.begin() + forkEnd, false );
+                need[forkEnd - 1] = true;
+                for ( uint32_t q = forkEnd - 1; q-- > earlyStart; )
+                {
+                    if ( sunk[q] )
+                        continue;
+                    bool stays = m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload;
+                    for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && !stays; ++k )
+                    {
+                        const uint32_t to = succs[k];
+                        stays             = m_PipeAt[to] != Pipe::Graphics || ( to < forkEnd && need[to] );
+                    }
+                    need[q]  = stays;
+                    early[q] = !stays;
+                    hoisting = hoisting || !stays;
+                }
+            }
+            if ( !sinking && !hoisting )
                 continue;
+            // [settled, the fork] that stays, the passes moved past the fork, the fork's window up to the
+            // insertion point, the sunk passes, the rest.
+            const uint32_t limit = sinking ? insertAt : forkEnd;
             order.clear();
             order.reserve( m_ExecutedCount );
-            for ( uint32_t q = 0; q < scanStart; ++q )
+            for ( uint32_t q = 0; q < earlyStart; ++q )
                 order.push_back( q );
-            for ( uint32_t q = scanStart; q < insertAt; ++q )
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
             {
-                if ( !sunk[q] )
+                if ( !sunk[q] && !early[q] )
                     order.push_back( q );
             }
-            for ( uint32_t q = scanStart; q < insertAt; ++q )
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
+            {
+                if ( early[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = forkEnd; q < limit; ++q )
+                order.push_back( q );
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
             {
                 if ( sunk[q] )
                     order.push_back( q );
             }
-            for ( uint32_t q = insertAt; q < m_ExecutedCount; ++q )
+            for ( uint32_t q = limit; q < m_ExecutedCount; ++q )
                 order.push_back( q );
             ScratchVector<uint32_t> executed( m_ExecutedCount );
             ScratchVector<Pipe>     pipes( m_ExecutedCount );
