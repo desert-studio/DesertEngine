@@ -1077,36 +1077,81 @@ namespace Desert::Graphic::API::Vulkan
                                                compute.GetSpecification().DebugName );
 
         // The other route: the pipeline's own setters (asset textures, out-of-graph buffers), set 0.
-        RdgOtherRoute other;
+        // FPS-CPU2-VKRECORD: the thread's scratch (a context records on one thread), so no slot list is allocated.
+        thread_local RdgOtherRoute t_Other;
+        RdgOtherRoute&             other = t_Other;
+        other.Filled.clear();
         for ( const uint32_t binding : compute.GetBoundBindings() )
             other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
         other.PushConstants = !compute.GetBoundPushConstants().empty();
+        const bool setters  = !other.Filled.empty();
 
-        const auto resolved =
-             ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ), shader->GetName(), bindings,
-                                     other );
-        if ( !resolved )
-            return Common::MakeError( resolved.GetError() );
-        const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, resolved.GetValue(), pass,
-                               !other.Filled.empty(), nullptr );
-        if ( !sets )
-            return Common::MakeError( sets.GetError() );
-        if ( !other.Filled.empty() )
+        // FPS-CPU2-VKRECORD (GPU-COST-36's memo, as the graphics draws use it): the sets an earlier dispatch of
+        // this pass exec wrote from the same block, shader and layout are bound again; only the first resolves
+        // and writes. A pipeline with setters is kept out: its set 0 is written for each dispatch
+        // (WriteBoundResources).
+        VulkanRdgPassSetMemo* memo = nullptr;
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): the shader's address is the memo's identity
+        const VulkanRdgPassSetMemo::Key key{ .Block          = bindings.GetBlock(),
+                                             .Shader         = reinterpret_cast<std::uintptr_t>( shader ),
+                                             .Layout         = built.Layout,
+                                             .MaterialPush   = other.PushConstants,
+                                             .BlockPushBytes = bindings.GetPushConstants().size() };
+        // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+        std::optional<std::span<const VkDescriptorSet>> kept;
+        if ( !setters )
         {
-            if ( sets.GetValue().empty() )
-                return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not",
-                                                   pass );
-            if ( const Common::BoolResultStr written = compute.WriteBoundResources( built, sets.GetValue()[0] );
-                 !written.IsSuccess() )
-                return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
+            const Common::ResultStr<VulkanRdgPassSetMemo*> memoOf = VulkanRdgBackend::SetMemoOf( context );
+            if ( !memoOf )
+                return Common::MakeError( memoOf.GetError() );
+            memo = memoOf.GetValue();
+            kept = memo->Find( key );
         }
+        std::vector<VkDescriptorSet> fresh; // a memo miss's sets (the writer's own vector, moved)
+        if ( !kept.has_value() )
+        {
+            const auto resolved = ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ),
+                                                          shader->GetName(), bindings, other );
+            if ( !resolved )
+                return Common::MakeError( resolved.GetError() );
+            auto written =
+                 WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, resolved.GetValue(), pass, setters,
+                                   nullptr );
+            if ( !written )
+                return Common::MakeError( written.GetError() );
+            fresh = std::move( written.GetValue() );
+            if ( setters )
+            {
+                if ( fresh.empty() )
+                    return Common::MakeFormattedError( "{}: the pipeline's setters fill set 0, which it has not",
+                                                       pass );
+                if ( const Common::BoolResultStr filled = compute.WriteBoundResources( built, fresh[0] );
+                     !filled.IsSuccess() )
+                    return Common::MakeFormattedError( "{}: {}", pass, filled.GetError() );
+                kept = std::span<const VkDescriptorSet>( fresh );
+            }
+            else
+                kept = memo->Keep( key, fresh );
+        }
+        const std::span<const VkDescriptorSet> sets = *kept;
 
-        vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
-        if ( !sets.GetValue().empty() )
-            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout,
-                                     0, static_cast<uint32_t>( sets.GetValue().size() ), sets.GetValue().data(), 0,
-                                     nullptr );
+        // FPS-CPU2-VKRECORD (CPU-FRAME-6's skip, for compute): the pipeline and the sets are recorded only when
+        // the command buffer does not hold exactly these, bound with this layout and no foreign bind since.
+        VulkanBoundCompute& boundCompute = Recording().BoundCompute;
+        const bool          known        = boundCompute.On( cmd.GetValue() );
+        if ( !known || boundCompute.Pipeline != built.Pipeline )
+        {
+            vkCmdBindPipeline( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Pipeline );
+            boundCompute.Pipeline = built.Pipeline;
+        }
+        if ( !sets.empty() &&
+             ( boundCompute.SetsLayout != built.Layout || !std::ranges::equal( boundCompute.Sets, sets ) ) )
+        {
+            vkCmdBindDescriptorSets( cmd.GetValue(), VK_PIPELINE_BIND_POINT_COMPUTE, built.Layout, 0,
+                                     static_cast<uint32_t>( sets.size() ), sets.data(), 0, nullptr );
+            boundCompute.SetsLayout = built.Layout;
+            boundCompute.Sets.assign( sets.begin(), sets.end() );
+        }
         const std::span<const std::byte> push = ChoosePushConstants( bindings, compute.GetBoundPushConstants() );
         if ( !push.empty() )
             vkCmdPushConstants( cmd.GetValue(), built.Layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
