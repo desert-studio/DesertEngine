@@ -6,6 +6,7 @@
 #include <vulkan/vulkan.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -28,7 +29,9 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgQueueObjects& operator=( const VulkanRdgQueueObjects& ) = delete;
 
         // The frame loop, after the slot's fence: resets the slot's command pools; its command buffers and
-        // semaphores become reusable.
+        // semaphores become reusable. FPS-CPU2-TAILS (UE: the RHI thread recycles command pools on tasks): the
+        // vkResetCommandPool calls run as High jobs; the first BeginCommandBuffer / ReserveChunkArenas /
+        // BeginChunkCommandBuffer of the slot joins them (JoinResets) and returns a failed reset as its error.
         Common::BoolResultStr BeginFrameSlot( uint32_t slot );
         // A primary command buffer of the current slot on @p pipe, begun (one-time submit).
         Common::ResultStr<VkCommandBuffer> BeginCommandBuffer( RDG::Pipe pipe );
@@ -66,10 +69,43 @@ namespace Desert::Graphic::API::Vulkan
             uint32_t                 SemaphoresUsed = 0;
         };
 
+        // The claim word of the pool resets of one BeginFrameSlot: generation (bits 32..63), reset count (16..31),
+        // next unclaimed index (0..15). A job or the joining thread CAS-claims indices while the generation is
+        // its own; the list and the pools are read only after a won claim (acq_rel), so a stale job of an
+        // earlier frame never reads a list the next BeginFrameSlot is refilling.
+        static constexpr uint64_t kClaimIndexMask = 0xFFFFull;
+        static constexpr uint32_t kMaxResetJobs   = 4;
+        static uint64_t           ClaimGeneration( uint64_t claim ) noexcept
+        {
+            return claim >> 32;
+        }
+        static uint32_t ClaimCount( uint64_t claim ) noexcept
+        {
+            return static_cast<uint32_t>( ( claim >> 16 ) & 0xFFFF );
+        }
+        static uint32_t ClaimNext( uint64_t claim ) noexcept
+        {
+            return static_cast<uint32_t>( claim & kClaimIndexMask );
+        }
+        // Claims and resets pools of generation @p generation until every index is claimed or the claim word
+        // moved to another generation. The pointers in m_ResetList stay valid until the join: ChunkArenas grows
+        // only in ReserveChunkArenas, which joins first.
+        void RunResets( uint64_t generation ) noexcept;
+        void ResetOne( PipePool& pool ) noexcept;
+        // Claims the slot's unclaimed resets on the calling thread, then waits for the claimed ones (each is
+        // running: a claim is taken by a running job, never by a queued one). The first failed reset as error.
+        Common::BoolResultStr JoinResets() noexcept;
+
         VkDevice                               m_Device = VK_NULL_HANDLE;
         std::array<std::optional<uint32_t>, 2> m_Families; // by RDG::Pipe; no compute family: empty
         std::vector<Slot>                      m_Slots;
         uint32_t                               m_Slot = 0;
+        // FPS-CPU2-TAILS: the pools BeginFrameSlot handed to the reset jobs (capacity kept: no heap per frame).
+        std::vector<PipePool*> m_ResetList;
+        std::atomic<uint64_t>  m_ResetClaim{ 0 };
+        std::atomic<uint32_t>  m_ResetDone{ 0 };
+        std::atomic<int32_t>   m_ResetFailure{ VK_SUCCESS }; // first failed VkResult of the slot
+        std::atomic<uint32_t>  m_ResetJobsPending{ 0 };      // submitted, not yet returned
     };
 
     // RDG-CONTRACTS B(3). The queues the graph records onto and the per-frame-slot objects that sync them.

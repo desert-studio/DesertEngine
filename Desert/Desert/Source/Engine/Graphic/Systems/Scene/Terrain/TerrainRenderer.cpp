@@ -263,6 +263,16 @@ namespace Desert::Graphic::System
         // half is the tile's sections' table (LandscapeSectionLodsOf); the tile's grid is the floor of its finest
         // section's LOD, each section's raster draw the floor of its own (LandscapeDrawSplitOf), and every vertex
         // morphs from there by its blended one (LandscapeVertexEval.glslh LandscapeVertexLod).
+        // THE LOD HALF OF A TILE'S ROW (LandscapeInstance): the finest section's LOD, the grid it draws (its
+        // floor) and every section's. A light's row is the tile's row with no LOD (TerrainRenderer::LightQueueKey)
+        // and the light's LODs put on it here, so the two halves cannot drift apart.
+        void SetInstanceLods( TerrainInstance& instance, const LandscapeSectionLodTable& lod )
+        {
+            instance.Params.y    = lod.Finest;
+            instance.Params.w    = std::floor( lod.Finest );
+            instance.SectionLods = lod.Lods;
+        }
+
         TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeSectionLodTable& lod,
                                            const TerrainLayerInputs& layers )
         {
@@ -284,7 +294,7 @@ namespace Desert::Graphic::System
             instance.Sections        = glm::vec4( static_cast<float>( LandscapeSectionQuads( l.QuadsPerTile ) ),
                                                   static_cast<float>( LandscapeSectionCount( l.QuadsPerTile ) ),
                                                   static_cast<float>( LandscapeSectionMaxLod( l.QuadsPerTile ) ), 0.0f );
-            instance.SectionLods     = lod.Lods;
+            SetInstanceLods( instance, lod );
             instance.LayerColors     = t.Weights.Colors;
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
             instance.GrassCover      = t.Weights.GrassCover;
@@ -897,20 +907,15 @@ namespace Desert::Graphic::System
             return shader != nullptr ? shader->GetCodeGeneration() : 0u;
         }
 
-        // ONE UPLOAD PER GROUP (SCENE-CACHE-2; UE Landscape: one uniform buffer per component, read by every
-        // pass): the first program of a group that declares the block takes the group's rows into its own buffer
-        // (@p uploaded := @p block); every later program reads that same buffer (SetBuffer of the same buffer
-        // again is no write), so the surface, the two casters and the depth prepass cost one upload, not four.
-        void ShareGroupRows( StorageBufferProperty*& uploaded, StorageBufferProperty& block, const void* data,
-                             const uint32_t bytes )
+        // The serial of the program @p material draws with (Shader::GetSerial): another program object (a
+        // permutation, a reload) moves it, and with it the material's properties.
+        uint64_t ProgramSerial( const DataDrivenMaterial& material )
         {
-            if ( uploaded == nullptr || uploaded->GetOwnedStorageBuffer() == nullptr )
-            {
-                block.SetRawData( data, bytes );
-                uploaded = &block;
-                return;
-            }
-            block.SetBuffer( uploaded->GetOwnedStorageBuffer() );
+            const MaterialExecutor* executor = material.GetMaterialExecutor();
+            if ( executor == nullptr )
+                return 0u;
+            const std::shared_ptr<Shader>& shader = executor->GetShader();
+            return shader != nullptr ? shader->GetSerial() : 0u;
         }
     } // namespace
 
@@ -1602,24 +1607,16 @@ namespace Desert::Graphic::System
         DESERT_PROFILE_PASS( "Terrain: Upload rows" );
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials const& materials = *group.Materials;
-            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
-            // ONE upload per group (SCENE-CACHE-2, ShareGroupRows): the programs that declare the block read the
-            // first one's buffer.
-            StorageBufferProperty* uploaded = nullptr;
-            for ( DataDrivenMaterial* material :
-                  { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
-            {
-                // The depth-only programs (the casters, the view's depth prepass) have no Materials[] row block
-                // (no Properties block): for them the slot is optional.
-                const bool shadowProgram = material != surface;
-                auto*      rows = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
-                                                : material->Get<StorageBufferProperty>( kMaterialRowBlock );
-                if ( rows )
-                    if ( !group.ParamRows.empty() )
-                        ShareGroupRows( uploaded, *rows, group.ParamRows.data(),
-                                        static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
-            }
+            if ( group.ParamRows.empty() )
+                continue;
+            ProgramMaterials&   materials = *group.Materials;
+            DataDrivenMaterial* surface =
+                 deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (UploadGroupRows): the programs that declare the block read the first one's
+            // buffer; a frame-in-flight copy that already holds these rows is not written again.
+            UploadGroupRows( materials.ParamUpload, RowBlocksOf( materials, surface ).Params,
+                             group.ParamRows.data(),
+                             static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
         }
     }
 
@@ -1637,6 +1634,106 @@ namespace Desert::Graphic::System
         }
         m_LocalLightDraws.clear();
         m_CascadeDraws.clear();
+    }
+
+    const TerrainRenderer::ProgramMaterials::RowBlocks& TerrainRenderer::RowBlocksOf( ProgramMaterials& materials,
+                                                                                      DataDrivenMaterial* surface )
+    {
+        ProgramMaterials::RowBlocks&             blocks = materials.Blocks;
+        const std::array<DataDrivenMaterial*, 4> programs{ surface, materials.Shadow.get(),
+                                                           materials.VirtualShadow.get(), materials.Depth.get() };
+        bool                                     same = blocks.Valid;
+        for ( size_t k = 0; k < programs.size() && same; ++k )
+        {
+            const DataDrivenMaterial* program = programs[k];
+            same                              = blocks.Programs[k] == program &&
+                   blocks.Serials[k] == ( program != nullptr ? ProgramSerial( *program ) : 0u ) &&
+                   blocks.Generations[k] == ( program != nullptr ? ProgramGeneration( *program ) : 0u );
+        }
+        if ( same )
+            return blocks;
+        for ( size_t k = 0; k < programs.size(); ++k )
+        {
+            DataDrivenMaterial* program = programs[k];
+            blocks.Programs[k]          = program;
+            blocks.Serials[k]           = 0u;
+            blocks.Generations[k]       = 0u;
+            blocks.Params[k]            = nullptr;
+            blocks.Instances[k]         = nullptr;
+            if ( program == nullptr )
+                continue;
+            blocks.Serials[k]     = ProgramSerial( *program );
+            blocks.Generations[k] = ProgramGeneration( *program );
+            // The depth-only programs (the casters, the view's depth prepass) have no Materials[] row block (no
+            // Properties block): for them the slot is optional.
+            if ( k == 0 )
+                blocks.Params[k] = program->Get<StorageBufferProperty>( kMaterialRowBlock );
+            else
+                blocks.Params[k] = program->Find<StorageBufferProperty>( kMaterialRowBlock );
+            blocks.Instances[k] = program->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances );
+        }
+        blocks.Valid = true;
+        return blocks;
+    }
+
+    // ONE UPLOAD PER GROUP (SCENE-CACHE-2; UE Landscape: one uniform buffer per component, read by every pass):
+    // the first program of a group that declares the block takes the group's rows into its own buffer; every later
+    // program reads that same buffer (SetBuffer of the same buffer again is no write), so the surface, the two
+    // casters and the depth prepass cost one upload, not four. FPS-CPU2-TAILS: and none when the frame-in-flight
+    // copy already holds these bytes (ProgramMaterials::RowUpload).
+    void TerrainRenderer::UploadGroupRows( ProgramMaterials::RowUpload&                 upload,
+                                           const std::array<StorageBufferProperty*, 4>& blocks, const void* data,
+                                           const uint32_t bytes )
+    {
+        StorageBufferProperty* uploaded = nullptr;
+        for ( StorageBufferProperty* block : blocks )
+        {
+            if ( block == nullptr )
+                continue;
+            if ( uploaded != nullptr && uploaded->GetOwnedStorageBuffer() != nullptr )
+            {
+                block->SetBuffer( uploaded->GetOwnedStorageBuffer() );
+                continue;
+            }
+            uploaded                                                      = block;
+            const std::shared_ptr<ShaderResources::StorageBuffer>& target = block->GetOwnedStorageBuffer();
+            const auto* const                                      from   = static_cast<const std::byte*>( data );
+            const bool same = upload.Target == target.get() && upload.Bytes.size() == bytes &&
+                              ( bytes == 0u || std::memcmp( upload.Bytes.data(), data, bytes ) == 0 );
+            if ( !same )
+            {
+                upload.Bytes.assign( from, from + bytes );
+                upload.Target = target.get();
+                ++upload.Version; // from 1: a copy made since holds version 0, behind every write
+            }
+            if ( same && target != nullptr && block->IsWritten() &&
+                 target->ActiveAppliedVersion() >= upload.Version )
+                continue;
+            if ( block->WriteRawData( data, bytes ) && target != nullptr )
+                target->NoteActiveApplied( upload.Version );
+        }
+    }
+
+    uint64_t TerrainRenderer::LightQueueKey()
+    {
+        m_LightBaseRows.resize( m_Queue.size() );
+        ShadowSignatureHash hash;
+        hash.Add( static_cast<uint64_t>( m_Queue.size() ) );
+        for ( size_t i = 0; i < m_Queue.size(); ++i )
+        {
+            const TerrainDrawData& t     = m_Queue[i];
+            const size_t           group = m_FrameDraws[i].Group;
+            m_LightBaseRows[i] = LandscapeInstance( t, LandscapeSectionLodTable{}, *m_FrameGroups[group].Layers );
+            // The base row holds every tile field the lights' LOD, reach test and key read (origin, base, spacing,
+            // first sample, quads, height scale, neighbours); the rest is what their signature names.
+            hash.Add( m_LightBaseRows[i] );
+            hash.Add( static_cast<uint64_t>( group ) );
+            hash.Add( t.Heightmap );
+            hash.Add( t.Landscape.HeightRevision );
+            hash.Add( t.Weights.Weightmap );
+            hash.Add( t.Weights.Revision );
+        }
+        return hash.Value;
     }
 
     std::vector<TerrainRenderer::FrameDraw> TerrainRenderer::TakeDrawList()
@@ -1826,73 +1923,127 @@ namespace Desert::Graphic::System
         // every step of the camera re-keyed and redrew every local view that reached terrain. The rows go after
         // the camera's in the same group buffers (one upload, before any draw); a local row is an instance row
         // only — the shadow program reads no param row.
-        for ( LocalLightDraws& local : m_LocalLightDraws )
+        if ( !m_LocalLightDraws.empty() )
         {
-            m_LightTileLods.clear();
-            for ( const auto& t : m_Queue )
-                if ( TileMeetsDisc( t.Landscape, local.Light.Lod.Origin, local.Light.Reach ) )
-                    SetTileLods( m_LightTileLods, KeyOf( t.Landscape, 0, 0 ),
-                                 TileSectionLods( t.Landscape, local.Light.Lod ) );
-            SealTileLods( m_LightTileLods );
-
-            ShadowSignatureHash hash;
-            for ( std::size_t i = 0; i < m_Queue.size(); ++i )
+            const uint64_t   queueKey = LightQueueKey();
+            const uint64_t   frame    = m_PrepareSerial;
+            constexpr size_t kNoSlot  = ~size_t{ 0 };
+            const auto keyed = [queueKey]( const LightDrawCacheEntry& entry, const LocalShadowCasterLight& light )
             {
-                const TerrainDrawData&   t = m_Queue[i];
-                const LandscapeTileDraw& l = t.Landscape;
-                if ( FindTileLods( m_LightTileLods, KeyOf( l, 0, 0 ) ) == nullptr )
-                    continue;
-                FrameGroup&           group    = m_FrameGroups[m_FrameDraws[i].Group];
-                // The same layer inputs as the camera's row (resolved above this frame); the shadow program
-                // reads none of them, the row is whole.
-                const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( l, m_LightTileLods ), *group.Layers );
-
-                FrameDraw draw;
-                draw.Group = m_FrameDraws[i].Group;
-                draw.Row   = static_cast<uint32_t>( group.Instances.size() );
-                draw.VertexCount =
-                     LandscapeLodVertexCount( l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
-                SplitDraw( draw, l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
-                local.Draws.push_back( draw );
-                group.Instances.push_back( instance );
-
-                // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer
-                // colours), the heightmap and its texels' revision, and the weightmap where the tile has a
-                // visibility layer (its holes).
-                hash.Add( instance.Params );
-                hash.Add( instance.Params2 );
-                hash.Add( instance.LandscapeFrame );
-                hash.Add( instance.LandscapeTile );
-                hash.Add( instance.Sections );
-                for ( const glm::vec4& lods : instance.SectionLods )
-                    hash.Add( lods );
-                hash.Add( draw.VertexCount );
-                hash.Add( t.Heightmap );
-                hash.Add( l.HeightRevision );
-                if ( t.Weights.VisibilityLayer >= 0 )
+                return entry.QueueKey == queueKey && entry.Reach == light.Reach &&
+                       entry.Origin == light.Lod.Origin && entry.Projection == light.Lod.Projection;
+            };
+            // The lights an entry holds first, so a light that moved never takes the entry of one that did not.
+            m_LightCacheSlots.assign( m_LocalLightDraws.size(), kNoSlot );
+            for ( size_t li = 0; li < m_LocalLightDraws.size(); ++li )
+            {
+                for ( size_t e = 0; e < m_LightDrawCache.size(); ++e )
                 {
-                    hash.Add( t.Weights.Weightmap );
-                    hash.Add( t.Weights.Revision );
+                    if ( !keyed( m_LightDrawCache[e], m_LocalLightDraws[li].Light ) )
+                        continue;
+                    m_LightCacheSlots[li]         = e;
+                    m_LightDrawCache[e].UsedFrame = frame;
+                    break;
                 }
             }
-            local.Signature = hash.Value;
+            // The others build their draws into an entry no light of this frame uses.
+            for ( size_t li = 0; li < m_LocalLightDraws.size(); ++li )
+            {
+                if ( m_LightCacheSlots[li] != kNoSlot )
+                    continue;
+                size_t slot = 0;
+                while ( slot < m_LightDrawCache.size() && m_LightDrawCache[slot].UsedFrame == frame )
+                    ++slot;
+                if ( slot == m_LightDrawCache.size() )
+                    m_LightDrawCache.emplace_back();
+                m_LightCacheSlots[li]               = slot;
+                LightDrawCacheEntry&          entry = m_LightDrawCache[slot];
+                const LocalShadowCasterLight& light = m_LocalLightDraws[li].Light;
+                entry.Origin                        = light.Lod.Origin;
+                entry.Projection                    = light.Lod.Projection;
+                entry.Reach                         = light.Reach;
+                entry.QueueKey                      = queueKey;
+                entry.UsedFrame                     = frame;
+                entry.Draws.clear();
+                entry.Rows.clear();
+
+                m_LightTileLods.clear();
+                for ( const auto& t : m_Queue )
+                    if ( TileMeetsDisc( t.Landscape, light.Lod.Origin, light.Reach ) )
+                        SetTileLods( m_LightTileLods, KeyOf( t.Landscape, 0, 0 ),
+                                     TileSectionLods( t.Landscape, light.Lod ) );
+                SealTileLods( m_LightTileLods );
+
+                ShadowSignatureHash hash;
+                for ( std::size_t i = 0; i < m_Queue.size(); ++i )
+                {
+                    const TerrainDrawData&   t = m_Queue[i];
+                    const LandscapeTileDraw& l = t.Landscape;
+                    if ( FindTileLods( m_LightTileLods, KeyOf( l, 0, 0 ) ) == nullptr )
+                        continue;
+                    // The tile's row with no LOD (the same layer inputs as the camera's row; the shadow program
+                    // reads none of them, the row is whole) and the light's LODs on it.
+                    TerrainInstance instance = m_LightBaseRows[i];
+                    SetInstanceLods( instance, TileLodsOf( l, m_LightTileLods ) );
+
+                    FrameDraw draw;
+                    draw.Group = m_FrameDraws[i].Group;
+                    draw.VertexCount =
+                         LandscapeLodVertexCount( l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
+                    SplitDraw( draw, l.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
+                    entry.Draws.push_back( draw );
+                    entry.Rows.push_back( instance );
+
+                    // What TerrainShadow.shader reads: the placement and LOD fields of the row (not the layer
+                    // colours), the heightmap and its texels' revision, and the weightmap where the tile has a
+                    // visibility layer (its holes).
+                    hash.Add( instance.Params );
+                    hash.Add( instance.Params2 );
+                    hash.Add( instance.LandscapeFrame );
+                    hash.Add( instance.LandscapeTile );
+                    hash.Add( instance.Sections );
+                    for ( const glm::vec4& lods : instance.SectionLods )
+                        hash.Add( lods );
+                    hash.Add( draw.VertexCount );
+                    hash.Add( t.Heightmap );
+                    hash.Add( l.HeightRevision );
+                    if ( t.Weights.VisibilityLayer >= 0 )
+                    {
+                        hash.Add( t.Weights.Weightmap );
+                        hash.Add( t.Weights.Revision );
+                    }
+                }
+                entry.Signature = hash.Value;
+            }
+            // Every light's rows after the camera's in its groups' buffers, in light order (as they were built).
+            for ( size_t li = 0; li < m_LocalLightDraws.size(); ++li )
+            {
+                LocalLightDraws&           local = m_LocalLightDraws[li];
+                const LightDrawCacheEntry& entry = m_LightDrawCache[m_LightCacheSlots[li]];
+                for ( size_t k = 0; k < entry.Draws.size(); ++k )
+                {
+                    FrameDraw   draw  = entry.Draws[k];
+                    FrameGroup& group = m_FrameGroups[draw.Group];
+                    draw.Row          = static_cast<uint32_t>( group.Instances.size() );
+                    local.Draws.push_back( draw );
+                    group.Instances.push_back( entry.Rows[k] );
+                }
+                local.Signature = entry.Signature;
+            }
         }
 
         // ── The instance rows, the camera's and the lights', once, still before any draw ──────────────
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {
-            ProgramMaterials const& materials = *group.Materials;
-            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
-            // ONE upload per group (SCENE-CACHE-2): the first program's buffer takes the rows, the other three
-            // read that same buffer (ShareGroupRows) - the rows are identical by construction.
-            StorageBufferProperty* uploaded = nullptr;
-            for ( DataDrivenMaterial* material :
-                  { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
-                if ( auto* instances =
-                          material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
-                    ShareGroupRows( uploaded, *instances, group.Instances.data(),
-                                    static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
+            ProgramMaterials&   materials = *group.Materials;
+            DataDrivenMaterial* surface =
+                 deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (UploadGroupRows): the first program's buffer takes the rows, the other three
+            // read that same buffer - the rows are identical by construction.
+            UploadGroupRows( materials.InstanceUpload, RowBlocksOf( materials, surface ).Instances,
+                             group.Instances.data(),
+                             static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
         }
     }
 

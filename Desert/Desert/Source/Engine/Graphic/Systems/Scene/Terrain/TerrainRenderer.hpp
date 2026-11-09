@@ -31,6 +31,7 @@ namespace Desert::Graphic
 {
     struct ViewFrame;
     class FrameTextures;
+    class StorageBufferProperty;
     struct SceneViewInputs;
 }
 
@@ -309,6 +310,7 @@ namespace Desert::Graphic::System
             // The pooled group slots and the tile proxies name the sets and the layer inputs below: they go first.
             m_FrameGroupPool.clear();
             m_TileProxies.clear();
+            m_LightDrawCache.clear(); // its draws name the old world's groups
             m_Materials.clear();
             m_LayerInputs.clear();
         }
@@ -394,6 +396,33 @@ namespace Desert::Graphic::System
                 const Image2D*                                    Heightmap = nullptr;
                 const Image2D*                                    Weightmap = nullptr;
             } Bound;
+
+            // FPS-CPU2-TAILS, THE GROUP'S ROW BLOCKS (UE: a shader's uniform-buffer slots are resolved once per
+            // shader map): each program's Materials[] and TerrainInstances storage-buffer properties, in the
+            // order surface, Shadow, VirtualShadow, Depth, found by name once per (program, serial, code
+            // generation) - a recompile rebuilds a material's properties. Null: the program declares no block.
+            struct RowBlocks
+            {
+                std::array<const DataDrivenMaterial*, 4> Programs{};
+                std::array<uint64_t, 4>                  Serials{};
+                std::array<uint64_t, 4>                  Generations{};
+                std::array<StorageBufferProperty*, 4>    Params{};
+                std::array<StorageBufferProperty*, 4>    Instances{};
+                bool                                     Valid = false;
+            } Blocks;
+            // THE GROUP'S LAST UPLOAD per block (UE FRDGBuilder: an upload of unchanged contents is skipped): the
+            // bytes, the buffer they went to and their version. A new version is taken when the bytes or the
+            // buffer change; a frame-in-flight copy that already holds the version
+            // (StorageBuffer::ActiveAppliedVersion) is not written again. Only this group writes its buffers
+            // (ShareGroupRows), so the version is the copy's contents.
+            struct RowUpload
+            {
+                std::vector<std::byte>                Bytes;
+                const ShaderResources::StorageBuffer* Target  = nullptr;
+                uint64_t                              Version = 0u;
+            };
+            RowUpload ParamUpload;
+            RowUpload InstanceUpload;
         };
 
         // A frame's terrains sharing one texture set. m_Materials owns the set; the group points at it and at its
@@ -651,6 +680,14 @@ namespace Desert::Graphic::System
         // the values once per row revision, both kept in @p materials.
         const TerrainRowValues& RowValuesOf( ProgramMaterials& materials, const DataDrivenMaterial& surface,
                                              const DataDrivenMaterial::ParamRowView& row );
+        // The group's row-block properties for this frame's @p surface (ProgramMaterials::RowBlocks): resolved by
+        // name only when a program, its serial or its code generation moved.
+        const ProgramMaterials::RowBlocks& RowBlocksOf( ProgramMaterials& materials, DataDrivenMaterial* surface );
+        // ONE UPLOAD PER GROUP with the unchanged-contents skip of ProgramMaterials::RowUpload:
+        // the first non-null block of @p blocks takes @p bytes bytes, every later one reads its buffer.
+        static void UploadGroupRows( ProgramMaterials::RowUpload&                 upload,
+                                     const std::array<StorageBufferProperty*, 4>& blocks, const void* data,
+                                     uint32_t bytes );
         // Every tile's persistent proxy (TileProxy), by entity.
         std::unordered_map<uint32_t, TileProxy> m_TileProxies;
         // Counts PrepareFrame calls: ProgramMaterials::GroupFrame names the frame a set's group opened in.
@@ -681,6 +718,33 @@ namespace Desert::Graphic::System
         // rows are casters' only.
         void                         PrepareVirtualShadowRows( const glm::vec3& eye, float diceWidthPerCm );
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
+
+        // FPS-CPU2-TAILS, A LIGHT'S TERRAIN DRAWS CACHED (UE: cached shadow-depth mesh draw commands, rebuilt when
+        // the primitive or the light changes): what PrepareLocalShadowViews derived for one light - its draws (Row
+        // left to the replay), their instance rows and their signature - keyed on the light's LOD view, its reach
+        // and the queue key (LightQueueKey: every input of a light's rows besides its own view). A light whose key
+        // equals an entry's replays it: its rows go after this frame's camera rows with no LOD, row or hash work.
+        struct LightDrawCacheEntry
+        {
+            glm::vec3                    Origin{ 0.0f };
+            glm::mat4                    Projection{ 1.0f };
+            float                        Reach     = 0.0f;
+            uint64_t                     QueueKey  = 0u;
+            uint64_t                     Signature = 0u;
+            uint64_t                     UsedFrame = 0u; // m_PrepareSerial of its last use
+            std::vector<FrameDraw>       Draws;
+            std::vector<TerrainInstance> Rows; // parallel to Draws
+        };
+        // Entries persist across frames, cleared and refilled with their capacity kept (a light that moved takes
+        // an entry no light of this frame used).
+        std::vector<LightDrawCacheEntry> m_LightDrawCache;
+        // Per-frame scratch, capacity kept: every queued tile's row with no LOD (LandscapeInstance's light
+        // independent half, parallel to m_Queue) and each light's cache entry (parallel to m_LocalLightDraws).
+        std::vector<TerrainInstance> m_LightBaseRows;
+        std::vector<size_t>          m_LightCacheSlots;
+        // The base rows of m_Queue for this frame and the key of every input a light's rows read besides its own
+        // view: the base rows, the tiles' groups, their heightmaps and weightmaps and those maps' revisions.
+        uint64_t LightQueueKey();
         // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a
         // view with no cascade this frame.
         std::vector<std::vector<FrameDraw>> m_CascadeDraws;
