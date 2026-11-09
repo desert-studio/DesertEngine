@@ -1,0 +1,74 @@
+#ifndef TRANSLUCENCY_LIGHTING_VOLUME_GLSLH
+#define TRANSLUCENCY_LIGHTING_VOLUME_GLSLH
+
+// THE TRANSLUCENCY LIGHTING VOLUME (UE TranslucentLighting.cpp / TranslucencyLightingVolume, reimplemented): two
+// world-axis-aligned cascades centred on the camera - the inner one of TLV_CASCADE_HALF_EXTENT[0] cm, the outer of
+// TLV_CASCADE_HALF_EXTENT[1] cm (UE r.TranslucencyLightingVolumeInnerDistance / OuterDistance) - each cut into
+// Effects.TranslucencyLightingVolumeDim cells per edge, each cell holding the MEAN INCIDENT RADIANCE at its centre
+// (the integral of the light arriving from every direction over 4 pi: SH L0 / (Y00 * 4 pi)) - the sun through its
+// cascades and the cloud layer's shadow, the point and spot lights of the view's light grid through their
+// shadows, and the sky light (the surfaces' irradiance cube) through the view's sky occlusion. Filled once a
+// frame by "Translucency: Lighting Volume" (Programs/Lighting/TranslucencyLightingVolume.shader,
+// System::TranslucencyLightingVolumeRenderer) when a lit particle draws; read by the lit particle cells
+// (Mesh/Surface/Pass_ParticleSprite.glslh) - UE's TLM_VolumetricNonDirectional, its default for lit particles.
+//
+// ONE TEXT for the writer and the reader: the cascades' extents, their snap and the texel layout live only here.
+// The two cascades are stacked along z in ONE RGBA16F volume of dim x dim x (2 dim): cascade c owns slices
+// [c dim, (c + 1) dim). Its dimension is read from the volume itself, so the reader needs no parameter block.
+// The cascade's origin snaps to whole cells (TlvCascadeMin), so a moving camera does not make the lighting swim.
+
+#define TLV_CASCADES 2u
+
+// UE r.TranslucencyLightingVolumeInnerDistance (1500) / OuterDistance (5000): each cascade's half extent (cm).
+const float TLV_CASCADE_HALF_EXTENT[2] = float[2]( 1500.0, 5000.0 );
+
+// The edge of one cell of cascade @p c (cm) when a cascade has @p dim cells per edge.
+float TlvCellSize( uint c, float dim )
+{
+    return 2.0 * TLV_CASCADE_HALF_EXTENT[c] / dim;
+}
+
+// The min corner of cascade @p c (cm): the camera's cell, @p dim / 2 cells back on every axis (dim is even).
+vec3 TlvCascadeMin( uint c, vec3 camera, float dim )
+{
+    const float cell = TlvCellSize( c, dim );
+    return ( floor( camera / cell ) - 0.5 * dim ) * cell;
+}
+
+#ifndef TLV_WRITER
+// The read side. The includer declares `LinearClampSampler` first. Bound by name (SceneViewSlot::
+// TranslucencyLightingVolume, Graphic::kTranslucencyLightingVolumeName): System.Black3D when no lit particle drew
+// this frame - a cell that declares it then never runs (its draw is the one that asked for the volume).
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+layout( binding = kTranslucencyLightingVolumeBinding ) uniform texture3D TranslucencyLightingVolumeTexture;
+#define TranslucencyLightingVolumeTexture sampler3D( TranslucencyLightingVolumeTexture, LinearClampSampler )
+
+// Cascade @p c at @p p, trilinear between cell centres and clamped half a cell inside its own slab, so the read
+// never blends the other cascade's slices in.
+vec3 TlvSampleCascade( uint c, vec3 p, vec3 camera, float dim )
+{
+    const float half_texel = 0.5 / dim;
+    vec3        uvw        = ( p - TlvCascadeMin( c, camera, dim ) ) / ( TlvCellSize( c, dim ) * dim );
+    uvw                    = clamp( uvw, vec3( half_texel ), vec3( 1.0 - half_texel ) );
+    uvw.z                  = ( uvw.z + float( c ) ) / float( TLV_CASCADES );
+    return textureLod( TranslucencyLightingVolumeTexture, uvw, 0.0 ).rgb;
+}
+
+// The mean incident radiance at world @p p (cm) seen from the camera at @p camera: the inner cascade inside its
+// box, faded into the outer one over the box's last cells (UE blends its two cascades at the inner edge too).
+vec3 TranslucencyLightingVolumeAt( vec3 p, vec3 camera )
+{
+    const float dim   = float( textureSize( TranslucencyLightingVolumeTexture, 0 ).x );
+    const vec3  outer = TlvSampleCascade( 1u, p, camera, dim );
+    const vec3  box   = abs( p - camera ) / TLV_CASCADE_HALF_EXTENT[0];
+    // Fade over the inner box's outer tenth, ending a cell inside its edge (the snap moves the edge by a cell).
+    const float edge   = max( box.x, max( box.y, box.z ) );
+    const float margin = 2.0 / dim;
+    const float inner  = 1.0 - smoothstep( 0.9 - margin, 1.0 - margin, edge );
+    if ( inner <= 0.0 )
+        return outer;
+    return mix( outer, TlvSampleCascade( 0u, p, camera, dim ), inner );
+}
+#endif // TLV_WRITER
+
+#endif // TRANSLUCENCY_LIGHTING_VOLUME_GLSLH

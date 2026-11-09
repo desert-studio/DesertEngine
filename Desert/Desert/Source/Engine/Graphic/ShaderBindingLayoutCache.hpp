@@ -35,6 +35,7 @@ namespace Desert::Graphic
         SceneDepth,
         SunShadowMask,
         SunDistanceFieldShadow,
+        TranslucencyLightingVolume,
         LocalShadowMasks,
         SceneShadingWord,
         MegaLightsVolumeR,

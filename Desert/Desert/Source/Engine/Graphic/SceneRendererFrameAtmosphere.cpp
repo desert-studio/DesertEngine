@@ -228,26 +228,19 @@ namespace Desert::Graphic
                                                  GetCloudShadowInput() ) ) );
     }
 
-    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
-                                               const ViewFrame& frame )
+    System::VolumetricFogSunInput SceneRenderer::GatherVolumeSunInput( const float scale ) const
     {
-        auto* volume = m_Systems.VolumetricFog.get();
-        if ( volume == nullptr )
-            return;
-
         // The sun exactly as the surfaces receive it: DirLights[0] after the atmosphere's transmittance
-        // (BeginScene), times its VolumetricScatteringIntensity, shadowed by the same cascades.
+        // (BeginScene), times @p scale, shadowed by the same cascades.
         System::VolumetricFogSunInput sun;
         if ( const auto& lights = m_DirectionLights.DirectionLights; !lights.empty() )
         {
             sun.Present   = true;
             sun.TowardSun = glm::normalize( -glm::vec3( lights[0].Direction ) );
-            sun.Radiance  = glm::vec3( lights[0].ColorIntensity ) * lights[0].ColorIntensity.w *
-                           glm::max( m_SunVolumetricScatteringIntensity, 0.0f );
+            sun.Radiance  = glm::vec3( lights[0].ColorIntensity ) * lights[0].ColorIntensity.w * scale;
         }
         // The sun is directional-shadow slot 0, published by the mesh renderer exactly as every receiver packs it.
-        if ( const auto* mesh = m_Systems.Mesh.get();
-             mesh != nullptr && mesh->AreShadowsEnabled() )
+        if ( const auto* mesh = m_Systems.Mesh.get(); mesh != nullptr && mesh->AreShadowsEnabled() )
         {
             // The sun is directional slot 0 (DirLights[0]); its cascades as this frame publishes them, the same
             // value the opaque receivers pack (MeshRenderer::DirectionalShadows).
@@ -267,11 +260,45 @@ namespace Desert::Graphic
         sun.CloudShadow = CloudShadowPackUniforms( GetCloudShadowInput() );
         if ( const auto* mesh = m_Systems.Mesh.get() )
             sun.SkyOcclusion = mesh->GetRainOcclusionUniforms();
+        return sun;
+    }
+
+    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
+                                               const ViewFrame& frame )
+    {
+        auto* volume = m_Systems.VolumetricFog.get();
+        if ( volume == nullptr )
+            return;
+        // The sun as the surfaces receive it, times its VolumetricScatteringIntensity.
+        const System::VolumetricFogSunInput sun =
+             GatherVolumeSunInput( glm::max( m_SunVolumetricScatteringIntensity, 0.0f ) );
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
         AddComputeNodes( graph, textures,
                          volume->DeclareFrameNodes( graph.GetFrameArena(), textures.GraphRefs(), frame, sun,
                                                     LocalShadowsAreVirtual(), m_LocalFogVolumes ) );
+    }
+
+    void SceneRenderer::AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                            const ViewFrame& frame )
+    {
+        auto* volume    = m_Systems.TranslucencyLightingVolume.get();
+        auto* particles = m_Systems.Particle.get();
+        // Zero cost when unused: no lit particle in this view's frame, no node and no volume read. Asked here,
+        // right before the particles' DrawPass, where every draw record of the frame exists (PrepareFrame, the
+        // simulate declare, the PostOpaque collision import): the volume is filled exactly when a draw reads it.
+        if ( volume == nullptr || particles == nullptr || m_ViewProfile.SceneCapture ||
+             !particles->DrawsLitSprites() )
+            return;
+        // The sun's irradiance as the surfaces receive it (no volumetric scattering scale: a particle is lit, not
+        // a medium's in-scatter).
+        const System::VolumetricFogSunInput sun = GatherVolumeSunInput( 1.0f );
+        AddComputeNodes( graph, textures,
+                         volume->DeclareFrameNodes( graph.GetFrameArena(), textures.GraphRefs(), frame, sun,
+                                                    LocalShadowsAreVirtual() ) );
+        if ( const std::shared_ptr<Image3D>& lit = volume->GetFrameVolume() )
+            textures.Transients.TranslucencyLightingVolume = textures.Import(
+                 std::shared_ptr<Image>( lit ), System::TranslucencyLightingVolumeRenderer::kVolumeName );
     }
 
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,

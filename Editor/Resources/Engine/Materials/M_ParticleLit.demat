@@ -1,0 +1,22 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "cf51fea773c548b58ab3c1eca8387601",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["d7926d5472ac436a812d51b09fc07d9d"]
+    },
+    "Shader": {
+        "Guid": "d7926d5472ac436a812d51b09fc07d9d",
+        "Path": "engine:Shaders/Programs/Particles/ParticleSpriteLit.shader"
+    },
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}

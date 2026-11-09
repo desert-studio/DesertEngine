@@ -107,6 +107,7 @@
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 #include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
+#include "Systems/Scene/Translucency/TranslucencyLightingVolume.hpp"
 
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -184,6 +185,7 @@ namespace Desert::Graphic
         class VelocityViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
+        class TranslucencyLightingVolumeRenderer;
         class WaterRenderer;
     } // namespace System
 
@@ -214,6 +216,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
         std::shared_ptr<System::HeightFogRenderer>         HeightFog;
         std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
+        std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>   VolumetricCloud;
         std::shared_ptr<System::ParticleRenderer>          Particle;
         std::shared_ptr<System::DeferredLightingRenderer>  DeferredLighting;
@@ -1580,10 +1583,11 @@ namespace Desert::Graphic
         void AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef display,
                                 const OverlayTargets& overlay );
 #endif // DESERT_DEV_INSTRUMENTS
-       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles,
-       // then the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
+       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles
+       // (after the translucency lighting volume their lit cells read, AddFrameTranslucencyLightingVolume), then
+       // the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
-        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
         // the position of this call. The frame build calls it once per point, at that point's place.
@@ -1993,6 +1997,16 @@ namespace Desert::Graphic
         // while the traced GI gathers on the async pipe (UE ComputeVolumetricFog before the lights), otherwise
         // inside AddFrameOpaqueFog.
         void AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The sun and its cascades as the surfaces receive them, for a volume lit by them (the volumetric fog,
+        // the translucency lighting volume): Radiance = DirLights[0]'s irradiance after the atmosphere x
+        // @p scale.
+        [[nodiscard]] System::VolumetricFogSunInput GatherVolumeSunInput( float scale ) const;
+        // The translucency lighting volume's fill (TranslucencyLightingVolumeRenderer) into FrameTransients::
+        // TranslucencyLightingVolume, on a frame this view draws a lit particle (ParticleRenderer::
+        // DrawsLitSprites); after the light grid, the shadow depths, the cloud shadow and the PostOpaque particle
+        // stage, right before the particles' DrawPass (AddFrameTranslucency).
+        void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                 const ViewFrame& frame );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
         // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref

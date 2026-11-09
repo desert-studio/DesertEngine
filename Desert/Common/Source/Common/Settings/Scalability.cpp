@@ -122,6 +122,11 @@ namespace Common::Scalability
              { P::VolumetricFogGridSizeZ, G::Effects, "Effects.VolumetricFogGridSizeZ", 32, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel slices)", 128,
                Vis::Advanced },
+             { P::TranslucencyLightingVolumeDim, G::Effects, "Effects.TranslucencyLightingVolumeDim", 16, 64,
+               CL::None,
+               "SceneRenderer::BeginScene -> TranslucencyLightingVolumeRenderer (\"Translucency: Lighting "
+               "Volume\")",
+               64, Vis::Advanced },
              { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
                "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")",
                1, Vis::Advanced },
