@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <utility>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
@@ -70,33 +71,53 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyLater( [held = std::move( replaced )]() mutable { held.reset(); } );
     }
 
+    void VulkanPipelineCompute::AddBoundKey( const uint32_t binding )
+    {
+        ++m_BoundKeysVersion;
+        const auto at = std::lower_bound( m_BoundBindingList.begin(), m_BoundBindingList.end(), binding );
+        if ( at == m_BoundBindingList.end() || *at != binding )
+            m_BoundBindingList.insert( at, binding );
+    }
+
     ComputePipeline& VulkanPipelineCompute::SetInput( uint32_t binding, Image* image, RDG::Access declared,
                                                       RDG::SubresourceRange range )
     {
-        if ( m_BoundInputs.insert_or_assign( binding, InputBinding{ image, declared, range } ).second )
-            ++m_BoundKeysVersion;
+        const InputBinding input{ image, dynamic_cast<IVulkanImage*>( image ), declared, range };
+        if ( m_BoundInputs.insert_or_assign( binding, input ).second )
+            AddBoundKey( binding );
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetSampler( uint32_t binding, const RDG::SamplerDesc& desc )
     {
-        if ( m_BoundSamplers.insert_or_assign( binding, desc ).second )
-            ++m_BoundKeysVersion;
+        const auto [entry, inserted] = m_BoundSamplers.try_emplace( binding );
+        if ( inserted )
+            AddBoundKey( binding );
+        else if ( entry->second.Sampler != VK_NULL_HANDLE && entry->second.Desc == desc )
+            return *this; // the same state: the cache's sampler for it is already held
+        entry->second.Desc                         = desc;
+        const Common::ResultStr<VkSampler> sampler = EngineSamplerCache().Acquire( RdgSamplerCreateInfo( desc ) );
+        entry->second.Sampler                      = VK_NULL_HANDLE;
+        if ( sampler.IsSuccess() )
+            entry->second.Sampler = sampler.GetValue();
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetOutput( uint32_t binding, Image* image, uint32_t mip )
     {
-        if ( m_BoundOutputs.insert_or_assign( binding, OutputBinding{ image, mip } ).second )
-            ++m_BoundKeysVersion;
+        const OutputBinding output{ image, dynamic_cast<IVulkanImage*>( image ), mip };
+        if ( m_BoundOutputs.insert_or_assign( binding, output ).second )
+            AddBoundKey( binding );
         return *this;
     }
 
     ComputePipeline& VulkanPipelineCompute::SetStorageBuffer( uint32_t                        binding,
                                                               ShaderResources::StorageBuffer* buffer )
     {
-        if ( m_BoundStorageBuffers.insert_or_assign( binding, buffer ).second )
-            ++m_BoundKeysVersion;
+        const StorageBufferBinding bound{
+             buffer, dynamic_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer*>( buffer ) };
+        if ( m_BoundStorageBuffers.insert_or_assign( binding, bound ).second )
+            AddBoundKey( binding );
         return *this;
     }
 
@@ -117,40 +138,52 @@ namespace Desert::Graphic::API::Vulkan
         if ( backend == nullptr )
             return Common::MakeFormattedError( "ComputePipeline '{}': no material backend; dispatch skipped",
                                                m_Specification.DebugName );
-        // The image infos must outlive UpdateDescriptorSet (each write stores a pointer into here),
-        // so reserve up front to avoid a reallocation invalidating those pointers.
-        std::vector<VkDescriptorImageInfo> infos;
-        infos.reserve( m_BoundInputs.size() + m_BoundOutputs.size() + m_BoundSamplers.size() );
-        std::vector<VkWriteDescriptorSet> writes;
+        const size_t bound =
+             m_BoundInputs.size() + m_BoundOutputs.size() + m_BoundSamplers.size() + m_BoundStorageBuffers.size();
+        if ( bound > kMaxBoundWrites )
+        {
+            return Common::MakeFormattedError( "ComputePipeline '{}': {} bound bindings, more than the {} one "
+                                               "dispatch writes; dispatch skipped",
+                                               m_Specification.DebugName, bound, kMaxBoundWrites );
+        }
+        // THE WRITES ON THE STACK (UE FVulkanDescriptorSetWriter): one write per bound binding, pointing at its
+        // info in the arrays beside it, which outlive vkUpdateDescriptorSets below. No allocation per dispatch.
+        std::array<VkDescriptorImageInfo, kMaxBoundWrites>  infos;
+        std::array<VkDescriptorBufferInfo, kMaxBoundWrites> bufferInfos;
+        std::array<VkWriteDescriptorSet, kMaxBoundWrites>   writes;
+        uint32_t                                            infoCount   = 0;
+        uint32_t                                            bufferCount = 0;
+        uint32_t                                            writeCount  = 0;
 
         // Outputs: bind the chosen mip view as a storage image (the caller has already put the image
         // into GENERAL — we never transition here, so every route that writes them shares this).
         for ( const auto& [binding, out] : m_BoundOutputs )
         {
-            auto* img = dynamic_cast<IVulkanImage*>( out.Image );
-            if ( !img )
+            if ( out.Vulkan == nullptr )
                 continue;
-            infos.push_back( { VK_NULL_HANDLE, img->GetMipView( out.Mip ), VK_IMAGE_LAYOUT_GENERAL } );
-            writes.push_back( DescriptorSetBuilder::GetStorageWDS( backend, 0, 0, binding, 1, &infos.back() ) );
+            VkDescriptorImageInfo& info = infos[infoCount++];
+            info                 = { VK_NULL_HANDLE, out.Vulkan->GetMipView( out.Mip ), VK_IMAGE_LAYOUT_GENERAL };
+            writes[writeCount++] = DescriptorSetBuilder::GetStorageWDS( backend, 0, 0, binding, 1, &info );
         }
 
         // Inputs: separate textures (SAMPLED_IMAGE), the view alone. Every input names the view it declared (one
         // mip, or all) in the layout its declared access guarantees: the graph's transition in a graph node, the
         // pipeline's own one (RecordTransitionedDispatch) outside it. No fallback is substituted: an input
         // without a view drops the dispatch with its binding named.
-        const auto separateImageWrite = [&infos]( uint32_t binding, VkDescriptorType type )
+        const auto separateImageWrite =
+             []( uint32_t binding, VkDescriptorType type, const VkDescriptorImageInfo* info ) noexcept
         {
             VkWriteDescriptorSet write{};
             write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write.dstBinding      = binding;
             write.descriptorCount = 1;
             write.descriptorType  = type;
-            write.pImageInfo      = &infos.back();
+            write.pImageInfo      = info;
             return write;
         };
         for ( const auto& [binding, input] : m_BoundInputs )
         {
-            auto* img = dynamic_cast<IVulkanImage*>( input.Image );
+            IVulkanImage* img = input.Vulkan;
             if ( !img )
             {
                 return Common::MakeFormattedError(
@@ -189,54 +222,66 @@ namespace Desert::Graphic::API::Vulkan
                                                    "dispatch skipped",
                                                    m_Specification.DebugName, binding );
             }
-            infos.push_back( { VK_NULL_HANDLE, view, RdgVulkanLayout( declaredLayout ) } );
-            writes.push_back( separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ) );
+            VkDescriptorImageInfo& info = infos[infoCount++];
+            info                        = { VK_NULL_HANDLE, view, RdgVulkanLayout( declaredLayout ) };
+            writes[writeCount++]        = separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &info );
         }
 
-        // Shared sampler states (VK_DESCRIPTOR_TYPE_SAMPLER), acquired from the engine sampler cache.
-        for ( const auto& [binding, desc] : m_BoundSamplers )
+        // Shared sampler states (VK_DESCRIPTOR_TYPE_SAMPLER): the engine sampler cache's, acquired by SetSampler.
+        for ( const auto& [binding, sampler] : m_BoundSamplers )
         {
-            const Common::ResultStr<VkSampler> sampler =
-                 EngineSamplerCache().Acquire( RdgSamplerCreateInfo( desc ) );
-            if ( !sampler.IsSuccess() )
+            if ( sampler.Sampler == VK_NULL_HANDLE )
             {
-                return Common::MakeFormattedError(
-                     "ComputePipeline '{}': sampler at binding {}: {}; dispatch skipped",
-                     m_Specification.DebugName, binding, sampler.GetError() );
+                // The cache refused the state when it was set; asked again only to name the reason.
+                const Common::ResultStr<VkSampler> refused =
+                     EngineSamplerCache().Acquire( RdgSamplerCreateInfo( sampler.Desc ) );
+                if ( refused.IsSuccess() )
+                {
+                    return Common::MakeFormattedError( "ComputePipeline '{}': sampler at binding {} was refused "
+                                                       "when it was set; dispatch skipped",
+                                                       m_Specification.DebugName, binding );
+                }
+                return Common::MakeFormattedError( "ComputePipeline '{}': sampler at binding {}: {}; dispatch "
+                                                   "skipped",
+                                                   m_Specification.DebugName, binding, refused.GetError() );
             }
-            infos.push_back( { sampler.GetValue(), VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED } );
-            writes.push_back( separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLER ) );
+            VkDescriptorImageInfo& info = infos[infoCount++];
+            info                        = { sampler.Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+            writes[writeCount++]        = separateImageWrite( binding, VK_DESCRIPTOR_TYPE_SAMPLER, &info );
         }
 
         // Storage buffers (read-write; e.g. a luminance histogram): the active view's copy for this frame
-        // (or the one shared buffer when persistent). The infos must outlive UpdateDescriptorSet, so they
-        // are reserved up front like the image infos above. A buffer with no copy to bind drops the
-        // dispatch: a compute set left pointing at whatever the ring slot held before is a silent wrong
-        // result, not a fallback.
-        const uint32_t                      frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
-        std::vector<VkDescriptorBufferInfo> bufferInfos;
-        bufferInfos.reserve( m_BoundStorageBuffers.size() );
+        // (or the one shared buffer when persistent). A buffer with no copy to bind drops the dispatch: a
+        // compute set left pointing at whatever the ring slot held before is a silent wrong result, not a
+        // fallback.
+        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
         for ( const auto& [binding, buffer] : m_BoundStorageBuffers )
         {
-            auto* vkBuffer = dynamic_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer*>( buffer );
-            if ( !vkBuffer )
+            if ( buffer.Vulkan == nullptr )
                 continue;
             ShaderResources::API::Vulkan::ViewCopyBinding copy;
-            const auto                                    bound = vkBuffer->BindActiveCopy( frameIndex, copy );
-            if ( !bound.IsSuccess() )
+            const auto copyBound = buffer.Vulkan->BindActiveCopy( frameIndex, copy );
+            if ( !copyBound.IsSuccess() )
             {
                 return Common::MakeFormattedError(
                      "ComputePipeline '{}': storage buffer at binding {} has no copy to bind; dispatch "
                      "skipped -- {}",
-                     m_Specification.DebugName, binding, bound.GetError() );
+                     m_Specification.DebugName, binding, copyBound.GetError() );
             }
-            bufferInfos.push_back( copy.Info );
-            writes.push_back(
-                 DescriptorSetBuilder::GetStorageWDS( backend, 0, 0, binding, 1, &bufferInfos.back() ) );
+            VkDescriptorBufferInfo& info = bufferInfos[bufferCount++];
+            info                         = copy.Info;
+            writes[writeCount++]         = DescriptorSetBuilder::GetStorageWDS( backend, 0, 0, binding, 1, &info );
         }
 
         // Retarget every write at the supplied set, then update it in one shot.
-        UpdateDescriptorSet( 0, writes, descriptorSet );
+        for ( uint32_t i = 0; i < writeCount; ++i )
+            writes[i].dstSet = descriptorSet;
+        if ( writeCount != 0 )
+        {
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
+            vkUpdateDescriptorSets( device, writeCount, writes.data(), 0, nullptr );
+        }
         return Common::MakeSuccess( true );
     }
 
@@ -334,12 +379,12 @@ namespace Desert::Graphic::API::Vulkan
         // Outside the graph nothing else puts an input where its declared access says it is, so this does:
         // the descriptor names that layout (RecordDescriptorsAndDispatch), never the image's record.
         for ( const auto& [binding, in] : m_BoundInputs )
-            if ( auto* img = dynamic_cast<IVulkanImage*>( in.Image ) )
+            if ( IVulkanImage* img = in.Vulkan )
                 img->TransitionLayout( cmd, RdgVulkanLayout( RDG::GetAccessState( in.Declared ).Layout ),
                                        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                        VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
         for ( const auto& [binding, out] : m_BoundOutputs )
-            if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
+            if ( IVulkanImage* img = out.Vulkan )
                 img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT );
@@ -347,7 +392,7 @@ namespace Desert::Graphic::API::Vulkan
         RecordDescriptorsAndDispatch( built, cmd, descriptorSet, groupsX, groupsY, groupsZ );
 
         for ( const auto& [binding, out] : m_BoundOutputs )
-            if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
+            if ( IVulkanImage* img = out.Vulkan )
                 img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                                        VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT );
@@ -433,24 +478,6 @@ namespace Desert::Graphic::API::Vulkan
         m_RouteFill.Slots            = slots;
         m_RouteFill.BoundKeysVersion = m_BoundKeysVersion;
         return m_RouteFill.Fill;
-    }
-
-    std::vector<uint32_t> VulkanPipelineCompute::GetBoundBindings() const
-    {
-        std::vector<uint32_t> bindings;
-        bindings.reserve( m_BoundInputs.size() + m_BoundSamplers.size() + m_BoundOutputs.size() +
-                          m_BoundStorageBuffers.size() );
-        for ( const auto& [binding, input] : m_BoundInputs )
-            bindings.push_back( binding );
-        for ( const auto& [binding, sampler] : m_BoundSamplers )
-            bindings.push_back( binding );
-        for ( const auto& [binding, output] : m_BoundOutputs )
-            bindings.push_back( binding );
-        for ( const auto& [binding, buffer] : m_BoundStorageBuffers )
-            bindings.push_back( binding );
-        std::sort( bindings.begin(), bindings.end() );
-        bindings.erase( std::unique( bindings.begin(), bindings.end() ), bindings.end() );
-        return bindings;
     }
 
     void VulkanPipelineCompute::Invalidate()
@@ -613,22 +640,6 @@ namespace Desert::Graphic::API::Vulkan
         {
             LOG_ERROR( "ComputePipeline '{}': its material's sets were not bound", m_Specification.DebugName );
         }
-    }
-
-    void VulkanPipelineCompute::UpdateDescriptorSet( uint32_t /*frameIndex*/,
-                                                     const std::vector<VkWriteDescriptorSet>& writes,
-                                                     VkDescriptorSet                          descriptorSet,
-                                                     uint32_t /*setIndex*/ /*= 0 */ )
-    {
-        std::vector<VkWriteDescriptorSet> modifiedWrites = writes;
-        for ( auto& write : modifiedWrites )
-        {
-            write.dstSet = descriptorSet;
-        }
-        VkDevice device =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-        vkUpdateDescriptorSets( device, static_cast<uint32_t>( modifiedWrites.size() ), modifiedWrites.data(), 0,
-                                nullptr );
     }
 
 } // namespace Desert::Graphic::API::Vulkan

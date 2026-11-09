@@ -454,7 +454,7 @@ namespace Common::Profiling
             {
                 Detail::ScopeAccum& result = window.Accum[id];
                 ScopeResult         avg;
-                avg.Name    = m_NameText[id];
+                avg.Name    = ScopeNameRef( m_NameText[id].c_str(), m_NameText[id].size() );
                 avg.TotalMs = result.TotalMs * inv;                                              // avg ms / frame
                 avg.Calls = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
                 avg.SelfMs    = result.SelfMs * inv;
@@ -507,7 +507,11 @@ namespace Common::Profiling
                     hitch.MedianMs = m_DisplayMedianMs;
                     hitch.Frame    = f;
                     for ( uint32_t k = 0; k < record.Count; ++k )
-                        hitch.Top.emplace_back( m_NameText[record.Ids[k]], record.SelfMs[k] );
+                    {
+                        const std::string& text = m_NameText[record.Ids[k]];
+                        hitch.Top[k] = { ScopeNameRef( text.c_str(), text.size() ), record.SelfMs[k] };
+                    }
+                    hitch.TopCount = record.Count;
                     m_DisplayHitches.push_back( std::move( hitch ) );
                 }
                 window.Frames.clear();

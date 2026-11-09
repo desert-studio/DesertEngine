@@ -119,7 +119,7 @@ namespace Desert::Editor
         const std::string      frameTotalScope = ::Common::Profiling::kGpuFrameTotalScope;
         const std::string_view gapPrefix       = ::Common::Profiling::kGpuGapScopePrefix;
         // The remainder rows (Profiler.hpp): published beside the passes, never one of them.
-        const auto isRemainder = [&]( const std::string& name )
+        const auto isRemainder = [&]( const std::string_view name )
         {
             return name == frameTotalScope || name == ::Common::Profiling::kGpuUnaccountedGraphicsScope ||
                    name == ::Common::Profiling::kGpuUnaccountedAsyncScope ||
@@ -270,7 +270,7 @@ namespace Desert::Editor
         for ( const Common::Profiling::HitchFrame& hitch : prof.LastHitches() )
         {
             std::string top;
-            for ( const auto& [name, selfMs] : hitch.Top )
+            for ( const auto& [name, selfMs] : hitch.TopRows() )
             {
                 if ( !top.empty() )
                     top += ", ";
