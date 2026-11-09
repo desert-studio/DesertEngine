@@ -131,7 +131,11 @@ namespace Desert::Core
     // that stated ACES (the former default) states Filmic (Tools/SceneMigrator, MigrateFilmicDefaultV73ToV74).
     // The white balance, colour grading, film curve and exposure compensation fields are additive (declared
     // defaults are the identity).
-    inline constexpr int kSceneVersion = 74;
+    // v75 (FPS-GRASS-VISBUF): PostProcessSettings.GrassVisibilityBuffer (bool) is GrassRaster, a
+    // Core::GrassRasterPath (Scalability 0, GBuffer 1, VisibilityBuffer 2): the renderer's choice is the level's
+    // Foliage.GrassVisibilityBuffer unless a volume overrides it. false (the former default) -> Scalability,
+    // true -> VisibilityBuffer (Tools/SceneMigrator, MigrateGrassRasterPathV74ToV75).
+    inline constexpr int kSceneVersion = 75;
 
     // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
     // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,

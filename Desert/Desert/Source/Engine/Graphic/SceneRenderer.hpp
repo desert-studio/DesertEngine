@@ -2160,10 +2160,13 @@ namespace Desert::Graphic
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
         bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
-        // Grass through the 64-bit visibility buffer this frame: PostProcessSettings::GrassVisibilityBuffer AND the
-        // device's SupportsVisibilityBuffer64 (refreshed in BeginScene). The refusal is logged once per renderer.
+        // Grass through the 64-bit visibility buffer this frame: what PostProcessSettings::GrassRaster asks for
+        // (GrassRasterPath::Scalability: the level's Foliage.GrassVisibilityBuffer) AND the device's
+        // SupportsVisibilityBuffer64. The refusal is logged once per renderer; the chosen path each time it
+        // changes (m_GrassRasterLogged: 0 none yet, 1 G-buffer, 2 visibility buffer).
         bool                    m_GrassVisibilityBuffer  = false;
         bool                    m_GrassVisibilityRefusal = false;
+        uint8_t                 m_GrassRasterLogged      = 0;
         // The view's visibility buffer (GRASS-VIS): initialised with the grass system; the last error its frame
         // returned, logged when it changes (a view that cannot allocate it keeps the G-buffer grass path).
         VirtualGeometry::VisibilityBuffer m_GrassVisibility;

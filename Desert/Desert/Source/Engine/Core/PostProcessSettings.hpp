@@ -41,6 +41,25 @@ namespace Desert::Core
         Fusion    = 1,
     };
 
+    // HOW A VIEW'S GRASS IS RASTERISED (FPS-GRASS-VISBUF; UE 5 Nanite foliage: the visibility buffer is the
+    // renderer's choice, a project/scalability setting, not the look's). Both paths write the same G-buffer texel
+    // through one writer (Mesh/Surface/GBufferOutputs.glslh), so the choice is a cost, never a picture:
+    //  Scalability      — the machine's Foliage.GrassVisibilityBuffer (Common::Scalability) decides. The default:
+    //                     a volume that states nothing renders what the level's scalability picks.
+    //  GBuffer          — the masked depth prepass + the EQUAL G-buffer pass (the blade rasterised twice).
+    //  VisibilityBuffer — the blades rasterise once into a 64-bit visibility buffer (depth | row | triangle,
+    //                     atomicMax) and the material is evaluated once per pixel by a tiled resolve.
+    // VisibilityBuffer, asked for by either, needs DeviceCapabilities::SupportsVisibilityBuffer64; a device
+    // without it keeps the G-buffer path and logs the refusal once. v75 (Tools/SceneMigrator,
+    // MigrateGrassRasterPathV74ToV75) restated the former bool GrassVisibilityBuffer: false (the former default,
+    // which every volume serialised) -> Scalability, true -> VisibilityBuffer.
+    enum class GrassRasterPath : int
+    {
+        Scalability      = 0,
+        GBuffer          = 1,
+        VisibilityBuffer = 2,
+    };
+
     // THE GRADE OF A VIEW — UE's FPostProcessSettings. Until SET1 these fields were Core::SceneSettings, one
     // value per level, which made "a darker cave inside a bright level" inexpressible and put the level's
     // grade in the same block as its gravity. They are now authored on PostProcessVolume entities
@@ -56,12 +75,10 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Enable SSAO" ), Category( "Rendering Features" ) )
         bool EnableSSAO = true;
 
-        // Grass blades rasterise into a 64-bit visibility buffer (depth | instance | blade) with atomicMax and their
-        // surface material is evaluated once per pixel by a full-screen resolve, instead of overdrawing the G-buffer
-        // through a masked depth prepass. Needs DeviceCapabilities::SupportsVisibilityBuffer64; a device without it
-        // keeps the G-buffer grass path and logs the refusal once (UE: Nanite visibility buffer).
-        PROPERTY( DisplayName( "Grass Visibility Buffer" ), Category( "Rendering Features" ) )
-        bool GrassVisibilityBuffer = false;
+        // How the view's grass is rasterised (GrassRasterPath above). Scalability by default: the machine's
+        // Foliage.GrassVisibilityBuffer decides; a volume states GBuffer or VisibilityBuffer only to override it.
+        PROPERTY( DisplayName( "Grass Raster Path" ), Category( "Rendering Features" ) )
+        GrassRasterPath GrassRaster = GrassRasterPath::Scalability;
 
         // THE THREE RENDER METHODS this view ASKS for (Common/Settings/RenderMethods.hpp). What it gets is
         // Graphic::ResolveRenderMethods' minimum of this, the machine's Scalability ceiling and the device, walked

@@ -578,6 +578,10 @@ namespace
             out << " scene ->v" << Desert::Migration::kSceneVersionComposedGI << " ("
                 << report.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
                 << report.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
+        if ( report.GrassRasterPathRaised && report.GrassRasterPath.Restated > 0 )
+            out << " scene ->v" << Desert::Migration::kSceneVersionGrassRasterPath << " ("
+                << report.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
+                << "false is Scalability, true VisibilityBuffer)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
