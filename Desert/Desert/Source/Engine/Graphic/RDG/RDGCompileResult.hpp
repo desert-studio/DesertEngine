@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -436,30 +437,51 @@ namespace Desert::Graphic::RDG
     // ("(N pages)") and only messages read them. A plan holds no physical handle - resources are graph indices
     // and BeginGraph places the transients every frame - so a hit is the stored plan with its per-frame fields
     // rebound to the graph that asked: pass and culled names, the sync causes, the ExternalQueue timeline points.
-    // A plan with any fault is never stored. The least recently used plan goes beyond kCapacity.
+    // A plan with any fault is never stored.
+    // FPS-CPU2-RDG: one sub-cache per graph name (fixed names: "SceneView", ...), so the graphs of a frame never
+    // evict each other's plans; each looks its key up in an open-addressing index, not by a scan of entries.
+    // Beyond kGraphCapacity plans of one graph its least recently used plan goes; beyond kCapacity plans in all,
+    // the least recently used plan of the graph that holds the most - a graph whose declaration rotates through
+    // many variants pays for them itself. The report line counts the evictions and the misses that asked for a
+    // plan evicted shortly before (capacity misses, not new declarations).
     // IBackend::GetCompileCache returns nullptr when the cache is off (--rdg-compile-cache 0).
     class CompileCache
     {
     public:
         // @p warning: a stored plan differed from a fresh compile; otherwise the periodic hit/miss line.
         using Sink = std::function<void( bool warning, std::string_view line )>;
+        // DESERT_DEV_INSTRUMENTS: the fresh compile of a checked hit and its comparison, run off the render
+        // thread on a snapshot of the declaration (Builder::CompileThroughCache); it ends by calling Checked.
+        using Check = std::function<void()>;
 
-        static constexpr size_t   kCapacity    = 128; // plans across every graph of the backend
-        static constexpr uint64_t kCheckEvery  = 64;  // DESERT_DEV_INSTRUMENTS: such a hit is compiled afresh too
-        static constexpr uint32_t kReportEvery = 300; // frames between two hit/miss lines
+        static constexpr size_t   kCapacity      = 256; // plans across every graph of the backend
+        static constexpr size_t   kGraphCapacity = 128; // plans of one graph
+        static constexpr size_t   kMaxGraphs     = 16;  // sub-caches; a new graph name beyond drops the oldest
+        static constexpr size_t   kEvictedMemory = 64;  // per graph: the last evicted keys (capacity misses)
+        static constexpr uint64_t kCheckEvery    = 64;  // DESERT_DEV_INSTRUMENTS: such a hit is compiled afresh too
+        static constexpr uint32_t kReportEvery   = 300; // frames between two hit/miss lines
 
         explicit CompileCache( Sink sink );
+        // Joins a check still running: it calls Checked on this cache.
+        ~CompileCache() noexcept;
+        CompileCache( const CompileCache& )            = delete;
+        CompileCache& operator=( const CompileCache& ) = delete;
 
-        // The plan stored under @p key, now the most recently used; nullptr when there is none, or when another
-        // Execute still holds it (a hit is rebound in place, so a plan serves one graph at a time). @p check is
-        // set on every kCheckEvery-th hit.
-        [[nodiscard]] std::shared_ptr<CompileResult> Find( uint64_t key, bool& check );
-        // Stores @p plan under @p key, replacing what is there. @p pinned keeps alive the objects whose ADDRESS
-        // the key hashes (binding layouts, other-route fills): an address in a stored key is never a new object.
-        void Store( uint64_t key, std::shared_ptr<CompileResult> plan,
+        // The plan graph @p graph stored under @p key, now the most recently used; nullptr when there is none,
+        // or when another Execute still holds it (a hit is rebound in place, so a plan serves one graph at a
+        // time). @p check is set on every kCheckEvery-th hit while no earlier check runs: the caller then hands
+        // RunCheck the fresh compile of a snapshot (DESERT_DEV_INSTRUMENTS).
+        [[nodiscard]] std::shared_ptr<CompileResult> Find( std::string_view graph, uint64_t key, bool& check );
+        // Stores @p plan under @p key in @p graph's sub-cache, replacing what is there. @p pinned keeps alive the
+        // objects whose ADDRESS the key hashes (binding layouts, other-route fills): an address in a stored key
+        // is never a new object.
+        void Store( std::string_view graph, uint64_t key, std::shared_ptr<CompileResult> plan,
                     std::vector<std::shared_ptr<const void>> pinned );
-        // The verdict of a checked hit. @p difference non-empty (FirstPlanDifference): logged as a warning and
-        // the stored plan dropped - the caller records the fresh one.
+        // Runs @p check as a Background job (JobSystem); the destructor joins it. Called only after Find set its
+        // @p check, so at most one check runs at a time.
+        void RunCheck( Check check );
+        // The verdict of a checked hit (on the check's job). @p difference non-empty (FirstPlanDifference):
+        // logged as a warning and the stored plan dropped - the next frame with the declaration compiles afresh.
         void Checked( std::string_view graph, uint64_t key, std::string_view difference );
         // RDG-RECORD-CHUNKS. One graph's record phase: @p chunks record chunks, cut by the plan's measured costs
         // (@p byCost) or by pass count, the costliest of them @p maxChunkMicros as recorded this frame.
@@ -476,12 +498,45 @@ namespace Desert::Graphic::RDG
             std::shared_ptr<CompileResult>           Plan;
             std::vector<std::shared_ptr<const void>> Pinned;
         };
+        // One graph's plans. Index: open addressing with linear probing over a power of two at least twice
+        // kCapacity (one graph may hold every plan); a cell is an Entries index + 1, 0 empty. Erased by backward
+        // shift, so a probe never meets a tombstone.
+        struct Graph
+        {
+            static constexpr size_t kIndexSize = 512;
+            static_assert( kIndexSize >= 2 * kCapacity && ( kIndexSize & ( kIndexSize - 1 ) ) == 0 );
+
+            std::string                          Name;
+            uint64_t                             NameHash = 0;
+            uint64_t                             LastUse  = 0;
+            std::vector<Entry>                   Entries;
+            std::vector<uint32_t>                Index = std::vector<uint32_t>( kIndexSize, 0u );
+            std::array<uint64_t, kEvictedMemory> Evicted{};
+            size_t                               EvictedCount   = 0; // written so far; the ring keeps the last
+            uint64_t                             Evictions      = 0; // since the last report line
+            uint64_t                             CapacityMisses = 0; // since the last report line
+
+            [[nodiscard]] static size_t Home( uint64_t key ) noexcept;
+            [[nodiscard]] size_t        Cell( uint64_t key ) const noexcept; // its cell, or the empty one it takes
+            [[nodiscard]] Entry*        Lookup( uint64_t key ) noexcept;
+            [[nodiscard]] bool          WasEvicted( uint64_t key ) const noexcept;
+            Entry&                      Add( uint64_t key );
+            void                        Remove( size_t entry ) noexcept; // the last entry moves into its place
+            void                        Evict( size_t entry ) noexcept;  // Remove, remembered in Evicted
+            [[nodiscard]] size_t        LeastRecent() const noexcept;
+        };
+
+        [[nodiscard]] Graph* FindGraph( std::string_view graph ) noexcept;
+        Graph&               GraphFor( std::string_view graph );
 
         Sink               m_Sink;
         mutable std::mutex m_Mutex;
-        std::vector<Entry> m_Entries; // at most kCapacity: a linear scan of keys beats a map at this size
+        std::vector<Graph> m_Graphs;             // at most kMaxGraphs: a scan of name hashes
+        size_t             m_Stored         = 0; // plans over every graph, at most kCapacity
         uint64_t           m_Clock          = 0;
         uint64_t           m_HitsSinceCheck = 0;
+        bool               m_CheckRunning   = false;
+        std::future<void>  m_CheckJob; // the running (or last) check, joined by the destructor
         // Since the last report line.
         uint32_t m_Frames     = 0;
         uint64_t m_Hits       = 0;

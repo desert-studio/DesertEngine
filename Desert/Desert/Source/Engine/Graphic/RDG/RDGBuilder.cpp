@@ -1452,9 +1452,14 @@ namespace Desert::Graphic::RDG
     // barrier's After state, then the owner's record hook sees the new states at once. The image's own layout
     // record (read by descriptor binds and by code outside the graph) therefore follows the GPU barrier by
     // barrier instead of catching up at the end of Execute.
+    // FPS-CPU2-RDG2: the hook is called only for a texture one of whose subresources changed LAYOUT in this batch.
+    // Mid-graph the owner's record is a layout record (VulkanRenderer ImportImage: graphEnded=false re-records
+    // layouts only), so a barrier that changes only access or stages (a UAV-to-UAV hazard, a read after a read in
+    // another stage) has nothing to write back; the full states still reach the hook at the end of the graph
+    // (graphEnded=true, Execute's write-back of every external).
     Common::BoolResultStr Builder::RecordExternalStates( std::span<const Barrier> barriers )
     {
-        ScratchVector<uint32_t> touched; // resources, one per external texture
+        ScratchVector<uint32_t> touched; // resources, one per external texture whose layout changed
         for ( const Barrier& barrier : barriers )
         {
             if ( barrier.Kind != ResourceKind::Texture )
@@ -1469,10 +1474,15 @@ namespace Desert::Graphic::RDG
             const uint32_t     layers = barrier.Range.LayerCount == kAllRemaining
                                              ? desc.Layers - barrier.Range.BaseLayer
                                              : barrier.Range.LayerCount;
+            bool layoutChanged = false;
             for ( uint32_t layer = barrier.Range.BaseLayer; layer < barrier.Range.BaseLayer + layers; ++layer )
                 for ( uint32_t mip = barrier.Range.BaseMip; mip < barrier.Range.BaseMip + mips; ++mip )
-                    external->SubresourceStates[desc.SubresourceIndex( mip, layer )] = barrier.After;
-            if ( std::find( touched.begin(), touched.end(), barrier.Resource ) == touched.end() )
+                {
+                    AccessState& state = external->SubresourceStates[desc.SubresourceIndex( mip, layer )];
+                    layoutChanged      = layoutChanged || state.Layout != barrier.After.Layout;
+                    state              = barrier.After;
+                }
+            if ( layoutChanged && std::find( touched.begin(), touched.end(), barrier.Resource ) == touched.end() )
                 touched.push_back( barrier.Resource );
         }
         for ( const uint32_t resource : touched )
@@ -1917,9 +1927,14 @@ namespace Desert::Graphic::RDG
             // kChunkMicros as the last frame that recorded this plan measured them (CompileResult::RecordMicros).
             // A plan with no costs yet (a cache miss, or no cache) grows a chunk to about kChunkPasses passes.
             // A run between two render pass boundaries is never split, so a run dearer than kChunkMicros is one
-            // chunk of its own.
-            constexpr uint32_t kChunkPasses = 24;
-            constexpr float    kChunkMicros = 200.0f;
+            // chunk of its own. FPS-CPU2-RDG2 (UE r.RHICmdMinDrawsPerParallelCmdList: a parallel command list
+            // below a minimum is not worth its own task): a chunk costing less than kMinChunkMicros keeps growing
+            // past kChunkMicros, and a segment's trailing chunk below it is merged into the adjacent chunk before
+            // it - every chunk is a claim, a command buffer and a replay, so 200 us chunks (38 on FIELD_Barn) cost
+            // more in hand-offs than they overlapped.
+            constexpr uint32_t kChunkPasses    = 24;
+            constexpr float    kChunkMicros    = 450.0f;
+            constexpr float    kMinChunkMicros = 60.0f;
             chunksByCost                    = plan->RecordMicros.size() == result.Passes.size();
             chunkAt.assign( result.Passes.size(), -1 );
             const auto cuttable = [&]( uint32_t position )
@@ -1936,7 +1951,8 @@ namespace Desert::Graphic::RDG
                 // passes; an NGX evaluation is NeverParallel and stays in the walk.
                 if ( segment.FirstPosition == CrossPipeSync::kForkAtGraphStart )
                     continue;
-                bool chunkOpen = false;
+                bool         chunkOpen          = false;
+                const size_t segmentFirstChunk = chunks.size();
                 for ( uint32_t position = segment.FirstPosition; position <= segment.LastPosition; )
                 {
                     // One run: the passes up to the next render pass boundary.
@@ -1954,7 +1970,8 @@ namespace Desert::Graphic::RDG
                     }
                     bool grows = chunkOpen && chunks.back().Desc.LastPosition + 1 == position;
                     if ( grows && chunksByCost )
-                        grows = chunkMicros.back() + runMicros <= kChunkMicros;
+                        grows = chunkMicros.back() + runMicros <= kChunkMicros ||
+                                chunkMicros.back() < kMinChunkMicros;
                     else if ( grows )
                         grows =
                              chunks.back().Desc.LastPosition + 1 - chunks.back().Desc.FirstPosition < kChunkPasses;
@@ -1975,6 +1992,20 @@ namespace Desert::Graphic::RDG
                         chunkOpen = true;
                     }
                     position = runEnd + 1;
+                }
+                // The segment's trailing chunk below the minimum joins the chunk before it when the two are
+                // adjacent in the segment (no NeverParallel run between them). Cuts stay on run boundaries: the
+                // merged range is the union of two whole-run ranges.
+                const size_t chunkCount = chunks.size();
+                if ( chunksByCost && chunkCount >= segmentFirstChunk + 2 && chunkMicros.back() < kMinChunkMicros &&
+                     chunks[chunkCount - 2].Desc.LastPosition + 1 == chunks.back().Desc.FirstPosition )
+                {
+                    RecordChunkDesc& previous = chunks[chunkCount - 2].Desc;
+                    chunkAt[chunks.back().Desc.FirstPosition] = -1;
+                    previous.LastPosition                     = chunks.back().Desc.LastPosition;
+                    chunkMicros[chunkCount - 2] += chunkMicros.back();
+                    chunks.pop_back();
+                    chunkMicros.pop_back();
                 }
             }
             for ( RecordChunk& chunk : chunks )
@@ -2063,12 +2094,18 @@ namespace Desert::Graphic::RDG
             chunkTasks->SetRecorder( &chunkRecorder );
             Common::JobSystem& jobs    = Common::JobSystem::Get();
             const size_t       helpers = std::min( chunks.size(), jobs.WorkerCount() );
+            // FPS-CPU2-RDG2 (UE: the parallel command list set dispatches its tasks as one batch): every helper
+            // is enqueued under one lock with one wake per parked worker it can feed. A refused batch (the pool
+            // shutting down) drops its jobs and their shares unrun: the walk records every chunk itself.
+            ScratchVector<Common::InlineJob> helperJobs;
+            helperJobs.reserve( helpers );
             for ( size_t h = 0; h < helpers; ++h )
             {
                 std::shared_ptr<ChunkTasks> share = chunkTasks;
-                if ( !jobs.Submit( [share]() noexcept { share->RunHelper(); }, Common::JobPriority::High ) )
-                    break;
+                helperJobs.emplace_back( [share]() noexcept { share->RunHelper(); } );
             }
+            if ( !helperJobs.empty() )
+                jobs.SubmitBatch( std::span<Common::InlineJob>( helperJobs ), Common::JobPriority::High );
         }
         // Set once any pass faulted late: a chunk recorded on a worker did not see that fault, so every later
         // chunk is discarded and its passes record again on the calling thread (the rare path).
@@ -2192,9 +2229,12 @@ namespace Desert::Graphic::RDG
 
         // An external whose every writer this frame was lost late: FrameFatal ends the frame (after EndGraph
         // below, so the graph's command buffers stay well formed), InvalidateHistory is listed for its owner.
+        // FPS-CPU2-RDG: skipped when no pass was lost: then every writer survived, so the scan finds nothing.
         ScratchVector<uint32_t> lateFatal;
         std::vector<uint32_t> lateRoots;
-        for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+        const bool anyLost =
+             std::any_of( lostRoot.begin(), lostRoot.end(), []( int32_t root ) { return root >= 0; } );
+        for ( uint32_t r = 0; anyLost && r < m_Resources.size(); ++r )
         {
             const ResourceRecord& record = m_Resources[r];
             if ( !record.IsExternal() || record.Policy == ExternalFaultPolicy::KeepsContents )

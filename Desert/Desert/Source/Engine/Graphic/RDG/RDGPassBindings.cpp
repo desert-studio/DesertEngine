@@ -82,7 +82,6 @@ namespace Desert::Graphic::RDG
             std::vector<std::vector<BoundTexture>> Textures;
             std::vector<std::vector<BoundBuffer>>  Buffers;
             std::vector<std::vector<std::byte>>    Push;
-            std::vector<std::string_view>          Names; // NameTaken's: the block being opened, sorted
         };
         thread_local EntryStorage t_EntryStorage;
 
@@ -103,21 +102,6 @@ namespace Desert::Graphic::RDG
                 return;
             given.clear();
             pool.push_back( std::move( given ) );
-        }
-
-        // True when an earlier entry of the block being opened took @p shaderName; otherwise notes it as taken.
-        // Binary search in the sorted per-thread list the constructor clears first (it is the only caller, and
-        // nothing it calls opens another block): O(log n) compares per entry, no allocation once grown. A name
-        // twice in one block is refused by Compile already (ValidatePassBindings); this keeps a block that
-        // reached an exec unvalidated from binding one slot twice.
-        bool NameTaken( std::string_view shaderName )
-        {
-            std::vector<std::string_view>& names = t_EntryStorage.Names;
-            const auto                     at    = std::lower_bound( names.begin(), names.end(), shaderName );
-            if ( at != names.end() && *at == shaderName )
-                return true;
-            names.insert( at, shaderName );
-            return false;
         }
     } // namespace
 
@@ -151,12 +135,6 @@ namespace Desert::Graphic::RDG
                                          GetAccessName( declared ) ) );
             return;
         }
-        const bool taken = NameTaken( shaderName );
-        if ( taken )
-        {
-            KeepFirstError( m_FirstError, pass, shaderName, handle, "the slot is already bound in this block" );
-            return;
-        }
         const Common::ResultStr<TextureBinding> resolved = m_Context.GetTexture( texture, declared, range );
         if ( !resolved.IsSuccess() )
         {
@@ -177,13 +155,6 @@ namespace Desert::Graphic::RDG
     {
         if ( !m_FirstError.empty() )
             return;
-        const bool taken = NameTaken( shaderName );
-        if ( taken )
-        {
-            KeepFirstError( m_FirstError, m_Context.GetPassName(), shaderName, "sampler",
-                            "the slot is already bound in this block" );
-            return;
-        }
         // No resource: the graph neither orders nor barriers a sampler state, and Texture stays empty.
         m_Textures.push_back( BoundTexture{ .ShaderName = shaderName,
                                             .Kind       = ShaderResourceKind::Sampler,
@@ -205,12 +176,6 @@ namespace Desert::Graphic::RDG
             KeepFirstError( m_FirstError, pass, shaderName, handle,
                             fmt::format( "a storage image entry is declared as {}, not StorageRead / StorageWrite",
                                          GetAccessName( declared ) ) );
-            return;
-        }
-        const bool taken = NameTaken( shaderName );
-        if ( taken )
-        {
-            KeepFirstError( m_FirstError, pass, shaderName, handle, "the slot is already bound in this block" );
             return;
         }
         const SubresourceRange                  range    = SubresourceRange::Mip( mip );
@@ -249,12 +214,6 @@ namespace Desert::Graphic::RDG
                                               ? "acceleration structure"
                                               : "storage buffer",
                                          GetAccessName( declared ) ) );
-            return;
-        }
-        const bool taken = NameTaken( shaderName );
-        if ( taken )
-        {
-            KeepFirstError( firstError, pass, shaderName, handle, "the slot is already bound in this block" );
             return;
         }
         const Common::ResultStr<BufferBinding> resolved = context.GetBuffer( buffer, declared );
@@ -645,7 +604,6 @@ namespace Desert::Graphic::RDG
          : m_Context( context ), m_Block( block ), m_Textures( TakeVector( t_EntryStorage.Textures ) ),
            m_Buffers( TakeVector( t_EntryStorage.Buffers ) ), m_PushConstants( TakeVector( t_EntryStorage.Push ) )
     {
-        t_EntryStorage.Names.clear();
         const auto& passes = context.m_Builder.m_Passes;
         if ( block.Pass != context.m_Pass || block.Block >= passes[block.Pass].Blocks.size() )
         {
@@ -653,6 +611,9 @@ namespace Desert::Graphic::RDG
                                         context.GetPassName(), block.Block, block.Pass );
             return;
         }
+        // FPS-CPU2-RDG2 (UE: FRDGBuilder validates the pass parameters once, not again at execute): no slot is
+        // checked for a second bind here. Every block of a pass that executes passed ValidatePassBindings in
+        // Compile (FaultMalformedPasses), which refuses a slot twice; a pass whose block failed never runs.
         for ( const DeclaredBindingEntry& entry : passes[block.Pass].Blocks[block.Block].Entries )
         {
             switch ( entry.Kind )
