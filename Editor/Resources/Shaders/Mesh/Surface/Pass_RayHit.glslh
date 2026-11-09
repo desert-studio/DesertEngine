@@ -18,6 +18,9 @@
 
 #include <Common/RayTracingHitTriangle.glslh>
 #include <Mesh/MeshVertexAccess.glslh>
+// The shading word's packing and the SHADING_MODEL_INDEX_<NAME> that DESERT_SHADING_MODEL_INDEX names: the closest
+// hit writes the template's model into the payload as the G-buffer pass writes it into its word.
+#include <Generated/ShadingModels.glslh>
 
 // The surface input at the hit: world position along the ray, the world normal (inverse-transpose of the instance
 // transform), the tangent frame from the triangle's UV gradient (the record carries no tangent stream; a segment
@@ -80,6 +83,12 @@ void main()
     // surface hit from behind is shaded from that side, as UE's hit shaders do.
     payload.Normal = DesertSurfaceWorldNormal( i, s );
     payload.Flags  = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
+    // The template's shading model with its payload and Specular, the G-buffer word's fields (GBufferOutputs.glslh
+    // packs the same call): hit lighting and the path tracer dispatch on it. The Anisotropic tangent angle is
+    // relative to the normal above, as the raster's is to its N.
+    payload.ShadingWord = DesertPackShadingWord(
+         DESERT_SHADING_MODEL_INDEX, 0.0, s.Specular,
+         DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
 #ifdef DESERT_SURFACE_TRANSLUCENT
     // A Translucent template: the dielectric interface the raster's glass pass draws (Pass_Forward_Translucent.glslh
     // reads the same two inputs: the tint the scene behind is seen through and the IOR it bends by).

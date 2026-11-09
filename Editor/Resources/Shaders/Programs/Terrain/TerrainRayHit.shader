@@ -24,6 +24,7 @@ Shader "TerrainRayHit"
         ClosestHit
         {
             #include <Programs/Terrain/TerrainRayHit.glslh>
+            #include <Generated/ShadingModels.glslh> // the payload's shading word (DesertPackShadingWord)
 
             void main()
             {
@@ -47,7 +48,7 @@ Shader "TerrainRayHit"
                 TerrainSurface s = EvaluateLandscapeSurface( tile, row.MaterialValues, position, Ng, viewDistance, w0, w1 );
                 s.Albedo *= row.Tint.rgb;
                 // The grass field's far cover as the raster lays it (GRASS-FIELD), seen along the ray: the ray's
-                // origin view is the one whose blades are thinned out. The payload has no shading model, so the
+                // origin view is the one whose blades are thinned out. The payload's model is DefaultLit, so the
                 // cover's transmitted light is the raster's alone.
                 vec3 transmission;
                 LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance, cameraUB.GrassLens ), -gl_WorldRayDirectionEXT,
@@ -62,6 +63,9 @@ Shader "TerrainRayHit"
                 payload.Roughness = max( s.Roughness, 0.04 );
                 payload.Emissive  = vec3( 0.0 );
                 payload.Normal    = s.N;
+                // DefaultLit, UE's default Specular 0.5, no payload: the model the raster lights it with.
+                payload.ShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
+                                                             DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
                 payload.Flags     = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
                 DesertRayHitIdentify();
             }

@@ -1,0 +1,123 @@
+// Cloth — UE's MSM_Cloth (ShadingModels.ush ClothBxDF): DefaultLit's diffuse, with the specular lobe blended
+// toward a fuzz lobe by the material's Cloth amount - the retro-reflective sheen of velvet, wool and cotton,
+// bright where the view grazes the fibres. The fuzz lobe is the Charlie sheen of Estevez & Kulla 2017 ("Production
+// Friendly Microfacet Sheen BRDF", the NDF UE's Substrate and Filament ship) with Neubelt & Pettineo's visibility
+// (2013, the Order: 1886 cloth); UE's legacy ClothBxDF uses an inverted GGX in its place, the same shape fitted
+// less closely.
+//
+// The payload is UE's: FuzzColor.rgb in CustomData0..2, stored as its square root (UE EncodeSubsurfaceColor - the
+// cloth's fuzz colour shares TwoSidedFoliage's encoding so the 8-bit field spends its steps on dark fabrics), and
+// CustomData3 = Cloth (UE GBuffer.CustomData.a: 0 = DefaultLit's specular, 1 = the fuzz lobe alone).
+//
+// The environment: the base's split sum blended toward the fuzz lobe's, the prefiltered radiance (the pass's, at
+// the surface's roughness, the roughness both lobes share) times the fuzz colour times the Charlie lobe's
+// directional albedo - the fit three.js and the glTF KHR_materials_sheen reference ship from Estevez & Kulla's
+// tables.
+Guid 8584306699740129915;
+Payload
+{
+    CustomData0 FuzzColorR; // sqrt( FuzzColor.r )
+    CustomData1 FuzzColorG; // sqrt( FuzzColor.g )
+    CustomData2 FuzzColorB; // sqrt( FuzzColor.b )
+    CustomData3 Cloth;      // 0..1 the share of the specular that is the fuzz lobe
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+    CustomData2;
+    CustomData3;
+}
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+// The pure half of the ambient text when the pass has not included the whole file (DefaultLit.shadingmodel says
+// why).
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+// UE ExtractSubsurfaceColor: Square( CustomData.rgb ).
+vec3 ClothFuzzColor( DesertPayload P )
+{
+    const vec3 encoded = vec3( P.CustomData0, P.CustomData1, P.CustomData2 );
+    return encoded * encoded;
+}
+
+float ClothAmount( DesertPayload P )
+{
+    return clamp( P.CustomData3, 0.0, 1.0 );
+}
+
+// Estevez & Kulla 2017, eq. 2: D = (2 + 1/alpha) sin(theta_h)^(1/alpha) / (2 pi), alpha = roughness^2. The sin^2
+// floor keeps the lobe finite where H meets N exactly (Filament's 0.0078125).
+float ClothCharlieDistribution( float cosLh, float roughness )
+{
+    const float invAlpha = 1.0 / ( roughness * roughness );
+    const float sin2h    = max( 1.0 - cosLh * cosLh, 0.0078125 );
+    return ( 2.0 + invAlpha ) * pow( sin2h, invAlpha * 0.5 ) / ( 2.0 * PI );
+}
+
+// Neubelt & Pettineo 2013: V = 1 / (4 (NoL + NoV - NoL NoV)), the visibility (G / 4 NoL NoV) of the cloth lobe.
+float ClothNeubeltVisibility( float cosLi, float cosLo )
+{
+    return 1.0 / max( 4.0 * ( cosLi + cosLo - cosLi * cosLo ), 1e-6 );
+}
+
+// The fuzz lobe for one light: D * V * FuzzColor * radiance * NoL (the sheen colour is the lobe's reflectance; the
+// Charlie lobe has no Fresnel of its own).
+vec3 ClothFuzzLobe( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    const vec3  H     = normalize( S.V + L.L );
+    const float cosLh = max( dot( S.N, H ), 0.0 );
+    const float cosLo = max( dot( S.N, S.V ), 0.0 );
+    return ClothCharlieDistribution( cosLh, S.Roughness ) * ClothNeubeltVisibility( cosLi, cosLo ) *
+           ClothFuzzColor( P ) * L.Radiance * cosLi;
+}
+
+// The Charlie lobe's directional albedo at (NoV, roughness): the curve fit of Estevez & Kulla's tabulated integral
+// (three.js IBLSheenBRDF, the KHR_materials_sheen sample viewer's analytic form), divided by pi as there.
+float ClothFuzzAlbedo( float NoV, float roughness )
+{
+    const float r2      = roughness * roughness;
+    const bool  glossy  = roughness < 0.25;
+    const float a       = glossy ? -339.2 * r2 + 161.4 * roughness - 25.9 : -8.48 * r2 + 14.3 * roughness - 9.95;
+    const float b       = glossy ? 44.0 * r2 - 23.7 * roughness + 3.26 : 1.97 * r2 - 3.27 * roughness + 0.72;
+    const float tail    = glossy ? 0.0 : 0.1 * ( roughness - 0.25 );
+    return clamp( ( exp( a * NoV + b ) + tail ) / PI, 0.0, 1.0 );
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const vec3 base = EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness );
+    return mix( base, ClothFuzzLobe( L, S, P ), ClothAmount( P ) ) * L.Shadow;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const vec3 F0       = DesertSpecularF0( S );
+    const vec3 lit =
+         EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, F0, S.Metallic, S.Roughness, S.BaseColor );
+    const vec3 specular = EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, F0, S.Roughness );
+    // DefaultLit's diffuse (its whole response minus its specular) plus the blended specular.
+    return ( lit - specular ) * L.Shadow + EvaluateSpecular( L, S, P );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3  F0       = DesertSpecularF0( S );
+    const float NoV      = DesertAmbientNoV( S.N, S.V );
+    const vec3  diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    const vec3  base     = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
+    const vec3  fuzz     = A.Prefiltered * ClothFuzzColor( P ) * ClothFuzzAlbedo( NoV, S.Roughness );
+    const vec3  specular = mix( base, fuzz, ClothAmount( P ) );
+    const float specularOcclusion = DesertSpecularOcclusion( NoV, S.Roughness, A.Occlusion );
+    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+}

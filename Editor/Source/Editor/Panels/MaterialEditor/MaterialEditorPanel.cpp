@@ -27,6 +27,7 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -1174,6 +1175,26 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "Every shader a material may use.\n'%s' is not one of them, so this list "
                                    "is the repair rather than the usual same-domain choice.",
                                    current.c_str() );
+        }
+
+        // THE SHADING MODEL the template lights with (UE's Material > Shading Model): a property of the template
+        // (its `ShadingModel <Name>` line), so it is shown here, read-only, beside the shader that decides it -
+        // picking ClearCoatSurface, ClothSurface or AnisotropicSurface is how a material takes that model, and its
+        // payload rows are the template's parameters below.
+        if ( const auto& meta = currentShader->GetProgramMeta(); !meta.ShadingModel.IsNull() )
+        {
+            const auto models = ::Desert::Core::ShadingModels::ShaderRootShadingModels();
+            const auto* entry = models->IsSuccess() ? models->GetValue().Registry.FindByGuid( meta.ShadingModel )
+                                                     : nullptr;
+            if ( entry != nullptr )
+            {
+                ImGui::TextDisabled( "Shading Model  %s", entry->Manifest.Name.c_str() );
+            }
+            else
+            {
+                ImGui::TextColored( ImVec4( 1.0f, 0.72f, 0.35f, 1.0f ), "Shading Model  %s (not loaded)",
+                                    meta.ShadingModel.ToString().c_str() );
+            }
         }
         return shaderChanged;
     }
