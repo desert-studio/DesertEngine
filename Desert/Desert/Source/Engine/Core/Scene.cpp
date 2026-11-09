@@ -11,6 +11,7 @@
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SceneAtmosphere.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
@@ -408,6 +409,7 @@ namespace Desert::Core
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
            m_DistanceFields(
                 std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
@@ -424,6 +426,7 @@ namespace Desert::Core
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
            m_DistanceFields(
                 std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),

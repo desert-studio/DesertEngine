@@ -1042,6 +1042,8 @@ namespace Desert::Graphic
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
         skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
+        // ...and the scene's atmosphere LUTs, recorded by that same first view, read by this one and the capture.
+        skyboxSystem->SetSceneAtmosphere( scene.GetAtmosphere() );
 
         // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
         // Editor keeps the editor's viewport and its overlays).
