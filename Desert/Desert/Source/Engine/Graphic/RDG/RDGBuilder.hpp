@@ -255,8 +255,10 @@ namespace Desert::Graphic::RDG
         void Extract( BufferRef buffer, ExternalBuffer& into, Access final );
 
         // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). CPU data for a buffer of this graph, the only way
-        // a graph buffer gets contents from the host. @p bytes are COPIED now (the caller's storage may die
-        // right after the call), and a Copy pass "Upload: <buffer name>" is added HERE that writes them
+        // a graph buffer gets contents from the host. @p bytes are COPIED now into the graph's arena (the caller's
+        // storage may die right after the call). FPS-CPU-UPLOAD (UE: SubmitBufferUploads): a buffer no pass
+        // declared yet is written by the graph's ONE upload batch "RDG: Uploads" (declared at the first such
+        // call); any other gets a Copy pass "Upload: <buffer name>" added HERE. Either writes them
         // (Access::CopyDst), so every pass added after this call that reads the buffer is ordered after the
         // upload by the graph, with its barrier; a reader added before it reads a buffer nothing wrote and is
         // refused ("... before any pass writes it"). The upload is culled with its buffer when nobody reads it.
@@ -275,6 +277,11 @@ namespace Desert::Graphic::RDG
         // indirect arguments), which are not copied: the upload takes no heap block for its payload. @p bytes must
         // outlive the graph's Execute; refused as QueueBufferUpload is.
         void QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+        // FPS-CPU-UPLOAD (UE: AddClearUAVPass on a buffer, recorded with the upload batch). The whole buffer
+        // filled with the 32-bit word @p value on the GPU (vkCmdFillBuffer): no CPU bytes, no copy. Ordered and
+        // refused as QueueBufferUpload is (it joins the graph's upload batch when no pass declared the buffer
+        // yet).
+        void QueueBufferClear( BufferRef buffer, uint32_t value );
         // CPU-GRASS-POOL-3 (UE: AddCopyBufferPass). A Copy pass "Copy: <source> -> <target>" added HERE that
         // copies @p bytes of @p source from @p sourceOffset into @p target at @p targetOffset (Access::CopySrc /
         // CopyDst), ordered against the buffers' other passes by the graph like any pass: what a pooled buffer
@@ -517,13 +524,22 @@ namespace Desert::Graphic::RDG
             StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 
-        // One range a queued upload writes: @p Bytes at @p Offset of its buffer, @p Owned their copy (null:
-        // static storage).
+        // One range a queued upload writes: @p Bytes at @p Offset of buffer @p Buffer. FPS-CPU-UPLOAD (UE: the
+        // QueueBufferUpload data in FRDGAllocator): the bytes are the graph arena's copy (or static storage), so
+        // an upload takes no heap block; Reset rewinds them with the graph.
+        // A range with no Bytes is a fill of @p FillBytes with the word @p FillValue (QueueBufferClear).
         struct UploadRange
         {
-            uint64_t                                      Offset = 0;
-            std::span<const std::byte>                    Bytes;
-            std::shared_ptr<const std::vector<std::byte>> Owned;
+            uint32_t                   Buffer = 0;
+            uint64_t                   Offset = 0;
+            std::span<const std::byte> Bytes;
+            uint64_t                   FillBytes = 0;
+            uint32_t                   FillValue = 0;
+
+            [[nodiscard]] uint64_t Size() const noexcept
+            {
+                return Bytes.empty() ? FillBytes : Bytes.size();
+            }
         };
 
         // CPU-FRAME-ARENA: a record's name (beyond the string's inline buffer), uses, attachments, blocks and
@@ -564,6 +580,11 @@ namespace Desert::Graphic::RDG
             // pass writes, in call order - every QueueBufferUpload of one buffer from a run of uploads with no
             // other pass between them (AddUploadPass).
             Common::Memory::ArenaVector<UploadRange> Uploads;
+            // FPS-CPU-UPLOAD (UE: FRDGBuilder::SubmitBufferUploads, ONE upload batch per graph): the graph's
+            // upload batch "RDG: Uploads" (Builder::m_UploadBatch). Its writes grow after it is closed - one
+            // Write(CopyDst) per buffer an upload put in it - so the key takes them at Compile, not when the next
+            // pass begins (AddPassKey keys only its marks; Compiler::HashDeclaration its write set).
+            bool UploadBatch = false;
         };
 
         struct ResourceRecord
@@ -595,6 +616,12 @@ namespace Desert::Graphic::RDG
             // while it is in the current run of uploads (Builder::m_UploadRunStart).
             static constexpr uint32_t kNoUpload  = UINT32_MAX;
             uint32_t                  OpenUpload = kNoUpload;
+            // FPS-CPU-UPLOAD: a pass other than the upload batch declared a use of this buffer
+            // (PassBuilder::DeclareBuffer); from then on an upload into it is ordered where it is called, in a
+            // pass of its own, never in the batch.
+            bool DeclaredByPass = false;
+            // FPS-CPU-UPLOAD: the upload batch writes this buffer (its Write(CopyDst) is declared once).
+            bool InUploadBatch = false;
 
             [[nodiscard]] bool IsExternal() const
             {
@@ -611,10 +638,18 @@ namespace Desert::Graphic::RDG
         };
 
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
-        // The uploads' one pass: @p bytes are what it writes at @p offset, @p owned their copy (null: static
-        // storage).
-        void AddUploadPass( BufferRef buffer, uint64_t offset, std::span<const std::byte> bytes,
-                            std::shared_ptr<const std::vector<std::byte>> owned );
+        // The uploads' one pass: @p bytes (the arena's copy or static storage) are what it writes at @p offset.
+        // An upload into a buffer no pass declared yet joins the graph's upload batch (AddToUploadBatch); any
+        // other keeps a pass of its own where it is called.
+        void AddUploadPass( BufferRef buffer, const UploadRange& range );
+        // The backend call that writes @p range into physical buffer @p resource (an upload or a fill).
+        static Common::BoolResultStr RecordUploadRange( PassContext& context, uint32_t resource,
+                                                        const UploadRange& range );
+        // FPS-CPU-UPLOAD: @p bytes into the upload batch; false when the range overlaps one the batch already
+        // writes into that buffer (the caller then orders it after the batch in a pass of its own).
+        bool AddToUploadBatch( BufferRef buffer, const UploadRange& range );
+        // FPS-CPU-UPLOAD: a copy of @p bytes in the graph's arena (empty when the arena could not grow).
+        [[nodiscard]] std::span<const std::byte> CopyToArena( std::span<const std::byte> bytes ) noexcept;
         // Keeps the FIRST declaration error: later ones are usually its consequences.
         void                                RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
@@ -654,6 +689,9 @@ namespace Desert::Graphic::RDG
         // GPU-ASYNC-WAIT-2: the first pass of the current run of upload passes (every pass from it on is a
         // queued upload); an upload pass before it is closed to new ranges.
         uint32_t m_UploadRunStart = 0;
+        // FPS-CPU-UPLOAD: the graph's upload batch pass (kNoUploadBatch: no upload joined one yet).
+        static constexpr uint32_t kNoUploadBatch = UINT32_MAX;
+        uint32_t                  m_UploadBatch  = kNoUploadBatch;
         // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
         // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
         // CPU-RDG-ALLOC: the index is an open-addressed table (a power-of-two size, at most half full) that Reset

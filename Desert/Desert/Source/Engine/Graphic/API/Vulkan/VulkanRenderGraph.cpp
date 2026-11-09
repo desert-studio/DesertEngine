@@ -2412,6 +2412,24 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRdgBackend::FillBuffer( const uint32_t resource, const uint64_t offset,
+                                                        const uint64_t bytes, const uint32_t value )
+    {
+        ResumeSegment();
+        const VkCommandBuffer commandBuffer = RecordingBuffer();
+        if ( commandBuffer == VK_NULL_HANDLE )
+            return Common::MakeFormattedError( "graph '{}': buffer fill outside a recording pass", m_GraphName );
+        if ( OpenRenderPassState().has_value() )
+            return Common::MakeFormattedError( "graph '{}': buffer fill inside a render pass", m_GraphName );
+        const std::shared_ptr<VulkanRdgBuffer>& target =
+             resource < m_Buffers.size() ? m_Buffers[resource] : std::shared_ptr<VulkanRdgBuffer>{};
+        if ( target == nullptr )
+            return Common::MakeFormattedError(
+                 "graph '{}': buffer fill of resource {}, which has no Vulkan buffer", m_GraphName, resource );
+        vkCmdFillBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + offset, bytes, value );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRdgBackend::CopyBuffer( const uint32_t source, const uint64_t sourceOffset,
                                                         const uint32_t target, const uint64_t targetOffset,
                                                         const uint64_t bytes )

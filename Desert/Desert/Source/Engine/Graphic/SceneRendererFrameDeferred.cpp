@@ -179,10 +179,10 @@ namespace Desert::Graphic
         // it also stands for) and the black system texture for both atlases. AddFrameTracedGI replaces it with the
         // frame's update where the view traces GI; the forward passes that declare the cache read it either way.
         {
-            const std::array<std::byte, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
-            const RDG::BufferRef                                                             none =
-                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "RadianceCache.None" );
-            graph.QueueBufferUpload( none, std::span<const std::byte>( zeros ) );
+            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
+            const RDG::BufferRef none = graph.CreateBuffer(
+                 RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) }, "RadianceCache.None" );
+            graph.QueueBufferClear( none, 0u );
             view.RadianceCacheParams      = none;
             view.RadianceCacheIndirection = none;
             view.RadianceCacheProbes      = none;
@@ -2056,10 +2056,11 @@ namespace Desert::Graphic
             reads.RadianceCache = *m_TracedFrameShared.RadianceCache;
         else
         {
-            const std::array<uint8_t, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
-            const RDG::BufferRef                                                           none =
-                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "Reflections.RadianceCacheNone" );
-            graph.QueueBufferUpload( none, std::as_bytes( std::span( zeros ) ) );
+            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
+            const RDG::BufferRef none =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
+                                     "Reflections.RadianceCacheNone" );
+            graph.QueueBufferClear( none, 0u );
             reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
                                                                           .Indirection = none,
                                                                           .Probes      = none,

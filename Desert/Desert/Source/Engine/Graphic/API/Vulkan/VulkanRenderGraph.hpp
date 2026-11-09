@@ -735,6 +735,9 @@ namespace Desert::Graphic::API::Vulkan
                                             std::span<const std::byte> bytes ) override;
         Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
                                           uint64_t targetOffset, uint64_t bytes ) override;
+        // vkCmdFillBuffer, outside any render pass.
+        Common::BoolResultStr FillBuffer( uint32_t resource, uint64_t offset, uint64_t bytes,
+                                          uint32_t value ) override;
 
         // The compatibility key of the render pass this backend has open on its command buffer, empty between
         // passes. Pipelines bound by an exec lambda are resolved against it

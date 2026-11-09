@@ -273,6 +273,12 @@ namespace
                  std::format( "CopyBuffer {} {} {} {} {}", source, sourceOffset, target, targetOffset, bytes ) );
             return Common::MakeSuccess( true );
         }
+        Common::BoolResultStr FillBuffer( uint32_t resource, uint64_t offset, uint64_t bytes,
+                                          uint32_t value ) override
+        {
+            Calls.push_back( std::format( "FillBuffer {} {} {} {}", resource, offset, bytes, value ) );
+            return Common::MakeSuccess( true );
+        }
         [[nodiscard]] std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;
