@@ -5911,9 +5911,12 @@ namespace Desert::Migration
         scene.UnitVersion  = std::nullopt;
 
         // Scene-only, after the stamp (MigrationHeader restates the header): it reads what every step left stated.
-        if ( statedSceneVersion < kSceneVersionSceneDependencies )
+        // Re-gathered on EVERY raise, not only from below kSceneVersionSceneDependencies: any later step may add,
+        // drop or retarget a reference, and the list must be the one the save writes for the entities as they
+        // now stand (Core::GatherSceneDependencies).
+        if ( statedSceneVersion < kSceneVersion )
         {
-            report.SceneDependenciesRaised = true;
+            report.SceneDependenciesRaised = statedSceneVersion < kSceneVersionSceneDependencies;
             report.SceneDependencies       = MigrateSceneDependenciesV51ToV52( scene, assetsRoot );
             if ( !report.SceneDependencies.Refused.empty() )
             {

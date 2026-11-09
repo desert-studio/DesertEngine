@@ -276,9 +276,9 @@ namespace Common::Scalability
     // says so).
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
-        // ScreenSpace is not here (GTX-TIER-LADDER): the composite's sun-only gather of on-screen neighbours
-        // was a bounce no GI method owned, measured at mean 0.11/255; it is gone, and GI is the method's alone.
-        return method == GIMethod::Off || method == GIMethod::ProbeVolume ||
+        // ScreenSpace: the HZB screen trace over the scene colour history through the diffuse-indirect denoiser
+        // (System::SSGIRenderer, SceneRenderer::AddFrameSSGI; UE ScreenSpaceDiffuseIndirect).
+        return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
                method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
                method == GIMethod::PathTraced;
     }

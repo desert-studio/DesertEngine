@@ -109,6 +109,10 @@ namespace Desert::Graphic::ViewTargetFormats
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
     // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.
     inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
+    // Screen-space diffuse indirect (SSGI.shader SsgiSignalTexture, GIMethod::ScreenSpace): the trace's estimate
+    // in linear radiance (rgb, a sunlit wall's bounce is past RGBA8) and its coverage (a), the diffuse-indirect
+    // denoiser's input signal.
+    inline constexpr ImageFormat kSSGISignal = ImageFormat::RGBA16F;
     // The closest-depth hierarchy (HZBRenderer): one 32-bit float per texel, the reversed-Z device depth exactly
     // as the depth attachment stores it (a 16-bit depth would quantise the far half of the scene into a few
     // hundred values).

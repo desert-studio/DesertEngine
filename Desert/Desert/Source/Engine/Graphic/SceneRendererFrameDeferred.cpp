@@ -747,6 +747,53 @@ namespace Desert::Graphic
         t.GIOccluded = gathered.GetValue().ShortRangeAO;
     }
 
+    void SceneRenderer::AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                      const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+    {
+        if ( m_RenderMethods.GlobalIllumination.Effective != Common::Scalability::GIMethod::ScreenSpace )
+            return;
+        // Said once per distinct reason (the traced GI's refusal record: the two methods never run together).
+        const auto refuse = [this]( std::string message )
+        {
+            if ( m_TracedGIRefusal.Claim( std::move( message ) ) )
+            {
+                LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
+            }
+        };
+        if ( gbuffer.size() < 2 || !m_GBuffer || !screenTrace.HZB.IsValid() ||
+             !screenTrace.SceneHistory.IsValid() )
+        {
+            refuse( "SSGI: no G-buffer normal or no screen trace this frame (HZB / scene colour history)" );
+            return;
+        }
+        if ( !EnsureSSGIResources() )
+            return; // refused once by EnsureSSGIResources; the next BeginScene resolves GI below ScreenSpace
+        const auto desc = graph.GetTextureDesc( gbuffer[1] );
+        if ( !desc )
+        {
+            refuse( std::format( "SSGI: {}", desc.GetError() ) );
+            return;
+        }
+        const auto&                        refs = textures.GraphRefs();
+        const System::SSGIRenderer::Inputs in{ .GBufferNormal        = gbuffer[1],
+                                               .GBufferDepth         = textures.Depth( m_GBuffer, "GBuffer" ),
+                                               .Velocity             = textures.Transients.Velocity,
+                                               .HZB                  = screenTrace.HZB,
+                                               .SceneHistory         = screenTrace.SceneHistory,
+                                               .Black                = refs.System.Black,
+                                               .SceneHistoryReadable = screenTrace.SceneHistoryReadable };
+        const auto traced = m_SSGI.AddPasses( graph, in, m_SSGISettings, frame, desc.GetValue().Size.Width,
+                                              desc.GetValue().Size.Height );
+        if ( !traced )
+        {
+            refuse( std::format( "SSGI: {}", traced.GetError() ) );
+            return;
+        }
+        m_TracedGIRefusal.Clear();
+        textures.Transients.GIDiffuse = traced.GetValue(); // -> Deferred: Composite, GI mode 1
+    }
+
     bool SceneRenderer::WorldLightGridRead() const
     {
         // The traced GI's hits lit in place, the traced reflections' (the surface cache brings those up too), and
@@ -856,12 +903,17 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.SSR             = ssr.IsValid() ? ssr : refs.System.Black;
-        // The traced GI's final gather (screen probes or the irradiance field), or black (unread in the other
-        // modes).
-        const bool traced      = refs.Transients.GIDiffuse.IsValid();
-        inputs.GIDiffuse       = traced ? refs.Transients.GIDiffuse : refs.System.Black;
-        inputs.GISpecular      = traced ? refs.Transients.GISpecular : refs.System.Black;
-        inputs.GIBackface      = traced ? refs.Transients.GIBackface : refs.System.Black;
+        // The GI method's diffuse: the traced final gather (screen probes or the irradiance field) with its
+        // specular and backface, or GIMethod::ScreenSpace's denoised screen trace (AddFrameSSGI, diffuse alone);
+        // black where the mode does not read it.
+        using Common::Scalability::GIMethod;
+        const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
+        const bool     diffuseGI     = refs.Transients.GIDiffuse.IsValid();
+        const bool     screenSpaceGI = gi == GIMethod::ScreenSpace && diffuseGI;
+        const bool     traced        = diffuseGI && !screenSpaceGI;
+        inputs.GIDiffuse             = diffuseGI ? refs.Transients.GIDiffuse : refs.System.Black;
+        inputs.GISpecular            = traced ? refs.Transients.GISpecular : refs.System.Black;
+        inputs.GIBackface            = traced ? refs.Transients.GIBackface : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -943,15 +995,18 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none (the sky's two cubes), 2 the traced
-        // final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3 the same gather occluded
-        // by its own short-range AO (the material AO alone left to apply). The composite gathers no bounce of its
-        // own: GI is the method's (GTX-TIER-LADDER). Spelled here, not cast from the enum, whose numbering is the
-        // method ladder's (Common/Settings/RenderMethods.hpp).
-        using Common::Scalability::GIMethod;
-        const GIMethod gi          = m_RenderMethods.GlobalIllumination.Effective;
-        const bool     roughFromGI = TracedGatherAnswersRoughSpecular( gi, traced );
-        const int      giMode      = !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
+        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none (the sky's two cubes), 1 the
+        // screen-space diffuse indirect over the sky's cubes (GTAO occludes both), 2 the traced final gather's
+        // diffuse and specular in place of the sky's (SSAO occludes it), 3 the same gather occluded by its own
+        // short-range AO (the material AO alone left to apply). The composite gathers no bounce of its own: GI is
+        // the method's (GTX-TIER-LADDER). Spelled here, not cast from the enum, whose numbering is the method
+        // ladder's (Common/Settings/RenderMethods.hpp).
+        const bool roughFromGI = TracedGatherAnswersRoughSpecular( gi, traced );
+        int        giMode      = 0;
+        if ( screenSpaceGI )
+            giMode = 1;
+        else if ( roughFromGI )
+            giMode = refs.Transients.GIOccluded ? 3 : 2;
         const DeferredGIInput compositeGI{ .Mode            = giMode,
                                            .PreExposure     = frame.PreExposure,
                                            .SubsurfaceSplit = subsurfaceDiffuse.IsValid() };
@@ -991,8 +1046,8 @@ namespace Desert::Graphic
             const FrameSun light1 = GetFrameLight1();
             deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
                                     frame.InvJitteredViewProjection, debugMode, pointCount, spotCount, shadow,
-                                    compositeGI, m_EnableSSAO, cloudShadow, environment,
-                                    frame.JitteredViewProjection, tiles );
+                                    compositeGI, m_EnableSSAO && refs.Transients.SSAO.IsValid(), cloudShadow,
+                                    environment, frame.JitteredViewProjection, tiles );
         };
         using System::DeferredTileClass;
         constexpr std::array<DeferredTileClass, 1> kWhole = { DeferredTileClass::Fullscreen };
