@@ -1,0 +1,18 @@
+# ASSET-SIZEMAP: UE's Size Map (AssetManagerEditor SSizeMap) in the Content Browser. Right-click an asset or a folder
+# > Size Map... (palette "Content Browser" > "Size Map...") opens the Size Map window on the selection: nested boxes,
+# each an asset sized by the bytes its file occupies on disk (the asset registry's Size column), inside it every asset
+# its registry row names (the header's dependency GUIDs), each asset once; an asset reached from two mapped assets
+# sits in one "Shared" box; an asset with dependencies shows its own file as a darker box of the same name.
+# Double-click a box to look inside it, Up goes back. Nothing is written to disk.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
+Дано run "Content Browser" "Sync to Asset Scenes/VFX_Demo_Impacts.desce"
+Когда run "Content Browser" "Size Map..."
+# Тогда [кадр]: the Size Map window is open; the crumb line reads "VFX_Demo_Impacts  (<total>, N dependencies)" with
+# N > 0; the canvas is tiled by coloured boxes (one hue per asset kind: materials, meshes, textures, VFX systems),
+# the largest top-left, a darker "VFX_Demo_Impacts" box for the scene file itself; no red refusal line.
+Тогда 1_scene_map Size Map of VFX_Demo_Impacts: crumb "VFX_Demo_Impacts (size, N dependencies)", boxes by kind, scene's own box darker, no refusal
+Дано run "Content Browser" "Go to Folder VFX"
+Когда run "Content Browser" "Size Map..."
+# Тогда [кадр]: a folder maps as a group: the crumb reads "<k> assets  (<total>)"; one box per VFX asset under VFX/,
+# and a grey "Shared" box holding what more than one of them names (shared modules / materials), when any is shared.
+Тогда 2_folder_map Size Map of the VFX folder: crumb "<k> assets (size)", one box per asset, grey Shared box for common dependencies
