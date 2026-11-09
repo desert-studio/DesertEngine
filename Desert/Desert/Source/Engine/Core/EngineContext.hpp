@@ -74,6 +74,20 @@ namespace Desert
             return m_Capabilities;
         }
 
+        /// THE CAPABILITY REFRESH (UE: the GRHI* globals re-read after the viewport's surface exists). The device
+        /// rebuilds its catalog when the first surface is probed (present modes beyond FIFO, display outputs) and
+        /// when a vendor runtime changes what it offers; it calls this right after, on the main thread before the
+        /// views begin, so the copy above stays one value with one source. @p source is the device's own
+        /// capabilities; a device that is not this context's (a second device, a test host) changes nothing.
+        void RefreshCapabilities( const Engine::DeviceCapabilities& source ) noexcept
+        {
+            const std::shared_ptr<Engine::Device> device = m_Device.lock();
+            if ( device == nullptr || &device->GetCapabilities() != &source )
+                return;
+            m_Capabilities    = source;
+            m_HasCapabilities = true;
+        }
+
         /**
          * @brief Utility for GLFW window handle.
          */
@@ -88,7 +102,8 @@ namespace Desert
         std::weak_ptr<Window>                   m_Window;
         std::weak_ptr<Engine::Device>           m_Device;
         std::weak_ptr<Graphic::RendererContext> m_RendererContext;
-        // The device's capabilities, copied once per device (Initialize / SetDevice): fixed at device creation.
+        // The device's capabilities: copied when the device is set (Initialize / SetDevice) and again whenever
+        // the device rebuilds its catalog (RefreshCapabilities) - never a stale copy of a catalog it replaced.
         Engine::DeviceCapabilities m_Capabilities;
         bool                       m_HasCapabilities = false;
 

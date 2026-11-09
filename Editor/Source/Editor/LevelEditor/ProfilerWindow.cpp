@@ -151,6 +151,10 @@ namespace Desert::Editor
         prof.ReleaseCapture(); // this dump read the held capture: time windows resume
         LOG_INFO( "[Profiler] Frame (wall) {:.3f} ms ({:.0f} FPS), GPU frame {:.3f} ms", frameMs, fps,
                   gpuFrameMs );
+        // ARCH-AUDIT C: the C++ heap per frame, every thread (Common/Core/Memory/AllocationCounter.hpp).
+        LOG_INFO( "[Profiler] heap allocs/frame {:.0f} (max {}), bytes/frame {:.0f} KB, frees/frame {:.0f}",
+                  prof.LastFrameAllocations(), prof.LastFrameAllocationsMax(),
+                  prof.LastFrameAllocatedBytes() / 1024.0, prof.LastFrameFrees() );
         // GRASS-VRAM-BUDGET-1: the device-local memory the last sampled frame ran in (MemoryWatch). A frame past
         // its budget is paged by the driver, and the GPU times below then say nothing about their passes.
         if ( const uint64_t budget = Graphic::MemoryWatch::LastDeviceLocalBudget(); budget != 0u )

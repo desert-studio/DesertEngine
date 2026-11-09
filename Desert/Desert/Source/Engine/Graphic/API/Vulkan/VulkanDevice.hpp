@@ -129,6 +129,9 @@ namespace Desert::Graphic::API::Vulkan
     private:
         VkFormat           FindDepthFormat() const;
         QueueFamilyIndices GetQueueFamilyIndices( int flags );
+        // The rebuilt catalog to its readers: QualityState and EngineContext's capability copy (ProbeSurface,
+        // RefreshRuntimeOffers).
+        void PublishCatalog();
 
     private:
         VkPhysicalDevice                     m_PhysicalDevice = VK_NULL_HANDLE;
