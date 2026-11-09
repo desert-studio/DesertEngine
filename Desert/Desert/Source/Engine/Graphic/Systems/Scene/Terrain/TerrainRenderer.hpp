@@ -81,9 +81,16 @@ namespace Desert::Graphic::System
         // TerrainDepth.shader's DESERT_TERRAIN_NO_HOLES permutation (early fragment tests, nothing discards): the
         // view depth prepass of a frame whose tiles have no visibility layer (EnsureDepthNoHolesPipelines).
         [[nodiscard]] static Core::ShaderVariant                     DepthNoHolesVariant();
+        // TerrainGBuffer.shader's DESERT_TERRAIN_DEPTH_EQUAL permutation (UE: the landscape's base pass after the
+        // depth pass, DepthEqual, no clip): the G-buffer over the ground's own depth prepass, EQUAL without depth
+        // writes, the hole test not repeated (a hole the prepass discarded holds a farther depth and fails EQUAL),
+        // early fragment tests (m_GBufferPrepassedPipeline).
+        [[nodiscard]] static Core::ShaderVariant                     GBufferDepthEqualVariant();
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
-            return { { "Terrain", ForwardVsmVariant() }, { "TerrainDepth", DepthNoHolesVariant() } };
+            return { { "Terrain", ForwardVsmVariant() },
+                     { "TerrainDepth", DepthNoHolesVariant() },
+                     { "TerrainGBuffer", GBufferDepthEqualVariant() } };
         }
 
         // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
@@ -159,7 +166,7 @@ namespace Desert::Graphic::System
         // CloserOrEqual and writes none. Deferred: into the G-buffer depth BEFORE the meshes' masked prepass,
         // which their alpha-tested draws then test against ("Deferred: Terrain Depth Prepass", clearing the depth;
         // SceneRenderer::AddFrameGBuffer, GPU-MASKED-PREPASS) whenever the frame runs an early-Z
-        // pass (SetEarlyZPass); "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground the grass
+        // pass (SetEarlyZPass); "TerrainGBuffer" then tests EQUAL and writes none, so the ground the grass
         // and the meshes cover is rejected before it is shaded. SETUP: one binding block per Depth material of the
         // frame's groups (no scene/view input); the exec records through them. Both are no-ops on a frame whose
         // path does not prepass the ground (ViewDepthPipeline).
@@ -506,8 +513,8 @@ namespace Desert::Graphic::System
         bool                              m_WireframeRefused = false;
 #endif
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline; // writes its own depth (no depth prepass)
-        // The G-buffer program over the ground's own depth prepass: CloserOrEqual, no depth write
-        // (PrepassesGBuffer).
+        // The G-buffer program over the ground's own depth prepass (PrepassesGBuffer): its
+        // GBufferDepthEqualVariant, EQUAL, no depth write, no hole discard, early fragment tests.
         std::shared_ptr<GraphicsPipeline> m_GBufferPrepassedPipeline;
         std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
         // The deferred depth prepass's (GBufferDepthLayout): TerrainDepth.shader into the G-buffer depth.

@@ -788,10 +788,14 @@ namespace Desert::Graphic::System
         // Whether a pipeline draws the BASE PASS over the view's depth prepass (the forward "TerrainPass", the
         // deferred "TerrainGBuffer" under an early-Z pass): then it tests CloserOrEqual (its own prepassed depth
         // passes) and writes no depth (UE: the base pass after a full depth prepass, DepthRead).
+        // DepthEqual: the deferred "TerrainGBuffer" over "Deferred: Terrain Depth Prepass" (UE: the base pass
+        // after a full depth pass, DepthEqual): its own prepassed depth passes, a hole the prepass discarded
+        // fails.
         enum class TerrainDepthState : uint8_t
         {
-            Shader,   // the shader's own `State` block
-            BasePass, // CloserOrEqual, no depth write
+            Shader,     // the shader's own `State` block
+            BasePass,   // CloserOrEqual, no depth write
+            DepthEqual, // Equal, no depth write
         };
 
         std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer*                 sceneRenderer,
@@ -835,6 +839,11 @@ namespace Desert::Graphic::System
             if ( depthState == TerrainDepthState::BasePass )
             {
                 spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+                spec.DepthWriteEnabled = false;
+            }
+            else if ( depthState == TerrainDepthState::DepthEqual )
+            {
+                spec.DepthCompareOp    = DepthCompare::Equal;
                 spec.DepthWriteEnabled = false;
             }
 
@@ -897,15 +906,25 @@ namespace Desert::Graphic::System
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
         // The deferred path's early-Z pair (UE: the landscape in the depth pass, its base pass testing that depth
         // without writes): TerrainDepth.shader into the G-buffer depth ("Deferred: Terrain Depth Prepass"), then
-        // the same G-buffer program CloserOrEqual with no depth write (PrepassesGBuffer).
+        // the G-buffer program EQUAL with no depth write (PrepassesGBuffer).
         m_GBufferDepthPipeline =
              CreateTerrainPipeline( m_SceneRenderer, "TerrainDepth", "TerrainGBufferDepthPipeline",
                                     GBufferDepthLayout(), error, TerrainDepthState::Shader );
         if ( !m_GBufferDepthPipeline )
             return Common::MakeError( "TerrainRenderer: the G-buffer depth prepass pipeline: " + error );
+        // The base-pass half (UE: DepthEqual, no clip): TerrainGBuffer's DESERT_TERRAIN_DEPTH_EQUAL permutation
+        // (GBufferDepthEqualVariant) on EQUAL / no write - the hole test and its discard are the prepass's alone,
+        // and the fragment stage runs after the depth test, so a texel the grass or a mesh covers fetches no
+        // layer.
+        auto equalShader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+             "TerrainGBuffer", GBufferDepthEqualVariant() );
+        if ( !equalShader )
+            return Common::MakeError( "TerrainRenderer: TerrainGBuffer|DESERT_TERRAIN_DEPTH_EQUAL was refused: " +
+                                      std::string( equalShader.GetError() ) );
         m_GBufferPrepassedPipeline =
-             CreateTerrainPipeline( m_SceneRenderer, "TerrainGBuffer", "TerrainGBufferPrepassedPipeline",
-                                    GBufferLayout(), error, TerrainDepthState::BasePass );
+             CreateTerrainPipeline( m_SceneRenderer, equalShader.ExtractValue(),
+                                    "TerrainGBufferPrepassedPipeline|DESERT_TERRAIN_DEPTH_EQUAL", GBufferLayout(),
+                                    error, TerrainDepthState::DepthEqual );
         if ( !m_GBufferPrepassedPipeline )
             return Common::MakeError( "TerrainRenderer: the prepassed G-buffer pipeline: " + error );
 
@@ -2346,9 +2365,10 @@ namespace Desert::Graphic::System
         // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
         // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against -
         // under an early-Z pass the ground's own prepassed depth ("Deferred: Terrain Depth Prepass"), tested
-        // CloserOrEqual without writes, so a texel the grass or a mesh covers is rejected before the layers are
-        // fetched. Through the blocks DeclareGBufferDraws declared (both pipelines run the one TerrainGBuffer
-        // shader, so one layout).
+        // EQUAL without writes and without the hole discard (DESERT_TERRAIN_DEPTH_EQUAL, early fragment tests), so
+        // a texel the grass or a mesh covers is rejected before the layers are fetched. Through the blocks
+        // DeclareGBufferDraws declared (both pipelines run TerrainGBuffer, the permutation only drops the discard,
+        // so one layout).
         return RecordDraws( context, 0, *pipeline, &ProgramMaterials::GBuffer,
                             m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws,
                             std::nullopt, std::nullopt, CameraDiceCullArgs() );
@@ -2742,6 +2762,12 @@ namespace Desert::Graphic::System
     Core::ShaderVariant TerrainRenderer::DepthNoHolesVariant()
     {
         return Core::ShaderVariant{ .Defines       = { std::string( "DESERT_TERRAIN_NO_HOLES" ) },
+                                    .ShippedByCook = true };
+    }
+
+    Core::ShaderVariant TerrainRenderer::GBufferDepthEqualVariant()
+    {
+        return Core::ShaderVariant{ .Defines       = { std::string( "DESERT_TERRAIN_DEPTH_EQUAL" ) },
                                     .ShippedByCook = true };
     }
 
