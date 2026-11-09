@@ -127,6 +127,8 @@ namespace Desert::Graphic::System
         m_MaskedDepthDraws.Clear();
         m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
         m_MaskedPrepassedPost.clear(); // phase 2's: "Grass: Depth Prepass Post-Occlusion" refills it this frame
+        m_MaskedPrepassedKeys.Clear();
+        m_MaskedPrepassedPostKeys.Clear();
         // This frame's admissions start empty here, whatever returns below: the G-buffer reads only a set stamped
         // with its own frame (PrepassCellDraw), and only when the static / skinned halves below ran.
         m_PrepassCellDraws.clear();
@@ -138,6 +140,7 @@ namespace Desert::Graphic::System
         m_EarlyZPostFrame.reset();
         // This frame's grass visibility sections, decided before the prepass and the G-buffer skip them (GRASS-VIS).
         m_GrassVisibilitySections.clear();
+        m_GpuInstancedViaVisibility.Clear(); // the set's keys, filled with it (BuildGpuInstancedDraws asks them)
         m_GrassVisibilityMeshSections = 0;
         if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
              m_SceneRenderer != nullptr && m_SceneRenderer->GetMainCamera() != nullptr )
@@ -147,6 +150,7 @@ namespace Desert::Graphic::System
                      GrassVisibilityReady( gpu ) )
                 {
                     m_GrassVisibilitySections.push_back( gpu.Key );
+                    m_GpuInstancedViaVisibility.Insert( gpu.Key, 0u );
                     if ( gpu.Path == MeshVertexPath::Instanced )
                         ++m_GrassVisibilityMeshSections;
                 }
@@ -620,6 +624,7 @@ namespace Desert::Graphic::System
     {
         m_GrassDepthPostDraws.Clear();
         m_MaskedPrepassedPost.clear();
+        m_MaskedPrepassedPostKeys.Clear();
         // Phase 2's grass by phase 1's rule (BuildGpuInstancedDraws' companion-less Depth call): the sections
         // EarlyZAdmits whose DEPTH_EQUAL G-buffer half is Ready write their clipped depth here, through their
         // phase-2 records, and are recorded in m_MaskedPrepassedPost for "Grass: GBuffer Post-Occlusion".

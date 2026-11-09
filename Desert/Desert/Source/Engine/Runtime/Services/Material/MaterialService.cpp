@@ -1073,6 +1073,11 @@ namespace Desert::Runtime
     {
         if ( built == nullptr )
             return false;
+        // FPS-CPU2-GRASS2: the steady frame (nothing waits) answers before this service's lock - the same false
+        // AwaitedBy gives under the same flag.
+        const auto* const textures = ResourceRegistry::GetTextureService();
+        if ( !textures->AnyAwaited() )
+            return false;
         // Only the built -> asset row is this lock's. The waiters are the texture table's, behind its own lock
         // (CPU-ONE-SYNC R15), and asked with this one released: no worker holds two locks for a per-draw ask.
         Assets::AssetHandle asset;
@@ -1083,7 +1088,7 @@ namespace Desert::Runtime
                 return false;
             asset = it->second;
         }
-        return ResourceRegistry::GetTextureService()->AwaitedBy( asset );
+        return textures->AwaitedBy( asset );
     }
 
     uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const

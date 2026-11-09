@@ -3929,8 +3929,9 @@ namespace Desert::Graphic::System
         //   - one list's compacted bins (GpuInstancedListBin) and the slots of the open-addressing index over
         //     them (index + 1, 0 empty; keyed by table, pipeline, template, mesh), and their entries and reads
         //     (GpuDrawBinWalk) - refilled per walk, the capacity kept;
-        //   - per walk the sections the GRASS-VIS set holds and the masked prepass's recorded ones (key -> its
-        //     buckets), O(1) per section instead of a find over the lists;
+        //   - the sections the GRASS-VIS set holds and each phase's masked prepass recorded (key -> its index in
+        //     the phase's list), O(1) per section instead of a find over the lists; FPS-CPU2-GRASS2: kept with
+        //     their lists (filled where a key is pushed, cleared where the list is), so no walk rebuilds them;
         //   - the cells frameState.ApplyTo wrote this frame (the parent material of each record's instance), so a
         //     cell two walks of one view's frame draw (phase 1 and phase 2 of a pass) is written once; the set
         //     starts again on another view, another frame of it, or a MaterialService invalidation (a rebuilt
@@ -3947,11 +3948,30 @@ namespace Desert::Graphic::System
             uint32_t                      Filled = 0;
         };
         std::vector<GpuInstancedListBin> m_GpuInstancedListBins;
+        // FPS-CPU2-GRASS2: one cascade list's bin of BuildGpuInstancedShadowDraws (its (template, strip mesh, ids)
+        // key, the bin's cell and pipeline); its entries and reads are noted in m_GpuInstancedCasterWalk and laid
+        // out after the walk like the camera lists' (GpuInstancedListBin). Refilled per walk, the capacity kept.
+        struct GpuInstancedCasterBin
+        {
+            const DataDrivenMaterial*    Parent     = nullptr;
+            Desert::Mesh*                Mesh       = nullptr;
+            bool                         ThroughIds = false;
+            Graphic::DataDrivenMaterial* Cell       = nullptr;
+            GraphicsPipeline*            Pipeline   = nullptr;
+            GpuDrawBinFrame*             Table      = nullptr;
+            uint32_t                     Index      = 0; // the table's bin
+            uint32_t                     Slots      = 0;
+            uint32_t                     FirstSlot  = 0;  // laid out after the walk
+            std::span<RDG::BufferRef>    Reads{};         // laid out after the walk (GpuDrawBinReadPool)
+            uint32_t                     Filled = 0;
+        };
+        std::vector<GpuInstancedCasterBin> m_GpuInstancedCasterBins;
         std::vector<uint32_t>            m_GpuInstancedListBinSlots;
         GpuDrawBinWalk                   m_GpuInstancedBinWalk;
         GpuDrawBinWalk                   m_GpuInstancedCasterWalk;
-        GpuSectionKeyTable               m_GpuInstancedViaVisibility;
-        GpuSectionKeyTable               m_GpuInstancedPrepassed;
+        GpuSectionKeyTable               m_GpuInstancedViaVisibility; // m_GrassVisibilitySections' keys
+        GpuSectionKeyTable               m_MaskedPrepassedKeys;       // m_MaskedPrepassed: key -> first index
+        GpuSectionKeyTable               m_MaskedPrepassedPostKeys;   // m_MaskedPrepassedPost: likewise
         GpuSectionKeyTable               m_GpuInstancedApplied;
         const ViewFrame*                 m_GpuInstancedAppliedView    = nullptr;
         uint64_t                         m_GpuInstancedAppliedFrame   = 0;

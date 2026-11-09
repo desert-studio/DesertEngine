@@ -830,10 +830,11 @@ namespace Desert::Graphic::System
         }
         // What the GPU counted for each bucket FramesInFlight frames ago (GrassCull FinalizeFull), when this frame's copy
         // has been written since the feedback buffer was made for this bucket count.
-        std::vector<uint32_t> counted( buckets + kFeedbackTailWords, 0u );
-        bool                  fedBack = false;
-        gpu.Drawn                     = std::nullopt;
-        gpu.DrawnCascades             = {};
+        // At most kLawBuckets + kFeedbackTailWords words (buckets <= kLawBuckets above): a stack array, no heap.
+        std::array<uint32_t, kLawBuckets + kFeedbackTailWords> counted{};
+        bool                                                   fedBack = false;
+        gpu.Drawn                                                      = std::nullopt;
+        gpu.DrawnCascades                                              = {};
         // CPU-GRASS-POOL-7: the variety's range of the shared readback pool, its own counts only where they carry
         // its mark (a range handed out anew, or a remade pool, holds none of its writes yet).
         const std::shared_ptr<ShaderResources::StorageBuffer>& feedback = m_FeedbackPool.Buffer();
@@ -869,9 +870,9 @@ namespace Desert::Graphic::System
         // growing at once to the count plus a quarter, shrinking only after kShrinkFrames frames in a row two
         // steps (half) above it. Until the first count comes back (FramesInFlight frames after the variety
         // appears) the capacity is zero: those frames only count, and the field appears once it is measured.
-        constexpr uint32_t    kShrinkFrames = 60;
-        std::vector<uint32_t> capacities( buckets );
-        uint32_t              capacity = 0;
+        constexpr uint32_t                    kShrinkFrames = 60;
+        std::array<uint32_t, kLawBuckets> capacities{}; // [0, buckets) used
+        uint32_t                              capacity = 0;
         // The first bucket whose read-back count exceeds the capacity it was drawn with (GrassGenerate dropped the
         // rest): the frames since drew a truncated field (InstancesSettling).
         std::optional<uint32_t> overflowed;
@@ -991,14 +992,15 @@ namespace Desert::Graphic::System
         m_Settling = m_Settling || gpu.SettleReads > 0u;
 
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
-             gpu.BucketCapacities != capacities || gpu.Args.Bytes == 0u || gpu.List != volumes.List ||
+             !std::ranges::equal( gpu.BucketCapacities, std::span( capacities.data(), buckets ) ) ||
+             gpu.Args.Bytes == 0u || gpu.List != volumes.List ||
              gpu.CascadeMask != volumes.CascadeMask )
         {
             gpu.List             = volumes.List;
             gpu.Mesh             = &mesh;
             gpu.Capacity         = capacity;
             gpu.Buckets          = buckets;
-            gpu.BucketCapacities = capacities;
+            gpu.BucketCapacities.assign( capacities.begin(), capacities.begin() + buckets );
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
             // GRASS-VIEW-LAW-1: the id lists below are written and read by the GPU alone, so they live in
@@ -2620,24 +2622,19 @@ namespace Desert::Graphic::System
                 {
                     DESERT_PROFILE_PHASES( planPhases );
                     DESERT_PROFILE_PHASE( planPhases, "Grass: Plan varieties (tasks + join)" );
-                    // RISK 9 (UE FParallelMeshDrawCommandPass: the task count follows the workers, not the items):
-                    // the plans in about WorkerCount() + 1 contiguous slices - the joining thread runs one too -
-                    // one task each, so each plan is still written by exactly one task, in variety order within
-                    // it.
-                    const std::size_t participants = Common::JobSystem::Get().WorkerCount() + 1;
-                    const std::size_t slices       = std::min( plans.size(), participants );
-                    Common::TaskGroup tasks( parallelSetup );
-                    for ( std::size_t s = 0; s < slices; ++s )
-                    {
-                        const std::size_t first = plans.size() * s / slices;
-                        const std::size_t last  = plans.size() * ( s + 1 ) / slices;
-                        tasks.Launch( "Grass variety: Plan",
-                                      [this, &plans, first, last]() noexcept
-                                      {
-                                          for ( std::size_t i = first; i < last; ++i )
-                                              PlanVariety( plans[i] );
-                                      } );
-                    }
+                    // RISK 9 (UE ParallelFor MinBatchSize / FParallelMeshDrawCommandPass): the plans in contiguous
+                    // slices, one task each, as many as there are participants but never under kMinPlansPerTask
+                    // plans a slice - a field of fewer than 2 x kMinPlansPerTask varieties is planned here,
+                    // inline, with no hand-out cost. Each plan is still written by exactly one task, in variety
+                    // order.
+                    constexpr std::size_t kMinPlansPerTask = 8;
+                    Common::TaskGroup     tasks( parallelSetup );
+                    tasks.LaunchSlices( "Grass variety: Plan", plans.size(), kMinPlansPerTask,
+                                        [this, &plans]( const std::size_t first, const std::size_t last ) noexcept
+                                        {
+                                            for ( std::size_t i = first; i < last; ++i )
+                                                PlanVariety( plans[i] );
+                                        } );
                     tasks.Join();
                 }
                 // CPU-GRASS-POOL-2: every variety's words of the shared tile feedback, before any reads them
