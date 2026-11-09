@@ -1035,9 +1035,14 @@ namespace Desert::Graphic::API::Vulkan
         m_Slot = slot % static_cast<uint32_t>( m_Slots.size() );
         for ( SlotPools& arena : m_Slots[m_Slot] )
         {
-            for ( VkDescriptorPool pool : arena.Pools )
-                vkResetDescriptorPool( m_Device, pool, 0 );
+            if ( arena.Used )
+            {
+                const size_t used = std::min( arena.Current + 1, arena.Pools.size() );
+                for ( size_t pool = 0; pool < used; ++pool )
+                    vkResetDescriptorPool( m_Device, arena.Pools[pool], 0 );
+            }
             arena.Current = 0;
+            arena.Used    = false;
         }
         EvictCached();
     }
@@ -1229,7 +1234,10 @@ namespace Desert::Graphic::API::Vulkan
             VkDescriptorSet set     = VK_NULL_HANDLE;
             const VkResult  result  = vkAllocateDescriptorSets( m_Device, &info, &set );
             if ( result == VK_SUCCESS )
+            {
+                pools.Used = true;
                 return Common::MakeSuccess( set );
+            }
             // Only a full pool moves on to the next; a layout that does not fit a fresh pool never will.
             const bool full = result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL;
             if ( !full || fresh )
