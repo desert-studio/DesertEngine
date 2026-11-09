@@ -2994,9 +2994,10 @@ namespace Desert::Graphic::System
                          pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
                      }
                  },
-                 [this, cull, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, cull,
+                  dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     // One subgroup per chunk of every row: the groups the Cull Dispatch laid out.
+                     // GrassCull kChunksPerGroup chunks of a row per group: the groups the Cull Dispatch laid out.
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &cull, sizeof( cull ) );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
