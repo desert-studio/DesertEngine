@@ -1,13 +1,14 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <thread>
 #include <type_traits>
 #include <vector>
@@ -193,6 +194,13 @@ namespace Common
         // @p priority: the queue it joins (JobPriority); a worker drains High, then Normal, then Background.
         bool Submit( InlineJob job, JobPriority priority = JobPriority::Normal );
 
+        // N jobs under ONE lock, then min(N, parked workers) wakes (UE LowLevelTasks FWaitingQueue: a batch
+        // wakes the sleepers it can feed, not one per job). The jobs keep their order in the queue (FIFO per
+        // priority, as N Submit calls in a row). ALL OR NOTHING: true when every job was enqueued (each one is
+        // moved from); false when the pool is shutting down - then no job was taken, every element of @p jobs
+        // is still the caller's to run or drop, as one refused Submit.
+        bool SubmitBatch( std::span<InlineJob> jobs, JobPriority priority = JobPriority::Normal );
+
         // Submit with a result: returns a std::future for the callable's return value. A promise and not a
         // packaged_task: packaged_task catches the callable's throw into the future, which a caller that never
         // calls get() never sees. The callable is noexcept by type (the static_assert below, as InlineJob's), so a
@@ -315,19 +323,66 @@ namespace Common
             RecordingFrame Recording;
         };
 
+        // ONE PRIORITY'S FIFO: a power-of-two ring of job slots (UE LowLevelTasks keeps its queues in fixed
+        // arrays, not in node lists). std::deque allocated and freed a block every few dozen jobs at the frame's
+        // submit rate; the ring grows by doubling when full and never shrinks, so after the first frames a push
+        // and a pop touch no allocator. Only under JobSystem::m_Mutex.
+        class JobRing
+        {
+        public:
+            [[nodiscard]] bool Empty() const noexcept
+            {
+                return m_Head == m_Tail;
+            }
+            [[nodiscard]] size_t Size() const noexcept
+            {
+                return m_Tail - m_Head;
+            }
+            /// Room for @p extra more jobs without a grow inside the pushes (SubmitBatch: one grow, not log N).
+            void Reserve( size_t extra );
+            void PushBack( QueuedJob&& job );
+            /// The oldest job, moved out; the ring must not be Empty().
+            QueuedJob PopFront() noexcept;
+
+        private:
+            std::unique_ptr<QueuedJob[]> m_Slots;
+            size_t                       m_Mask = 0; // capacity - 1; capacity 0 until the first push
+            size_t                       m_Head = 0; // monotonic: the slot is m_Head & m_Mask
+            size_t                       m_Tail = 0;
+        };
+
         static constexpr size_t kPriorityCount = static_cast<size_t>( JobPriority::Count );
+        static constexpr size_t kCacheLine     = 64;
 
         // Under m_Mutex: the queue a free worker takes from now, kPriorityCount when it may take none.
         size_t NextQueueLocked() const;
+        // Under m_Mutex, the job pushed: wakes min(@p jobs, parked workers) after the caller unlocks.
+        size_t WakesForLocked( size_t jobs ) const noexcept;
+        void   Wake( size_t wakes ) noexcept;
+        // After a High job (the frame's record phase, JobPriority): up to kHighSpinMicros of pause-spin on
+        // m_QueuedHint before this worker parks, so the next record chunk is taken without an OS wake.
+        void SpinForHighWork() const noexcept;
 
-        mutable std::mutex       m_Mutex;
-        std::condition_variable  m_CV;
-        std::deque<QueuedJob>    m_Queues[kPriorityCount]; // indexed by JobPriority
-        std::vector<std::thread> m_Workers;
-        size_t                   m_Running           = 0; // jobs currently executing
-        size_t                   m_RunningBackground = 0; // of them, Background jobs
-        size_t                   m_BackgroundCap     = 1; // BackgroundWorkerCap()
-        bool                     m_Stop              = false;
+        // FALSE SHARING KEPT OFF THE HOT LINES (UE FWaitingQueue): the lock and its queue heads, the running
+        // counters a finishing worker writes without the lock, and the lock-free hint a spinning worker reads
+        // each sit on their own cache line.
+        alignas( kCacheLine ) mutable std::mutex m_Mutex;
+        std::condition_variable m_CV;
+        JobRing                 m_Queues[kPriorityCount]; // indexed by JobPriority; under m_Mutex
+        size_t                  m_Sleeping = 0;           // workers parked in m_CV.wait; under m_Mutex
+        bool                    m_Stop     = false;       // under m_Mutex
+
+        // Jobs executing / of them Background. Raised under m_Mutex when a job is taken (the Background cap is
+        // checked there); lowered WITHOUT it when a job ends, so a job's completion takes no lock unless a
+        // Background slot freed with Background work waiting.
+        alignas( kCacheLine ) std::atomic<size_t> m_Running{ 0 };
+        std::atomic<size_t> m_RunningBackground{ 0 };
+
+        // High + Normal jobs queued: written under m_Mutex, read lock-free by SpinForHighWork.
+        alignas( kCacheLine ) std::atomic<size_t> m_QueuedHint{ 0 };
+
+        alignas( kCacheLine ) std::vector<std::thread> m_Workers;
+        size_t m_BackgroundCap = 1; // BackgroundWorkerCap()
     };
 
     // A VIEW'S SETUP TASKS AND THE JOIN THAT ENDS THEM (RENDER-PARALLEL-SETUP; UE FRDGBuilder::AddSetupTask over
@@ -351,8 +406,22 @@ namespace Common
         TaskGroup( const TaskGroup& )            = delete;
         TaskGroup& operator=( const TaskGroup& ) = delete;
 
-        /// @p name a string with static storage (the profiler's row for the task).
-        void Launch( const char* name, std::function<void()> task );
+        /// @p name a string with static storage (the profiler's row for the task). @p task is noexcept by type
+        /// (InlineJob): a capture up to InlineJob::kInlineSize bytes costs no heap.
+        void Launch( const char* name, InlineJob task );
+
+        /// THE MIN-BATCH LAUNCH (UE ParallelFor MinBatchSize, FParallelMeshDrawCommandPass): [0, @p count) in
+        /// contiguous slices, one task each - as many as there are participants (WorkerCount() + 1, the joining
+        /// thread runs one too), but never a slice under @p minBatch items, so a short list is not cut into tasks
+        /// that cost more to hand out than to run. body(first, last) owns [first, last); slice s is
+        /// [count*s/n, count*(s+1)/n), so each item is in exactly one slice and in order within it. Off
+        /// (Parallel() false) or a single slice: body(0, count) runs here, at once. The tasks go to the pool in
+        /// one SubmitBatch. @p minBatch 0 is read as 1. @p body is copied once into the group's shared state.
+        template <typename F>
+        void LaunchSlices( const char* name, size_t count, size_t minBatch, F&& body );
+
+        /// The slice count LaunchSlices uses for @p count items at @p minBatch per slice (at least one).
+        [[nodiscard]] static size_t SliceCount( size_t count, size_t minBatch ) noexcept;
 
         /// Runs every unstarted task here, then waits for the running ones.
         void Join() noexcept;
@@ -367,8 +436,52 @@ namespace Common
 
     private:
         struct Shared;
+        // Appends @p tasks (named @p name) to the group and submits their claim jobs in one SubmitBatch.
+        void LaunchBatch( const char* name, std::span<InlineJob> tasks );
+        // Runs @p task on the calling thread inside a task scope (InTask, the profiler row @p name).
+        void RunHere( const char* name, InlineJob& task ) noexcept;
+
         std::shared_ptr<Shared> m_Shared;
         bool                    m_Parallel = false;
         bool                    m_Joined   = true;
     };
+
+    template <typename F>
+    void TaskGroup::LaunchSlices( const char* name, const size_t count, const size_t minBatch, F&& body )
+    {
+        using D = std::decay_t<F>;
+        static_assert( std::is_nothrow_invocable_v<D&, size_t, size_t>,
+                       "a task is noexcept: declare the lambda noexcept and return its failure as a value" );
+        if ( count == 0 )
+            return;
+        const size_t slices = SliceCount( count, minBatch );
+        if ( !m_Parallel || slices == 1 )
+        {
+            // Here and now, under InTask as a launched task (Launch with the switch off): nothing outlives it.
+            m_Joined = false;
+            D         local( std::forward<F>( body ) );
+            InlineJob task( [&local, count]() noexcept { local( size_t{ 0 }, count ); } );
+            RunHere( name, task );
+            return;
+        }
+        // One copy of the body for every slice: the slices hold it by shared_ptr (16 bytes + two indices, inline
+        // in InlineJob), and the last slice to finish frees it on the thread that ran it.
+        auto             shared = std::make_shared<D>( std::forward<F>( body ) );
+        constexpr size_t kBatch = 64;
+        InlineJob        tasks[kBatch];
+        size_t           filled = 0;
+        for ( size_t s = 0; s < slices; ++s )
+        {
+            const size_t first = count * s / slices;
+            const size_t last  = count * ( s + 1 ) / slices;
+            tasks[filled++]    = InlineJob( [shared, first, last]() noexcept { ( *shared )( first, last ); } );
+            if ( filled == kBatch )
+            {
+                LaunchBatch( name, std::span<InlineJob>( tasks, filled ) );
+                filled = 0;
+            }
+        }
+        if ( filled > 0 )
+            LaunchBatch( name, std::span<InlineJob>( tasks, filled ) );
+    }
 } // namespace Common
