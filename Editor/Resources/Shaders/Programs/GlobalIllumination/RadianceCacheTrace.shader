@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"a0fa2ae2b4ca49f2940bb34be1953134","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 5/6 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per TRACE
+// THE RADIANCE CACHE UPDATE, 6/7 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per TRACE
 // TILE of a selected probe - an 8x8 SQUARE of its traced octahedral texels, one ray per thread (UE's 8x8 probe trace
 // tiles; workgroup (x = the tile, y = the probe's place in the schedule), WorldRadianceCache's Trace dispatch).
 // FPS-RC-TRACE: the tile is a square, not 64 texels in row order - a row of a 32-texel probe spans the whole
@@ -8,11 +8,10 @@
 // tiles run next to each other on the same origin, object list and field neighbourhood. Every texel keeps its ray:
 // the jitter is keyed by the texel's row-order index as before. One workgroup per
 // probe looping over its res^2 texels left 100 groups of serial rays on the whole GPU (GPU-TURN-4: 0.62 ms on the
-// TURN for 100 probes). The probe is first moved out of geometry by the tracer (GIMoveOutOfGeometry; not in UE: a
-// world-grid probe inside a wall would see only the wall's back faces; DDGI relocates its probes the same way) -
-// by every tile of it, the same deterministic position, written to the probe by each - then each texel traces one
-// jittered ray by the GI ray contract (Common/GITracing.glslh: the permutation's tracer, the hit lit in place,
-// the sky on a miss) and blends it into the radiance atlas with the probe's history. The program is compiled per
+// TURN for 100 probes). The probe was moved out of geometry by the pass before (RadianceCachePlace.shader, once a
+// probe; FPS-RC-TRACE2: every tile of it ran that field walk in its thread 0 behind a barrier) - its ray origin is
+// the cell centre plus the probe's offset - and each texel traces one jittered ray by the GI ray contract
+// (Common/GITracing.glslh: the permutation's tracer, the hit lit in place, the sky on a miss) and blends it into the radiance atlas with the probe's history. The program is compiled per
 // tracer (GlobalIllumination::TracerVariant); it names none. .a keeps the hit distance for the visibility moments.
 Shader "RadianceCacheTrace"
 {
@@ -83,8 +82,6 @@ Shader "RadianceCacheTrace"
         // distance keeps its atlas texels: only the next traces' rays change.
         #define RC_TRACE_DOWNSAMPLE_DISTANCE 4000.0
 
-        shared vec3 s_Position;
-
         // Per texel and frame, a stratified jitter inside the texel (PCG hash).
         vec2 TexelJitter( uint probe, uint texel, uint frame )
         {
@@ -103,7 +100,6 @@ Shader "RadianceCacheTrace"
             const uint               probe   = radianceCacheSchedule[RC_SCHEDULE_LIST + gl_WorkGroupID.y];
             const RadianceCacheProbe state   = radianceCacheProbes[probe];
             const uint               clipmap = uint( state.cell.w );
-            const float              cell    = RadianceCacheCellSize( radianceCache, clipmap );
             const vec3               centre  = RadianceCacheWorldCellCentre( radianceCache, state.cell.xyz, clipmap );
             const uint               res     = radianceCache.shape.z;
             // The traced resolution: res, or half of it (rounded up) for a far probe; texels per ray side.
@@ -111,23 +107,13 @@ Shader "RadianceCacheTrace"
             const uint traceRes    = downsampled ? ( res + 1u ) / 2u : res;
             const uint blockSide   = downsampled ? 2u : 1u;
             // The dispatch's tiles cover a full-resolution probe (ceil(res / 8)^2 squares); a downsampled one needs
-            // the squares of its own traced resolution. The condition is the group's own (one probe and tile a
-            // group), so the rest of the group ends before the barrier.
+            // the squares of its own traced resolution; the groups past them end.
             const uint tilesPerSide = ( traceRes + 7u ) / 8u;
             const uint tile         = gl_WorkGroupID.x;
             if ( tile >= tilesPerSide * tilesPerSide )
                 return;
-
-            if ( gl_LocalInvocationIndex == 0u )
-            {
-                // Out of geometry: up to a quarter cell of free space around the probe, at most 0.45 cell from the
-                // cell centre (the probe stays the cell's). Each tile of the probe moves it to the same point: the
-                // field / scene it reads is this frame's for all of them, and it reads no probe offset.
-                const vec3 p = GIMoveOutOfGeometry( centre, 0.25 * cell, 0.45 * cell );
-                s_Position   = p;
-                radianceCacheProbes[probe].offset = vec4( p - centre, 0.0 );
-            }
-            barrier();
+            // Out of geometry: RadianceCachePlace.shader wrote this frame's offset to the probe before this pass.
+            const vec3 position = centre + state.offset.xyz;
 
             const ivec2 origin  = RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) + 1;
             // Never traced, or last traced under the directional lights before the last full update (GRASS-SETTLE):
@@ -148,7 +134,7 @@ Shader "RadianceCacheTrace"
                 const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( traceRes ) * 2.0 -
                                1.0;
                 GITraceInput ray;
-                ray.origin    = s_Position;
+                ray.origin    = position;
                 ray.tMin      = RadianceCacheProbeTMin( radianceCache, clipmap );
                 ray.direction = RadianceCacheOctDecode( o );
                 ray.tMax      = RC_PROBE_TRACE_DISTANCE;
