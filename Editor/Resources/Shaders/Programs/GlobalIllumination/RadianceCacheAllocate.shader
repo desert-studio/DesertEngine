@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"046591383d9b482fb773f89291c0a037","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 3/6 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
+// THE RADIANCE CACHE UPDATE, 3/7 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
 // SelectMaxPriorityBucket, LumenRadianceCacheUpdate.usf): one thread per indirection entry a pixel read this frame.
 // An empty one takes a slot from the free list (none left: it stays empty, and its pixels read the probes around
 // it). Every read probe is ranked into a priority bucket (RC_PRIORITY_*, Common/RadianceCacheState.glslh) — never

@@ -73,14 +73,10 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
     const vec4 r1          = DistanceFieldObjects[base + 1u];
     const vec4 r2          = DistanceFieldObjects[base + 2u];
     const vec4 extentScale = DistanceFieldObjects[base + 3u];
-    const uint assetIndex  = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
-    const bool foliage     = ( floatBitsToUint( DistanceFieldObjects[base + uint( DF_OBJECT_ROW_FLAGS )].x ) &
-                           uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
-    const uint numMips     = DFAssetNumMips( assetIndex );
-    if ( numMips == 0u )
-        return false;
 
-    // The ray in volume space, still parameterised by world centimetres.
+    // The ray in volume space, still parameterised by world centimetres. The box test comes first (FPS-RC-TRACE):
+    // most objects of a froxel's list miss the ray's box, and the asset's mips and flags are a dependent load each
+    // that only an entered object needs.
     const vec3 extent = extentScale.xyz;
     const vec3 vo     = vec3( dot( r0, vec4( origin, 1.0 ) ), dot( r1, vec4( origin, 1.0 ) ), dot( r2, vec4( origin, 1.0 ) ) );
     const vec3 vd     = vec3( dot( r0.xyz, direction ), dot( r1.xyz, direction ), dot( r2.xyz, direction ) );
@@ -93,6 +89,12 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
     const float tOut  = min( min( tFar.x, min( tFar.y, tFar.z ) ), tEnd );
     if ( tIn >= tOut )
         return false;
+    const uint assetIndex = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
+    const uint numMips    = DFAssetNumMips( assetIndex );
+    if ( numMips == 0u )
+        return false;
+    const bool foliage = ( floatBitsToUint( DistanceFieldObjects[base + uint( DF_OBJECT_ROW_FLAGS )].x ) &
+                           uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
 
     const float volumeToWorld = extentScale.w;
     const DFAssetMip finest   = LoadDFAssetMip( assetIndex, numMips - 1u );

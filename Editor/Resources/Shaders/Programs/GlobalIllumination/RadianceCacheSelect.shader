@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"0bd3048ca6f2479ab80974bf1f9f46e6","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 4/6 — SELECT (UE SelectMaxPriorityBucket + the trace list, LumenRadianceCacheUpdate.usf):
+// THE RADIANCE CACHE UPDATE, 4/7 — SELECT (UE SelectMaxPriorityBucket + the trace list, LumenRadianceCacheUpdate.usf):
 // the histogram is cut at the budget (ProbesPerFrame, radianceCache.atlas.z) from the most urgent bucket down; every
 // probe read this frame in a bucket above the cut is traced, the cut bucket fills the rest first come. The new
 // probes of the coverage rank above the fallback's (RC_PRIORITY_*), so the fallback is traced from the remainder.

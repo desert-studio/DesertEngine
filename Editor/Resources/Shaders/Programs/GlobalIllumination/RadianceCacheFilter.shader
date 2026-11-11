@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"7c06cceec4484446b5d95089bd3dfc91","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 6/6 — FILTER (UE's irradiance pass of the radiance cache, LumenRadianceCache.usf
+// THE RADIANCE CACHE UPDATE, 7/7 — FILTER (UE's irradiance pass of the radiance cache, LumenRadianceCache.usf
 // ConvertRadianceProbeToIrradianceCS / FixupBordersAndGenerateMips): one workgroup per probe traced this frame. Its
 // radiance becomes the cosine-convolved irradiance probe the readers sample, and the mean and mean square of its
 // rays' hit distances in a cos^50 lobe (DDGI's visibility moments, not in UE); all three atlases get their

@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"e912e352bed746eab7c7aed8d0cda4a8","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 1/6 — MARK (UE MarkRadianceProbesUsedByScreenProbes, LumenScreenProbeGather.usf): every
+// THE RADIANCE CACHE UPDATE, 1/7 — MARK (UE MarkRadianceProbesUsedByScreenProbes, LumenScreenProbeGather.usf): every
 // cell a pixel's interpolated read will touch (RadianceCacheIrradianceAt: the eight cells around its biased position,
 // in each clipmap its dither may pick) is stamped with this frame. Until screen probes exist (GI-FINAL-GATHER) the
 // readers are the G-buffer's pixels themselves; one pixel of each 2x2 block per frame, the four in turn, so every
