@@ -7,6 +7,7 @@
 #include "SelectionOutlineMask.hpp"
 #include "WindField.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
@@ -413,15 +414,35 @@ namespace Desert::ECS
                                                   Runtime::SelectionContext::IsBindPosePreview(
                                                        registry.get<UUIDComponent>( entity ).UUID );
 
-                         std::vector<glm::mat4> boneMatrices;
-                         if ( !bindPreview && registry.has<AnimationComponent>( entity ) )
+                         const Animation::Animator* animator = nullptr;
+                         if ( !bindPreview )
+                             if ( const auto* anim = registry.try_get<AnimationComponent>( entity );
+                                  anim != nullptr && anim->Animator && !anim->Animator->GetPose().Matrices.empty() )
+                                 animator = anim->Animator.get();
+                         // THE POSE IS COPIED ONCE PER PUBLISHED POSE (UE: a skeletal proxy's bone buffer is
+                         // updated on a new pose only): a still or paused character re-records the same co-owned
+                         // buffer, and a new pose goes into a pooled buffer no command in flight holds.
+                         BonePalette& palette = m_BonePalettes[entity];
+                         palette.Seen         = m_StaticUpdate;
+                         if ( animator != nullptr && palette.Current && palette.Source == animator &&
+                              palette.Revision == animator->GetPoseRevision() )
                          {
-                             const auto& anim = registry.get<AnimationComponent>( entity );
-                             if ( anim.Animator )
-                                 boneMatrices = anim.Animator->GetPose().Matrices;
+                             // unchanged pose: nothing copied
                          }
-                         if ( boneMatrices.empty() )
+                         else if ( animator != nullptr )
                          {
+                             std::vector<glm::mat4>& bones = AcquireBoneBuffer( palette );
+                             const auto&             pose  = animator->GetPose().Matrices;
+                             bones.assign( pose.begin(), pose.end() );
+                             palette.Source   = animator;
+                             palette.Revision = animator->GetPoseRevision();
+                         }
+                         else
+                         {
+                             // The bind pose follows rest-pose edits that raise no signal (Skeleton Edit's
+                             // gizmo): written every update, into a pooled buffer (no allocation).
+                             palette.Source                = nullptr;
+                             std::vector<glm::mat4>& boneMatrices = AcquireBoneBuffer( palette );
                              // Proper BIND pose: bind matrix = chainGlobal * OffsetMatrix (NOT identity).
                              // Identity would render the RAW (unscaled, thousands-of-units) vertices; the
                              // chainGlobal*OffsetMatrix bind renders the mesh at its authored size and makes
@@ -454,13 +475,42 @@ namespace Desert::ECS
                          }
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
-                              static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, boneMatrices,
+                              static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, palette.Current,
                               std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows() );
                      } );
+                // A character no longer drawn (destroyed, hidden, no mesh) gives its buffers back.
+                std::erase_if( m_BonePalettes,
+                               [this]( const auto& entry ) { return entry.second.Seen != m_StaticUpdate; } );
             }
         }
 
     private:
+        // One skinned entity's pose buffers (the bone matrices its draws co-own).
+        struct BonePalette
+        {
+            const Animation::Animator*                           Source   = nullptr; // null: the bind pose
+            uint64_t                                             Revision = 0;       // Source's pose revision
+            uint32_t                                             Seen     = 0;       // m_StaticUpdate last drawn
+            std::shared_ptr<const std::vector<glm::mat4>>        Current;
+            std::vector<std::shared_ptr<std::vector<glm::mat4>>> Pool;
+        };
+
+        // A buffer of @p palette no recorded command holds any more (or a new one, only while every pooled one is
+        // in flight), made Current; its capacity is kept, so a steady animation allocates nothing.
+        static std::vector<glm::mat4>& AcquireBoneBuffer( BonePalette& palette )
+        {
+            palette.Current.reset();
+            for ( const auto& buffer : palette.Pool )
+                if ( buffer.use_count() == 1 )
+                {
+                    palette.Current = buffer;
+                    return *buffer;
+                }
+            palette.Pool.push_back( std::make_shared<std::vector<glm::mat4>>() );
+            palette.Current = palette.Pool.back();
+            return *palette.Pool.back();
+        }
+
         // The pieces of fractured entities, drawn as static meshes (DST-06).
         FracturePieceDraw m_Pieces;
         // The landscapes' spline meshes, drawn as static meshes (L9-MESHES).
@@ -654,6 +704,7 @@ namespace Desert::ECS
             RetireGenericDraw( primitive );
             primitive.Entity = entt::null;
             SetSlotMembership( m_StaticPolls, slot, false );
+            SetSlotMembership( m_StaticAdoptWait, slot, false );
             SetSlotMembership( m_StaticImmediate, slot, false );
             m_StaticFree.push_back( slot );
             MarkStaticChunk( slot );
@@ -714,6 +765,10 @@ namespace Desert::ECS
                 MarkStaticChunk( slot );
             m_StaticPrevious.clear();
             SetSlotMembership( m_StaticPolls, slot, polls );
+            // A section material not registered yet: asked again only when a registration or a content-registry
+            // write could have named it (RecordStaticScene), never per update.
+            SetSlotMembership( m_StaticAdoptWait, slot,
+                               primitive.Mesh != nullptr && HasUnadoptedSlot( mesh->GetMaterialSlots() ) );
             SetSlotMembership( m_StaticImmediate, slot, primitive.Generic || !primitive.SlotDraws.empty() );
         }
 
@@ -880,6 +935,14 @@ namespace Desert::ECS
                 full = true;
             m_StaticMeshRevision     = meshRevision;
             m_StaticMaterialsVersion = materialsVersion;
+            // The section-material producers (UE: the asset registry's OnAssetAdded): read once per update.
+            const uint64_t contentWrites = Assets::ContentRegistry::WriteSerial();
+            const uint64_t registrations =
+                 Runtime::ResourceRegistry::GetMaterialService()->GetRegistrationSerial();
+            const bool materialsNamed =
+                 contentWrites != m_StaticContentWrites || registrations != m_StaticRegistrations;
+            m_StaticContentWrites = contentWrites;
+            m_StaticRegistrations = registrations;
             // The outlines: only the entities whose selection flag moved since the last update (the old and the
             // new selection's subtrees, SelectionOutlineMask::Changed), never a full rebuild on an editor click.
             for ( const entt::entity entity : m_Outline.Changed() )
@@ -901,6 +964,7 @@ namespace Desert::ECS
                 m_StaticFree.clear();
                 m_StaticSlotOf.clear();
                 m_StaticPolls.clear();
+                m_StaticAdoptWait.clear();
                 m_StaticImmediate.clear();
                 m_StaticChunkDirty.clear();
                 m_StaticChanged    = true;
@@ -913,6 +977,9 @@ namespace Desert::ECS
             {
                 for ( const uint32_t slot : m_StaticPolls )
                     m_StaticDirty.push_back( m_StaticPrimitives[slot].Entity );
+                if ( materialsNamed )
+                    for ( const uint32_t slot : m_StaticAdoptWait )
+                        m_StaticDirty.push_back( m_StaticPrimitives[slot].Entity );
                 for ( const entt::entity entity : m_StaticDirty )
                     RebuildStaticPrimitive( registry, entity, materialsVersion, drawnAsPieces );
                 // AN IN-PLACE MESH EDIT (DynamicMesh::Update, an editor tool) raises no component signal: when any
@@ -1198,10 +1265,10 @@ namespace Desert::ECS
                                                 .ReceiveShadows           = mesh.GetReceiveShadows(),
                                                 .CastContactShadow        = mesh.GetCastContactShadow() } );
 
-            // An upload not made yet (a new or edited mesh: its revision and bounds change at the fence), or a
-            // slot
-            // still waiting for its section material: taken again next update.
-            return targetMesh->IsGpuStale() || HasUnadoptedSlot( mesh.GetMaterialSlots() );
+            // An upload not made yet (a new or edited mesh: its revision and bounds change at the fence): taken
+            // again next update. A slot still waiting for its section material is m_StaticAdoptWait's (keyed on
+            // the material registrations, RebuildStaticPrimitive), not a per-update poll.
+            return targetMesh->IsGpuStale();
         }
 
         SelectionOutlineMask                         m_Outline; // the selection as a per-entity flag, per frame
@@ -1223,7 +1290,11 @@ namespace Desert::ECS
         std::vector<StaticPrimitive>                                       m_StaticPrimitives; // by slot
         std::vector<uint32_t>                                              m_StaticFree;       // freed slots
         std::unordered_map<entt::entity, uint32_t>                         m_StaticSlotOf;     // entity -> slot
-        std::vector<uint32_t>                                              m_StaticPolls;      // unresolved slots
+        std::vector<uint32_t>                                              m_StaticPolls;      // pending meshes
+        std::vector<uint32_t> m_StaticAdoptWait; // slots waiting for a section material (MaterialService serials)
+        uint64_t              m_StaticContentWrites = 0; // ContentRegistry::WriteSerial at the last update
+        uint64_t              m_StaticRegistrations = 0; // MaterialService::GetRegistrationSerial, likewise
+        std::unordered_map<entt::entity, BonePalette> m_BonePalettes; // skinned entity -> its pose buffers
         std::vector<uint32_t>                                              m_StaticImmediate;  // off-batch slots
         std::vector<uint8_t>                                               m_StaticChunkDirty; // by chunk
         std::vector<std::shared_ptr<Graphic::Render::StaticSceneChunk>>    m_StaticChunks;     // published

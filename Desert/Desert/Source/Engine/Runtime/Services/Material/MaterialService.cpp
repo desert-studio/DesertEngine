@@ -508,6 +508,7 @@ namespace Desert::Runtime
         m_MaterialAssets[handle] = materialAsset; // keep the shell too
 
         m_ExternalToInternal[materialAsset->GetMaterialUUID()] = handle;
+        m_RegistrationSerial.fetch_add( 1, std::memory_order_release );
 
         return BOOLSUCCESS;
     }
@@ -531,6 +532,7 @@ namespace Desert::Runtime
         m_MaterialAssets[handle] = materialAsset; // runtime Material built lazily on first Get
         // The mesh->material link resolves by EXTERNAL id, so the map must exist before any build.
         m_ExternalToInternal[materialAsset->GetMaterialUUID()] = handle;
+        m_RegistrationSerial.fetch_add( 1, std::memory_order_release );
         return BOOLSUCCESS;
     }
 
@@ -601,6 +603,7 @@ namespace Desert::Runtime
     {
         const WriteGuard serviceLock( Fence::LockOnly );
         m_Assets = assets;
+        m_RegistrationSerial.fetch_add( 1, std::memory_order_release ); // discovery can answer now
     }
 
     void MaterialService::StartRead( const Assets::AssetHandle&        handle,
@@ -655,6 +658,7 @@ namespace Desert::Runtime
         // from the header GUID in its constructor), so the mesh->material link needs no load to resolve.
         const auto& asset                              = created.GetValue();
         m_ExternalToInternal[asset->GetMaterialUUID()] = handle;
+        m_RegistrationSerial.fetch_add( 1, std::memory_order_release );
         return m_MaterialAssets.emplace( handle, asset ).first;
     }
 

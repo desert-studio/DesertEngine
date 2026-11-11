@@ -418,8 +418,8 @@ namespace Desert::Graphic::System
         MaterialSlotBindingPtr MaterialSlots;
         uint32_t               SectionSlot = 0; // static: the slot this draw's submeshes shade with
 
-        // optional
-        std::vector<glm::mat4> BoneMatrices;
+        // optional, CO-OWNED (the skinned record's pose buffer, shared and never copied down the chain)
+        std::shared_ptr<const std::vector<glm::mat4>> BoneMatrices;
         // Skinned only: MorphComponent's weights and revision (empty = drawn unmorphed). See UpdateMorphTargets.
         std::vector<float> MorphWeights;
         uint64_t           MorphRevision = 0;
@@ -517,7 +517,9 @@ namespace Desert::Graphic::System
             // MaterialIndex), by the static rule Desert::SectionMaterialSlot. The pose is skinned ONCE per entry;
             // every pass draws each section with its own material, masked to its own submeshes.
             std::vector<SkinnedSection> Sections;
-            std::vector<glm::mat4>      BoneMatrices;       // animated pose, or bind pose
+            // Animated pose, or bind pose: a view of BoneOwner, which keeps it alive while the entry is queued.
+            std::shared_ptr<const std::vector<glm::mat4>> BoneOwner;
+            std::span<const glm::mat4>                    BoneMatrices;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };

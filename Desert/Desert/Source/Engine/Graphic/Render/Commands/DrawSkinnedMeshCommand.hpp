@@ -21,7 +21,8 @@ namespace Desert::Graphic::Render
         // runs. See Graphic::MaterialSlotBinding (A8-3).
         Graphic::MaterialSlotBindingPtr MaterialSlot;
         glm::mat4                       Transform;
-        std::vector<glm::mat4>          BoneMatrices;
+        // CO-OWNED, never copied per frame: the pooled buffer MeshECSSystem refills only on a new pose.
+        std::shared_ptr<const std::vector<glm::mat4>> BoneMatrices;
         // The entity's MorphComponent weights and revision; empty weights = no morph.
         std::vector<float>              MorphWeights;
         uint64_t                        MorphRevision = 0;
@@ -30,10 +31,11 @@ namespace Desert::Graphic::Render
 
         DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
-                                const std::vector<glm::mat4>& bones, std::vector<float> morphWeights,
+                                std::shared_ptr<const std::vector<glm::mat4>> bones,
+                                std::vector<float>                            morphWeights,
                                 uint64_t morphRevision, bool outlined, bool castShadows )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
-               BoneMatrices( bones ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
+               BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
                Outlined( outlined ), CastShadows( castShadows )
         {
         }

@@ -2959,7 +2959,9 @@ namespace Desert::Graphic::System
                 skinnedData.Mesh          = MorphedMeshFor( data, static_cast<SkinnedMesh*>( data.Mesh ) );
                 skinnedData.Entity        = data.Entity;
                 skinnedData.Transform     = data.Transform;
-                skinnedData.BoneMatrices  = data.BoneMatrices;
+                skinnedData.BoneOwner     = data.BoneMatrices;
+                if ( skinnedData.BoneOwner )
+                    skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
