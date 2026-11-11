@@ -1959,6 +1959,43 @@ namespace Desert::Graphic
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Frame textures" );
         FrameTextures textures( graph );
+        // FPS-GRASS-PLAN (UE FSceneRenderer setup tasks): the landscape grass's CPU plan - every variety's
+        // capacities, pool ranges, records, visibility rows and params - on a setup task from here, as soon as the
+        // camera cull's occlusion is known (it needs the frame textures: the G-buffer depth's size for the HZB),
+        // joined at "Setup: Grass" where CommitFrame makes its buffers and adds its passes. A face view grows
+        // none. Nothing between here and the join calls the grass; the TaskGroup joins on every early return.
+        // GPU-CULL (UE: every HISM, the grass's included, is occlusion-culled per view whatever draws it): on the
+        // deferred path the generation keeps the instances last frame's furthest HZB hides out of the CAMERA's
+        // list (the cascades and the TLAS draw every one; phase 2 re-tests them after this frame's HZB,
+        // AddFrameGrassPostOcclusion, and draws the found ones through the visibility buffer or their cells),
+        // with the grass visibility buffer or without it - so it is this graph's first reader of that HZB
+        // (FramePrevHzb, reset here for the frame).
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass plan" );
+        m_FramePrevHzb               = {};
+        const bool        growsGrass = !m_ViewProfile.SceneCapture;
+        Common::TaskGroup grassTasks( parallelSetup );
+        if ( growsGrass )
+        {
+            System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
+            if ( m_RenderPath == Core::RenderPath::Deferred )
+            {
+                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
+                {
+                    occlusion.Hzb                = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
+                    occlusion.PrevViewProjection = frame.PrevViewProjection;
+                    occlusion.Extent             = glm::uvec3(
+                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
+                }
+            }
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            m_Systems.Grass->PrepareFrame( frame, *m_Systems.Mesh.get(),
+                                           RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
+                                           parallelSetup );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto* const grass = m_Systems.Grass.get();
+            grassTasks.Launch( "Grass: Plan frame",
+                               Common::InlineJob( [grass]() noexcept { grass->PlanFrame(); } ) );
+        }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Sky light" );
         AddFrameSkyLight( graph, textures );
         // The cloud layer's shadow map BEFORE the per-view sky LUTs: they march the sun term through it (UE
@@ -2037,34 +2074,12 @@ namespace Desert::Graphic
         // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles. Before the GPU
         // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
-        // after it has no row in the scene material table and is refused at draw.
-        // GPU-CULL (UE: every HISM, the grass's included, is occlusion-culled per view whatever draws it): on the
-        // deferred path the generation keeps the instances last frame's furthest HZB hides out of the CAMERA's
-        // list (the cascades and the TLAS draw every one; phase 2 re-tests them after this frame's HZB,
-        // AddFrameGrassPostOcclusion, and draws the found ones through the visibility buffer or their cells), with
-        // the grass visibility buffer or without it - so it is this graph's first reader of that HZB
-        // (FramePrevHzb, reset here for the frame).
+        // after it has no row in the scene material table and is refused at draw. The plan ran on its setup task
+        // since "Setup: Grass plan" (FPS-GRASS-PLAN): joined here, committed into this graph.
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
-        m_FramePrevHzb = {};
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
-            if ( m_RenderPath == Core::RenderPath::Deferred )
-            {
-                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
-                {
-                    occlusion.Hzb = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
-                    occlusion.PrevViewProjection = frame.PrevViewProjection;
-                    occlusion.Extent             = glm::uvec3(
-                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
-                }
-            }
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            m_Systems.Grass->AddFrame( graph, frame, *m_Systems.Mesh.get(),
-                                       RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
-                                       parallelSetup );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
+        grassTasks.Join();
+        if ( growsGrass )
+            m_Systems.Grass->CommitFrame( graph, *m_Systems.Mesh.get() );
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
         // grass registered it just above: FramePrevHzb hands the same ref), before any node drawing the terrain.
         {
