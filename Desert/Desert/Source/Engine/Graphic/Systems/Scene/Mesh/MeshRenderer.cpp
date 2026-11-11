@@ -2737,7 +2737,7 @@ namespace Desert::Graphic::System
             return proxy.Content;
         };
 
-        // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
+        // The queued records as the registry keys them (GpuSceneProxies::Sync: one primitive per entity slot,
         // submesh records of one object share it, slots stable per submission); this function only gathers them,
         // writes each one's rows back and uploads the scene's deltas.
         // A view that replayed no static scene queues none of the retained prefix.
@@ -2865,7 +2865,8 @@ namespace Desert::Graphic::System
             registry.SyncStatic( statics, m_StaticToken, rows );
             m_StaticColumnsToken = m_StaticToken;
         }
-        registry.Sync( rigid, skinned, fields, rows );
+        // This view's proxies diff the records and tell the registry only what changed (FPS-SCENE-EVENTS).
+        m_GpuSceneProxies.Sync( registry, rigid, skinned, fields, rows );
         // The worlds the registry just wrote are stamped before any record is keyed by its primitive's stamp.
         StampPlacements( scene );
 

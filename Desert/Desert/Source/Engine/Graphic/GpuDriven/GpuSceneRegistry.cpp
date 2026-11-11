@@ -6,6 +6,7 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 namespace Desert::Graphic::GpuDriven
@@ -136,24 +137,39 @@ namespace Desert::Graphic::GpuDriven
     void GpuSceneRegistry::DiscardFrame()
     {
         m_Scene.DiscardFrame();
-        m_CountsExact = false; // the restored stamps are of an older frame: the next retire walks every map
-        for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
-        {
-            Entry& entry = it->second;
+        m_CountsExact = false; // the restored stamps are of an older frame: the next retire walks the material rows
+        for ( auto& [key, entry] : m_Entries )
             if ( entry.BonesFrame == m_Frame )
             {
                 entry.BoneOffset = entry.PrevBoneOffset;
                 entry.BoneCount  = entry.PrevBoneCount;
                 entry.BonesFrame = entry.PrevBonesFrame;
             }
-            if ( entry.Frame == m_Frame )
-                entry.Frame = entry.PrevFrame;
-            if ( entry.Frame == kNoFrame ) // added by the discarded frame
+        // The dynamic lists as if the frame never happened: its removals are cancelled, its additions undone
+        // (a primitive no list holds any more leaves GpuScene), its keep rolled back. Every list is re-added by
+        // its producer (BeginList: fresh): GpuScene rolled the frame's transforms back, which no proxy saw.
+        for ( auto it = m_Lists.begin(); it != m_Lists.end(); )
+        {
+            SceneList& list = it->second;
+            for ( const PrimitiveIndex primitive : list.Removed )
+                list.Members.insert( primitive );
+            for ( const PrimitiveIndex primitive : list.Added )
+                if ( list.Members.erase( primitive ) != 0u )
+                    Leave( primitive );
+            list.Removed.clear();
+            list.Added.clear();
+            list.Seen.clear();
+            if ( list.Frame == m_Frame )
             {
-                m_Scene.RemovePrimitive( entry.Primitive );
-                it = m_Entries.erase( it );
+                list.Frame     = list.PrevFrame;
+                list.PrevFrame = kNoFrame;
+            }
+            if ( list.Frame == kNoFrame && list.Members.empty() ) // made by the discarded frame
+            {
+                it = m_Lists.erase( it );
                 continue;
             }
+            list.Resync = true;
             ++it;
         }
         // The static slots as the map's entries, only those the discarded frame stamped one by one (written or
@@ -189,8 +205,9 @@ namespace Desert::Graphic::GpuDriven
             }
             ++it;
         }
-        m_Frame         = m_PreviousFrame;
-        m_PreviousFrame = m_FrameBeforePrevious;
+        m_PalettesChanged = false;
+        m_Frame           = m_PreviousFrame;
+        m_PreviousFrame   = m_FrameBeforePrevious;
         // The restored frame's palette is current again; the discarded one is never read (no entry names it).
         m_FramePalettes.swap( m_PreviousPalettes );
     }
@@ -201,27 +218,30 @@ namespace Desert::Graphic::GpuDriven
             return;
         if ( m_Started && !m_Committed )
             DiscardFrame();
-        // A map whose every element the ended frame stamped retires nothing: no walk (see m_CountsExact).
-        const bool walkEntries   = !m_CountsExact || m_EntriesQueued != m_Entries.size();
-        const bool walkScratch   = !m_CountsExact || m_ScratchNamed != m_EntityScratch.size();
-        const bool walkMaterials = !m_CountsExact || m_MaterialsAsked != m_MaterialRows.size();
-        if ( m_Started && walkEntries )
-            for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
+        // The dynamic lists of the frame that ended: its removals take effect, and a list it did not keep is
+        // dropped with its primitives (its view stopped syncing). One visit per list, none per primitive.
+        if ( m_Started )
+            for ( auto it = m_Lists.begin(); it != m_Lists.end(); )
             {
-                if ( it->second.Frame == m_Frame )
+                SceneList& list = it->second;
+                for ( const PrimitiveIndex primitive : list.Removed )
+                    Leave( primitive );
+                list.Removed.clear();
+                list.Added.clear();
+                if ( list.Frame == m_Frame )
                 {
                     ++it;
                     continue;
                 }
-                m_Scene.RemovePrimitive( it->second.Primitive );
-                it = m_Entries.erase( it );
+                for ( const PrimitiveIndex primitive : list.Members )
+                    Leave( primitive );
+                it = m_Lists.erase( it );
             }
         if ( m_Started ) // the static slots the frame that ended did not queue (they left the view or the scene)
             RetireStatic();
         m_StaticWritten.clear();
-        // the scratch of entities the frame that ended did not name (they left the view or the scene)
-        if ( m_Started && walkScratch )
-            std::erase_if( m_EntityScratch, [this]( const auto& held ) { return held.second.Frame != m_Frame; } );
+        // A map whose every element the ended frame stamped retires nothing: no walk (see m_CountsExact).
+        const bool walkMaterials = !m_CountsExact || m_MaterialsAsked != m_MaterialRows.size();
         if ( m_Started && walkMaterials )
             for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
             {
@@ -238,44 +258,22 @@ namespace Desert::Graphic::GpuDriven
         m_Frame               = frame;
         m_Started             = true;
         m_Committed           = false;
-        m_EntriesQueued       = 0;
         m_MaterialsAsked      = 0;
-        m_ScratchNamed        = 0;
         m_CountsExact         = true;
+        m_PalettesChanged     = false;
         m_Scene.BeginFrame();
         m_PreviousPalettes.swap( m_FramePalettes );
         m_FramePalettes.clear();
     }
 
-    GpuSceneRegistry::EntityScratch& GpuSceneRegistry::ScratchOf( const uint32_t entity )
-    {
-        EntityScratch& scratch = m_EntityScratch[entity];
-        if ( scratch.Sync != m_SyncSerial ) // the first record of this entity in this Sync: capacity kept
-        {
-            if ( scratch.Frame != m_Frame ) // the first Sync of this frame to name the entity
-                ++m_ScratchNamed;
-            scratch.Sync  = m_SyncSerial;
-            scratch.Frame = m_Frame;
-            scratch.Primitives.clear();
-            scratch.FieldSets.clear();
-        }
-        return scratch;
-    }
-
-    GpuSceneRegistry::Entry& GpuSceneRegistry::Touch( const MotionKey key, const MotionRecord& record,
-                                                      bool& fresh )
-    {
-        const auto [it, inserted] = m_Entries.try_emplace( key );
-        Entry& entry              = it->second;
-        fresh                     = inserted || entry.Frame != m_Frame;
-        if ( !fresh )
-            return entry; // an earlier view of this frame synced it
-        ++m_EntriesQueued;
-        Write( entry, inserted, record );
-        return entry;
-    }
-
     void GpuSceneRegistry::Write( Entry& entry, const bool inserted, const MotionRecord& record )
+    {
+        WriteRow( entry, inserted, record );
+        BeginContent( entry, inserted, record.Content );
+        Queued( entry );
+    }
+
+    void GpuSceneRegistry::WriteRow( Entry& entry, const bool inserted, const MotionRecord& record )
     {
         if ( inserted || entry.Mesh != record.Mesh || entry.Geometry != GeometryOf( record.Mesh ) ||
              entry.Flags != record.Flags ||
@@ -301,8 +299,6 @@ namespace Desert::Graphic::GpuDriven
         }
         else
             m_Scene.SetTransform( entry.Primitive, record.World );
-        BeginContent( entry, inserted, record.Content );
-        Queued( entry );
     }
 
     void GpuSceneRegistry::RemoveStatic( StaticSlot& slot )
@@ -429,168 +425,479 @@ namespace Desert::Graphic::GpuDriven
         m_StaticToken = token;
     }
 
-    void GpuSceneRegistry::Sync( const std::span<const MotionRecord>      rigid,
-                                 const std::span<const MotionRecord>      skinned,
-                                 const std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out )
+    GpuSceneRegistry::SceneList* GpuSceneRegistry::ListOf( const uint64_t list ) noexcept
     {
-        DESERT_PROFILE_SCOPE( "GpuSceneRegistry::Sync" );
+        const auto found = m_Lists.find( list );
+        return found == m_Lists.end() ? nullptr : &found->second;
+    }
+
+    GpuSceneRegistry::Entry* GpuSceneRegistry::DynamicOf( const PrimitiveIndex primitive ) noexcept
+    {
+        return primitive < m_Dynamic.size() ? m_Dynamic[primitive] : nullptr;
+    }
+
+    bool GpuSceneRegistry::Writable( Entry& entry, const uint64_t list ) noexcept
+    {
+        if ( entry.WrittenFrame == m_Frame && entry.WrittenList != list )
+            return false; // an earlier list of this frame wrote it (the views agree on the frame)
+        entry.WrittenFrame = m_Frame;
+        entry.WrittenList  = list;
+        return true;
+    }
+
+    PrimitiveIndex GpuSceneRegistry::Join( const uint64_t list, const MotionKey key, bool& inserted,
+                                           Entry*& held ) noexcept
+    {
+        const auto [it, created] = m_Entries.try_emplace( key );
+        inserted                 = created;
+        held                     = &it->second;
+        if ( created )
+        {
+            held->Key          = key;
+            held->WrittenFrame = m_Frame;
+            held->WrittenList  = list;
+        }
+        return held->Primitive;
+    }
+
+    void GpuSceneRegistry::Enlist( SceneList& owner, Entry& entry, const bool inserted ) noexcept
+    {
+        if ( inserted )
+        {
+            if ( entry.Primitive >= m_Dynamic.size() )
+                m_Dynamic.resize( size_t( entry.Primitive ) + 1u, nullptr );
+            m_Dynamic[entry.Primitive] = &entry;
+        }
+        if ( owner.Resync )
+            owner.Seen.push_back( entry.Primitive );
+        if ( owner.Members.insert( entry.Primitive ).second )
+        {
+            ++entry.Refs;
+            owner.Added.push_back( entry.Primitive );
+        }
+    }
+
+    void GpuSceneRegistry::Leave( const PrimitiveIndex primitive ) noexcept
+    {
+        Entry* const entry = DynamicOf( primitive );
+        if ( entry == nullptr )
+            return;
+        if ( entry->Refs > 1u )
+        {
+            --entry->Refs;
+            return;
+        }
+        const MotionKey key = entry->Key; // erase must not read the key out of the node it frees
+        m_Scene.RemovePrimitive( primitive );
+        m_Dynamic[primitive] = nullptr;
+        m_Entries.erase( key );
+    }
+
+    uint64_t GpuSceneRegistry::BeginList( const uint64_t list, bool& fresh ) noexcept
+    {
+        if ( SceneList* const held = ListOf( list ); held != nullptr )
+        {
+            fresh = held->Resync;
+            return list;
+        }
+        static std::atomic<uint64_t> s_NextList{ 0 }; // process-unique: another registry never knows the id
+        const uint64_t               id = ++s_NextList;
+        m_Lists.try_emplace( id );
+        fresh = true;
+        return id;
+    }
+
+    void GpuSceneRegistry::EndList( const uint64_t list ) noexcept
+    {
+        SceneList* const held = ListOf( list );
+        if ( held == nullptr )
+            return;
+        if ( held->Resync ) // the members its producer did not add again leave it
+        {
+            const std::unordered_set<PrimitiveIndex> seen( held->Seen.begin(), held->Seen.end() );
+            for ( auto it = held->Members.begin(); it != held->Members.end(); )
+            {
+                if ( seen.contains( *it ) )
+                {
+                    ++it;
+                    continue;
+                }
+                held->Removed.push_back( *it );
+                it = held->Members.erase( it );
+            }
+            held->Seen.clear();
+            held->Resync = false;
+        }
+        if ( held->Frame != m_Frame )
+        {
+            held->PrevFrame = held->Frame;
+            held->Frame     = m_Frame;
+        }
+        if ( m_PalettesChanged )
+        {
+            m_Scene.SetBonePalettes( m_FramePalettes );
+            m_PalettesChanged = false;
+        }
+    }
+
+    PrimitiveIndex GpuSceneRegistry::AddPrimitive( const uint64_t list, const MotionKey key,
+                                                   const MotionRecord& record ) noexcept
+    {
+        SceneList* const owner = ListOf( list );
+        if ( owner == nullptr )
+            return kInvalidIndex;
+        bool   inserted = false;
+        Entry* entry    = nullptr;
+        Join( list, key, inserted, entry );
+        if ( inserted || Writable( *entry, list ) )
+            WriteRow( *entry, inserted, record );
+        Enlist( *owner, *entry, inserted );
+        return entry->Primitive;
+    }
+
+    PrimitiveIndex GpuSceneRegistry::AddField( const uint64_t list, const MotionKey key,
+                                               const MotionFieldRecord& field ) noexcept
+    {
+        SceneList* const owner = ListOf( list );
+        if ( owner == nullptr )
+            return kInvalidIndex;
+        bool   inserted = false;
+        Entry* entry    = nullptr;
+        Join( list, key, inserted, entry );
+        if ( inserted || Writable( *entry, list ) )
+            WriteField( *entry, inserted, field );
+        m_Scene.SetWind( entry->Primitive, field.Wind );
+        Enlist( *owner, *entry, inserted );
+        return entry->Primitive;
+    }
+
+    void GpuSceneRegistry::UpdatePrimitive( const uint64_t list, const PrimitiveIndex primitive,
+                                            const MotionRecord& record ) noexcept
+    {
+        if ( Entry* const entry = DynamicOf( primitive ); entry != nullptr && Writable( *entry, list ) )
+            WriteRow( *entry, false, record );
+    }
+
+    void GpuSceneRegistry::UpdateField( const uint64_t list, const PrimitiveIndex primitive,
+                                        const MotionFieldRecord& field ) noexcept
+    {
+        if ( Entry* const entry = DynamicOf( primitive ); entry != nullptr && Writable( *entry, list ) )
+            WriteField( *entry, false, field );
+    }
+
+    void GpuSceneRegistry::UpdateContent( const PrimitiveIndex primitive ) noexcept
+    {
+        if ( DynamicOf( primitive ) != nullptr )
+            m_Scene.MarkContent( primitive );
+    }
+
+    void GpuSceneRegistry::UpdateWind( const PrimitiveIndex primitive, const PrimitiveWind& wind ) noexcept
+    {
+        if ( DynamicOf( primitive ) != nullptr )
+            m_Scene.SetWind( primitive, wind ); // the same wind again dirties nothing
+    }
+
+    void GpuSceneRegistry::RemovePrimitive( const uint64_t list, const PrimitiveIndex primitive ) noexcept
+    {
+        if ( SceneList* const owner = ListOf( list ); owner != nullptr && owner->Members.erase( primitive ) != 0u )
+            owner->Removed.push_back( primitive );
+    }
+
+    void GpuSceneRegistry::UpdateBones( const PrimitiveIndex primitive, const std::span<const glm::mat4> bones ) noexcept
+    {
+        Entry* const held = DynamicOf( primitive );
+        if ( held == nullptr || held->BonesFrame == m_Frame ) // an earlier list of this frame wrote its palette
+            return;
+        Entry& entry = *held;
+        // Both palettes go into the ONE buffer every pass that draws the primitive skins it from. The previous
+        // one: what this primitive was drawn with in the last synced frame, unless it was not drawn then or its
+        // bone count changed (a mesh swap: the old palette indexes other bones). The history is read where the
+        // last frame wrote it (m_PreviousPalettes), not from a copy.
+        const size_t count   = bones.size();
+        const bool   history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
+                             entry.BoneCount == count &&
+                             size_t( entry.BoneOffset ) + count <= m_PreviousPalettes.size();
+        const uint32_t written = static_cast<uint32_t>( m_FramePalettes.size() );
+        m_FramePalettes.insert( m_FramePalettes.end(), bones.begin(), bones.end() );
+        entry.PrevOffset = static_cast<uint32_t>( m_FramePalettes.size() );
+        if ( history )
+        {
+            const auto first = m_PreviousPalettes.begin() + static_cast<std::ptrdiff_t>( entry.BoneOffset );
+            const auto last  = first + static_cast<std::ptrdiff_t>( count );
+            m_FramePalettes.insert( m_FramePalettes.end(), first, last );
+        }
+        else
+            m_FramePalettes.insert( m_FramePalettes.end(), bones.begin(), bones.end() );
+        entry.PrevBoneOffset = entry.BoneOffset;
+        entry.PrevBoneCount  = entry.BoneCount;
+        entry.BoneOffset     = written;
+        entry.BoneCount      = static_cast<uint32_t>( count );
+        entry.PrevBonesFrame = entry.BonesFrame;
+        entry.BonesFrame     = m_Frame;
+        m_PalettesChanged    = true;
+        // The skin cache's address is written after the sync (RayTracingSkinCache::PrepareRows).
+        m_Scene.SetSkinning( primitive, PrimitiveSkinning{ .BoneOffset     = entry.BoneOffset,
+                                                           .PrevBoneOffset = entry.PrevOffset } );
+    }
+
+    void GpuSceneRegistry::WriteField( Entry& entry, const bool inserted, const MotionFieldRecord& field ) noexcept
+    {
+        const bool changed = inserted || entry.Mesh != field.Mesh || entry.Geometry != GeometryOf( field.Mesh ) ||
+                             entry.Flags != field.Flags || entry.BoundsPad != field.BoundsPad ||
+                             entry.CullStart != field.CullDistanceStart || entry.CullEnd != field.CullDistanceEnd ||
+                             !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms );
+        if ( !changed )
+            return;
+        PrimitiveDesc desc;
+        desc.Mesh                = field.Mesh;
+        desc.InstanceToPrimitive = field.Transforms;
+        desc.CullDistanceStart   = field.CullDistanceStart;
+        desc.CullDistanceEnd     = field.CullDistanceEnd;
+        desc.Flags               = field.Flags;
+        desc.Entity              = field.Entity;
+        desc.BoundsPad           = field.BoundsPad; // ISM rows: ForcedLod -1, LodBias 0 (defaults)
+        FillBounds( desc, field.Mesh );
+        if ( inserted )
+            entry.Primitive = m_Scene.AddPrimitive( desc );
+        else
+            m_Scene.UpdatePrimitive( entry.Primitive, desc );
+        entry.Mesh      = field.Mesh;
+        entry.Geometry  = GeometryOf( field.Mesh );
+        entry.Flags     = field.Flags;
+        entry.BoundsPad = field.BoundsPad;
+        entry.CullStart = field.CullDistanceStart;
+        entry.CullEnd   = field.CullDistanceEnd;
+    }
+
+    // ---- GpuSceneProxies: one view's producer of dynamic primitives ----------------------------------------
+
+    void GpuSceneProxies::Reset() noexcept
+    {
+        m_Proxies.clear();
+        m_Entities.clear();
+        m_Memo.clear();
+        m_Touched.clear();
+    }
+
+    GpuSceneProxies::EntityScratch& GpuSceneProxies::ScratchOf( const uint32_t entity,
+                                                                const size_t   position ) noexcept
+    {
+        Memo& memo = m_Memo[position];
+        if ( memo.Scratch == nullptr || memo.Entity != entity )
+        {
+            memo.Entity  = entity;
+            memo.Scratch = &m_Entities[entity];
+        }
+        EntityScratch& scratch = *memo.Scratch;
+        if ( scratch.Sync != m_Sync ) // the first record of this entity in this sync: capacity kept
+        {
+            scratch.Sync = m_Sync;
+            ++m_EntitiesNamed;
+            scratch.Primitives.clear();
+            scratch.FieldSets.clear();
+        }
+        return scratch;
+    }
+
+    GpuSceneProxies::Proxy& GpuSceneProxies::ProxyOf( const MotionKey key, const size_t position,
+                                                      bool& added ) noexcept
+    {
+        Memo& memo = m_Memo[position];
+        if ( memo.Held != nullptr && memo.Key == key )
+        {
+            added = false;
+            return *memo.Held;
+        }
+        const auto [it, inserted] = m_Proxies.try_emplace( key );
+        added                     = inserted;
+        memo.Key                  = key;
+        memo.Held                 = &it->second;
+        return it->second;
+    }
+
+    void GpuSceneProxies::Rigid( GpuSceneRegistry& registry, Proxy& proxy, const MotionKey key, const bool added,
+                                 const MotionRecord& record ) noexcept
+    {
+        proxy.Sync         = m_Sync;
+        proxy.FrameContent = MixContent( record.Content );
+        m_Touched.emplace_back( &proxy, added );
+        const MeshGeometryBinding geometry = GeometryOf( record.Mesh );
+        if ( added )
+            proxy.Primitive = registry.AddPrimitive( m_List, key, record );
+        else if ( proxy.World != record.World || proxy.Mesh != record.Mesh || proxy.Geometry != geometry ||
+                  proxy.Flags != record.Flags || proxy.ForcedLod != record.ForcedLod ||
+                  proxy.LodBias != record.LodBias )
+            registry.UpdatePrimitive( m_List, proxy.Primitive, record );
+        proxy.World     = record.World;
+        proxy.Mesh      = record.Mesh;
+        proxy.Geometry  = geometry;
+        proxy.Flags     = record.Flags;
+        proxy.ForcedLod = record.ForcedLod;
+        proxy.LodBias   = record.LodBias;
+    }
+
+    void GpuSceneProxies::Sync( GpuSceneRegistry& registry, const std::span<const MotionRecord> rigid,
+                                const std::span<const MotionRecord>      skinned,
+                                const std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out ) noexcept
+    {
+        DESERT_PROFILE_SCOPE( "GpuSceneProxies::Sync" );
         out.RigidPrimitives.clear();
         out.RigidInstances.clear();
         out.SkinnedPrimitives.clear();
         out.SkinnedInstances.clear();
         out.FieldInstances.clear();
-        ++m_SyncSerial;
         out.FieldPrimitives.clear();
         out.RigidPrimitives.reserve( rigid.size() );
         out.RigidInstances.reserve( rigid.size() );
         out.SkinnedPrimitives.reserve( skinned.size() );
         out.SkinnedInstances.reserve( skinned.size() );
         out.FieldInstances.reserve( fields.size() );
+        out.FieldPrimitives.reserve( fields.size() );
 
-        // Per entity, the primitives it owns in this view's submission order: index in the list == Slot
-        // (ScratchOf: persistent per-entity scratch, emptied by this Sync's first record of the entity).
-        const auto emit = [&]( std::vector<PrimitiveIndex>& primitives, std::vector<InstanceIndex>& instances,
-                               const PrimitiveIndex primitive )
+        bool fresh = false;
+        m_List     = registry.BeginList( m_List, fresh );
+        if ( fresh ) // a new list, or a discarded frame rolled it back: every proxy is void, each record re-added
+            Reset();
+        ++m_Sync;
+        m_EntitiesNamed    = 0;
+        const size_t total = rigid.size() + skinned.size() + fields.size();
+        if ( m_Memo.size() < total )
+            m_Memo.resize( total );
+        const GpuScene& scene = registry.Scene();
+        const auto      emit  = [&scene]( std::vector<PrimitiveIndex>& primitives,
+                                         std::vector<InstanceIndex>& instances, const PrimitiveIndex primitive )
         {
             primitives.push_back( primitive );
-            instances.push_back( m_Scene.Primitive( primitive ).FirstInstance );
+            instances.push_back( scene.Primitive( primitive ).FirstInstance );
         };
 
-        for ( const MotionRecord& record : rigid )
+        for ( size_t i = 0; i < rigid.size(); ++i )
         {
+            const MotionRecord& record = rigid[i];
             if ( record.Part != 0 )
             {
-                bool         fresh = false;
-                const Entry& entry =
-                     Touch( MotionKey{ record.Entity, kMotionPartSlotBit | record.Part }, record, fresh );
-                emit( out.RigidPrimitives, out.RigidInstances, entry.Primitive );
+                const MotionKey key{ record.Entity, kMotionPartSlotBit | record.Part };
+                bool            added = false;
+                Proxy&          proxy = ProxyOf( key, i, added );
+                if ( proxy.Sync != m_Sync ) // a part queued twice keeps its first record
+                    Rigid( registry, proxy, key, added, record );
+                emit( out.RigidPrimitives, out.RigidInstances, proxy.Primitive );
                 continue;
             }
-            auto&          owned     = ScratchOf( record.Entity ).Primitives;
-            PrimitiveIndex primitive = kInvalidIndex;
+            auto&      owned  = ScratchOf( record.Entity, i ).Primitives;
+            Proxy*     proxy  = nullptr;
+            const auto packed = PackAffine( record.World );
             for ( const Owned& held : owned ) // only rigid primitives exist yet: skinned run last
-                if ( m_Scene.Primitive( held.Primitive ).LocalToWorld == PackAffine( record.World ) )
+                if ( scene.Primitive( held.Primitive ).LocalToWorld == packed )
                 {
-                    primitive = held.Primitive;
-                    AddContent( *held.Held, record.Content ); // a section of the same primitive
+                    proxy = held.Held;
+                    proxy->FrameContent += MixContent( record.Content ); // a section of the same primitive
                     break;
                 }
-            if ( primitive == kInvalidIndex )
+            if ( proxy == nullptr )
             {
-                bool   fresh = false;
-                Entry& entry =
-                     Touch( MotionKey{ record.Entity, static_cast<uint32_t>( owned.size() ) }, record, fresh );
-                primitive = entry.Primitive;
-                owned.push_back( Owned{ .Primitive = primitive, .Held = &entry } );
+                const MotionKey key{ record.Entity, static_cast<uint32_t>( owned.size() ) };
+                bool            added = false;
+                proxy                 = &ProxyOf( key, i, added );
+                Rigid( registry, *proxy, key, added, record );
+                owned.push_back( Owned{ .Primitive = proxy->Primitive, .Held = proxy } );
             }
-            emit( out.RigidPrimitives, out.RigidInstances, primitive );
+            emit( out.RigidPrimitives, out.RigidInstances, proxy->Primitive );
         }
 
-        bool palettesChanged = false;
-        for ( const MotionRecord& record : skinned )
+        for ( size_t s = 0; s < skinned.size(); ++s )
         {
-            auto&  owned = ScratchOf( record.Entity ).Primitives;
-            bool   fresh = false;
-            Entry& entry =
-                 Touch( MotionKey{ record.Entity, static_cast<uint32_t>( owned.size() ) }, record, fresh );
-            owned.push_back( Owned{ .Primitive = entry.Primitive, .Held = &entry } );
-            if ( entry.BonesFrame != m_Frame )
-            {
-                // Both palettes go into the ONE buffer every pass that draws the primitive skins it from. The
-                // previous one: what this primitive was drawn with in the last synced frame, unless it was not
-                // drawn then or its bone count changed (a mesh swap: the old palette indexes other bones).
-                // The history is read where the last frame wrote it (m_PreviousPalettes), not from a copy.
-                const size_t count   = record.Bones.size();
-                const bool   history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
-                                     entry.BoneCount == count &&
-                                     size_t( entry.BoneOffset ) + count <= m_PreviousPalettes.size();
-                const uint32_t written = static_cast<uint32_t>( m_FramePalettes.size() );
-                m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
-                entry.PrevOffset = static_cast<uint32_t>( m_FramePalettes.size() );
-                if ( history )
-                {
-                    const auto first =
-                         m_PreviousPalettes.begin() + static_cast<std::ptrdiff_t>( entry.BoneOffset );
-                    const auto last  = first + static_cast<std::ptrdiff_t>( count );
-                    m_FramePalettes.insert( m_FramePalettes.end(), first, last );
-                }
-                else
-                    m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
-                entry.PrevBoneOffset = entry.BoneOffset;
-                entry.PrevBoneCount  = entry.BoneCount;
-                entry.BoneOffset     = written;
-                entry.BoneCount      = static_cast<uint32_t>( count );
-                entry.PrevBonesFrame = entry.BonesFrame;
-                entry.BonesFrame     = m_Frame;
-                palettesChanged  = true;
-                // The skin cache's address is written after Sync (RayTracingSkinCache::PrepareRows).
-                m_Scene.SetSkinning( entry.Primitive, PrimitiveSkinning{ .BoneOffset     = entry.BoneOffset,
-                                                                         .PrevBoneOffset = entry.PrevOffset } );
-            }
-            emit( out.SkinnedPrimitives, out.SkinnedInstances, entry.Primitive );
+            const MotionRecord& record   = skinned[s];
+            const size_t        position = rigid.size() + s;
+            auto&               owned    = ScratchOf( record.Entity, position ).Primitives;
+            const MotionKey     key{ record.Entity, static_cast<uint32_t>( owned.size() ) };
+            bool                added = false;
+            Proxy&              proxy = ProxyOf( key, position, added );
+            Rigid( registry, proxy, key, added, record );
+            owned.push_back( Owned{ .Primitive = proxy.Primitive, .Held = &proxy } );
+            registry.UpdateBones( proxy.Primitive, record.Bones ); // the pose moves every frame
+            emit( out.SkinnedPrimitives, out.SkinnedInstances, proxy.Primitive );
         }
-        if ( palettesChanged )
-            m_Scene.SetBonePalettes( m_FramePalettes );
 
         // Per entity, its distinct transform sets in submission order: index == the field's slot.
-        for ( const MotionFieldRecord& field : fields )
+        for ( size_t f = 0; f < fields.size(); ++f )
         {
-            auto&      sets  = ScratchOf( field.Entity ).FieldSets;
-            const auto found = std::find( sets.begin(), sets.end(), field.Transforms.data() );
-            const auto slot  = static_cast<uint32_t>( found - sets.begin() );
+            const MotionFieldRecord& field    = fields[f];
+            const size_t             position = rigid.size() + skinned.size() + f;
+            auto&                    sets     = ScratchOf( field.Entity, position ).FieldSets;
+            const auto               found    = std::find( sets.begin(), sets.end(), field.Transforms.data() );
+            const auto               slot     = static_cast<uint32_t>( found - sets.begin() );
             if ( found == sets.end() )
                 sets.push_back( field.Transforms.data() );
-
             const MotionKey key{ field.Entity, kMotionFieldSlotBit | slot };
-            const auto [it, inserted] = m_Entries.try_emplace( key );
-            Entry& entry              = it->second;
-            if ( inserted || entry.Frame != m_Frame )
-            {
-                ++m_EntriesQueued;
-                // The held snapshot is the instance rows' contents: the same object needs no per-instance compare.
-                const bool sameSnapshot =
-                     !inserted && field.Snapshot != nullptr && entry.Instances == field.Snapshot;
-                const bool changed =
-                     inserted || entry.Mesh != field.Mesh || entry.Geometry != GeometryOf( field.Mesh ) ||
-                     entry.Flags != field.Flags || entry.BoundsPad != field.BoundsPad ||
-                     entry.CullStart != field.CullDistanceStart || entry.CullEnd != field.CullDistanceEnd ||
-                     ( !sameSnapshot && !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms ) );
-                if ( changed )
-                {
-                    PrimitiveDesc desc;
-                    desc.Mesh                = field.Mesh;
-                    desc.InstanceToPrimitive = field.Transforms;
-                    desc.CullDistanceStart   = field.CullDistanceStart;
-                    desc.CullDistanceEnd     = field.CullDistanceEnd;
-                    desc.Flags               = field.Flags;
-                    desc.Entity              = field.Entity;
-                    desc.BoundsPad           = field.BoundsPad; // ISM rows: ForcedLod -1, LodBias 0 (defaults)
-                    FillBounds( desc, field.Mesh );
-                    if ( inserted )
-                        entry.Primitive = m_Scene.AddPrimitive( desc );
-                    else
-                        m_Scene.UpdatePrimitive( entry.Primitive, desc );
-                    entry.Mesh      = field.Mesh;
-                    entry.Geometry  = GeometryOf( field.Mesh );
-                    entry.Flags     = field.Flags;
-                    entry.BoundsPad = field.BoundsPad;
-                    entry.CullStart = field.CullDistanceStart;
-                    entry.CullEnd   = field.CullDistanceEnd;
-                }
-                // Written or verified equal just now: the rows hold this snapshot's contents.
-                entry.Instances = field.Snapshot != nullptr && field.Snapshot->data() == field.Transforms.data() &&
-                                            field.Snapshot->size() == field.Transforms.size()
-                                       ? field.Snapshot
-                                       : nullptr;
-                BeginContent( entry, inserted, field.Content );
-                m_Scene.SetWind( entry.Primitive, field.Wind );
-                Queued( entry );
-            }
+            bool            added = false;
+            Proxy&          proxy = ProxyOf( key, position, added );
+            if ( proxy.Sync == m_Sync )
+                proxy.FrameContent += MixContent( field.Content ); // another material slot of the same field
             else
-                AddContent( entry, field.Content ); // another material slot of the same field
-            out.FieldInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
-            out.FieldPrimitives.push_back( entry.Primitive );
+            {
+                proxy.Sync         = m_Sync;
+                proxy.FrameContent = MixContent( field.Content );
+                m_Touched.emplace_back( &proxy, added );
+                const MeshGeometryBinding geometry = GeometryOf( field.Mesh );
+                // The held snapshot is the instance rows' contents: the same object needs no per-instance
+                // compare; without one the registry compares every sync (the record cannot vouch for them).
+                const bool sameSnapshot = field.Snapshot != nullptr && proxy.Snapshot == field.Snapshot;
+                if ( added )
+                    proxy.Primitive = registry.AddField( m_List, key, field );
+                else
+                {
+                    if ( !sameSnapshot || proxy.Mesh != field.Mesh || proxy.Geometry != geometry ||
+                         proxy.Flags != field.Flags || proxy.BoundsPad != field.BoundsPad ||
+                         proxy.CullStart != field.CullDistanceStart || proxy.CullEnd != field.CullDistanceEnd )
+                        registry.UpdateField( m_List, proxy.Primitive, field );
+                    if ( !( proxy.Wind == field.Wind ) )
+                        registry.UpdateWind( proxy.Primitive, field.Wind );
+                }
+                proxy.Mesh      = field.Mesh;
+                proxy.Geometry  = geometry;
+                proxy.Flags     = field.Flags;
+                proxy.BoundsPad = field.BoundsPad;
+                proxy.CullStart = field.CullDistanceStart;
+                proxy.CullEnd   = field.CullDistanceEnd;
+                proxy.Wind      = field.Wind;
+                // Sent or verified just now: the rows hold this snapshot's contents.
+                proxy.Snapshot = field.Snapshot != nullptr && field.Snapshot->data() == field.Transforms.data() &&
+                                           field.Snapshot->size() == field.Transforms.size()
+                                      ? field.Snapshot
+                                      : nullptr;
+            }
+            out.FieldInstances.push_back( scene.Primitive( proxy.Primitive ).FirstInstance );
+            out.FieldPrimitives.push_back( proxy.Primitive );
         }
-        PublishContent();
+
+        // A Content change for each primitive whose records' sum moved (not for one added now).
+        for ( const auto& [proxy, added] : m_Touched )
+        {
+            if ( !added && proxy->FrameContent != proxy->Content )
+                registry.UpdateContent( proxy->Primitive );
+            proxy->Content = proxy->FrameContent;
+        }
+        // The proxies no record named this sync left the view or the scene: one removal event each. Pointers
+        // into the maps die with them, so the position memo starts over.
+        const bool proxiesLeft  = m_Touched.size() < m_Proxies.size();
+        const bool entitiesLeft = m_EntitiesNamed < m_Entities.size();
+        m_Touched.clear();
+        if ( proxiesLeft )
+            for ( auto it = m_Proxies.begin(); it != m_Proxies.end(); )
+            {
+                if ( it->second.Sync == m_Sync )
+                {
+                    ++it;
+                    continue;
+                }
+                registry.RemovePrimitive( m_List, it->second.Primitive );
+                it = m_Proxies.erase( it );
+            }
+        if ( entitiesLeft )
+            std::erase_if( m_Entities, [this]( const auto& held ) { return held.second.Sync != m_Sync; } );
+        if ( proxiesLeft || entitiesLeft )
+            std::fill( m_Memo.begin(), m_Memo.end(), Memo{} );
+        registry.EndList( m_List );
     }
 } // namespace Desert::Graphic::GpuDriven

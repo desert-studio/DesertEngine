@@ -5149,6 +5149,8 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, SkinnedContentProxy> m_SkinnedContentProxies;
         uint64_t                                          m_SkinnedContentSync = 0;
         GpuDriven::GpuSceneRecordRows      m_ScratchGpuSceneRows;
+        // This view's dynamic primitives as the scene's GPU scene was last told them (events, not a list per frame).
+        GpuDriven::GpuSceneProxies         m_GpuSceneProxies;
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
         // PrepareViewIsmIds: the view's id buffer (per frame in flight, owned here and lent to every scene-id
