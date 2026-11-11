@@ -1,40 +1,28 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/MaterialLayoutStamp.hpp>
 
 #include <cstdint>
+#include <string>
 
 namespace Desert::Graphic
 {
-    // THE LAYOUT A HANDLE WAS RESOLVED AGAINST (UE: an FShaderParameter is bound once per shader map, and a
-    // recompile makes a new map). Shader::GetSerial with Shader::GetCodeGeneration names exactly one
-    // MaterialLayout (Shader.hpp: the layout is replaced only by a build that bumps the generation), so a handle
-    // whose stamp equals the material's current one indexes the current layout; any other stamp - a hot reload, a
-    // material moved onto another program, a handle never resolved - is re-resolved by name before the write.
-    // {0, 0} is "no program": a handle resolved there misses until the material has one.
-    struct MaterialLayoutStamp
+    class Texture2DProperty;
+
+    // A Texture2D property of a DataDrivenMaterial, found by its sampler name once per layout and executor
+    // (DataDrivenMaterial::ResolveTexture) and bound through the pointer (DataDrivenMaterial::SetTexture(
+    // MaterialTextureHandle&, ... )). The property is the executor's for the executor's whole life
+    // (InitializeProperties runs once, in its constructor), so a handle whose stamp and executor are the
+    // material's current ones points at a live property. Name is the sampler it was resolved for: a handle kept
+    // by position is re-resolved when the name at that position is another one.
+    struct MaterialTextureHandle
     {
-        uint64_t Serial     = 0;
-        uint64_t Generation = 0;
-
-        [[nodiscard]] bool operator==( const MaterialLayoutStamp& ) const noexcept = default;
-    };
-
-    // A row parameter of a DataDrivenMaterial, resolved once per layout (DataDrivenMaterial::ResolveParam) and
-    // written by slot (DataDrivenMaterial::SetParam( MaterialParamHandle&, ... )): the per-frame writer holds
-    // one per parameter it writes and pays a stamp compare, not a walk of the layout's names.
-    struct MaterialParamHandle
-    {
-        static constexpr uint32_t kNone = ~0u;
-
         MaterialLayoutStamp Stamp;
-        uint32_t            Slot  = kNone; // row slot (Offset / kMaterialParamSlotSize); kNone = not a row value
-        uint32_t            Param = kNone; // index in MaterialLayout::Params (its declared type)
-
-        [[nodiscard]] bool IsValue() const noexcept
-        {
-            return Slot != kNone;
-        }
+        const void*         Executor = nullptr;
+        Texture2DProperty*  Property = nullptr; // null after resolving: the shader declares no such texture
+        std::string         Name;
+        bool                Resolved = false;
     };
 
     // A push-constant field of a Material, resolved once per layout (MaterialBinder::ResolvePush) and written at
@@ -60,5 +48,10 @@ namespace Desert::Graphic
         MaterialPushHandle PrimitiveFlags;
         MaterialPushHandle ShadowSlope;
         MaterialPushHandle BoneOffset;
+        // The skin cache's fields (Vertex_Skinned.glslh / Silhouette_Skinned.shader), written per skinned draw by
+        // MaterialShadowSkinned::SetSkinCache and MaterialSilhouetteSkinned::SetSkinCache.
+        MaterialPushHandle SkinCacheVertexCount;
+        MaterialPushHandle SkinCacheAddressLo;
+        MaterialPushHandle SkinCacheAddressHi;
     };
 } // namespace Desert::Graphic

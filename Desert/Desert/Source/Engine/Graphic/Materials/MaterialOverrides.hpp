@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Graphic/Materials/MaterialLayoutStamp.hpp>
 
 #include <glm/glm.hpp>
 
@@ -25,6 +26,12 @@ namespace Desert::Graphic
         // slot name -> asset handle: every sampler, cloud-asset and shader slot of the material chain
         // (MaterialData::ForEachSlotHandle), each already folded from what the file states.
         std::vector<std::pair<std::string, uint64_t>> Textures;
+        // Params as last written into a material row: their handles and revision (MaterialOverrideHandles), so a
+        // frame's row build indexes the layout and skips an unchanged record. Mutable: a producer keeps its
+        // overrides const (GenericMeshDrawParams) and the renderer's walk maintains this. A copy starts empty.
+        // A producer that rewrites Params IN PLACE (same vector, same count, other names) assigns the whole
+        // MaterialOverrides instead, which resets this.
+        mutable MaterialOverrideHandles Resolved;
     };
 
     /**

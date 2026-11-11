@@ -520,7 +520,7 @@ namespace Desert::Graphic::System
                         pool.push_back( std::make_shared<DataDrivenMaterial>( section.OverrideCell ) );
                     material = pool[k].get();
                     // Its descriptors (TextureBinding textures); its values are its record's table row.
-                    ApplyGenericTextures( *material, *section.Generic, section.OverrideCell, true );
+                    ApplyGenericTextures( *material, *section.Generic, section.OverrideCell, true, 0 );
                     row = section.Generic->MaterialRow;
                 }
                 else if ( materials != nullptr && materials->Owns( section.Surface ) )
