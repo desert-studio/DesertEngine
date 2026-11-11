@@ -1767,6 +1767,8 @@ namespace Desert::Graphic
         const int  setupQuality  = m_Quality.As<int>( Common::Scalability::Parameter::ParallelSetup );
         const bool parallelSetup = ( setupOverride >= 0 ? setupOverride : setupQuality ) != 0;
         m_ParallelSetup          = parallelSetup; // ParallelSetup(): the passes' own setup tasks
+        // FPS-RDG-PREPARE: the graph's record prerequisites prepared on task workers too (0 = the serial order).
+        graph.SetParallelPrepare( parallelSetup );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no

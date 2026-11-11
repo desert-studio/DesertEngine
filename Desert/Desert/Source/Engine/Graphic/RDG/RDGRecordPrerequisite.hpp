@@ -28,6 +28,20 @@ namespace Desert::Graphic::RDG
         // and its exec does not run. Const: what it makes and writes is the object's per-view cache (a material's
         // view sets and block copies), not its value - so a pass declares the const material its setup holds.
         [[nodiscard]] virtual Common::BoolResultStr PrepareForRecording() const = 0;
+
+        // FPS-RDG-PREPARE (UE FRDGBuilder::SetupParallelExecute: the setup work of a graph runs as tasks, joined
+        // before the passes record). True: this object's PrepareForRecording may run on a task worker, at the
+        // same time as the prepares of OTHER objects, inside an ActiveViewScope of the graph's view. It then
+        // writes only its own state and the per-view copies it owns, reaches shared per-view objects only
+        // through the thread-safe find / make paths (ViewResources, ViewCopiedBlock, ViewDescriptorSets under
+        // ViewResourceRegistry::CreationLock), and creates nothing else shared. Asked on the calling thread,
+        // before the fan-out. False (the default): prepared on the calling thread, in pass order, after the
+        // workers' prepares joined - an object that writes another object's state (a sprite draw binds its
+        // material instance) stays here.
+        [[nodiscard]] virtual bool PreparesOnAnyThread() const noexcept
+        {
+            return false;
+        }
     };
 
     /**

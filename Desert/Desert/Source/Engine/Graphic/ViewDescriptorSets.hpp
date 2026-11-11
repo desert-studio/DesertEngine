@@ -147,6 +147,15 @@ namespace Desert::Graphic
                      "pass declares the material in its setup "
                      "(PassBuilder::Prepares)",
                      view.GetName(), frameIndex );
+            // FPS-RDG-PREPARE: the maker allocates from the view's pool chain, which has no lock of its own;
+            // makers run one at a time across threads (ViewResourceRegistry::CreationLock). Found again under
+            // it: a prepare on another worker may have filed this material's sets while this one waited.
+            const std::scoped_lock creation( ViewResourceRegistry::CreationLock() );
+            if ( IViewDescriptorSetCopy* existing = FindActive( frameIndex ) )
+            {
+                out = existing;
+                return Common::MakeSuccess( true );
+            }
             std::unique_ptr<IViewDescriptorSetCopy> made;
             auto                                    created = make( view.GetName(), frameIndex, made );
             if ( !created.IsSuccess() )

@@ -1854,34 +1854,110 @@ namespace Desert::Graphic::RDG
         };
 
         // RENDER-THREADS M1 (UE: everything a pass lambda binds exists before the graph records). Every
-        // prerequisite a surviving pass declared is prepared once, in pass order, before the first pass records;
-        // a failure faults only the passes that declared it.
+        // prerequisite a surviving pass declared is prepared once before the first pass records; a failure faults
+        // only the passes that declared it.
         DESERT_PROFILE_PHASE( phases, "RDG: Prepare recording" );
+        // FPS-RDG-PREPARE: the position of the first pass a failed prerequisite faults (result.Passes.size() when
+        // none). The record phase cuts chunks only before it: a failed prerequisite costs the passes from there
+        // on their parallel record, not the whole graph's.
+        uint32_t firstPrepareFailure = static_cast<uint32_t>( result.Passes.size() );
         {
             // RENDER-CPU-COST-2: the phase's two parts read apart (it was one self row, 0.58-0.70 ms on the turn).
             DESERT_PROFILE_PHASES( prepareRows );
             DESERT_PROFILE_PHASE( prepareRows, "RDG Prepare: prerequisites" );
-            // By graph-wide index: kNotPrepared until the first surviving pass that declared it prepares it.
+            // By graph-wide index: kNotPrepared until it is prepared (kQueued while a parallel prepare holds it).
             // CPU-RDG-PREPARE: kPrepared, or the index of its failure in prepareReasons.
             constexpr uint32_t      kNotPrepared = kPrepared - 1;
+            constexpr uint32_t      kQueued      = kPrepared - 2;
             ScratchVector<uint32_t> prepared( m_Prerequisites.size(), kNotPrepared );
-            for ( const CompiledPass& planned : result.Passes )
+            const auto              prepareHere = [&]( const uint32_t index )
             {
-                for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
+                const Common::BoolResultStr ready = m_Prerequisites[index]->PrepareForRecording();
+                prepared[index]                   = kPrepared;
+                if ( !ready )
                 {
-                    if ( prepared[index] == kNotPrepared )
+                    prepared[index] = static_cast<uint32_t>( prepareReasons.size() );
+                    prepareReasons.push_back( ready.GetError() );
+                }
+            };
+            if ( m_ParallelPrepare )
+            {
+                // FPS-RDG-PREPARE (UE FRDGBuilder::SetupParallelExecute; r.RDG.ParallelSetup). In first
+                // declaration order, split by where each may prepare (IRecordPrerequisite::PreparesOnAnyThread,
+                // asked here, before any of them runs): the workers' share runs as TaskGroup slices, each slice
+                // writing only its own result slots, joined before anything else; the calling thread's share then
+                // prepares in pass order, as before - so an object that writes another's state (a sprite draw
+                // binds its material) still runs after every prepare it could race.
+                ScratchVector<uint32_t> anyThread;
+                ScratchVector<uint32_t> callingThread;
+                for ( const CompiledPass& planned : result.Passes )
+                {
+                    for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
                     {
-                        const Common::BoolResultStr ready = m_Prerequisites[index]->PrepareForRecording();
-                        prepared[index]                   = kPrepared;
-                        if ( !ready )
+                        if ( prepared[index] != kNotPrepared )
+                            continue;
+                        prepared[index] = kQueued;
+                        if ( m_Prerequisites[index]->PreparesOnAnyThread() )
+                            anyThread.push_back( index );
+                        else
+                            callingThread.push_back( index );
+                    }
+                }
+                if ( !anyThread.empty() )
+                {
+                    // By slot of anyThread: 1 = prepared, else its refusal in failures (an empty string allocates
+                    // nothing). Sized here, on the calling thread; a slice writes only its own elements.
+                    ScratchVector<uint8_t>   succeeded( anyThread.size(), 0 );
+                    std::vector<std::string> failures( anyThread.size() );
+                    // The workers prepare in the view the graph records (ViewResources.cpp t_ActiveView is per
+                    // thread), as the record chunks do.
+                    ViewResources& prepareView = ViewResourceRegistry::Active();
+                    // A material prepare costs a few microseconds: a slice under this many is not worth a
+                    // hand-off.
+                    constexpr size_t  kPrepareSliceItems = 16;
+                    Common::TaskGroup prepares( true );
+                    prepares.LaunchSlices( "RDG Prepare: prerequisite slice", anyThread.size(), kPrepareSliceItems,
+                                           [&]( const size_t first, const size_t last ) noexcept
+                                           {
+                                               const ActiveViewScope viewScope( prepareView );
+                                               for ( size_t slot = first; slot < last; ++slot )
+                                               {
+                                                   const Common::BoolResultStr ready =
+                                                        m_Prerequisites[anyThread[slot]]->PrepareForRecording();
+                                                   succeeded[slot] = ready ? 1 : 0;
+                                                   if ( !ready )
+                                                       failures[slot] = ready.GetError();
+                                               }
+                                           } );
+                    prepares.Join();
+                    for ( size_t slot = 0; slot < anyThread.size(); ++slot )
+                    {
+                        const uint32_t index = anyThread[slot];
+                        prepared[index]      = kPrepared;
+                        if ( succeeded[slot] == 0 )
                         {
                             prepared[index] = static_cast<uint32_t>( prepareReasons.size() );
-                            prepareReasons.push_back( ready.GetError() );
+                            prepareReasons.push_back( std::move( failures[slot] ) );
                         }
                     }
-                    if ( prepared[index] != kPrepared && prepareFailures[planned.Pass] == kPrepared )
-                        prepareFailures[planned.Pass] = prepared[index];
                 }
+                for ( const uint32_t index : callingThread )
+                    prepareHere( index );
+            }
+            for ( uint32_t position = 0; position < result.Passes.size(); ++position )
+            {
+                const uint32_t pass = result.Passes[position].Pass;
+                for ( const uint32_t index : m_Passes[pass].Prerequisites )
+                {
+                    // Off (ParallelSetup 0): prepared here, at the first surviving pass that declared it, in pass
+                    // order - the serial order this phase always had.
+                    if ( prepared[index] == kNotPrepared )
+                        prepareHere( index );
+                    if ( prepared[index] != kPrepared && prepareFailures[pass] == kPrepared )
+                        prepareFailures[pass] = prepared[index];
+                }
+                if ( prepareFailures[pass] != kPrepared && firstPrepareFailure == result.Passes.size() )
+                    firstPrepareFailure = position;
             }
             // UE FRDGBuilder::SetupParallelExecute: what the backend would otherwise create lazily while a pass
             // records (Vulkan: the render pass, framebuffer and attachment views of every pass that opens one)
@@ -1899,7 +1975,7 @@ namespace Desert::Graphic::RDG
         // record WHILE the calling thread walks the graph and records the serial passes - a NeverParallel pass,
         // the async compute segments, every pass after the first late fault - in order, as before; it meets a
         // chunk only at the chunk's position (ChunkTasks::Await). A graph with a prerequisite that was not
-        // prepared records entirely on the calling thread.
+        // prepared records from its first faulted pass on on the calling thread (FPS-RDG-PREPARE).
         struct RecordChunk
         {
             RecordChunkDesc                  Desc;
@@ -1916,9 +1992,12 @@ namespace Desert::Graphic::RDG
         ScratchVector<int32_t>     chunkAt;     // by position: the chunk starting there, -1 when none
         ScratchVector<float>       chunkMicros; // by chunk: its passes' record cost last frame (0 when unmeasured)
         bool                     chunksByCost = false;
-        // Every failed prerequisite was declared by a surviving pass, which carries it.
-        const bool               anyPrepareFailure = !prepareReasons.empty();
-        if ( m_ParallelExecute && backend.SupportsParallelRecording() && !anyPrepareFailure )
+        // FPS-RDG-PREPARE: a failed prerequisite no longer turns the whole graph serial. Its first faulted pass
+        // (firstPrepareFailure) is a late fault the walk meets in order, after which every later chunk would be
+        // discarded anyway (discardChunks) - so chunks are cut only from runs that end before it, and the passes
+        // from it on record on the calling thread as before. Positions are a topological order, so no chunk
+        // before it reads a pass the fault loses.
+        if ( m_ParallelExecute && backend.SupportsParallelRecording() && firstPrepareFailure > 0 )
         {
             // UE: r.RDG.ParallelExecute.PassMin 1 / PassMax. Every segment is cut, however short: the calling
             // thread no longer waits for the chunks before it walks (RDG-PARALLEL-1-1), so a hand-off costs it a
@@ -1960,7 +2039,9 @@ namespace Desert::Graphic::RDG
                     uint32_t runEnd = position;
                     while ( runEnd < segment.LastPosition && !cuttable( runEnd + 1 ) )
                         ++runEnd;
-                    bool  neverParallel = false;
+                    // FPS-RDG-PREPARE: a run reaching the first pass a failed prerequisite faults stays in the
+                    // walk.
+                    bool  neverParallel = runEnd >= firstPrepareFailure;
                     float runMicros     = 0.0f;
                     for ( uint32_t inRun = position; inRun <= runEnd; ++inRun )
                     {

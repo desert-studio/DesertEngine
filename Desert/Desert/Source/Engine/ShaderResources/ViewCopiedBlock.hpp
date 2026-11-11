@@ -269,6 +269,10 @@ namespace Desert::ShaderResources
                      "material in its setup (PassBuilder::Prepares)",
                      view.GetName(), frameIndex );
 
+            // FPS-RDG-PREPARE: makers run one at a time across threads (ViewResourceRegistry::CreationLock),
+            // taken inside m_Lock - this block's copy cannot appear meanwhile, so no second find is needed.
+            const std::scoped_lock creation( Graphic::ViewResourceRegistry::CreationLock() );
+
             // Every refusal is produced BEFORE Acquire: Acquire refuses only a null copy, and a view must never
             // be handed a copy that could not be seeded.
             // A COPY'S ROW BELONGS TO THE VIEWRESOURCES IT IS FILED IN. A copy made outside every
