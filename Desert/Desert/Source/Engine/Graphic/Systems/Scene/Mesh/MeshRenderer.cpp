@@ -165,6 +165,7 @@ namespace Desert::Graphic::System
         // and the virtual shadow map's levels.
         m_GBufferDraws.CountAs( GpuDriven::MeshPass::GBuffer );
         m_GBufferPostDraws.CountAs( GpuDriven::MeshPass::GBuffer );
+        m_OccluderDepthDraws.CountAs( GpuDriven::MeshPass::GBuffer );
         m_DepthNormalDraws.CountAs( GpuDriven::MeshPass::DepthPrepass );
         m_ForwardDraws.CountAs( GpuDriven::MeshPass::Forward );
         m_GenericDraws.CountAs( GpuDriven::MeshPass::Forward );
@@ -1835,6 +1836,8 @@ namespace Desert::Graphic::System
     {
         m_FrameBinned.clear();
         m_FrameClusterCandidates.clear();
+        m_EarlyZOccluderIssue.reset();
+        m_EarlyZOccluderFrame.reset();
         std::erase_if( m_BinnedCarriers, []( const auto& entry ) { return entry.second.Program.expired(); } );
         if ( !m_DrawCommandCache )
             return Common::MakeError<GpuDriven::DrawCommandBuffers>(

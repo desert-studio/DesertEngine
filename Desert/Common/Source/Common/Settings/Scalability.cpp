@@ -445,6 +445,12 @@ namespace Common::Scalability
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL; a frame with a "
                "DBuffer decal runs All)",
                Of( EarlyZPassMode::Masked ), Vis::Advanced },
+             { P::EarlyZOccluderScreenRadius, G::ViewDistance, "RenderPipeline.EarlyZOccluderScreenRadius", 0, 1000,
+               CL::None,
+               "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius (thousandths of the screen: "
+               "the opaque GPU-driven instances at least that large write their depth before the masked prepass; "
+               "0 = none)",
+               30, Vis::Advanced },
              { P::ParallelExecute, G::ViewDistance, "RenderPipeline.ParallelExecute", 0, 1, CL::None,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
                "workers into secondary command buffers, replayed in pass order)",

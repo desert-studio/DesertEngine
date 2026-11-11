@@ -210,15 +210,10 @@ Shader "InstanceCull"
             return InstanceFadeThreshold( index ) >= fade;
         }
 
-        // Geometry::SelectLODFromBounds + BoundsScreenRadiusSquared (LODSelection.hpp), after MeshRenderer::ComputeLOD's
-        // order (forced level first, then the renderer's LOD toggle).
-        uint SelectLod( GpuCullView view, GpuScenePrimitive primitive, mat4 world, bool emptyBounds )
+        // Geometry::BoundsScreenRadiusSquared (LODSelection.hpp) of the instance's local bounds sphere in @p view's LOD
+        // projection: the LOD choice's measure (SelectLod) and the depth-occluder view's (kDepthOccluder).
+        float BoundsScreenRadiusSq( GpuCullView view, GpuScenePrimitive primitive, mat4 world )
         {
-            if ( primitive.ForcedLod >= 0 )
-                return uint( primitive.ForcedLod );
-            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_LOD_DISABLED ) != 0u || primitive.LodCount <= 1u || emptyBounds ||
-                 primitive.FirstLodScreenSize == DESERT_GPU_INVALID_INDEX )
-                return 0u;
             const float scale     = max( length( world[0].xyz ), max( length( world[1].xyz ), length( world[2].xyz ) ) );
             const vec3  extent    = primitive.LocalBoundsExtent.xyz;
             const vec3  boundsMin = primitive.LocalBoundsCenter.xyz - extent;
@@ -229,7 +224,19 @@ Shader "InstanceCull"
             const vec3  d        = center - view.LodOrigin.xyz;
             const float distSq   = dot( d, d ) * abs( view.LodProjection[2][3] );
             const float multiple = max( 0.5 * abs( view.LodProjection[0][0] ), 0.5 * abs( view.LodProjection[1][1] ) );
-            const float screenRadiusSq = ( multiple * radius ) * ( multiple * radius ) / max( 1.0, distSq );
+            return ( multiple * radius ) * ( multiple * radius ) / max( 1.0, distSq );
+        }
+
+        // Geometry::SelectLODFromBounds + BoundsScreenRadiusSquared (LODSelection.hpp), after MeshRenderer::ComputeLOD's
+        // order (forced level first, then the renderer's LOD toggle).
+        uint SelectLod( GpuCullView view, GpuScenePrimitive primitive, mat4 world, bool emptyBounds )
+        {
+            if ( primitive.ForcedLod >= 0 )
+                return uint( primitive.ForcedLod );
+            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_LOD_DISABLED ) != 0u || primitive.LodCount <= 1u || emptyBounds ||
+                 primitive.FirstLodScreenSize == DESERT_GPU_INVALID_INDEX )
+                return 0u;
+            const float screenRadiusSq = BoundsScreenRadiusSq( view, primitive, world );
 
             const int coarsest = int( primitive.LodCount ) - 1;
             int       base     = 0;
@@ -484,6 +491,19 @@ Shader "InstanceCull"
             {
                 Visibility[cell] = 0u; // draws nothing: the cells are its output
                 AddContentHash( view, instanceRow, instance.Primitive, lod, restPose, empty, boxMin, boxMax );
+                return;
+            }
+            // A DEPTH-OCCLUDER view (GpuDriven::CullViewFlags::kDepthOccluder; UE r.MinScreenRadiusForDepthPrepass):
+            // the main camera's G-buffer bins again, kept only for the instances large on screen, drawn depth-only
+            // before the masked prepass. It must write exactly the depth the main view's G-buffer draw writes, so it
+            // drops what the main view draws otherwise: an instance with no bounds (size unknown), and a VG
+            // primitive whenever the main view cuts it (its clusters, not its bins' LOD mesh, are rastered there).
+            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_DEPTH_OCCLUDER ) != 0u &&
+                 ( empty || ( Params3.x != 0u && instance.Primitive < Params3.x &&
+                              VgPrimitiveDags[instance.Primitive].y != 0u ) ||
+                   BoundsScreenRadiusSq( view, primitive, world ) < view.DepthOccluder.x ) )
+            {
+                Visibility[cell] = 0u;
                 return;
             }
             const uint word = DESERT_GPU_CULL_VISIBILITY_IN_VIEW | min( lod, DESERT_GPU_CULL_VISIBILITY_LOD_MASK );

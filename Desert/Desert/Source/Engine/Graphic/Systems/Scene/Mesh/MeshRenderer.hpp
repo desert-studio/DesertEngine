@@ -920,6 +920,9 @@ namespace Desert::Graphic::System
         // (pass, view) issues its bins and its CPU loops drop every record the bins hold
         // (DrawCommandCache::SubmeshesBinned); any other draws everything on the CPU, as before.
         static constexpr uint32_t                                      kBinnedMainView = ~0u;
+        // The G-buffer cull's depth-occluder view of the main camera (SetFrameEarlyZOccluders): a view key of the
+        // cull only, never a (pass, view) of SetFrameBinned - its draws use the main view's carriers.
+        static constexpr uint32_t kBinnedOccluderView = ~0u - 1u;
         [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
         [[nodiscard]] GpuDriven::MeshPass                              MainViewPass() const;
         [[nodiscard]] bool                                             CascadeBinsDrawn( uint32_t view ) const;
@@ -1538,6 +1541,40 @@ namespace Desert::Graphic::System
         {
             return m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off;
         }
+        // THE LARGE OPAQUE OCCLUDERS OF THE MASKED EARLY-Z PASS (FPS-PREPASS-OCCLUDERS; UE r.EarlyZPass with
+        // r.MinScreenRadiusForDepthPrepass). SceneRenderer sets it per frame with SetEarlyZPass (Scalability
+        // EarlyZOccluderScreenRadius / 1000): under Masked the G-buffer cull adds a second view of the main camera
+        // (GpuDriven::CullViewFlags::kDepthOccluder, kBinnedOccluderView) that keeps the GPU-driven instances whose
+        // bounds' screen radius reaches @p radius, and "Deferred: Occluder Depth Prepass" draws its opaque groups
+        // through their (path x Depth) cells before "Deferred: Masked Depth Prepass": the grass and the foliage
+        // behind the barn, the trunks and the rocks then fail early-Z before their clip runs. The G-buffer draws
+        // those meshes as before (CloserOrEqual, with its depth write), over the same depth from the same vertex
+        // stage, so no texel moves; only the masked prepass's hidden clips (and the G-buffer's EQUAL fragments
+        // behind them) go. 0: no occluder view, no pass.
+        void SetEarlyZOccluderScreenRadius( const float radius )
+        {
+            m_EarlyZOccluderScreenRadius = radius;
+        }
+        // Whether this frame runs the occluder view and "Deferred: Occluder Depth Prepass": Masked, a radius above 0.
+        [[nodiscard]] bool DrawsEarlyZOccluders() const
+        {
+            return m_EarlyZPass == ::Common::Scalability::EarlyZPassMode::Masked && m_EarlyZOccluderScreenRadius > 0.0f;
+        }
+        [[nodiscard]] float EarlyZOccluderScreenRadius() const
+        {
+            return m_EarlyZOccluderScreenRadius;
+        }
+        // The occluder view's phase-1 draws of the G-buffer pass's table (SceneRenderer::AddFrameDrawBins), kept
+        // for this frame's DeclareOccluderDepthDraws. False (nothing kept): no command cache or scene renderer.
+        bool SetFrameEarlyZOccluders( const GpuDriven::CulledDraws&        culled,
+                                      const GpuDriven::DrawCommandBuffers& upload,
+                                      const GpuDriven::GpuSceneBuffers&    scene );
+        // SETUP of "Deferred: Occluder Depth Prepass" (the G-buffer's depth only, before the masked prepass): the
+        // occluder view's records of every opaque group the G-buffer draws with its own depth write (not one the
+        // early-Z pass admits, no parallax cell), through the group's (path x Depth) `.Binned` cell. A group whose
+        // depth cell is still compiling is left out that frame (its G-buffer draw writes its depth as ever).
+        void DeclareOccluderDepthDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr RenderOccluderDepthManual( const RDG::PassContext& context ) const;
         // SETUP of "Grass: Visibility Raster" (the G-buffer's depth LOADed, tested, not written; no colour): the
         // sections' (GrassBlade x Visibility) cells atomic-max (depth | row | triangle) into @p visibility.
         // @p postOcclusion (GRASS-VIS phase 2, "Grass: Visibility Raster Post-Occlusion"): only the sections' phase-2
@@ -2349,6 +2386,8 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GBufferPostDraws; // "Deferred: GBuffer Post-Occlusion": phase-2 bins
         // "Deferred: Depth Prepass Post-Occlusion": phase 2's paired bins and clusters through their depth twins.
         MeshRendererDetail::MeshDrawList m_EarlyZPostDepthDraws;
+        // "Deferred: Occluder Depth Prepass": the occluder view's opaque groups (DeclareOccluderDepthDraws).
+        MeshRendererDetail::MeshDrawList m_OccluderDepthDraws;
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         MeshRendererDetail::MeshDrawList m_DepthPrepassDraws; // "Forward: Depth Prepass"
@@ -2830,6 +2869,24 @@ namespace Desert::Graphic::System
             EarlyZTwinPairSlot    Clusters;
         };
         std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot> m_EarlyZBinTwins;
+        // THE OCCLUDER DEPTH PREPASS (DrawsEarlyZOccluders): the radius SceneRenderer set, the occluder view's issue
+        // of this frame (SetFrameEarlyZOccluders, stamped m_EarlyZOccluderFrame; consumed by
+        // DeclareOccluderDepthDraws), and per opaque group pipeline its depth cell's pipeline (the same weak hold
+        // and refusal as EarlyZTwinPairSlot), pruned to the frame's groups by DeclareOccluderDepthDraws.
+        float                                          m_EarlyZOccluderScreenRadius = 0.0f;
+        std::optional<MeshRendererDetail::BinnedIssue> m_EarlyZOccluderIssue;
+        std::optional<uint64_t>                         m_EarlyZOccluderFrame;
+        struct EarlyZOccluderSlot
+        {
+            std::weak_ptr<Shader>           GroupShader;
+            std::weak_ptr<GraphicsPipeline> Depth;
+            bool                            Refused = false;
+        };
+        std::unordered_map<const GraphicsPipeline*, EarlyZOccluderSlot> m_EarlyZOccluderTwins;
+        // The Ready (path x Depth) `.Binned` pipeline of opaque @p group, or null (compiling: asked again next
+        // frame; refused: said once, @p slot Refused). @p group's cell was checked opaque by the caller.
+        [[nodiscard]] const GraphicsPipeline* EarlyZOccluderTwinOf( EarlyZOccluderSlot&             slot,
+                                                                    const GpuDriven::IndirectGroup& group );
         // The G-buffer's issue of the paired bins (DeclareEarlyZBins), valid for the frame m_EarlyZBinFrame names.
         std::optional<MeshRendererDetail::BinnedIssue> m_EarlyZGBufferIssue;
         std::optional<uint64_t>                         m_EarlyZBinFrame;
