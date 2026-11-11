@@ -2514,7 +2514,7 @@ namespace Desert::Graphic::System
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
-                                                      const uint64_t                         frame )
+                                                      const uint64_t frame, RDG::Builder& graph )
     {
         DESERT_PROFILE_SCOPE( "MeshRenderer::SyncGpuScene" );
         namespace Flags       = GpuDriven::PrimitiveFlags;
@@ -2883,20 +2883,18 @@ namespace Desert::Graphic::System
         m_GpuScene = &scene;
         FeedDrawCommandCache( scene, rows );
 
-        // The scene's deltas reach the device in a graph of their own, submitted ahead of this view's graph: its
-        // passes bind the tables by descriptor (CaptureFrameState), so the tables are at their final size and
-        // content before any pass is declared.
-        const auto upload = [&scene]() -> Common::BoolResultStr
+        // The scene's deltas reach the device through passes of this view's graph (FPS-ARCH-SETUP): every table
+        // is registered once in it (GpuScene::BeginGraph), so the scatter, the skin step and every pass that
+        // declares a table are ordered by its barriers. The tables reach their final size here, before any pass
+        // that binds them by descriptor (CaptureFrameState) is declared; "GPUScene: Publish" orders those reads.
+        scene.BeginGraph( graph );
+        const auto upload = [&scene, &graph]() -> Common::BoolResultStr
         {
             if ( !scene.HasPendingUpload() )
                 return BOOLSUCCESS;
-            RDG::Builder graph( "GPUScene" );
             if ( const auto added = scene.AddUploadPass( graph ); !added )
                 return Common::MakeFormattedError( "the GPU scene's upload could not be declared: {}",
                                                    added.GetError() );
-            if ( const Common::BoolResultStr executed = Renderer::ExecuteGraph( graph ); !executed )
-                return Common::MakeFormattedError( "the GPU scene's upload did not execute: {}",
-                                                   executed.GetError() );
             return BOOLSUCCESS;
         };
 
@@ -2905,18 +2903,18 @@ namespace Desert::Graphic::System
             skinCache->PrepareRows( *this, scene, frame );
         if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
             return uploaded;
-        // The scene's skin step, after the palettes it skins from are on the device: its own graph is submitted
-        // here, ahead of every view graph (each only reads the streams); a failure strips the address from the
-        // primitives it was to fill, which then go up again before any view pass reads them.
+        // The scene's skin step after the scatter of the palettes it skins from (it reads them through the same
+        // graph ref); an entry it refuses loses the address, and that row goes up again before the publish.
         if ( skinCache != nullptr )
         {
-            if ( const Common::BoolResultStr skinnedFrame =
-                      skinCache->SkinFrame( *this, scene, m_SkinCacheBonesImport, frame );
+            if ( const Common::BoolResultStr skinnedFrame = skinCache->SkinFrame( *this, scene, graph, frame );
                  !skinnedFrame )
                 LOG_ERROR( "[MeshRenderer] the skin cache's step failed: {}", skinnedFrame.GetError() );
             if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
                 return uploaded;
         }
+        if ( const Common::BoolResultStr published = scene.AddPublishPass( graph ); !published )
+            return published;
         return BOOLSUCCESS;
     }
 

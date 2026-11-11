@@ -135,6 +135,8 @@ namespace Desert::Graphic::GpuDriven
         uint32_t                                        CapacityRows = 0;
         // The buffer was (re)created: every row of the CPU image goes up, not only the dirty ones.
         bool Full = false;
+        // The table's one ref in GpuScene::BeginGraph's graph (registered, and extracted, once there).
+        std::optional<RDG::BufferRef> GraphRef;
     };
 
     struct GpuSceneUploadPipeline
@@ -182,15 +184,21 @@ namespace Desert::Graphic::GpuDriven
 
         // Scatters @p rows (indices into the CPU image @p image; empty + @p contiguous = rows [0, rowCount)) of
         // one table into its persistent buffer, growing it first when @p rowCount passes the capacity (then every
-        // row goes up). Returns the table's ref in @p graph, left in StorageRead.
+        // row goes up). Returns the table's ref in @p graph, left in StorageRead. @p tablesGraph: @p graph is
+        // GpuScene::BeginGraph's graph, where the table is registered once (Table::GraphRef) whatever uploads it.
         Common::ResultStr<RDG::BufferRef> UploadTable( RDG::Builder& graph, GpuScene::Table& table,
                                                        GpuSceneUploadPipeline& upload, const uint32_t rowCount,
                                                        const std::byte* image, std::span<const uint32_t> rows,
-                                                       bool contiguous )
+                                                       bool contiguous, const bool tablesGraph )
         {
             const uint32_t needed = std::max( rowCount, 1u );
             if ( !table.Buffer || table.CapacityRows < needed )
             {
+                if ( tablesGraph && table.GraphRef )
+                    return Common::MakeError<RDG::BufferRef>(
+                         std::format( "GPUScene {}: {} rows pass the capacity of {} after this graph "
+                                      "registered the table; a second buffer cannot stand for the same ref",
+                                      table.Name, needed, table.CapacityRows ) );
                 const uint32_t capacity = std::max( { needed, table.CapacityRows * 2u, kMinCapacityRows } );
                 const uint64_t bytes    = static_cast<uint64_t>( capacity ) * table.RowWords * 4u;
                 if ( bytes > std::numeric_limits<uint32_t>::max() )
@@ -209,11 +217,16 @@ namespace Desert::Graphic::GpuDriven
                 table.CapacityRows = capacity;
                 table.Full         = true;
             }
-            if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
-                return Common::MakeError<RDG::BufferRef>( std::format( "GPUScene {}: the table could not be imported: {}",
-                                                       table.Name, imported.GetError() ) );
-            const RDG::BufferRef ref =
-                 graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
+            const bool registered = tablesGraph && table.GraphRef.has_value();
+            if ( !registered )
+                if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
+                    return Common::MakeError<RDG::BufferRef>( std::format(
+                         "GPUScene {}: the table could not be imported: {}", table.Name, imported.GetError() ) );
+            RDG::BufferRef ref{};
+            if ( registered )
+                ref = *table.GraphRef;
+            else
+                ref = graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
 
             if ( table.Full )
             {
@@ -274,9 +287,14 @@ namespace Desert::Graphic::GpuDriven
                          return Renderer::DispatchCompute( bindings, *compute, groupsX, groupsY, 1 );
                      } );
             }
-            // Every later reader binds the table by descriptor (or imports it into its own graph): the graph
-            // leaves it readable, which orders those reads after this scatter and the next scatter after them.
-            graph.Extract( ref, table.Import, RDG::Access::StorageRead );
+            // Every later graph's reader binds the table by descriptor (or imports it): the graph leaves it
+            // readable, which orders those reads after this scatter and the next scatter after them. Once per ref.
+            if ( !registered )
+            {
+                graph.Extract( ref, table.Import, RDG::Access::StorageRead );
+                if ( tablesGraph )
+                    table.GraphRef = ref;
+            }
             table.Full = false;
             return Common::MakeSuccess( ref );
         }
@@ -704,12 +722,15 @@ namespace Desert::Graphic::GpuDriven
         out.PrimitiveCount = static_cast<uint32_t>( m_Primitives.size() );
         out.InstanceCount  = static_cast<uint32_t>( m_Instances.size() );
 
+        const bool tablesGraph = m_TablesGraph == &graph;
+        if ( tablesGraph )
+            m_UploadedInGraph = true;
         const auto upload = [&]( Table& table, const uint32_t rowCount, const void* image,
                                  std::vector<uint32_t>& dirty, const bool contiguous,
                                  RDG::BufferRef& into ) -> Common::BoolResultStr
         {
             auto ref = UploadTable( graph, table, *m_Upload, rowCount, static_cast<const std::byte*>( image ),
-                                    dirty, contiguous && !dirty.empty() );
+                                    dirty, contiguous && !dirty.empty(), tablesGraph );
             if ( !ref )
                 return Common::MakeError<bool>( ref.GetError() );
             into = ref.GetValue();
@@ -760,6 +781,40 @@ namespace Desert::Graphic::GpuDriven
         return std::span<const GpuSceneInstance>( m_Instances ).subspan( row.FirstInstance, row.InstanceCount );
     }
 
+    void GpuScene::BeginGraph( const RDG::Builder& graph )
+    {
+        m_TablesGraph     = &graph;
+        m_UploadedInGraph = false;
+        for ( Table* table : { m_PrimitiveTable.get(), m_InstanceTable.get(), m_LodTable.get(),
+                               m_WorldBoundsTable.get(), m_BonesTable.get(), m_MaterialTable.get() } )
+            table->GraphRef.reset();
+    }
+
+    Common::BoolResultStr GpuScene::AddPublishPass( RDG::Builder& graph )
+    {
+        if ( m_TablesGraph != &graph )
+            return Common::MakeError( "GPUScene: Publish: the graph is not the one BeginGraph named" );
+        if ( !m_UploadedInGraph )
+            return BOOLSUCCESS;
+        const Common::ResultStr<GpuSceneBuffers> tables = ImportTables( graph );
+        if ( !tables )
+            return Common::MakeFormattedError( "GPUScene: Publish: {}", tables.GetError() );
+        const GpuSceneBuffers& refs = tables.GetValue();
+        // A culling root that writes nothing: its declared reads are the barrier every descriptor reader needs.
+        graph.AddPass( "GPUScene: Publish", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+                       [&refs]( RDG::PassBuilder& pass )
+                       {
+                           const std::array<RDG::BufferRef, 6> read = { refs.Primitives,  refs.Instances,
+                                                                        refs.LodScreenSizes, refs.WorldBounds,
+                                                                        refs.ObjectBones, refs.MaterialRows };
+                           for ( const RDG::BufferRef ref : read )
+                               pass.Read( ref, RDG::Access::StorageRead );
+                       },
+                       []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+        m_UploadedInGraph = false;
+        return BOOLSUCCESS;
+    }
+
     Common::ResultStr<GpuSceneBuffers> GpuScene::ImportTables( RDG::Builder& graph ) const
     {
         if ( HasPendingUpload() )
@@ -768,14 +823,22 @@ namespace Desert::Graphic::GpuDriven
         GpuSceneBuffers out;
         out.PrimitiveCount = static_cast<uint32_t>( m_Primitives.size() );
         out.InstanceCount  = static_cast<uint32_t>( m_Instances.size() );
-        const auto import  = [&graph]( Table& table, RDG::BufferRef& into ) -> Common::BoolResultStr
+        const bool tablesGraph = m_TablesGraph == &graph;
+        const auto import = [&graph, tablesGraph]( Table& table, RDG::BufferRef& into ) -> Common::BoolResultStr
         {
+            if ( tablesGraph && table.GraphRef )
+            {
+                into = *table.GraphRef;
+                return BOOLSUCCESS;
+            }
             if ( !table.Buffer )
                 return Common::MakeError( std::format( "GPUScene {}: no device table yet (no upload ran)", table.Name ) );
             if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
                 return Common::MakeError( std::format( "GPUScene {}: the table could not be imported: {}",
                                                        table.Name, imported.GetError() ) );
             into = graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
+            if ( tablesGraph )
+                table.GraphRef = into;
             return BOOLSUCCESS;
         };
         for ( const auto& [table, into] :
