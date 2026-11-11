@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <iterator>
 #include <cstdio>
 #include <cstdlib>
@@ -1967,6 +1968,174 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    // ---- FPS-GPU-MARKER: GPU crash breadcrumbs (VulkanRenderGraph.hpp) ----
+    namespace
+    {
+        constexpr uint32_t     kCrumbQueues     = RDG::kPipeCount;
+        constexpr VkDeviceSize kCrumbBufferSize = sizeof( uint32_t ) * 2 * kCrumbQueues;
+        constexpr uint32_t     kCrumbListMax    = 24; // in-flight names listed per queue
+
+        [[nodiscard]] constexpr uint32_t CrumbQueue( RDG::Pipe pipe ) noexcept
+        {
+            return pipe == RDG::Pipe::AsyncCompute ? 1u : 0u;
+        }
+    } // namespace
+
+    VulkanGpuBreadcrumbs::~VulkanGpuBreadcrumbs()
+    {
+        if ( m_Buffer != VK_NULL_HANDLE )
+            vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
+    }
+
+    Common::BoolResultStr VulkanGpuBreadcrumbs::Init( VkDevice device, VmaAllocator allocator,
+                                                      const VulkanResourceSharing& sharing ) noexcept
+    {
+        m_Device      = device;
+        m_Allocator   = allocator;
+        m_WriteMarker = reinterpret_cast<PFN_vkCmdWriteBufferMarkerAMD>(
+             vkGetDeviceProcAddr( device, "vkCmdWriteBufferMarkerAMD" ) );
+        if ( m_WriteMarker == nullptr )
+            return Common::MakeError( "vkGetDeviceProcAddr did not resolve vkCmdWriteBufferMarkerAMD" );
+
+        VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        info.size  = kCrumbBufferSize;
+        info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        // Both queues write it (each its own words): concurrent across the device's families when it has several.
+        if ( sharing.FamilyCount > 1 )
+        {
+            info.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+            info.queueFamilyIndexCount = sharing.FamilyCount;
+            info.pQueueFamilyIndices   = sharing.Families.data();
+        }
+
+        VmaAllocationCreateInfo allocation{};
+        allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        VmaAllocationInfo allocated{};
+        const VkResult    result =
+             vmaCreateBuffer( allocator, &info, &allocation, &m_Buffer, &m_Allocation, &allocated );
+        if ( result != VK_SUCCESS || allocated.pMappedData == nullptr )
+        {
+            if ( result == VK_SUCCESS )
+                vmaDestroyBuffer( allocator, m_Buffer, m_Allocation );
+            m_Buffer = VK_NULL_HANDLE;
+            return Common::MakeFormattedError( "the breadcrumb buffer ({} bytes, host-visible coherent) could not "
+                                               "be made (VkResult {})",
+                                               kCrumbBufferSize, static_cast<int>( result ) );
+        }
+        std::memset( allocated.pMappedData, 0, static_cast<size_t>( kCrumbBufferSize ) );
+        m_Words = static_cast<const volatile uint32_t*>( allocated.pMappedData );
+        m_Ring  = std::make_unique<Entry[]>( kRingSize );
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanGpuBreadcrumbs::SetEnabled( bool enabled ) noexcept
+    {
+        m_Enabled.store( enabled, std::memory_order_relaxed );
+    }
+
+    uint32_t VulkanGpuBreadcrumbs::BeginGraph( std::span<const RDG::CompiledPass> passes ) noexcept
+    {
+        if ( !m_Enabled.load( std::memory_order_relaxed ) || m_Ring == nullptr )
+            return kNoSerial;
+        m_EverEnabled  = true;
+        uint32_t count = 0;
+        for ( const RDG::CompiledPass& pass : passes )
+            count = std::max( count, pass.Pass + 1 );
+        // Serials never wrap through kNoSerial: a range that would is started again at 1.
+        if ( m_NextSerial > UINT32_MAX - count )
+            m_NextSerial = 1;
+        const uint32_t graphBase = m_NextSerial;
+        m_NextSerial += std::max( count, 1u );
+        for ( const RDG::CompiledPass& pass : passes )
+        {
+            const uint32_t serial = graphBase + pass.Pass;
+            Entry&         entry  = m_Ring[serial & ( kRingSize - 1 )];
+            entry.Serial.store( kNoSerial, std::memory_order_release );
+            entry.OnPipe        = pass.OnPipe;
+            const size_t length = std::min<size_t>( pass.Name.size(), kNameBytes - 1 );
+            std::memcpy( entry.Name, pass.Name.data(), length );
+            entry.Name[length] = '\0';
+            entry.Serial.store( serial, std::memory_order_release );
+        }
+        return graphBase;
+    }
+
+    void VulkanGpuBreadcrumbs::MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe,
+                                            uint32_t serial ) const noexcept
+    {
+        const VkDeviceSize offset = sizeof( uint32_t ) * ( 2 * CrumbQueue( pipe ) );
+        m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_Buffer, offset, serial );
+    }
+
+    void VulkanGpuBreadcrumbs::MarkFinished( VkCommandBuffer commandBuffer, RDG::Pipe pipe,
+                                             uint32_t serial ) const noexcept
+    {
+        const VkDeviceSize offset = sizeof( uint32_t ) * ( 2 * CrumbQueue( pipe ) + 1 );
+        m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Buffer, offset, serial );
+    }
+
+    std::string VulkanGpuBreadcrumbs::NameOf( uint32_t serial, RDG::Pipe& pipe ) const
+    {
+        if ( serial == kNoSerial )
+            return "(none yet)";
+        const Entry& entry = m_Ring[serial & ( kRingSize - 1 )];
+        if ( entry.Serial.load( std::memory_order_acquire ) != serial )
+            return std::format( "#{} (name evicted from the ring)", serial );
+        pipe = entry.OnPipe;
+        std::string name( entry.Name );
+        if ( entry.Serial.load( std::memory_order_acquire ) != serial )
+            return std::format( "#{} (name evicted from the ring)", serial );
+        return std::format( "#{} '{}'", serial, name );
+    }
+
+    std::string VulkanGpuBreadcrumbs::Describe() const
+    {
+        if ( !m_EverEnabled || m_Words == nullptr )
+            return "[DeviceLost] GPU breadcrumbs: off - no pass is named. Set "
+                   "\"RenderPipeline.GpuCrashBreadcrumbs\": 1 (machine override) and reproduce to name the pass "
+                   "the GPU died in.";
+        std::string text = "[DeviceLost] GPU breadcrumbs (RenderPipeline.GpuCrashBreadcrumbs): per queue, the "
+                           "last graph pass the GPU STARTED (top of pipe) and the last it FINISHED (bottom of "
+                           "pipe). The faulting pass is after 'finished' and at or before 'started':";
+        constexpr std::array<std::string_view, kCrumbQueues> kQueueNames{ "Graphics", "AsyncCompute" };
+        for ( uint32_t queue = 0; queue < kCrumbQueues; ++queue )
+        {
+            const uint32_t started  = m_Words[2 * queue];
+            const uint32_t finished = m_Words[2 * queue + 1];
+            RDG::Pipe      ignored  = RDG::Pipe::Graphics;
+            text += std::format( "\n  {}: last started {}, last finished {}", kQueueNames[queue],
+                                 NameOf( started, ignored ), NameOf( finished, ignored ) );
+            if ( started == kNoSerial || started <= finished )
+            {
+                text += "; nothing in flight between them";
+                continue;
+            }
+            text += "; in flight:";
+            uint32_t listed = 0;
+            for ( uint32_t serial = finished + 1; serial <= started && listed < kCrumbListMax; ++serial )
+            {
+                RDG::Pipe         pipe = RDG::Pipe::Count;
+                const std::string name = NameOf( serial, pipe );
+                if ( pipe != RDG::Pipe::Count && CrumbQueue( pipe ) != queue )
+                    continue;
+                text += std::format( "\n    {}", name );
+                ++listed;
+            }
+            if ( listed == kCrumbListMax )
+                text += "\n    ...";
+        }
+        return text;
+    }
+
+    std::string VulkanGpuBreadcrumbs::Read( const void* context )
+    {
+        if ( context == nullptr )
+            return "[DeviceLost] GPU breadcrumbs: none registered.";
+        return static_cast<const VulkanGpuBreadcrumbs*>( context )->Describe();
+    }
+
     // The graph's own commands outside every pass - the heap-reuse barrier, the fork releases at the graph start,
     // the final barriers - each get a GPU row of their own ("RDG Barriers: <graph> | <what>"), so the graph
     // records nothing the profiler cannot name (UE: RDG's prologue / epilogue barrier batches sit under the
@@ -1995,6 +2164,14 @@ namespace Desert::Graphic::API::Vulkan
         PassSetsState().Clear();
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
+        // FPS-GPU-MARKER: the pass's STARTED breadcrumb, before any of its commands.
+        if ( m_CrumbBase != VulkanGpuBreadcrumbs::kNoSerial && commandBuffer != VK_NULL_HANDLE )
+        {
+            const uint32_t serial = m_CrumbBase + pass.Pass;
+            m_Device.Breadcrumbs->MarkStarted( commandBuffer, pass.OnPipe, serial );
+            ( chunk != nullptr ? chunk->OpenCrumb : m_OpenCrumb )         = serial;
+            ( chunk != nullptr ? chunk->OpenCrumbPipe : m_OpenCrumbPipe ) = pass.OnPipe;
+        }
         if ( m_Device.CmdBeginLabel != nullptr && commandBuffer != VK_NULL_HANDLE )
         {
             VkDebugUtilsLabelEXT label{};
@@ -2028,6 +2205,16 @@ namespace Desert::Graphic::API::Vulkan
 #if DESERT_DEV_INSTRUMENTS
             ( chunk != nullptr ? chunk->CpuScope : m_CpuScope ).reset();
 #endif
+        }
+        // FPS-GPU-MARKER: the FINISHED breadcrumb of the pass this context opened (EndPass may be handed an
+        // empty CompiledPass when a failed pass is closed, so the serial is the context's, not the argument's).
+        uint32_t& openCrumb = chunk != nullptr ? chunk->OpenCrumb : m_OpenCrumb;
+        if ( openCrumb != VulkanGpuBreadcrumbs::kNoSerial )
+        {
+            const RDG::Pipe crumbPipe = chunk != nullptr ? chunk->OpenCrumbPipe : m_OpenCrumbPipe;
+            if ( commandBuffer != VK_NULL_HANDLE && m_Device.Breadcrumbs != nullptr )
+                m_Device.Breadcrumbs->MarkFinished( commandBuffer, crumbPipe, openCrumb );
+            openCrumb = VulkanGpuBreadcrumbs::kNoSerial;
         }
         if ( m_Device.CmdEndLabel != nullptr && commandBuffer != VK_NULL_HANDLE )
         {
@@ -2151,6 +2338,11 @@ namespace Desert::Graphic::API::Vulkan
     {
         // CPU-FRAME-ARENA (MEM-7): the entries are kept across graphs, so each one's clear values keep their
         // capacity; an entry with no Source is not prepared for this graph (BeginRenderPass resolves its pass).
+        // FPS-GPU-MARKER: the graph's breadcrumb serials and pass names, before any pass records (kNoSerial: off).
+        m_CrumbBase = VulkanGpuBreadcrumbs::kNoSerial;
+        m_OpenCrumb = VulkanGpuBreadcrumbs::kNoSerial;
+        if ( m_Device.Breadcrumbs != nullptr )
+            m_CrumbBase = m_Device.Breadcrumbs->BeginGraph( passes );
         uint32_t count = 0;
         for ( const RDG::CompiledPass& pass : passes )
             count = std::max( count, pass.Pass + 1 );

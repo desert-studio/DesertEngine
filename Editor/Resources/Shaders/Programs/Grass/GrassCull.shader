@@ -915,6 +915,11 @@ Shader "GrassCull"
             bool held = ( VarietyRows[r].Info.z & kGrassRowCascadesHeld ) != 0u;
             // The record's row as LawChunk wrote it this law generation (its slot: the chunk's first + i).
             uint row      = slot + i;
+            // FPS-DEVLOST: a row the law did not hand out this generation (kGrassLawNoSlot, or past LawCapacity -
+            // the rows were re-sized since the chunk's words were written) is never read: Instances holds
+            // LawCapacity rows and the pool's next range lies past them.
+            if ( slot == kGrassLawNoSlot || row >= VarietyRows[r].LawCapacity )
+                return;
             mat4 instance = GrassLawRows( VarietyRows[r].Instances ).Rows[row];
             CullInstance( r, code - 1u, row, instance, met & kCascadeViews, ( met & kCameraView ) != 0u,
                           ( met & kChunkHidden ) != 0u, held );

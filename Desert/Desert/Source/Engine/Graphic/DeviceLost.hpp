@@ -81,6 +81,20 @@ namespace Desert::Graphic
         /// The same text `Report()` logged, for a caller that wants to show it rather than log it.
         [[nodiscard]] static std::string Explanation();
 
+        /// GPU CRASH BREADCRUMBS (FPS-GPU-MARKER; UE FGPUBreadcrumbs / r.GPUCrashDebugging). The backend that
+        /// writes them (VulkanGpuBreadcrumbs) registers how to read them; the FIRST Report() appends what the
+        /// reader returns - per queue, the last render-graph pass the GPU started and the last it finished - to
+        /// the one explanation, so the loss names its pass at every site that notices it. Null: nothing appended.
+        /// The reader runs once, on the reporting thread, under the latch; it issues no device work.
+        using BreadcrumbReader = std::string ( * )( const void* context );
+        static void SetBreadcrumbReader( BreadcrumbReader reader, const void* context ) noexcept;
+
+        /// Scalability RenderPipeline.GpuCrashBreadcrumbs, published by the scene renderer every frame and read
+        /// by the backend when it begins a frame (Engine/Graphic may not see the backend's types). False: no
+        /// marker is recorded.
+        static void SetBreadcrumbsWanted( bool wanted ) noexcept;
+        [[nodiscard]] static bool BreadcrumbsWanted() noexcept;
+
         /// ONLY for suites, which must be able to drive the latch from both sides in one process. Nothing
         /// in the engine may call it: a device that came back is not a thing that happens.
         static void ResetForTests() noexcept;
