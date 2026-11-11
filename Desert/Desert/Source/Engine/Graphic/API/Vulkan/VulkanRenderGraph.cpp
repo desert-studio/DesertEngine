@@ -1425,10 +1425,112 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    // ── Upload ring (FPS-UPLOAD-RING #10) ─────────────────────────────────────────────────────────────
+
+    VulkanRdgUploadRing::Block::~Block()
+    {
+        if ( Allocator != nullptr && Buffer != VK_NULL_HANDLE )
+            vmaDestroyBuffer( Allocator, Buffer, Allocation );
+    }
+
+    VulkanRdgUploadRing::~VulkanRdgUploadRing() = default;
+
+    Common::BoolResultStr VulkanRdgUploadRing::MakeBlock( const uint64_t          bytes,
+                                                          std::unique_ptr<Block>& out ) const noexcept
+    {
+        VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+        info.size  = bytes;
+        info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        // An upload pass may run on either pipe: concurrent across the device's families when it has several.
+        if ( m_Device.Sharing.FamilyCount > 1 )
+        {
+            info.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+            info.queueFamilyIndexCount = m_Device.Sharing.FamilyCount;
+            info.pQueueFamilyIndices   = m_Device.Sharing.Families.data();
+        }
+        VmaAllocationCreateInfo allocation{};
+        allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        allocation.flags =
+             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        // Coherent: the submit makes the host writes visible to the copy, no vkFlushMappedMemoryRanges per upload.
+        allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+        std::unique_ptr<Block> block = std::make_unique<Block>();
+        VmaAllocationInfo      allocated{};
+        const VkResult         result = vmaCreateBuffer( m_Device.Allocator, &info, &allocation, &block->Buffer,
+                                                         &block->Allocation, &allocated );
+        if ( result != VK_SUCCESS )
+        {
+            block->Buffer = VK_NULL_HANDLE;
+            return Common::MakeFormattedError(
+                 "the {}-byte upload staging block (host-visible coherent) could not "
+                 "be made (VkResult {})",
+                 bytes, static_cast<int>( result ) );
+        }
+        block->Allocator = m_Device.Allocator; // from here the block's destructor releases it
+        if ( allocated.pMappedData == nullptr )
+            return Common::MakeFormattedError( "the {}-byte upload staging block is not mapped", bytes );
+        block->Mapped = static_cast<std::byte*>( allocated.pMappedData );
+        block->Size   = bytes;
+        block->Ledger = ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer,
+                                                 static_cast<std::size_t>( allocated.size ) );
+        block->Ledger.Claim( ResourceOwner::Device );
+        block->Ledger.Name( "RDG upload ring" );
+        vmaSetAllocationName( m_Device.Allocator, block->Allocation, "RDG upload ring" );
+        out = std::move( block );
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgUploadRing::BeginFrameSlot( const uint32_t slot ) noexcept
+    {
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( slot >= m_Slots.size() )
+            m_Slots.resize( static_cast<size_t>( slot ) + 1 );
+        m_Slot      = slot;
+        Slot& state = m_Slots[slot];
+        // The slot's fence was waited: no copy of its last frame reads these blocks any more. A frame that needed
+        // more than one block gets one block of their total the next time the slot is first allocated from.
+        if ( state.Blocks.size() > 1 )
+        {
+            uint64_t total = 0;
+            for ( const std::unique_ptr<Block>& block : state.Blocks )
+                total += block->Size;
+            state.Want = total;
+            state.Blocks.clear();
+        }
+        state.Head = 0;
+    }
+
+    Common::ResultStr<VulkanRdgUploadRing::Span> VulkanRdgUploadRing::Allocate( const uint64_t bytes ) noexcept
+    {
+        if ( bytes == 0 )
+            return Common::MakeFormattedError<Span>( "an upload of 0 bytes has nothing to stage" );
+        const uint64_t                    size = ( bytes + kAlignment - 1 ) & ~( kAlignment - 1 );
+        const std::lock_guard<std::mutex> lock( m_Lock );
+        if ( m_Slot >= m_Slots.size() )
+            m_Slots.resize( static_cast<size_t>( m_Slot ) + 1 );
+        Slot& state = m_Slots[m_Slot];
+        if ( state.Blocks.empty() || state.Head + size > state.Blocks.back()->Size )
+        {
+            // Overflow: a fresh block, twice the last (or the folded size of an earlier overflowed frame).
+            const uint64_t grown =
+                 state.Blocks.empty() ? std::max( state.Want, kFirstBlockBytes ) : state.Blocks.back()->Size * 2;
+            std::unique_ptr<Block> block;
+            if ( Common::BoolResultStr made = MakeBlock( std::max( grown, size ), block ); !made )
+                return Common::MakeFormattedError<Span>( "{}", made.GetError() );
+            state.Blocks.push_back( std::move( block ) );
+            state.Head = 0;
+        }
+        Block&     block = *state.Blocks.back();
+        const Span span{ block.Buffer, state.Head, block.Mapped + state.Head };
+        state.Head += size;
+        return Common::MakeSuccess( span );
+    }
+
     // ── Backend ────────────────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgBackend::VulkanRdgBackend( const VulkanRdgDevice& device, VulkanRdgPool& pool )
-         : m_Device( device ), m_Pool( pool ), m_Memory( device ),
+         : m_Device( device ), m_Pool( pool ), m_Memory( device ), m_UploadRing( device ),
            m_FallbackLog( []( std::string_view line ) { LOG_WARN( "{}", line ); } ),
            m_FaultReporter(
                 []( RDG::PassFaultReporter::Severity severity, std::string_view line )
@@ -1625,6 +1727,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( queues.GraphicsQueue == VK_NULL_HANDLE )
             return Common::MakeError( "BeginFrame: the queue set has no graphics queue" );
         m_CompileCache.CountFrame();
+        // FPS-UPLOAD-RING: the caller waited the slot's fence, so the slot's staging blocks are free again.
+        m_UploadRing.BeginFrameSlot( slot );
         m_FrameSlot   = slot;
         m_Queues      = &queues;
         m_Transients  = &transients;
@@ -2191,6 +2295,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         Chunk* const          chunk         = BoundChunk();
         const VkCommandBuffer commandBuffer = RecordingBuffer();
+        // FPS-UPLOAD-RING: the pass's staged uploads, inside its profiler scope and before its FINISHED crumb.
+        FlushUploads( commandBuffer, PendingUploadsState() );
         PassSetsState().Clear();
         if ( m_PassBoundaryListener )
             m_PassBoundaryListener();
@@ -2600,14 +2706,50 @@ namespace Desert::Graphic::API::Vulkan
         if ( target == nullptr )
             return Common::MakeFormattedError(
                  "graph '{}': buffer upload into resource {}, which has no Vulkan buffer", m_GraphName, resource );
-        constexpr size_t kUpdateLimit = 65536; // vkCmdUpdateBuffer: dataSize <= 65536, a multiple of 4
-        for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
-        {
-            const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
-            vkCmdUpdateBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + at + offset, size,
-                               bytes.data() + offset );
-        }
+        // FPS-UPLOAD-RING #10: staged in the slot's ring, recorded as one region of this pass's batch for the
+        // destination (FlushUploads at EndPass). The bytes are consumed here, as the interface requires.
+        const Common::ResultStr<VulkanRdgUploadRing::Span> staged = m_UploadRing.Allocate( bytes.size() );
+        if ( !staged )
+            return Common::MakeFormattedError( "graph '{}': buffer upload of {} bytes into resource {}: {}",
+                                               m_GraphName, bytes.size(), resource, staged.GetError() );
+        const VulkanRdgUploadRing::Span span = staged.GetValue();
+        std::memcpy( span.Mapped, bytes.data(), bytes.size() );
+        PendingUploadsState().push_back(
+             PendingUpload{ span.Buffer, target->GetBuffer(),
+                            VkBufferCopy{ span.Offset, target->GetOffset() + at, bytes.size() } } );
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgBackend::FlushUploads( const VkCommandBuffer       commandBuffer,
+                                         std::vector<PendingUpload>& pending ) noexcept
+    {
+        if ( pending.empty() )
+            return;
+        if ( commandBuffer != VK_NULL_HANDLE )
+        {
+            // Grouped by (staging block, destination): the regions of one pass are disjoint and unordered.
+            std::sort( pending.begin(), pending.end(),
+                       []( const PendingUpload& a, const PendingUpload& b )
+                       {
+                           if ( a.Source != b.Source )
+                               return std::less<VkBuffer>{}( a.Source, b.Source );
+                           return std::less<VkBuffer>{}( a.Target, b.Target );
+                       } );
+            constexpr uint32_t                 kRegions = 64;
+            std::array<VkBufferCopy, kRegions> regions{};
+            size_t                             at = 0;
+            while ( at < pending.size() )
+            {
+                const VkBuffer source = pending[at].Source;
+                const VkBuffer target = pending[at].Target;
+                uint32_t       count  = 0;
+                while ( at < pending.size() && count < kRegions && pending[at].Source == source &&
+                        pending[at].Target == target )
+                    regions[count++] = pending[at++].Region;
+                vkCmdCopyBuffer( commandBuffer, source, target, count, regions.data() );
+            }
+        }
+        pending.clear();
     }
 
     Common::BoolResultStr VulkanRdgBackend::FillBuffer( const uint32_t resource, const uint64_t offset,
@@ -2624,6 +2766,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( target == nullptr )
             return Common::MakeFormattedError(
                  "graph '{}': buffer fill of resource {}, which has no Vulkan buffer", m_GraphName, resource );
+        // Staged uploads of this pass first: the commands keep the order they were asked in.
+        FlushUploads( commandBuffer, PendingUploadsState() );
         vkCmdFillBuffer( commandBuffer, target->GetBuffer(), target->GetOffset() + offset, bytes, value );
         return Common::MakeSuccess( true );
     }
@@ -2753,6 +2897,7 @@ namespace Desert::Graphic::API::Vulkan
         while ( !chunk.ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
         chunk.Labels.clear();
+        FlushUploads( chunk.Record.CommandBuffer, chunk.Uploads ); // empty after EndPass; never carried over
         if ( chunk.CommandBuffer != VK_NULL_HANDLE && vkEndCommandBuffer( chunk.CommandBuffer ) != VK_SUCCESS &&
              chunk.Failure.empty() )
             chunk.Failure = "vkEndCommandBuffer of a chunk failed";

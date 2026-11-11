@@ -5,6 +5,7 @@
 #include <Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <array>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -79,15 +80,38 @@ namespace Desert::ShaderResources::API::Vulkan
         // written last frame is waited on before this frame writes it again). A per-frame buffer binds a
         // different copy each frame; a copy the record does not name starts untouched, which is the truth:
         // the frames-in-flight fence finished its last GPU use and submit makes the host writes visible.
+        //
+        // FPS-UPLOAD-RING #9 (UE: an FRDGPooledBuffer is wrapped for the graph once and keeps that wrapper for its
+        // life). One record PER COPY, keyed by the copy's never-reused id: a per-frame buffer alternates its
+        // (view x frame) copies, and with a single record every import re-wrapped the copy (a heap allocation
+        // and a new physical identity, so the pass-set memo missed) and rebuilt the hand-back. The table keeps
+        // each copy's wrapper; only the STATE follows the old rule - it carries while the same copy is imported
+        // again and starts untouched when the buffer's import moves to another copy (LastImportedCopy), so the
+        // barriers are exactly what one record gave. LastUse orders eviction: a full table hands its least
+        // recently imported slot to a new copy (a dropped copy's slot is reclaimed that way).
         struct GraphRecord
         {
             uint64_t                                               CopyId = 0;
             std::shared_ptr<Desert::Graphic::RDG::IPhysicalBuffer> Physical;
             Desert::Graphic::RDG::AccessState                      State;
+            uint64_t                                               LastUse = 0;
         };
-        GraphRecord& GetGraphRecord()
+        // (frames in flight x views) copies that are imported in turn; more only re-wraps the least recent.
+        static constexpr size_t kGraphRecordSlots = 8;
+
+        // The record of @p copyId. When no slot holds it, the least recently imported slot is handed over with a
+        // null Physical: the caller wraps the copy. Marks the slot as just used.
+        GraphRecord& RecordForCopy( uint64_t copyId ) noexcept;
+        // The record of @p copyId, or null when the table no longer holds it.
+        GraphRecord* FindRecord( uint64_t copyId ) noexcept;
+        // The copy the last import of this buffer named (0: none yet).
+        NO_DISCARD uint64_t LastImportedCopy() const noexcept
         {
-            return m_GraphRecord;
+            return m_LastImportedCopy;
+        }
+        void SetLastImportedCopy( uint64_t copyId ) noexcept
+        {
+            m_LastImportedCopy = copyId;
         }
 
     private:
@@ -138,7 +162,11 @@ namespace Desert::ShaderResources::API::Vulkan
         // Always success for a per-frame buffer: its copies are made, and refused, at the write or bind.
         Common::BoolResultStr m_Built = Common::MakeError<bool>( "storage buffer has not been built" );
 
-        GraphRecord m_GraphRecord;
+        // Touched only by the thread that imports into a graph and by its hand-backs (the same thread, after
+        // the graph), as the single record was.
+        std::array<GraphRecord, kGraphRecordSlots> m_GraphRecords{};
+        uint64_t                                   m_GraphRecordClock = 0;
+        uint64_t                                   m_LastImportedCopy = 0;
 
         const uint32_t    m_Binding;
         const std::string m_BufferName;
