@@ -280,6 +280,49 @@ namespace Desert::Graphic::RDG
     {
         return m_PushConstants;
     }
+    // ── FPS-ARCH-BINDINGS: layouts indexed once ────────────────────────────────────────────────────────────
+    uint32_t ShaderBindingLayout::FindSlot( const uint64_t hash, const std::string_view name ) const noexcept
+    {
+        // Equal hashes are adjacent: a 64-bit collision between two slot names of one shader is told by name.
+        auto found = std::lower_bound( ByHash.begin(), ByHash.end(), hash,
+                                       []( const std::pair<uint64_t, uint32_t>& row, const uint64_t key )
+                                       { return row.first < key; } );
+        for ( ; found != ByHash.end() && found->first == hash; ++found )
+        {
+            if ( Slots[found->second].Name == name )
+                return found->second;
+        }
+        return kNoShaderSlot;
+    }
+
+    void IndexShaderBindingLayout( ShaderBindingLayout& layout )
+    {
+        layout.ByHash.clear();
+        layout.ByHash.reserve( layout.Slots.size() );
+        for ( uint32_t index = 0; index < static_cast<uint32_t>( layout.Slots.size() ); ++index )
+            layout.ByHash.emplace_back( HashShaderName( layout.Slots[index].Name ), index );
+        // Stable: a layout repeating a name keeps its first slot first, as the declaration-order walk does.
+        std::stable_sort( layout.ByHash.begin(), layout.ByHash.end(),
+                          []( const std::pair<uint64_t, uint32_t>& a, const std::pair<uint64_t, uint32_t>& b )
+                          { return a.first < b.first; } );
+    }
+
+    std::shared_ptr<const ShaderBindingLayout> MakeIndexedLayout( ShaderBindingLayout layout )
+    {
+        IndexShaderBindingLayout( layout );
+        return std::make_shared<const ShaderBindingLayout>( std::move( layout ) );
+    }
+
+    namespace
+    {
+        // A declared entry placed at its layout slot once, when the pass declares it.
+        void PushEntry( DeclaredBindingBlock& block, DeclaredBindingEntry entry )
+        {
+            entry.Slot = block.Layout ? block.Layout->FindSlot( entry.NameHash, entry.ShaderName ) : kNoShaderSlot;
+            block.Entries.push_back( entry );
+        }
+    } // namespace
+
     // ── RDG-FAULT1: setup-time binding blocks ─────────────────────────────────────────────────────────────────
     namespace
     {
@@ -323,59 +366,27 @@ namespace Desert::Graphic::RDG
         // Per-thread scratch: a frame's blocks allocate nothing once it has grown.
         bool SlotsProvenValid( const DeclaredBindingBlock& block )
         {
-            constexpr uint32_t         kEmpty = 0; // a table cell holds slot index + 1
             const ShaderBindingLayout& layout = *block.Layout;
             const size_t               slots  = layout.Slots.size();
             if ( block.Entries.size() > slots )
                 return false;
-            thread_local std::vector<uint32_t> table;
-            thread_local std::vector<uint8_t>  covered; // 0 open, 1 by the block, 2 by the other route
-            size_t                             capacity = 16;
-            while ( capacity < slots * 2 )
-                capacity *= 2;
-            table.assign( capacity, kEmpty );
+            // FPS-ARCH-BINDINGS: every entry carries its slot index (found when it was declared) and the layout
+            // its hash index (built when it was made), so no name is hashed or compared here per block.
+            thread_local std::vector<uint8_t> covered; // 0 open, 1 by the block, 2 by the other route
             covered.assign( slots, 0 );
-            const size_t                     mask = capacity - 1;
-            const std::hash<std::string_view> hash{};
-            for ( size_t i = 0; i < slots; ++i )
-            {
-                const std::string_view name = layout.Slots[i].Name;
-                for ( size_t at = hash( name ) & mask;; at = ( at + 1 ) & mask )
-                {
-                    if ( table[at] == kEmpty )
-                    {
-                        table[at] = static_cast<uint32_t>( i + 1 );
-                        break;
-                    }
-                    if ( layout.Slots[table[at] - 1].Name == name )
-                        break;
-                }
-            }
-            // The slot named @p name, or `slots` for none. The table is at least twice the slot count, so a probe
-            // always reaches an empty cell.
-            const auto slotOf = [&]( const std::string_view name ) -> size_t
-            {
-                for ( size_t at = hash( name ) & mask;; at = ( at + 1 ) & mask )
-                {
-                    if ( table[at] == kEmpty )
-                        return slots;
-                    if ( layout.Slots[table[at] - 1].Name == name )
-                        return table[at] - 1;
-                }
-            };
             size_t filled = 0;
             for ( const DeclaredBindingEntry& entry : block.Entries )
             {
-                const size_t slot = slotOf( entry.ShaderName );
-                if ( slot == slots || covered[slot] != 0 || layout.Slots[slot].Kind != entry.Kind )
+                const uint32_t slot = entry.Slot;
+                if ( slot >= slots || covered[slot] != 0 || layout.Slots[slot].Kind != entry.Kind )
                     return false;
                 covered[slot] = 1;
                 ++filled;
             }
             for ( const std::string& name : block.Other->Slots )
             {
-                const size_t slot = slotOf( name );
-                if ( slot == slots )
+                const uint32_t slot = layout.FindSlot( HashShaderName( name ), name );
+                if ( slot == kNoShaderSlot )
                     continue; // the walk asks the other route only about the shader's own slots
                 if ( covered[slot] == 1 )
                     return false;
@@ -466,7 +477,7 @@ namespace Desert::Graphic::RDG
 
     BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, std::shared_ptr<const OtherRouteFill> other )
     {
-        return Bindings( std::make_shared<const ShaderBindingLayout>( std::move( layout ) ), std::move( other ) );
+        return Bindings( MakeIndexedLayout( std::move( layout ) ), std::move( other ) );
     }
 
     BindingBlockBuilder PassBuilder::Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
@@ -488,7 +499,7 @@ namespace Desert::Graphic::RDG
         const std::string_view shaderName =
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Texture" );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        PushEntry( m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block],
              { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index, declared, range,
                std::nullopt } );
@@ -501,8 +512,8 @@ namespace Desert::Graphic::RDG
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         // No resource and no access: nothing for the graph to declare, only the slot to fill. The same shared
         // state named again by another input of the block is the entry already there.
-        Common::Memory::ArenaVector<DeclaredBindingEntry>& entries =
-             m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries;
+        DeclaredBindingBlock& block = m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block];
+        Common::Memory::ArenaVector<DeclaredBindingEntry>& entries = block.Entries;
         const bool already = std::any_of( entries.begin(), entries.end(),
                                           [&]( const DeclaredBindingEntry& e ) {
                                               return e.Kind == ShaderResourceKind::Sampler &&
@@ -510,7 +521,7 @@ namespace Desert::Graphic::RDG
                                           } );
         if ( already )
             return *this;
-        entries.push_back( { shaderName, parameter.SlotNameHash(), ShaderResourceKind::Sampler,
+        PushEntry( block, { shaderName, parameter.SlotNameHash(), ShaderResourceKind::Sampler,
                              ResourceKind::Texture,
                              kInvalidResource,
                              Access::None, SubresourceRange::All(), sampler } );
@@ -524,7 +535,7 @@ namespace Desert::Graphic::RDG
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareTexture( texture, declared, SubresourceRange::Mip( mip ), IsWriteAccess( declared ),
                                "Bindings.Storage" );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        PushEntry( m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block],
              { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index, declared,
                SubresourceRange::Mip( mip ), std::nullopt } );
@@ -536,7 +547,7 @@ namespace Desert::Graphic::RDG
     {
         m_Pass.DeclareTexture( texture, declared, SubresourceRange::MipLayer( mip, layer ), IsWriteAccess( declared ),
                                "Bindings.StorageLayer" );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        PushEntry( m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block],
              { ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element ),
                parameter.SlotNameHash(),
                ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
@@ -549,7 +560,7 @@ namespace Desert::Graphic::RDG
         const std::string_view shaderName =
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareBuffer( buffer, Access::UniformRead, false, "Bindings.Uniform" );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        PushEntry( m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block],
              { shaderName, parameter.SlotNameHash(), ShaderResourceKind::UniformBuffer, ResourceKind::Buffer,
                buffer.Index,
                Access::UniformRead, SubresourceRange::All(), std::nullopt } );
@@ -569,7 +580,7 @@ namespace Desert::Graphic::RDG
         const size_t          length  = std::min( static_cast<size_t>( written.size ), label.size() );
         m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ),
                               std::string_view( label.data(), length ) );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        PushEntry( m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block],
              { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index, declared,
                SubresourceRange::All(), std::nullopt } );
@@ -582,7 +593,7 @@ namespace Desert::Graphic::RDG
         const std::string_view shaderName =
              ArenaSlotName( m_Pass.m_Builder.m_Arena, parameter.Name, parameter.Element );
         m_Pass.DeclareBuffer( tlas, Access::AccelStructRead, false, "Bindings.AccelerationStructure" );
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+        PushEntry( m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block],
              { shaderName, parameter.SlotNameHash(),
                ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer, tlas.Index,
                Access::AccelStructRead, SubresourceRange::All(), std::nullopt } );
@@ -611,11 +622,15 @@ namespace Desert::Graphic::RDG
                                         context.GetPassName(), block.Block, block.Pass );
             return;
         }
+        const DeclaredBindingBlock& declared = passes[block.Pass].Blocks[block.Block];
+        m_Layout                             = declared.Layout.get();
         // FPS-CPU2-RDG2 (UE: FRDGBuilder validates the pass parameters once, not again at execute): no slot is
         // checked for a second bind here. Every block of a pass that executes passed ValidatePassBindings in
         // Compile (FaultMalformedPasses), which refuses a slot twice; a pass whose block failed never runs.
-        for ( const DeclaredBindingEntry& entry : passes[block.Pass].Blocks[block.Block].Entries )
+        for ( const DeclaredBindingEntry& entry : declared.Entries )
         {
+            const size_t texturesBefore = m_Textures.size();
+            const size_t buffersBefore  = m_Buffers.size();
             switch ( entry.Kind )
             {
                 case ShaderResourceKind::Texture:
@@ -650,6 +665,17 @@ namespace Desert::Graphic::RDG
                                BufferRef{ entry.Index }, Access::AccelStructRead,
                                ShaderResourceKind::AccelerationStructure );
                     break;
+            }
+            // FPS-ARCH-BINDINGS: the entry resolved (one texture or one buffer added) carries its declared slot.
+            if ( m_Textures.size() != texturesBefore )
+            {
+                m_Textures.back().Slot     = entry.Slot;
+                m_Textures.back().NameHash = entry.NameHash;
+            }
+            else if ( m_Buffers.size() != buffersBefore )
+            {
+                m_Buffers.back().Slot     = entry.Slot;
+                m_Buffers.back().NameHash = entry.NameHash;
             }
         }
     }

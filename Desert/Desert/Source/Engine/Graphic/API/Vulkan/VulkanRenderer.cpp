@@ -999,7 +999,12 @@ namespace Desert::Graphic::API::Vulkan
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         const auto& vulkan = static_cast<const VulkanShader&>( shader );
-        return MakeShaderBindingLayout( vulkan.GetReflectionData(), SlotsOf( vulkan ), vulkan.GetName() );
+        RDG::ShaderBindingLayout layout =
+             MakeShaderBindingLayout( vulkan.GetReflectionData(), SlotsOf( vulkan ), vulkan.GetName() );
+        // FPS-ARCH-BINDINGS: the table the layout's slot order is; a reload makes a new table (and the layout
+        // caches a new layout by the shader's generation), so a block declared against it resolves by index.
+        layout.Backend = vulkan.GetRdgSlots();
+        return layout;
     }
 
     std::shared_ptr<const RDG::OtherRouteFill>
@@ -1110,13 +1115,15 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkDescriptorSet> fresh; // a memo miss's sets (the writer's own vector, moved)
         if ( !kept.has_value() )
         {
-            const auto resolved = ResolveRdgPassBindings( shader->GetReflectionData(), SlotsOf( *shader ),
-                                                          shader->GetName(), bindings, other );
-            if ( !resolved )
+            // FPS-ARCH-BINDINGS: the thread's scratch (consumed by WriteRdgPassSets below, before any other
+            // resolve on this thread), so a dispatch allocates no entry list.
+            thread_local std::vector<RdgResolvedEntry> t_Resolved;
+            const Common::BoolResultStr resolved = ResolveRdgPassBindings(
+                 shader->GetReflectionData(), SlotsOf( *shader ), shader->GetName(), bindings, other, t_Resolved );
+            if ( !resolved.IsSuccess() )
                 return Common::MakeError( resolved.GetError() );
             auto written =
-                 WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, resolved.GetValue(), pass, setters,
-                                   nullptr );
+                 WriteRdgPassSets( *descriptors.GetValue(), built.Layouts, t_Resolved, pass, setters, nullptr );
             if ( !written )
                 return Common::MakeError( written.GetError() );
             fresh = std::move( written.GetValue() );
@@ -1191,14 +1198,14 @@ namespace Desert::Graphic::API::Vulkan
 
         // The program's reflection is the pipeline's layout (VulkanRayTracingPipeline::Build): the pass's
         // bindings resolve against it alone, as a compute dispatch's against its program; no setter route.
-        const auto resolved =
+        thread_local std::vector<RdgResolvedEntry> t_Resolved; // FPS-ARCH-BINDINGS: as DispatchCompute's
+        const Common::BoolResultStr resolved =
              ResolveRdgPassBindings( program->GetReflectionData(), SlotsOf( *program ), program->GetName(), bindings,
-                                     RdgOtherRoute{} );
-        if ( !resolved )
+                                     RdgOtherRoute{}, t_Resolved );
+        if ( !resolved.IsSuccess() )
             return Common::MakeError( resolved.GetError() );
         const auto sets =
-             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), resolved.GetValue(), pass, false,
-                               nullptr );
+             WriteRdgPassSets( *descriptors.GetValue(), traced.GetLayouts(), t_Resolved, pass, false, nullptr );
         if ( !sets )
             return Common::MakeError( sets.GetError() );
 
@@ -2105,13 +2112,15 @@ namespace Desert::Graphic::API::Vulkan
             // serves builds none.
             for ( const uint32_t binding : materialSlots.Bindings )
                 other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
-            const auto resolved =
-                 ResolveRdgPassBindings( reflection, SlotsOf( *shader ), shader->GetName(), bindings, other );
-            if ( !resolved )
+            thread_local std::vector<RdgResolvedEntry> t_Resolved; // FPS-ARCH-BINDINGS: as DispatchCompute's
+            const Common::BoolResultStr resolved =
+                 ResolveRdgPassBindings( reflection, SlotsOf( *shader ), shader->GetName(), bindings, other,
+                                         t_Resolved );
+            if ( !resolved.IsSuccess() )
                 return Common::MakeError( resolved.GetError() );
             // RDG-PARALLEL-9: set 0 with the material's slots comes from the descriptor cache as well; the copies
             // are made inside, on a miss only.
-            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, resolved.GetValue(), pass, false,
+            auto written = WriteRdgPassSets( *descriptors.GetValue(), layouts, t_Resolved, pass, false,
                                              &materialSlots );
             if ( !written )
                 return Common::MakeError( written.GetError() );

@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // RDG-A2 - the Vulkan consumer side of RDG::PassBindings: shader name -> (set, binding) through the pipeline's
@@ -61,11 +62,14 @@ namespace Desert::Graphic::API::Vulkan
     // reflection maps, copy a name or sort again. Immutable after MakeRdgSlotTable: any thread reads it.
     struct RdgSlotTable
     {
-        std::vector<RdgReflectedSlot> Slots;  // by (set, binding, element): the order every report uses
-        std::vector<uint32_t>         ByName; // indices into Slots, by Name: the binary search of an entry's slot
+        std::vector<RdgReflectedSlot> Slots; // by (set, binding, element): the order every report uses
+        // FPS-ARCH-BINDINGS: (RDG::HashShaderName( Name ), index into Slots) by hash - an entry's slot is found by
+        // its declared name hash (integer compares), the name only confirming the hit.
+        std::vector<std::pair<uint64_t, uint32_t>> ByHash;
 
-        // The index in Slots of the slot named @p name, or Slots.size() when the shader has none.
-        [[nodiscard]] size_t Find( std::string_view name ) const;
+        // The index in Slots of the slot whose name hashes to @p hash and is @p name, or Slots.size() for none.
+        [[nodiscard]] size_t Find( uint64_t hash, std::string_view name ) const noexcept;
+        [[nodiscard]] size_t Find( std::string_view name ) const noexcept;
     };
 
     [[nodiscard]] std::shared_ptr<const RdgSlotTable> MakeRdgSlotTable( const ShaderResource::ReflectionData& reflection );
@@ -95,9 +99,14 @@ namespace Desert::Graphic::API::Vulkan
     Common::ResultStr<std::vector<RdgResolvedEntry>>
     ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, std::string_view shaderName,
                             const RDG::PassBindings& bindings, const RdgOtherRoute& other );
-    // @p slots is the table of @p reflection (VulkanShader::GetRdgSlots).
-    Common::ResultStr<std::vector<RdgResolvedEntry>>
-    ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection, const RdgSlotTable& slots,
-                            std::string_view shaderName, const RDG::PassBindings& bindings,
-                            const RdgOtherRoute& other );
+    // @p slots is the table of @p reflection (VulkanShader::GetRdgSlots); the entries go to @p resolved (cleared
+    // first; the caller's per-thread scratch, so a steady frame allocates nothing).
+    // FPS-ARCH-BINDINGS (UE: the parameter struct is bound to the shader once, the draw writes by offset): when
+    // the block's layout was derived from @p slots (ShaderBindingLayout::Backend), an entry's slot is the index
+    // it was declared with - no lookup at all; otherwise (a layout a renderer wrote by hand, a program reloaded
+    // since the pass was declared) by its declared name hash. The completeness and push checks walk indices.
+    Common::BoolResultStr ResolveRdgPassBindings( const ShaderResource::ReflectionData& reflection,
+                                                  const RdgSlotTable& slots, std::string_view shaderName,
+                                                  const RDG::PassBindings& bindings, const RdgOtherRoute& other,
+                                                  std::vector<RdgResolvedEntry>& resolved );
 } // namespace Desert::Graphic::API::Vulkan

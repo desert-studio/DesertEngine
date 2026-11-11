@@ -41,7 +41,7 @@ namespace Desert::Graphic
     {
         using Kind = RDG::ShaderResourceKind;
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
-             std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+             RDG::MakeIndexedLayout( RDG::ShaderBindingLayout{
                   .ShaderName        = kVelocityShaderName,
                   .Slots             = { { "VelocityTexture", Kind::Texture },
                                          { "SceneDepthTexture", Kind::Texture },

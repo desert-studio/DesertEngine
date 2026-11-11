@@ -296,7 +296,7 @@ namespace Desert::Graphic
         // A layout made for this declaration only: the declaration takes it over.
         BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, std::shared_ptr<const RDG::OtherRouteFill> other )
         {
-            m_Blocks.push_back( { std::make_shared<const RDG::ShaderBindingLayout>( std::move( layout ) ),
+            m_Blocks.push_back( { RDG::MakeIndexedLayout( std::move( layout ) ),
                                   std::move( other ), BlockEntries( EntryAllocator() ), 0 } );
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
