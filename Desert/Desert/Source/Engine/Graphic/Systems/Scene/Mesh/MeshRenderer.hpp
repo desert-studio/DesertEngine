@@ -334,30 +334,54 @@ namespace Desert::Graphic::System
             // kept across Clear; unset: the commands first (every other list).
             void RecordBinnedFirst()
             {
-                m_BinnedFirst = true;
+                m_SortKey = SortKey::DepthPass;
+            }
+            // THE BASE PASS'S DRAW ORDER after a masked-only early-Z pass (FPS-MASKED-PREPASS): the same two
+            // sweeps, keyed by the pipeline's depth write instead of the template's mask. Sweep 0 the draws that
+            // write their depth (the opaque meshes the masked prepass did not draw: the barn, the trunks, the
+            // rocks, CloserOrEqual + write), sweep 1 the EQUAL draws without writes (what the prepass drew: the
+            // grass, the canopies). A prepassed texel an opaque mesh covers then fails its EQUAL test before the
+            // full G-buffer fragment runs, instead of being shaded and overwritten. UE draws its large opaque
+            // occluders in the depth pass for this (r.EarlyZPass 3, r.MinScreenRadiusForDepthPrepass); ordering
+            // the base pass costs no second draw. Each texel keeps the nearest fragment whatever the order (EQUAL
+            // against the prepass's depth, CloserOrEqual for the writers), so only the cost moves. Same set-once
+            // rule as RecordBinnedFirst.
+            void RecordDepthWritersFirst()
+            {
+                m_SortKey = SortKey::BasePass;
             }
 
         private:
-            // Which of the commands RecordCommands issues: all of them in build order, or one depth-sort bucket
-            // (RecordBinnedFirst) in build order within it.
+            // Record's order key (RecordBinnedFirst, RecordDepthWritersFirst); BuildOrder: the commands, then the
+            // bins.
+            enum class SortKey : uint8_t
+            {
+                BuildOrder,
+                DepthPass, // the masked templates late (ClipsInDepthPass)
+                BasePass   // the draws without depth writes late
+            };
+            // Which of the commands RecordCommands issues: all of them in build order, or one sort bucket
+            // (m_SortKey) in build order within it.
             enum class CommandSweep : uint8_t
             {
                 All,
-                Opaque,
-                Masked
+                Early,
+                Late
             };
-            // RecordBinnedFirst's bucket of the command just pushed at @p index (Add, Append).
+            // Whether @p pipeline draws in sweep 1 of m_SortKey (only asked when it is not BuildOrder).
+            [[nodiscard]] bool SortsLate( const GraphicsPipeline& pipeline ) const;
+            // m_SortKey's bucket of the command just pushed at @p index (Add, Append).
             void                                BucketForDepthSort( uint32_t index );
             [[nodiscard]] Common::BoolResultStr RecordCommands( const RDG::PassContext&       context,
                                                                 const RDG::OpenBindingBlocks& blocks,
                                                                 CommandSweep                  which ) const;
-            // The bins and the VG clusters of sweep @p sweep (of two under RecordBinnedFirst: 0 the opaque
-            // groups, 1 the masked ones; of one otherwise: every group).
+            // The bins and the VG clusters of sweep @p sweep (of two under a m_SortKey: 0 the early groups, 1 the
+            // late ones (SortsLate); of one otherwise: every group).
             [[nodiscard]] Common::BoolResultStr RecordBinned( const RDG::PassContext&       context,
                                                               const RDG::OpenBindingBlocks& blocks,
                                                               uint32_t                      sweep ) const;
-            // RecordBinned's VG cluster raster for one of its @p sweeps (two under RecordBinnedFirst: sweep 0 the
-            // opaque groups, 1 the masked ones; one: every group).
+            // RecordBinned's VG cluster raster for one of its @p sweeps (two under a m_SortKey: sweep 0 the early
+            // groups, 1 the late ones; one: every group).
             [[nodiscard]] Common::BoolResultStr RecordBinnedClusters( const RDG::PassContext&       context,
                                                                       const RDG::OpenBindingBlocks& blocks,
                                                                       RendererAPI& api, bool split, uint32_t sweep,
@@ -393,12 +417,12 @@ namespace Desert::Graphic::System
             // declared on one thread at a time, as m_Layouts is used). Mutable: Declare is const.
             mutable std::vector<RDG::BufferRef> m_DeclaredReads;
             std::optional<GpuDriven::MeshPass>  m_CountedPass;
-            bool                                m_BinnedFirst = false; // RecordBinnedFirst
-            // RecordBinnedFirst's depth-sort buckets: the indices of m_Commands whose pipeline does not / does
-            // clip in the depth pass, each in build order. Refilled by Add and Append, emptied by Clear, their
-            // capacity kept across frames (no per-frame allocation once warm). Empty for every other list.
-            std::vector<uint32_t> m_OpaqueCommands;
-            std::vector<uint32_t> m_MaskedCommands;
+            SortKey                             m_SortKey = SortKey::BuildOrder;
+            // m_SortKey's buckets: the indices of m_Commands in sweep 0 / sweep 1 (SortsLate), each in build
+            // order. Refilled by Add and Append, emptied by Clear, their capacity kept across frames (no
+            // per-frame allocation once warm). Empty for a BuildOrder list.
+            std::vector<uint32_t> m_EarlyCommands;
+            std::vector<uint32_t> m_LateCommands;
             bool                  m_CommandViewports = false; // a command sets a viewport: build order kept
         };
     } // namespace MeshRendererDetail
