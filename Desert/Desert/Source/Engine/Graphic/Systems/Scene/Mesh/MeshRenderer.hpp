@@ -760,6 +760,14 @@ namespace Desert::Graphic::System
             {
                 return *RayHitRef;
             }
+            // THE VALUES' REVISION (UE: material relevance rebuilt on change, not per frame): non-zero =
+            // Overrides() and RayHit() are a producer-kept GenericMeshDrawParams stamped with this process-unique
+            // revision (GenericMeshDrawParams::Revision), and ShaderName() too when RevisionHasShaderName. Equal
+            // revision = equal values, so the record's GpuScene content (SyncGpuScene genericContent) and its
+            // texture-set key (GenericProgramOf) are keyed by it instead of hashing the strings and every override
+            // per record per frame. 0 = the values are the recorded command's own: hashed by value, as before.
+            uint64_t ValuesRevision        = 0;
+            bool     RevisionHasShaderName = false;
 
             bool                      Outlined = false; // selected -> JFA outline
 
@@ -3037,6 +3045,17 @@ namespace Desert::Graphic::System
         mutable std::vector<uint32_t>                     m_GenericTextureSets;       // per queue entry, 0 = none
         mutable std::string                               m_GenericTextureKeyScratch; // the key being compared
         mutable std::unordered_map<std::string, uint32_t> m_GenericTextureSetIds;     // interned, insert only
+        // What a queue slot's key was last written from, when it can stand for the key: a producer-kept record's
+        // values revision (GenericMeshRenderData::ValuesRevision) with the command's runtime texture and sampler.
+        // The same three at the slot next frame = the same key: the slot keeps key and set without writing,
+        // sorting or comparing the string (no per-record format per frame). Revision 0 = written, not memoised.
+        struct GenericTextureKeySource
+        {
+            uint64_t                ValuesRevision = 0;
+            const Graphic::Image2D* DirectTexture  = nullptr;
+            std::string             DirectTextureSampler; // capacity kept; reassigned only when it moved
+        };
+        mutable std::vector<GenericTextureKeySource> m_GenericTextureKeySources; // per queue entry
         // The shared Shader Override material of @p key (m_GenericMaterials, made with @p shader on a miss):
         // asked on the first use of a (program x texture set) alone; the callers keep the answer by id.
         DataDrivenMaterial* SharedGenericMaterial( const std::string& key, std::size_t index,

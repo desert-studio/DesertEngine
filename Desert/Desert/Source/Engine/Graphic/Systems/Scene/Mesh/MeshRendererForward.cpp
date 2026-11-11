@@ -4057,10 +4057,22 @@ namespace Desert::Graphic::System
             // and interned, so equal keys answer one id and the callers keep their materials by it.
             m_GenericTextureKeys.resize( m_GenericQueue.size() );
             m_GenericTextureSets.resize( m_GenericQueue.size(), 0u );
+            m_GenericTextureKeySources.resize( m_GenericQueue.size() );
             for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
             {
-                MeshRendererDetail::WriteGenericTextureKey( m_GenericQueue[gi], m_GenericTextureKeyScratch,
-                                                            m_GenericTextureOrder );
+                const GenericMeshRenderData& g      = m_GenericQueue[gi];
+                GenericTextureKeySource&     source = m_GenericTextureKeySources[gi];
+                // A producer-kept record whose revision, runtime texture and sampler are the ones the slot's key
+                // was written from: the key and its set stand (a slot-material record has revision 0).
+                if ( g.ValuesRevision != 0u && m_GenericTextureSets[gi] != 0u &&
+                     source.ValuesRevision == g.ValuesRevision && source.DirectTexture == g.DirectTexture &&
+                     source.DirectTextureSampler == g.DirectTextureSampler() )
+                    continue;
+                source.ValuesRevision = g.SlotMaterial == nullptr ? g.ValuesRevision : 0u;
+                source.DirectTexture  = g.DirectTexture;
+                if ( source.DirectTextureSampler != g.DirectTextureSampler() )
+                    source.DirectTextureSampler.assign( g.DirectTextureSampler() );
+                MeshRendererDetail::WriteGenericTextureKey( g, m_GenericTextureKeyScratch, m_GenericTextureOrder );
                 std::string& key = m_GenericTextureKeys[gi];
                 if ( m_GenericTextureSets[gi] != 0u && key == m_GenericTextureKeyScratch )
                     continue;
