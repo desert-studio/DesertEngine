@@ -30,7 +30,7 @@ Shader "StaticMeshGlass"
             SurfaceOutput s = DefaultSurfaceOutput();
             s.BaseColor     = Material.GlassTint.rgb;
             s.Refraction    = Material.IOR;
-            const ivec2 normalSize = BindlessTextureSize( Material.NormalTexture, 0 );
+            const ivec2 normalSize = BindlessTextureExtent( Material.NormalTexture );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceSampleTangentNormal( Material.NormalTexture, i.UV0 );
             return s;

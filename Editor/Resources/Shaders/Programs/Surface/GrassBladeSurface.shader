@@ -59,7 +59,7 @@ Shader "GrassBladeSurface"
             const vec3    tint = mix( Material.ClumpTintCool.rgb, Material.ClumpTintWarm.rgb, i.UV1.x );
             s.BaseColor = SurfaceBaseColor( Material.AlbedoColor.rgb * tint,
                                             SurfaceSampleMaterial( Material.AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
-            const ivec2 normalSize = BindlessTextureSize( Material.NormalTexture, 0 );
+            const ivec2 normalSize = BindlessTextureExtent( Material.NormalTexture );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceScaleTangentNormal( SurfaceSampleTangentNormal( Material.NormalTexture, uv ),
                                                       Material.NormalScale );
@@ -76,10 +76,10 @@ Shader "GrassBladeSurface"
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;
             s.CustomData3       = Material.SubsurfaceOpacity;
-            s.SampledTextureCount = float( int( BindlessTextureSize( Material.AlbedoTexture, 0 ).x > 1 ) +
+            s.SampledTextureCount = float( int( BindlessTextureExtent( Material.AlbedoTexture ).x > 1 ) +
                                            int( normalSize.x > 1 ) +
-                                           int( BindlessTextureSize( Material.OpacityTexture, 0 ).x > 1 ) +
-                                           int( BindlessTextureSize( Material.OrmTexture, 0 ).x > 1 ) );
+                                           int( BindlessTextureExtent( Material.OpacityTexture ).x > 1 ) +
+                                           int( BindlessTextureExtent( Material.OrmTexture ).x > 1 ) );
             return s;
         }
     }

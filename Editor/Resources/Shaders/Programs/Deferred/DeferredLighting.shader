@@ -279,7 +279,7 @@ Shader "DeferredLighting"
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         // Atmosphere light 1 keeps its own cascades under the sun's screen mask (DeferredScreenShadowMask::Lights).
         #define DESERT_LIGHT1_SHADOW(worldPos, N, L, cascade) ShadowFactor(kShadowLightAtmosphere1, worldPos, N, L, cascade)
-        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
+        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>
         #include <Common/DistanceFieldShadow.glslh>
@@ -300,7 +300,9 @@ Shader "DeferredLighting"
         }
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) DesertDirectionalShadowWithDistanceField(kShadowLightSun, CompositeView.x, worldPos, N, L, cascade)
         #define DESERT_LIGHT1_SHADOW(worldPos, N, L, cascade) DesertDirectionalShadowWithDistanceField(kShadowLightAtmosphere1, CompositeView.w, worldPos, N, L, cascade)
-        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(kShadowLightSun, worldPos, density)
+        // FPS-DIRECT-TILES2: the cascade DESERT_SUN_SHADOW chose (ShadowFactor's cascadeOut, the same worldPos), not a second
+        // pick (Mesh/CascadedShadow.glslh TransmissionShadowFactorInCascade).
+        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, density) TransmissionShadowFactorInCascade(kShadowLightSun, cascade, worldPos, density)
         #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
@@ -521,7 +523,7 @@ Shader "DeferredLighting"
         	// behind the leaf. 1 for every other model (none reads it).
         	float transmissionShadow =
         	     (receivesSun && subsurfaceOpacity >= 0.0)
-        	          ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) * sunContact
+        	          ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) * sunContact
         	          : 1.0;
         	const float cloudShadow = CloudShadowFactor(worldPos);
         	shadow             *= cloudShadow;
@@ -557,8 +559,8 @@ Shader "DeferredLighting"
         		     receivesSun ? DESERT_LIGHT1_SHADOW(worldPos, N, L1, cascade1) : 1.0;
         		const float transmission1 =
         		     (receivesSun && subsurfaceOpacity >= 0.0)
-        		          ? TransmissionShadowFactor(kShadowLightAtmosphere1, worldPos,
-        		                                     ContactShadowSubsurfaceDensity(subsurfaceOpacity))
+        		          ? TransmissionShadowFactorInCascade(kShadowLightAtmosphere1, cascade1, worldPos,
+        		                                              ContactShadowSubsurfaceDensity(subsurfaceOpacity))
         		          : 1.0;
         		const DesertLight light1 =
         		     DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, shadow1, transmission1);

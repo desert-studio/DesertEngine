@@ -444,8 +444,13 @@ namespace Desert::Graphic
                               : "has no bindless slot: only sampled (Image2DUsage::Image2D), single-sample, "
                                 "non-storage images are in the table" );
                 }
+                // z: the extent of the image the slot names (Texture2DProperty::GetBindlessExtent; slot 0, the
+                // missing texture, is 1 x 1): a surface tests "a real map is bound" from its row, not with a
+                // textureSize query per pixel (FPS-GBUFFER; UE: a material's texture set is static per material).
+                const uint32_t  extent = image.IsValid() ? texture->GetBindlessExtent() : ( 1u | ( 1u << 16u ) );
                 const glm::vec4 value( glm::uintBitsToFloat( image.Index ),
-                                       glm::uintBitsToFloat( texture->GetBindlessSampler().Index ), 0.0f, 0.0f );
+                                       glm::uintBitsToFloat( texture->GetBindlessSampler().Index ),
+                                       glm::uintBitsToFloat( extent ), 0.0f );
                 // Bitwise: the slot holds index bits, and a NaN pattern must not read as a change every frame.
                 if ( !entry.Written || std::memcmp( &entry.Value, &value, sizeof( value ) ) != 0 )
                 {
