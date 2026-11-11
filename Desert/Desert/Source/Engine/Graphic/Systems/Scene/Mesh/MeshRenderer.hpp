@@ -539,6 +539,50 @@ namespace Desert::Graphic::System
             uint64_t          HiddenSubmeshes = 0;       // every submesh of the other sections
         };
 
+        // A skinned entry's sections, SHARED AND IMMUTABLE (UE: a skeletal proxy's batch elements are built when
+        // its render state is marked dirty and kept; the per-frame draw reuses them). SkinnedSectionsFor builds
+        // the list once per material binding - the producer's change event: MeshECSSystem builds a NEW binding
+        // on every slot / material / mesh change and never edits one - and every frame's entry shares it.
+        // ApplyDisplacement replaces an entry's list, never edits it. Iterated, sized and indexed like the
+        // vector it wraps; elements stay at their addresses while any holder keeps the list.
+        class SkinnedSectionList
+        {
+        public:
+            SkinnedSectionList() noexcept = default;
+            explicit SkinnedSectionList( std::vector<SkinnedSection>&& sections )
+                 : m_List( std::make_shared<const std::vector<SkinnedSection>>( std::move( sections ) ) )
+            {
+            }
+            [[nodiscard]] const SkinnedSection* begin() const noexcept
+            {
+                return m_List ? m_List->data() : nullptr;
+            }
+            [[nodiscard]] const SkinnedSection* end() const noexcept
+            {
+                return m_List ? m_List->data() + m_List->size() : nullptr;
+            }
+            [[nodiscard]] std::size_t size() const noexcept
+            {
+                return m_List ? m_List->size() : 0u;
+            }
+            [[nodiscard]] bool empty() const noexcept
+            {
+                return size() == 0u;
+            }
+            [[nodiscard]] const SkinnedSection& operator[]( const std::size_t i ) const noexcept
+            {
+                return ( *m_List )[i];
+            }
+            // The same list object (not merely equal elements): what a retained reader compares first.
+            [[nodiscard]] bool Shares( const SkinnedSectionList& other ) const noexcept
+            {
+                return m_List == other.m_List;
+            }
+
+        private:
+            std::shared_ptr<const std::vector<SkinnedSection>> m_List;
+        };
+
         struct SkinnedMeshRenderData
         {
             // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
@@ -560,8 +604,9 @@ namespace Desert::Graphic::System
             MaterialSlotBindingPtr      MaterialSlots;
             // One per section material (UE: a skeletal mesh's sections, each a batch element with its own
             // MaterialIndex), by the static rule Desert::SectionMaterialSlot. The pose is skinned ONCE per entry;
-            // every pass draws each section with its own material, masked to its own submeshes.
-            std::vector<SkinnedSection> Sections;
+            // every pass draws each section with its own material, masked to its own submeshes. Shared with the
+            // view's retained list for this binding (SkinnedSectionsFor): no per-frame build or allocation.
+            SkinnedSectionList Sections;
             // Animated pose, or bind pose: a view of BoneOwner, which keeps it alive while the entry is queued.
             std::shared_ptr<const std::vector<glm::mat4>> BoneOwner;
             std::span<const glm::mat4>                    BoneMatrices;
@@ -3702,6 +3747,24 @@ namespace Desert::Graphic::System
         // the base mesh. Records the blend UpdateMorphTargets owes when the revision moved.
         SkinnedMesh* MorphedMeshFor( const MeshRenderData& data, SkinnedMesh* base );
 
+        // THE SKINNED SECTIONS, RETAINED PER MATERIAL BINDING (UE: the proxy's batch elements, rebuilt on
+        // MarkRenderStateDirty only). The binding is the change event: MeshECSSystem replaces it on every slot,
+        // material-invalidation or mesh change and never edits one, so a binding seen before with the same
+        // submesh count has the same sections. Each entry HOLDS its binding, so its address (the key, an identity
+        // word compared, never read) cannot name a successor while cached; an entry no SubmitMesh asked for
+        // between two ClearQueues leaves. An empty list = no section on the skinned path (not queued).
+        const SkinnedSectionList& SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
+                                                      std::size_t                   submeshCount );
+        struct SkinnedSectionsEntry
+        {
+            MaterialSlotBindingPtr Binding;
+            std::size_t            SubmeshCount = 0;
+            SkinnedSectionList     Sections;
+            uint64_t               Seen = 0; // m_SkinnedSectionsEpoch last asked
+        };
+        std::unordered_map<std::uintptr_t, SkinnedSectionsEntry> m_SkinnedSections;
+        uint64_t                                                 m_SkinnedSectionsEpoch = 1;
+
         // Generic (data-driven) static meshes + a cache of the materials that record them. Per-object data
         // is the transform push constant plus a ROW of the material's `Materials[]` buffer, named by a
         // second push constant — so any number of objects share one material and still carry their own
@@ -5169,11 +5232,11 @@ namespace Desert::Graphic::System
         // claimed in a sync leaves (m_SkinnedContentSync stamps the claimed ones).
         struct SkinnedContentProxy
         {
-            ContentMeshKey              Mesh;
-            MaterialSlotBindingPtr      Binding;
-            std::vector<SkinnedSection> Sections;
-            uint64_t                    Content = 0;
-            uint64_t                    Sync    = 0;
+            ContentMeshKey         Mesh;
+            MaterialSlotBindingPtr Binding;
+            SkinnedSectionList     Sections; // the list folded (shared: a steady frame compares one address)
+            uint64_t               Content = 0;
+            uint64_t               Sync    = 0;
         };
         std::unordered_map<uint64_t, SkinnedContentProxy> m_SkinnedContentProxies;
         uint64_t                                          m_SkinnedContentSync = 0;

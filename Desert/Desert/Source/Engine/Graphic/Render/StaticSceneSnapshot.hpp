@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace Desert
@@ -52,6 +53,21 @@ namespace Desert::Graphic::Render
     {
         std::vector<StaticSceneSection>     Sections;
         std::vector<MaterialSlotBindingPtr> Owners; // one per entity with sections in this chunk
+        // THE PARENT MATERIAL OF EVERY OWNER'S SLOTS, taken when the chunk is built (UE: a proxy's material
+        // relevance is computed at AddPrimitive / a render-state recreate, not per frame): owner o's run is
+        // OwnerParents[OwnerParentsFirst[o], OwnerParentsFirst[o + 1]), one entry per slot (null: no instance).
+        // A slot instance's parent is fixed at its construction and a material invalidation rebuilds every chunk
+        // (MeshECSSystem::RecordStaticScene), so the per-view replay (the texture demand of
+        // SceneRenderer::SubmitStaticScene) reads them instead of asking every slot of every section each frame.
+        std::vector<const Material*> OwnerParents;
+        std::vector<uint32_t>        OwnerParentsFirst; // Owners.size() + 1 entries once built
+        [[nodiscard]] std::span<const Material* const> ParentsOf( const uint32_t owner ) const noexcept
+        {
+            if ( owner + 1u >= OwnerParentsFirst.size() )
+                return {};
+            return std::span<const Material* const>( OwnerParents ).subspan(
+                 OwnerParentsFirst[owner], OwnerParentsFirst[owner + 1u] - OwnerParentsFirst[owner] );
+        }
     };
 
     inline constexpr uint32_t kStaticSceneChunkSlots = 64;

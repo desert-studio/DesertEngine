@@ -179,7 +179,8 @@ namespace Desert::Graphic::System
                 continue;
             const auto& slots     = data.MaterialSlots->Slots;
             const auto& displaced = data.MaterialSlots->Displaced->Slots;
-            std::vector<SkinnedSection> sections = data.Sections;
+            // The retained list is shared (SkinnedSectionsFor): the twin's sections are a new list, never an edit.
+            std::vector<SkinnedSection> sections( data.Sections.begin(), data.Sections.end() );
             bool                        complete = displaced.size() == slots.size();
             for ( SkinnedSection& section : sections )
             {
@@ -209,7 +210,7 @@ namespace Desert::Graphic::System
                            data.Entity );
                 continue;
             }
-            data.Sections   = std::move( sections );
+            data.Sections   = SkinnedSectionList( std::move( sections ) );
             data.SkinSource = data.Mesh;
             data.Mesh       = twin.get(); // the cache holds the twin past this frame's draws (parked on release)
         }

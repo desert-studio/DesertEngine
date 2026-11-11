@@ -142,7 +142,7 @@ namespace Desert::ECS
                 // AnimationComponent is OPTIONAL: a skinned mesh with no animator renders in its BIND pose
                 // (identity bone matrices) — so imported/rigged characters show up in the skeleton editor.
                 auto view = registry.view<SkinnedMeshComponent, TransformComponent>();
-                InvalidateSkinnedAdoption( registry );
+                InvalidateSkinnedAdoption( registry, materialsVersion );
 
                 view.each(
                      [&]( entt::entity entity, SkinnedMeshComponent& mesh, const TransformComponent& transform )
@@ -170,89 +170,21 @@ namespace Desert::ECS
                              AdoptComponentMaterialSlots( registry, entity, mesh, &ECS::SetSkinnedMesh );
                          palette.AdoptChecked = true;
 
-                         // One skinned lit material instance (default if no slot assigned), rebuilt only when
-                         // the slot set changes.
-                         // Invalidation stamp (see the static path) — rebuild on any Invalidate().
-                         if ( mesh.SeenMaterialsVersion() != materialsVersion )
-                         {
-                             mesh.RuntimeMaterialInstances().clear();
-                             mesh.RuntimeDisplacedInstances().clear();
-                             mesh.SeenMaterialsVersion() = materialsVersion;
-                             RetireRenderCache( mesh.RuntimeSlots() );
-                             mesh.RuntimeSlots().reset();
-                         }
-                         const size_t slotCount = mesh.GetMaterialSlots().empty() ? 1 : mesh.GetMaterialSlots().size();
-                         if ( mesh.RuntimeMaterialInstances().size() != slotCount )
-                         {
-                             RetireRenderCache( mesh.RuntimeSlots() );
-                             mesh.RuntimeSlots().reset();
-                             mesh.RuntimeMaterialInstances().clear();
-                             if ( mesh.GetMaterialSlots().empty() )
-                                 mesh.RuntimeMaterialInstances().push_back(
-                                      DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
-                             else
-                                 for ( const auto& h : mesh.GetMaterialSlots() )
-                                 {
-                                     // THE SKINNED path of the SAME `.demat` the static twin uses. This
-                                     // argument is the whole fix: the slot names a surface, this system
-                                     // knows the geometry is skinned, and the pair resolves. Without it
-                                     // the service answered with a static material and MeshRenderer
-                                     // dropped the mesh without drawing anything.
-                                     auto inst =
-                                          Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
-                                               h, Graphic::MeshVertexPath::Skinned );
-                                     mesh.RuntimeMaterialInstances().push_back(
-                                          inst ? std::move( inst )
-                                               : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
-                                 }
-                         }
-                         if ( mesh.RuntimeMaterialInstances().empty() )
-                             return;
-
-                         // THE CO-OWNED BINDING, BUILT ON THE CHANGE, NOT PER FRAME (UE: the proxy's material
-                         // relevance is rebuilt by MarkRenderStateDirty, the draw reuses it). It is dropped
-                         // exactly when its inputs change: the instances above (a material invalidation, a new
-                         // slot set), the component's value (SetSkinnedMesh), or the mesh it was built against (a
-                         // reload, a runtime rig). A steady frame shares it: one atomic increment, no allocation
-                         // (A8-3).
-                         if ( !mesh.RuntimeSlots() || mesh.RuntimeSlotsMesh() != skinnedMesh )
-                         {
-                             auto slots   = std::make_shared<Graphic::MaterialSlotBinding>();
-                             slots->Owned = mesh.RuntimeMaterialInstances();
-                             slots->Slots.reserve( slots->Owned.size() );
-                             for ( const auto& inst : slots->Owned )
-                                 slots->Slots.push_back( inst.get() );
-                             // A displaced skinned mesh (Runtime, CONTRACT-DISPLACE §9.8) draws its twin with the
-                             // displaced siblings of the same slots: base cells, so the relief is not marched
-                             // again over the triangles that carry it (the static rule above).
-                             if ( skinnedMesh->IsDisplaced() && !mesh.GetMaterialSlots().empty() )
-                             {
-                                 if ( mesh.RuntimeDisplacedInstances().size() != mesh.GetMaterialSlots().size() )
-                                 {
-                                     mesh.RuntimeDisplacedInstances().clear();
-                                     for ( const auto& h : mesh.GetMaterialSlots() )
-                                     {
-                                         auto inst = Runtime::ResourceRegistry::GetMaterialService()
-                                                          ->CreateRuntimeInstance(
-                                                               h, Graphic::MeshVertexPath::Skinned, true );
-                                         mesh.RuntimeDisplacedInstances().push_back(
-                                              inst ? std::move( inst )
-                                                   : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
-                                     }
-                                 }
-                                 auto displaced   = std::make_shared<Graphic::MaterialSlotBinding>();
-                                 displaced->Owned = mesh.RuntimeDisplacedInstances();
-                                 for ( const auto& inst : displaced->Owned )
-                                     displaced->Slots.push_back( inst.get() );
-                                 slots->Displaced = std::move( displaced );
-                             }
-                             else
-                                 mesh.RuntimeDisplacedInstances().clear();
-                             RetireRenderCache( mesh.RuntimeSlots() );
-                             mesh.RuntimeSlots()     = std::move( slots );
-                             mesh.RuntimeSlotsMesh() = skinnedMesh;
-                         }
+                         // THE ENTITY'S RENDER STATE IS REBUILT ON ITS CHANGE EVENT ONLY (UE: MarkRenderStateDirty
+                         // recreates the proxy; a steady frame touches none of it): the Skinned channel's mark of
+                         // this entity (its component, transform or visibility), a material invalidation, a
+                         // section-material registration, a rebuilt mesh or a new registry
+                         // (InvalidateSkinnedAdoption -> BonePalette::RenderStateDirty), a new palette (the
+                         // entity entered the drawn set), or the binding itself dropped or built for another
+                         // mesh (a runtime rig, a reload: the cache's own identity, RetireRenderCaches).
+                         const bool renderStateEvent = palette.RenderStateDirty || !mesh.RuntimeSlots() ||
+                                                       mesh.RuntimeSlotsMesh() != skinnedMesh;
+                         palette.RenderStateDirty = false;
+                         if ( renderStateEvent && !RebuildSkinnedRenderState( mesh, skinnedMesh, materialsVersion ) )
+                             palette.RenderStateDirty = true; // nothing to bind yet: asked again next update
                          const Graphic::MaterialSlotBindingPtr& slots = mesh.RuntimeSlots();
+                         if ( !slots )
+                             return;
 
                          // Bone matrices: animated pose if an Animator exists, else bind pose (identity = the
                          // skeleton's rest shape, which stays correct after Phase-2 rest-pose edits since
@@ -342,6 +274,9 @@ namespace Desert::ECS
             // The slots' adoption was asked since the component last changed (the Skinned channel) and since a
             // section material could last have been named (the serials): not asked again until one moves.
             bool                                                 AdoptChecked = false;
+            // The entity's render state (its material instances and co-owned binding) is to be rebuilt: set by
+            // its change event (InvalidateSkinnedAdoption) and on entering the drawn set, cleared by the rebuild.
+            bool                                                 RenderStateDirty = true;
             std::shared_ptr<const std::vector<glm::mat4>>        Current;
             std::vector<std::shared_ptr<std::vector<glm::mat4>>> Pool;
         };
@@ -350,7 +285,7 @@ namespace Desert::ECS
         // the Skinned channel) asks again for that entity; a section material that may have been named (the
         // content-registry write or material-registration serial moved), a rebuilt or dropped mesh, a missed
         // channel or another registry ask again for every entity (UE: the asset registry's OnAssetAdded).
-        void InvalidateSkinnedAdoption( entt::registry& registry )
+        void InvalidateSkinnedAdoption( entt::registry& registry, const uint32_t materialsVersion )
         {
             const uint64_t contentWrites = Assets::ContentRegistry::WriteSerial();
             const uint64_t registrations =
@@ -358,6 +293,9 @@ namespace Desert::ECS
             const uint64_t meshRevision = Runtime::ResourceRegistry::GetMeshService()->GetBuiltRevision();
             bool everyone = contentWrites != m_SkinnedContentWrites || registrations != m_SkinnedRegistrations ||
                             meshRevision != m_SkinnedMeshRevision || m_SkinnedRegistry != &registry;
+            // A material invalidation (graveyarded parents) rebuilds every entity's instances, not their adoption.
+            const bool invalidated    = materialsVersion != m_SkinnedMaterialsVersion;
+            m_SkinnedMaterialsVersion = materialsVersion;
             m_SkinnedContentWrites = contentWrites;
             m_SkinnedRegistrations = registrations;
             m_SkinnedMeshRevision  = meshRevision;
@@ -370,15 +308,113 @@ namespace Desert::ECS
                 m_SkinnedDirty.clear();
                 everyone = true; // no feed: no component change is reported, so every update asks
             }
-            if ( everyone )
+            if ( everyone || invalidated )
             {
                 for ( auto& entry : m_BonePalettes )
-                    entry.second.AdoptChecked = false;
+                {
+                    entry.second.AdoptChecked     = entry.second.AdoptChecked && !everyone;
+                    entry.second.RenderStateDirty = true;
+                }
                 return;
             }
             for ( const entt::entity entity : m_SkinnedDirty )
                 if ( const auto found = m_BonePalettes.find( entity ); found != m_BonePalettes.end() )
-                    found->second.AdoptChecked = false;
+                {
+                    found->second.AdoptChecked     = false;
+                    found->second.RenderStateDirty = true;
+                }
+        }
+
+        // THE SKINNED ENTITY'S RENDER STATE: its material instances and the co-owned binding its draws carry,
+        // rebuilt on its change event only (the walk's renderStateEvent; UE: MarkRenderStateDirty recreates the
+        // proxy). Each step still keeps its own key, so an event that changed nothing rebuilds nothing. False:
+        // no instance to bind yet (the entity is asked again next update).
+        bool RebuildSkinnedRenderState( SkinnedMeshComponent& mesh, Desert::SkinnedMesh* const skinnedMesh,
+                                        const uint32_t materialsVersion )
+        {
+            // One skinned lit material instance (default if no slot assigned), rebuilt only when
+            // the slot set changes.
+            // Invalidation stamp (see the static path) — rebuild on any Invalidate().
+            if ( mesh.SeenMaterialsVersion() != materialsVersion )
+            {
+                mesh.RuntimeMaterialInstances().clear();
+                mesh.RuntimeDisplacedInstances().clear();
+                mesh.SeenMaterialsVersion() = materialsVersion;
+                RetireRenderCache( mesh.RuntimeSlots() );
+                mesh.RuntimeSlots().reset();
+            }
+            const size_t slotCount = mesh.GetMaterialSlots().empty() ? 1 : mesh.GetMaterialSlots().size();
+            if ( mesh.RuntimeMaterialInstances().size() != slotCount )
+            {
+                RetireRenderCache( mesh.RuntimeSlots() );
+                mesh.RuntimeSlots().reset();
+                mesh.RuntimeMaterialInstances().clear();
+                if ( mesh.GetMaterialSlots().empty() )
+                    mesh.RuntimeMaterialInstances().push_back(
+                         DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
+                else
+                    for ( const auto& h : mesh.GetMaterialSlots() )
+                    {
+                        // THE SKINNED path of the SAME `.demat` the static twin uses. This
+                        // argument is the whole fix: the slot names a surface, this system
+                        // knows the geometry is skinned, and the pair resolves. Without it
+                        // the service answered with a static material and MeshRenderer
+                        // dropped the mesh without drawing anything.
+                        auto inst =
+                             Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
+                                  h, Graphic::MeshVertexPath::Skinned );
+                        mesh.RuntimeMaterialInstances().push_back(
+                             inst ? std::move( inst )
+                                  : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
+                    }
+            }
+            if ( mesh.RuntimeMaterialInstances().empty() )
+                return false; // nothing to bind yet
+
+            // THE CO-OWNED BINDING, BUILT ON THE CHANGE, NOT PER FRAME (UE: the proxy's material
+            // relevance is rebuilt by MarkRenderStateDirty, the draw reuses it). It is dropped
+            // exactly when its inputs change: the instances above (a material invalidation, a new
+            // slot set), the component's value (SetSkinnedMesh), or the mesh it was built against (a
+            // reload, a runtime rig). A steady frame shares it: one atomic increment, no allocation
+            // (A8-3).
+            if ( !mesh.RuntimeSlots() || mesh.RuntimeSlotsMesh() != skinnedMesh )
+            {
+                auto slots   = std::make_shared<Graphic::MaterialSlotBinding>();
+                slots->Owned = mesh.RuntimeMaterialInstances();
+                slots->Slots.reserve( slots->Owned.size() );
+                for ( const auto& inst : slots->Owned )
+                    slots->Slots.push_back( inst.get() );
+                // A displaced skinned mesh (Runtime, CONTRACT-DISPLACE §9.8) draws its twin with the
+                // displaced siblings of the same slots: base cells, so the relief is not marched
+                // again over the triangles that carry it (the static rule above).
+                if ( skinnedMesh->IsDisplaced() && !mesh.GetMaterialSlots().empty() )
+                {
+                    if ( mesh.RuntimeDisplacedInstances().size() != mesh.GetMaterialSlots().size() )
+                    {
+                        mesh.RuntimeDisplacedInstances().clear();
+                        for ( const auto& h : mesh.GetMaterialSlots() )
+                        {
+                            auto inst = Runtime::ResourceRegistry::GetMaterialService()
+                                             ->CreateRuntimeInstance(
+                                                  h, Graphic::MeshVertexPath::Skinned, true );
+                            mesh.RuntimeDisplacedInstances().push_back(
+                                 inst ? std::move( inst )
+                                      : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
+                        }
+                    }
+                    auto displaced   = std::make_shared<Graphic::MaterialSlotBinding>();
+                    displaced->Owned = mesh.RuntimeDisplacedInstances();
+                    for ( const auto& inst : displaced->Owned )
+                        displaced->Slots.push_back( inst.get() );
+                    slots->Displaced = std::move( displaced );
+                }
+                else
+                    mesh.RuntimeDisplacedInstances().clear();
+                RetireRenderCache( mesh.RuntimeSlots() );
+                mesh.RuntimeSlots()     = std::move( slots );
+                mesh.RuntimeSlotsMesh() = skinnedMesh;
+            }
+            return true;
         }
 
         // A buffer of @p palette no recorded command holds any more (or a new one, only while every pooled one is
@@ -675,6 +711,8 @@ namespace Desert::ECS
                 chunk = std::make_shared<Graphic::Render::StaticSceneChunk>();
             chunk->Sections.clear();
             chunk->Owners.clear();
+            chunk->OwnerParents.clear();
+            chunk->OwnerParentsFirst.clear();
             const size_t first = index * Graphic::Render::kStaticSceneChunkSlots;
             const size_t last =
                  std::min<size_t>( first + Graphic::Render::kStaticSceneChunkSlots, m_StaticPrimitives.size() );
@@ -685,6 +723,12 @@ namespace Desert::ECS
                     continue;
                 const auto owner = static_cast<uint32_t>( chunk->Owners.size() );
                 chunk->Owners.push_back( primitive.Slots );
+                // The owner's slot parents, once per change of this chunk (StaticSceneChunk::OwnerParents).
+                chunk->OwnerParentsFirst.push_back( static_cast<uint32_t>( chunk->OwnerParents.size() ) );
+                if ( primitive.Slots )
+                    for ( const Graphic::MaterialInstance* instance : primitive.Slots->Slots )
+                        chunk->OwnerParents.push_back( instance != nullptr ? instance->GetParentMaterial()
+                                                                           : nullptr );
                 for ( const Graphic::Render::StaticSceneSection& section : primitive.Sections )
                 {
                     chunk->Sections.push_back( section );
@@ -692,6 +736,7 @@ namespace Desert::ECS
                     chunk->Sections.back().Primitive = static_cast<uint32_t>( slot );
                 }
             }
+            chunk->OwnerParentsFirst.push_back( static_cast<uint32_t>( chunk->OwnerParents.size() ) );
             if ( m_StaticChunks[index] )
                 m_StaticSpareChunks.push_back( std::move( m_StaticChunks[index] ) );
             m_StaticChunks[index] = std::move( chunk );
@@ -1571,6 +1616,7 @@ namespace Desert::ECS
         uint64_t                  m_SkinnedContentWrites = 0;
         uint64_t                  m_SkinnedRegistrations = 0;
         uint64_t                  m_SkinnedMeshRevision  = 0;
+        uint32_t                  m_SkinnedMaterialsVersion = 0; // MaterialService invalidation last seen
         std::vector<entt::entity> m_SkinnedDirty;
     };
 } // namespace Desert::ECS
