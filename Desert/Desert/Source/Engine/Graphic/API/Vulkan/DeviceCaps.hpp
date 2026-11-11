@@ -42,6 +42,10 @@ namespace Desert::Graphic::API::Vulkan
         StorageImageWriteWithoutFormat,
         PortabilitySubset,
         MemoryBudget,
+        // GPU crash breadcrumbs (VulkanGpuBreadcrumbs, FPS-GPU-MARKER): vkCmdWriteBufferMarkerAMD writes a pass
+        // id at a pipeline stage, inside or outside a render pass, on any queue. Optional: without it the
+        // [DeviceLost] report names no pass, said once.
+        BufferMarker,
         // Vulkan 1.2 / 1.3 — asked for and recorded; VKF2 makes them required when it starts using them.
         // DescriptorIndexing is already required: the global bindless texture table (BindlessTextureTable.hpp)
         // is the one way a shader reaches a texture by index, and there is no second, non-bindless path.

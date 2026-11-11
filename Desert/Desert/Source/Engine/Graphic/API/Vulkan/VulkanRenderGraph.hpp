@@ -48,6 +48,62 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRdgTransientAllocator; // VulkanRdgTransient.hpp
     class VulkanGpuProfiler;           // VulkanGpuProfiler.hpp
 
+    // GPU CRASH BREADCRUMBS (FPS-GPU-MARKER; UE FGPUBreadcrumbs / r.GPUCrashDebugging, NVIDIA Aftermath markers).
+    // One host-visible, host-coherent buffer of two words per queue (graphics, async compute): every graph pass
+    // writes its serial into its queue's STARTED word at TOP_OF_PIPE before its commands and into the FINISHED
+    // word at BOTTOM_OF_PIPE after them (vkCmdWriteBufferMarkerAMD: legal inside a render pass and in a secondary
+    // buffer, unlike vkCmdFillBuffer). Serials are the graph's base + CompiledPass::Pass, so on each queue they
+    // grow in GPU order (graphs submit in BeginGraph order, passes are never reordered), whatever thread records.
+    // A ring of kRingSize names maps a serial back to its pass. On a loss the [DeviceLost] report (DeviceLost::
+    // SetBreadcrumbReader -> Read) prints per queue the last pass started, the last finished, and the passes in
+    // between - the faulting pass is among them. Disabled (RenderPipeline.GpuCrashBreadcrumbs 0): no marker.
+    class VulkanGpuBreadcrumbs
+    {
+    public:
+        static constexpr uint32_t kRingSize  = 8192; // power of two; > the passes of the frames in flight
+        static constexpr uint32_t kNameBytes = 64;
+        static constexpr uint32_t kNoSerial  = 0;
+
+        VulkanGpuBreadcrumbs() = default;
+        ~VulkanGpuBreadcrumbs();
+        VulkanGpuBreadcrumbs( const VulkanGpuBreadcrumbs& )            = delete;
+        VulkanGpuBreadcrumbs& operator=( const VulkanGpuBreadcrumbs& ) = delete;
+
+        // The device must have VK_AMD_buffer_marker enabled (Capability::BufferMarker).
+        Common::BoolResultStr Init( VkDevice device, VmaAllocator allocator,
+                                    const VulkanResourceSharing& sharing ) noexcept;
+        void                  SetEnabled( bool enabled ) noexcept;
+        // Calling thread, before any pass of the graph records: reserves the graph's serials and names its passes.
+        // The graph's base serial, or kNoSerial when disabled (then the graph records no marker).
+        [[nodiscard]] uint32_t BeginGraph( std::span<const RDG::CompiledPass> passes ) noexcept;
+        void MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
+        void MarkFinished( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
+        // The report, from the mapped words; issues no device call (legal on a lost device).
+        [[nodiscard]] std::string Describe() const;
+        // DeviceLost::BreadcrumbReader: context is the VulkanGpuBreadcrumbs.
+        [[nodiscard]] static std::string Read( const void* context );
+
+    private:
+        struct Entry
+        {
+            std::atomic<uint32_t> Serial{ kNoSerial }; // published after OnPipe and Name
+            RDG::Pipe             OnPipe = RDG::Pipe::Graphics;
+            char                  Name[kNameBytes]{};
+        };
+        [[nodiscard]] std::string NameOf( uint32_t serial, RDG::Pipe& pipe ) const;
+
+        VkDevice                         m_Device     = VK_NULL_HANDLE;
+        VmaAllocator                     m_Allocator  = nullptr;
+        VkBuffer                         m_Buffer     = VK_NULL_HANDLE;
+        VmaAllocation                    m_Allocation = nullptr;
+        const volatile uint32_t*         m_Words      = nullptr; // [queue * 2 + 0] started, [+ 1] finished
+        PFN_vkCmdWriteBufferMarkerAMD    m_WriteMarker = nullptr;
+        std::atomic<bool>                m_Enabled{ false };
+        bool                             m_EverEnabled = false;
+        uint32_t                         m_NextSerial  = 1; // BeginGraph's thread only
+        std::unique_ptr<Entry[]>         m_Ring;
+    };
+
     struct VulkanRdgDevice
     {
         VkDevice     Device    = VK_NULL_HANDLE;
@@ -70,6 +126,8 @@ namespace Desert::Graphic::API::Vulkan
         // RDG-PARALLEL-3: the engine's Vulkan GPU profiler, which re-stamps the scope order of a chunk recorded on a
         // worker as the chunk is replayed (StampChunkOrder); null without one (a device suite).
         VulkanGpuProfiler* ChunkOrder = nullptr;
+        // FPS-GPU-MARKER: the pass breadcrumbs; null without VK_AMD_buffer_marker (and in a device suite).
+        VulkanGpuBreadcrumbs* Breadcrumbs = nullptr;
     };
 
     // Usage flags a transient is created with, from the graph's derived usage (bit i = 1 << Access i).
@@ -823,6 +881,9 @@ namespace Desert::Graphic::API::Vulkan
             std::optional<Common::Profiling::ScopedTimer> CpuScope;
 #endif
             std::vector<const char*> Labels; // pass names (CompileResult outlives the chunk)
+            // FPS-GPU-MARKER: the breadcrumb serial of its open pass (kNoSerial: none) and that pass's pipe.
+            uint32_t  OpenCrumb     = VulkanGpuBreadcrumbs::kNoSerial;
+            RDG::Pipe OpenCrumbPipe = RDG::Pipe::Graphics;
             // Its primary from BeginChunk until ExecuteChunk splices it (Record.CommandBuffer is nulled by a device
             // loss; this one is still ended by EndChunk).
             VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
@@ -871,6 +932,11 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::unique_ptr<Chunk>> m_Chunks; // reused across graphs; the first m_ChunkCount are this graph's
         uint32_t                            m_ChunkCount = 0;
         Common::Memory::FrameArena          m_Scratch; // ScratchArena of the thread recording without a chunk
+        // FPS-GPU-MARKER: this graph's breadcrumb base (kNoSerial: no markers), and the open pass's serial and
+        // pipe on the thread recording without a chunk (Chunk::OpenCrumb on a worker).
+        uint32_t  m_CrumbBase     = VulkanGpuBreadcrumbs::kNoSerial;
+        uint32_t  m_OpenCrumb     = VulkanGpuBreadcrumbs::kNoSerial;
+        RDG::Pipe m_OpenCrumbPipe = RDG::Pipe::Graphics;
         static inline thread_local Chunk*   t_Chunk      = nullptr;
 
         struct FramebufferEntry

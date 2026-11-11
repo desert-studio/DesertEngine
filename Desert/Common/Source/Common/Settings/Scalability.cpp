@@ -483,6 +483,11 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
                "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
                1, Vis::Advanced },
+             { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
+               CL::None,
+               "SceneRenderer::OnUpdate -> DeviceLost::SetBreadcrumbsWanted -> VulkanRendererAPI::BeginRdgFrame "
+               "(a start and an end marker per render-graph pass, named per queue by the [DeviceLost] report)",
+               0, Vis::Advanced },
              { P::CloudLightLocalSamples, G::Effects, "Effects.CloudLightLocalSamples", 1, 16, CL::None,
                "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack "
                "(the ceiling on VolumetricCloudData::LightMarchLocalSamples, the near sun ray's samples)",

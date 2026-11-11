@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
@@ -1749,6 +1750,10 @@ namespace Desert::Graphic
                  m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineGrassCullAsync );
             m_Systems.Grass->SetCullAsync( cullAsync != 0 );
         }
+        // RenderPipeline.GpuCrashBreadcrumbs (FPS-GPU-MARKER): a start/end marker per graph pass, read by the
+        // [DeviceLost] report; the backend picks it up when it begins its next frame.
+        DeviceLost::SetBreadcrumbsWanted(
+             m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineGpuCrashBreadcrumbs ) != 0 );
         // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB): the kept dice pool, or a per-frame one.
         if ( m_Systems.Terrain )
         {

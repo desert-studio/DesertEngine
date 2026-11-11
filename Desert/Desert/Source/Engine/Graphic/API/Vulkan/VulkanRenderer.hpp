@@ -408,6 +408,9 @@ namespace Desert::Graphic::API::Vulkan
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool
         // holds transient images per frame in flight; the backend is re-pointed at the frame's command
         // buffer on every graph.
+        // FPS-GPU-MARKER: the pass breadcrumbs (m_RdgDevice.Breadcrumbs), made with the RDG objects when the
+        // device has VK_AMD_buffer_marker. Declared before the backend, so it outlives every recorder of it.
+        std::unique_ptr<VulkanGpuBreadcrumbs> m_Breadcrumbs;
         VulkanRdgDevice                m_RdgDevice;
         std::unique_ptr<VulkanRdgPool> m_RdgPool;
         // RDG-CONTRACTS A/B frame objects, per frame slot and re-begun by BeginFrame after the slot's fence:

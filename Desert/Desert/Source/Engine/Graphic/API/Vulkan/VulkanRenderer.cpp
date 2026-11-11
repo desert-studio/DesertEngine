@@ -59,6 +59,8 @@ namespace Desert::Graphic::API::Vulkan
         // Everything handed to the submit thread is out before anything it names is released.
         if ( m_FrameLoop )
             m_FrameLoop->Drain();
+        // The breadcrumb memory goes with this API: the [DeviceLost] report stops reading it first.
+        Graphic::DeviceLost::SetBreadcrumbReader( nullptr, nullptr );
 #if DESERT_DEV_INSTRUMENTS
         m_GpuProfiler.Shutdown();
 #endif
@@ -2438,6 +2440,30 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgDevice.Limits        = properties.limits;
             // The same sharing rule VulkanAllocator creates every engine resource with (VulkanResourceSharing.hpp).
             m_RdgDevice.Sharing       = device->GetPhysicalDevice()->GetResourceSharing();
+            // FPS-GPU-MARKER: the pass breadcrumbs the [DeviceLost] report reads (RenderPipeline.
+            // GpuCrashBreadcrumbs turns their writes on). Without VK_AMD_buffer_marker the report names no
+            // pass, said here once.
+            if ( device->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::BufferMarker ) )
+            {
+                auto                        crumbs = std::make_unique<VulkanGpuBreadcrumbs>();
+                const Common::BoolResultStr made =
+                     crumbs->Init( m_RdgDevice.Device, m_RdgDevice.Allocator, m_RdgDevice.Sharing );
+                if ( made )
+                {
+                    m_Breadcrumbs            = std::move( crumbs );
+                    m_RdgDevice.Breadcrumbs  = m_Breadcrumbs.get();
+                    Graphic::DeviceLost::SetBreadcrumbReader( &VulkanGpuBreadcrumbs::Read, m_Breadcrumbs.get() );
+                }
+                else
+                {
+                    LOG_WARN( "[GpuBreadcrumbs] {}; a [DeviceLost] report names no pass", made.GetError() );
+                }
+            }
+            else
+            {
+                LOG_INFO( "[GpuBreadcrumbs] the device has no VK_AMD_buffer_marker; a [DeviceLost] report "
+                          "names no pass" );
+            }
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
@@ -2472,6 +2498,9 @@ namespace Desert::Graphic::API::Vulkan
         }
         // EACH STAGE A ROW (VK-SUBMIT-THREAD): "Vulkan: begin RDG frame" measured 0.22-0.25 ms on the field turn
         // with no row under it, so the profile names which stage it is.
+        // RenderPipeline.GpuCrashBreadcrumbs, as the scene renderer last published it (DeviceLost.hpp).
+        if ( m_Breadcrumbs )
+            m_Breadcrumbs->SetEnabled( Graphic::DeviceLost::BreadcrumbsWanted() );
         DESERT_PROFILE_PHASES( stages );
         DESERT_PROFILE_PHASE( stages, "RDG frame: slot fence + command pools" );
         // The slot's fence FIRST: every object begun below may still be in use by the slot's previous frame.

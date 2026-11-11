@@ -457,6 +457,14 @@ namespace Common::Scalability
         // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
         // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
         RenderPipelineGrassCullAsync,
+        // 0/1: GPU crash breadcrumbs (FPS-GPU-MARKER; UE r.GPUCrashDebugging + FGPUBreadcrumbs, NVIDIA Aftermath
+        // markers): every render-graph pass writes its id into a host-visible word of its queue at its start and
+        // at its end (VK_AMD_buffer_marker), so the [DeviceLost] report names, per queue, the last pass the GPU
+        // started and the last it finished. 0 = no marker is recorded (zero cost). A device without the extension
+        // has no breadcrumbs and says so once. Read by SceneRenderer::OnUpdate -> DeviceLost::SetBreadcrumbsWanted
+        // -> VulkanRendererAPI::BeginRdgFrame. Key "RenderPipeline.GpuCrashBreadcrumbs": equal at every level (a
+        // diagnostic, not a quality step), so only a machine override names it.
+        RenderPipelineGpuCrashBreadcrumbs,
         // The ceiling the Effects level puts on VolumetricCloudData::LightMarchLocalSamples: the SHORT sun ray a
         // lit cloud sample marches where the cloud shadow map supplies the far optical depth (Programs/Clouds/
         // CloudRaymarch.shader, CloudSelfShadowOpticalDepth; UE r.VolumetricCloud.ShadowSampleCountScale-style).
