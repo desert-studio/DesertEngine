@@ -242,8 +242,7 @@ namespace Desert::Graphic::System
         // The passes a bin draws in are the cooked ones (kDrawRowsPasses; the cascades' is CascadeBinsOf's).
         const bool rowsPass = pass != MeshPass::ShadowDepth &&
                               std::ranges::find( kDrawRowsPasses, pass ) != std::ranges::end( kDrawRowsPasses );
-        if ( m_GrassPerVarietyDraws || !BinnablePath( gpu.Path ) || !rowsPass ||
-             ( pass == MeshPass::Forward && m_ForwardVirtualLocal ) )
+        if ( !BinnablePath( gpu.Path ) || !rowsPass || ( pass == MeshPass::Forward && m_ForwardVirtualLocal ) )
             return nullptr;
         // A mesh section's visibility raster reads its rows by address (GpuInstanceDrawRow::MeshVisibility): one
         // without them (the prepass pair this frame) is drawn by its own draws.
@@ -331,7 +330,7 @@ namespace Desert::Graphic::System
 
     GpuDrawBinFrame* MeshRenderer::CascadeBinsOf( const GpuInstancedRenderData& gpu ) const
     {
-        if ( m_GrassPerVarietyDraws || !BinnablePath( gpu.Path ) )
+        if ( !BinnablePath( gpu.Path ) )
             return nullptr;
         const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
         if ( !capabilities.SupportsDrawIndirectCount || !capabilities.SupportsShaderDrawParameters )
