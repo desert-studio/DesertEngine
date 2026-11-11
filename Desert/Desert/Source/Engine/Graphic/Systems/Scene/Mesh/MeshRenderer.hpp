@@ -1861,6 +1861,13 @@ namespace Desert::Graphic::System
         // other list refills the prefix. Per-frame static submissions (SubmitMesh) stay a suffix behind it.
         void SubmitStaticScene( const Render::StaticSceneSnapshot&            scene,
                                 std::span<const Render::StaticSceneAdmission> admitted, uint64_t revision );
+        // THE VIEW'S RETAINED ADMISSION of the static scene (Render::StaticSceneViewAdmission): what
+        // SceneRenderer::SubmitStaticScene admitted per chunk and the texture demand it noted, kept with the
+        // view's other retained static state so a steady frame re-walks no chunk. Its replay thread only.
+        [[nodiscard]] Render::StaticSceneViewAdmission& StaticViewAdmission() noexcept
+        {
+            return m_StaticViewAdmission;
+        }
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         // One row of the retained ISM list (SceneRenderer::SubmitInstancedScene) with this frame's values of it
         // (CPU-TAILS F10). The entry is refilled from the one at the same position last frame
@@ -3684,6 +3691,9 @@ namespace Desert::Graphic::System
         uint64_t m_RetainedAdmissionsRevision = 0; // the revision m_RetainedAdmissions were taken at
         std::vector<std::shared_ptr<const Render::StaticSceneChunk>> m_RetainedChunks; // held: never reused
         std::vector<StaticMeshRenderData>                            m_StaticSuffixScratch;
+        // This view's admission of the retained static scene, per chunk, kept across frames
+        // (SceneRenderer::SubmitStaticScene through StaticViewAdmission()).
+        Render::StaticSceneViewAdmission m_StaticViewAdmission;
         // Retained entries ApplyDisplacement swapped to a baked / twin mesh this view: put back by ClearQueues.
         std::vector<uint32_t> m_StaticRewritten;
         // Names the retained prefix's contents as last queued (GpuSceneRegistry::SyncStatic's token): a new one
@@ -3753,6 +3763,11 @@ namespace Desert::Graphic::System
         // submesh count has the same sections. Each entry HOLDS its binding, so its address (the key, an identity
         // word compared, never read) cannot name a successor while cached; an entry no SubmitMesh asked for
         // between two ClearQueues leaves. An empty list = no section on the skinned path (not queued).
+        // ONE WRITER, NO LOCK: this map is the view's queue state, like m_SkinnedQueue it feeds. A MeshRenderer
+        // belongs to one SceneRenderer, and a renderer's recorded commands are replayed by ONE thread at a time
+        // (RenderCommandBuffer::ExecuteAll is a sequential loop; Scene's view job replays into its renderer, the
+        // reflection capture into its own face renderers), with ClearQueues between replays on that thread or at
+        // the fence. A parallel replay into one renderer would race m_SkinnedQueue first: it is not allowed.
         const SkinnedSectionList& SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
                                                       std::size_t                   submeshCount );
         struct SkinnedSectionsEntry

@@ -4394,25 +4394,81 @@ namespace Desert::Graphic
                                       .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
+    namespace
+    {
+        // One entry per parent, the largest size any of its draws asked for (TextureStreamingDemand keeps the
+        // largest per texture, so one note at the maximum is the same demand as one note per draw).
+        void FoldMaterialDemand( std::vector<Render::StaticSceneViewAdmission::MaterialDemand>& demand )
+        {
+            using Entry = Render::StaticSceneViewAdmission::MaterialDemand;
+            std::sort( demand.begin(), demand.end(), []( const Entry& a, const Entry& b )
+                       { return std::less<const Material*>{}( a.Parent, b.Parent ); } );
+            std::size_t kept = 0;
+            for ( std::size_t i = 0; i < demand.size(); ++i )
+            {
+                if ( kept != 0 && demand[kept - 1].Parent == demand[i].Parent )
+                    demand[kept - 1].Pixels = std::max( demand[kept - 1].Pixels, demand[i].Pixels );
+                else
+                    demand[kept++] = demand[i];
+            }
+            demand.resize( kept );
+        }
+    } // namespace
+
     void SceneRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot& scene )
     {
         DESERT_PROFILE_SCOPE( "SceneRenderer::SubmitStaticScene" );
-        const auto*                 camera = GetMainCamera();
+        // THE VIEW'S ADMISSION IS RETAINED PER CHUNK AND RE-WALKED ON EVENTS ONLY (UE FScene: per-frame work over
+        // the dirty set; Render::StaticSceneViewAdmission names the events): a chunk MeshECSSystem rebuilt (its
+        // pointer), a view that moved (camera position / projection, target height, LOD preview), a section that
+        // waited for its geometry, a mesh upload. A camera that only turns re-walks nothing: the admission (draw
+        // distance) and the texture demand are measured from the position, not the direction.
+        using ViewAdmission = Render::StaticSceneViewAdmission;
+        ViewAdmission&      cache  = m_Systems.Mesh->StaticViewAdmission();
+        const auto*         camera = GetMainCamera();
+        ViewAdmission::View view;
+        if ( camera != nullptr )
+        {
+            view.HasCamera  = true;
+            view.Position   = camera->GetPosition();
+            view.Projection = camera->GetProjectionMatrix();
+        }
+        view.Height = GetViewExtent().Height;
+        if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 ) // LODPreviewFor's lease, as it answers
+        {
+            view.PreviewEntity = m_LODPreview.Entity;
+            view.PreviewLevel  = m_LODPreview.Level;
+        }
+        const bool sameView = cache.Valid && cache.Current == view;
+        cache.Current       = view;
+        cache.Valid         = true;
         std::optional<Geometry::LODView> lodView;
         if ( camera != nullptr )
-            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
-        // The sections this view admits, chunk-major, are written over the list built last frame, each compared
-        // as it is written: a list that differs anywhere takes a new revision (MeshRenderer::SubmitStaticScene
-        // keeps its queue while the revision holds, with no compare of its own). The slots' parents are the
-        // chunk's, taken on its change (StaticSceneChunk::OwnerParents), not asked per section per frame.
-        static std::atomic<uint64_t>              s_NextAdmittedRevision{ 0 };
-        std::vector<Render::StaticSceneAdmission>& admitted = m_StaticAdmitted;
-        const std::size_t                          before   = admitted.size();
-        std::size_t                                count    = 0;
-        bool                                       differs  = m_StaticAdmittedRevision == 0;
-        for ( uint32_t c = 0; c < static_cast<uint32_t>( scene.Chunks.size() ); ++c )
+            lodView.emplace( Geometry::LODView{ view.Position, view.Projection } );
+        const bool demandAsked = camera != nullptr && view.Height != 0;
+
+        // Uploads (the render revision, the residency, the cached bounds' validity) follow the stale epoch; while
+        // it held over two recorded frames that compared the admitted revisions, none is pending (the cache's
+        // comment). Until then every kept chunk's admitted entries are compared, one load each.
+        const uint64_t epoch = Mesh::GetStaleEpoch();
+        if ( epoch != cache.StaleEpoch )
+        {
+            cache.StaleEpoch  = epoch;
+            cache.EpochChecks = 0;
+        }
+        const bool checkRevisions = cache.EpochChecks < 2u;
+        if ( checkRevisions )
+            ++cache.EpochChecks;
+
+        // One chunk's walk: what this view admits of it and the demand its sections ask, folded per parent. The
+        // slots' parents are the chunk's, taken on its change (StaticSceneChunk::OwnerParents).
+        const auto walkChunk = [&]( const uint32_t c, ViewAdmission::Chunk& held )
         {
             const Render::StaticSceneChunk& chunk = *scene.Chunks[c];
+            held.Source                           = scene.Chunks[c];
+            held.Admitted.clear();
+            held.Demand.clear();
+            held.Pending = false;
             for ( uint32_t s = 0; s < static_cast<uint32_t>( chunk.Sections.size() ); ++s )
             {
                 const Render::StaticSceneSection& section = chunk.Sections[s];
@@ -4421,7 +4477,10 @@ namespace Desert::Graphic
                     continue;
                 Mesh* mesh = section.Mesh;
                 if ( !ReadyForDraw( *mesh ) )
+                {
+                    held.Pending = true; // walked again next frame, until its geometry is resident
                     continue;
+                }
                 // The cached bounds are the mesh's as of the revision they were taken at; an in-place edit
                 // (DynamicMesh, uploaded at this fence) bumped the revision and is measured afresh.
                 const Common::Math::AABB local = section.BoundsRevision == mesh->GetRenderRevision()
@@ -4430,30 +4489,86 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
-                NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ),
-                                           chunk.ParentsOf( section.Owner ) );
-                const Render::StaticSceneAdmission entry{ .Chunk        = c,
-                                                          .Section      = s,
-                                                          .ForcedLOD    = LODPreviewFor( section.Entity,
-                                                                                         section.ForcedLOD ),
-                                                          .MeshRevision = mesh->GetRenderRevision() };
-                if ( count < admitted.size() )
+                if ( demandAsked )
                 {
-                    if ( !differs && !( admitted[count] == entry ) )
-                        differs = true;
-                    admitted[count] = entry;
+                    // Measured only (no material handed in: nothing noted here); noted once per parent below.
+                    const float pixels =
+                         NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), {} );
+                    if ( pixels > 0.0f )
+                        for ( const Material* parent : chunk.ParentsOf( section.Owner ) )
+                            if ( parent != nullptr )
+                                held.Demand.push_back( { .Parent = parent, .Pixels = pixels } );
                 }
-                else
-                    admitted.push_back( entry );
-                ++count;
+                held.Admitted.push_back( { .Chunk        = c,
+                                           .Section      = s,
+                                           .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
+                                           .MeshRevision = mesh->GetRenderRevision() } );
             }
+            FoldMaterialDemand( held.Demand );
+        };
+
+        const std::size_t chunkCount = scene.Chunks.size();
+        bool              rewalked   = !sameView || cache.Chunks.size() != chunkCount;
+        cache.Chunks.resize( chunkCount ); // a shorter scene releases the chunks it no longer names
+        for ( uint32_t c = 0; c < static_cast<uint32_t>( chunkCount ); ++c )
+        {
+            ViewAdmission::Chunk& held = cache.Chunks[c];
+            bool                  walk = !sameView || held.Pending || held.Source != scene.Chunks[c];
+            if ( !walk && checkRevisions )
+                for ( const Render::StaticSceneAdmission& entry : held.Admitted )
+                    if ( held.Source->Sections[entry.Section].Mesh->GetRenderRevision() != entry.MeshRevision )
+                    {
+                        walk = true;
+                        break;
+                    }
+            if ( !walk )
+                continue;
+            walkChunk( c, held );
+            rewalked = true;
         }
-        if ( count != before )
-            differs = true;
-        admitted.resize( count );
-        if ( differs )
-            m_StaticAdmittedRevision = s_NextAdmittedRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
-        m_Systems.Mesh->SubmitStaticScene( scene, admitted, m_StaticAdmittedRevision );
+
+        // The admitted list, chunk-major, rebuilt only when a chunk was re-walked: written over the list built
+        // last time, each entry compared as it is written; a list that differs anywhere takes a new revision
+        // (MeshRenderer::SubmitStaticScene keeps its queue while the revision holds, with no compare of its own).
+        static std::atomic<uint64_t> s_NextAdmittedRevision{ 0 };
+        if ( rewalked || m_StaticAdmittedRevision == 0 )
+        {
+            std::vector<Render::StaticSceneAdmission>& admitted = m_StaticAdmitted;
+            const std::size_t                          before   = admitted.size();
+            std::size_t                                count    = 0;
+            bool                                       differs  = m_StaticAdmittedRevision == 0;
+            cache.Demand.clear();
+            for ( const ViewAdmission::Chunk& held : cache.Chunks )
+            {
+                for ( const Render::StaticSceneAdmission& entry : held.Admitted )
+                {
+                    if ( count < admitted.size() )
+                    {
+                        if ( !differs && !( admitted[count] == entry ) )
+                            differs = true;
+                        admitted[count] = entry;
+                    }
+                    else
+                        admitted.push_back( entry );
+                    ++count;
+                }
+                cache.Demand.insert( cache.Demand.end(), held.Demand.begin(), held.Demand.end() );
+            }
+            FoldMaterialDemand( cache.Demand );
+            if ( count != before )
+                differs = true;
+            admitted.resize( count );
+            if ( differs )
+                m_StaticAdmittedRevision = s_NextAdmittedRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        }
+        // The demand is the frame's (TextureStreamingDemand::TakeFrame): noted every frame, once per parent.
+        if ( demandAsked )
+        {
+            auto& demand = TextureStreamingDemand::Get();
+            for ( const ViewAdmission::MaterialDemand& asked : cache.Demand )
+                demand.Note( asked.Parent, asked.Pixels );
+        }
+        m_Systems.Mesh->SubmitStaticScene( scene, m_StaticAdmitted, m_StaticAdmittedRevision );
     }
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
