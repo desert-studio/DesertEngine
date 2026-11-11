@@ -3792,6 +3792,10 @@ namespace Desert::Graphic::System
         // A record holds no heap member (its names and values are referenced: GenericMeshRenderData), so a steady
         // frame's push_back reuses the queue's capacity and allocates nothing.
         std::vector<GenericMeshRenderData>                              m_GenericQueue;
+        // Last frame's queue, swapped out by ClearQueues (capacity of both kept): SubmitGenericMesh compares the
+        // record of the same position with it to raise m_GenericQueueChanged. Only its identity words are read
+        // (addresses compared, never followed: its names and values referenced the recording now cleared).
+        std::vector<GenericMeshRenderData>                              m_GenericRecycled;
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericMaterials;
 
         // AL1-12: which material pipelines this renderer asked for and what they are doing; how far it has
@@ -5246,6 +5250,29 @@ namespace Desert::Graphic::System
         // one more) and ApplyDisplacement (a record swapped or split), dropped by a full field sync in
         // SyncGpuScene. While it is down, SyncGpuScene hands the proxies the fields' frame values only.
         bool m_InstancedQueueChanged = true;
+        // THE GENERIC RECORDS' PRODUCER EVENT (FPS-SCENE-EVENTS5; UE MarkRenderStateDirty / UpdatePrimitiveTransform):
+        // some queued generic record differs from last frame's at its position in what its GpuScene record is made
+        // of (entity, part, mesh, world, flags, slot material, submesh mask, values revision, hit, direct texture),
+        // or is one more - raised by SubmitGenericMesh, dropped by a full rigid sync in SyncGpuScene. While it is
+        // down (and the static suffix and the tiles equal the held ones), the proxies keep every rigid record.
+        bool m_GenericQueueChanged = true;
+        // What the last full rigid sync was made of, besides the generic records the event above vouches for: the
+        // static suffix's and the other (landscape tile) records as sent, and per generic record the mesh key and
+        // Content (a residency / upload / sculpt moves the key with no producer event; a record whose values are
+        // not revision-kept has its Content re-folded and compared). Valid: a full rigid sync filled them.
+        struct HeldGeneric
+        {
+            ContentMeshKey Mesh;
+            uint64_t       Content = 0;
+        };
+        struct HeldRigid
+        {
+            std::vector<MotionRecord> Suffix;
+            std::vector<MotionRecord> Other;
+            std::vector<HeldGeneric>  Generic;
+            bool                      Valid = false;
+        };
+        HeldRigid m_HeldRigid;
         // THE SKINNED RECORDS' CONTENT PROXIES (UE FScene: a proxy persists, its producer's change updates it):
         // keyed by entity and the record's ordinal among that entity's records this sync (a modular character
         // queues several). Each keeps the binding its sections were taken from (HELD: every section instance and

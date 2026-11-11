@@ -452,10 +452,23 @@ namespace Desert::Graphic::GpuDriven
         // asked KeepsFields for exactly these frames after the registry's BeginFrame and before this call.
         // false: @p keptFields was set while KeepsFields would have refused (a contract break; the fields' rows
         // in @p out are missing) - the caller reports it and syncs full records next frame.
-        [[nodiscard]] bool Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid,
-                                 std::span<const MotionRecord> skinned, std::span<const MotionFieldRecord> fields,
-                                 bool keptFields, std::span<const MotionFieldFrame> fieldFrames,
-                                 GpuSceneRecordRows& out ) noexcept;
+        // THE RIGID RECORDS BY PRODUCER EVENT (FPS-SCENE-EVENTS5; UE FScene::UpdatePrimitiveTransform /
+        // AddPrimitive come from component events, an unchanged primitive is not visited): with @p keptRigid set,
+        // @p rigid is ignored (pass it empty) and the rigid proxies of the last full rigid sync are kept as they
+        // stand - no world packed, no proxy looked up, no record compared; their rows are re-read in that sync's
+        // order. The caller asked KeepsRigid for exactly @p keptRigidCount records after the registry's
+        // BeginFrame. false: a kept part (fields or rigid) was set while its Keeps* would have refused (a contract
+        // break; its rows in @p out are missing) - the caller reports it and syncs full records next frame.
+        [[nodiscard]] bool Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid, bool keptRigid,
+                                 size_t keptRigidCount, std::span<const MotionRecord> skinned,
+                                 std::span<const MotionFieldRecord> fields, bool keptFields,
+                                 std::span<const MotionFieldFrame> fieldFrames, GpuSceneRecordRows& out ) noexcept;
+        // Whether Sync may keep the rigid records. The caller vouches that the @p count rigid records it would
+        // queue equal, position for position, the ones of the last full rigid Sync (entity, part, world, mesh,
+        // flags, LOD inputs, content); this checks what it cannot see: the registry still holds this list
+        // unrolled, the last Sync synced full rigid records (not dropped by a Reset), as many as then, and each
+        // held proxy's mesh geometry binding (a re-upload / pool move of the same mesh). O(records), no hash.
+        [[nodiscard]] bool KeepsRigid( const GpuSceneRegistry& registry, size_t count ) const noexcept;
         // Whether Sync may keep the fields with @p frames in place of full records. The caller vouches that the
         // fields' producer reported no change since the last Sync (same entities, meshes, material slots, hidden
         // masks, transform snapshots, flags inputs, in the same order); this checks what it cannot see: the
@@ -532,7 +545,19 @@ namespace Desert::Graphic::GpuDriven
         };
         std::vector<FieldHeld> m_FieldHeld;
         bool                   m_FieldsHeld = false;
-        // Proxies a kept field sync stamped (they are not in m_Touched: no Content to publish).
+        // The last full rigid sync, per rigid position: its proxy, its entity's scratch (null for a part record,
+        // which names none) and whether the position added an Owned to the scratch (the entity's next numbered
+        // primitive, not another section of one already owned) - so a kept sync rebuilds each entity's Primitives
+        // exactly as the full one did (the skinned records number after them). Pointer stability as FieldHeld.
+        struct RigidHeld
+        {
+            Proxy*         Held    = nullptr;
+            EntityScratch* Scratch = nullptr;
+            bool           Owns    = false;
+        };
+        std::vector<RigidHeld> m_RigidHeld;
+        bool                   m_RigidsHeld = false;
+        // Proxies a kept field or rigid sync stamped (they are not in m_Touched: no Content to publish).
         size_t                               m_KeptClaimed   = 0;
         uint64_t                             m_List          = 0;
         uint64_t                             m_Sync          = 0;

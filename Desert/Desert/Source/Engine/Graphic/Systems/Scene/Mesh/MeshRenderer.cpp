@@ -502,7 +502,10 @@ namespace Desert::Graphic::System
         std::erase_if( m_SkinnedSections,
                        [this]( const auto& held ) { return held.second.Seen != m_SkinnedSectionsEpoch; } );
         ++m_SkinnedSectionsEpoch;
-        m_GenericQueue.clear(); // capacity kept; its records reference the recording ending with this frame
+        // Kept as last frame's (SubmitGenericMesh compares identity words with it, never follows its references:
+        // they name the recording ending with this frame); the queue starts empty, capacity of both kept.
+        m_GenericRecycled.clear();
+        std::swap( m_GenericQueue, m_GenericRecycled );
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         // The ISM queue is not destroyed but kept as the next frame's recycled entries (SubmitInstancedRow); the
         // ones the frame before did not take back (a row that left) are released here.
@@ -554,6 +557,27 @@ namespace Desert::Graphic::System
         // set — the shader name comes from the material at draw time).
         if ( data.Mesh && ( !data.ShaderName().empty() || data.SlotMaterial ) )
         {
+            // THE GENERIC RECORDS' PRODUCER EVENT (FPS-SCENE-EVENTS5): the record differs from last frame's at
+            // this position in what its GpuScene record is made of, or is one more. Addresses only (the old
+            // record's references are dead): the values revision, the producer-kept hit and the slot material
+            // stand for their values; a record without a revision is re-folded by SyncGpuScene instead
+            // (HeldGeneric).
+            const std::size_t at = m_GenericQueue.size();
+            if ( at >= m_GenericRecycled.size() )
+                m_GenericQueueChanged = true;
+            else
+            {
+                const GenericMeshRenderData& last = m_GenericRecycled[at];
+                if ( last.Entity != data.Entity || last.MotionPart != data.MotionPart || last.Mesh != data.Mesh ||
+                     last.Transform != data.Transform || last.CastShadows != data.CastShadows ||
+                     last.VisibleInRayTracing != data.VisibleInRayTracing ||
+                     last.SlotMaterial != data.SlotMaterial ||
+                     last.VisibleSubmeshMask != data.VisibleSubmeshMask ||
+                     last.ValuesRevision != data.ValuesRevision ||
+                     last.RevisionHasShaderName != data.RevisionHasShaderName ||
+                     last.RayHitRef != data.RayHitRef || last.DirectTexture != data.DirectTexture )
+                    m_GenericQueueChanged = true;
+            }
             // A trivially copied record: its names and values are referenced (GenericMeshRenderData).
             m_GenericQueue.push_back( data );
             m_GenericProgramsResolved = false;
@@ -2833,14 +2857,56 @@ namespace Desert::Graphic::System
         if ( firstGathered < m_StaticQueue.size() )
             ++m_StaticColumnsGeneration;
         RefreshStaticPlanRows();
-        for ( const auto& data : m_GenericQueue )
-            rigid.push_back( { .Entity = data.Entity,
-                               .Part   = data.MotionPart,
-                               .World  = data.Transform,
-                               .Mesh    = data.Mesh,
-                               .Flags   = rigidFlags( data.CastShadows, true ),
-                               .Content = genericContent( data ) } );
-        rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
+        // THE RIGID RECORDS BY PRODUCER EVENT (FPS-SCENE-EVENTS5; UE FScene::UpdatePrimitiveTransform /
+        // AddPrimitive from component events, an unchanged primitive is not visited): while no generic record
+        // differs from last frame's (SubmitGenericMesh raises m_GenericQueueChanged) and the per-frame static
+        // suffix and the landscape tiles equal what the last full rigid sync sent (few records, gathered above /
+        // handed in anyway), the proxies keep every rigid record - no generic record built, no world packed, no
+        // proxy looked up, no record compared there. What the producer cannot see is checked here per generic
+        // record, by value: its mesh key (an upload, a sculpt, residency) and, for a record whose values are not
+        // revision-kept, its re-folded Content; the geometry binding in GpuSceneProxies::KeepsRigid. Any miss:
+        // full records, as before.
+        const auto sameRecord = []( const MotionRecord& a, const MotionRecord& b )
+        {
+            return a.Entity == b.Entity && a.Part == b.Part && a.World == b.World && a.Mesh == b.Mesh &&
+                   a.Flags == b.Flags && a.ForcedLod == b.ForcedLod && a.LodBias == b.LodBias &&
+                   a.Content == b.Content;
+        };
+        // A record whose Content is a function of the words SubmitGenericMesh compares (and its mesh key): a
+        // per-slot draw, or one whose values, hit and shader name are a producer-kept revision with no direct
+        // texture (whose sampler name is the recorded command's).
+        const auto revisionKept = []( const GenericMeshRenderData& data )
+        {
+            return data.SlotMaterial != nullptr ||
+                   ( data.ValuesRevision != 0u && data.RevisionHasShaderName && data.DirectTexture == nullptr );
+        };
+        HeldRigid&        heldRigid   = m_HeldRigid;
+        const std::size_t suffixCount = rigid.size();
+        const std::size_t rigidCount  = suffixCount + m_GenericQueue.size() + otherRigid.size();
+        bool keptRigid = heldRigid.Valid && !m_GenericQueueChanged && heldRigid.Suffix.size() == suffixCount &&
+                         heldRigid.Generic.size() == m_GenericQueue.size() &&
+                         heldRigid.Other.size() == otherRigid.size() &&
+                         std::equal( rigid.begin(), rigid.end(), heldRigid.Suffix.begin(), sameRecord ) &&
+                         std::equal( otherRigid.begin(), otherRigid.end(), heldRigid.Other.begin(), sameRecord );
+        for ( std::size_t g = 0; keptRigid && g < m_GenericQueue.size(); ++g )
+        {
+            const GenericMeshRenderData& data = m_GenericQueue[g];
+            const HeldGeneric&           was  = heldRigid.Generic[g];
+            keptRigid                         = was.Mesh == ContentWords::KeyOf( data.Mesh ) &&
+                        ( revisionKept( data ) || was.Content == genericContent( data ) );
+        }
+        keptRigid = keptRigid && m_GpuSceneProxies.KeepsRigid( registry, rigidCount );
+        if ( !keptRigid )
+        {
+            for ( const auto& data : m_GenericQueue )
+                rigid.push_back( { .Entity  = data.Entity,
+                                   .Part    = data.MotionPart,
+                                   .World   = data.Transform,
+                                   .Mesh    = data.Mesh,
+                                   .Flags   = rigidFlags( data.CastShadows, true ),
+                                   .Content = genericContent( data ) } );
+            rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
+        }
 
         auto& skinned = m_ScratchSkinnedRecords;
         skinned.clear();
@@ -2929,15 +2995,32 @@ namespace Desert::Graphic::System
             m_StaticColumnsToken = m_StaticToken;
         }
         // This view's proxies diff the records and tell the registry only what changed (FPS-SCENE-EVENTS).
-        if ( !m_GpuSceneProxies.Sync( registry, rigid, skinned, fields, keptFields, fieldFrames, rows ) ||
-             rows.FieldInstances.size() != m_InstancedQueue.size() )
+        if ( !m_GpuSceneProxies.Sync( registry, rigid, keptRigid, rigidCount, skinned, fields, keptFields,
+                                      fieldFrames, rows ) ||
+             rows.FieldInstances.size() != m_InstancedQueue.size() || rows.RigidPrimitives.size() != rigidCount )
         {
             m_InstancedQueueChanged = true; // the next sync sends full field records
+            m_GenericQueueChanged   = true; // and full rigid records
+            heldRigid.Valid         = false;
             return Common::MakeFormattedError(
-                 "the GPU scene's fields were kept against a refused keep ({} fields)", m_InstancedQueue.size() );
+                 "the GPU scene's records were kept against a refused keep ({} rigid, "
+                 "{} fields; rigid kept: {}, fields kept: {})",
+                 rigidCount, m_InstancedQueue.size(), keptRigid, keptFields );
         }
         if ( !keptFields )
             m_InstancedQueueChanged = false; // the proxies hold this queue's records
+        if ( !keptRigid ) // the proxies hold these rigid records: what the next frame's keep is checked against
+        {
+            heldRigid.Suffix.assign( rigid.begin(), rigid.begin() + static_cast<std::ptrdiff_t>( suffixCount ) );
+            heldRigid.Other.assign( otherRigid.begin(), otherRigid.end() );
+            heldRigid.Generic.clear();
+            heldRigid.Generic.reserve( m_GenericQueue.size() );
+            for ( std::size_t g = 0; g < m_GenericQueue.size(); ++g )
+                heldRigid.Generic.push_back( { .Mesh    = ContentWords::KeyOf( m_GenericQueue[g].Mesh ),
+                                               .Content = rigid[suffixCount + g].Content } );
+            heldRigid.Valid       = true;
+            m_GenericQueueChanged = false;
+        }
         // The worlds the registry just wrote are stamped before any record is keyed by its primitive's stamp.
         StampPlacements( scene );
 
