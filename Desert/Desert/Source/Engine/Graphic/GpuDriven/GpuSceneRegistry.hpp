@@ -99,6 +99,20 @@ namespace Desert::Graphic
         std::shared_ptr<const std::vector<glm::mat4>> Snapshot;
     };
 
+    // THE FRAME VALUES OF A FIELD WHOSE PRODUCER DID NOT CHANGE (FPS-SCENE-EVENTS4): what a MotionFieldRecord
+    // carries besides its identity (entity, transforms, snapshot, content), in the same queue position. When the
+    // producer reported no change since the proxies' last full field sync (GpuSceneProxies::KeepsFields), the
+    // view hands these instead of full records: no snapshot handle is copied, no slot derived, no proxy looked up.
+    struct MotionFieldFrame
+    {
+        const Mesh*              Mesh              = nullptr; // its geometry binding is compared, not its address
+        uint32_t                 Flags             = 0;
+        float                    BoundsPad         = 0.0f;
+        float                    CullDistanceStart = 0.0f;
+        float                    CullDistanceEnd   = 0.0f;
+        GpuDriven::PrimitiveWind Wind{};
+    };
+
     // One section of the RETAINED static scene (Render::StaticSceneSection) as the registry keys it: by the
     // persistent primitive slot MeshECSSystem gave its entity (UE: FPrimitiveSceneInfo::PackedIndex), never by
     // submission order. Every record of one slot is one entity with one world: one primitive, its sections'
@@ -214,6 +228,9 @@ namespace Desert::Graphic::GpuDriven
         // adds each one afresh - an Add of a key the list already holds is a plain rewrite, and the members it
         // does not add again leave at EndList.
         [[nodiscard]] uint64_t BeginList( uint64_t list, bool& fresh ) noexcept;
+        // Whether BeginList( @p list ) this frame would keep every primitive its producer holds (the registry
+        // holds the list and no discarded frame rolled it back): fresh == false. Call after BeginFrame.
+        [[nodiscard]] bool ListCurrent( uint64_t list ) const noexcept;
         // The list's sync of this frame is complete: the frame's palettes reach GpuScene::SetBonePalettes; on a
         // re-added list, the primitives it held and did not add again leave it.
         void EndList( uint64_t list ) noexcept;
@@ -428,9 +445,26 @@ namespace Desert::Graphic::GpuDriven
     {
     public:
         // @p out is cleared first; one row per record, in order, as the registry's rows of each primitive.
-        void Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid,
-                   std::span<const MotionRecord> skinned, std::span<const MotionFieldRecord> fields,
-                   GpuSceneRecordRows& out ) noexcept;
+        // THE FIELDS BY PRODUCER EVENT (FPS-SCENE-EVENTS4; UE: an ISM proxy is updated on UpdateInstances / a
+        // render-state dirty mark, never re-derived per frame): with @p keptFields set, @p fields is ignored and
+        // @p fieldFrames (one per field of the last full field sync, in its order) carries this frame's values
+        // only - the field proxies are kept as last synced, their wind updated, their rows re-read. The caller
+        // asked KeepsFields for exactly these frames after the registry's BeginFrame and before this call.
+        // false: @p keptFields was set while KeepsFields would have refused (a contract break; the fields' rows
+        // in @p out are missing) - the caller reports it and syncs full records next frame.
+        [[nodiscard]] bool Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid,
+                                 std::span<const MotionRecord> skinned, std::span<const MotionFieldRecord> fields,
+                                 bool keptFields, std::span<const MotionFieldFrame> fieldFrames,
+                                 GpuSceneRecordRows& out ) noexcept;
+        // Whether Sync may keep the fields with @p frames in place of full records. The caller vouches that the
+        // fields' producer reported no change since the last Sync (same entities, meshes, material slots, hidden
+        // masks, transform snapshots, flags inputs, in the same order); this checks what it cannot see: the
+        // registry still holds this list unrolled, the last Sync synced full field records (not dropped by a
+        // Reset), as many fields as then, and per proxy's first field the geometry binding, flags, bounds pad,
+        // cull distances and an immutable snapshot (a field without one is compared by the registry every
+        // sync, so it never takes this path). O(fields), no hash, no handle copy.
+        [[nodiscard]] bool KeepsFields( const GpuSceneRegistry&           registry,
+                                        std::span<const MotionFieldFrame> frames ) const noexcept;
 
     private:
         struct Proxy
@@ -486,6 +520,20 @@ namespace Desert::Graphic::GpuDriven
         std::unordered_map<uint32_t, EntityScratch>         m_Entities;
         std::vector<Memo>                                   m_Memo;
         std::vector<std::pair<Proxy*, bool>> m_Touched; // this sync's proxies (added now), first sighting
+        // The last full field sync, per field position: its proxy, its entity's scratch and whether the position
+        // was its proxy's first record (the one whose row inputs the proxy holds). Node pointers of the two maps:
+        // stable while the proxy / entity stays, and a kept sync names every one of them, so none leaves while
+        // held. Cleared by Reset; m_FieldsHeld: the vector names the proxies as they stand.
+        struct FieldHeld
+        {
+            Proxy*         Held    = nullptr;
+            EntityScratch* Scratch = nullptr;
+            bool           First   = false;
+        };
+        std::vector<FieldHeld> m_FieldHeld;
+        bool                   m_FieldsHeld = false;
+        // Proxies a kept field sync stamped (they are not in m_Touched: no Content to publish).
+        size_t                               m_KeptClaimed   = 0;
         uint64_t                             m_List          = 0;
         uint64_t                             m_Sync          = 0;
         size_t                               m_EntitiesNamed = 0;

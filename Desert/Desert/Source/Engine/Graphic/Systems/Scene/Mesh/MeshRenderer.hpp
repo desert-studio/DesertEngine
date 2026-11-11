@@ -5239,6 +5239,13 @@ namespace Desert::Graphic::System
         std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;
         std::vector<MotionRecord>          m_ScratchSkinnedRecords;
         std::vector<MotionFieldRecord>     m_ScratchFieldRecords;
+        // A kept field sync's frame values (GpuSceneProxies::KeepsFields), one per m_InstancedQueue entry.
+        std::vector<MotionFieldFrame> m_ScratchFieldFrames;
+        // THE FIELDS' PRODUCER EVENT (FPS-SCENE-EVENTS4): some queued ISM entry is not the one the proxies were
+        // last synced from - raised by SubmitInstancedRow (a row differs from last frame's at its position, or is
+        // one more) and ApplyDisplacement (a record swapped or split), dropped by a full field sync in
+        // SyncGpuScene. While it is down, SyncGpuScene hands the proxies the fields' frame values only.
+        bool m_InstancedQueueChanged = true;
         // THE SKINNED RECORDS' CONTENT PROXIES (UE FScene: a proxy persists, its producer's change updates it):
         // keyed by entity and the record's ordinal among that entity's records this sync (a modular character
         // queues several). Each keeps the binding its sections were taken from (HELD: every section instance and

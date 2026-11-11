@@ -507,6 +507,12 @@ namespace Desert::Graphic::GpuDriven
         return id;
     }
 
+    bool GpuSceneRegistry::ListCurrent( const uint64_t list ) const noexcept
+    {
+        const auto found = m_Lists.find( list );
+        return found != m_Lists.end() && !found->second.Resync;
+    }
+
     void GpuSceneRegistry::EndList( const uint64_t list ) noexcept
     {
         SceneList* const held = ListOf( list );
@@ -677,6 +683,29 @@ namespace Desert::Graphic::GpuDriven
         m_Entities.clear();
         m_Memo.clear();
         m_Touched.clear();
+        m_FieldHeld.clear();
+        m_FieldsHeld = false;
+    }
+
+    bool GpuSceneProxies::KeepsFields( const GpuSceneRegistry&                 registry,
+                                       const std::span<const MotionFieldFrame> frames ) const noexcept
+    {
+        if ( !m_FieldsHeld || m_FieldHeld.size() != frames.size() || !registry.ListCurrent( m_List ) )
+            return false;
+        for ( size_t f = 0; f < frames.size(); ++f )
+        {
+            const FieldHeld& held = m_FieldHeld[f];
+            if ( !held.First ) // another material slot of the field: the proxy holds its first slot's inputs
+                continue;
+            const Proxy&            proxy = *held.Held;
+            const MotionFieldFrame& frame = frames[f];
+            if ( proxy.Snapshot == nullptr || proxy.Mesh != frame.Mesh ||
+                 proxy.Geometry != GeometryOf( frame.Mesh ) || proxy.Flags != frame.Flags ||
+                 proxy.BoundsPad != frame.BoundsPad || proxy.CullStart != frame.CullDistanceStart ||
+                 proxy.CullEnd != frame.CullDistanceEnd )
+                return false;
+        }
+        return true;
     }
 
     GpuSceneProxies::EntityScratch& GpuSceneProxies::ScratchOf( const uint32_t entity,
@@ -736,11 +765,16 @@ namespace Desert::Graphic::GpuDriven
         proxy.LodBias   = record.LodBias;
     }
 
-    void GpuSceneProxies::Sync( GpuSceneRegistry& registry, const std::span<const MotionRecord> rigid,
-                                const std::span<const MotionRecord>      skinned,
-                                const std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out ) noexcept
+    bool GpuSceneProxies::Sync( GpuSceneRegistry& registry, const std::span<const MotionRecord> rigid,
+                                const std::span<const MotionRecord> skinned,
+                                std::span<const MotionFieldRecord> fields, const bool keptFields,
+                                const std::span<const MotionFieldFrame> fieldFrames,
+                                GpuSceneRecordRows&                     out ) noexcept
     {
         DESERT_PROFILE_SCOPE( "GpuSceneProxies::Sync" );
+        if ( keptFields )
+            fields = {};
+        const size_t fieldCount = keptFields ? fieldFrames.size() : fields.size();
         out.RigidPrimitives.clear();
         out.RigidInstances.clear();
         out.SkinnedPrimitives.clear();
@@ -751,15 +785,18 @@ namespace Desert::Graphic::GpuDriven
         out.RigidInstances.reserve( rigid.size() );
         out.SkinnedPrimitives.reserve( skinned.size() );
         out.SkinnedInstances.reserve( skinned.size() );
-        out.FieldInstances.reserve( fields.size() );
-        out.FieldPrimitives.reserve( fields.size() );
+        out.FieldInstances.reserve( fieldCount );
+        out.FieldPrimitives.reserve( fieldCount );
 
         bool fresh = false;
         m_List     = registry.BeginList( m_List, fresh );
         if ( fresh ) // a new list, or a discarded frame rolled it back: every proxy is void, each record re-added
             Reset();
+        // Kept fields need the proxies of the last full field sync, as many as the frames name.
+        const bool keepable = keptFields && m_FieldsHeld && m_FieldHeld.size() == fieldFrames.size();
         ++m_Sync;
         m_EntitiesNamed    = 0;
+        m_KeptClaimed      = 0;
         const size_t total = rigid.size() + skinned.size() + fields.size();
         if ( m_Memo.size() < total )
             m_Memo.resize( total );
@@ -819,12 +856,46 @@ namespace Desert::Graphic::GpuDriven
             emit( out.SkinnedPrimitives, out.SkinnedInstances, proxy.Primitive );
         }
 
+        // THE KEPT FIELDS (FPS-SCENE-EVENTS4): their producer reported no change, so each proxy stands as last
+        // synced - stamped for this sync, its wind told when it moved, its rows re-read (another primitive's
+        // event can move a field's instance run). No Content to publish: the records' identity did not change.
+        if ( keepable )
+            for ( size_t f = 0; f < fieldFrames.size(); ++f )
+            {
+                const FieldHeld& held  = m_FieldHeld[f];
+                Proxy&           proxy = *held.Held;
+                if ( held.Scratch->Sync != m_Sync ) // the entity's first record this sync (rigid ones ran first)
+                {
+                    held.Scratch->Sync = m_Sync;
+                    ++m_EntitiesNamed;
+                }
+                if ( proxy.Sync != m_Sync )
+                {
+                    proxy.Sync = m_Sync;
+                    ++m_KeptClaimed;
+                    const PrimitiveWind& wind = fieldFrames[f].Wind;
+                    if ( !( proxy.Wind == wind ) )
+                    {
+                        registry.UpdateWind( proxy.Primitive, wind );
+                        proxy.Wind = wind;
+                    }
+                }
+                out.FieldInstances.push_back( scene.Primitive( proxy.Primitive ).FirstInstance );
+                out.FieldPrimitives.push_back( proxy.Primitive );
+            }
+        else
+        {
+            m_FieldHeld.clear();
+            m_FieldsHeld = !keptFields; // a refused keep names no field: the next sync must be a full one
+        }
+
         // Per entity, its distinct transform sets in submission order: index == the field's slot.
         for ( size_t f = 0; f < fields.size(); ++f )
         {
             const MotionFieldRecord& field    = fields[f];
             const size_t             position = rigid.size() + skinned.size() + f;
-            auto&                    sets     = ScratchOf( field.Entity, position ).FieldSets;
+            EntityScratch&           scratch  = ScratchOf( field.Entity, position );
+            auto&                    sets     = scratch.FieldSets;
             const auto               found    = std::find( sets.begin(), sets.end(), field.Transforms.data() );
             const auto               slot     = static_cast<uint32_t>( found - sets.begin() );
             if ( found == sets.end() )
@@ -832,6 +903,7 @@ namespace Desert::Graphic::GpuDriven
             const MotionKey key{ field.Entity, kMotionFieldSlotBit | slot };
             bool            added = false;
             Proxy&          proxy = ProxyOf( key, position, added );
+            m_FieldHeld.push_back( FieldHeld{ .Held = &proxy, .Scratch = &scratch, .First = proxy.Sync != m_Sync } );
             if ( proxy.Sync == m_Sync )
                 proxy.FrameContent += MixContent( field.Content ); // another material slot of the same field
             else
@@ -880,7 +952,7 @@ namespace Desert::Graphic::GpuDriven
         }
         // The proxies no record named this sync left the view or the scene: one removal event each. Pointers
         // into the maps die with them, so the position memo starts over.
-        const bool proxiesLeft  = m_Touched.size() < m_Proxies.size();
+        const bool proxiesLeft  = m_Touched.size() + m_KeptClaimed < m_Proxies.size();
         const bool entitiesLeft = m_EntitiesNamed < m_Entities.size();
         m_Touched.clear();
         if ( proxiesLeft )
@@ -899,5 +971,6 @@ namespace Desert::Graphic::GpuDriven
         if ( proxiesLeft || entitiesLeft )
             std::fill( m_Memo.begin(), m_Memo.end(), Memo{} );
         registry.EndList( m_List );
+        return !keptFields || keepable;
     }
 } // namespace Desert::Graphic::GpuDriven

@@ -582,8 +582,20 @@ namespace Desert::Graphic::System
         if ( at < m_InstancedRecycled.size() )
             m_InstancedQueue.push_back( std::move( m_InstancedRecycled[at] ) );
         else
+        {
             m_InstancedQueue.emplace_back();
+            m_InstancedQueueChanged = true; // a row more than last frame
+        }
         InstancedMeshRenderData& data = m_InstancedQueue.back();
+        // THE FIELD'S PRODUCER EVENT (FPS-SCENE-EVENTS4): the entry differs from last frame's at this position in
+        // what its GpuScene field record is made of (the retained ISM list published a new version, a row left or
+        // came, a split record is whole again). Held until SyncGpuScene syncs full field records; a frame without
+        // one keeps the fields' proxies (GpuSceneProxies::KeepsFields).
+        if ( data.Entity != row.Entity || data.Mesh != row.Mesh || data.Material != row.Material ||
+             data.DisplacedMaterial != row.DisplacedMaterial || data.Transforms != row.Transforms ||
+             data.InstanceIds || data.HiddenSubmeshes != row.HiddenSubmeshes ||
+             data.CastShadows != row.CastShadows || data.CastContactShadow != row.CastContactShadow )
+            m_InstancedQueueChanged = true;
         data.Entity                   = row.Entity;
         data.Mesh                     = row.Mesh;
         AssignInstancedHandle( data.Material, row.Material );
@@ -2859,21 +2871,56 @@ namespace Desert::Graphic::System
         };
         // Every ISM / foliage field is ONE primitive whose GpuScene instances are its instances (UE instance
         // scene data; the GI card table and the TLAS custom index are keyed per instance).
+        // THE FIELDS BY PRODUCER EVENT (FPS-SCENE-EVENTS4; UE: an ISM proxy changes on UpdateInstances / a dirty
+        // render state, not by a per-frame compare of every field): while no queued row differs from the one
+        // last synced (SubmitInstancedRow / ApplyDisplacement raise m_InstancedQueueChanged), only this frame's
+        // values go to the proxies - no record built (no snapshot handle copied), no slot derived, no proxy looked
+        // up, no content folded. What the producer cannot see is still checked per field, by value: the mesh's
+        // content key (an upload, a sculpt, residency: the field's content proxy) here, its geometry binding,
+        // flags, bounds pad and cull distances in GpuSceneProxies::KeepsFields. Any miss: full records, as before.
+        auto& fieldFrames = m_ScratchFieldFrames;
+        fieldFrames.clear();
+        bool keptFields = !m_InstancedQueueChanged;
+        if ( keptFields )
+        {
+            fieldFrames.reserve( m_InstancedQueue.size() );
+            for ( const auto& data : m_InstancedQueue )
+            {
+                if ( !data.Proxy.Valid || !( data.Proxy.Mesh == ContentWords::KeyOf( data.Mesh ) ) )
+                {
+                    keptFields = false;
+                    break;
+                }
+                fieldFrames.push_back( { .Mesh  = data.Mesh,
+                                         .Flags = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                                  ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
+                                         .BoundsPad         = WindBoundsPad( data.Wind ),
+                                         .CullDistanceStart = data.CullDistance.Min,
+                                         .CullDistanceEnd   = data.CullDistance.Max,
+                                         .Wind              = primitiveWind( data.Wind ) } );
+            }
+            keptFields = keptFields && m_GpuSceneProxies.KeepsFields( registry, fieldFrames );
+        }
         auto& fields = m_ScratchFieldRecords;
-        fields.clear();
-        fields.reserve( m_InstancedQueue.size() );
-        for ( auto& data : m_InstancedQueue ) // non-const: its content proxy is refreshed (fieldContent)
-            fields.push_back( { .Entity            = data.Entity,
-                                .Mesh              = data.Mesh,
-                                .Transforms        = *data.Transforms,
-                                .CullDistanceStart = data.CullDistance.Min,
-                                .CullDistanceEnd   = data.CullDistance.Max,
-                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
-                                         ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
-                                .BoundsPad = WindBoundsPad( data.Wind ),
-                                .Content   = fieldContent( data ),
-                                .Wind      = primitiveWind( data.Wind ),
-                                .Snapshot  = data.Transforms } );
+        // A kept sync leaves last full sync's records standing (the snapshots they hold are the queued ones).
+        if ( !keptFields )
+        {
+            fieldFrames.clear();
+            fields.clear();
+            fields.reserve( m_InstancedQueue.size() );
+            for ( auto& data : m_InstancedQueue ) // non-const: its content proxy is refreshed (fieldContent)
+                fields.push_back( { .Entity            = data.Entity,
+                                    .Mesh              = data.Mesh,
+                                    .Transforms        = *data.Transforms,
+                                    .CullDistanceStart = data.CullDistance.Min,
+                                    .CullDistanceEnd   = data.CullDistance.Max,
+                                    .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                             ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
+                                    .BoundsPad = WindBoundsPad( data.Wind ),
+                                    .Content   = fieldContent( data ),
+                                    .Wind      = primitiveWind( data.Wind ),
+                                    .Snapshot  = data.Transforms } );
+        }
 
         auto& rows = m_ScratchGpuSceneRows;
         if ( !keptStatic )
@@ -2882,7 +2929,15 @@ namespace Desert::Graphic::System
             m_StaticColumnsToken = m_StaticToken;
         }
         // This view's proxies diff the records and tell the registry only what changed (FPS-SCENE-EVENTS).
-        m_GpuSceneProxies.Sync( registry, rigid, skinned, fields, rows );
+        if ( !m_GpuSceneProxies.Sync( registry, rigid, skinned, fields, keptFields, fieldFrames, rows ) ||
+             rows.FieldInstances.size() != m_InstancedQueue.size() )
+        {
+            m_InstancedQueueChanged = true; // the next sync sends full field records
+            return Common::MakeFormattedError(
+                 "the GPU scene's fields were kept against a refused keep ({} fields)", m_InstancedQueue.size() );
+        }
+        if ( !keptFields )
+            m_InstancedQueueChanged = false; // the proxies hold this queue's records
         // The worlds the registry just wrote are stamped before any record is keyed by its primitive's stamp.
         StampPlacements( scene );
 
