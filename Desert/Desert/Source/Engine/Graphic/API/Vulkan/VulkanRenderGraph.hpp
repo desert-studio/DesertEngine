@@ -1049,6 +1049,9 @@ namespace Desert::Graphic::API::Vulkan
             VkExtent2D                                   Extent{};
             uint32_t                                     Layers      = 1;
             VkFramebuffer                                Framebuffer = VK_NULL_HANDLE;
+
+            // A texture of it destroyed by the pool: its views may be reused by a new image.
+            [[nodiscard]] bool Dead() const noexcept;
         };
 
         // What vkCmdBeginRenderPass of one pass needs (PrepareRecording / BeginRenderPass).
@@ -1144,7 +1147,10 @@ namespace Desert::Graphic::API::Vulkan
 #endif
         std::optional<RdgRenderPassKey>          m_OpenRenderPass;
         std::map<RdgRenderPassKey, VkRenderPass> m_RenderPasses;
-        std::vector<FramebufferEntry>            m_Framebuffers;
+        // FPS-CPU-DEBT-TAIL (UE FRenderTargetPool / framebuffer cache): by FramebufferHash of (render pass, views,
+        // extent, layers); ResolveRenderPass compares the entries of its hash and drops a found dead one, and
+        // BeginFrame sweeps the dead ones once per frame (never per graph).
+        std::unordered_multimap<uint64_t, FramebufferEntry> m_Framebuffers;
         // By CompiledPass::Pass, this graph only (PrepareRecording; Release clears it).
         std::vector<PreparedRenderPass> m_PreparedRenderPasses;
         // A render pass resolved while passes record (BeginRenderPass of an unprepared pass).

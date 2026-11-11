@@ -184,7 +184,7 @@ namespace Desert::Graphic::API::Vulkan
         auto rebuilt = BuildFromSpirv( built.Stages, built.Meta );
         if ( rebuilt )
         {
-            SetCompileError( std::string() );
+            SetCompileError( {} ); // success: cleared, no string made
             BumpCodeGeneration(); // the pipelines built from the previous modules are now behind
         }
         else
@@ -214,8 +214,11 @@ namespace Desert::Graphic::API::Vulkan
                      std::format( "its {} stage uses inline ray tracing (SPIR-V RayQueryKHR) and device "
                                   "'{}' has no ray query; no module or set layout is created on it",
                                   GetStringShaderStage( stage ), caps.DeviceName );
-                SetDeviceRefusal( refusal );
-                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
+                // The returned error first, then the refusal moved into the shader: one string, no copy.
+                Common::BoolResultStr error =
+                     Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
+                SetDeviceRefusal( std::move( refusal ) );
+                return error;
             }
         }
         // The same for the ray tracing PIPELINE's stages (RayGen, Miss, ClosestHit, AnyHit): a named pass of them
@@ -232,11 +235,14 @@ namespace Desert::Graphic::API::Vulkan
                      std::format( "its {} stage is a ray tracing pipeline stage and device '{}' has no "
                                   "ray tracing pipeline; no module or set layout is created on it",
                                   GetStringShaderStage( stage ), caps.DeviceName );
-                SetDeviceRefusal( refusal );
-                return Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
+                // The returned error first, then the refusal moved into the shader: one string, no copy.
+                Common::BoolResultStr error =
+                     Common::MakeFormattedError( "Shader '{}': {}", m_ShaderName, refusal );
+                SetDeviceRefusal( std::move( refusal ) );
+                return error;
             }
         }
-        SetDeviceRefusal( std::string() );
+        SetDeviceRefusal( {} ); // built on this device: cleared, no string made
 
         // TRANSACTIONAL. Everything is built into locals first, and the shader's own state is only
         // replaced once every stage has compiled and reflected. Tearing the old state down up front

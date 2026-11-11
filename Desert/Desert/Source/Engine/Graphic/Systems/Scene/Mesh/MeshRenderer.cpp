@@ -1098,15 +1098,24 @@ namespace Desert::Graphic::System
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
             // GPU-COST-22: several lists (the camera's, a cascade's, phase 2's) read one Instances through their
             // ids.
-            // CPU-FRAME-ARENA 3: the buffers declared so far in the list's kept scratch (m_DeclaredReads), no
-            // vector per declaration.
-            std::vector<RDG::BufferRef>& read = m_DeclaredReads;
-            read.clear();
-            const auto readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
+            // CPU-FRAME-ARENA 3 / FPS-CPU-DEBT-TAIL: the buffers declared so far are those stamped with this
+            // declaration's epoch in the list's kept stamp table (m_DeclaredStamp), O(1) per read.
+            std::vector<uint32_t>& stamp = m_DeclaredStamp;
+            if ( ++m_DeclaredEpoch == 0u ) // wrapped: no stale stamp may equal a new epoch
             {
-                if ( !buffer.IsValid() || std::find( read.begin(), read.end(), buffer ) != read.end() )
+                std::fill( stamp.begin(), stamp.end(), 0u );
+                m_DeclaredEpoch = 1u;
+            }
+            const uint32_t epoch    = m_DeclaredEpoch;
+            const auto     readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
+            {
+                if ( !buffer.IsValid() )
                     return;
-                read.push_back( buffer );
+                if ( buffer.Index >= stamp.size() )
+                    stamp.resize( static_cast<size_t>( buffer.Index ) + 1u, 0u );
+                if ( stamp[buffer.Index] == epoch )
+                    return;
+                stamp[buffer.Index] = epoch;
                 declaration.Read( buffer, access );
             };
             for ( const MeshDrawCommand& command : m_Commands )

@@ -1561,7 +1561,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgBackend::~VulkanRdgBackend()
     {
-        for ( const FramebufferEntry& entry : m_Framebuffers )
+        for ( const auto& [hash, entry] : m_Framebuffers )
             vkDestroyFramebuffer( m_Device.Device, entry.Framebuffer, nullptr );
         for ( const auto& [key, renderPass] : m_RenderPasses )
             vkDestroyRenderPass( m_Device.Device, renderPass, nullptr );
@@ -1729,6 +1729,18 @@ namespace Desert::Graphic::API::Vulkan
         m_CompileCache.CountFrame();
         // FPS-UPLOAD-RING: the caller waited the slot's fence, so the slot's staging blocks are free again.
         m_UploadRing.BeginFrameSlot( slot );
+        // A framebuffer whose images the pool has destroyed is dead: dropped once per frame (UE: the render target
+        // pool's per-frame aging), before a new view could reuse the handle it remembers. A destroyed texture is
+        // never in use (pool contract), so neither is its framebuffer. ResolveRenderPass drops a dead one it finds
+        // between two sweeps.
+        std::erase_if( m_Framebuffers,
+                       [&]( const auto& keyed )
+                       {
+                           const bool dead = keyed.second.Dead();
+                           if ( dead )
+                               vkDestroyFramebuffer( m_Device.Device, keyed.second.Framebuffer, nullptr );
+                           return dead;
+                       } );
         m_FrameSlot   = slot;
         m_Queues      = &queues;
         m_Transients  = &transients;
@@ -1789,20 +1801,10 @@ namespace Desert::Graphic::API::Vulkan
         // BEGINGRAPH-STALL-1: the steps of BeginGraph, one CPU row each under the builder's "RDG: BeginGraph", so
         // a stall inside it names its step (UE: RDG's per-phase CPU events).
         DESERT_PROFILE_PHASES( phases );
-        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Release + framebuffers" );
+        DESERT_PROFILE_PHASE( phases, "RDG BeginGraph: Release" );
         Release();
-        // A framebuffer whose images the pool has destroyed is dead: drop it before a new view could reuse
-        // the handle it remembers. Called between submissions the caller has waited for (pool contract).
-        std::erase_if( m_Framebuffers,
-                       [&]( const FramebufferEntry& entry )
-                       {
-                           const bool dead =
-                                std::any_of( entry.Textures.begin(), entry.Textures.end(),
-                                             []( const auto& texture ) { return texture.expired(); } );
-                           if ( dead )
-                               vkDestroyFramebuffer( m_Device.Device, entry.Framebuffer, nullptr );
-                           return dead;
-                       } );
+        // FPS-CPU-DEBT-TAIL: the dead framebuffers are swept once per frame (BeginFrame), and a dead one a view
+        // could still match is dropped at its lookup (ResolveRenderPass), not by a sweep per graph.
         if ( m_Transients == nullptr )
             return Common::MakeFormattedError(
                  "graph '{}': the Vulkan backend has no transient allocator (BeginFrame)", graph.Name );
@@ -2496,6 +2498,34 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    namespace
+    {
+        // FPS-CPU-DEBT-TAIL: the framebuffer cache's key hash (m_Framebuffers), over what makes two equal.
+        [[nodiscard]] uint64_t FramebufferHash( const VkRenderPass renderPass, std::span<const VkImageView> views,
+                                                const VkExtent2D extent, const uint32_t layers ) noexcept
+        {
+            constexpr uint64_t kPrime = 0x100000001b3ull;
+            uint64_t           hash   = 0xcbf29ce484222325ull;
+            const auto         mix    = [&hash]( const uint64_t value )
+            {
+                hash ^= value + 0x9e3779b97f4a7c15ull + ( hash << 6u ) + ( hash >> 2u );
+                hash *= kPrime;
+            };
+            mix( reinterpret_cast<uint64_t>( renderPass ) );
+            for ( const VkImageView view : views )
+                mix( reinterpret_cast<uint64_t>( view ) );
+            mix( ( static_cast<uint64_t>( extent.width ) << 32u ) | extent.height );
+            mix( layers );
+            return hash;
+        }
+    } // namespace
+
+    bool VulkanRdgBackend::FramebufferEntry::Dead() const noexcept
+    {
+        return std::any_of( Textures.begin(), Textures.end(),
+                            []( const std::weak_ptr<VulkanRdgTexture>& texture ) { return texture.expired(); } );
+    }
+
     Common::BoolResultStr VulkanRdgBackend::ResolveRenderPass( const RDG::CompiledPass& pass,
                                                                PreparedRenderPass&      out )
     {
@@ -2616,15 +2646,27 @@ namespace Desert::Graphic::API::Vulkan
 
         // The pool hands out the same images while the graph is unchanged, so the same views come back
         // and the framebuffer is found here instead of being rebuilt every frame.
-        VkFramebuffer framebuffer = VK_NULL_HANDLE;
-        for ( const FramebufferEntry& entry : m_Framebuffers )
+        // FPS-CPU-DEBT-TAIL: found by hash, the entries of one hash compared (UE's framebuffer cache), not a scan.
+        VkFramebuffer  framebuffer = VK_NULL_HANDLE;
+        const uint64_t hash        = FramebufferHash( renderPass.GetValue(), views, extent, layers );
+        for ( auto [it, end] = m_Framebuffers.equal_range( hash ); it != end; ++it )
         {
+            const FramebufferEntry& entry = it->second;
             if ( entry.RenderPass == renderPass.GetValue() &&
                  std::equal( entry.Views.begin(), entry.Views.end(), views.begin(), views.end() ) &&
                  entry.Extent.width == extent.width && entry.Extent.height == extent.height &&
                  entry.Layers == layers )
             {
-                // Unique: an entry is added only when none matches, and BeginGraph drops the dead ones.
+                // A dead match (its images destroyed by the pool since BeginFrame's sweep, a view handle reused
+                // by a new image) is dropped here and made again below: the sweep is once per frame, and a
+                // destroyed texture is never in use (pool contract, as the sweep relies on).
+                if ( entry.Dead() )
+                {
+                    vkDestroyFramebuffer( m_Device.Device, entry.Framebuffer, nullptr );
+                    m_Framebuffers.erase( it );
+                    break;
+                }
+                // Unique: an entry is added only when no live one matches.
                 framebuffer = entry.Framebuffer;
                 break;
             }
@@ -2649,8 +2691,8 @@ namespace Desert::Graphic::API::Vulkan
             for ( const RDG::AttachmentDecision& attachment : pass.Attachments )
                 textures.push_back( m_Textures[attachment.Resource] );
             std::vector<VkImageView> kept( views.begin(), views.end() );
-            m_Framebuffers.push_back( { renderPass.GetValue(), std::move( kept ), std::move( textures ), extent,
-                                        layers, framebuffer } );
+            m_Framebuffers.emplace( hash, FramebufferEntry{ renderPass.GetValue(), std::move( kept ),
+                                                            std::move( textures ), extent, layers, framebuffer } );
         }
 
         out.RenderPass    = renderPass.GetValue();

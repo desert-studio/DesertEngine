@@ -414,9 +414,13 @@ namespace Desert::Graphic::System
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
-            // CPU-FRAME-ARENA 3: DeclareBlocks' each-buffer-once set, its capacity kept across frames (a list is
-            // declared on one thread at a time, as m_Layouts is used). Mutable: Declare is const.
-            mutable std::vector<RDG::BufferRef> m_DeclaredReads;
+            // CPU-FRAME-ARENA 3 / FPS-CPU-DEBT-TAIL: DeclareBlocks' each-buffer-once set as a stamp per graph buffer
+            // index (BufferRef::Index is dense in its builder): a buffer is declared when its stamp is not this
+            // declaration's (m_DeclaredEpoch), O(1) per read instead of a scan of the reads so far. Capacity kept
+            // across frames (a list is declared on one thread at a time, as m_Layouts is used). Mutable: Declare
+            // is const.
+            mutable std::vector<uint32_t> m_DeclaredStamp;
+            mutable uint32_t              m_DeclaredEpoch = 0;
             std::optional<GpuDriven::MeshPass>  m_CountedPass;
             SortKey                             m_SortKey = SortKey::BuildOrder;
             // m_SortKey's buckets: the indices of m_Commands in sweep 0 / sweep 1 (SortsLate), each in build
@@ -2641,10 +2645,6 @@ namespace Desert::Graphic::System
         SurfaceSceneInstancesVariant( Core::ShaderVariant permutation = {} );
         // RENDER-JOB-CPU-4: @p permutation with kSurfaceDrawRowsDefine (a compacted bin's grass cell).
         [[nodiscard]] static Core::ShaderVariant SurfaceDrawRowsVariant( Core::ShaderVariant permutation = {} );
-        // Debug.Grass "per-variety draws": every grass section drawn by its own indirect draws, not in the
-        // compacted bins (the reference image the bins must match).
-        void SetGrassPerVarietyDraws( const bool perVariety ) { m_GrassPerVarietyDraws = perVariety; }
-        [[nodiscard]] bool GrassPerVarietyDraws() const { return m_GrassPerVarietyDraws; }
         // THE CELLS an id list is drawn through (UE ShouldCompilePermutation for the instance-id permutation):
         // the GPU-instanced paths, under every pass a camera list draws in (the geometry pass of either render
         // path: Forward, GBuffer, the Depth prepass; the grass visibility raster and its resolve) and the
@@ -4043,7 +4043,7 @@ namespace Desert::Graphic::System
             uint32_t PrepassBuckets = 0;
         };
         // RENDER-JOB-CPU-4: the phase table @p gpu's draws in @p pass enter (GpuInstancedRenderData::DrawBins), or
-        // null: Debug.Grass "per-variety draws" (m_GrassPerVarietyDraws), a device without drawIndirectCount or
+        // null: a device without drawIndirectCount or
         // shaderDrawParameters, a mesh section (one mesh per variety: no gain until a shared geometry pool), the
         // resolve (one triangle per section), a forward view under virtual local shadows (ForwardVirtualCell's
         // permutation), or a producer without the table or the records' address.
@@ -4051,11 +4051,10 @@ namespace Desert::Graphic::System
                                                    bool postOcclusion ) const;
         // GRASS-SHADOW-BINS-1: the cascades' table @p gpu's casters enter (GpuInstancedRenderData::DrawBins[2],
         // BuildGpuInstancedShadowDraws: one RenderMeshIndirectCount per (cascade x layer x bin)), or null on
-        // DrawBinsOf's terms (per-variety draws, the device, a mesh section, no Open table).
+        // DrawBinsOf's terms (the device, a mesh section, no Open table).
         [[nodiscard]] GpuDrawBinFrame* CascadeBinsOf( const GpuInstancedRenderData& gpu ) const;
         // The count line's last words per (cascade x layer) list (BuildGpuInstancedShadowDraws): said on change.
         std::unordered_map<uint32_t, uint64_t>               m_GrassCasterBinsSaid;
-        bool m_GrassPerVarietyDraws = false;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
         // FPS-CPU2-GRASS, THE WALKS' KEPT STATE (UE FMeshDrawCommand caching + FParallelMeshDrawCommandPass's kept
