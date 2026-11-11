@@ -90,7 +90,7 @@ namespace Desert::Graphic::API::Vulkan
 
     ComputePipeline& VulkanPipelineCompute::SetSampler( uint32_t binding, const RDG::SamplerDesc& desc )
     {
-        const auto [entry, inserted] = m_BoundSamplers.try_emplace( binding );
+        const auto [entry, inserted] = m_BoundSamplers.try_emplace( binding, SamplerBinding{ desc, VK_NULL_HANDLE } );
         if ( inserted )
             AddBoundKey( binding );
         else if ( entry->second.Sampler != VK_NULL_HANDLE && entry->second.Desc == desc )
