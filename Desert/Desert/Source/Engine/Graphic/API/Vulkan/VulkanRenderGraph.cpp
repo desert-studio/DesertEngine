@@ -1506,7 +1506,6 @@ namespace Desert::Graphic::API::Vulkan
         mix( key.Shader );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a handle's bits as a hash input only
         mix( reinterpret_cast<uint64_t>( key.Layout ) );
-        mix( key.Material );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a handle's bits as a hash input only
         mix( reinterpret_cast<uint64_t>( key.MaterialSet ) );
         mix( ( static_cast<uint64_t>( key.BlockPushBytes ) << 1 ) | static_cast<uint64_t>( key.MaterialPush ) );
@@ -1521,9 +1520,9 @@ namespace Desert::Graphic::API::Vulkan
             return false;
         const std::span<const uint32_t> bindings( m_Bindings.data() + entry.BindingsFirst, entry.BindingsCount );
         return entry.Block.Pass == key.Block.Pass && entry.Block.Block == key.Block.Block &&
-               entry.Shader == key.Shader && entry.Layout == key.Layout && entry.Material == key.Material &&
-               entry.MaterialSet == key.MaterialSet && entry.MaterialPush == key.MaterialPush &&
-               entry.BlockPushBytes == key.BlockPushBytes && std::ranges::equal( bindings, key.MaterialBindings );
+               entry.Shader == key.Shader && entry.Layout == key.Layout && entry.MaterialSet == key.MaterialSet &&
+               entry.MaterialPush == key.MaterialPush && entry.BlockPushBytes == key.BlockPushBytes &&
+               std::ranges::equal( bindings, key.MaterialBindings );
     }
 
     std::span<const VkDescriptorSet> VulkanRdgPassSetMemo::SetsOf( const Entry& entry ) const noexcept
@@ -1586,7 +1585,6 @@ namespace Desert::Graphic::API::Vulkan
         m_Entries.push_back( Entry{ .Block          = key.Block,
                                     .Shader         = key.Shader,
                                     .Layout         = key.Layout,
-                                    .Material       = key.Material,
                                     .MaterialSet    = key.MaterialSet,
                                     .MaterialPush   = key.MaterialPush,
                                     .BlockPushBytes = key.BlockPushBytes,

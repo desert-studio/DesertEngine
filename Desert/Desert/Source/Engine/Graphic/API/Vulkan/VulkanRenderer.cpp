@@ -2088,21 +2088,23 @@ namespace Desert::Graphic::API::Vulkan
         const ShaderResource::ReflectionData& reflection = shader->GetReflectionData();
         const std::vector<DescriptorSetLayoutRef>& layouts = built.Layouts;
         // GPU-COST-36: the sets an earlier draw of this pass exec wrote from the same block, shader, layout and
-        // material are bound again (VulkanRdgPassSetMemo); only the first draw of the combination resolves,
-        // allocates, writes and copies.
+        // material slots are bound again (VulkanRdgPassSetMemo); only the first draw of the combination resolves,
+        // allocates, writes and copies. FPS-CPU-DEBT-NEXT: keyed by what the material contributes (its set when
+        // slots of it are copied, its push route), not by which material it is - the bins of one pass that differ
+        // only in a material with no copied slot share the first one's sets instead of each missing once.
         const Common::ResultStr<VulkanRdgPassSetMemo*> memo = VulkanRdgBackend::SetMemoOf( context );
         if ( !memo )
             return Common::MakeError( memo.GetError() );
-        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): the shader's and material's addresses are
-        // the memo's identities, compared and never turned back into pointers
-        const VulkanRdgPassSetMemo::Key key{ .Block            = bindings.GetBlock(),
-                                             .Shader           = reinterpret_cast<std::uintptr_t>( shader ),
-                                             .Layout           = built.PipelineLayout,
-                                             .Material         = reinterpret_cast<std::uintptr_t>( material ),
-                                             .MaterialSet      = materialSlots.Set,
-                                             .MaterialBindings = materialSlots.Bindings,
-                                             .MaterialPush     = other.PushConstants,
-                                             .BlockPushBytes   = bindings.GetPushConstants().size() };
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): the shader's address is the memo's identity,
+        // compared and never turned back into a pointer
+        const VulkanRdgPassSetMemo::Key key{
+             .Block       = bindings.GetBlock(),
+             .Shader      = reinterpret_cast<std::uintptr_t>( shader ),
+             .Layout      = built.PipelineLayout,
+             .MaterialSet = materialSlots.Bindings.empty() ? VkDescriptorSet{ VK_NULL_HANDLE } : materialSlots.Set,
+             .MaterialBindings = materialSlots.Bindings,
+             .MaterialPush     = other.PushConstants,
+             .BlockPushBytes   = bindings.GetPushConstants().size() };
         // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
         std::optional<std::span<const VkDescriptorSet>> kept = memo.GetValue()->Find( key );
         if ( !kept.has_value() )
