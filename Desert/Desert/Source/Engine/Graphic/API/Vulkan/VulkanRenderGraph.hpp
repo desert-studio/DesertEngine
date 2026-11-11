@@ -624,17 +624,22 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRdgPassSetMemo
     {
     public:
-        // What the sets were written from. Block: the pass's declared block (RDG::PassBindings::GetBlock); Shader and
-        // Layout: the recording pipeline's (the reflection the block was resolved against, the set layouts the sets
-        // were allocated for); Material and MaterialSet / MaterialBindings: the material whose written slots were
-        // copied into set 0 (0 / empty for none); MaterialPush and BlockPushBytes: the push-constant routes the
-        // resolution checked. Shader and Material are addresses compared as identities, never dereferenced.
+        // What the sets were written from. Block: the pass's declared block (RDG::PassBindings::GetBlock); Shader
+        // and Layout: the recording pipeline's (the reflection the block was resolved against, the set layouts the
+        // sets were allocated for); MaterialSet / MaterialBindings: the material set whose written slots were
+        // copied into set 0 (null / empty when nothing is copied); MaterialPush and BlockPushBytes: the
+        // push-constant routes the resolution checked. Shader is an address compared as an identity, never
+        // dereferenced. FPS-CPU-DEBT-NEXT (CPU-DEBT-OPEN #1; UE FMeshDrawShaderBindings keyed by what the bindings
+        // hold, not by the material): the material's identity is NOT part of the key. All the sets read of a
+        // material is its set's slots (MaterialSet + MaterialBindings, constant while the pass records: the
+        // prepare wrote them before the graph recorded) and whether it pushes (MaterialPush); two materials with
+        // no copied slots and the same push route resolve and write the same sets, so their draws share one entry.
+        // A caller passes MaterialSet null whenever MaterialBindings is empty (nothing of the set is copied).
         struct Key
         {
             RDG::BindingBlockRef      Block;
             std::uintptr_t            Shader         = 0;
             VkPipelineLayout          Layout         = VK_NULL_HANDLE;
-            std::uintptr_t            Material       = 0;
             VkDescriptorSet           MaterialSet    = VK_NULL_HANDLE;
             std::span<const uint32_t> MaterialBindings;
             bool                      MaterialPush   = false;
@@ -656,7 +661,6 @@ namespace Desert::Graphic::API::Vulkan
             RDG::BindingBlockRef Block;
             std::uintptr_t       Shader         = 0;
             VkPipelineLayout     Layout         = VK_NULL_HANDLE;
-            std::uintptr_t       Material       = 0;
             VkDescriptorSet      MaterialSet    = VK_NULL_HANDLE;
             bool                 MaterialPush   = false;
             size_t               BlockPushBytes = 0;

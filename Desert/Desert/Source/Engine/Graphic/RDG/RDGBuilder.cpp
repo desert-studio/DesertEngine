@@ -1378,15 +1378,15 @@ namespace Desert::Graphic::RDG
         {
             for ( uint32_t mip = range.BaseMip; mip < mipEnd; ++mip )
             {
-                bool declared = false;
-                for ( const Builder::ResourceUse& use : pass.Uses )
-                {
-                    declared =
-                         declared ||
-                         ( use.Resource == texture.Index && use.Usage == access && mip >= use.Range.BaseMip &&
-                           mip < use.Range.BaseMip + use.Range.MipCount && layer >= use.Range.BaseLayer &&
-                           layer < use.Range.BaseLayer + use.Range.LayerCount );
-                }
+                // FPS-CPU-DEBT-NEXT (CPU-DEBT-OPEN #16): the scan ends at the first use that declares it.
+                const bool declared = std::ranges::any_of(
+                     pass.Uses,
+                     [&]( const Builder::ResourceUse& use )
+                     {
+                         return use.Resource == texture.Index && use.Usage == access && mip >= use.Range.BaseMip &&
+                                mip < use.Range.BaseMip + use.Range.MipCount && layer >= use.Range.BaseLayer &&
+                                layer < use.Range.BaseLayer + use.Range.LayerCount;
+                     } );
                 if ( !declared )
                     return Common::MakeFormattedError<TextureBinding>(
                          "graph '{}' pass '{}' uses texture '{}' mip {} layer {} as {} without declaring it in "
@@ -1428,9 +1428,10 @@ namespace Desert::Graphic::RDG
                  "graph '{}' pass '{}': GetBuffer of invalid handle {}", m_Builder.m_Name, pass.Name,
                  buffer.Index );
 #if DESERT_DEV_INSTRUMENTS
-        bool declared = false;
-        for ( const Builder::ResourceUse& use : pass.Uses )
-            declared = declared || ( use.Resource == buffer.Index && use.Usage == access );
+        // FPS-CPU-DEBT-NEXT (CPU-DEBT-OPEN #16): the scan ends at the first use that declares it.
+        const bool declared =
+             std::ranges::any_of( pass.Uses, [&]( const Builder::ResourceUse& use )
+                                  { return use.Resource == buffer.Index && use.Usage == access; } );
         if ( !declared )
             return Common::MakeFormattedError<BufferBinding>(
                  "graph '{}' pass '{}' uses buffer '{}' as {} without declaring it in its setup", m_Builder.m_Name,
