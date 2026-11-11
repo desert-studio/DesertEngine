@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <vector>
 
 namespace Desert::Graphic::RDG
 {
@@ -41,6 +42,18 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] virtual bool PreparesOnAnyThread() const noexcept
         {
             return false;
+        }
+
+        // FPS-RDG-PREPARE2 (UE FMeshDrawCommand parallel setup: a task writes only its own slots; what several
+        // writers share is written before the fan-out, in one order). Appends the identity of every object
+        // OUTSIDE this one that its PrepareForRecording may write (a registered uniform buffer several materials
+        // fill field by field). Asked on the calling thread, before the fan-out, only when PreparesOnAnyThread is
+        // true. The builder prepares every prerequisite whose key another prerequisite of the same graph also
+        // reports on the calling thread, in first-declaration order - the order ParallelSetup 0 writes them in,
+        // so the shared bytes are the same either way. Default: writes nothing shared.
+        virtual void CollectSharedWrites( std::vector<const void*>& keys ) const noexcept
+        {
+            static_cast<void>( keys );
         }
     };
 

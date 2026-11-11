@@ -150,7 +150,11 @@ namespace Desert::Graphic
             // FPS-RDG-PREPARE: the maker allocates from the view's pool chain, which has no lock of its own;
             // makers run one at a time across threads (ViewResourceRegistry::CreationLock). Found again under
             // it: a prepare on another worker may have filed this material's sets while this one waited.
-            const std::scoped_lock creation( ViewResourceRegistry::CreationLock() );
+            // FPS-RDG-PREPARE2: `initialize` runs under it too, so a second finder never meets sets whose
+            // fallbacks are not written yet. It may write a uniform block (ViewCopiedBlock Write / Resolve): that
+            // takes the block's lock AFTER CreationLock, the one order (ViewResourceRegistry, THE LOCK HIERARCHY),
+            // and re-enters CreationLock if the block must make its copy - no inversion, no deadlock.
+            const ViewResourceRegistry::CreationScope creation;
             if ( IViewDescriptorSetCopy* existing = FindActive( frameIndex ) )
             {
                 out = existing;

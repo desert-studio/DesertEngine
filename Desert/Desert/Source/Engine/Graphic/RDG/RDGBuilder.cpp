@@ -1888,8 +1888,8 @@ namespace Desert::Graphic::RDG
                 // writing only its own result slots, joined before anything else; the calling thread's share then
                 // prepares in pass order, as before - so an object that writes another's state (a sprite draw
                 // binds its material) still runs after every prepare it could race.
-                ScratchVector<uint32_t> anyThread;
-                ScratchVector<uint32_t> callingThread;
+                ScratchVector<uint32_t> queued;   // first-declaration order: the order ParallelSetup 0 prepares in
+                ScratchVector<uint8_t>  onWorker; // by slot of queued: 1 = prepared on a worker
                 for ( const CompiledPass& planned : result.Passes )
                 {
                     for ( const uint32_t index : m_Passes[planned.Pass].Prerequisites )
@@ -1897,11 +1897,58 @@ namespace Desert::Graphic::RDG
                         if ( prepared[index] != kNotPrepared )
                             continue;
                         prepared[index] = kQueued;
-                        if ( m_Prerequisites[index]->PreparesOnAnyThread() )
-                            anyThread.push_back( index );
-                        else
-                            callingThread.push_back( index );
+                        queued.push_back( index );
+                        onWorker.push_back( m_Prerequisites[index]->PreparesOnAnyThread() ? 1 : 0 );
                     }
+                }
+                // FPS-RDG-PREPARE2 (UE: what several setup tasks would write is written before the fan-out, in
+                // one order). An object two worker candidates both write (IRecordPrerequisite::
+                // CollectSharedWrites: a registered uniform buffer two materials fill field by field) would end
+                // with whichever wrote last - not ParallelSetup 0's bytes. Every candidate that shares a written
+                // key with another one moves to the calling thread, keeping its first-declaration position, so
+                // the shared writers run in exactly the serial order; the rest stay on the workers.
+                {
+                    std::vector<const void*>                        keys;
+                    ScratchVector<std::pair<const void*, uint32_t>> writes; // (key, slot of queued)
+                    for ( uint32_t slot = 0; slot < queued.size(); ++slot )
+                    {
+                        if ( onWorker[slot] == 0 )
+                            continue;
+                        keys.clear();
+                        m_Prerequisites[queued[slot]]->CollectSharedWrites( keys );
+                        for ( const void* key : keys )
+                            writes.emplace_back( key, slot );
+                    }
+                    if ( writes.size() > 1 )
+                    {
+                        std::sort( writes.begin(), writes.end(),
+                                   []( const auto& left, const auto& right ) noexcept
+                                   {
+                                       if ( left.first != right.first )
+                                           return std::less<const void*>{}( left.first, right.first );
+                                       return left.second < right.second;
+                                   } );
+                        for ( size_t first = 0; first < writes.size(); )
+                        {
+                            size_t last = first + 1;
+                            while ( last < writes.size() && writes[last].first == writes[first].first )
+                                ++last;
+                            // Sorted by slot within one key: more than one writer when the ends differ.
+                            if ( writes[last - 1].second != writes[first].second )
+                                for ( size_t write = first; write < last; ++write )
+                                    onWorker[writes[write].second] = 0;
+                            first = last;
+                        }
+                    }
+                }
+                ScratchVector<uint32_t> anyThread;
+                ScratchVector<uint32_t> callingThread;
+                for ( uint32_t slot = 0; slot < queued.size(); ++slot )
+                {
+                    if ( onWorker[slot] != 0 )
+                        anyThread.push_back( queued[slot] );
+                    else
+                        callingThread.push_back( queued[slot] );
                 }
                 if ( !anyThread.empty() )
                 {
