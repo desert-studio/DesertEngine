@@ -58,6 +58,7 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <set>
@@ -507,6 +508,22 @@ namespace Desert::Graphic::System
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
         };
 
+        // WHAT A RECORD'S MotionRecord::Content READS OF ITS MESH (SyncGpuScene): the mesh, its submesh list and
+        // residency and its render revision (never reused, MeshRenderRevision - so {Mesh, RenderRevision} cannot
+        // name a freed mesh's successor). A skinned / field proxy keeps the key its content was folded for and
+        // folds again only when the key moved.
+        struct ContentMeshKey
+        {
+            // The mesh's and its submesh list's addresses as identity words: compared and folded, never read.
+            std::uintptr_t Mesh                                      = 0;
+            std::uintptr_t Submeshes                                 = 0;
+            uint64_t       SubmeshCount                              = 0;
+            uint64_t       IndexCount                                = 0;
+            uint64_t       RenderRevision                            = 0;
+            bool           Resident                                  = false;
+            bool           operator==( const ContentMeshKey& ) const = default;
+        };
+
         // A skinned entry's section group: every submesh that shades with one material slot.
         struct SkinnedSection
         {
@@ -577,6 +594,20 @@ namespace Desert::Graphic::System
             // instance i is GpuScene instance FirstGpuInstance + i - its TLAS custom index and
             // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
             uint32_t FirstGpuInstance = 0;
+            // THE FIELD'S CONTENT PROXY (UE: a primitive proxy updated on UpdatePrimitive, not re-derived per
+            // frame): the MotionRecord::Content SyncGpuScene folded for {mesh key, slot instance, hidden mask}.
+            // The queue entry is recycled by position (SubmitInstancedRow), so a still field keeps it and a steady
+            // frame folds nothing; any producer change (a new row, instance, mesh, mask, a displacement twin)
+            // moves the key and folds once. The instance is HELD, so its address cannot be a freed one's reuse.
+            struct ContentProxy
+            {
+                ContentMeshKey      Mesh;
+                MaterialInstancePtr Material;
+                uint64_t            HiddenSubmeshes = 0;
+                uint64_t            Content         = 0;
+                bool                Valid           = false;
+            };
+            ContentProxy Proxy;
         };
 
         // An instanced section whose transforms and count the GPU wrote this frame (GpuInstances.hpp): the
@@ -5101,6 +5132,22 @@ namespace Desert::Graphic::System
         std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;
         std::vector<MotionRecord>          m_ScratchSkinnedRecords;
         std::vector<MotionFieldRecord>     m_ScratchFieldRecords;
+        // THE SKINNED RECORDS' CONTENT PROXIES (UE FScene: a proxy persists, its producer's change updates it):
+        // keyed by entity and the record's ordinal among that entity's records this sync (a modular character
+        // queues several). Each keeps the binding its sections were taken from (HELD: every section instance and
+        // displaced sibling stays alive, so an equal address is the same instance), the mesh key and sections
+        // its MotionRecord::Content was folded for; a steady frame compares and folds nothing. A proxy no record
+        // claimed in a sync leaves (m_SkinnedContentSync stamps the claimed ones).
+        struct SkinnedContentProxy
+        {
+            ContentMeshKey              Mesh;
+            MaterialSlotBindingPtr      Binding;
+            std::vector<SkinnedSection> Sections;
+            uint64_t                    Content = 0;
+            uint64_t                    Sync    = 0;
+        };
+        std::unordered_map<uint64_t, SkinnedContentProxy> m_SkinnedContentProxies;
+        uint64_t                                          m_SkinnedContentSync = 0;
         GpuDriven::GpuSceneRecordRows      m_ScratchGpuSceneRows;
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
