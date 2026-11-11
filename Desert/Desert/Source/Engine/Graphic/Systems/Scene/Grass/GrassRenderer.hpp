@@ -714,8 +714,9 @@ namespace Desert::Graphic::System
                                                                const GrassOcclusion& occlusion );
         // The one binding block of a pass over the table, GrassCull's: @p hzb the texture it tests and @p dispatch
         // its access to this frame's dispatch buffer (m_FrameDispatch), @p met to its met chunks' list
-        // (m_FrameMet).
-        void BindCull( RDG::PassBuilder& pass, RDG::TextureRef hzb, RDG::Access dispatch, RDG::Access met );
+        // (m_FrameMet), @p tiles to its tiles' list (m_FrameTiles).
+        void BindCull( RDG::PassBuilder& pass, RDG::TextureRef hzb, RDG::Access dispatch, RDG::Access met,
+                       RDG::Access tiles );
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
@@ -903,6 +904,9 @@ namespace Desert::Graphic::System
         // GRASS-CULL-COST-4: this frame's met chunks' list (GrassCull.shader MetChunks), the camera cull's chunk
         // pass writes it and its instance pass dispatches indirect by it.
         RDG::BufferRef                   m_FrameMet{};
+        // FPS-GRASS-CULL-GPU2: this frame's tiles' list (GrassCull.shader CullTiles), the camera cull's tile pass
+        // writes it and its chunk pass dispatches indirect by it.
+        RDG::BufferRef                   m_FrameTiles{};
         uint32_t                         m_NextIndex = 0;
         GrassBladeRayTracing             m_BladeRayTracing;
         // GRASS-VIS: the raster-stream rows handed out this frame (AddFrame resets it; PrepareVariety hands each

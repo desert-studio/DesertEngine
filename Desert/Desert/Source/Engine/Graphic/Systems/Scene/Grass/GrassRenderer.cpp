@@ -222,6 +222,10 @@ namespace Desert::Graphic::System
         // GRASS-CULL-COST-3: words 10..25 are the camera cull's law words (the generation, the kept box, the codes,
         // the first slot of Instances).
         constexpr uint32_t kChunkWords = 26u;
+        // GrassVarietyRows.glslh kGrassTileNodeWords (FPS-GRASS-CULL-GPU2, the tiles' nodes): past the chunks'
+        // room, per tile slot the union of its chunks' root boxes and their largest scale (0 in a fresh buffer:
+        // empty).
+        constexpr uint32_t kTileNodeWords = 7u;
         // GrassVarietyRows.glslh kGrassLawBuckets: a chunk's law words keep each record's bucket + 1 in four bits.
         constexpr uint32_t kLawBuckets = 15u;
         // GrassCull's dispatch buffer (GrassCull.shader CullDispatch, a buffer of this frame's graph): the camera
@@ -236,6 +240,7 @@ namespace Desert::Graphic::System
         constexpr uint32_t kCullModePostOcclusion  = 3u;
         constexpr uint32_t kCullModePostFinalize   = 4u;
         constexpr uint32_t kCullModeCameraInstances = 5u;
+        constexpr uint32_t kCullModeCameraTiles     = 6u;
         // GRASS-CULL-COST-4, the met chunks' list (GrassCull.shader MetChunks, a buffer of this frame's graph):
         // the instance pass's VkDispatchIndirectCommand, the met chunks' and the work items' counts on two uvec4,
         // then a uvec2 per met chunk, room for every culled row's chunks, then (FPS-GRASS-CULL-GPU) a uint per
@@ -246,6 +251,11 @@ namespace Desert::Graphic::System
         constexpr uint64_t kWorkItemBytes  = sizeof( uint32_t );
         // A work item names its met chunk above GrassCull.shader kWorkRecordBits (6): the list's room stays below.
         constexpr uint64_t kMetRoomLimit = uint64_t( 1u ) << 26u;
+        // FPS-GRASS-CULL-GPU2, the tiles' list (GrassCull.shader CullTiles, a buffer of this frame's graph): the
+        // chunk pass's VkDispatchIndirectCommand and the tiles appended on a uvec4, then a uvec2 (row, slot) per
+        // tile the tile pass let through, room for every culled row's tile slots. The CPU never reads it.
+        constexpr uint64_t kTileHeaderBytes = sizeof( glm::uvec4 );
+        constexpr uint64_t kTileEntryBytes  = sizeof( glm::uvec2 );
 
         // GRASS-CULL-HIER-1, THE CASCADES' GUARD BAND (UE's cached shadow views keep their culled casters while the
         // view's cached region still covers the moved view): a camera that only turns carries each cascade's box -
@@ -489,6 +499,7 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, Varieties );
             DESERT_SHADER_PARAMETER( StorageBuffer, CullDispatch );
             DESERT_SHADER_PARAMETER( StorageBuffer, MetChunks );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CullTiles );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, GrassHzbTexture );
         };
@@ -499,7 +510,8 @@ namespace Desert::Graphic::System
             glm::mat4  HzbViewProjection{ 1.0f }; // unjittered, what the bound HZB was built through
             glm::uvec4 Hzb{ 0u };  // xy = the HZB's mip-0 size, z = its mip count (0: nothing tested), w = kCullMode*
             glm::uvec4 Rows{ 0u }; // x = the variety table's rows the pass covers (its first), y / z = MetChunks'
-                                   // rooms for met chunks / work items (GrassCull.shader MetRoom / WorkRoom)
+                                   // rooms for met chunks / work items (GrassCull.shader MetRoom / WorkRoom), w =
+                                   // CullTiles' room for tiles
         };
         static_assert( sizeof( GrassCullPush ) == 96 );
 
@@ -2409,7 +2421,11 @@ namespace Desert::Graphic::System
             // a reset pool's. The rows the view law writes are the lists' (REGRESS-CACHE-1: sized by the
             // capacities, made with the id lists).
             const uint64_t chunkCount = static_cast<uint64_t>( slots ) * kGrassTileClusters;
-            if ( ( kChunkHeaderWords + chunkCount * kChunkWords ) * 4u > UINT32_MAX )
+            // FPS-GRASS-CULL-GPU2: the tiles' nodes follow the chunks' room, one per slot (the upload's zeros:
+            // empty).
+            const uint64_t chunkWords =
+                 kChunkHeaderWords + chunkCount * kChunkWords + static_cast<uint64_t>( slots ) * kTileNodeWords;
+            if ( chunkWords * 4u > UINT32_MAX )
             {
                 LOG_ERROR( "[Grass] a variety's chunks ({}) exceed a storage buffer's 4 GB; no tile is built",
                            chunkCount );
@@ -2418,7 +2434,7 @@ namespace Desert::Graphic::System
             // CPU-GRASS-POOL-7: a range of the shared chunks pool; its words (ChunkInit) are uploaded by
             // CommitVarietyPools before any pass of the frame reads them.
             std::vector<uint32_t>& chunks = gpu.ChunkInit;
-            chunks.assign( kChunkHeaderWords + static_cast<size_t>( chunkCount ) * kChunkWords, 0u );
+            chunks.assign( static_cast<size_t>( chunkWords ), 0u );
             gpu.ChunkRoom   = static_cast<uint32_t>( chunkCount );
             chunks[0]       = gpu.ChunkRoom;
             chunks[2]       = gpu.ChunkRoom;
@@ -3235,15 +3251,24 @@ namespace Desert::Graphic::System
             metDesc.Bytes = kMetHeaderBytes + chunkRoom * kMetEntryBytes +
                             std::max( workRoom, uint64_t( 1u ) ) * kWorkItemBytes;
             m_FrameMet                = graph.CreateBuffer( metDesc, "GrassCullMetChunks" );
+            // FPS-GRASS-CULL-GPU2: room for every culled row's tile slots (a slot's kGrassTileClusters chunks).
+            const uint64_t tileSlots = chunkRoom / kGrassTileClusters + m_FrameCull.size();
+            const uint64_t tileRoom  = std::min( tileSlots, kMetRoomLimit );
+            RDG::BufferDesc tilesDesc;
+            tilesDesc.Bytes = kTileHeaderBytes + std::max( tileRoom, uint64_t( 1u ) ) * kTileEntryBytes;
+            m_FrameTiles    = graph.CreateBuffer( tilesDesc, "GrassCullTiles" );
             const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
             GrassCullPush         layOut;
             layOut.HzbViewProjection = occlusion.PrevViewProjection;
             // Hzb.z = 0: the camera cull tests the camera's planes alone.
             layOut.Hzb  = testsHzb ? glm::uvec4( occlusion.Extent, kCullModeDispatch )
                                    : glm::uvec4( 0u, 0u, 0u, kCullModeDispatch );
-            // Rows.y / z: MetChunks' room for met chunks and for work items (FPS-GRASS-CULL-GPU).
-            layOut.Rows =
-                 glm::uvec4( cullRows, static_cast<uint32_t>( chunkRoom ), static_cast<uint32_t>( workRoom ), 0u );
+            // Rows.y / z: MetChunks' room for met chunks and for work items (FPS-GRASS-CULL-GPU); w: CullTiles'
+            // room for tiles (FPS-GRASS-CULL-GPU2).
+            layOut.Rows = glm::uvec4( cullRows, static_cast<uint32_t>( chunkRoom ),
+                                      static_cast<uint32_t>( workRoom ), static_cast<uint32_t>( tileRoom ) );
+            GrassCullPush tiles = layOut;
+            tiles.Hzb.w         = kCullModeCameraTiles;
             GrassCullPush cull     = layOut;
             cull.Hzb.w             = kCullModeCameraCull;
             GrassCullPush instances = layOut;
@@ -3258,8 +3283,9 @@ namespace Desert::Graphic::System
                  "Grass: Cull Dispatch", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
-                     // The met chunks' list emptied (its count and dispatch).
-                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageWrite );
+                     // The met chunks' and the tiles' lists emptied (their counts and dispatches).
+                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageWrite,
+                               RDG::Access::StorageWrite );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
                          // The law's slots restarted (Chunks' header).
@@ -3271,12 +3297,36 @@ namespace Desert::Graphic::System
                  { return DispatchOneGroup( context, *m_Cull, &layOut, sizeof( layOut ) ); } );
 
             graph.AddPass(
+                 "Grass: Camera Cull Tiles", cullFlags,
+                 [this, hzb]( RDG::PassBuilder& pass )
+                 {
+                     // FPS-GRASS-CULL-GPU2, the tile pass (UE InstanceCulling's node pass): every culled row's
+                     // tile slots' nodes against the views; it appends the slots that may meet one.
+                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead,
+                               RDG::Access::StorageWrite );
+                     pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
+                     pass.Read( m_ChunksPool.Ref(), RDG::Access::StorageRead ); // the tiles' nodes
+                     pass.Read( m_ParamsPool.Ref(), RDG::Access::StorageRead );
+                 },
+                 [this, tiles,
+                  dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     // GrassCull kTileSlotsPerGroup tile slots of a row per group: the groups the Cull Dispatch
+                     // laid out.
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &tiles, sizeof( tiles ) );
+                     return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
+                 } );
+
+            graph.AddPass(
                  "Grass: Camera Cull", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
-                     // The chunk pass: the law and the chunks' views; it appends the met chunks.
-                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageWrite );
-                     pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
+                     // The chunk pass over the tile pass's tiles: the law and the chunks' views; it appends the
+                     // met chunks.
+                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageWrite,
+                               RDG::Access::StorageRead );
+                     pass.Read( m_FrameTiles, RDG::Access::IndirectArgs );
                      // FPS-ARCH-GRASSROWS: every variety's law rows (LawChunk), one pool.
                      pass.Write( m_InstancesPool.Ref(), RDG::Access::StorageWrite );
                      // The view law's records: every held segment, declared once (CPU-GRASS-POOL-2).
@@ -3290,13 +3340,12 @@ namespace Desert::Graphic::System
                          pass.Read( gpu->Refs.Args, RDG::Access::StorageRead ); // the law's bucket table
                      }
                  },
-                 [this, cull,
-                  dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, cull, tilesBuffer = m_FrameTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     // GrassCull kChunksPerGroup chunks of a row per group: the groups the Cull Dispatch laid out.
+                     // GrassCull kTilesPerGroup tiles per group: the dispatch the tile pass grew (TileCommand).
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &cull, sizeof( cull ) );
-                     return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
+                     return Renderer::DispatchComputeIndirect( bindings, *m_Cull, tilesBuffer, 0u );
                  } );
 
             graph.AddPass(
@@ -3304,7 +3353,8 @@ namespace Desert::Graphic::System
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      // The instance pass: a group per met chunk, its kept records into the lists.
-                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead );
+                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead,
+                               RDG::Access::StorageRead );
                      pass.Read( m_FrameMet, RDG::Access::IndirectArgs );
                      // FPS-ARCH-GRASSROWS: the law's rows, read by id (no pool record or params is read here).
                      pass.Read( m_InstancesPool.Ref(), RDG::Access::StorageRead );
@@ -3332,7 +3382,8 @@ namespace Desert::Graphic::System
                  "Grass: Camera Cull Finalize", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
-                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageRead );
+                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageRead,
+                               RDG::Access::StorageRead );
                      for ( const VarietyGpu* gpu : m_FrameCull )
                      {
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
@@ -3522,13 +3573,14 @@ namespace Desert::Graphic::System
     }
 
     void GrassRenderer::BindCull( RDG::PassBuilder& pass, const RDG::TextureRef hzb, const RDG::Access dispatch,
-                                  const RDG::Access met )
+                                  const RDG::Access met, const RDG::Access tiles )
     {
         pass.Bindings( m_CullLayout.Get( m_Cull->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_Cull ) )
              .Storage( GrassCullShaderParameters::Varieties, m_TableRef, RDG::Access::StorageRead )
              .Storage( GrassCullShaderParameters::CullDispatch, m_FrameDispatch, dispatch )
              .Storage( GrassCullShaderParameters::MetChunks, m_FrameMet, met )
+             .Storage( GrassCullShaderParameters::CullTiles, m_FrameTiles, tiles )
              .Sampler( GrassCullShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Texture( GrassCullShaderParameters::GrassHzbTexture, hzb, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )
@@ -3556,7 +3608,8 @@ namespace Desert::Graphic::System
              tests ? "Grass: Post-Occlusion" : "Grass: Post-Occlusion (no HZB)", RDG::PassFlags::Compute,
              [this, bound]( RDG::PassBuilder& pass )
              {
-                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead );
+                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead,
+                           RDG::Access::StorageRead );
                  pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
                  pass.Read( m_CandidatesPool.Ref(),
                             RDG::Access::StorageRead ); // every variety's (CPU-GRASS-POOL-1)
@@ -3580,7 +3633,8 @@ namespace Desert::Graphic::System
              "Grass: Post-Occlusion Finalize", RDG::PassFlags::Compute,
              [this, bound]( RDG::PassBuilder& pass )
              {
-                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead );
+                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead,
+                           RDG::Access::StorageRead );
                  if ( !m_FrameCull.empty() )
                  {
                      pass.Write( m_ArgsPool.Ref(), RDG::Access::StorageWrite ); // camera -> post records
