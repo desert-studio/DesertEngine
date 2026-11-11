@@ -2580,6 +2580,12 @@ namespace Desert::Graphic
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
+                // UE r.MinScreenRadiusForDepthPrepass: the large opaque occluders written before the masked
+                // prepass under Masked (MeshRenderer::SetEarlyZOccluderScreenRadius; thousandths of the screen).
+                meshRenderer->SetEarlyZOccluderScreenRadius(
+                     static_cast<float>(
+                          m_Quality.As<int>( Common::Scalability::Parameter::EarlyZOccluderScreenRadius ) ) /
+                     1000.0f );
             }
             // THE GROUND'S DEPTH PREPASS, by its own rule (UE: the landscape is an occluder of every depth pass,
             // whatever r.EarlyZPass admits of the meshes): "Deferred: Terrain Depth Prepass" (AddFrameGBuffer)

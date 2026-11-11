@@ -311,6 +311,23 @@ namespace Desert::Graphic
             bins.ViewNames.emplace_back( mainPass == GpuDriven::MeshPass::GBuffer ? "gbuffer" : "forward" );
             bins.CutViewOf.push_back( 0u ); // the main view is cut view 0
         }
+        // THE MAIN CAMERA'S DEPTH OCCLUDERS (FPS-PREPASS-OCCLUDERS; UE r.EarlyZPass with
+        // r.MinScreenRadiusForDepthPrepass): under the masked early-Z pass, the G-buffer pass's bins culled again
+        // for the same camera, LOD and distance rules, keeping only the instances large on screen
+        // (CullViewFlags::kDepthOccluder, MeshRenderer::DrawsEarlyZOccluders). Frustum only: no HZB, so nothing
+        // is held back for phase 2. No cut view: the cull drops the VG primitives the main view cuts.
+        if ( mainPass == GpuDriven::MeshPass::GBuffer && meshes->DrawsEarlyZOccluders() )
+        {
+            const float              radius = meshes->EarlyZOccluderScreenRadius();
+            GpuDriven::CullViewInput occluder =
+                 MakeCullView( mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(), lod,
+                               lensScale, windDistance, lodFlag | GpuDriven::CullViewFlags::kDepthOccluder );
+            occluder.View.DepthOccluder = glm::vec4( radius * radius, 0.0f, 0.0f, 0.0f );
+            bins.Views.push_back( occluder );
+            bins.ViewKeys.push_back( System::MeshRenderer::kBinnedOccluderView );
+            bins.ViewNames.emplace_back( "gbufferOccluders" );
+            bins.CutViewOf.push_back( GpuDriven::kInvalidIndex );
+        }
         std::vector<GpuDriven::CullViewInput>& views    = bins.Views;
         std::vector<uint32_t>&                 viewKeys = bins.ViewKeys;
         uint32_t                               cutViews = 1u;
@@ -429,6 +446,13 @@ namespace Desert::Graphic
         {
             if ( ( views[v].View.Flags & GpuDriven::CullViewFlags::kContentHash ) != 0u )
                 continue; // its cells are its output (ExtractCascadeContent above)
+            if ( ( views[v].View.Flags & GpuDriven::CullViewFlags::kDepthOccluder ) != 0u )
+            {
+                // Drawn by "Deferred: Occluder Depth Prepass" (MeshRenderer::DeclareOccluderDepthDraws).
+                static_cast<void>( meshes->SetFrameEarlyZOccluders( culled.GetValue().Draws[v], upload.GetValue(),
+                                                                    scene.GetValue() ) );
+                continue;
+            }
             const bool issued = meshes->SetFrameBinned(
                  static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v], culled.GetValue().Draws[v],
                  upload.GetValue(), scene.GetValue(), appendsVg && bins.CutViewOf[v] != GpuDriven::kInvalidIndex );

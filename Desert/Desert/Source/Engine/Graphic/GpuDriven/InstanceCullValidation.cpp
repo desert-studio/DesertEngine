@@ -333,6 +333,24 @@ namespace Desert::Graphic::GpuDriven
                                   .subspan( primitive.FirstLodScreenSize, primitive.LodCount ),
                              -1, primitive.LodBias );
                     }
+                    // A depth-occluder view (CullViewFlags::kDepthOccluder): only the instances with bounds whose
+                    // screen radius reaches its minimum (InstanceCull.shader; its VG-primitive rule needs the
+                    // frame's DAG tables, which this snapshot does not hold).
+                    if ( ( view.Gpu.Flags & CullViewFlags::kDepthOccluder ) != 0u )
+                    {
+                        if ( empty )
+                            return 0u;
+                        const float             scale        = std::max( glm::length( glm::vec3( world[0] ) ),
+                                                                         std::max( glm::length( glm::vec3( world[1] ) ),
+                                                                                   glm::length( glm::vec3( world[2] ) ) ) );
+                        const glm::vec3         sphereCentre = glm::vec3( world * glm::vec4( centre, 1.0f ) );
+                        const float             radius       = glm::length( 2.0f * extent ) * 0.5f * scale;
+                        const Geometry::LODView occluderView{ .Origin     = glm::vec3( view.Gpu.LodOrigin ),
+                                                              .Projection = view.Gpu.LodProjection };
+                        if ( Geometry::BoundsScreenRadiusSquared( sphereCentre, radius, occluderView ) <
+                             view.Gpu.DepthOccluder.x )
+                            return 0u;
+                    }
                     return CullVisibility::kInView | std::min( lod, CullVisibility::kLodMask );
                 }();
 

@@ -549,6 +549,22 @@ namespace Desert::Graphic
                  [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
             meshDepthLoad = RDG::LoadOp::Load();
         }
+        // THE LARGE OPAQUE OCCLUDERS FIRST (FPS-PREPASS-OCCLUDERS; UE r.EarlyZPass with
+        // r.MinScreenRadiusForDepthPrepass): under the masked early-Z pass, the GPU-driven opaque instances large on
+        // screen (the occluder view of the G-buffer cull) write their depth through their (path x Depth) cells, so
+        // the alpha-tested grass and foliage of the pass below fail early-Z behind the barn, the trunks and the
+        // rocks instead of running their clip. The G-buffer draws those meshes as ever (CloserOrEqual + write over
+        // the same depth from the same vertex stage), so the picture does not move.
+        if ( meshRenderer->DrawsEarlyZOccluders() )
+        {
+            AddRaster(
+                 graph, "Deferred: Occluder Depth Prepass", depthOnly, {}, meshDepthLoad, {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderOccluderDepthManual( context ); },
+                 [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshRenderer->DeclareOccluderDepthDraws( pass, view ); } );
+            meshDepthLoad = RDG::LoadOp::Load();
+        }
         // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
         // alone, cleared here unless the ground's pass above did; the meshes EarlyZPass admits write their
         // (masked: clipped) depth, the GPU-culled bins first (MeshDrawList::RecordBinnedFirst), and the G-buffer

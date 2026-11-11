@@ -396,6 +396,15 @@ namespace Common::Scalability
         // runs All whatever the value, SceneRenderer::OnUpdate), so only a machine override names it;
         // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
         EarlyZPass,
+        // The deferred early-Z pass's LARGE OPAQUE OCCLUDERS under EarlyZPass Masked (UE
+        // r.MinScreenRadiusForDepthPrepass, in thousandths: 30 = UE's 0.03): the GPU-driven opaque instances whose
+        // bounds' screen radius (Geometry::BoundsScreenRadiusSquared's measure) reaches it write their depth in
+        // "Deferred: Occluder Depth Prepass" before the masked prepass, so the grass and foliage they hide fail
+        // early-Z before their clip runs; the G-buffer still draws them with their own depth test and write. 0 = no
+        // occluder pass. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius. Key
+        // "RenderPipeline.EarlyZOccluderScreenRadius": equal at every level (a cost choice that never moves a
+        // texel: the depth it writes is the depth the G-buffer writes), so only a machine override names it.
+        EarlyZOccluderScreenRadius,
         // 0/1: graph passes record on task workers (RDG-PARALLEL-3; UE r.RDG.ParallelExecute): a Graphics segment
         // of 24+ passes is cut into chunks of about 24 at render pass boundaries, each recorded into secondary
         // command buffers of its own and replayed in pass order (NeverParallel passes record inline). 0 = every
