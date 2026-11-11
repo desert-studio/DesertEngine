@@ -118,6 +118,21 @@ const uint kGrassChunkSlotWord  = 25u;
 // Chunks' header words: the law's slots handed out (y) in the law generation w.
 const uint kGrassChunkSlotsUsedWord = 1u;
 const uint kGrassChunkSlotsGenWord  = 3u;
+// THE TILES' NODES (FPS-GRASS-CULL-GPU2; UE InstanceCulling / Nanite's cull hierarchy: a node's conservative
+// bound rejects its children whole): past the chunks' room (header z), per tile slot kGrassTileNodeWords words,
+// written by the build with the slot's kGrassTileChunks chunks (GrassGenerate.shader kTileClusters; chunk c is
+// slot c / kGrassTileChunks's): 0..2 / 3..5 the union of its chunks' root boxes (min / max xyz, floats; Write
+// copies the tile's box, which Count grew from its clusters'), 6 the largest of its chunks' scale words (float
+// bits, Write's clusters atomicMax theirs; 0: the slot holds no record - the upload, Init, Free and Count write
+// 0). GrassCull's tile pass tests it with the bound its chunks' ChunkMayMeet would use at its own farthest, so a
+// tile it rejects has no chunk a view may meet.
+const uint kGrassTileChunks         = 16u;
+const uint kGrassTileNodeWords      = 7u;
+const uint kGrassTileNodeScaleWord  = 6u;
+uint GrassTileNodeAt( uint room, uint slot )
+{
+    return kGrassChunkHeader + room * kGrassChunkWords + slot * kGrassTileNodeWords;
+}
 // A lawed chunk whose run found no room in Instances: the law keeps none of it (GrassRenderer grows the rows).
 const uint kGrassLawNoSlot = 0xFFFFFFFFu;
 // The buckets a record's code holds: four bit planes, 0 for a dropped record (GrassRenderer kLawBuckets).
