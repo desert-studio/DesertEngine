@@ -2340,7 +2340,10 @@ namespace Desert::Editor::Tools
         const auto survivors = FieldsOfType( scene, newType );
         for ( auto& moved : FieldsOfType( scene, source.GetComponent<ECS::FoliageComponent>().FoliageType ) )
         {
-            moved.GetComponent<ECS::FoliageComponent>().FoliageType = newType;
+            // Patched, not assigned in place: the field's retained ISM record keys its fade and wind on the type
+            // (Scene's FoliageComponent render-state signal).
+            moved.GetRegistry()->patch<ECS::FoliageComponent>(
+                 moved.GetHandle(), [newType]( ECS::FoliageComponent& f ) { f.FoliageType = newType; } );
             ECS::InstancedStaticMeshDesc ism = moved.GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
             ism.MeshHandle                   = type->GetMeshHandle();
             ECS::SetInstancedStaticMesh( *moved.GetRegistry(), moved.GetHandle(), ism );

@@ -1618,6 +1618,8 @@ namespace Desert::Core
         connect.template operator()<ECS::InstancedStaticMeshComponent>();
         connect.template operator()<ECS::MaterialComponent>();
         connect.template operator()<ECS::VisibilityComponent>();
+        // A field's foliage type: the ISM record's fade and wind source (MeshECSSystem's Ism channel).
+        connect.template operator()<ECS::FoliageComponent>();
         // Every component that holds render caches parks them as it dies (UE: the proxy's RHI objects are
         // deleted once no frame in flight names them, never at the component's unregister).
         const auto retireOnDestroy = [this]<typename Component>()
