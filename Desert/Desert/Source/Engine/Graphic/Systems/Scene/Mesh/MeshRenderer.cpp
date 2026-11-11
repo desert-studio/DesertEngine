@@ -2581,18 +2581,33 @@ namespace Desert::Graphic::System
                 Pointer( shading.Surface );
                 Value( ( shading.Masked ? 1u : 0u ) | ( shading.Translucent ? 2u : 0u ) );
             }
-            void MeshOf( const Mesh* mesh )
+            static ContentMeshKey KeyOf( const Mesh* mesh )
             {
-                Pointer( mesh );
                 if ( mesh == nullptr )
+                    return {};
+                return { .Mesh           = reinterpret_cast<std::uintptr_t>( mesh ),
+                         .Submeshes      = reinterpret_cast<std::uintptr_t>( mesh->GetSubmeshes().data() ),
+                         .SubmeshCount   = mesh->GetSubmeshes().size(),
+                         .IndexCount     = mesh->GetGeometry().IndexCount,
+                         .RenderRevision = mesh->GetRenderRevision(),
+                         .Resident       = mesh->GetGeometry().IsResident() };
+            }
+            void MeshOf( const ContentMeshKey& key )
+            {
+                Value( static_cast<uint64_t>( key.Mesh ) );
+                if ( key.Mesh == 0u )
                     return;
-                Pointer( mesh->GetSubmeshes().data() );
-                Value( mesh->GetSubmeshes().size() );
-                Value( mesh->GetGeometry().IndexCount );
-                Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+                Value( static_cast<uint64_t>( key.Submeshes ) );
+                Value( key.SubmeshCount );
+                Value( key.IndexCount );
+                Value( key.Resident ? 1u : 0u );
                 // A content change of the same mesh object (a sculpt, a reload into it): its render identity
                 // (MeshRenderRevision) is what the static casters' shadow parts key it by (SCENE-CACHE-4).
-                Value( mesh->GetRenderRevision() );
+                Value( key.RenderRevision );
+            }
+            void MeshOf( const Mesh* mesh )
+            {
+                MeshOf( KeyOf( mesh ) );
             }
         };
         // @p shading: the record's ShadingOf, asked once by the gather below (it fills the walk columns too).
@@ -2655,21 +2670,71 @@ namespace Desert::Graphic::System
             }
             return words.Hash;
         };
-        const auto skinnedContent = []( const SkinnedMeshRenderData& data )
+        // THE SKINNED AND FIELD RECORDS' CONTENT IS THEIR PROXY'S (UE FScene: a proxy persists and its producer's
+        // change updates it): folded only when what it was folded for moved - the mesh key (a new mesh, a morph /
+        // displacement twin, an upload, a sculpt), the producer's binding or slot instance (MeshECSSystem builds a
+        // new one per slot change, never edits one), the sections or the hidden mask. A section's shading is a
+        // function of its instance alone (an instance's parent and a surface's schema are fixed at construction),
+        // so an unchanged key is an unchanged content; a steady frame runs no ShadingOf and folds no word.
+        const auto sameSections = []( const std::vector<SkinnedSection>& a, const std::vector<SkinnedSection>& b )
         {
+            if ( a.size() != b.size() )
+                return false;
+            for ( std::size_t i = 0; i < a.size(); ++i )
+                if ( a[i].Material != b[i].Material || a[i].Instance != b[i].Instance ||
+                     a[i].HiddenSubmeshes != b[i].HiddenSubmeshes )
+                    return false;
+            return true;
+        };
+        const uint64_t skinnedSync    = ++m_SkinnedContentSync;
+        std::size_t    skinnedClaimed = 0;
+        const auto     skinnedContent = [&]( const SkinnedMeshRenderData& data ) -> uint64_t
+        {
+            // The entity's first record not yet claimed this sync: its records keep their order (one command).
+            SkinnedContentProxy* proxy = nullptr;
+            for ( uint64_t ordinal = 0;; ++ordinal )
+            {
+                SkinnedContentProxy& candidate =
+                     m_SkinnedContentProxies[( ordinal << 32 ) | static_cast<uint64_t>( data.Entity )];
+                if ( candidate.Sync != skinnedSync )
+                {
+                    proxy = &candidate;
+                    break;
+                }
+            }
+            proxy->Sync = skinnedSync;
+            ++skinnedClaimed;
+            const ContentMeshKey mesh = ContentWords::KeyOf( data.Mesh );
+            if ( proxy->Binding != nullptr && proxy->Binding == data.MaterialSlots && proxy->Mesh == mesh &&
+                 sameSections( proxy->Sections, data.Sections ) )
+                return proxy->Content;
             ContentWords words;
-            words.MeshOf( data.Mesh );
+            words.MeshOf( mesh );
             words.Value( data.Sections.size() );
             for ( const SkinnedSection& section : data.Sections )
                 words.Section( section.HiddenSubmeshes, ShadingOf( section ) );
-            return words.Hash;
+            proxy->Mesh     = mesh;
+            proxy->Binding  = data.MaterialSlots;
+            proxy->Sections = data.Sections;
+            proxy->Content  = words.Hash;
+            return proxy->Content;
         };
-        const auto fieldContent = []( const InstancedMeshRenderData& data )
+        const auto fieldContent = []( InstancedMeshRenderData& data ) -> uint64_t
         {
+            InstancedMeshRenderData::ContentProxy& proxy = data.Proxy;
+            const ContentMeshKey                   mesh  = ContentWords::KeyOf( data.Mesh );
+            if ( proxy.Valid && proxy.Mesh == mesh && proxy.Material == data.Material &&
+                 proxy.HiddenSubmeshes == data.HiddenSubmeshes )
+                return proxy.Content;
             ContentWords words;
-            words.MeshOf( data.Mesh );
+            words.MeshOf( mesh );
             words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
-            return words.Hash;
+            proxy.Mesh            = mesh;
+            proxy.Material        = data.Material;
+            proxy.HiddenSubmeshes = data.HiddenSubmeshes;
+            proxy.Content         = words.Hash;
+            proxy.Valid           = true;
+            return proxy.Content;
         };
 
         // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
@@ -2760,6 +2825,10 @@ namespace Desert::Graphic::System
                    .Mesh    = data.Mesh,
                    .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ),
                    .Content = skinnedContent( data ) } );
+        // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
+        if ( skinnedClaimed < m_SkinnedContentProxies.size() )
+            std::erase_if( m_SkinnedContentProxies,
+                           [skinnedSync]( const auto& entry ) { return entry.second.Sync != skinnedSync; } );
 
         // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway),
         // which the binned instanced vertex stage reads from the row instead of the push block.
@@ -2777,7 +2846,7 @@ namespace Desert::Graphic::System
         auto& fields = m_ScratchFieldRecords;
         fields.clear();
         fields.reserve( m_InstancedQueue.size() );
-        for ( const auto& data : m_InstancedQueue )
+        for ( auto& data : m_InstancedQueue ) // non-const: its content proxy is refreshed (fieldContent)
             fields.push_back( { .Entity            = data.Entity,
                                 .Mesh              = data.Mesh,
                                 .Transforms        = *data.Transforms,
