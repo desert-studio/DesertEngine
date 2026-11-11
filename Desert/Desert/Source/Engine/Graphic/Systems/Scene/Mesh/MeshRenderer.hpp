@@ -4285,11 +4285,6 @@ namespace Desert::Graphic::System
         // view's and the scrolled strips' union (CascadeStaticSignature's are its runs', IsmSignatureRun::Bits).
         std::vector<uint64_t> m_ScratchCasterBits;
         std::vector<uint64_t> m_ScratchStripBits;
-        // A cascade's static casters in view (UE FViewInfo::PrimitiveVisibilityMap for a shadow view): one bit per
-        // m_StaticQueue row, the view's verdict AND the strips' union, filled four rows per register before the
-        // walk, which then visits the set bits only (the columns, CpuWalkHidden and the caster flag are read for
-        // a row in view alone).
-        std::vector<uint64_t> m_ScratchStaticCasterBits;
         // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
         // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
         // do not). The key is every input CollectIsmInstances reads that is the field's own: its immutable
@@ -4701,18 +4696,53 @@ namespace Desert::Graphic::System
         // the camera frustum's verdict on its snapshot box (VisibleInView4, StaticEntryInView's answer bit for
         // bit). Filled by the first static walk of a frame's view (BuildStaticDraws, its chunks each their own
         // words) and reused by every later walk of the same view - the deferred early-Z and G-buffer walks, the
-        // forward prepass and base pass - while its key stands: the frustum's six planes, the snapshot's revision
-        // and gather, the queue's size. Written only by BuildStaticDraws' walk (serial call, chunk-owned words).
+        // forward prepass and base pass, then the translucent walks (the glass, the front layer and the graph's
+        // questions about them, MainStaticBitsFor) - while its key stands: the frustum's six planes, the
+        // snapshot's revision and gather, the queue's size. Written only by BuildStaticDraws' walk (serial call,
+        // chunk-owned words); every reader runs on the graph-building thread after that call joined its chunks
+        // (RDG::Builder::AddPass runs a pass's setup inline), and a reader of an older key asks each box itself.
+        // A frustum's six planes bit for bit (normal x, y, z and distance per plane, FrustumPlane order): two
+        // frusta with one key give every box the same verdict (Frustum::Intersects reads nothing else).
+        struct FrustumBitsKey
+        {
+            std::array<uint32_t, 24>            Bits{};
+            [[nodiscard]] static FrustumBitsKey Of( const Core::Frustum& frustum ) noexcept;
+            [[nodiscard]] bool                  operator==( const FrustumBitsKey& ) const noexcept = default;
+        };
         struct StaticViewBits
         {
-            std::vector<uint64_t>               Words;
-            std::array<Core::Frustum::Plane, 6> Planes{};
-            uint64_t                            Revision = 0;
-            uint64_t                            Gather   = 0;
-            std::size_t                         Count    = 0;
-            bool                                Valid    = false;
+            std::vector<uint64_t> Words;
+            FrustumBitsKey        Planes;
+            uint64_t              Revision = 0;
+            uint64_t              Gather   = 0;
+            std::size_t           Count    = 0;
+            bool                  Valid    = false;
         };
         StaticViewBits m_MainStaticBits;
+        // m_MainStaticBits' words when they answer the frustum of @p planes for this queue now (its key above; the
+        // snapshot's lanes current): one bit per m_StaticQueue entry, StaticEntryInView's verdict. Empty otherwise
+        // - the caller then asks StaticEntryInView per entry.
+        [[nodiscard]] std::span<const uint64_t> MainStaticBitsFor( const FrustumBitsKey& planes ) const noexcept;
+        // A SHADOW VIEW'S STATIC CASTER BITS, KEPT ACROSS FRAMES (UE FViewInfo::PrimitiveVisibilityMap of a shadow
+        // view; FProjectedShadowInfo's subject primitives gathered once): one bit per gathered static caster row
+        // (ShadowCasterSetup::StaticBounds), the view's caster frustum AND the union of its scrolled strips, four
+        // rows per register (BuildShadowCascadeDraws' staticGroup). Kept per shadow view index while its key
+        // stands - the caster frustum's and the strips' planes bit for bit, the rows' box revision
+        // (m_StaticSnapshot.Revision: StaticBounds is refilled only with it) and the batched row count - so a
+        // local light's views, a VSM level that did not move and a sphere-fit cascade under a turning camera test
+        // no box; the walk then visits the set bits only. Written only by BuildShadowCascadeDraws, which every
+        // caller runs on the graph-building thread (a pass's Declare / setup, inline in AddPass): one writer.
+        struct ShadowViewStaticBits
+        {
+            std::vector<uint64_t>         Words;
+            FrustumBitsKey                View;
+            std::array<FrustumBitsKey, 2> Strips{};
+            std::size_t                   StripCount = 0;
+            std::size_t                   Rows       = 0;
+            uint64_t                      Revision   = 0;
+            bool                          Valid      = false;
+        };
+        std::vector<ShadowViewStaticBits> m_ShadowViewStaticBits; // per shadow view index
         // THE STATIC QUEUE'S HOT COLUMNS (CPU-FRAME-ARENA 14; UE FScene's dense primitive arrays -
         // PrimitiveBounds, PrimitiveVisibilityIds, PrimitiveSceneProxies by packed index): what every per-view
         // walk of m_StaticQueue reads per record, one dense array per field indexed by queue position, so a walk

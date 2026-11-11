@@ -2449,16 +2449,43 @@ namespace Desert::Graphic::System
         // row out of the cascade costs no column read and no CpuWalkHidden. The admission is the same conjunction
         // as before (in view, a mesh, a caster, not wholly held by the bins) asked in the cheaper order; rows
         // past the batched columns (rows not of this gather) are tested one at a time, as before.
-        const std::size_t      batched    = staticBatch ? std::min( statics, staticLanes.Size() ) : 0u;
-        std::vector<uint64_t>& casterBits = m_ScratchStaticCasterBits;
-        casterBits.assign( ( batched + 63u ) / 64u, 0u );
-        for ( std::size_t base = 0; base < batched; base += 4u )
+        // KEPT ACROSS FRAMES per view (m_ShadowViewStaticBits): refilled only when the caster frustum's or the
+        // strips' planes (bit for bit), the rows' box revision or the batched count moved - a local light's view,
+        // a VSM level that did not move, a cascade the turning camera left in place test no box.
+        const std::size_t batched = staticBatch ? std::min( statics, staticLanes.Size() ) : 0u;
+        if ( m_ShadowViewStaticBits.size() <= c )
+            m_ShadowViewStaticBits.resize( static_cast<std::size_t>( c ) + 1u );
+        ShadowViewStaticBits&         viewBits = m_ShadowViewStaticBits[c];
+        const FrustumBitsKey          viewKey  = FrustumBitsKey::Of( cascadeFrustum );
+        std::array<FrustumBitsKey, 2> stripKeys{};
+        for ( std::size_t s = 0; s < stripCount; ++s )
+            stripKeys[s] = FrustumBitsKey::Of( strips[s] );
+        const bool keepBits = viewBits.Valid && viewBits.Rows == batched &&
+                              viewBits.Revision == m_StaticSnapshot.Revision && viewBits.View == viewKey &&
+                              viewBits.StripCount == stripCount && viewBits.Strips == stripKeys;
+        // A walk with no batched row (the movable layer: no static; rows not of this gather) leaves the view's
+        // bits as they are - a VSM level walks its static and movable layers under one view index - and visits
+        // no bit.
+        if ( batched > 0u && !keepBits )
         {
-            uint32_t lanes = staticGroup( base );
-            if ( batched - base < 4u )
-                lanes &= ( 1u << ( batched - base ) ) - 1u;
-            casterBits[base / 64u] |= static_cast<uint64_t>( lanes ) << ( base % 64u );
+            std::vector<uint64_t>& words = viewBits.Words;
+            words.assign( ( batched + 63u ) / 64u, 0u );
+            for ( std::size_t base = 0; base < batched; base += 4u )
+            {
+                uint32_t lanes = staticGroup( base );
+                if ( batched - base < 4u )
+                    lanes &= ( 1u << ( batched - base ) ) - 1u;
+                words[base / 64u] |= static_cast<uint64_t>( lanes ) << ( base % 64u );
+            }
+            viewBits.View       = viewKey;
+            viewBits.Strips     = stripKeys;
+            viewBits.StripCount = stripCount;
+            viewBits.Rows       = batched;
+            viewBits.Revision   = m_StaticSnapshot.Revision;
+            viewBits.Valid      = true;
         }
+        const std::span<const uint64_t> casterBits =
+             batched > 0u ? std::span<const uint64_t>( viewBits.Words ) : std::span<const uint64_t>{};
         const auto visitCaster = [&]( const std::size_t i )
         {
             const Desert::Mesh* const mesh  = columns.Meshes[i];
