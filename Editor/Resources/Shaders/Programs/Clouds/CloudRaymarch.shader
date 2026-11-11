@@ -423,6 +423,14 @@ Shader "CloudRaymarch"
         // and the walk then visits exactly the points the one-at-a-time search visited.
         #define CLOUD_COARSE_SEARCH_GROUP 4
 
+        // THE FINE TIER'S PAIRING (FPS-CLOUDS-MARCH2): 1 = two fine samples per iteration, both fetched before
+        // either is integrated (field, density, shadow ray, sky occlusion, sun LUT - none depends on the ray's
+        // transmittance), then integrated in order with the stop tested per sample; 0 = one sample per
+        // iteration, the loop as it was, kept for the A/B. With the coarse group above this makes the march's
+        // serial chain the integration only, as Unreal's and Frostbite's marches issue their fetches.
+        #define CLOUD_FINE_PAIR  1
+        #define CLOUD_FINE_GROUP (CLOUD_FINE_PAIR + 1)
+
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
@@ -1108,171 +1116,241 @@ Shader "CloudRaymarch"
                     }
                 }
 
-                // The step this sample is integrated over and advances by: the fine step, grown with the texel
-                // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
-                float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
-
-                vec3  samplePos      = originKm + rayDir * t;
-                float heightFraction = CloudHeightFraction(layer, samplePos);
-
-                // The field is handed the ALTITUDE above the layer's base, never the planet-relative
-                // height. Two reasons, and the second is the one that bites: the noise is periodic, so a
-                // y of 6363 kilometres wraps to something arbitrary rather than to something meaningful;
-                // and at that magnitude float32 resolves 0.4 metres, which quantizes the vertical
-                // structure of a two-kilometre layer onto a visible ladder.
-                vec3 fieldPos = vec3(samplePos.x, length(samplePos) - layer.BottomRadiusKm, samplePos.z);
-
-                CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
-                ++censusFieldEvaluations;
-
-                if (field.Profile <= 0.0f)
+                // THE FINE TIER, CLOUD_FINE_GROUP SAMPLES AT A TIME (FPS-CLOUDS-MARCH2). A fine sample's fetches - its field,
+                // density, shadow ray, sky occlusion, sun LUT, albedo and emission - depend on its position alone, and its
+                // position on the step of the sample before it, which is a function of distance only (CloudFootprintStepKm),
+                // never of the ray's transmittance. Only the INTEGRATION reads the transmittance. So every sample of the group
+                // is fetched first, none waiting on another's answer, and then integrated in order with the one-at-a-time
+                // rules between samples: the head's stop (lane end, composed transmittance), the empty run that returns to
+                // the coarse tier, and the lane's own stop after each lit sample - Unreal's march, whose stop is per sample.
+                // A sample the walk does not reach was fetched and is discarded: the march leaves the fine tier or the lane
+                // at exactly the sample the old loop did, at the same t. CLOUD_FINE_PAIR 0 is the old loop, operation for
+                // operation. The one difference at 1: the second sample's head test reads the front lanes' transmittance
+                // from this iteration's top, an upper bound (it only falls), as the coarse group's walk does.
+                float fineStepKm[CLOUD_FINE_GROUP];
+                bool  fineProfile[CLOUD_FINE_GROUP];
+                bool  fineLit[CLOUD_FINE_GROUP];
+                // The scattered light and the emission of a lit sample BEFORE the ray's transmittance multiplies them, the
+                // view ray's Beer factor over its step, and its shadow ray's cost for the census.
+                vec3  fineScatter[CLOUD_FINE_GROUP];
+                vec3  fineEmission[CLOUD_FINE_GROUP];
+                float fineBeer[CLOUD_FINE_GROUP];
+                vec2  fineLightCost[CLOUD_FINE_GROUP];
+                float sampleT = t;
+                for (int s = 0; s < CLOUD_FINE_GROUP; ++s)
                 {
-                    ++emptyRun;
-                    if (emptyRun >= kEmptyFineSamplesBeforeCoarse)
+                    // The step this sample is integrated over and advances by: the fine step, grown with the texel
+                    // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
+                    float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, sampleT, pixelAngle);
+
+                    fineStepKm[s]    = litStepKm;
+                    fineProfile[s]   = false;
+                    fineLit[s]       = false;
+                    fineScatter[s]   = vec3(0.0f, 0.0f, 0.0f);
+                    fineEmission[s]  = vec3(0.0f, 0.0f, 0.0f);
+                    fineBeer[s]      = 1.0f;
+                    fineLightCost[s] = vec2(0.0f, 0.0f);
+
+                    // A sample at or past the lane's end is never reached by the walk (its head test ends the lane first),
+                    // so it is not fetched. The first sample always is: the loop head above already tested its t.
+                    if (s == 0 || sampleT < laneEndKm)
                     {
-                        fine     = false;
-                        emptyRun = 0;
+                        vec3  samplePos      = originKm + rayDir * sampleT;
+                        float heightFraction = CloudHeightFraction(layer, samplePos);
+
+                        // The field is handed the ALTITUDE above the layer's base, never the planet-relative
+                        // height. Two reasons, and the second is the one that bites: the noise is periodic, so a
+                        // y of 6363 kilometres wraps to something arbitrary rather than to something meaningful;
+                        // and at that magnitude float32 resolves 0.4 metres, which quantizes the vertical
+                        // structure of a two-kilometre layer onto a visible ladder.
+                        vec3 fieldPos = vec3(samplePos.x, length(samplePos) - layer.BottomRadiusKm, samplePos.z);
+
+                        CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
+
+                        fineProfile[s] = field.Profile > 0.0f;
+
+                        if (field.Profile > 0.0f)
+                        {
+                            float density = CloudSampleDensity(params, field, fieldPos);
+
+                            // The near-camera fade. A camera inside the layer otherwise meets full density at
+                            // arm's length, which fills the screen with a flat wall; UE fades the nearest metres
+                            // for exactly this. Both distances at zero leave the density untouched.
+                            if (CloudFadeParams.z > 0.0f)
+                                density *= smoothstep(CloudFadeParams.w, CloudFadeParams.z, sampleT);
+
+                            if (density > 0.0f)
+                            {
+                                // The winning species' own opacity, per sample — through the MEDIUM, so a
+                                // material that authors its own extinction is obeyed here and, identically, on
+                                // the shadow ray, the shadow map and the occlusion volume. See the note in
+                                // CloudLightOpticalDepth.
+                                float sigmaT = density * extinction *
+                                               CloudSampleExtinctionFactor(params, field, fieldPos);
+
+                                // ONE shadow ray serves every scattering order. That is the whole economy of the
+                                // octave approximation: the expensive part is finding how much material lies
+                                // between this sample and the sun, and each order then reuses that number with its
+                                // own extinction scale.
+                                vec2  lightCost;
+                                float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
+                                                                                 lightMarchKm, lightSamples, extinction,
+                                                                                 lightCost);
+                                fineLit[s]       = true;
+                                fineLightCost[s] = lightCost;
+
+                                // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
+                                //
+                                // The strength is the SAME field either way — CloudPhase.z, the artist's
+                                // AmbientOcclusionStrength — and it keeps one meaning, "how strongly the sky light
+                                // is occluded". What the layer's flag chooses is which occluder computes it, so
+                                // neither path leaves the other's parameters dead.
+                                //
+                                // VOLUME OFF: the sample's own Profile, i.e. its depth inside its OWN body.
+                                // Authored, not fixed at full: UE carries the amount in the alpha of its albedo
+                                // parameter, so it IS a dial there.
+                                //
+                                // VOLUME ON, WHICH IS THE DEFAULT SINCE Р12: the diffuse transmittance of
+                                // everything ABOVE this column at this altitude.
+                                // It REPLACES the profile term rather than multiplying it, and that is
+                                // deliberate — the column integrated from the sample upward already contains the
+                                // upper half of the sample's own body, so applying both would count that material
+                                // twice and darken a cloud's own core for a reason nobody could find later.
+                                float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
+                                if (CloudFrame.x > 0.5f)
+                                {
+                                    // The WIND-SHIFTED position, because that is the frame the volume was traced
+                                    // in — the same subtraction Common/CloudField.glslh makes on its own way into
+                                    // the modelling volume, and the reason the two land on the same texel however
+                                    // far the wind has run.
+                                    vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x,
+                                                           fieldPos.y - params.WindOffsetKm.y,
+                                                           fieldPos.z - params.WindOffsetKm.z);
+
+                                    vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                                       params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
+                                                                       heightFraction, skyWindPos);
+
+                                    // textureLod AND NOT texture, for the reason every other volume fetch in this
+                                    // file gives: a compute shader has no derivatives, so the implicit level of
+                                    // detail is undefined.
+                                    ambientOcclusion =
+                                        CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
+                                                          CloudPhase.z);
+                                }
+
+                                // Wrenninge's multiple-scattering octaves, as Unreal implements them — the series
+                                // itself is Common/CloudLighting.glslh's CloudMultiScatterStep, which is where its
+                                // arrangement and its price are written down. It lives there rather than here so
+                                // that Desert/Tests/Engine/CloudLighting can drive it as C++ and bound it against a
+                                // converged Monte Carlo; inside this loop nothing could reach it.
+                                //
+                                // The ray's transmittance is applied HERE and not inside, because it belongs to the
+                                // ray's history rather than to the medium — and keeping it out is what lets the
+                                // series be bounded by the source it integrates.
+                                // THE SUN THIS SAMPLE SEES. Resolved once per sample and handed to the series as
+                                // its source, because the atmosphere between this point and the sun is the same
+                                // atmosphere whether the light arriving is first-order or third — the octave loop
+                                // inside CloudMultiScatterStep would otherwise repeat the fetch per order.
+                                // THE MEDIUM'S LAST TWO OUTPUTS, taken here because both are per-SAMPLE in the
+                                // Volume domain's contract even though the shipped material authors them per
+                                // layer. Each default hands its argument straight back, so the two calls fold
+                                // away and the loop is the loop it was.
+                                ambientOcclusion = CloudSampleOcclusion(params, field, fieldPos, ambientOcclusion);
+
+                                // THE CLOUD BOTTOM, which neither occluder above can see: both measure cloud, and what
+                                // darkens a cumulus base is the GROUND under it — a sample at the bottom of the layer
+                                // looks down at dark earth where one at the top looks up at open sky. Unreal's
+                                // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
+                                // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
+                                // darkened, as the authored layer setting promises.
+                                ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, CloudAlbedo.w);
+                                vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
+
+                                // The series and the emission WITHOUT the ray's transmittance, which the walk below applies: it
+                                // belongs to the ray's history rather than to the medium (the series note above).
+                                fineScatter[s] = CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
+                                                                       ambientRadiance * ambientOcclusion, opticalDepth,
+                                                                       phase, sigmaT, sampleAlbedo, litStepKm);
+
+                                // EMISSION: radiance the medium ADDS, per kilometre of march, attenuated by the
+                                // ray's own history and by nothing else. It is deliberately NOT multiplied by the
+                                // absorption coefficient — Unreal makes the same choice for the same reason, that
+                                // an artist authoring a glow wants the glow they authored and not the glow times
+                                // however opaque the cloud happens to be there (VolumetricCloud.usf:1381-1384).
+                                // The default medium returns a literal zero, so this line costs nothing until a
+                                // graph writes the pin.
+                                fineEmission[s] = CloudSampleEmissive(params, field, fieldPos);
+
+                                // The view ray is attenuated by the medium itself, once — the octaves are orders
+                                // of scattering INTO this ray, not extra material along it.
+                                fineBeer[s] = CloudBeerTransmittance(sigmaT, litStepKm);
+                            }
+                        }
                     }
-                    t += litStepKm;
-                    continue;
+                    sampleT += litStepKm;
                 }
 
-                emptyRun = 0;
-
+                // THE WALK, in order. At every sample t equals the fetch loop's sampleT for it, bit for bit: both
+                // start at t and add the same fineStepKm in the same order.
+                for (int s = 0; s < CLOUD_FINE_GROUP; ++s)
                 {
-                    float density = CloudSampleDensity(params, field, fieldPos);
-
-                    // The near-camera fade. A camera inside the layer otherwise meets full density at
-                    // arm's length, which fills the screen with a flat wall; UE fades the nearest metres
-                    // for exactly this. Both distances at zero leave the density untouched.
-                    if (CloudFadeParams.z > 0.0f)
-                        density *= smoothstep(CloudFadeParams.w, CloudFadeParams.z, t);
-
-                    if (density > 0.0f)
+                    // The loop head's own stop, between two samples of the group.
+                    if (s > 0 && (t >= laneEndKm || frontT * transmittance < stopT))
                     {
-                        // The winning species' own opacity, per sample — through the MEDIUM, so a
-                        // material that authors its own extinction is obeyed here and, identically, on
-                        // the shadow ray, the shadow map and the occlusion volume. See the note in
-                        // CloudLightOpticalDepth.
-                        float sigmaT = density * extinction *
-                                       CloudSampleExtinctionFactor(params, field, fieldPos);
+                        laneFinished = true;
+                        laneActive   = false;
+                        break;
+                    }
 
-                        // ONE shadow ray serves every scattering order. That is the whole economy of the
-                        // octave approximation: the expensive part is finding how much material lies
-                        // between this sample and the sun, and each order then reuses that number with its
-                        // own extinction scale.
-                        vec2  lightCost;
-                        float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
-                                                                         lightMarchKm, lightSamples, extinction,
-                                                                         lightCost);
-                        ++censusLitSamples;
-                        censusLightSamples += lightCost.x;
-                        censusFullLightRays += int(lightCost.y > 0.5f);
+                    ++censusFieldEvaluations;
 
-                        // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
-                        //
-                        // The strength is the SAME field either way — CloudPhase.z, the artist's
-                        // AmbientOcclusionStrength — and it keeps one meaning, "how strongly the sky light
-                        // is occluded". What the layer's flag chooses is which occluder computes it, so
-                        // neither path leaves the other's parameters dead.
-                        //
-                        // VOLUME OFF: the sample's own Profile, i.e. its depth inside its OWN body.
-                        // Authored, not fixed at full: UE carries the amount in the alpha of its albedo
-                        // parameter, so it IS a dial there.
-                        //
-                        // VOLUME ON, WHICH IS THE DEFAULT SINCE Р12: the diffuse transmittance of
-                        // everything ABOVE this column at this altitude.
-                        // It REPLACES the profile term rather than multiplying it, and that is
-                        // deliberate — the column integrated from the sample upward already contains the
-                        // upper half of the sample's own body, so applying both would count that material
-                        // twice and darken a cloud's own core for a reason nobody could find later.
-                        float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
-                        if (CloudFrame.x > 0.5f)
+                    if (!fineProfile[s])
+                    {
+                        t += fineStepKm[s];
+                        ++emptyRun;
+                        // Left the cloud: the next iteration searches coarse from the next sample's t, and the rest of the
+                        // group is discarded - the old loop never fetched it.
+                        if (emptyRun >= kEmptyFineSamplesBeforeCoarse)
                         {
-                            // The WIND-SHIFTED position, because that is the frame the volume was traced
-                            // in — the same subtraction Common/CloudField.glslh makes on its own way into
-                            // the modelling volume, and the reason the two land on the same texel however
-                            // far the wind has run.
-                            vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x,
-                                                   fieldPos.y - params.WindOffsetKm.y,
-                                                   fieldPos.z - params.WindOffsetKm.z);
-
-                            vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
-                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
-                                                               heightFraction, skyWindPos);
-
-                            // textureLod AND NOT texture, for the reason every other volume fetch in this
-                            // file gives: a compute shader has no derivatives, so the implicit level of
-                            // detail is undefined.
-                            ambientOcclusion =
-                                CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
-                                                  CloudPhase.z);
+                            fine     = false;
+                            emptyRun = 0;
+                            break;
                         }
+                        continue;
+                    }
 
-                        // Wrenninge's multiple-scattering octaves, as Unreal implements them — the series
-                        // itself is Common/CloudLighting.glslh's CloudMultiScatterStep, which is where its
-                        // arrangement and its price are written down. It lives there rather than here so
-                        // that Desert/Tests/Engine/CloudLighting can drive it as C++ and bound it against a
-                        // converged Monte Carlo; inside this loop nothing could reach it.
-                        //
-                        // The ray's transmittance is applied HERE and not inside, because it belongs to the
-                        // ray's history rather than to the medium — and keeping it out is what lets the
-                        // series be bounded by the source it integrates.
-                        // THE SUN THIS SAMPLE SEES. Resolved once per sample and handed to the series as
-                        // its source, because the atmosphere between this point and the sun is the same
-                        // atmosphere whether the light arriving is first-order or third — the octave loop
-                        // inside CloudMultiScatterStep would otherwise repeat the fetch per order.
-                        // THE MEDIUM'S LAST TWO OUTPUTS, taken here because both are per-SAMPLE in the
-                        // Volume domain's contract even though the shipped material authors them per
-                        // layer. Each default hands its argument straight back, so the two calls fold
-                        // away and the loop is the loop it was.
-                        ambientOcclusion = CloudSampleOcclusion(params, field, fieldPos, ambientOcclusion);
+                    emptyRun = 0;
 
-                        // THE CLOUD BOTTOM, which neither occluder above can see: both measure cloud, and what
-                        // darkens a cumulus base is the GROUND under it — a sample at the bottom of the layer
-                        // looks down at dark earth where one at the top looks up at open sky. Unreal's
-                        // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
-                        // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
-                        // darkened, as the authored layer setting promises.
-                        ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, CloudAlbedo.w);
-                        vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
+                    if (fineLit[s])
+                    {
+                        ++censusLitSamples;
+                        censusLightSamples += fineLightCost[s].x;
+                        censusFullLightRays += int(fineLightCost[s].y > 0.5f);
 
-                        luminance += transmittance *
-                                     CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
-                                                           ambientRadiance * ambientOcclusion, opticalDepth,
-                                                           phase, sigmaT, sampleAlbedo, litStepKm);
+                        luminance += transmittance * fineScatter[s];
+                        luminance += transmittance * fineEmission[s] * fineStepKm[s];
 
-                        // EMISSION: radiance the medium ADDS, per kilometre of march, attenuated by the
-                        // ray's own history and by nothing else. It is deliberately NOT multiplied by the
-                        // absorption coefficient — Unreal makes the same choice for the same reason, that
-                        // an artist authoring a glow wants the glow they authored and not the glow times
-                        // however opaque the cloud happens to be there (VolumetricCloud.usf:1381-1384).
-                        // The default medium returns a literal zero, so this line costs nothing until a
-                        // graph writes the pin.
-                        luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * litStepKm;
-
-                        // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
-                        // able to contribute, not how much is left after it. Also the guide's front (above),
-                        // and placed before the stop below so a ray stopped on transmittance keeps it.
+                        // Recorded BEFORE the ray is attenuated: the weight is how much this sample was able to contribute,
+                        // not how much is left after it. Also the guide's front (above), and placed before the stop below so
+                        // a ray stopped on transmittance keeps it.
                         aerialWeightedT += t * transmittance;
                         aerialWeightSum += transmittance;
 
-                        // The view ray is attenuated by the medium itself, once — the octaves are orders
-                        // of scattering INTO this ray, not extra material along it.
-                        transmittance *= CloudBeerTransmittance(sigmaT, litStepKm);
+                        transmittance *= fineBeer[s];
 
-                        // The lane's own stop, the one test above that needs no other lane; it goes idle
-                        // rather than leaving, so its ray's lanes keep reading it.
+                        // The lane's own stop, the one test above that needs no other lane; it goes idle rather than
+                        // leaving, so its ray's lanes keep reading it. The rest of the group is discarded.
                         if (transmittance < stopT)
                         {
                             laneFinished = true;
                             laneActive   = false;
-                            continue;
+                            break;
                         }
                     }
-                }
 
-                t += litStepKm;
+                    t += fineStepKm[s];
+                }
             }
 
             // GPU-FARFIELD-4: THE LANES COMPOSED FRONT TO BACK (CLOUD_MARCH_SEGMENT_LANES). Every lane of the ray
