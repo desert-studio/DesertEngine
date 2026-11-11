@@ -30,12 +30,13 @@
 // SIMPLE: every geometry texel of the tile is DefaultLit, which the tiled permutation DESERT_DEFERRED_TILE_SIMPLE
 // shades with the shading model folded to SHADING_MODEL_INDEX_DEFAULT_LIT (the same function the dispatch would
 // call for those texels). COMPLEX: any other model is in the tile - the union every reader of the complex records
-// takes (the composite, the subsurface scatter, SSAO's geometry dispatch). The direct lighting splits it further
+// takes (the subsurface scatter, SSAO's geometry dispatch). The direct lighting and the composite split it further
 // (UE ClusteredDeferredShading's per-shading-model tile types, ShadingModelTileType): a complex tile whose geometry
 // texels are ALL one model m (bit m of the mask) is listed in model m's list, which the permutation
 // DESERT_DEFERRED_TILE_MODEL=m shades with the model folded to m - the function the dispatch would call for every
 // texel of it; any other complex tile is MIXED and keeps the dispatch. Every complex tile is in exactly one of the
-// mixed and the per-model lists, so the direct pass of the complex tiles covers exactly the complex list.
+// mixed and the per-model lists, so the direct and the composite passes of the complex tiles (FPS-DIRECT-TILES2:
+// the composite's DESERT_DEFERRED_TILE_MODEL permutations) each cover exactly the complex list.
 
 const uint kDeferredTileSize        = 8u;
 const uint kDeferredTileVertices    = 6u;
