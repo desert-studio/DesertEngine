@@ -1881,6 +1881,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum,
                                         const std::size_t first, const std::size_t last,
+                                        const std::span<uint64_t> viewBits, const bool fillBits,
                                         DrawBuildScratch::StaticWalkChunk& chunk ) const
     {
         chunk.GroupCount = 0;
@@ -1903,31 +1904,29 @@ namespace Desert::Graphic::System
         // joins a group or a mask (its address). A record past the columns was queued after the sync: skipped.
         const StaticWalkColumns& columns = m_StaticColumns;
         const std::size_t        end     = std::min( last, columns.Count() );
-        // The snapshot's boxes four at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record
-        // that reaches the frustum test is tested once over the snapshot's lanes, kept with the static revision;
-        // each record reads its bit - StaticEntryInView's answer. The chunk's own cursor: chunks run in parallel.
-        const bool lanes      = StaticLanesCurrent();
-        const auto entryGroup = [this, &frustum]( const std::size_t base ) noexcept
-        { return StaticEntriesInView4( frustum, base ); };
-        VisibleInViewQuads entryQuads;
-        for ( std::size_t i = first; i < end; ++i )
+        // THE VIEW'S BITS (m_MainStaticBits; UE PrimitiveVisibilityMap + TConstSetBitIterator): the snapshot's
+        // boxes four at a time over its lanes (CPU-SIMD 4, StaticEntryInView's answer bit for bit), written once
+        // per view - by this chunk for its own words when fillBits - and the walk below visits the set bits only,
+        // in increasing order: a record out of the frustum costs no column read and no CpuWalkUninterned. The
+        // admission is the same conjunction as before (in view, a mesh with a slot binding, not wholly held by
+        // the bins), only asked in the cheaper order; every test is a pure read, so the same records, masks and
+        // groups come out in the same order.
+        if ( fillBits && last > first )
+            VisibleInViewBits( frustum, m_StaticSnapshot.WorldLanes, first, last - first,
+                               viewBits.subspan( first / 64u ) );
+        const auto admit = [&]( const std::size_t i )
         {
             const Desert::Mesh* const mesh = columns.Meshes[i];
             if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kHasSlots ) == 0u )
-                continue;
+                return;
             const uint64_t hidden = columns.Hidden[i];
 
             // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
-            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
-            // work.
+            // the bins issue it.
             const std::optional<UninternedWalk> walk =
                  CpuWalkUninterned( view, mesh, columns.Primitives[i], hidden, chunk.WalkWords );
             if ( !walk )
-                continue;
-            // The dense snapshot's box (m_StaticSnapshot, built once per static revision), not this entry's mesh.
-            const bool inView = lanes ? entryQuads.Visible( i, entryGroup ) : StaticEntryInView( frustum, i );
-            if ( !inView )
-                continue;
+                return;
             const StaticMeshRenderData& data = m_StaticQueue[i];
             // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).
             if ( walk->HighWords != 0u || walk->Low != hidden )
@@ -1946,6 +1945,32 @@ namespace Desert::Graphic::System
             // surface column is SectionSurface's answer, asked once at the sync.
             if ( columns.Instances[i] != nullptr )
                 groupOf( columns.Surfaces[i] ).push_back( &data );
+        };
+        if ( viewBits.empty() )
+        {
+            // No current lanes (the snapshot is not of this gather): each record's box asked on its own, a mesh
+            // first (StaticEntryInView then builds the box from it).
+            for ( std::size_t i = first; i < end; ++i )
+                if ( columns.Meshes[i] != nullptr && StaticEntryInView( frustum, i ) )
+                    admit( i );
+            return;
+        }
+        if ( end <= first )
+            return;
+        // The set bits of [first, end), word by word in increasing order (the serial walk's order).
+        const std::size_t lastWord = ( end - 1u ) / 64u;
+        for ( std::size_t w = first / 64u; w <= lastWord; ++w )
+        {
+            uint64_t word = viewBits[w];
+            if ( w == first / 64u )
+                word &= ~uint64_t{ 0 } << ( first % 64u );
+            if ( w == lastWord && end % 64u != 0u )
+                word &= ( uint64_t{ 1 } << ( end % 64u ) ) - 1u;
+            while ( word != 0u )
+            {
+                admit( w * 64u + static_cast<std::size_t>( std::countr_zero( word ) ) );
+                word &= word - 1u;
+            }
         }
     }
 
@@ -2116,18 +2141,66 @@ namespace Desert::Graphic::System
             const std::size_t chunks = std::clamp<std::size_t>( queued / kStaticWalkChunkMin, 1u, participants );
             if ( scratch.WalkChunks.size() < chunks )
                 scratch.WalkChunks.resize( chunks );
+            // THE VIEW'S BITS, FILLED ONCE (m_MainStaticBits; UE ComputeViewVisibility's PrimitiveVisibilityMap):
+            // kept while the camera frustum's planes (bit for bit), the snapshot's revision and gather and the
+            // queue's size stand - the second static walk of the frame's view (deferred early-Z then G-buffer,
+            // forward prepass then base pass) tests no box. Otherwise the chunks fill it, each its own words.
+            StaticViewBits&                     viewBits = m_MainStaticBits;
+            std::array<Core::Frustum::Plane, 6> planes{};
+            for ( std::size_t p = 0; p < planes.size(); ++p )
+                planes[p] = frustum.GetPlane( static_cast<Core::FrustumPlane>( p ) );
+            const auto samePlanes = [&planes, &viewBits]() noexcept
+            {
+                for ( std::size_t p = 0; p < planes.size(); ++p )
+                {
+                    const Core::Frustum::Plane& a = planes[p];
+                    const Core::Frustum::Plane& b = viewBits.Planes[p];
+                    for ( int k = 0; k < 3; ++k )
+                        if ( std::bit_cast<uint32_t>( a.Normal[k] ) != std::bit_cast<uint32_t>( b.Normal[k] ) )
+                            return false;
+                    if ( std::bit_cast<uint32_t>( a.Distance ) != std::bit_cast<uint32_t>( b.Distance ) )
+                        return false;
+                }
+                return true;
+            };
+            const bool lanes = StaticLanesCurrent();
+            const bool keep  = lanes && viewBits.Valid && viewBits.Count == queued &&
+                              viewBits.Revision == m_StaticSnapshot.Revision &&
+                              viewBits.Gather == m_StaticSnapshot.Gather && samePlanes();
+            const bool fill = lanes && !keep;
+            if ( !lanes )
+                viewBits.Valid = false;
+            if ( fill )
+            {
+                viewBits.Valid = false; // until the chunks joined
+                viewBits.Words.resize( ( queued + 63u ) / 64u );
+            }
+            const std::span<uint64_t> bitsSpan =
+                 lanes ? std::span<uint64_t>( viewBits.Words ) : std::span<uint64_t>{};
+            // Chunk edges on whole words (a multiple of 64 records, the last at the queue's end), so a filling
+            // chunk writes only words of its own; the merge below is the serial walk's for any edges.
+            const auto edge = [queued, chunks]( const std::size_t c ) noexcept
+            { return c >= chunks ? queued : ( queued * c / chunks ) & ~std::size_t{ 63u }; };
             {
                 ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
                 for ( std::size_t c = 0; c < chunks; ++c )
                 {
-                    const std::size_t                  first = queued * c / chunks;
-                    const std::size_t                  last  = queued * ( c + 1 ) / chunks;
+                    const std::size_t                  first = edge( c );
+                    const std::size_t                  last  = edge( c + 1u );
                     DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
                     tasks.Launch( "Mesh: Static walk chunk",
-                                  [this, &mainWalk, &frustum, &chunk, first, last]() noexcept
-                                  { WalkStaticChunk( mainWalk, frustum, first, last, chunk ); } );
+                                  [this, &mainWalk, &frustum, &chunk, bitsSpan, fill, first, last]() noexcept
+                                  { WalkStaticChunk( mainWalk, frustum, first, last, bitsSpan, fill, chunk ); } );
                 }
                 tasks.Join();
+            }
+            if ( fill )
+            {
+                viewBits.Planes   = planes;
+                viewBits.Revision = m_StaticSnapshot.Revision;
+                viewBits.Gather   = m_StaticSnapshot.Gather;
+                viewBits.Count    = queued;
+                viewBits.Valid    = true;
             }
             // A mask that cannot be interned (a walk inside a setup task, MissInSetupTask) drops its record, as
             // the serial walk's CpuWalkHidden did: none in a Full or a Resolve call.

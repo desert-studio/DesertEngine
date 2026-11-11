@@ -9,6 +9,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <bit>
 #include <cstring>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
@@ -764,6 +765,7 @@ namespace Desert::Graphic::System
             m_StaticSnapshot.GenericBounds.resize( m_GenericQueue.size() );
             // The same boxes as columns, in entry order (CPU-SIMD 4): refilled only here, with the revision.
             m_StaticSnapshot.WorldLanes.Clear();
+            ++m_StaticSnapshot.Revision; // a view's bits of the old boxes (m_MainStaticBits) are asked again
             setup.StaticBounds.Clear();
             for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
             {
@@ -815,12 +817,6 @@ namespace Desert::Graphic::System
         return m_StaticSnapshot.Gather == m_ShadowCasterSetup.Gather &&
                m_StaticSnapshot.WorldBounds.size() == m_StaticQueue.size() &&
                m_StaticSnapshot.WorldLanes.Size() == m_StaticQueue.size();
-    }
-
-    uint32_t MeshRenderer::StaticEntriesInView4( const Core::Frustum& frustum,
-                                                 const std::size_t    base ) const noexcept
-    {
-        return VisibleInView4( frustum, m_StaticSnapshot.WorldLanes, base );
     }
 
     bool MeshRenderer::GenericEntryInView( const Core::Frustum& frustum, const std::size_t index ) const
@@ -2430,8 +2426,8 @@ namespace Desert::Graphic::System
         // record past the columns was queued after the sync: skipped.
         const StaticWalkColumns& columns = m_StaticColumns;
         const std::size_t        statics = drawStatic ? columns.Count() : 0u;
-        // inView four rows at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record that
-        // reaches the test is tested once over the rows' columns (StaticBounds, kept with the rows), the view's
+        // inView four rows at a time (CPU-SIMD 4; UE's primitive-bounds batch): each group of four rows is
+        // tested once over the rows' columns (StaticBounds, kept with the rows), the view's
         // bits AND the union of the strips' - per row the verdict inView gives its box. Rows whose columns are
         // not of these rows (another count, or rows not finished for this gather) are tested one at a time.
         const Common::Math::AABBLanes& staticLanes = gathered.StaticBounds;
@@ -2447,22 +2443,32 @@ namespace Desert::Graphic::System
                 stripBits |= VisibleInView4( strips[s], staticLanes, base );
             return bits & stripBits;
         };
-        VisibleInViewQuads staticQuads;
-        for ( std::size_t i = 0; i < statics; ++i )
+        // THE CASCADE'S CASTER BITS (m_ScratchStaticCasterBits; UE PrimitiveVisibilityMap + TConstSetBitIterator):
+        // the rows' boxes four per register (staticGroup: the view AND the strips' union, inView's verdict per
+        // row), filled once before the walk; the walk then visits the set bits only, in increasing order, so a
+        // row out of the cascade costs no column read and no CpuWalkHidden. The admission is the same conjunction
+        // as before (in view, a mesh, a caster, not wholly held by the bins) asked in the cheaper order; rows
+        // past the batched columns (rows not of this gather) are tested one at a time, as before.
+        const std::size_t      batched    = staticBatch ? std::min( statics, staticLanes.Size() ) : 0u;
+        std::vector<uint64_t>& casterBits = m_ScratchStaticCasterBits;
+        casterBits.assign( ( batched + 63u ) / 64u, 0u );
+        for ( std::size_t base = 0; base < batched; base += 4u )
+        {
+            uint32_t lanes = staticGroup( base );
+            if ( batched - base < 4u )
+                lanes &= ( 1u << ( batched - base ) ) - 1u;
+            casterBits[base / 64u] |= static_cast<uint64_t>( lanes ) << ( base % 64u );
+        }
+        const auto visitCaster = [&]( const std::size_t i )
         {
             const Desert::Mesh* const mesh  = columns.Meshes[i];
             const uint8_t             flags = columns.Flags[i];
             if ( mesh == nullptr || ( flags & StaticWalkColumns::kCastsShadow ) == 0u )
-                continue;
-            // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
+                return;
             const std::optional<SubmeshMask> walk =
                  walkHidden( mesh, mesh->GetSubmeshes().size(), columns.Primitives[i], columns.Hidden[i] );
             if ( !walk )
-                continue;
-            const bool caster = staticBatch && i < staticLanes.Size() ? staticQuads.Visible( i, staticGroup )
-                                                                      : inView( gathered.Statics[i].WorldBounds );
-            if ( !caster )
-                continue;
+                return;
             const StaticMeshRenderData& rd     = m_StaticQueue[i];
             const SubmeshMask           hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
@@ -2474,19 +2480,19 @@ namespace Desert::Graphic::System
             if ( ( flags & StaticWalkColumns::kMasked ) == 0u )
             {
                 bucketFor( i, rd.Mesh, hidden ).push_back( &rd );
-                continue;
+                return;
             }
             auto* masked = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
             if ( masked == nullptr )
             {
-                continue; // refused by name, once
+                return; // refused by name, once
             }
             // The caster's row is the lit draw's, from the scene material table (SyncGpuScene: the receiving
             // row; a caster never reads ReceiveSunShadows).
             const std::optional<uint32_t> row = FindMaterialRow( mat, inst );
             if ( !row )
             {
-                continue;
+                return;
             }
             auto&            set = maskedSetFor( masked );
             MaskedCasterDraw draw;
@@ -2499,7 +2505,16 @@ namespace Desert::Graphic::System
             draw.LodLevel          = ShadowStaticLod( static_cast<uint32_t>( i ) );
             draw.HiddenSubmeshMask = hidden;
             m_ScratchMaskedDraws.push_back( draw );
+        };
+        for ( std::size_t w = 0; w < casterBits.size(); ++w )
+        {
+            for ( uint64_t word = casterBits[w]; word != 0u; word &= word - 1u )
+                visitCaster( w * 64u + static_cast<std::size_t>( std::countr_zero( word ) ) );
         }
+        for ( std::size_t i = batched; i < statics; ++i )
+            if ( columns.Meshes[i] != nullptr && ( columns.Flags[i] & StaticWalkColumns::kCastsShadow ) != 0u &&
+                 inView( gathered.Statics[i].WorldBounds ) )
+                visitCaster( i );
 
         // Pack all instanced-batch transforms contiguously; each batch reads its slice via
         // firstInstance. Upload the SSBO ONCE (final size) before any instanced draw is recorded.
