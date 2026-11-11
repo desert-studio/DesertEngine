@@ -42,6 +42,35 @@ namespace Desert::Graphic
         return false;
     }
 
+    bool Material::WritePushField( MaterialPushHandle& handle, std::string_view field, const void* value,
+                                   uint32_t size )
+    {
+        if ( !m_MaterialExecutor || !m_MaterialExecutor->GetShader() )
+            return false;
+        const Shader&             shader = *m_MaterialExecutor->GetShader();
+        const MaterialLayoutStamp stamp{ .Serial = shader.GetSerial(), .Generation = shader.GetCodeGeneration() };
+        if ( !handle.Resolved || handle.Stamp != stamp )
+        {
+            const auto slot = MaterialBinder::ResolvePush( shader.GetMaterialLayout(), field, size );
+            handle.Stamp    = stamp;
+            handle.Status   = slot.Status;
+            handle.Offset   = slot.Offset;
+            handle.Resolved = true;
+        }
+        switch ( handle.Status )
+        {
+            case MaterialBinder::PushWrite::Written:
+                m_MaterialExecutor->PushConstant( value, size, handle.Offset );
+                return true;
+            case MaterialBinder::PushWrite::SizeMismatch:
+                // The by-name route names the two sizes: a mismatch is a fault to report, not a hot path.
+                return WritePushField( field, value, size );
+            case MaterialBinder::PushWrite::Absent:
+                return false;
+        }
+        return false;
+    }
+
     const Core::Formats::MaterialLayout& Material::GetMaterialLayout() const
     {
         static const Core::Formats::MaterialLayout kNoLayout;
@@ -52,35 +81,35 @@ namespace Desert::Graphic
 
     void Material::SetMaterialIndex( uint32_t index )
     {
-        WritePushField( "MaterialIndex", &index, sizeof( uint32_t ) );
+        WritePushField( m_PushHandles.MaterialIndex, "MaterialIndex", &index, sizeof( uint32_t ) );
     }
 
     void Material::SetPushMatrix( const glm::mat4& matrix )
     {
-        WritePushField( "Transform", &matrix, sizeof( glm::mat4 ) );
+        WritePushField( m_PushHandles.Transform, "Transform", &matrix, sizeof( glm::mat4 ) );
     }
 
     void Material::SetPrimitiveIndex( uint32_t row )
     {
-        const bool written = WritePushField( "PrimitiveIndex", &row, sizeof( uint32_t ) );
+        const bool written = WritePushField( m_PushHandles.PrimitiveIndex, "PrimitiveIndex", &row, sizeof( uint32_t ) );
         DESERT_VERIFY( written, "SetPrimitiveIndex on a cell with no PrimitiveIndex push field" );
     }
 
     void Material::SetInstancedWind( const InstanceWindPush& wind )
     {
-        WritePushField( "WindA", &wind.A, sizeof( glm::vec4 ) );
-        WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
+        WritePushField( m_PushHandles.WindA, "WindA", &wind.A, sizeof( glm::vec4 ) );
+        WritePushField( m_PushHandles.WindB, "WindB", &wind.B, sizeof( glm::vec4 ) );
     }
 
     void Material::SetPrimitiveFlags( const uint32_t flags )
     {
-        WritePushField( "PrimitiveFlags", &flags, sizeof( uint32_t ) );
+        WritePushField( m_PushHandles.PrimitiveFlags, "PrimitiveFlags", &flags, sizeof( uint32_t ) );
     }
 
     void Material::SetShadowSlopeBias( const float slopeBias, const float slopeClamp )
     {
         const glm::vec2 slope( slopeBias, slopeClamp );
-        const bool      written = WritePushField( "ShadowSlope", &slope, sizeof( glm::vec2 ) );
+        const bool      written = WritePushField( m_PushHandles.ShadowSlope, "ShadowSlope", &slope, sizeof( glm::vec2 ) );
         DESERT_VERIFY( written, "SetShadowSlopeBias on a cell with no ShadowSlope push field" );
     }
 
@@ -98,7 +127,7 @@ namespace Desert::Graphic
 
     void Material::SetSkinnedBoneOffset( uint32_t firstBone )
     {
-        const bool written = WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
+        const bool written = WritePushField( m_PushHandles.BoneOffset, "BoneOffset", &firstBone, sizeof( uint32_t ) );
         DESERT_VERIFY( written, "SetSkinnedBoneOffset on a cell with no skinned vertex stage (no BoneOffset)" );
     }
 

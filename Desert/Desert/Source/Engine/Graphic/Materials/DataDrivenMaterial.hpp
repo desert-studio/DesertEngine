@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/MaterialParamHandle.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
@@ -131,6 +132,55 @@ namespace Desert::Graphic
             if ( written )
                 m_RowRevision = NextMaterialRevision();
             return written;
+        }
+
+        // THE HANDLE ROUTE (UE: FMaterialRenderProxy's uniform expression cache resolves a parameter's offset once
+        // per shader map, a draw writes by index). The stamp of the layout this material writes through now: the
+        // program's serial and code generation (MaterialLayoutStamp), {0, 0} without a program.
+        [[nodiscard]] MaterialLayoutStamp GetLayoutStamp() const noexcept
+        {
+            const Shader* shader = m_MaterialExecutor ? m_MaterialExecutor->GetShader().get() : nullptr;
+            if ( shader == nullptr )
+                return {};
+            return { .Serial = shader->GetSerial(), .Generation = shader->GetCodeGeneration() };
+        }
+
+        // @p name's row slot in the current layout; IsValue() false when the row has no such numeric parameter
+        // (a texture slot is written from the material's texture, never as a value - WriteRowParam's rule).
+        [[nodiscard]] MaterialParamHandle ResolveParam( std::string_view name ) const
+        {
+            MaterialParamHandle handle;
+            handle.Stamp       = GetLayoutStamp();
+            const auto& params = GetMaterialLayout().Params;
+            for ( size_t index = 0; index < params.size(); ++index )
+            {
+                const auto& p = params[index];
+                if ( p.Name != name )
+                    continue;
+                const uint32_t slot = p.Offset / Core::Formats::kMaterialParamSlotSize;
+                if ( p.IsTexture || slot >= m_Row.size() )
+                    break;
+                handle.Slot  = slot;
+                handle.Param = static_cast<uint32_t>( index );
+                break;
+            }
+            return handle;
+        }
+
+        // SetParam through a handle the caller keeps: re-resolved by @p name only when the layout's stamp moved
+        // (a hot reload bumps the generation, another program has another serial), else written by slot.
+        bool SetParam( MaterialParamHandle& handle, std::string_view name, const glm::vec4& value )
+        {
+            if ( handle.Stamp != GetLayoutStamp() )
+                handle = ResolveParam( name );
+            if ( !handle.IsValue() || handle.Slot >= m_Row.size() )
+                return false;
+            const auto& params = GetMaterialLayout().Params;
+            if ( handle.Param >= params.size() )
+                return false;
+            m_Row[handle.Slot] = Core::Formats::MaterialRowSlotValue( params[handle.Param].Type, value );
+            m_RowRevision      = NextMaterialRevision();
+            return true;
         }
 
         // The name the override producers use. Identical to SetParam now — it was a separate entry point
