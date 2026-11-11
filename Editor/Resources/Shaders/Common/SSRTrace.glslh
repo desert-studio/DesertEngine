@@ -12,6 +12,21 @@
 #include <Common/SSRGate.glslh>
 #include <Common/ReconstructPosition.glslh>
 
+// The traced methods' two programs (SSRRenderer: ReflectionMethod SoftwareTraced / HardwareTraced): the screen leg
+// (DESERT_REFLECTIONS_SCREEN_LEG, no tracer in it) classifies and walks the screen, leaving the rays it does not
+// answer to the world; the traced permutation (DESERT_REFLECTIONS_TRACED) traces them - its compute is the
+// world stage (DESERT_REFLECTIONS_WORLD_STAGE), its hit-lit ray generation the whole texel. Both draw the world
+// rays (DESERT_REFLECTIONS_WORLD_RAYS).
+#if defined( DESERT_REFLECTIONS_TRACED ) && defined( DESERT_REFLECTIONS_SCREEN_LEG )
+#error "the screen leg is the traced reflections' program without the tracer"
+#endif
+#if defined( DESERT_REFLECTIONS_TRACED ) || defined( DESERT_REFLECTIONS_SCREEN_LEG )
+#define DESERT_REFLECTIONS_WORLD_RAYS
+#endif
+#if defined( DESERT_REFLECTIONS_TRACED ) && !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+#define DESERT_REFLECTIONS_WORLD_STAGE
+#endif
+
 // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
 // of these, bound once by the pass and numbered by the program build (SharedSamplerBinding.hpp); a
 // same-name macro after each texture keeps the sampled form. The repeat state is the software tracer's too
@@ -160,9 +175,6 @@ layout(location = 0) rayPayloadEXT DesertRayPayload payload;
 
 // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the screen probes' own).
 const float kTracedMaxDistance = 20000.0;
-// cm a world leg starts before the point up to which the screen was certain (twice UE's mesh SDF
-// SurfaceBias, 5 cm): the world's surface stands off the depth buffer's by its own precision.
-const float kWorldStartBackoff = 10.0;
 
 // The world leg of one ray from the surface @p worldPos (normal @p N) along @p L, starting @p start cm along
 // it (where the screen was certain): the tracer to kTracedMaxDistance (Common/GITracer.glslh: for the software
@@ -219,6 +231,12 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 }
 #endif // DESERT_REFLECTIONS_TRACED
 
+#if defined( DESERT_REFLECTIONS_WORLD_RAYS )
+// cm a world leg starts before the point up to which the screen was certain (twice UE's mesh SDF
+// SurfaceBias, 5 cm): the world's surface stands off the depth buffer's by its own precision.
+const float kWorldStartBackoff = 10.0;
+#endif
+
 // Filled on the CPU from the view's matrices once per view frame (SSRRenderer::UploadTraceUniforms).
 // InverseJitteredViewProjection = inverse of the matrix the G-buffer depth was rasterised with
 // (Common/ReconstructPosition.glslh); JitteredWorldToClip = that matrix (rays are projected with it,
@@ -250,7 +268,7 @@ PushConstant PushConstants
 // so a tile the classify marks empty holds no texel the trace would have reflected.
 bool SSRTexelTraces(vec4 gb)
 {
-#if defined( DESERT_REFLECTIONS_TRACED )
+#if defined( DESERT_REFLECTIONS_WORLD_RAYS )
 	return TracedReflectionsPixelTraces(gb, SsrParams3.z >= 0.5);
 #else
 	return SSRPixelCanReflect(gb);
@@ -271,15 +289,18 @@ LocalSize(8, 8, 1);
 
 shared uint s_TileReflects;
 
-#if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+// The trace's and the world stage's threads per workgroup (= LocalSize).
+const uint kSSRTraceListGroupSize = 64u;
+
+#if !defined( DESERT_REFLECTIONS_TRACED )
 // THE TRACED TEXELS' LIST (UE LumenReflections.cpp ReflectionTileClassification's compacted trace texels and
 // ReflectionTracingTileIndirectArgs): the classify (SSR.shader, SsrParams3.w = 0) appends every texel it hands to
 // the trace, one atomic per tile, and sizes the trace's indirect dispatch; the trace (SsrParams3.w = 1) runs one
 // thread per listed texel, so a wave walks rays on every lane instead of waiting on the texels its tile does not
 // own (three in four at DownsampleFactor 2) or does not trace (sky, rougher than the gate). Reset by the graph's
-// upload (SSRRenderer::kTraceListArgsReset). The hit-lit permutation traces from its ray generation over every
-// texel and keeps no list.
-const uint kSSRTraceListGroupSize = 64u; // = LocalSize: the trace's threads per workgroup
+// upload (SSRRenderer::kTraceListArgsReset). The screen alone and the traced reflections' screen leg
+// (DESERT_REFLECTIONS_SCREEN_LEG) keep it; the traced permutation keeps none: hit-lit, its ray generation traces
+// every texel, otherwise its compute is the world stage over the screen leg's world list.
 layout(std430, binding = 42) buffer SsrTraceListArgsUB
 {
 	uvec4 ssrTraceListArgs; // x = the trace's workgroups, y = z = 1 (the indirect dispatch), w = texels listed
@@ -290,6 +311,33 @@ layout(std430, binding = 43) buffer SsrTraceListUB
 };
 shared uint s_ListCount;
 shared uint s_ListStart;
+#endif
+
+#if defined( DESERT_REFLECTIONS_SCREEN_LEG ) || defined( DESERT_REFLECTIONS_WORLD_STAGE )
+// THE WORLD RAYS' LIST (UE LumenReflectionTracing: the screen trace, then CompactReflectionTraces of the rays it
+// did not answer, then the mesh SDF / hardware traces over that compacted list): the screen leg (the trace stage
+// of DESERT_REFLECTIONS_SCREEN_LEG, no tracer in its kernel) writes every texel as if its world ray missed and
+// lists the texels that drew one (SSRTraceSums::worldWeight > 0) with the screen's sums; the world stage (the
+// traced permutation's compute, SsrParams3.w = 2) runs one thread per listed texel, traces its one world ray and,
+// on a hit, rewrites the texel - the same sums in the same order as one kernel doing both. Reset by the graph's
+// upload (SSRRenderer::kTraceListArgsReset).
+struct SSRWorldRay
+{
+	vec4  RadianceHitWeight; // the screen's sums: rgb = radiance, a = hit weight (both Karis-weighted)
+	vec4  HitPointCoverage;  // xyz = the hit points' weighted sum (world), w = coverage
+	float WorldWeight;       // the summed weight of the rays left to the world
+	float WeightSum;         // the summed weight of every ray
+	float WorldStart;        // cm along the drawn ray where its world leg starts
+	uint  TexelRay;          // q.x | q.y << 14 | the drawn ray's index << 28 (SSRRenderer::kWorldRayBytes = 48)
+};
+layout(std430, binding = 44) buffer SsrWorldListArgsUB
+{
+	uvec4 ssrWorldListArgs; // x = the world stage's workgroups, y = z = 1, w = texels listed
+};
+layout(std430, binding = 45) buffer SsrWorldListUB
+{
+	SSRWorldRay ssrWorldList[];
+};
 #endif
 #endif
 
@@ -336,111 +384,159 @@ float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float max
 	return confidence * HZBScreenEdgeFade(hit.xy) * (1.0 - smoothstep(0.7 * maxDistance, maxDistance, travel));
 }
 
-// The traced texel gPix (SSRTraceSourcePixel: every pixel, or one pixel of a 2x2 block rotating every frame).
-// Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header); @p ray = the
-// texel's ray for the reconstruction (TraceRayTexture): xyz = the point it hit (the weighted mean of the hit points;
-// when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the environment
-// the next source answers is at infinity), w = the log2 pdf of drawing the direction to it from here.
-// A texel with no ray: pdf 0 (log -126), which the reconstruction reads as "nothing to reuse".
-vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
+// ONE TRACED TEXEL's frame, shared by its rays: its surface, the lobe's basis, the rays' origin (on the screen and
+// in the world) and the rotation of its ray sequence. The world stage (SSR.shader TraceWorldListed) recomputes it
+// from the texel alone - the same statements on the same inputs, so the same bits as the screen leg's.
+struct SSRTexel
 {
-	ray = vec4(0.0, 0.0, 0.0, -126.0);
-	// Whether the screen holds last frame to return at a hit. Without it the screen-only trace answers
-	// nothing (all to the next source); the traced one still has the world.
-	const bool screenLeg = SsrParams2.y >= 0.5;
-#if !defined( DESERT_REFLECTIONS_TRACED )
-	if (!screenLeg)
-		return vec4(0.0);
-#endif
+	vec3  N;
+	float roughness;
+	float alpha;
+	vec3  worldPos;
+	vec3  T;
+	vec3  B;
+	vec3  Ve;           // the view direction in (T, B, N)
+	vec3  origin;       // where the rays leave (world)
+	vec3  originScreen; // origin in (uv, deviceZ), meaningful when onScreen
+	bool  onScreen;
+	float originW;      // origin's clip w
+	vec2  rotation;     // the texel's rotation of the ray sequence
+};
 
+// The frame of the texel whose G-buffer pixel is @p gPix. False: the pixel does not trace (SSRTexelTraces).
+bool SSRTexelSetup(ivec2 gPix, ivec2 gSize, out SSRTexel t)
+{
 	const vec2 gUV = (vec2(gPix) + 0.5) / vec2(gSize);
 	const vec4 gb  = SSRSurfaceNormal(gPix);
 	if (!SSRTexelTraces(gb))
-		return vec4(0.0);
-	const vec3  N         = normalize(gb.rgb);
-	const float roughness = gb.a;
-	const float alpha     = max(roughness * roughness, 0.001);
-
-	const vec3 worldPos = ReconstructWorldPosition(gUV, SSRSurfaceDepth(gPix),
-	                                               InverseJitteredViewProjection);
-	const vec3 V        = normalize(CameraPosition.xyz - worldPos);
+		return false;
+	t.N         = normalize(gb.rgb);
+	t.roughness = gb.a;
+	t.alpha     = max(t.roughness * t.roughness, 0.001);
+	t.worldPos  = ReconstructWorldPosition(gUV, SSRSurfaceDepth(gPix), InverseJitteredViewProjection);
+	const vec3 V = normalize(CameraPosition.xyz - t.worldPos);
 	vec3       T, B;
-	Basis(N, T, B);
-	const vec3 Ve = vec3(dot(V, T), dot(V, B), dot(V, N));
-
+	Basis(t.N, T, B);
+	t.T  = T;
+	t.B  = B;
+	t.Ve = vec3(dot(V, T), dot(V, B), dot(V, t.N));
 	// The ray leaves 2 cm off the surface (a world distance: centimetres) so a grazing ray does not meet its
 	// own texel's neighbours in the depth buffer.
-	const vec3 origin = worldPos + N * 2.0;
-	vec3       originScreen;
-	const bool onScreen = ProjectToScreen(JitteredWorldToClip, origin, originScreen);
-#if !defined( DESERT_REFLECTIONS_TRACED )
-	if (!onScreen)
-		return vec4(0.0);
+	t.origin = t.worldPos + t.N * 2.0;
+	vec3 originScreen = vec3(0.0);
+	t.onScreen     = ProjectToScreen(JitteredWorldToClip, t.origin, originScreen);
+	t.originScreen = originScreen;
+	t.originW      = (JitteredWorldToClip * vec4(t.origin, 1.0)).w;
+	t.rotation     = vec2(hash12(vec2(gPix)), hash12(vec2(gPix) + 17.17));
+	return true;
+}
+
+// Ray @p r of the texel's @p rays GGX-VNDF draws: @p Lt in (T, B, N), @p L in the world. False under the surface:
+// a lobe sample that reflects nothing (weight 0 in the estimator).
+bool SSRRayDirection(SSRTexel t, int r, int rays, uint seed, out vec3 Lt, out vec3 L)
+{
+	const vec2 u = RayRandom(t.rotation, seed * uint(rays) + uint(r));
+	const vec3 H = SampleGGXVNDF(t.Ve, t.alpha, u);
+	Lt = reflect(-t.Ve, H);
+	L  = vec3(0.0);
+	if (Lt.z <= 0.0)
+		return false;
+	L = normalize(Lt.x * t.T + Lt.y * t.B + Lt.z * t.N);
+	return true;
+}
+
+// The ratio estimator's sums over one texel's rays (see the header): what the screen answered, and the world ray
+// the reservoir drew among the rays it left to the world (DESERT_REFLECTIONS_WORLD_RAYS).
+struct SSRTraceSums
+{
+	vec3  radiance;    // sum of w * conf * L, Karis-weighted
+	float hitWeight;   // sum of w * conf, Karis-weighted (the radiance's normaliser)
+	float coverage;    // sum of w * conf
+	float weightSum;   // sum of w over every ray
+	vec3  hitPoint;    // sum of w * conf * surface: the texel's hit point (world)
+	vec3  rayDir;      // sum of w * Lt over every ray: the texel's direction when nothing hit
+	float worldWeight; // sum of w of the rays left to the world
+	vec3  worldL;      // the drawn world ray's direction
+	float worldStart;  // and where its world leg starts
+	int   worldRay;    // and its index among the texel's rays
+};
+
+// The texel gPix's rays over the screen (SSRTraceSourcePixel: every pixel, or one pixel of a 2x2 block rotating
+// every frame). False: the texel has no ray - it is written 0 with a miss ray (pdf 0). The rays the screen did not
+// answer are left to ONE world ray (UE Lumen reflections: one traced ray per texel), drawn among them in
+// proportion to their weight (a reservoir); its answer stands for all of them and the temporal accumulation
+// averages the draw over frames. It is traced by SSRAddWorldRay - in this kernel (the hit-lit ray generation) or
+// by the world stage over the screen leg's list.
+bool SSRTraceTexel(ivec2 gPix, ivec2 gSize, out SSRTexel t, out SSRTraceSums s)
+{
+	// Whether the screen holds last frame to return at a hit. Without it the screen-only trace answers
+	// nothing (all to the next source); the traced one still has the world.
+	const bool screenLeg = SsrParams2.y >= 0.5;
+#if !defined( DESERT_REFLECTIONS_WORLD_RAYS )
+	if (!screenLeg)
+		return false;
 #endif
-	const float originW = (JitteredWorldToClip * vec4(origin, 1.0)).w;
+	if (!SSRTexelSetup(gPix, gSize, t))
+		return false;
+#if !defined( DESERT_REFLECTIONS_WORLD_RAYS )
+	if (!t.onScreen)
+		return false;
+#endif
 
 	const int   rays        = int(SsrParams.x);
 	const int   iterations  = int(SsrParams.y);
 	const float thickness   = SsrParams.w;
 	const float maxDistance = SsrParams2.x;
-	const vec2  rotation    = vec2(hash12(vec2(gPix)), hash12(vec2(gPix) + 17.17));
 	const uint  seed        = uint(CameraPosition.w);
 	const ivec2 vSize       = textureSize(VelocityTexture, 0); // where a hit reads its velocity
-#if defined( DESERT_REFLECTIONS_TRACED )
+#if defined( DESERT_REFLECTIONS_WORLD_RAYS )
 	// UE MaxRoughnessToTrace: the share of this texel's rays that go past the screen, dithered per ray.
-	const float worldShare = TracedReflectionsAlpha(roughness);
+	const float worldShare = TracedReflectionsAlpha(t.roughness);
 #endif
 
-	vec3  radiance  = vec3(0.0); // sum of w * conf * L, Karis-weighted
-	float hitWeight = 0.0;       // sum of w * conf, Karis-weighted (the radiance's normaliser)
-	float coverage  = 0.0;       // sum of w * conf
-	float weightSum = 0.0;       // sum of w over every ray
-	vec3  hitPoint  = vec3(0.0); // sum of w * conf * surface: the texel's hit point (world)
-	vec3  rayDir    = vec3(0.0); // sum of w * Lt over every ray: the texel's direction when nothing hit
-#if defined( DESERT_REFLECTIONS_TRACED )
-	// The rays the screen left to the world share ONE world ray (UE Lumen reflections: one traced ray per
-	// texel): drawn among them in proportion to their weight (a reservoir), its answer stands for all of them,
-	// and the temporal accumulation averages the draw over frames.
-	float worldWeight = 0.0;      // sum of w of the rays left to the world
-	vec3  worldL      = vec3(0.0); // the drawn ray's direction
-	float worldStart  = 0.0;       // and where its world legs start
-#endif
+	s.radiance    = vec3(0.0);
+	s.hitWeight   = 0.0;
+	s.coverage    = 0.0;
+	s.weightSum   = 0.0;
+	s.hitPoint    = vec3(0.0);
+	s.rayDir      = vec3(0.0);
+	s.worldWeight = 0.0;
+	s.worldL      = vec3(0.0);
+	s.worldStart  = 0.0;
+	s.worldRay    = 0;
 	for (int r = 0; r < rays; ++r)
 	{
-		const vec2 u = RayRandom(rotation, seed * uint(rays) + uint(r));
-		const vec3 H = SampleGGXVNDF(Ve, alpha, u);
-		vec3       Lt = reflect(-Ve, H);
-		if (Lt.z <= 0.0)
-			continue; // under the surface: a lobe sample that reflects nothing (weight 0 in the estimator)
-		const vec3  L = normalize(Lt.x * T + Lt.y * B + Lt.z * N);
-		const float w = SmithG1(Lt.z, alpha);
-		weightSum += w;
-		rayDir    += w * Lt;
+		vec3 Lt, L;
+		if (!SSRRayDirection(t, r, rays, seed, Lt, L))
+			continue;
+		const float w = SmithG1(Lt.z, t.alpha);
+		s.weightSum += w;
+		s.rayDir    += w * Lt;
 
 		// THE SCREEN. The segment: up to maxDistance (past it a hit fades out to nothing, SSRHitConfidence),
 		// cut at 0.99 of the way to the camera plane so it projects (UE TraceHZB); the walk clips it to the screen.
 		float confidence = 0.0;
-		vec3  surface    = origin;
+		vec3  surface    = t.origin;
 		vec3  L_i        = vec3(0.0);
 		float start      = 0.0; // traced: where the world legs start along the ray (0: uncertain)
 		const float dw   = (JitteredWorldToClip * vec4(L, 0.0)).w;
-		const float rayLength = dw < 0.0 ? min(0.99 * originW / -dw, maxDistance) : maxDistance;
+		const float rayLength = dw < 0.0 ? min(0.99 * t.originW / -dw, maxDistance) : maxDistance;
 		vec3 endScreen;
-		if (screenLeg && onScreen && ProjectToScreen(JitteredWorldToClip, origin + L * rayLength, endScreen))
+		if (screenLeg && t.onScreen && ProjectToScreen(JitteredWorldToClip, t.origin + L * rayLength, endScreen))
 		{
-			const HZBTraceResult walk = HZBTraceScreen(originScreen, endScreen, iterations);
+			const HZBTraceResult walk = HZBTraceScreen(t.originScreen, endScreen, iterations);
 			if (!walk.Stopped)
 			{
-#if defined( DESERT_REFLECTIONS_TRACED )
+#if defined( DESERT_REFLECTIONS_WORLD_RAYS )
 				// In front of every surface it passed, as far as it got: certain that far (UE writes the distance).
 				const vec3 reached = ReconstructWorldPosition(walk.Position.xy, walk.Position.z,
 				                                              InverseJitteredViewProjection);
-				start = max(distance(origin, reached) - kWorldStartBackoff, 0.0);
+				start = max(distance(t.origin, reached) - kWorldStartBackoff, 0.0);
 #endif
 			}
 			else
 			{
-				confidence = SSRHitConfidence(walk.Position, origin, L, thickness, maxDistance, surface);
+				confidence = SSRHitConfidence(walk.Position, t.origin, L, thickness, maxDistance, surface);
 				if (confidence > 0.0)
 				{
 					// The hit's radiance: where the surface point was on LAST frame's screen - the hit pixel
@@ -455,24 +551,25 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 					else
 						// Stored pre-exposed by last frame's P: undone, so the trace's output is absolute radiance.
 						L_i = textureLod(SceneColorTexture, prevUV, 0.0).rgb * SsrParams3.y;
-#if defined( DESERT_REFLECTIONS_TRACED )
+#if defined( DESERT_REFLECTIONS_WORLD_RAYS )
 					// The depth there was certain: a world leg starts just before the surface the screen found.
-					start = max(distance(origin, surface) - kWorldStartBackoff, 0.0);
+					start = max(distance(t.origin, surface) - kWorldStartBackoff, 0.0);
 #endif
 				}
 			}
 		}
-#if defined( DESERT_REFLECTIONS_TRACED )
+#if defined( DESERT_REFLECTIONS_WORLD_RAYS )
 		// THE WORLD, where the screen did not answer (UE: the vignette and the thickness as a dither, so a
 		// partly confident screen hit hands the rest of its rays over instead of fading them out).
 		const float dither = hash12(vec2(gPix) + vec2(float(seed), float(r)) * 7.31);
 		if (worldShare > dither && confidence <= dither)
 		{
-			worldWeight += w;
-			if (hash12(vec2(gPix) * 1.37 + vec2(float(r), float(seed)) * 3.11) * worldWeight < w)
+			s.worldWeight += w;
+			if (hash12(vec2(gPix) * 1.37 + vec2(float(r), float(seed)) * 3.11) * s.worldWeight < w)
 			{
-				worldL     = L;
-				worldStart = start;
+				s.worldL     = L;
+				s.worldStart = start;
+				s.worldRay   = r;
 			}
 			continue;
 		}
@@ -483,41 +580,72 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 		// Karis' inverse-luminance weight inside the estimator: a single ray onto a sun-lit wall does not
 		// become a firefly the temporal accumulation has to average away over many frames.
 		const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
-		radiance  += L_i * (w * confidence * karis);
-		hitWeight += w * confidence * karis;
-		coverage  += w * confidence;
-		hitPoint  += (w * confidence) * surface;
+		s.radiance  += L_i * (w * confidence * karis);
+		s.hitWeight += w * confidence * karis;
+		s.coverage  += w * confidence;
+		s.hitPoint  += (w * confidence) * surface;
 	}
-#if defined( DESERT_REFLECTIONS_TRACED )
-	if (worldWeight > 0.0)
-	{
-		vec3 L_i;
-		vec3 surface;
-		if (TraceWorld(worldPos, N, worldL, worldStart, L_i, surface))
-		{
-			const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
-			radiance  += L_i * (worldWeight * karis);
-			hitWeight += worldWeight * karis;
-			coverage  += worldWeight;
-			hitPoint  += worldWeight * surface;
-		}
-	}
-#endif
-	if (weightSum <= 0.0)
-		return vec4(0.0);
-	if (hitWeight <= 0.0)
-	{
-		const vec3 Lt = normalize(rayDir);
-		ray = vec4(worldPos + normalize(Lt.x * T + Lt.y * B + Lt.z * N) * kMissDistance,
-		           Log2VNDFReflectionPdf(Ve, Lt, alpha));
-		return vec4(0.0);
-	}
-	const vec3 hit = hitPoint / coverage;
-	const vec3 L   = normalize(hit - worldPos);
-	ray = vec4(hit, Log2VNDFReflectionPdf(Ve, vec3(dot(L, T), dot(L, B), max(dot(L, N), 1e-4)), alpha));
+	return true;
+}
 
-	const float fade = SSRRoughnessFade(roughness) * SsrParams.z;
-	return vec4(radiance / hitWeight, clamp(coverage / weightSum * fade, 0.0, 1.0));
+#if defined( DESERT_REFLECTIONS_TRACED )
+// The drawn world ray of @p s (SSRTraceTexel), added to the sums when it hits. False: no world ray, or it missed -
+// the sums are the screen's alone.
+bool SSRAddWorldRay(SSRTexel t, inout SSRTraceSums s)
+{
+	if (s.worldWeight <= 0.0)
+		return false;
+	vec3 L_i;
+	vec3 surface;
+	if (!TraceWorld(t.worldPos, t.N, s.worldL, s.worldStart, L_i, surface))
+		return false;
+	const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
+	s.radiance  += L_i * (s.worldWeight * karis);
+	s.hitWeight += s.worldWeight * karis;
+	s.coverage  += s.worldWeight;
+	s.hitPoint  += s.worldWeight * surface;
+	return true;
+}
+#endif
+
+// The texel's output from its sums: rgb = the ratio-estimated radiance of the hits, a = coverage (see the header);
+// @p ray = the texel's ray for the reconstruction (TraceRayTexture): xyz = the point it hit (the weighted mean of
+// the hit points; when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the
+// environment the next source answers is at infinity), w = the log2 pdf of drawing the direction to it from here.
+// A texel with no ray: pdf 0 (log -126), which the reconstruction reads as "nothing to reuse".
+vec4 SSRResolveTexel(SSRTexel t, SSRTraceSums s, out vec4 ray)
+{
+	ray = vec4(0.0, 0.0, 0.0, -126.0);
+	if (s.weightSum <= 0.0)
+		return vec4(0.0);
+	if (s.hitWeight <= 0.0)
+	{
+		const vec3 Lt = normalize(s.rayDir);
+		ray = vec4(t.worldPos + normalize(Lt.x * t.T + Lt.y * t.B + Lt.z * t.N) * kMissDistance,
+		           Log2VNDFReflectionPdf(t.Ve, Lt, t.alpha));
+		return vec4(0.0);
+	}
+	const vec3 hit = s.hitPoint / s.coverage;
+	const vec3 L   = normalize(hit - t.worldPos);
+	ray = vec4(hit, Log2VNDFReflectionPdf(t.Ve, vec3(dot(L, t.T), dot(L, t.B), max(dot(L, t.N), 1e-4)), t.alpha));
+
+	const float fade = SSRRoughnessFade(t.roughness) * SsrParams.z;
+	return vec4(s.radiance / s.hitWeight, clamp(s.coverage / s.weightSum * fade, 0.0, 1.0));
+}
+
+// The whole trace of the texel gPix in one thread - the screen, then its world ray where this permutation carries
+// the tracer (the hit-lit ray generation). The compute's trace runs the screen leg alone (SSR.shader TraceListed).
+vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
+{
+	ray = vec4(0.0, 0.0, 0.0, -126.0);
+	SSRTexel     t;
+	SSRTraceSums s;
+	if (!SSRTraceTexel(gPix, gSize, t, s))
+		return vec4(0.0);
+#if defined( DESERT_REFLECTIONS_TRACED )
+	SSRAddWorldRay(t, s);
+#endif
+	return SSRResolveTexel(t, s, ray);
 }
 
 #endif
