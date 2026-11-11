@@ -415,6 +415,14 @@ Shader "CloudRaymarch"
         // that start on the ray's dither) and four more shuffles an iteration.
         #define CLOUD_MARCH_SEGMENT_LANES 8u
 
+        // THE COARSE TIER'S LOOKAHEAD (FPS-CLOUDS-MARCH-3): how many lattice points of the empty-space search one
+        // iteration fetches together. The search was one probe and one field evaluation per iteration, each
+        // waiting on the last, and on the FIELD_Barn turn that chain was the march (34 field evaluations and 9
+        // probe jumps a ray against 0.8 lit samples). The points' fetches do not depend on each other - only the
+        // walk that reads them does - so four are issued at once, the way CLOUD_LIGHT_GROUP groups the shadow ray,
+        // and the walk then visits exactly the points the one-at-a-time search visited.
+        #define CLOUD_COARSE_SEARCH_GROUP 4
+
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
@@ -955,6 +963,9 @@ Shader "CloudRaymarch"
             // The jump visits none of the lattice points before the one it lands on, so the stretch whose
             // heights the probe must bound ends one stride short of the landing point.
             float emptyColumnSkipKm  = emptyColumnAdvance - coarseStepKm;
+            // The same jump in lattice points, for the grouped search's walk (CLOUD_COARSE_SEARCH_GROUP): the
+            // advance is a whole number of strides by construction, so the rounding only absorbs the division's.
+            int   emptyColumnStrides = max(int(emptyColumnAdvance / max(coarseStepKm, 1e-6f) + 0.5f), 1);
 
             // The cost census (--cloud-visualize 4): integer adds beside the fetches they count.
             int   censusFieldEvaluations = 0;
@@ -1001,31 +1012,107 @@ Shader "CloudRaymarch"
                     continue;
                 }
 
+                if (!fine)
+                {
+                    // THE COARSE TIER, CLOUD_COARSE_SEARCH_GROUP LATTICE POINTS AT A TIME (FPS-CLOUDS-MARCH-3).
+                    // Every fetch first, for all the points at once: the column probe and the exact profile of
+                    // each, neither waiting on another point's answer. The profile is fetched even where the
+                    // probe clears, because a fetch behind the probe's answer is a fetch that waits for it; a
+                    // cleared point's profile is zero by the probe's own bound and the walk never reads it.
+                    //
+                    // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
+                    // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the jump divides
+                    // by. Its height is not linear in the ray (the shell is a sphere), so the bands the probe
+                    // reads are those of the stretch's own lowest and highest point (CloudRayHeightFractionSpan),
+                    // clipped to the segment the march would stop at anyway.
+                    float searchT[CLOUD_COARSE_SEARCH_GROUP];
+                    bool  searchCleared[CLOUD_COARSE_SEARCH_GROUP];
+                    float searchProfile[CLOUD_COARSE_SEARCH_GROUP];
+                    for (int j = 0; j < CLOUD_COARSE_SEARCH_GROUP; ++j)
+                    {
+                        float pointT   = t + float(j) * coarseStepKm;
+                        vec3  pointPos = originKm + rayDir * pointT;
+                        bool  cleared  = false;
+                        if (probeColumns)
+                        {
+                            vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, pointT,
+                                                                             min(pointT + emptyColumnSkipKm,
+                                                                                 segment.y));
+                            cleared = CloudProceduralColumnsEmpty(params, pointPos.xz - params.WindOffsetKm.xz,
+                                                                  CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
+                                                                  skippedHeights.y);
+                        }
+                        // The field takes the ALTITUDE above the layer's base, as every fetch below does.
+                        vec3 pointField  = vec3(pointPos.x, length(pointPos) - layer.BottomRadiusKm, pointPos.z);
+                        searchT[j]       = pointT;
+                        searchCleared[j] = cleared;
+                        searchProfile[j] =
+                            SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
+                    }
+
+                    // THE WALK, which is the one-at-a-time search's own: a point the probe clears jumps
+                    // emptyColumnStrides points (the reach it proved, CloudEmptyColumnAdvanceKm), one with no
+                    // profile steps to the next, the first with a profile is the hit, and a point at or past the
+                    // lane's end ends the walk where the old loop's head would have ended the lane. Points the
+                    // walk does not land on were fetched and are not read; every one of them lies inside a reach
+                    // the probe cleared or past the walk's stop, exactly the points the old search never visited.
+                    int next = 0;
+                    int hit  = -1;
+                    for (int j = 0; j < CLOUD_COARSE_SEARCH_GROUP; ++j)
+                    {
+                        if (j < next)
+                            continue;
+                        if (searchT[j] >= laneEndKm)
+                            break;
+                        if (searchCleared[j])
+                        {
+                            next = j + emptyColumnStrides;
+                            ++censusColumnJumps;
+                            continue;
+                        }
+                        ++censusFieldEvaluations;
+                        if (searchProfile[j] > 0.0f)
+                        {
+                            hit = j;
+                            break;
+                        }
+                        next = j + 1;
+                    }
+
+                    // Outside cloud: keep striding, from the point the walk stopped on (a jump may land past
+                    // the group; the stride count is the same either way).
+                    if (hit < 0)
+                    {
+                        t += float(next) * coarseStepKm;
+                        continue;
+                    }
+
+                    // On the first hit, drop to fine and step BACK to the first fine position past the last
+                    // empty coarse sample, so the material between that sample and this one is not skipped —
+                    // that gap is up to a whole coarse step of cloud and its absence reads as a flat face.
+                    // Where the stride IS the fine step there is no gap: this sample is the next fine one, and
+                    // it is integrated where it stands (its field is read again below, on the fine path).
+                    t        = searchT[hit];
+                    fine     = true;
+                    emptyRun = 0;
+                    // The step-back target is past the lane's first sample for every coarse sample but that first
+                    // one, whose gap behind it is the lane's own dither offset: that hit is integrated where it
+                    // stands, on the ray's dither, rather than re-fetched at the undithered lane start
+                    // (laneFirstKm above).
+                    float hitStepKm     = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
+                    float steppedBackKm = t - coarseStepKm + hitStepKm;
+                    if (coarseStepKm > hitStepKm && steppedBackKm > laneFirstKm)
+                    {
+                        t = steppedBackKm;
+                        continue;
+                    }
+                }
+
                 // The step this sample is integrated over and advances by: the fine step, grown with the texel
                 // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
                 float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
 
                 vec3  samplePos      = originKm + rayDir * t;
-
-                // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
-                // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the advance divides by.
-                // Its height is not linear in the ray (the shell is a sphere), so the bands the probe reads are
-                // those of the stretch's own lowest and highest point (CloudRayHeightFractionSpan), clipped to the
-                // segment the march would stop at anyway.
-                if (!fine && probeColumns)
-                {
-                    vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, t,
-                                                                     min(t + emptyColumnSkipKm, segment.y));
-                    if (CloudProceduralColumnsEmpty(params, samplePos.xz - params.WindOffsetKm.xz,
-                                                    CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
-                                                    skippedHeights.y))
-                    {
-                        t += emptyColumnAdvance;
-                        ++censusColumnJumps;
-                        continue;
-                    }
-                }
-
                 float heightFraction = CloudHeightFraction(layer, samplePos);
 
                 // The field is handed the ALTITUDE above the layer's base, never the planet-relative
@@ -1037,36 +1124,6 @@ Shader "CloudRaymarch"
 
                 CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
                 ++censusFieldEvaluations;
-
-                if (!fine)
-                {
-                    // Outside cloud: keep striding. On the first hit, drop to fine and step BACK to the
-                    // first fine position past the last empty coarse sample, so the material between that
-                    // sample and this one is not skipped — that gap is up to a whole coarse step of cloud
-                    // and its absence reads as a flat face. Where the stride IS the fine step there is no
-                    // gap: this sample is the next fine one, and it is integrated where it stands rather
-                    // than fetched a second time.
-                    if (field.Profile > 0.0f)
-                    {
-                        fine     = true;
-                        emptyRun = 0;
-                        // The step-back target is past the lane's first sample for every coarse sample but
-                        // that first one, whose gap behind it is the lane's own dither offset: that hit is
-                        // integrated where it stands, on the ray's dither, rather than re-fetched at the
-                        // undithered lane start (laneFirstKm above).
-                        float steppedBackKm = t - coarseStepKm + litStepKm;
-                        if (coarseStepKm > litStepKm && steppedBackKm > laneFirstKm)
-                        {
-                            t = steppedBackKm;
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        t += coarseStepKm;
-                        continue;
-                    }
-                }
 
                 if (field.Profile <= 0.0f)
                 {
