@@ -15,9 +15,10 @@
 //     cull and UE foliage culling: an instance's data is written once when it changes, the views only cull it - a
 //     node per lane, then one group per node that survives over its elements): its chunk pass, kChunksPerGroup
 //     chunks a group, a lane per chunk - a tile cluster's run of records (Common/GrassVarietyRows.glslh, the chunk
-//     contract). Each chunk a view met is appended to the met chunks' list with the views it met, and the list's
-//     length grows its indirect dispatch (GRASS-CULL-COST-4: mode 5 runs one group per met chunk, so no group
-//     spends time on a rejected chunk and none walks another chunk's records).
+//     contract). Each chunk a view met is appended to the met chunks' list with the views it met, and its kept
+//     records to the work list, whose length grows mode 5's indirect dispatch (GRASS-CULL-COST-4,
+//     FPS-GRASS-CULL-GPU: mode 5 runs a lane per kept record of a met chunk, so no lane spends time on a rejected
+//     chunk or a record its law dropped).
 //     (a) THE LAW, once per law generation
 //     (LawGeneration: the params with the field eye, the field, the pool - a still or turning camera keeps it): a
 //     chunk a view may meet whose law word carries another generation is lawed by its subgroup
@@ -27,9 +28,9 @@
 //     the box of the kept instances' reach into its law words. (b) The kept box meets the views: each cascade
 //     list's caster box (none while the row's lists hold, kGrassRowCascadesHeld), the camera's side planes and the
 //     previous frame's HZB.
-//   5 THE CAMERA CULL'S INSTANCES (after mode 1, indirect by the met chunks' list): a group per met chunk, lane j
-//     the j-th record of the kept mask (a chunk holds at most 64, kCullGroupThreads; FPS-GRASS-CULL: the kept
-//     records compacted onto the first lanes, so a subgroup past them does no work). (c) Each reads its law
+//   5 THE CAMERA CULL'S INSTANCES (after mode 1, indirect by the work list): a lane per work item - a met
+//     chunk's kept record (FPS-GRASS-CULL-GPU: compacted across chunks by mode 1, so every group runs
+//     kCullGroupThreads live lanes whatever its chunks keep). (c) Each reads its law
 //     row and is tested only by the views its chunk met; a list that takes it gets its 4-byte id (row +
 //     InstancesBase), never a copy of the row: into each cascade list whose box met the chunk (CascadeCull), and -
 //     the camera's planes met - by its own bounding sphere. Its bounding sphere - from its transform: the bounds centre along its up axis, the bounds radius at
@@ -93,15 +94,17 @@ Shader "GrassCull"
             uvec4 CullDispatchData[];
         };
 
-        // This frame's (a graph buffer, GrassRenderer.cpp kMetHeaderBytes): the met chunks' list. MetCommand[0..2]
-        // is mode 5's VkDispatchIndirectCommand, MetCommand[3] the chunks appended (all three grown by mode 1's
-        // atomics from mode 0's (0, 0, 1, 0)); then a met chunk each: x = its chunk of the row, y = its row <<
-        // kMetViewBits | the views it met (kCascadeViews | kCameraView | kChunkHidden). Sized to every culled
-        // row's chunk room.
+        // This frame's (a graph buffer, GrassRenderer.cpp kMetHeaderBytes): the met chunks' list and its records'
+        // work list. MetCommand[0..2] is mode 5's VkDispatchIndirectCommand (a group per kCullGroupThreads work
+        // items), MetCommand[3] the chunks appended, MetCommand[4] the work items appended (all grown by mode 1's
+        // atomics from mode 0's (0, 0, 1, 0, 0)); then MetWords: Rows.y met chunks, two words each (x = its chunk of
+        // the row, y = its row << kMetViewBits | the views it met: kCascadeViews | kCameraView | kChunkHidden), then
+        // Rows.z work items, a word each (FPS-GRASS-CULL-GPU: its met chunk << kWorkRecordBits | its record of the
+        // chunk). Sized to every culled row's chunk room and law capacity.
         Buffer(3) MetChunks
         {
-            uint  MetCommand[4];
-            uvec2 MetData[];
+            uint MetCommand[8];
+            uint MetWords[];
         };
 
         Uniform sampler PointClampSampler;
@@ -114,7 +117,8 @@ Shader "GrassCull"
             mat4  HzbViewProjection; // unjittered, what GrassHzbTexture was built through
             uvec4 Hzb;               // xy = GrassHzbTexture's mip-0 size, z = its mip count (0: nothing tested),
                                      // w = the mode
-            uvec4 Rows;              // x = the rows this pass covers (the table's first)
+            uvec4 Rows;              // x = the rows this pass covers (the table's first), y = MetChunks' room for met
+                                     // chunks, z = its room for work items
         };
 
         const uint kModeDispatch        = 0u;
@@ -128,13 +132,15 @@ Shader "GrassCull"
         // The camera cull's chunk pass: a lane per chunk (GRASS-CULL-COST-4: its records are mode 5's, a group per
         // met chunk - a chunk holds at most 64 records, two code words, a lane each).
         const uint kChunksPerGroup = kCullGroupThreads;
-        // A met chunk's views in its MetData.y below its row (kChunkHidden is bit 9).
+        // A met chunk's views in its second word below its row (kChunkHidden is bit 9).
         const uint kMetViewBits = 10u;
         // The views a chunk met (BoxMeetsViews): bits 0..7 the cascade lists (GrassRenderer kGrassCascadeLists), then
         // the camera's side planes, then - those met - the previous frame's HZB hid its whole box.
         const uint kCascadeViews = 0xFFu;
         const uint kCameraView   = 1u << 8u;
         const uint kChunkHidden  = 1u << 9u;
+        // A work item's record of its chunk in its low bits (a chunk holds at most 64 records), its met chunk above.
+        const uint kWorkRecordBits = 6u;
         // Feedback's word past the bucket counts that takes the law's slots handed out (GrassRenderer
         // kFeedbackLawWord: after the written mark, three drawn counts and eight cascade views').
         const uint kFeedbackLawWord = 12u;
@@ -145,6 +151,33 @@ Shader "GrassCull"
         const float kChunkReachSlack = 1.0e-4;
 
         shared uint s_Groups[64];
+
+        // MetChunks' two lists (Rows.y met chunks, then Rows.z work items).
+        uint MetRoom()
+        {
+            return Rows.y;
+        }
+        uint WorkRoom()
+        {
+            return Rows.z;
+        }
+        void MetWrite( uint index, uvec2 entry )
+        {
+            MetWords[2u * index]      = entry.x;
+            MetWords[2u * index + 1u] = entry.y;
+        }
+        uvec2 MetRead( uint index )
+        {
+            return uvec2( MetWords[2u * index], MetWords[2u * index + 1u] );
+        }
+        void WorkWrite( uint item, uint work )
+        {
+            MetWords[2u * MetRoom() + item] = work;
+        }
+        uint WorkRead( uint item )
+        {
+            return MetWords[2u * MetRoom() + item];
+        }
 
         // The command that runs @p groups groups (x, y, z; w = @p groups, which the passes exit past): one row up to
         // kCullGroupsX groups, past it as few rows as fit, so fewer groups than rows run idle. None for none.
@@ -178,17 +211,19 @@ Shader "GrassCull"
         }
 
         // THE WAVE'S APPEND (GRASS-CULL-1; UE InstanceCulling: one atomic per wave and list): every invocation that
-        // calls it takes one entry of the counter at word @p at of @p counters. The subgroup's invocations that name
-        // the same counter add their number with ONE atomicAdd and each takes its rank among them. One round per
-        // distinct counter among the callers - a subgroup spans a bucket boundary at most once, and its instances
-        // split into the visible and the hidden; a subgroup lies inside one workgroup, so inside one variety.
+        // calls it takes one entry of the counter at word @p at of @p counters, row @p r's. The subgroup's
+        // invocations that name the same counter of the same row add their number with ONE atomicAdd and each takes
+        // its rank among them. One round per distinct (row, counter) among the callers - mode 5's work list keeps a
+        // chunk's records together and its chunks in the order mode 1 met them, so a subgroup spans few rows and
+        // bucket boundaries, and its instances split into the visible and the hidden.
         // Returns the entry's index: the counter before the subgroup's add, plus the rank.
-        uint WaveAppend( GrassWords counters, uint at )
+        uint WaveAppend( GrassWords counters, uint at, uint r )
         {
-            uint index = 0u;
+            uint  index = 0u;
+            uvec2 key   = uvec2( at, r );
             for ( ;; )
             {
-                if ( subgroupBroadcastFirst( at ) == at )
+                if ( all( equal( subgroupBroadcastFirst( key ), key ) ) )
                 {
                     uvec4 ballot = subgroupBallot( true );
                     uint  base   = 0u;
@@ -437,7 +472,7 @@ Shader "GrassCull"
                 uint at      = k * words + table;
                 uint room    = cascade.Words[at + 2u];
                 uint counter = mover ? at : k * words + rests + b;
-                uint index   = WaveAppend( cascade, counter );
+                uint index   = WaveAppend( cascade, counter, r );
                 if ( index < room )
                 {
                     uint offset = mover ? index : room - 1u - index;
@@ -542,7 +577,7 @@ Shader "GrassCull"
                 return;
             if ( !held )
             {
-                uint full = WaveAppend( args, table );
+                uint full = WaveAppend( args, table, r );
                 if ( full < capacity )
                 {
                     GrassWords( VarietyRows[r].FullIds ).Words[first + full] = id;
@@ -562,7 +597,7 @@ Shader "GrassCull"
             }
             // The bucket's count in the camera's list, or its candidate count (its first phase word).
             uint at    = hidden ? tables + buckets * 4u + b * 4u : table;
-            uint index = WaveAppend( GrassWords( VarietyRows[r].CameraArgs ), at );
+            uint index = WaveAppend( GrassWords( VarietyRows[r].CameraArgs ), at, r );
             if ( index >= capacity )
                 return;
             if ( hidden )
@@ -761,6 +796,77 @@ Shader "GrassCull"
             outSlot = chunks.Words[at + kGrassChunkSlotWord];
         }
 
+        // The bit index of the @p n-th set bit (from 0, lowest first) of @p word; @p n < bitCount( word ). A
+        // binary search by the set bits of each window's lower half: five counts, no loop over the bits.
+        uint NthSetBit( uint word, uint n )
+        {
+            uint pos = 0u;
+            for ( uint width = 16u; width != 0u; width >>= 1u )
+            {
+                uint below = uint( bitCount( ( word >> pos ) & ( ( 1u << width ) - 1u ) ) );
+                if ( n >= below )
+                {
+                    n -= below;
+                    pos += width;
+                }
+            }
+            return pos;
+        }
+
+        // The records of a chunk below record @p n (bit i of the two code words: record i), all 64 from n = 64 on.
+        uvec2 RecordsBelow( uint n )
+        {
+            uvec2 mask = uvec2( 0xFFFFFFFFu );
+            if ( n < 32u )
+                mask = uvec2( ( 1u << n ) - 1u, 0u );
+            else if ( n < 64u )
+                mask.y = ( 1u << ( n - 32u ) ) - 1u;
+            return mask;
+        }
+
+        // FPS-GRASS-CULL-GPU (UE InstanceCulling's instance work: the instances of the surviving nodes compacted into
+        // one dense list before the instance pass, so its groups carry 64 live lanes whatever a node keeps): the
+        // subgroup's met chunks' records (@p records, @p k of them, of met chunk @p index) are appended to the work
+        // list with ONE atomic (MetCommand[4]); each chunk's run is then written by the whole subgroup, a lane per
+        // record (ascending, so a chunk's records keep their order), one chunk after the other. The elected lane
+        // grows mode 5's dispatch to the list's new end in groups of kCullGroupThreads (atomicMax: the last
+        // append's end is the largest, whatever the order).
+        void AppendChunkWork( uint index, uvec2 records, uint k )
+        {
+            uint total = subgroupAdd( k );
+            if ( total == 0u )
+                return;
+            uint first = subgroupExclusiveAdd( k );
+            uint base  = 0u;
+            if ( subgroupElect() )
+            {
+                base        = atomicAdd( MetCommand[4], total );
+                uint end    = min( base + total, WorkRoom() );
+                uint groups = ( end + kCullGroupThreads - 1u ) / kCullGroupThreads;
+                atomicMax( MetCommand[0], min( groups, kCullGroupsX ) );
+                atomicMax( MetCommand[1], ( groups + kCullGroupsX - 1u ) / kCullGroupsX );
+            }
+            base         = subgroupBroadcastFirst( base );
+            uvec4 todo   = subgroupBallot( k != 0u );
+            while ( any( notEqual( todo, uvec4( 0u ) ) ) )
+            {
+                uint j = subgroupBallotFindLSB( todo );
+                todo[j / 32u] &= ~( 1u << ( j % 32u ) );
+                uint  chunk = subgroupShuffle( index, j );
+                uint  count = subgroupShuffle( k, j );
+                uint  start = base + subgroupShuffle( first, j );
+                uvec2 mask  = subgroupShuffle( records, j );
+                uint  low   = uint( bitCount( mask.x ) );
+                for ( uint e = gl_SubgroupInvocationID; e < count; e += gl_SubgroupSize )
+                {
+                    if ( start + e >= WorkRoom() )
+                        break;
+                    uint i = e < low ? NthSetBit( mask.x, e ) : 32u + NthSetBit( mask.y, e - low );
+                    WorkWrite( start + e, ( chunk << kWorkRecordBits ) | i );
+                }
+            }
+        }
+
         // Mode 1 (GRASS-CULL-COST-3, GRASS-CULL-COST-4; UE foliage culling / InstanceCulling / Nanite's cluster
         // cull: the nodes' pass writes the list of the nodes that survive, then one group per surviving node culls
         // its elements): kChunksPerGroup chunks of one row per workgroup (CullDispatchData[0]), a lane each. (1)
@@ -818,6 +924,7 @@ Shader "GrassCull"
                         hi    = lawHi;
                         low   = lawLow;
                         high  = lawHigh;
+                        slot  = lawSlot;
                         lawed = true;
                     }
                 }
@@ -838,57 +945,45 @@ Shader "GrassCull"
                 }
             }
 
-            // (3) The chunks a view met, appended with one atomic per subgroup; the elected lane grows mode 5's
-            // dispatch to the list's new end (atomicMax: the last append's end is the largest, whatever the
-            // order).
-            bool  met    = views != 0u;
+            // (3) The chunks a view met, appended with one atomic per subgroup (MetCommand[3]); a met chunk's kept
+            // records that hold a law row (FPS-DEVLOST: slot + i < LawCapacity, mode 5's own guard - a record past
+            // it is never read, so it takes no work item) are counted for the work list.
+            bool  met     = views != 0u;
+            uvec2 records = uvec2( 0u );
+            if ( met && slot != kGrassLawNoSlot && slot < VarietyRows[r].LawCapacity )
+                records = kept & RecordsBelow( VarietyRows[r].LawCapacity - slot );
+            uint  k      = uint( bitCount( records.x ) + bitCount( records.y ) );
             uvec4 ballot = subgroupBallot( met );
             uint  n      = subgroupBallotBitCount( ballot );
             if ( n == 0u )
                 return;
             uint base = 0u;
             if ( subgroupElect() )
-            {
-                base     = atomicAdd( MetCommand[3], n );
-                uint end = base + n;
-                atomicMax( MetCommand[0], min( end, kCullGroupsX ) );
-                atomicMax( MetCommand[1], ( end + kCullGroupsX - 1u ) / kCullGroupsX );
-            }
+                base = atomicAdd( MetCommand[3], n );
             uint index = subgroupBroadcastFirst( base ) + subgroupBallotExclusiveBitCount( ballot );
-            if ( met && index < uint( MetData.length() ) )
-                MetData[index] = uvec2( c, ( r << kMetViewBits ) | views );
+            if ( met && index < MetRoom() )
+                MetWrite( index, uvec2( c, ( r << kMetViewBits ) | views ) );
+            else
+                k = 0u; // a chunk the list has no room for gives no work (mode 5 never reads past the list)
+            AppendChunkWork( index, records, k );
         }
 
-        // The bit index of the @p n-th set bit (from 0, lowest first) of @p word; @p n < bitCount( word ). A
-        // binary search by the set bits of each window's lower half: five counts, no loop over the bits.
-        uint NthSetBit( uint word, uint n )
-        {
-            uint pos = 0u;
-            for ( uint width = 16u; width != 0u; width >>= 1u )
-            {
-                uint below = uint( bitCount( ( word >> pos ) & ( ( 1u << width ) - 1u ) ) );
-                if ( n >= below )
-                {
-                    n -= below;
-                    pos += width;
-                }
-            }
-            return pos;
-        }
-
-        // Mode 5 (GRASS-CULL-COST-4, FPS-GRASS-CULL; UE foliage culling's instance pass, indirect by the chunk
-        // pass's list, its instances compacted before any work): a group per met chunk, lane j the j-th record the
-        // chunk's law kept (records ascending, so a subgroup's appends keep the records' order), so the kept
-        // records fill the group's first lanes and a subgroup past them leaves at once instead of running with a
-        // few live lanes. A kept record reads its row from its slot of Instances (FPS-ARCH-GRASSROWS: LawChunk
-        // wrote it once this law generation; the pool records and params are not read here) and goes to
-        // CullInstance, tested only by the views its chunk met, which appends its id to each list that takes it.
+        // Mode 5 (GRASS-CULL-COST-4, FPS-GRASS-CULL, FPS-GRASS-CULL-GPU; UE InstanceCulling's instance pass,
+        // indirect by the node pass's work list): a lane per work item - a kept record of a met chunk that holds a
+        // law row, compacted by mode 1 (AppendChunkWork), so every group but the last runs kCullGroupThreads live
+        // lanes whatever its chunks keep, and a group spans as many chunks (and rows) as its items name. A record
+        // reads its row from its slot of Instances (FPS-ARCH-GRASSROWS: LawChunk wrote it once this law
+        // generation; the pool records and params are not read here) and goes to CullInstance, tested only by the
+        // views its chunk met, which appends its id to each list that takes it.
         void CameraInstances()
         {
             uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
-            if ( group >= min( MetCommand[3], uint( MetData.length() ) ) )
+            uint item  = group * kCullGroupThreads + gl_LocalInvocationIndex;
+            if ( item >= min( MetCommand[4], WorkRoom() ) )
                 return;
-            uvec2      entry  = MetData[group];
+            uint       work   = WorkRead( item );
+            uvec2      entry  = MetRead( work >> kWorkRecordBits );
+            uint       i      = work & ( ( 1u << kWorkRecordBits ) - 1u );
             uint       r      = entry.y >> kMetViewBits;
             uint       met    = entry.y & ( ( 1u << kMetViewBits ) - 1u );
             GrassWords chunks = GrassWords( VarietyRows[r].Chunks );
@@ -899,15 +994,6 @@ Shader "GrassCull"
             uvec4      high;
             uint       slot;
             ChunkLawWords( chunks, at, lo, hi, low, high, slot );
-            // The kept records: a record is kept when any of its code planes holds its bit (its bucket + 1 != 0).
-            uvec2 kept    = uvec2( low.x | low.y | low.z | low.w, high.x | high.y | high.z | high.w );
-            uint  keptLow = uint( bitCount( kept.x ) );
-            uint  j       = gl_LocalInvocationIndex;
-            if ( j >= keptLow + uint( bitCount( kept.y ) ) )
-                return;
-            uint i = 32u + NthSetBit( kept.y, j - keptLow );
-            if ( j < keptLow )
-                i = NthSetBit( kept.x, j );
             uint  bit    = i % 32u;
             uvec4 planes = i < 32u ? low : high;
             uint  code   = ( ( planes.x >> bit ) & 1u ) | ( ( ( planes.y >> bit ) & 1u ) << 1u ) |
@@ -960,7 +1046,7 @@ Shader "GrassCull"
                  GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
                                           sphere.xyz - vec3( sphere.w ), sphere.xyz + vec3( sphere.w ) ) )
                 return;
-            uint index = camera.Words[phase + 2u] + WaveAppend( camera, phase + 3u );
+            uint index = camera.Words[phase + 2u] + WaveAppend( camera, phase + 3u, r );
             if ( index < args.Words[table + 2u] )
                 GrassWords( VarietyRows[r].CameraIds ).Words[first + index] =
                      candidates.Quads[2u * slot + 1u].x + VarietyRows[r].InstancesBase;
@@ -1204,13 +1290,14 @@ Shader "GrassCull"
             }
             if ( Hzb.w == kModeDispatch )
             {
-                // The met chunks' list, empty: mode 1 appends to it and grows mode 5's dispatch.
+                // The met chunks' list and the work list, empty: mode 1 appends to them and grows mode 5's dispatch.
                 if ( gl_LocalInvocationIndex == 0u )
                 {
                     MetCommand[0] = 0u;
                     MetCommand[1] = 0u;
                     MetCommand[2] = 1u;
                     MetCommand[3] = 0u;
+                    MetCommand[4] = 0u;
                 }
                 LayOutRows( 0u );
             }

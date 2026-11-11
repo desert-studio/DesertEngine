@@ -237,10 +237,15 @@ namespace Desert::Graphic::System
         constexpr uint32_t kCullModePostFinalize   = 4u;
         constexpr uint32_t kCullModeCameraInstances = 5u;
         // GRASS-CULL-COST-4, the met chunks' list (GrassCull.shader MetChunks, a buffer of this frame's graph):
-        // the instance pass's VkDispatchIndirectCommand and the count on one uvec4, then a uvec2 per met chunk,
-        // room for every culled row's chunks. The CPU never reads it.
-        constexpr uint64_t kMetHeaderBytes = sizeof( glm::uvec4 );
+        // the instance pass's VkDispatchIndirectCommand, the met chunks' and the work items' counts on two uvec4,
+        // then a uvec2 per met chunk, room for every culled row's chunks, then (FPS-GRASS-CULL-GPU) a uint per
+        // work item - a kept record of a met chunk that holds a law row, room for every culled row's LawCapacity
+        // (each such record owns one of its row's law rows). The CPU never reads it.
+        constexpr uint64_t kMetHeaderBytes = 2u * sizeof( glm::uvec4 );
         constexpr uint64_t kMetEntryBytes  = sizeof( glm::uvec2 );
+        constexpr uint64_t kWorkItemBytes  = sizeof( uint32_t );
+        // A work item names its met chunk above GrassCull.shader kWorkRecordBits (6): the list's room stays below.
+        constexpr uint64_t kMetRoomLimit = uint64_t( 1u ) << 26u;
 
         // GRASS-CULL-HIER-1, THE CASCADES' GUARD BAND (UE's cached shadow views keep their culled casters while the
         // view's cached region still covers the moved view): a camera that only turns carries each cascade's box -
@@ -493,7 +498,8 @@ namespace Desert::Graphic::System
         {
             glm::mat4  HzbViewProjection{ 1.0f }; // unjittered, what the bound HZB was built through
             glm::uvec4 Hzb{ 0u };  // xy = the HZB's mip-0 size, z = its mip count (0: nothing tested), w = kCullMode*
-            glm::uvec4 Rows{ 0u }; // x = the variety table's rows the pass covers (its first)
+            glm::uvec4 Rows{ 0u }; // x = the variety table's rows the pass covers (its first), y / z = MetChunks'
+                                   // rooms for met chunks / work items (GrassCull.shader MetRoom / WorkRoom)
         };
         static_assert( sizeof( GrassCullPush ) == 96 );
 
@@ -3217,10 +3223,17 @@ namespace Desert::Graphic::System
             dispatchDesc.Bytes = ( kCullDispatchHeader + cullRows ) * sizeof( glm::uvec4 );
             m_FrameDispatch    = graph.CreateBuffer( dispatchDesc, "GrassCullDispatch" );
             uint64_t chunkRoom = 0u;
+            uint64_t workRoom  = 0u;
             for ( const VarietyGpu* gpu : m_FrameCull )
+            {
                 chunkRoom += gpu->ChunkRoom;
+                workRoom += gpu->LawCapacity;
+            }
+            chunkRoom = std::min( chunkRoom, kMetRoomLimit );
+            workRoom  = std::min( workRoom, uint64_t( 0xFFFFFFFFu ) );
             RDG::BufferDesc metDesc;
-            metDesc.Bytes             = kMetHeaderBytes + chunkRoom * kMetEntryBytes;
+            metDesc.Bytes = kMetHeaderBytes + chunkRoom * kMetEntryBytes +
+                            std::max( workRoom, uint64_t( 1u ) ) * kWorkItemBytes;
             m_FrameMet                = graph.CreateBuffer( metDesc, "GrassCullMetChunks" );
             const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
             GrassCullPush         layOut;
@@ -3228,7 +3241,9 @@ namespace Desert::Graphic::System
             // Hzb.z = 0: the camera cull tests the camera's planes alone.
             layOut.Hzb  = testsHzb ? glm::uvec4( occlusion.Extent, kCullModeDispatch )
                                    : glm::uvec4( 0u, 0u, 0u, kCullModeDispatch );
-            layOut.Rows = glm::uvec4( cullRows, 0u, 0u, 0u );
+            // Rows.y / z: MetChunks' room for met chunks and for work items (FPS-GRASS-CULL-GPU).
+            layOut.Rows =
+                 glm::uvec4( cullRows, static_cast<uint32_t>( chunkRoom ), static_cast<uint32_t>( workRoom ), 0u );
             GrassCullPush cull     = layOut;
             cull.Hzb.w             = kCullModeCameraCull;
             GrassCullPush instances = layOut;
