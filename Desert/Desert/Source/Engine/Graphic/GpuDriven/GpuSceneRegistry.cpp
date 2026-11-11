@@ -685,6 +685,21 @@ namespace Desert::Graphic::GpuDriven
         m_Touched.clear();
         m_FieldHeld.clear();
         m_FieldsHeld = false;
+        m_RigidHeld.clear();
+        m_RigidsHeld = false;
+    }
+
+    bool GpuSceneProxies::KeepsRigid( const GpuSceneRegistry& registry, const size_t count ) const noexcept
+    {
+        if ( !m_RigidsHeld || m_RigidHeld.size() != count || !registry.ListCurrent( m_List ) )
+            return false;
+        for ( const RigidHeld& held : m_RigidHeld )
+        {
+            const Proxy& proxy = *held.Held;
+            if ( proxy.Geometry != GeometryOf( proxy.Mesh ) )
+                return false;
+        }
+        return true;
     }
 
     bool GpuSceneProxies::KeepsFields( const GpuSceneRegistry&                 registry,
@@ -765,7 +780,8 @@ namespace Desert::Graphic::GpuDriven
         proxy.LodBias   = record.LodBias;
     }
 
-    bool GpuSceneProxies::Sync( GpuSceneRegistry& registry, const std::span<const MotionRecord> rigid,
+    bool GpuSceneProxies::Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid,
+                                const bool keptRigid, const size_t keptRigidCount,
                                 const std::span<const MotionRecord> skinned,
                                 std::span<const MotionFieldRecord> fields, const bool keptFields,
                                 const std::span<const MotionFieldFrame> fieldFrames,
@@ -774,15 +790,18 @@ namespace Desert::Graphic::GpuDriven
         DESERT_PROFILE_SCOPE( "GpuSceneProxies::Sync" );
         if ( keptFields )
             fields = {};
+        if ( keptRigid )
+            rigid = {};
         const size_t fieldCount = keptFields ? fieldFrames.size() : fields.size();
+        const size_t rigidCount = keptRigid ? keptRigidCount : rigid.size();
         out.RigidPrimitives.clear();
         out.RigidInstances.clear();
         out.SkinnedPrimitives.clear();
         out.SkinnedInstances.clear();
         out.FieldInstances.clear();
         out.FieldPrimitives.clear();
-        out.RigidPrimitives.reserve( rigid.size() );
-        out.RigidInstances.reserve( rigid.size() );
+        out.RigidPrimitives.reserve( rigidCount );
+        out.RigidInstances.reserve( rigidCount );
         out.SkinnedPrimitives.reserve( skinned.size() );
         out.SkinnedInstances.reserve( skinned.size() );
         out.FieldInstances.reserve( fieldCount );
@@ -794,10 +813,12 @@ namespace Desert::Graphic::GpuDriven
             Reset();
         // Kept fields need the proxies of the last full field sync, as many as the frames name.
         const bool keepable = keptFields && m_FieldsHeld && m_FieldHeld.size() == fieldFrames.size();
+        // Kept rigid records need the proxies of the last full rigid sync, as many as the caller counted.
+        const bool keepableRigid = keptRigid && m_RigidsHeld && m_RigidHeld.size() == keptRigidCount;
         ++m_Sync;
         m_EntitiesNamed    = 0;
         m_KeptClaimed      = 0;
-        const size_t total = rigid.size() + skinned.size() + fields.size();
+        const size_t total = rigidCount + skinned.size() + fields.size();
         if ( m_Memo.size() < total )
             m_Memo.resize( total );
         const GpuScene& scene = registry.Scene();
@@ -807,6 +828,36 @@ namespace Desert::Graphic::GpuDriven
             primitives.push_back( primitive );
             instances.push_back( scene.Primitive( primitive ).FirstInstance );
         };
+
+        // THE KEPT RIGID RECORDS (FPS-SCENE-EVENTS5): their producer reported no change, so each proxy stands as
+        // last synced - stamped for this sync, its entity's owned primitives renumbered as the full sync numbered
+        // them (the skinned records below key by that count), its rows re-read (another primitive's event can move
+        // an instance run). No registry event, no Content to publish: the records did not change.
+        if ( keepableRigid )
+            for ( const RigidHeld& held : m_RigidHeld )
+            {
+                Proxy& proxy = *held.Held;
+                if ( held.Scratch != nullptr && held.Scratch->Sync != m_Sync ) // the entity's first record
+                {
+                    held.Scratch->Sync = m_Sync;
+                    ++m_EntitiesNamed;
+                    held.Scratch->Primitives.clear();
+                    held.Scratch->FieldSets.clear();
+                }
+                if ( proxy.Sync != m_Sync )
+                {
+                    proxy.Sync = m_Sync;
+                    ++m_KeptClaimed;
+                }
+                if ( held.Owns )
+                    held.Scratch->Primitives.push_back( Owned{ .Primitive = proxy.Primitive, .Held = &proxy } );
+                emit( out.RigidPrimitives, out.RigidInstances, proxy.Primitive );
+            }
+        else
+        {
+            m_RigidHeld.clear();
+            m_RigidsHeld = !keptRigid; // a refused keep names no record: the next sync must be a full one
+        }
 
         for ( size_t i = 0; i < rigid.size(); ++i )
         {
@@ -818,12 +869,15 @@ namespace Desert::Graphic::GpuDriven
                 Proxy&          proxy = ProxyOf( key, i, added );
                 if ( proxy.Sync != m_Sync ) // a part queued twice keeps its first record
                     Rigid( registry, proxy, key, added, record );
+                m_RigidHeld.push_back( RigidHeld{ .Held = &proxy, .Scratch = nullptr, .Owns = false } );
                 emit( out.RigidPrimitives, out.RigidInstances, proxy.Primitive );
                 continue;
             }
-            auto&      owned  = ScratchOf( record.Entity, i ).Primitives;
-            Proxy*     proxy  = nullptr;
-            const auto packed = PackAffine( record.World );
+            EntityScratch& scratch = ScratchOf( record.Entity, i );
+            auto&          owned   = scratch.Primitives;
+            Proxy*         proxy   = nullptr;
+            bool           owns    = false;
+            const auto     packed  = PackAffine( record.World );
             for ( const Owned& held : owned ) // only rigid primitives exist yet: skinned run last
                 if ( scene.Primitive( held.Primitive ).LocalToWorld == packed )
                 {
@@ -838,14 +892,16 @@ namespace Desert::Graphic::GpuDriven
                 proxy                 = &ProxyOf( key, i, added );
                 Rigid( registry, *proxy, key, added, record );
                 owned.push_back( Owned{ .Primitive = proxy->Primitive, .Held = proxy } );
+                owns = true;
             }
+            m_RigidHeld.push_back( RigidHeld{ .Held = proxy, .Scratch = &scratch, .Owns = owns } );
             emit( out.RigidPrimitives, out.RigidInstances, proxy->Primitive );
         }
 
         for ( size_t s = 0; s < skinned.size(); ++s )
         {
             const MotionRecord& record   = skinned[s];
-            const size_t        position = rigid.size() + s;
+            const size_t        position = rigidCount + s;
             auto&               owned    = ScratchOf( record.Entity, position ).Primitives;
             const MotionKey     key{ record.Entity, static_cast<uint32_t>( owned.size() ) };
             bool                added = false;
@@ -893,7 +949,7 @@ namespace Desert::Graphic::GpuDriven
         for ( size_t f = 0; f < fields.size(); ++f )
         {
             const MotionFieldRecord& field    = fields[f];
-            const size_t             position = rigid.size() + skinned.size() + f;
+            const size_t             position = rigidCount + skinned.size() + f;
             EntityScratch&           scratch  = ScratchOf( field.Entity, position );
             auto&                    sets     = scratch.FieldSets;
             const auto               found    = std::find( sets.begin(), sets.end(), field.Transforms.data() );
@@ -971,6 +1027,6 @@ namespace Desert::Graphic::GpuDriven
         if ( proxiesLeft || entitiesLeft )
             std::fill( m_Memo.begin(), m_Memo.end(), Memo{} );
         registry.EndList( m_List );
-        return !keptFields || keepable;
+        return ( !keptFields || keepable ) && ( !keptRigid || keepableRigid );
     }
 } // namespace Desert::Graphic::GpuDriven
