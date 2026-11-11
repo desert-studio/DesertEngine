@@ -1142,15 +1142,37 @@ namespace Desert::Graphic::System
                                      const TerrainInstance& row )
     {
         draw.Split = LandscapeDrawSplitOf( quadsPerTile, gridLod, row );
-        EnsureGridIndices( draw.Split.Cells );
+        NoteGridCells( draw.Split.Cells );
         // TERRAIN-LOD-1: each section draws the tile's grid at its own LOD (LandscapeGridRangesOf).
         for ( uint32_t s = 0; s < draw.Split.Sections * draw.Split.Sections; ++s )
         {
             const uint32_t sx = s % draw.Split.Sections;
             const uint32_t sz = s / draw.Split.Sections;
-            EnsureGridIndices(
+            NoteGridCells(
                  LandscapeLodCells( quadsPerTile, draw.Split.SectionGridLod[sz * kLandscapeMaxSections + sx] ) );
         }
+    }
+
+    void TerrainRenderer::NoteGridCells( const uint32_t cells )
+    {
+        if ( m_GridIndices.contains( cells ) ||
+             std::find( m_MissingGridCells.begin(), m_MissingGridCells.end(), cells ) != m_MissingGridCells.end() )
+            return;
+        m_MissingGridCells.push_back( cells );
+    }
+
+    void TerrainRenderer::MakeMissingGridIndices()
+    {
+        for ( const uint32_t cells : m_MissingGridCells )
+            EnsureGridIndices( cells );
+        m_MissingGridCells.clear();
+    }
+
+    void TerrainRenderer::FinishPrepare()
+    {
+        // The grids this frame's camera, dice and virtual-shadow draws name (PrepareTileRows noted them), before
+        // the first node that draws the terrain is declared.
+        MakeMissingGridIndices();
     }
 
     void TerrainRenderer::PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t,
@@ -1163,8 +1185,7 @@ namespace Desert::Graphic::System
                                     .Heightmap      = t.Heightmap,
                                     .Weightmap      = t.Weights.Weightmap != nullptr
                                                            ? std::shared_ptr<Image>( t.Weights.Weightmap )
-                                                           : FallbackTextures::Get().GetFallbackTexture2D(
-                                                             Core::Formats::ImageFormat::RGBA8F ),
+                                                           : m_PrepareFallbackWeightmap,
                                     .HasWeightmap   = t.Weights.Weightmap != nullptr,
                                     .LayerHeights   = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
                                     .Vertices       = pooled,
@@ -1220,7 +1241,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
+    void TerrainRenderer::PrepareFrame()
     {
         // Last frame's group slots (ClearQueue pooled them): reused below with their vectors' capacity.
         if ( m_FrameGroups.empty() )
@@ -1246,6 +1267,7 @@ namespace Desert::Graphic::System
         m_DiceCulled    = false;
         m_VsmDraws.clear();
         m_VsmInstances.clear();
+        m_TileSetups.clear();
         if ( m_Queue.empty() )
         {
             m_FrameGroups.clear();
@@ -1299,51 +1321,20 @@ namespace Desert::Graphic::System
         m_FrameDraws.reserve( m_Queue.size() );
         m_ViewDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
-        // The camera's frustum from the matrix its rasters draw with (RenderGBufferManual / GeometryPass /
-        // RenderDepthManual: the view's jittered view-projection), so the cull and the clip agree to the pixel.
-        const Core::Frustum cameraFrustum( frame.JitteredViewProjection, glm::mat4( 1.0f ) );
         m_FrameMaterials.reserve( m_Queue.size() );
+        m_TileSetups.reserve( m_Queue.size() );
 
-        // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
-        m_TileLods.clear();
-        {
-            DESERT_PROFILE_SCOPE( "Terrain: Tile LODs" );
-            for ( const auto& t : m_Queue )
-                SetTileLods( m_TileLods, KeyOf( t.Landscape, 0, 0 ),
-                             TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } ) );
-            SealTileLods( m_TileLods );
-        }
-
-        // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
-        // lowest and highest sample of its tiles within the across-edge reach of the ring diced 2 - no finer ring
-        // reaches a tile past it.
-        const uint32_t                            viewHeight = m_SceneRenderer->GetViewExtent().Height;
-        const int                                 dicingRate = m_SceneRenderer->GetDisplacementDicingRate();
-        m_DiceSlabs.clear();
-        const auto                                slabKey = []( const LandscapeTileDraw& l )
-        { return std::array<float, 4>{ l.OriginX, l.OriginZ, l.BaseY, l.SpacingCm }; };
-        for ( const auto& t : m_Queue )
-        {
-            const LandscapeTileDraw& l = t.Landscape;
-            if ( dicingRate <= 0 || l.SpacingCm <= 0.0f )
-                continue;
-            const float ring2 = frame.Projection[1][1] * 0.5f * static_cast<float>( viewHeight ) * l.SpacingCm /
-                                ( static_cast<float>( dicingRate ) * 2.0f );
-            const float x0   = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
-            const float z0   = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
-            const float size = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
-            const float dx = std::max( { 0.0f, x0 - frame.CameraPosition.x, frame.CameraPosition.x - x0 - size } );
-            const float dz = std::max( { 0.0f, z0 - frame.CameraPosition.z, frame.CameraPosition.z - z0 - size } );
-            if ( std::max( dx, dz ) > ring2 + l.SpacingCm )
-                continue;
-            const auto key  = slabKey( l );
-            const auto slab = std::find_if( m_DiceSlabs.begin(), m_DiceSlabs.end(),
-                                            [&]( const auto& entry ) { return entry.first == key; } );
-            if ( slab == m_DiceSlabs.end() )
-                m_DiceSlabs.emplace_back( key, glm::vec2( l.MinY, l.MaxY ) );
-            else
-                slab->second = glm::vec2( std::min( slab->second.x, l.MinY ), std::max( slab->second.y, l.MaxY ) );
-        }
+        // What PrepareTileRows reads of the scene renderer and of the fallback textures, read here on the render
+        // thread (the task touches no other system). Every method whose frame may raster virtual shadow pages:
+        // VirtualMaps (the sun and the local lights), Stochastic (its lights resolved to vsm+screen,
+        // LocalLightsVirtualPages - known only after this).
+        m_PrepareViewHeight                             = m_SceneRenderer->GetViewExtent().Height;
+        m_PrepareDicingRate                             = m_SceneRenderer->GetDisplacementDicingRate();
+        const Common::Scalability::ShadowMethod shadows = m_SceneRenderer->GetRenderMethods().Shadows.Effective;
+        m_PrepareVsmRows = LocalShadowsVirtual( m_SceneRenderer->GetRenderMethods() ) ||
+                           shadows == Common::Scalability::ShadowMethod::Stochastic;
+        m_PrepareFallbackWeightmap =
+             FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
 
         for ( const auto& t : m_Queue )
         {
@@ -1475,12 +1466,95 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial::ParamRowView rowView   = surface->GetParamRowView();
             const TerrainRowValues&                rowValues = RowValuesOf( materials, *surface, rowView );
 
+            const auto& paramRow = *rowView.Row;
+            group.ParamRows.insert( group.ParamRows.end(), paramRow.begin(), paramRow.end() );
+            // The tile's hand-over to PrepareTileRows (its instance row, draws and dice jobs).
+            m_TileSetups.push_back( { .Group = materials.GroupIndex, .Layers = &layers, .Values = rowValues } );
+        }
+
+        // The slots past this frame's groups go (the set count shrank).
+        m_FrameGroups.resize( groupCount );
+
+        // ── Upload every group's material rows, still before any draw ───────────────────────────────────
+        // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
+        // block goes on in ApplySceneFrame)
+        DESERT_PROFILE_PASS( "Terrain: Upload rows" );
+        for ( const auto& group : m_FrameGroups )
+        {
+            if ( group.ParamRows.empty() )
+                continue;
+            ProgramMaterials&   materials = *group.Materials;
+            DataDrivenMaterial* surface =
+                 deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // ONE upload per group (UploadGroupRows): the programs that declare the block read the first one's
+            // buffer; a frame-in-flight copy that already holds these rows is not written again.
+            UploadGroupRows( materials.ParamUpload, RowBlocksOf( materials, surface ).Params,
+                             group.ParamRows.data(),
+                             static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
+        }
+    }
+
+    void TerrainRenderer::PrepareTileRows( const ViewFrame& frame ) noexcept
+    {
+        // PrepareFrame left one setup per queued tile (none: an empty queue).
+        if ( m_Queue.empty() || m_TileSetups.size() != m_Queue.size() )
+            return;
+        const uint32_t viewHeight = m_PrepareViewHeight;
+        const int      dicingRate = m_PrepareDicingRate;
+        // The camera's frustum from the matrix its rasters draw with (RenderGBufferManual / GeometryPass /
+        // RenderDepthManual: the view's jittered view-projection), so the cull and the clip agree to the pixel.
+        const Core::Frustum cameraFrustum( frame.JitteredViewProjection, glm::mat4( 1.0f ) );
+
+        // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
+        m_TileLods.clear();
+        for ( const auto& t : m_Queue )
+            SetTileLods(
+                 m_TileLods, KeyOf( t.Landscape, 0, 0 ),
+                 TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } ) );
+        SealTileLods( m_TileLods );
+
+        // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
+        // lowest and highest sample of its tiles within the across-edge reach of the ring diced 2 - no finer ring
+        // reaches a tile past it.
+        m_DiceSlabs.clear();
+        const auto slabKey = []( const LandscapeTileDraw& l )
+        { return std::array<float, 4>{ l.OriginX, l.OriginZ, l.BaseY, l.SpacingCm }; };
+        for ( const auto& t : m_Queue )
+        {
+            const LandscapeTileDraw& l = t.Landscape;
+            if ( dicingRate <= 0 || l.SpacingCm <= 0.0f )
+                continue;
+            const float ring2 = frame.Projection[1][1] * 0.5f * static_cast<float>( viewHeight ) * l.SpacingCm /
+                                ( static_cast<float>( dicingRate ) * 2.0f );
+            const float x0   = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
+            const float z0   = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
+            const float size = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
+            const float dx = std::max( { 0.0f, x0 - frame.CameraPosition.x, frame.CameraPosition.x - x0 - size } );
+            const float dz = std::max( { 0.0f, z0 - frame.CameraPosition.z, frame.CameraPosition.z - z0 - size } );
+            if ( std::max( dx, dz ) > ring2 + l.SpacingCm )
+                continue;
+            const auto key  = slabKey( l );
+            const auto slab = std::find_if( m_DiceSlabs.begin(), m_DiceSlabs.end(),
+                                            [&]( const auto& entry ) { return entry.first == key; } );
+            if ( slab == m_DiceSlabs.end() )
+                m_DiceSlabs.emplace_back( key, glm::vec2( l.MinY, l.MaxY ) );
+            else
+                slab->second = glm::vec2( std::min( slab->second.x, l.MinY ), std::max( slab->second.y, l.MaxY ) );
+        }
+
+        for ( size_t tile = 0; tile < m_Queue.size(); ++tile )
+        {
+            const TerrainDrawData&    t         = m_Queue[tile];
+            const TileSetup&          setup     = m_TileSetups[tile];
+            const TerrainLayerInputs& layers    = *setup.Layers;
+            const TerrainRowValues&   rowValues = setup.Values;
+            FrameGroup&               group     = m_FrameGroups[setup.Group];
+
             TerrainInstance instance      = LandscapeInstance( t, TileLodsOf( t.Landscape, m_TileLods ), layers );
             const auto      slabKeyOfTile = slabKey( t.Landscape );
             const auto      slab          = std::find_if( m_DiceSlabs.begin(), m_DiceSlabs.end(),
                                                           [&]( const auto& entry ) { return entry.first == slabKeyOfTile; } );
             {
-                DESERT_PROFILE_SCOPE( "Terrain: Displacement" );
                 std::optional<glm::vec2> tileSlab;
                 if ( slab != m_DiceSlabs.end() )
                     tileSlab = slab->second;
@@ -1499,7 +1573,7 @@ namespace Desert::Graphic::System
             }
 
             FrameDraw draw;
-            draw.Group       = materials.GroupIndex;
+            draw.Group       = setup.Group;
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
             draw.VertexCount = LandscapeDicedVertexCount( t.Landscape.QuadsPerTile,
                                                           static_cast<uint32_t>( instance.Params.w ), instance );
@@ -1522,18 +1596,10 @@ namespace Desert::Graphic::System
                 m_ViewDraws.push_back( view );
             }
 
-            const auto& paramRow = *rowView.Row;
-            group.ParamRows.insert( group.ParamRows.end(), paramRow.begin(), paramRow.end() );
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
-            {
-                DESERT_PROFILE_SCOPE( "Terrain: Frame material" );
-                m_FrameMaterials.push_back( FrameMaterialOf( rowValues, layers ) );
-            }
+            m_FrameMaterials.push_back( FrameMaterialOf( rowValues, layers ) );
         }
-
-        // The slots past this frame's groups go (the set count shrank).
-        m_FrameGroups.resize( groupCount );
 
         // THE GROUND'S TRIANGLE CENSUS (TERRAIN-LOD-1): what the camera's rasters (TerrainGBuffer, the depth
         // prepass, the forward pass) draw this frame - the rings' and every section's grid cells - logged when it
@@ -1591,32 +1657,10 @@ namespace Desert::Graphic::System
 
         // The virtual shadow map's own rows and pool jobs, past every camera row of their groups (a draw's Row
         // names its param row too, and these have none), before AddDicePoolPass reads the jobs.
-        // Every method whose frame may raster virtual shadow pages: VirtualMaps (the sun and the local lights),
-        // Stochastic (its lights resolved to vsm+screen, LocalLightsVirtualPages - known only after this).
-        const Common::Scalability::ShadowMethod shadows = m_SceneRenderer->GetRenderMethods().Shadows.Effective;
-        if ( LocalShadowsVirtual( m_SceneRenderer->GetRenderMethods() ) ||
-             shadows == Common::Scalability::ShadowMethod::Stochastic )
+        if ( m_PrepareVsmRows )
         {
             const float pixelsPerCm = frame.Projection[1][1] * 0.5f * static_cast<float>( viewHeight );
             PrepareVirtualShadowRows( frame.CameraPosition, static_cast<float>( dicingRate ) / pixelsPerCm );
-        }
-
-        // ── Upload every group's material rows, still before any draw ───────────────────────────────────
-        // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's; the view
-        // block goes on in ApplySceneFrame)
-        DESERT_PROFILE_PASS( "Terrain: Upload rows" );
-        for ( const auto& group : m_FrameGroups )
-        {
-            if ( group.ParamRows.empty() )
-                continue;
-            ProgramMaterials&   materials = *group.Materials;
-            DataDrivenMaterial* surface =
-                 deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
-            // ONE upload per group (UploadGroupRows): the programs that declare the block read the first one's
-            // buffer; a frame-in-flight copy that already holds these rows is not written again.
-            UploadGroupRows( materials.ParamUpload, RowBlocksOf( materials, surface ).Params,
-                             group.ParamRows.data(),
-                             static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
         }
     }
 
@@ -2039,6 +2083,8 @@ namespace Desert::Graphic::System
             ProgramMaterials&   materials = *group.Materials;
             DataDrivenMaterial* surface =
                  deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
+            // The grids the lights' and cascades' draws name (SplitDraw noted them), on this render-thread step.
+            MakeMissingGridIndices();
             // ONE upload per group (UploadGroupRows): the first program's buffer takes the rows, the other three
             // read that same buffer - the rows are identical by construction.
             UploadGroupRows( materials.InstanceUpload, RowBlocksOf( materials, surface ).Instances,

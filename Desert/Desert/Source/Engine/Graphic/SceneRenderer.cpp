@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
@@ -1919,8 +1920,20 @@ namespace Desert::Graphic
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
             // The shadowed point/spot lights' draws and the scene's lit-material state follow UpdateLocalShadows
             // below (PrepareLocalShadowViews, ApplySceneFrame): the lights' views do not exist yet here.
-            m_Systems.Terrain->PrepareFrame( frame );
+            m_Systems.Terrain->PrepareFrame();
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+        // FPS-ARCH-SETUP2 (UE task-based view setup): the terrain's tile rows - LODs, instance rows, dice jobs,
+        // camera and virtual-shadow draws - as a High setup task, joined below before the first reader
+        // (AddDicePoolPass). Nothing between here and the join calls the terrain; the TaskGroup joins on every
+        // early return of this frame (its destructor) before `frame` goes.
+        Common::TaskGroup prepareTasks( parallelSetup );
+        {
+            auto* const            terrain  = m_Systems.Terrain.get();
+            const ViewFrame* const prepared = &frame;
+            prepareTasks.Launch(
+                 "Terrain: Prepare tile rows",
+                 Common::InlineJob( [terrain, prepared]() noexcept { terrain->PrepareTileRows( *prepared ); } ) );
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
         if ( const Common::BoolResultStr physical =
@@ -1956,6 +1969,9 @@ namespace Desert::Graphic
         // The landscape's dice pool (its displaced sub-vertices, evaluated once), before any node that draws the
         // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual
         // shadows.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Join terrain tile rows" );
+        prepareTasks.Join();
+        m_Systems.Terrain->FinishPrepare();
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
             auto* terrain = m_Systems.Terrain.get();

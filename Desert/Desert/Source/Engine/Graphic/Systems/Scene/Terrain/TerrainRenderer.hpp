@@ -131,12 +131,23 @@ namespace Desert::Graphic::System
         // local shadow atlas has the cascades' depth format, so the one pipeline serves its views too.
         Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
 
-        // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
-        // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
-        // matrices — the same view every other pass of the frame draws for. The instance rows go up in
-        // PrepareLocalShadowViews and the scene's blocks in ApplySceneFrame, which must follow it: nothing may
-        // draw a terrain before all three ran.
-        void PrepareFrame( const ViewFrame& frame );
+        // THE FRAME'S SETUP IN THREE STEPS (FPS-ARCH-SETUP2; UE FSceneRenderer's task-based view setup: the CPU
+        // work runs as a task with an explicit join before its first reader, the render thread only records):
+        //  1. PrepareFrame - render thread, before the render graph records, inside the view's frame (after
+        //     SceneViewState::BeginFrame accepted it): resolves every queued terrain's material, binds its group's
+        //     textures, packs and uploads the param rows, and keeps each tile's group, layer inputs and row values
+        //     (m_TileSetups) for step 2.
+        //  2. PrepareTileRows - a High setup task (Common::TaskGroup), with @p frame's matrices (the same view
+        //     every other pass of the frame draws for): the tiles' LODs, instance rows, dice pool and dice cull
+        //     jobs, camera and virtual-shadow draws, the census. CPU only: no material, buffer, image or service
+        //     is touched; the grid index buffers its draws need are noted (m_MissingGridCells). Nothing may call
+        //     this renderer between the task's launch and its join.
+        //  3. FinishPrepare - render thread, after the join: makes the noted grid index buffers.
+        // The instance rows go up in PrepareLocalShadowViews and the scene's blocks in ApplySceneFrame, which
+        // must follow: nothing may draw a terrain before all of them ran.
+        void PrepareFrame();
+        void PrepareTileRows( const ViewFrame& frame ) noexcept;
+        void FinishPrepare();
 
         // After PrepareFrame AND MeshRenderer::UpdateLocalShadows (the lights get their views there, later in the
         // frame than PrepareFrame, whose rows the TLAS and the motion rows read first): for each of @p localLights
@@ -488,12 +499,18 @@ namespace Desert::Graphic::System
         [[nodiscard]] RDG::BufferRef CameraDiceCullArgs() const;
         // Reads the census slot @p frameIndex comes back to and logs "[Terrain] triangles in view" when it moved.
         void ReportDiceCullCensus( uint64_t frameIndex );
-        // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile, the grid's
-        // index buffer made first if this is the first draw at that grid (EnsureGridIndices).
+        // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile. CPU only (it
+        // runs in PrepareTileRows' task too): a grid with no index buffer yet is noted in m_MissingGridCells, and
+        // MakeMissingGridIndices makes it on the render thread before any graph records a draw of it.
         void SplitDraw( FrameDraw& draw, uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row );
         // The shared index buffer of the @p cells-a-side grid (LandscapeGridIndices), made and uploaded on first
         // use, before any graph records a draw of it; an error is logged and the draws of that grid refuse.
         void EnsureGridIndices( uint32_t cells );
+        // The grids SplitDraw met with no index buffer (each once), and the render-thread step that makes them
+        // (FinishPrepare, the end of PrepareLocalShadowViews). m_GridIndices is only READ while a task runs.
+        std::vector<uint32_t> m_MissingGridCells;
+        void                  NoteGridCells( uint32_t cells );
+        void                  MakeMissingGridIndices();
 
         // One point/spot light's terrain draws (PrepareFrame): the tiles in its reach, each at the LOD the light
         // asks for (its rows follow the camera's in the group buffers), and the key of what they draw.
@@ -670,6 +687,24 @@ namespace Desert::Graphic::System
         std::vector<std::pair<std::array<float, 4>, glm::vec2>> m_DiceSlabs;
         std::vector<TerrainTileLodEntry> m_TileLods;
         std::vector<TerrainTileLodEntry> m_LightTileLods;
+        // PrepareFrame's hand-over to PrepareTileRows, one per queued tile in queue order: the tile's group, its
+        // layer inputs (a value of m_LayerInputs: node-stable, nothing inserts between the two steps) and a COPY
+        // of its row values - RowValuesOf's answer lives in ProgramMaterials::Values, which the next tile of the
+        // same group overwrites.
+        struct TileSetup
+        {
+            size_t                    Group  = 0;
+            const TerrainLayerInputs* Layers = nullptr;
+            TerrainRowValues          Values;
+        };
+        std::vector<TileSetup> m_TileSetups;
+        // What PrepareFrame read from the scene renderer for PrepareTileRows (the task reads no other system): the
+        // view's height in pixels, the displacement dicing rate, whether the frame needs the virtual shadow map's
+        // rows, and the fallback weightmap a tile without one hands its dice pool job.
+        uint32_t               m_PrepareViewHeight = 0u;
+        int                    m_PrepareDicingRate = 0;
+        bool                   m_PrepareVsmRows    = false;
+        std::shared_ptr<Image> m_PrepareFallbackWeightmap;
         // The shadow views' draw lists of earlier frames (cascades', lights'), cleared, kept for their capacity:
         // PrepareLocalShadowViews takes one per list instead of growing a fresh vector.
         std::vector<std::vector<FrameDraw>> m_DrawListPool;
@@ -810,9 +845,9 @@ namespace Desert::Graphic::System
         // DicePool.x and adds its job with tile @p t's maps and @p layers' height array.
         void PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t, const TerrainLayerInputs& layers,
                               uint32_t pooled );
-        // THE GRIDS' SHARED INDEX BUFFERS (UE FLandscapeSharedBuffers), by cells a side: one per grid size any tile
-        // has drawn at (a 255-quad landscape's eight LOD grids, 2.1 MB), kept for the renderer's life. Written
-        // only in PrepareFrame / PrepareLocalShadowViews, read by RecordDraws.
+        // THE GRIDS' SHARED INDEX BUFFERS (UE FLandscapeSharedBuffers), by cells a side: one per grid size any
+        // tile has drawn at (a 255-quad landscape's eight LOD grids, 2.1 MB), kept for the renderer's life.
+        // Written only on the render thread (MakeMissingGridIndices), read by SplitDraw and RecordDraws.
         std::unordered_map<uint32_t, std::shared_ptr<IndexBuffer>> m_GridIndices;
         RDG::BufferRef                   m_DicePool;
         RDG::BufferRef                   m_DicePoolCornerNodes; // this frame's corner nodes (AddDicePoolPass)
