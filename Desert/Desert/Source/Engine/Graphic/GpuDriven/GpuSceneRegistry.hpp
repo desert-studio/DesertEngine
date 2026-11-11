@@ -11,6 +11,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -111,17 +112,19 @@ namespace Desert::Graphic
 
 // GPU-DRIVEN phase GPUSCENE: THE SCENE'S PRIMITIVES BY RENDERER KEY. Owns the scene's GpuScene (Scene::
 // GetGpuScene) and keeps, per MotionKey, the primitive's stable GpuScene index while the scene's views keep
-// queueing it. The previous world is the row's PrevLocalToWorld, the previous palette is kept here per primitive, and every view of a frame
-// reads the same rows.
+// queueing it. The previous world is the row's PrevLocalToWorld, the previous palette is kept here per primitive,
+// and every view of a frame reads the same rows.
 //
 // Lifetime of a primitive: added the first frame a view queues it (Prev == World: no object motion, as a newly
 // visible object had before), kept while each synced frame queues it, removed at the first BeginFrame after a
-// synced frame that did not queue it (it reappears later with no stale previous world).
+// synced frame that did not queue it (it reappears later with no stale previous world). A dynamic primitive is
+// told by events (GpuSceneProxies -> AddPrimitive / UpdatePrimitive / RemovePrimitive), a static one by
+// SyncStatic's list.
 namespace Desert::Graphic::GpuDriven
 {
-    // Where Sync put each record: rigid and skinned records -> their primitive (the push block's
-    // PrimitiveIndex) and its first instance (the TLAS custom index / GI instance row); fields -> their first
-    // instance (instance i of the field = FirstInstance + i).
+    // Where GpuSceneProxies::Sync / SyncStatic put each record: rigid and skinned records -> their primitive (the
+    // push block's PrimitiveIndex) and its first instance (the TLAS custom index / GI instance row); fields ->
+    // their first instance (instance i of the field = FirstInstance + i).
     struct GpuSceneRecordRows
     {
         std::vector<PrimitiveIndex> RigidPrimitives;
@@ -195,27 +198,53 @@ namespace Desert::Graphic::GpuDriven
         // A view's graph of @p frame executed (SceneRenderer, beside SceneViewState::EndFrame): the frame is kept.
         void CommitFrame( uint64_t frame );
 
-        // One view's queues of this frame. Numbering (unchanged from the per-view rows it replaces):
-        //  - Per entity, the rigid primitives in submission order; the position IS MotionKey::Slot. Rigid records
-        //    of one entity with an IDENTICAL world are one primitive (a mesh split across material slots).
-        //  - Every skinned record is a primitive of its own (the entity's next slot); its row names this frame's
-        //    palette and the previous one (the primitive's palette of the last synced frame, or this one when it
-        //    was not drawn then or its bone count changed).
-        //  - A rigid record with a Part is keyed by that part.
-        //  - A field is keyed by its position among the entity's distinct transform sets.
-        // A primitive an earlier view of the frame already synced keeps its row (the views agree on the frame).
-        // The frame's palettes reach GpuScene::SetBonePalettes. @p out is cleared first.
-        void Sync( std::span<const MotionRecord> rigid, std::span<const MotionRecord> skinned,
-                   std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out );
+        // THE DYNAMIC PRIMITIVES BY EVENT (FPS-SCENE-EVENTS; UE FScene::AddPrimitive / UpdatePrimitiveTransform /
+        // RemovePrimitive queued by the producers, applied as they come): a producer (one view's GpuSceneProxies)
+        // holds a LIST of primitives and tells the registry only what changed - nothing is walked or compared for
+        // a primitive that did not change. A primitive is shared by every list that added its key (the views
+        // agree on the frame: the first list of a frame to write it wins, a later list's write of the same frame
+        // is ignored) and removed once no list holds it.
+        // Lifetime as before: a list no committed frame kept (EndList) is dropped by the next BeginFrame with its
+        // primitives (the view stopped syncing); a removal takes effect at the next BeginFrame of a kept frame (a
+        // discarded frame's removals are cancelled, its additions undone).
+        //
+        // The list a producer syncs this frame: @p list itself when the registry holds it, else a new one (0, or
+        // an id this registry does not hold: dropped, or another registry's - ids are process-unique). @p fresh:
+        // every primitive the producer held is void (a new list, or a discarded frame rolled the list back) and it
+        // adds each one afresh - an Add of a key the list already holds is a plain rewrite, and the members it
+        // does not add again leave at EndList.
+        [[nodiscard]] uint64_t BeginList( uint64_t list, bool& fresh ) noexcept;
+        // The list's sync of this frame is complete: the frame's palettes reach GpuScene::SetBonePalettes; on a
+        // re-added list, the primitives it held and did not add again leave it.
+        void EndList( uint64_t list ) noexcept;
+        // A primitive enters the list (@p key: GpuSceneProxies' numbering). Prev == World for a new one.
+        [[nodiscard]] PrimitiveIndex AddPrimitive( uint64_t list, MotionKey key,
+                                                   const MotionRecord& record ) noexcept;
+        [[nodiscard]] PrimitiveIndex AddField( uint64_t list, MotionKey key,
+                                               const MotionFieldRecord& field ) noexcept;
+        // Its world, mesh, geometry, flags or LOD inputs changed (only what differs from the row is rewritten).
+        void UpdatePrimitive( uint64_t list, PrimitiveIndex primitive, const MotionRecord& record ) noexcept;
+        // A field's mesh, instances, flags, bounds pad or cull distances changed.
+        void UpdateField( uint64_t list, PrimitiveIndex primitive, const MotionFieldRecord& field ) noexcept;
+        // What its records draw besides mesh, world and flags changed (MotionRecord::Content):
+        // GpuScene::MarkContent.
+        void UpdateContent( PrimitiveIndex primitive ) noexcept;
+        void UpdateWind( PrimitiveIndex primitive, const PrimitiveWind& wind ) noexcept;
+        // A skinned primitive's palette of this frame (every frame it is drawn; the first list of a frame wins):
+        // its row names it and the previous one (the primitive's palette of the last synced frame, or this one
+        // when it was not drawn then or its bone count changed).
+        void UpdateBones( PrimitiveIndex primitive, std::span<const glm::mat4> bones ) noexcept;
+        // The primitive leaves the list (at the next BeginFrame of a kept frame).
+        void RemovePrimitive( uint64_t list, PrimitiveIndex primitive ) noexcept;
 
         // THE RETAINED STATIC SCENE's records of one view (CPU-SCENE-DELTA 2; UE: FScene keeps the primitive by
         // its PackedIndex, AddPrimitive / UpdatePrimitiveTransform / RemovePrimitive on change only). Keyed by
         // StaticPrimitiveRecord::Primitive in a dense array (no hash, no per-entity scratch, no world compare to
         // find the primitive). @p token names the list's contents (MeshRenderer: a new one per change of the
-        // list, of any record's world, mesh, flags or content; process-unique, 0 = none). Lifetime as Sync's: a
+        // list, of any record's world, mesh, flags or content; process-unique, 0 = none). Lifetime as a list's: a
         // slot no synced view of a frame queued is removed by the next BeginFrame; a slot given to another entity
         // is removed and added afresh (no previous world of the old entity). Writes @p out.StaticPrimitives /
-        // StaticInstances, one per record. Call after BeginFrame, before or after Sync.
+        // StaticInstances, one per record. Call after BeginFrame, before or after the dynamic lists.
         void SyncStatic( std::span<const StaticPrimitiveRecord> records, uint64_t token, GpuSceneRecordRows& out );
         // The cheap frame of an unchanged static scene: true when the last SyncStatic was of @p token and no
         // primitive of it was removed, discarded or rolled back since - then its primitives are queued for this
@@ -276,37 +305,47 @@ namespace Desert::Graphic::GpuDriven
             uint32_t PrevOffset     = 0;        // where the history copy sits in the frame palette
             uint32_t PrevBoneOffset = 0;        // BoneOffset as of PrevBonesFrame (DiscardFrame restores it)
             uint32_t PrevBoneCount  = 0;
-            // The primitive's records' Content words as of the last Sync that queued it (an order-free sum of
-            // their mixes: a merged record of the primitive adds its own), and the one Sync gathers now.
+            // The primitive's records' Content words as of the last SyncStatic that queued it (an order-free sum
+            // of their mixes: a merged record of the primitive adds its own), and the one SyncStatic gathers now.
             uint64_t Content      = 0;
             uint64_t FrameContent = 0;
             uint64_t ContentSync  = 0; // the Sync (m_SyncSerial) FrameContent is being summed in
-            // A field: the snapshot its instance rows equal (MotionFieldRecord::Snapshot), null when unverified.
-            std::shared_ptr<const std::vector<glm::mat4>> Instances;
-        };
-        // The primitives an entity owns in this Sync's submission order (index == MotionKey::Slot).
-        struct Owned
-        {
-            PrimitiveIndex Primitive = kInvalidIndex;
-            Entry*         Held      = nullptr;
+            // A dynamic (list) primitive: its key, how many lists hold it, and the frame / list that last wrote
+            // it (a later list of the same frame does not overwrite: the views agree on the frame).
+            MotionKey Key{};
+            uint32_t  Refs         = 0;
+            uint64_t  WrittenFrame = kNoFrame;
+            uint64_t  WrittenList  = 0;
         };
 
-        // Per entity, what the current Sync gathered of it: the primitives it owns in submission order (index ==
-        // MotionKey::Slot) and its distinct field transform sets (index == the field's slot). Kept across Syncs so
-        // a steady scene allocates nothing per frame (was a map of vectors built and freed by every Sync): a slot
-        // is emptied the first time a Sync names its entity (Sync == m_SyncSerial), and one no view named in the
-        // last frame is dropped by BeginFrame.
-        struct EntityScratch
+        // One producer's primitives (BeginList .. EndList). Members change only by Add / Remove events.
+        struct SceneList
         {
-            uint64_t                      Sync  = 0;
-            uint64_t                      Frame = kNoFrame;
-            std::vector<Owned>            Primitives;
-            std::vector<const glm::mat4*> FieldSets;
+            uint64_t                           Frame     = kNoFrame; // the last frame that kept it (EndList)
+            uint64_t                           PrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
+            std::unordered_set<PrimitiveIndex> Members;
+            std::vector<PrimitiveIndex>        Added; // this frame's additions (DiscardFrame undoes them)
+            std::vector<PrimitiveIndex> Removed; // this frame's removals (applied by the next kept BeginFrame)
+            // Re-added from scratch this frame (a discarded frame rolled it back: BeginList said fresh): the
+            // members its producer adds again; the others leave at EndList.
+            bool                        Resync = false;
+            std::vector<PrimitiveIndex> Seen;
         };
-        EntityScratch& ScratchOf( uint32_t entity );
+        SceneList* ListOf( uint64_t list ) noexcept;
+        Entry*     DynamicOf( PrimitiveIndex primitive ) noexcept;
+        // May @p list write @p entry this frame (no earlier list of the frame did); stamps it when so.
+        bool Writable( Entry& entry, uint64_t list ) noexcept;
+        // The key's entry (created: @p inserted, stamped as written by @p list); its primitive (none yet when
+        // new).
+        PrimitiveIndex Join( uint64_t list, MotionKey key, bool& inserted, Entry*& held ) noexcept;
+        // The entry joins @p owner's members (one more list holds it) unless it is one already.
+        void Enlist( SceneList& owner, Entry& entry, bool inserted ) noexcept;
+        void Leave( PrimitiveIndex primitive ) noexcept; // one list less; removed at none
+        void WriteField( Entry& entry, bool inserted, const MotionFieldRecord& field ) noexcept;
 
-        Entry& Touch( MotionKey key, const MotionRecord& record, bool& fresh );
-        // Touch's write of a primitive the current frame has not queued yet (@p inserted: no row yet).
+        // The row part of a write: what differs from @p record (@p inserted: no row yet) is rewritten.
+        void WriteRow( Entry& entry, bool inserted, const MotionRecord& record );
+        // SyncStatic's write of a slot the current frame has not queued yet: the row, its Content and the stamp.
         void Write( Entry& entry, bool inserted, const MotionRecord& record );
         // The first record of the primitive this Sync (it was fresh: no earlier view of the frame synced it)
         // starts its FrameContent; every other record of it in the same Sync adds to it (AddContent). The end of
@@ -320,7 +359,11 @@ namespace Desert::Graphic::GpuDriven
         GpuScene                                            m_Scene;
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
-        std::unordered_map<uint32_t, EntityScratch>                           m_EntityScratch;
+        // The dynamic primitives' entries by primitive (the events name a primitive, not a key: no hash) and the
+        // producers' lists by id.
+        std::vector<Entry*>                     m_Dynamic;
+        std::unordered_map<uint64_t, SceneList> m_Lists;
+        bool                                    m_PalettesChanged = false; // since the last EndList
         // The retained static scene's primitives by persistent slot (SyncStatic). Live: the slot holds a row.
         // THE FRAME DOES NOT WALK THE SLOTS (UE FScene: only the added / updated / removed primitives are
         // visited). The current list (m_StaticTokenSlots, its members' List == m_StaticListSerial) is queued as
@@ -359,14 +402,92 @@ namespace Desert::Graphic::GpuDriven
         uint64_t                                            m_FrameBeforePrevious = kNoFrame;
         bool                                                m_Started       = false;
         bool                                                m_Committed     = false; // CommitFrame( m_Frame )
-        // THE RETIRE WALKS RUN ONLY WHEN SOMETHING LEFT (UE FScene: RemovedPrimitives is a list, not a sweep).
-        // How many m_Entries / m_MaterialRows / m_EntityScratch the frame being synced stamped with m_Frame
-        // (each counted on its first stamp of the frame). BeginFrame walks a map only when its count is below
-        // its size - an unchanged scene retires nothing and reads no entry. Exact from BeginFrame on; a
-        // DiscardFrame restores stamps of an older frame, so the next BeginFrame walks all (m_CountsExact).
-        size_t m_EntriesQueued = 0;
+        // THE RETIRE WALK RUNS ONLY WHEN SOMETHING LEFT (UE FScene: RemovedPrimitives is a list, not a sweep).
+        // How many m_MaterialRows the frame being synced stamped with m_Frame (each counted on its first stamp of
+        // the frame). BeginFrame walks the map only when its count is below its size - an unchanged scene retires
+        // nothing and reads no entry. Exact from BeginFrame on; a DiscardFrame restores stamps of an older frame,
+        // so the next BeginFrame walks all (m_CountsExact). The dynamic primitives need no walk: they leave by
+        // event (RemovePrimitive) or with their list.
         size_t m_MaterialsAsked = 0;
-        size_t m_ScratchNamed   = 0;
         bool   m_CountsExact    = false;
+    };
+
+    // ONE VIEW'S PRODUCER OF DYNAMIC PRIMITIVES (UE FPrimitiveSceneProxy set): the view's queued rigid, skinned
+    // and field records of this frame, diffed against the proxies it keeps per MotionKey across frames, reach the
+    // registry as events only - an added, changed or removed primitive; an unchanged one costs no registry call.
+    // Numbering (unchanged from the per-frame Sync it replaces):
+    //  - Per entity, the rigid primitives in submission order; the position IS MotionKey::Slot. Rigid records of
+    //    one entity with an IDENTICAL world are one primitive (a mesh split across material slots).
+    //  - Every skinned record is a primitive of its own (the entity's next slot); its palette goes up every frame.
+    //  - A rigid record with a Part is keyed by that part.
+    //  - A field is keyed by its position among the entity's distinct transform sets.
+    // A record's lookups are memoised by its queue position (the queues repeat their order frame to frame): the
+    // entity scratch and the proxy of last sync's record at the same position are reused when they name the same
+    // entity and key - no hash for a steady queue.
+    class GpuSceneProxies
+    {
+    public:
+        // @p out is cleared first; one row per record, in order, as the registry's rows of each primitive.
+        void Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid,
+                   std::span<const MotionRecord> skinned, std::span<const MotionFieldRecord> fields,
+                   GpuSceneRecordRows& out ) noexcept;
+
+    private:
+        struct Proxy
+        {
+            PrimitiveIndex Primitive = kInvalidIndex;
+            uint64_t       Sync      = 0; // the sync that last queued it
+            // What the registry's row was last told (an event fires when the record differs).
+            glm::mat4           World{ 1.0f };
+            const Mesh*         Mesh = nullptr;
+            MeshGeometryBinding Geometry;
+            uint32_t            Flags     = 0;
+            int32_t             ForcedLod = -1;
+            int32_t             LodBias   = 0;
+            // The records' Content words as last published (an order-free sum of their mixes) and this sync's.
+            uint64_t Content      = 0;
+            uint64_t FrameContent = 0;
+            // A field: its row inputs and the snapshot its instances were last sent from (null: compared by the
+            // registry every sync, as the record carries no immutable snapshot).
+            float                                         BoundsPad = 0.0f;
+            float                                         CullStart = 0.0f;
+            float                                         CullEnd   = 0.0f;
+            PrimitiveWind                                 Wind{};
+            std::shared_ptr<const std::vector<glm::mat4>> Snapshot;
+        };
+        struct Owned
+        {
+            PrimitiveIndex Primitive = kInvalidIndex;
+            Proxy*         Held      = nullptr;
+        };
+        // Per entity, what this sync gathered of it (emptied by the sync's first record of the entity).
+        struct EntityScratch
+        {
+            uint64_t                      Sync = 0;
+            std::vector<Owned>            Primitives; // index == MotionKey::Slot
+            std::vector<const glm::mat4*> FieldSets;  // index == the field's slot
+        };
+        // Last sync's lookups by queue position (rigid, skinned, fields end to end).
+        struct Memo
+        {
+            uint32_t       Entity = 0;
+            MotionKey      Key{};
+            EntityScratch* Scratch = nullptr;
+            Proxy*         Held    = nullptr;
+        };
+        EntityScratch& ScratchOf( uint32_t entity, size_t position ) noexcept;
+        Proxy&         ProxyOf( MotionKey key, size_t position, bool& added ) noexcept;
+        // The record's first sighting this sync: Content starts, an Add or Update reaches the registry.
+        void Rigid( GpuSceneRegistry& registry, Proxy& proxy, MotionKey key, bool added,
+                    const MotionRecord& record ) noexcept;
+        void Reset() noexcept;
+
+        std::unordered_map<MotionKey, Proxy, MotionKeyHash> m_Proxies;
+        std::unordered_map<uint32_t, EntityScratch>         m_Entities;
+        std::vector<Memo>                                   m_Memo;
+        std::vector<std::pair<Proxy*, bool>> m_Touched; // this sync's proxies (added now), first sighting
+        uint64_t                             m_List          = 0;
+        uint64_t                             m_Sync          = 0;
+        size_t                               m_EntitiesNamed = 0;
     };
 } // namespace Desert::Graphic::GpuDriven

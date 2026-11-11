@@ -189,8 +189,8 @@ namespace Desert::Graphic::GpuDriven
         // stays, with Prev == World; the caller removes it.
         void DiscardFrame();
 
-        // What a primitive's records draw besides its mesh, world and flags changed (GpuSceneRegistry::Sync,
-        // MotionRecord::Content): a Content change in the stream; the rows are not touched.
+        // What a primitive's records draw besides its mesh, world and flags changed (MotionRecord::Content;
+        // GpuSceneRegistry::UpdateContent / SyncStatic): a Content change in the stream; the rows are not touched.
         void MarkContent( PrimitiveIndex primitive );
         // Which GpuScene the stream is (unique in the process): a reader's cursor is a serial of ONE stream, and a
         // scene re-created at the same address (Scene::Clear) is another.
