@@ -40,8 +40,9 @@ namespace Desert::Graphic::System
                  cooked != nullptr && cooked->IsBakedDisplaced() && ism.DisplacedMaterial )
                 if ( const std::shared_ptr<StaticMesh> baked = cooked->GetBakedDisplaced() )
                 {
-                    ism.Mesh     = baked.get();
-                    ism.Material = ism.DisplacedMaterial;
+                    ism.Mesh                = baked.get();
+                    ism.Material            = ism.DisplacedMaterial;
+                    m_InstancedQueueChanged = true; // not the row as submitted: full field records this sync
                 }
 
         std::vector<std::optional<DisplacementMaterialRecord>> materials;
@@ -284,6 +285,8 @@ namespace Desert::Graphic::System
             }
             if ( split.Groups.empty() )
                 continue; // no instance draws a twin: the record draws as queued
+            // The queue no longer holds the rows as submitted: SyncGpuScene syncs full field records.
+            m_InstancedQueueChanged         = true;
             const DisplacedSplitGroup* base = nullptr;
             for ( const DisplacedSplitGroup& group : split.Groups )
             {
