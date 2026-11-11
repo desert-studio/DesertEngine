@@ -80,10 +80,14 @@ namespace Desert::Graphic::GlobalIllumination
 
         // The update's event counters in the schedule header (RC_STAT_WORDS, Common/RadianceCacheState.glslh).
         constexpr uint32_t kScheduleCounters = 6;
-        // A Trace workgroup's texels: one TRACE TILE of a probe, one ray per thread (RadianceCacheTrace's
-        // LocalSize 8x8; UE TraceFromProbes over probe trace tiles), so the budget's probes fill the GPU instead
-        // of leaving one group per probe to walk its res^2 rays in series.
-        constexpr uint32_t kTraceTileTexels = 64;
+        // A Trace workgroup's texels: one TRACE TILE of a probe, an 8x8 square of its octahedral texels, one ray
+        // per thread (RadianceCacheTrace's LocalSize 8x8; UE TraceFromProbes over 8x8 probe trace tiles), so the
+        // budget's probes fill the GPU instead of leaving one group per probe to walk its res^2 rays in series,
+        // and a warp's rays are neighbours in direction (FPS-RC-TRACE).
+        constexpr uint32_t kTraceTileSide = 8;
+        // The Trace dispatch's probe axis is y (its tiles run next to each other): Vulkan's guaranteed
+        // maxComputeWorkGroupCount[1].
+        constexpr uint32_t kMaxTraceProbeGroups = 65535;
         // RadianceCacheMark's box key: clamp(base, -1, grid - 1) + 1 in 9 bits an axis, the clipmap in 3 bits
         // under bit 31 (the key never reaches RC_MARK_NONE).
         constexpr uint32_t kMarkKeyMaxGrid     = 511;
@@ -216,6 +220,11 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeFormattedError<RadianceCacheFrame>(
                  "radiance cache: grid {} x {} clipmaps exceeds the Mark key ({} x {})", shape.GridResolution,
                  shape.Clipmaps, kMarkKeyMaxGrid, kMarkKeyMaxClipmaps );
+        if ( std::max( RadianceCache::MaxProbes( shape ), shape.ProbesPerFrame ) > kMaxTraceProbeGroups )
+            return Common::MakeFormattedError<RadianceCacheFrame>(
+                 "radiance cache: {} probe slots / {} probes per frame exceed the Trace dispatch's {} probe "
+                 "groups",
+                 RadianceCache::MaxProbes( shape ), shape.ProbesPerFrame, kMaxTraceProbeGroups );
         if ( const auto ensured = EnsureResources( shape ); !ensured )
             return Common::MakeError<RadianceCacheFrame>( ensured.GetError() );
         if ( const std::string_view missing = TracerFrameMissing( inputs.Tracer ); !missing.empty() )
@@ -299,9 +308,9 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t   clipCount = shape.Clipmaps;
         const glm::uvec3 entryGroups( DivideRoundUp( grid * clipCount, 4u ), DivideRoundUp( grid, 4u ),
                                       DivideRoundUp( grid, 4u ) );
-        // Trace: x the probe's place in the schedule (past its traced count a group ends), y its trace tile.
-        const uint32_t traceTiles =
-             DivideRoundUp( shape.ProbeResolution * shape.ProbeResolution, kTraceTileTexels );
+        // Trace: x the probe's 8x8 trace tile, y its place in the schedule (past its traced count a group ends).
+        const uint32_t   traceTilesPerSide = DivideRoundUp( shape.ProbeResolution, kTraceTileSide );
+        const uint32_t   traceTiles        = traceTilesPerSide * traceTilesPerSide;
         const glm::uvec3 groups[PassCount] = {
              // At least one group: Mark's first thread clears the schedule header Update and Allocate count into.
              glm::uvec3( std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) ),
@@ -309,7 +318,7 @@ namespace Desert::Graphic::GlobalIllumination
              entryGroups,
              entryGroups,
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
-             glm::uvec3( traced, traceTiles, 1u ),
+             glm::uvec3( traceTiles, traced, 1u ),
              glm::uvec3( traced, 1u, 1u ) };
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
