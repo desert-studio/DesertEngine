@@ -17,12 +17,25 @@
 //            SSAO's dispatch, its workgroup i reading DeferredTileListWord(i, ..)
 //   [16..19] VkDispatchIndirectCommand over the COMPLEX tiles (x = complex count, 1, 1), one pad word: the
 //            subsurface scatter's, its workgroup i reading kDeferredTileHeaderWords + tile count + i
-//   [20 ..]  the simple list (tile count words), then the complex list (tile count words)
+//   [20..23] VkDrawIndirectCommand of the MIXED tiles (FPS-DIRECT-TILES): the complex tiles holding two or more
+//            shading models, firstVertex = 2 x tile count x 6
+//   [24..27] the mask of the shading-model indices that have a list of their own (bit m: model m's list is drawn
+//            by a permutation with the model folded; DeferredLightingRenderer::ModelListMask), three pad words
+//   [28..91] kDeferredTileMaxModels VkDrawIndirectCommands, record m the SINGLE-MODEL tiles of model index m:
+//            firstVertex = (3 + m) x tile count x 6
+//   [92 ..]  the simple list, the complex list, the mixed list, then one list per model index up to the mask's
+//            highest bit (tile count words each)
 // A tile holding no geometry (every texel the sky: the G-buffer normal is zero) is in neither list: no draw
 // covers it, and both lighting passes discard such a texel anyway, so the picture is the same.
 // SIMPLE: every geometry texel of the tile is DefaultLit, which the tiled permutation DESERT_DEFERRED_TILE_SIMPLE
 // shades with the shading model folded to SHADING_MODEL_INDEX_DEFAULT_LIT (the same function the dispatch would
-// call for those texels). COMPLEX: any other model is in the tile.
+// call for those texels). COMPLEX: any other model is in the tile - the union every reader of the complex records
+// takes (the composite, the subsurface scatter, SSAO's geometry dispatch). The direct lighting splits it further
+// (UE ClusteredDeferredShading's per-shading-model tile types, ShadingModelTileType): a complex tile whose geometry
+// texels are ALL one model m (bit m of the mask) is listed in model m's list, which the permutation
+// DESERT_DEFERRED_TILE_MODEL=m shades with the model folded to m - the function the dispatch would call for every
+// texel of it; any other complex tile is MIXED and keeps the dispatch. Every complex tile is in exactly one of the
+// mixed and the per-model lists, so the direct pass of the complex tiles covers exactly the complex list.
 
 const uint kDeferredTileSize        = 8u;
 const uint kDeferredTileVertices    = 6u;
@@ -31,7 +44,11 @@ const uint kDeferredTileComplexArgs = 4u;
 const uint kDeferredTileExtent      = 8u;
 const uint kDeferredTileGeometryDispatch = 12u;
 const uint kDeferredTileComplexDispatch  = 16u;
-const uint kDeferredTileHeaderWords = 20u;
+const uint kDeferredTileMixedArgs        = 20u;
+const uint kDeferredTileModelMask        = 24u;
+const uint kDeferredTileModelArgs        = 28u; // + 4 x model index
+const uint kDeferredTileMaxModels        = 16u; // ShadingModelManifest.hpp kMaxShadingModels
+const uint kDeferredTileHeaderWords = 92u;
 
 uint DeferredTilePack(uvec2 tile)
 {

@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -25,7 +26,9 @@
 #include <Common/Core/Logger.hpp>
 
 #include <array>
+#include <bit>
 #include <format>
+#include <vector>
 #include <map>
 #include <utility>
 #include <span>
@@ -176,10 +179,43 @@ namespace Desert::Graphic::System
                 variants.push_back( { "DeferredLighting", ProgramVariant( index ) } );
                 for ( std::size_t tiled = 0; tiled < kTiledClassCount; ++tiled )
                     variants.push_back( { "DeferredLighting", TileVariant( ProgramVariant( index ), tiled ) } );
+                for ( const uint32_t model : TileModels() )
+                    variants.push_back( { "DeferredLighting", ModelVariant( ProgramVariant( index ), model ) } );
             }
             for ( std::size_t tiled = 0; tiled < kTiledClassCount; ++tiled )
                 variants.push_back( { "DeferredLighting", TileVariant( Core::ShaderVariant{}, tiled ) } );
             return variants;
+        }
+
+        // FPS-DIRECT-TILES (UE ClusteredDeferredShading's per-shading-model tile types): the direct program
+        // @p variant drawn as the tiles of model @p model's own list - every geometry texel of such a tile is
+        // model index @p model, so DeferredLighting.shader folds the model to that constant
+        // (DESERT_DEFERRED_TILE_MODEL) and the program holds only that model's functions. Cooked.
+        [[nodiscard]] static Core::ShaderVariant ModelVariant( Core::ShaderVariant variant, const uint32_t model )
+        {
+            variant.Defines.emplace_back( kTilesDefine );
+            variant.Defines.emplace_back( std::format( "{}={}", kTileModelDefine, model ) );
+            variant.ShippedByCook = true;
+            return variant;
+        }
+
+        // The shading-model indices that get a list and a folded permutation of their own: every model of the
+        // loaded set (ShaderRootShadingModels) but DefaultLit, whose tiles are the SIMPLE list already. Empty when
+        // the set did not load - said here; every complex tile is then a mixed one (the same picture).
+        [[nodiscard]] static std::vector<uint32_t> TileModels()
+        {
+            std::vector<uint32_t>                    models;
+            const Core::ShadingModels::ShaderRootSet held = Core::ShadingModels::ShaderRootShadingModels();
+            if ( !held->IsSuccess() )
+            {
+                LOG_ERROR( "Deferred lighting: the shading models did not load ({}): no per-model tile lists",
+                           held->GetError() );
+                return models;
+            }
+            for ( const Core::ShadingModels::ShadingModelEntry& entry : held->GetValue().Registry.Entries() )
+                if ( entry.Manifest.Name != kTileSimpleModel && entry.Index < DeferredTileLists::kMaxModelLists )
+                    models.push_back( entry.Index );
+            return models;
         }
 
         // @p variant drawn as the tiles of list @p tiled (kSimpleTiles / kComplexTiles; DeferredLighting.shader
@@ -263,18 +299,33 @@ namespace Desert::Graphic::System
         // GRAPH BUILD (before "Deferred: Tile Classify"): the tile lists of a @p width x @p height view (the
         // lighting targets' extent), their header uploaded - both draw records empty, the complex one's first
         // vertex past the simple list, and the extent the classify and the vertex stage read.
-        static DeferredTileLists CreateTileLists( RDG::Builder& graph, const uint32_t width, const uint32_t height )
+        // FPS-DIRECT-TILES: then the mixed tiles' record, the mask of the models with a list of their own
+        // (ModelListMask) and one record per model index, each list's first vertex past the lists before it.
+        DeferredTileLists CreateTileLists( RDG::Builder& graph, const uint32_t width, const uint32_t height ) const
         {
             DeferredTileLists lists;
             lists.Tiles          = glm::uvec2( TileGrid( width ), TileGrid( height ) );
             lists.Extent         = glm::uvec2( width, height );
             const uint32_t count = lists.Tiles.x * lists.Tiles.y;
-            const uint64_t bytes = ( uint64_t{ kTileHeaderWords } + 2u * uint64_t{ count } ) * sizeof( uint32_t );
+            // The lists up to the mask's highest model: a model index past it is never listed (the classify tests
+            // the mask), so its list takes no memory.
+            const uint32_t modelLists =
+                 m_ModelListMask == 0u ? 0u : 32u - static_cast<uint32_t>( std::countl_zero( m_ModelListMask ) );
+            const uint64_t bytes =
+                 ( uint64_t{ kTileHeaderWords } +
+                   uint64_t{ DeferredTileLists::kListsBeforeModels + modelLists } * uint64_t{ count } ) *
+                 sizeof( uint32_t );
             lists.Buffer         = graph.CreateBuffer( RDG::BufferDesc{ bytes }, "DeferredTiles" );
             // Both draw records, the extent, then both dispatch records (Common/DeferredTiles.glslh).
-            const std::array<uint32_t, kTileHeaderWords> header = {
+            std::array<uint32_t, kTileHeaderWords> header = {
                  0u, 1u, 0u, 0u, 0u, 1u, count * kTileVertices, 0u, width, height, lists.Tiles.x, count, 0u, 1u,
-                 1u, 0u, 0u, 1u, 1u, 0u };
+                 1u, 0u, 0u, 1u, 1u, 0u, 0u, 1u, 2u * count * kTileVertices, 0u, m_ModelListMask, 0u, 0u, 0u };
+            for ( uint32_t model = 0; model < DeferredTileLists::kMaxModelLists; ++model )
+            {
+                const uint32_t word = DeferredTileLists::kModelDrawWord + 4u * model;
+                header[word + 1u]   = 1u;
+                header[word + 2u]   = ( DeferredTileLists::kListsBeforeModels + model ) * count * kTileVertices;
+            }
             graph.QueueBufferUpload( lists.Buffer, std::as_bytes( std::span<const uint32_t>( header ) ) );
             return lists;
         }
@@ -500,6 +551,17 @@ namespace Desert::Graphic::System
                                                shadow, gi, ssaoEnabled, cloudShadow, environment,
                                                jitteredViewProjection );
             }
+            if ( !tiles )
+                return;
+            for ( uint32_t model = 0; model < DeferredTileLists::kMaxModelLists; ++model )
+            {
+                const CompositeProgram& program = m_ModelPrograms[m_Active][model];
+                if ( ( m_ModelListMask & ( 1u << model ) ) == 0u || !program.Material )
+                    continue;
+                program.Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                                              invJitteredViewProjection, debugMode, pointCount, spotCount, shadow,
+                                              gi, ssaoEnabled, cloudShadow, environment, jitteredViewProjection );
+            }
         }
 
         // SETUP of "Deferred: Direct Lighting", after FillMaterial (GPU-TURN-3; UE RenderLights): the direct
@@ -522,7 +584,34 @@ namespace Desert::Graphic::System
             m_DeclaredPrograms[classIndex] = nullptr;
             if ( !program.Pipeline || !program.Material )
                 return;
-            m_DeclaredPrograms[classIndex]         = &program;
+            m_DeclaredPrograms[classIndex] = &program;
+            DeclareDirectBlock( pass, program, inputs, lights, tileClass, tiles );
+            // FPS-DIRECT-TILES: the complex tiles' pass draws the mixed list with the dispatch (block 0) and each
+            // model's own list with its folded program (blocks 1..), in one render pass.
+            m_DeclaredModelCount = 0u;
+            if ( tileClass == DeferredTileClass::Complex )
+                for ( uint32_t model = 0; model < DeferredTileLists::kMaxModelLists; ++model )
+                {
+                    const CompositeProgram& folded = m_ModelPrograms[m_Active][model];
+                    if ( ( m_ModelListMask & ( 1u << model ) ) == 0u || !folded.Pipeline || !folded.Material )
+                        continue;
+                    DeclareDirectBlock( pass, folded, inputs, lights, tileClass, tiles );
+                    m_DeclaredModels[m_DeclaredModelCount++] = { &folded, model };
+                }
+            if ( tileClass != DeferredTileClass::Fullscreen )
+                pass.Read( tiles, RDG::Access::IndirectArgs );
+            // Every geometry texel is written; a sky texel is discarded and never read (the composite returns
+            // first). The complex tiles' pass follows the simple tiles' into the same target: it keeps them.
+            const RDG::LoadOp load =
+                 tileClass == DeferredTileClass::Complex ? RDG::LoadOp::Load() : RDG::LoadOp::DontCare();
+            pass.ColorTarget( 0, inputs.DirectLighting, load );
+        }
+
+        // One direct program's block of "Deferred: Direct Lighting" (DeclareDirectBindings), in declaration order.
+        void DeclareDirectBlock( RDG::PassBuilder& pass, const CompositeProgram& program,
+                                 const DeferredCompositeInputs& inputs, const ViewLightBuffers& lights,
+                                 const DeferredTileClass tileClass, const RDG::BufferRef tiles ) const
+        {
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const SlottedLayout&            slotted = program.Layout.GetSlotted( program.Shader );
@@ -551,13 +640,9 @@ namespace Desert::Graphic::System
                                inputs.LocalShadowMasks, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, slotted.Slots );
+            // The indirect-argument read of the buffer is the pass's, once (DeclareDirectBindings).
             if ( tileClass != DeferredTileClass::Fullscreen )
-                DeclareTileReads( pass, block, tiles );
-            // Every geometry texel is written; a sky texel is discarded and never read (the composite returns
-            // first). The complex tiles' pass follows the simple tiles' into the same target: it keeps them.
-            const RDG::LoadOp load =
-                 tileClass == DeferredTileClass::Complex ? RDG::LoadOp::Load() : RDG::LoadOp::DontCare();
-            pass.ColorTarget( 0, inputs.DirectLighting, load );
+                block.Storage( DeferredTileShaderParameters::DeferredTilesUB, tiles, RDG::Access::StorageRead );
         }
 
         // SETUP of "Deferred: Composite", after "Deferred: Direct Lighting"'s: the node's one block (block 0) -
@@ -614,7 +699,25 @@ namespace Desert::Graphic::System
                 return Common::MakeError(
                      "Deferred: Direct Lighting: the deferred-lighting pipeline is not initialised" );
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            return DrawClass( bindings, *program, tileClass, tiles );
+            if ( tileClass != DeferredTileClass::Complex )
+                return DrawClass( bindings, *program, tileClass, tiles );
+            if ( const Common::BoolResultStr mixed =
+                      Renderer::DrawProceduralIndirect( bindings, *program->Pipeline,
+                                                        program->Material->GetMaterialExecutor(), tiles,
+                                                        DeferredTileLists::kMixedDrawOffset );
+                 !mixed )
+                return mixed;
+            for ( uint32_t i = 0; i < m_DeclaredModelCount; ++i )
+            {
+                const DeclaredModel&    declared = m_DeclaredModels[i];
+                const RDG::PassBindings folded( context, context.GetBindingBlock( i + 1u ) );
+                if ( const Common::BoolResultStr drawn = Renderer::DrawProceduralIndirect(
+                          folded, *declared.Program->Pipeline, declared.Program->Material->GetMaterialExecutor(),
+                          tiles, DeferredTileLists::ModelDrawOffset( declared.Model ) );
+                     !drawn )
+                    return drawn;
+            }
+            return BOOLSUCCESS;
         }
 
         // EXEC of "Deferred: Composite": shades the G-buffer into the scene target, inside the render pass the
@@ -660,6 +763,10 @@ namespace Desert::Graphic::System
                                                                                              "ComplexTiles" };
         static constexpr std::string_view kTilesDefine      = "DESERT_DEFERRED_TILES";
         static constexpr std::string_view kTileSimpleDefine = "DESERT_DEFERRED_TILE_SIMPLE";
+        static constexpr std::string_view kTileModelDefine  = "DESERT_DEFERRED_TILE_MODEL";
+        // The model of the SIMPLE list (DeferredTileClassify.shader's SHADING_MODEL_INDEX_DEFAULT_LIT).
+        static constexpr std::string_view kTileSimpleModel = "DefaultLit";
+        static_assert( DeferredTileLists::kMaxModelLists == Core::ShadingModels::kMaxShadingModels );
         [[nodiscard]] static uint32_t     TileGrid( const uint32_t pixels )
         {
             return ( pixels + kTileSize - 1u ) / kTileSize;
@@ -910,6 +1017,32 @@ namespace Desert::Graphic::System
                 if ( const Common::BoolResultStr built = BuildVariant( composite, variant, scene, name ); !built )
                     LOG_ERROR( "Deferred lighting: {}: {} (the view draws fullscreen)", name, built.GetError() );
             }
+            // FPS-DIRECT-TILES: a model has its own list when its folded permutation built for every arm that
+            // built; else its single-model tiles stay mixed (the dispatch: the same picture), said here.
+            uint32_t mask = 0u;
+            for ( const uint32_t model : TileModels() )
+            {
+                bool every = true;
+                for ( std::size_t index = 0; index < m_Programs.size(); ++index )
+                {
+                    CompositeProgram& program = m_ModelPrograms[index][model];
+                    if ( !m_Programs[index].Pipeline )
+                        continue;
+                    if ( program.Pipeline )
+                        continue;
+                    const std::string name = std::format( "{} Model{}Tiles", kProgramDebugNames[index], model );
+                    const Core::ShaderVariant variant = ModelVariant( ProgramVariant( index ), model );
+                    if ( const Common::BoolResultStr built = BuildVariant( program, variant, direct, name ); !built )
+                    {
+                        LOG_ERROR( "Deferred lighting: {}: {} (model {}'s tiles draw mixed)", name,
+                                   built.GetError(), model );
+                        every = false;
+                    }
+                }
+                if ( every )
+                    mask |= 1u << model;
+            }
+            m_ModelListMask = mask;
         }
         Common::BoolResultStr BuildVariant( CompositeProgram& program, const Core::ShaderVariant& variant,
                                             const RenderTargetLayout& targetLayout, const std::string_view name )
@@ -938,6 +1071,18 @@ namespace Desert::Graphic::System
         // draw them.
         mutable std::array<const CompositeProgram*, 3> m_DeclaredPrograms{}; // the direct passes'
         mutable std::array<const CompositeProgram*, 3> m_DeclaredComposites{};
+        // FPS-DIRECT-TILES: the per-model permutations (ModelVariant), [arm][model index]; the models whose list
+        // the classify fills (bit m: model m's permutation built for every arm that built); and the ones the
+        // complex tiles' direct pass declared this frame, in block order (block i + 1).
+        std::array<std::array<CompositeProgram, DeferredTileLists::kMaxModelLists>, 6> m_ModelPrograms;
+        uint32_t                                                                      m_ModelListMask = 0u;
+        struct DeclaredModel
+        {
+            const CompositeProgram* Program = nullptr;
+            uint32_t                Model   = 0u;
+        };
+        mutable std::array<DeclaredModel, DeferredTileLists::kMaxModelLists> m_DeclaredModels{};
+        mutable uint32_t                                                     m_DeclaredModelCount = 0u;
 
         // "Deferred: Tile Classify": the tile lists the tiled permutations draw.
         mutable ShaderBindingLayoutCache m_ClassifyLayout;
