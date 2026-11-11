@@ -162,6 +162,18 @@ namespace Desert::Graphic::System
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::unique_ptr<DataDrivenMaterial> Material;
             FoldedValues                        Folded;
+            // FPS-MAT-HANDLES3, THE CELL'S BLOCKS (UE: a shader's buffer slots are bound once per shader map): its
+            // Materials[] and WaterTiles storage-buffer properties, found by name once per (layout stamp,
+            // executor) - the executor owns its properties for its whole life, a recompile moves the stamp - and
+            // written through the kept pointers every frame (BlocksOf). Null: the shader declares no such block.
+            struct CellBlocks
+            {
+                MaterialLayoutStamp     Stamp;
+                const MaterialExecutor* Executor = nullptr;
+                StorageBufferProperty*  Rows     = nullptr;
+                StorageBufferProperty*  Tiles    = nullptr;
+                bool                    Resolved = false;
+            } Blocks;
             // The same cell under DESERT_LOCAL_SHADOW_VSM (MeshRenderer::ForwardShadowMaskVariant's virtual map),
             // drawn under Shadows.Method VirtualMaps, when no atlas is drawn; built on first such frame. Its own
             // material: the frame's values and rows are written into the program that draws.
@@ -183,6 +195,9 @@ namespace Desert::Graphic::System
         // the fold is cached in WaterProgram::Folded, so a steady frame resolves nothing and allocates nothing.
         void ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
                             WaterProgram& program );
+        // @p program's WaterProgram::Blocks, re-resolved by name only when its cell's layout stamp or executor
+        // moved (a missing block is reported by Material::Get once per resolve, not per frame).
+        static const WaterProgram::CellBlocks& BlocksOf( WaterProgram& program );
 
         // WARNINGS ONCE PER CAUSE: each (material, cause) is said once. FirstWarning asks (and marks) before any
         // message is built, so a cause that recurs every frame builds no string after its first.
