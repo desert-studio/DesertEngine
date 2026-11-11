@@ -210,10 +210,18 @@ Shader "DeferredLighting"
         // The texel's shading model. DESERT_DEFERRED_TILE_SIMPLE (the tiled permutation of the SIMPLE tiles,
         // Common/DeferredTiles.glslh): "Deferred: Tile Classify" read every geometry texel of the tile as DefaultLit
         // from the same word, so the model is that constant and the dispatch folds to DefaultLit's own functions.
+        // DESERT_DEFERRED_TILE_MODEL=m (FPS-DIRECT-TILES, the direct program's per-model permutations; UE
+        // ClusteredDeferredShading's per-shading-model tile types): the classify listed the tile in model m's list
+        // because EVERY geometry texel of it is model index m (Common/DeferredTiles.glslh), so the model is the
+        // constant m and the dispatch folds to model m's own functions - no other model's code in the program.
         #ifdef DESERT_DEFERRED_TILE_SIMPLE
         #define DESERT_DEFERRED_SHADING_MODEL(word) SHADING_MODEL_INDEX_DEFAULT_LIT
         #else
+        #ifdef DESERT_DEFERRED_TILE_MODEL
+        #define DESERT_DEFERRED_SHADING_MODEL(word) (DESERT_DEFERRED_TILE_MODEL)
+        #else
         #define DESERT_DEFERRED_SHADING_MODEL(word) DesertShadingModelIndex(word)
+        #endif
         #endif
 
         // The directional (sun) Cook-Torrance contribution used to be a local copy of the BRDF right here,

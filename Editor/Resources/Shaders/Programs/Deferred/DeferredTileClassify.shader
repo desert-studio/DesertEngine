@@ -7,6 +7,10 @@ Shader "DeferredTileClassify"
     // its list's indirect draw. The tests are the lighting's own: a texel is geometry when its G-buffer normal is
     // not zero (DeferredLighting.shader's hasGeometry), its model is the shading word's (DesertShadingModelIndex,
     // read at the same texel by texelFetch).
+    // FPS-DIRECT-TILES (UE ClusteredDeferredShading's per-shading-model tile types): the tile's SET of models (a
+    // bitmask of model indices) also sorts every COMPLEX tile for the direct lighting: into the list of its one
+    // model m (every geometry texel model m, and bit m in the header's kDeferredTileModelMask), drawn with the model
+    // folded, or else into the MIXED list, drawn with the dispatch.
 
     Compute
     {
@@ -25,14 +29,13 @@ Shader "DeferredTileClassify"
         #include <Generated/ShadingModels.glslh>
         #include <Common/DeferredTiles.glslh>
 
-        const uint kTileHasGeometry = 1u;
-        const uint kTileIsComplex   = 2u;
-        shared uint s_TileFlags;
+        // Bit m: a geometry texel of the tile is shading model m (DesertShadingModelIndex, 0..15); 0: the sky only.
+        shared uint s_TileModels;
 
         void main()
         {
         	if (gl_LocalInvocationIndex == 0u)
-        		s_TileFlags = 0u;
+        		s_TileModels = 0u;
         	barrier();
 
         	const uvec2 extent = uvec2(deferredTiles[kDeferredTileExtent], deferredTiles[kDeferredTileExtent + 1u]);
@@ -43,25 +46,39 @@ Shader "DeferredTileClassify"
         		if (dot(normal, normal) > 0.001)
         		{
         			const int model = DesertShadingModelIndex(texelFetch(GBufferShadingWordTexture, ivec2(pixel), 0).rg);
-        			const uint flags = model == SHADING_MODEL_INDEX_DEFAULT_LIT ? kTileHasGeometry
-        			                                                            : (kTileHasGeometry | kTileIsComplex);
-        			atomicOr(s_TileFlags, flags);
+        			atomicOr(s_TileModels, 1u << uint(model));
         		}
         	}
         	barrier();
 
-        	if (gl_LocalInvocationIndex != 0u || s_TileFlags == 0u)
+        	const uint models = s_TileModels;
+        	if (gl_LocalInvocationIndex != 0u || models == 0u)
         		return;
         	const uint tileCount = deferredTiles[kDeferredTileExtent + 3u];
         	const uint word      = DeferredTilePack(gl_WorkGroupID.xy);
         	// Every listed tile is a workgroup of the geometry dispatch (SSAO), a complex one of the complex one too.
         	atomicAdd(deferredTiles[kDeferredTileGeometryDispatch], 1u);
-        	if ((s_TileFlags & kTileIsComplex) != 0u)
+        	if (models != (1u << uint(SHADING_MODEL_INDEX_DEFAULT_LIT)))
         	{
         		atomicAdd(deferredTiles[kDeferredTileComplexDispatch], 1u);
         		const uint slot = atomicAdd(deferredTiles[kDeferredTileComplexArgs], kDeferredTileVertices) /
         		                  kDeferredTileVertices;
         		deferredTiles[kDeferredTileHeaderWords + tileCount + slot] = word;
+        		// The direct lighting's split of the same tile: the list of its one model, or the mixed list.
+        		const uint model = uint(findLSB(models));
+        		if (bitCount(models) == 1 && (deferredTiles[kDeferredTileModelMask] & models) != 0u)
+        		{
+        			const uint modelSlot =
+        			     atomicAdd(deferredTiles[kDeferredTileModelArgs + 4u * model], kDeferredTileVertices) /
+        			     kDeferredTileVertices;
+        			deferredTiles[kDeferredTileHeaderWords + (3u + model) * tileCount + modelSlot] = word;
+        		}
+        		else
+        		{
+        			const uint mixedSlot =
+        			     atomicAdd(deferredTiles[kDeferredTileMixedArgs], kDeferredTileVertices) / kDeferredTileVertices;
+        			deferredTiles[kDeferredTileHeaderWords + 2u * tileCount + mixedSlot] = word;
+        		}
         	}
         	else
         	{

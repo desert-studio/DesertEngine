@@ -416,7 +416,7 @@ namespace Desert::Graphic
             return;
         }
         // The lighting targets' extent (AddFrameComposite's directDesc); a pass at another extent covers its view.
-        const System::DeferredTileLists lists = System::DeferredLightingRenderer::CreateTileLists(
+        const System::DeferredTileLists lists = deferred->CreateTileLists(
              graph, m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
         textures.Transients.DeferredTiles = lists;
         const RDG::TextureRef normal      = gbuffer[1];
