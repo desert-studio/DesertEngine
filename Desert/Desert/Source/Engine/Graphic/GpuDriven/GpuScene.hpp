@@ -210,17 +210,33 @@ namespace Desert::Graphic::GpuDriven
         // Rows or palettes changed since the last upload: AddUploadPass has passes to add.
         [[nodiscard]] bool HasPendingUpload() const;
 
+        // THE TABLES' ONE REGISTRATION PER GRAPH (FPS-ARCH-SETUP; UE FGPUScene: its buffers are RDG buffers of
+        // the frame's one FRDGBuilder, updated by passes of it). From BeginGraph(@p graph) every table is
+        // registered in @p graph at most once: AddUploadPass (each call) and ImportTables hand the same ref, so
+        // the scatter, the skin step that reads the palettes and every view pass that declares a table are ordered
+        // by the graph's own barriers (two records of one external in one graph would each barrier from the state
+        // carried INTO the graph and miss the other's write). Called by MeshRenderer::SyncGpuScene once per view
+        // graph, before anything of that graph registers a table.
+        void BeginGraph( const RDG::Builder& graph );
+
         // "GPUScene: Upload": scatters the dirty rows into the persistent buffers (grown with a copy when the
         // high-water mark passes the capacity) and returns their graph handles. Refused when the device buffer
-        // cannot be grown.
-        // The graph leaves every table in StorageRead: the passes that read them through a material's
-        // descriptor (binding Core::kGpuScenePrimitivesBinding / kObjectBonesBinding, SceneFrameBinding) are
-        // ordered after the scatter by that final state, the next frame's scatter after their reads.
+        // cannot be grown, or when a table would grow after BeginGraph's graph already registered it.
+        // The graph leaves every table in StorageRead (its final access); inside the graph the passes that read
+        // them through a material's descriptor (binding Core::kGpuScenePrimitivesBinding / kObjectBonesBinding,
+        // SceneFrameBinding) are ordered after the scatters by AddPublishPass.
         [[nodiscard]] Common::ResultStr<GpuSceneBuffers> AddUploadPass( RDG::Builder& graph );
 
-        // The tables as they stand after the last upload, registered in @p graph (a view graph: the upload runs in
-        // its own graph ahead of it, MeshRenderer::SyncGpuScene), every one left in StorageRead. Refused before the
-        // first upload (no device table yet) or while rows wait for one.
+        // "GPUScene: Publish", after the graph's last AddUploadPass and before any pass that reads a table: one
+        // pass that reads every table (StorageRead, every shader stage), so a scatter's writes reach the passes
+        // that bind the tables by descriptor without declaring them (UE: the GPUScene buffers' transition to
+        // SRVMask at the end of FGPUScene::UpdateInternal). Adds nothing when no table was uploaded in @p graph:
+        // the tables then stand in StorageRead since the graph that last wrote them.
+        [[nodiscard]] Common::BoolResultStr AddPublishPass( RDG::Builder& graph );
+
+        // The tables as they stand after the last upload, registered in @p graph (BeginGraph's graph: the refs
+        // its AddUploadPass registered), every one left in StorageRead. Refused before the first upload (no
+        // device table yet) or while rows wait for one.
         [[nodiscard]] Common::ResultStr<GpuSceneBuffers> ImportTables( RDG::Builder& graph ) const;
 
         // The CPU images the device tables were uploaded from (the debug readback's reference, InstanceCulling
@@ -325,5 +341,9 @@ namespace Desert::Graphic::GpuDriven
         std::unique_ptr<Table> m_BonesTable;
         std::unique_ptr<Table> m_MaterialTable;
         std::unique_ptr<struct GpuSceneUploadPipeline> m_Upload;
+        // BeginGraph's graph: the one whose table refs the tables hold (Table::GraphRef).
+        const RDG::Builder* m_TablesGraph = nullptr;
+        // An AddUploadPass of m_TablesGraph scattered rows: AddPublishPass has a pass to add.
+        bool m_UploadedInGraph = false;
     };
 } // namespace Desert::Graphic::GpuDriven

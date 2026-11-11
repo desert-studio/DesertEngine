@@ -2101,7 +2101,8 @@ namespace Desert::Graphic
             }
             DESERT_PROFILE_PHASE( setupPhases, "Setup: GPU scene sync" );
             if ( const Common::BoolResultStr rows =
-                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber );
+                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber,
+                                            graph );
                  !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the scene's GPU scene could not be synced; nothing is drawn this "
@@ -2109,8 +2110,8 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
-            // The skin step already ran in SyncGpuScene (its own graph, submitted before this view graph):
-            // this graph only reads the streams, barriered by their carried state.
+            // The skin step is declared by SyncGpuScene into this graph (FPS-ARCH-SETUP): the readers declare the
+            // refs it wrote, so the graph barriers each read after the skinning.
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
                 skinCache->DeclareReads( graph, *meshes, frameNumber, meshes->SkinCacheReads() );

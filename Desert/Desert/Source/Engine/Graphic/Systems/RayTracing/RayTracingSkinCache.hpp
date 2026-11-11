@@ -103,18 +103,18 @@ namespace Desert::Graphic::RayTracing
         // once per entry. Off: the primitives keep the frame's sync value, no address.
         void PrepareRows( const System::MeshRenderer& meshes, GpuDriven::GpuScene& scene, uint64_t frame );
 
-        // RASTER, step 2 (MeshRenderer::SyncGpuScene, after the scene's ObjectBones are uploaded and before any
-        // view pass is declared): the scene's skin step (UE FGPUSkinCache::DispatchUpdateSkinning, which runs once per
-        // FScene before any view renders). Builds its OWN graph declaring one "SkinCache: Skin" dispatch per entry
-        // PrepareRows addressed and no graph of @p frame has skinned yet (the scene's ObjectBones imported through
-        // @p viewBones, a morphed record's vertices through the morph twin's own external), and executes it at
-        // once - so every view graph, built and submitted after, only reads the streams, and the streams'
-        // carried state gives each reader its StorageWrite->StorageRead barrier whatever the views' order. A later
-        // view whose primitives an earlier view did not queue runs a graph for just those: still one skinning per
-        // primitive per frame. A graph that fails to execute clears the addresses of the primitives it was to fill
-        // (those draws skin in the vertex stage this frame), logged.
+        // RASTER, step 2 (MeshRenderer::SyncGpuScene, after the scene's ObjectBones upload is declared into the
+        // view graph @p graph and before any view pass): the scene's skin step (UE FGPUSkinCache::
+        // DispatchUpdateSkinning, passes of the frame's one FRDGBuilder). FPS-ARCH-SETUP: declares into @p graph -
+        // no graph of its own - one "SkinCache: Skin" dispatch per entry PrepareRows addressed and no view of
+        // @p frame has skinned yet (the palettes through the scene's one ObjectBones ref in @p graph, GpuScene::
+        // ImportTables; a morphed record's vertices through the morph twin's own external). Opens @p graph for
+        // this cache's per-graph refs: the streams it writes are the refs DeclareReads and AddPasses hand the
+        // view's readers, so the graph barriers each read after the write. A later view whose primitives an
+        // earlier view did not queue declares just those: still one skinning per primitive per frame. An entry
+        // whose displaced pose cannot be declared loses its row's address (it skins in the vertex stage), logged.
         [[nodiscard]] Common::BoolResultStr SkinFrame( System::MeshRenderer& meshes, GpuDriven::GpuScene& scene,
-                                                       RDG::ExternalBuffer& viewBones, uint64_t frame );
+                                                       RDG::Builder& graph, uint64_t frame );
 
         // RASTER, step 3 (SceneRenderer, after SyncGpuScene, before any pass that draws a skinned primitive
         // or traces rays): registers the streams of every entry SkinFrame skinned in @p frame in the view graph
@@ -195,6 +195,7 @@ namespace Desert::Graphic::RayTracing
             // (RayTracingSkinCache::m_GraphSerial): an external is registered once per graph.
             uint64_t                      GraphSerial = 0;
             std::optional<RDG::BufferRef> StreamsRef;
+            std::optional<RDG::BufferRef> BaseStreamsRef; // Streams (the skinned base) when Displaced is drawn
             std::optional<RDG::BufferRef> StorageRef;
         };
 
@@ -205,6 +206,9 @@ namespace Desert::Graphic::RayTracing
         void Touch( Entry& entry ) const;
         // @p entry's streams / BLAS in @p graph, registered on first use in that graph.
         RDG::BufferRef     StreamsIn( RDG::Builder& graph, Entry& entry );
+        RDG::BufferRef     BaseStreamsIn( RDG::Builder& graph, Entry& entry );
+        // A new graph for the entries' per-graph refs (Touch): SkinFrame opens the view graph with it.
+        void BeginGraph( const RDG::Builder& graph );
         RDG::BufferRef     StorageIn( RDG::Builder& graph, Entry& entry );
         [[nodiscard]] bool EnsurePipeline( std::size_t skinnedCount );
         // The streams the record draws: the displaced ones when it has them, else the skinned base.

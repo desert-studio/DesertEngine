@@ -831,21 +831,24 @@ namespace Desert::Graphic::System
         // the scene's ObjectBones. Writes each queued record's primitive and instance back (GpuPrimitive,
         // GpuInstance, FirstGpuInstance) and uploads the scene's deltas in a graph of its own, so
         // CaptureFrameState hands every view pass the tables its draws will read at their final size. Called by
-        // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
-        // Errors: an upload that could not be declared or executed (the view draws nothing this frame: its
-        // passes would read rows that are not this frame's).
+        // SceneRenderer once per frame per view after the queues are complete, before any pass that reads the
+        // scene's rows is declared into @p graph (the view's frame graph).
+        // Errors: an upload that could not be declared (the view draws nothing this frame: its passes would read
+        // rows that are not this frame's).
         // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
         // tiles) that still need a GpuScene instance - their TLAS custom index; their instances, in order, are
         // GetOtherGpuInstances().
         // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex
         // stage) writes each skinned primitive's cached-streams address (RayTracingSkinCache::PrepareRows), then
-        // - after the palettes' upload - runs the scene's skin step for what no earlier view of the absolute
-        // frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view graph).
-        // A skin step that fails is logged and its primitives lose the address; the view still draws.
+        // - after the palettes' upload - declares the scene's skin step for what no earlier view of the absolute
+        // frame @p frame skinned. FPS-ARCH-SETUP (UE FDeferredShadingSceneRenderer::Render: GPUScene's update and
+        // the skin cache's dispatches are passes of the frame's one FRDGBuilder): the upload, the skin step, the
+        // re-upload of what the step refused and "GPUScene: Publish" are passes of @p graph, in that order - no
+        // graph of their own. A skin entry the step refuses is logged and loses the address; the view still draws.
         [[nodiscard]] Common::BoolResultStr SyncGpuScene( GpuDriven::GpuSceneRegistry&     registry,
                                                           std::span<const MotionRecord>    otherRigid,
                                                           RayTracing::RayTracingSkinCache* skinCache,
-                                                          uint64_t                         frame );
+                                                          uint64_t frame, RDG::Builder& graph );
 
         // The scene's GPU scene of this frame (SyncGpuScene; null before the first sync): the skin cache skins
         // from the same palette at the same BoneOffset the raster does - one source of the pose - and the global
@@ -1189,11 +1192,6 @@ namespace Desert::Graphic::System
         // UpdateMorphTargets' graph wrote through), else null: the skin step reads the morphed vertices through
         // it.
         [[nodiscard]] RDG::ExternalBuffer* FindMorphOutput( uint32_t entity, const SkinnedMesh* mesh );
-        // This view's ObjectBones as the skin pass's graph external.
-        [[nodiscard]] RDG::ExternalBuffer& SkinCacheBonesImport()
-        {
-            return m_SkinCacheBonesImport;
-        }
 
         // This frame's static queue, GpuScene rows assigned (SyncGpuScene): what the view's TLAS instances come from
         // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
@@ -4995,9 +4993,8 @@ namespace Desert::Graphic::System
         // one setup task each (ParallelSetup 0: inline, in order); each entry written by its one task.
         void RunStaleIsmViewCulls( std::span<const DrawBuildScratch::StaleIsmCull> stale,
                                    const Core::Frustum&                            frustum );
-        // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads, SkinCacheBonesImport).
+        // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads).
         std::vector<RDG::BufferRef> m_SkinCacheReads;
-        RDG::ExternalBuffer         m_SkinCacheBonesImport;
         bool                        m_SkinCacheEnabled = true;
         // Shadows.WindAnimationDistance, set by SceneRenderer::BeginScene before every gather (cm).
         float m_ShadowWindDistance = 0.0f;
