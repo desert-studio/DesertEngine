@@ -4401,11 +4401,10 @@ namespace Desert::Graphic
         std::optional<Geometry::LODView> lodView;
         if ( camera != nullptr )
             lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
-        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's. The sections this view
-        // admits, chunk-major, are written over the list built last frame, each compared as it is written: a
-        // list that differs anywhere takes a new revision (MeshRenderer::SubmitStaticScene keeps its queue while
-        // the revision holds, with no compare of its own).
-        thread_local std::vector<const Material*> parents;
+        // The sections this view admits, chunk-major, are written over the list built last frame, each compared
+        // as it is written: a list that differs anywhere takes a new revision (MeshRenderer::SubmitStaticScene
+        // keeps its queue while the revision holds, with no compare of its own). The slots' parents are the
+        // chunk's, taken on its change (StaticSceneChunk::OwnerParents), not asked per section per frame.
         static std::atomic<uint64_t>              s_NextAdmittedRevision{ 0 };
         std::vector<Render::StaticSceneAdmission>& admitted = m_StaticAdmitted;
         const std::size_t                          before   = admitted.size();
@@ -4431,10 +4430,8 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
-                parents.clear();
-                for ( const MaterialInstance* slot : slots->Slots )
-                    parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
-                NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), parents );
+                NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ),
+                                           chunk.ParentsOf( section.Owner ) );
                 const Render::StaticSceneAdmission entry{ .Chunk        = c,
                                                           .Section      = s,
                                                           .ForcedLOD    = LODPreviewFor( section.Entity,

@@ -497,6 +497,11 @@ namespace Desert::Graphic::System
         m_StaticColumns.Truncate( m_StaticRetained );
         m_StaticSceneSubmitted = false;
         m_SkinnedQueue.clear();
+        // The retained skinned sections no submission asked for since the last clear: their binding was replaced
+        // (a material / slot / mesh change) or the entity left the view's recording. The entries asked for stay.
+        std::erase_if( m_SkinnedSections,
+                       [this]( const auto& held ) { return held.second.Seen != m_SkinnedSectionsEpoch; } );
+        ++m_SkinnedSectionsEpoch;
         m_GenericQueue.clear(); // capacity kept; its records reference the recording ending with this frame
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         // The ISM queue is not destroyed but kept as the next frame's recycled entries (SubmitInstancedRow); the
@@ -2685,8 +2690,10 @@ namespace Desert::Graphic::System
         // new one per slot change, never edits one), the sections or the hidden mask. A section's shading is a
         // function of its instance alone (an instance's parent and a surface's schema are fixed at construction),
         // so an unchanged key is an unchanged content; a steady frame runs no ShadingOf and folds no word.
-        const auto sameSections = []( const std::vector<SkinnedSection>& a, const std::vector<SkinnedSection>& b )
+        const auto sameSections = []( const SkinnedSectionList& a, const SkinnedSectionList& b )
         {
+            if ( a.Shares( b ) ) // the retained list of the same binding: the steady frame
+                return true;
             if ( a.size() != b.size() )
                 return false;
             for ( std::size_t i = 0; i < a.size(); ++i )
@@ -3093,66 +3100,80 @@ namespace Desert::Graphic::System
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
+                // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
-                {
-                    // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections
-                    // of one slot are one draw, masked to them. Up to 64 submeshes, the masks' width.
-                    // A fixed array, not a vector per skinned mesh per frame: at most 64 sections, so at most
-                    // 64 distinct slots.
-                    using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
-                    const auto&  slots = data.MaterialSlots->Slots;
-                    const size_t count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
-                    std::array<SlotSections, 64> visibleBySlot{};
-                    size_t                       groups = 0;
-                    for ( size_t si = 0; si < count; ++si )
-                    {
-                        const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
-                        const auto   end  = visibleBySlot.begin() + static_cast<std::ptrdiff_t>( groups );
-                        const auto   it   = std::find_if( visibleBySlot.begin(), end,
-                                                          [slot]( const SlotSections& g )
-                                                          { return g.first == slot; } );
-                        if ( it != end )
-                            it->second |= 1ull << si;
-                        else
-                            visibleBySlot[groups++] = { slot, 1ull << si };
-                    }
-                    for ( size_t g = 0; g < groups; ++g )
-                    {
-                        const size_t        slot    = visibleBySlot[g].first;
-                        const uint64_t      visible = visibleBySlot[g].second;
-                        MaterialInstance*   inst    = slots[slot];
-                        DataDrivenMaterial* surface = nullptr;
-                        if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
-                            surface = parent->AsDataDriven();
-                        if ( surface != nullptr && surface->GetVertexPath() == MeshVertexPath::Skinned )
-                        {
-                            skinnedData.Sections.push_back(
-                                 { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
-                            continue;
-                        }
-                        // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its default
-                        // skinned lit material for any slot that fails to resolve, so every slot reaching here
-                        // should already carry a skinned-path parent. If one does not, the producer and this
-                        // queue disagree about what a skinned slot IS, and drawing it through the skinned
-                        // pipeline with a static material's descriptor sets is a layout mismatch - so that
-                        // section is dropped and the disagreement is named.
-                        static bool s_WarnedNoSkinnedSlot = false;
-                        if ( !s_WarnedNoSkinnedSlot )
-                        {
-                            LOG_WARN(
-                                 "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED "
-                                 "vertex path; its sections are dropped. MeshECSSystem is expected to have "
-                                 "substituted its default skinned material, so this means the two disagree.",
-                                 slot );
-                            s_WarnedNoSkinnedSlot = true;
-                        }
-                    }
-                }
+                    skinnedData.Sections =
+                         SkinnedSectionsFor( data.MaterialSlots, skinnedData.Mesh->GetSubmeshes().size() );
                 if ( !skinnedData.Sections.empty() )
                     m_SkinnedQueue.push_back( std::move( skinnedData ) );
                 break;
             }
         }
+    }
+
+    const MeshRenderer::SkinnedSectionList& MeshRenderer::SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
+                                                                             const std::size_t submeshCount )
+    {
+        SkinnedSectionsEntry& entry = m_SkinnedSections[reinterpret_cast<std::uintptr_t>( binding.get() )];
+        entry.Seen                  = m_SkinnedSectionsEpoch;
+        // Held, so an equal address is this binding; the count moves only with the mesh drawn (a reload under the
+        // same binding is a new binding, MeshECSSystem).
+        if ( entry.Binding == binding && entry.SubmeshCount == submeshCount )
+            return entry.Sections;
+
+        // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections of one slot
+        // are one draw, masked to them. Up to 64 submeshes, the masks' width: a fixed array, at most 64 distinct
+        // slots.
+        using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
+        const auto&                  slots = binding->Slots;
+        const size_t                 count = std::min<size_t>( submeshCount, 64 );
+        std::array<SlotSections, 64> visibleBySlot{};
+        size_t                       groups = 0;
+        for ( size_t si = 0; si < count; ++si )
+        {
+            const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
+            const auto   last = visibleBySlot.begin() + static_cast<std::ptrdiff_t>( groups );
+            const auto   it =
+                 std::find_if( visibleBySlot.begin(), last, [slot]( const SlotSections& g ) { return g.first == slot; } );
+            if ( it != last )
+                it->second |= 1ull << si;
+            else
+                visibleBySlot[groups++] = { slot, 1ull << si };
+        }
+        std::vector<SkinnedSection> sections;
+        sections.reserve( groups );
+        for ( size_t g = 0; g < groups; ++g )
+        {
+            const size_t        slot    = visibleBySlot[g].first;
+            const uint64_t      visible = visibleBySlot[g].second;
+            MaterialInstance*   inst    = slots[slot];
+            DataDrivenMaterial* surface = nullptr;
+            if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
+                surface = parent->AsDataDriven();
+            if ( surface != nullptr && surface->GetVertexPath() == MeshVertexPath::Skinned )
+            {
+                sections.push_back( { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
+                continue;
+            }
+            // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its default skinned lit
+            // material for any slot that fails to resolve, so every slot reaching here should already carry a
+            // skinned-path parent. If one does not, the producer and this queue disagree about what a skinned
+            // slot IS, and drawing it through the skinned pipeline with a static material's descriptor sets is a
+            // layout mismatch - so that section is dropped and the disagreement is named.
+            static bool s_WarnedNoSkinnedSlot = false;
+            if ( !s_WarnedNoSkinnedSlot )
+            {
+                LOG_WARN( "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED vertex path; "
+                          "its sections are dropped. MeshECSSystem is expected to have substituted its default "
+                          "skinned material, so this means the two disagree.",
+                          slot );
+                s_WarnedNoSkinnedSlot = true;
+            }
+        }
+        entry.Binding      = binding;
+        entry.SubmeshCount = submeshCount;
+        entry.Sections     = SkinnedSectionList( std::move( sections ) );
+        return entry.Sections;
     }
 
 } // namespace Desert::Graphic::System
