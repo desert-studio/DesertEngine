@@ -57,32 +57,129 @@ Shader "SSR"
     // permutation with DESERT_REFLECTIONS_HIT_LIGHTING: the compute below classifies only, and the "HitLighting" pass
     // traces every texel from a ray generation stage through the ray tracing pipeline - the world leg runs each hit
     // surface template's own closest-hit shader (its material, Mesh/Surface/Pass_RayHit.glslh) and lights it in place.
+    // TWO KERNELS for the traced compute (UE LumenReflectionTracing: the screen trace, then the world traces over
+    // the compacted rays the screen left): the classify and the screen walk run the screen leg's permutation
+    // (DESERT_REFLECTIONS_SCREEN_LEG: the traced gate and world-ray draw, no tracer, so the HZB walk keeps the
+    // screen's registers and occupancy), which lists the texels that drew a world ray; the traced permutation's
+    // compute is the world stage over that list (DESERT_REFLECTIONS_WORLD_STAGE). Same sums, same order: the same
+    // output as one kernel doing both.
     // The texel trace itself is Common/SSRTrace.glslh, shared by both entry points.
 
     Compute
     {
         #include <Common/SSRTrace.glslh>
 
-        #if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+        #if !defined( DESERT_REFLECTIONS_TRACED )
         // --- THE TRACE (SsrParams3.w = 1, "SSR: Trace"): one thread per texel the classify listed, over the indirect
         // dispatch the classify sized (UE LumenReflectionTracing.usf over ReflectionTracingTileIndirectArgs). Every
-        // lane of a wave walks a ray: none idles on a texel its tile does not own or a pixel too rough to trace. ---
+        // lane of a wave walks a ray: none idles on a texel its tile does not own or a pixel too rough to trace.
+        // The traced methods' screen leg (DESERT_REFLECTIONS_SCREEN_LEG) traces no world ray here: it writes the
+        // texel as if its world ray missed and lists the texels that drew one for the world stage (UE: the screen
+        // trace, then the world traces over the compacted rays the screen left) - this kernel carries no tracer,
+        // so the HZB walk runs at the occupancy of the screen walk alone, and the world rays run on full waves.
+        // ---
         void TraceListed()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
-        	if (index >= ssrTraceListArgs.w)
+        #if defined( DESERT_REFLECTIONS_SCREEN_LEG )
+        	if (gl_LocalInvocationIndex == 0u)
+        		s_ListCount = 0u;
+        	barrier();
+        	bool        toWorld = false;
+        	SSRWorldRay world;
+        #endif
+        	if (index < ssrTraceListArgs.w)
+        	{
+        		const uint   listedTexel = ssrTraceList[index];
+        		const ivec2  q     = ivec2(int(listedTexel & 0xFFFFu), int(listedTexel >> 16u));
+        		const ivec2  full  = textureSize(GBufferNormalTexture, 0);
+        		const ivec2  src   = SSRTraceSourcePixel(q, int(SsrParams3.x + 0.5), int(CameraPosition.w), full);
+        		vec4         ray   = vec4(0.0, 0.0, 0.0, -126.0);
+        		vec4         trace = vec4(0.0);
+        		SSRTexel     t;
+        		SSRTraceSums s;
+        		if (SSRTraceTexel(src, full, t, s))
+        		{
+        			trace = SSRResolveTexel(t, s, ray);
+        #if defined( DESERT_REFLECTIONS_SCREEN_LEG )
+        			toWorld                 = s.worldWeight > 0.0;
+        			world.RadianceHitWeight = vec4(s.radiance, s.hitWeight);
+        			world.HitPointCoverage  = vec4(s.hitPoint, s.coverage);
+        			world.WorldWeight       = s.worldWeight;
+        			world.WeightSum         = s.weightSum;
+        			world.WorldStart        = s.worldStart;
+        			world.TexelRay          = uint(q.x) | (uint(q.y) << 14u) | (uint(s.worldRay) << 28u);
+        #endif
+        		}
+        		imageStore(SsrTraceTexture, q, trace);
+        		imageStore(TraceRayTexture, q, ray);
+        	}
+        #if defined( DESERT_REFLECTIONS_SCREEN_LEG )
+        	// The classify's compaction: a groupshared count, one global atomic per workgroup, and the world
+        	// stage's workgroup count raised to the end of this run (atomicMax), so its indirect arguments need no
+        	// pass.
+        	uint slot = 0u;
+        	if (toWorld)
+        		slot = atomicAdd(s_ListCount, 1u);
+        	barrier();
+        	if (gl_LocalInvocationIndex == 0u && s_ListCount > 0u)
+        	{
+        		s_ListStart = atomicAdd(ssrWorldListArgs.w, s_ListCount);
+        		atomicMax(ssrWorldListArgs.x,
+        		          (s_ListStart + s_ListCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (toWorld)
+        		ssrWorldList[s_ListStart + slot] = world;
+        #endif
+        }
+        #endif
+
+        #if defined( DESERT_REFLECTIONS_WORLD_STAGE )
+        // --- THE WORLD STAGE (SsrParams3.w = 2, "SSR: World trace"): one thread per texel the screen leg listed,
+        // over the indirect dispatch it sized - the texel's frame and its drawn ray recomputed from the texel
+        // (SSRTexelSetup, SSRRayDirection: the screen leg's statements), the world ray traced, and on a hit the
+        // texel rewritten from the screen's sums plus the world's answer. A miss leaves the texel as the screen
+        // leg wrote it. ---
+        void TraceWorldListed()
+        {
+        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	if (index >= ssrWorldListArgs.w)
         		return;
-        	const uint  listedTexel = ssrTraceList[index];
-        	const ivec2 q           = ivec2(int(listedTexel & 0xFFFFu), int(listedTexel >> 16u));
-        	const ivec2 full   = textureSize(GBufferNormalTexture, 0);
-        	const ivec2 src    = SSRTraceSourcePixel(q, int(SsrParams3.x + 0.5), int(CameraPosition.w), full);
-        	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
-        	vec4 trace = TraceFrom(src, full, ray);
+        	const SSRWorldRay listed = ssrWorldList[index];
+        	const uint        packed = listed.TexelRay;
+        	const ivec2       q      = ivec2(int(packed & 0x3FFFu), int((packed >> 14u) & 0x3FFFu));
+        	const ivec2       full   = textureSize(GBufferNormalTexture, 0);
+        	const int         factor = int(SsrParams3.x + 0.5);
+        	const ivec2       src    = SSRTraceSourcePixel(q, factor, int(CameraPosition.w), full);
+        	SSRTexel          t;
+        	if (!SSRTexelSetup(src, full, t))
+        		return;
+        	SSRTraceSums s;
+        	s.radiance    = listed.RadianceHitWeight.rgb;
+        	s.hitWeight   = listed.RadianceHitWeight.a;
+        	s.coverage    = listed.HitPointCoverage.w;
+        	s.weightSum   = listed.WeightSum;
+        	s.hitPoint    = listed.HitPointCoverage.xyz;
+        	s.worldWeight = listed.WorldWeight;
+        	s.worldStart  = listed.WorldStart;
+        	s.worldRay    = int(listed.TexelRay >> 28u);
+        	vec3 Lt;
+        	vec3 L;
+        	SSRRayDirection(t, s.worldRay, int(SsrParams.x), uint(CameraPosition.w), Lt, L);
+        	s.worldL = L;
+        	// Only read when nothing hit, which a world hit rules out (its weight is > 0).
+        	s.rayDir = Lt;
+        	if (!SSRAddWorldRay(t, s))
+        		return;
+        	vec4       ray;
+        	const vec4 trace = SSRResolveTexel(t, s, ray);
         	imageStore(SsrTraceTexture, q, trace);
         	imageStore(TraceRayTexture, q, ray);
         }
         #endif
 
+        #if !defined( DESERT_REFLECTIONS_WORLD_STAGE )
         // --- THE CLASSIFY (SsrParams3.w = 0, "SSR: Classify"): one workgroup per screen tile. ---
         void ClassifyTile()
         {
@@ -165,9 +262,14 @@ Shader "SSR"
         #endif
         }
 
+        #endif
+
         void main()
         {
-        #if !defined( DESERT_REFLECTIONS_HIT_LIGHTING )
+        #if defined( DESERT_REFLECTIONS_WORLD_STAGE )
+        	TraceWorldListed();
+        #else
+        #if !defined( DESERT_REFLECTIONS_TRACED )
         	if (SsrParams3.w >= 0.5)
         	{
         		TraceListed();
@@ -175,6 +277,7 @@ Shader "SSR"
         	}
         #endif
         	ClassifyTile();
+        #endif
         }
     }
 

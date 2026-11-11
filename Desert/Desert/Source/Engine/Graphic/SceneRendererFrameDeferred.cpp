@@ -2158,6 +2158,7 @@ namespace Desert::Graphic
              TracedGatherAnswersRoughSpecular( m_RenderMethods.GlobalIllumination.Effective,
                                                textures.Transients.GIDiffuse.IsValid() );
         const bool hitLit = traced && traced->HitGroups != nullptr;
+        settings.HitLit   = hitLit;
         // The front layer's renderer starts its rays from the front layer's surface; every hit still reads the
         // opaque G-buffer, HZB and velocity above (Common/SSRTrace.glslh SSRSurfaceNormal).
         const System::SSRRenderer::FrontLayerInputs frontInputs =
@@ -2171,6 +2172,13 @@ namespace Desert::Graphic
         if ( !hitLit )
             traceList = System::SSRRenderer::CreateTraceList( graph, *traceTargets );
         const System::SSRRenderer::TraceList* const listPtr = traceList ? &*traceList : nullptr;
+        // UE LumenReflectionTracing: the screen trace, then the world traces over the compacted rays it left. A
+        // traced frame that is not hit-lit runs its classify and screen walk in the screen leg (no tracer in that
+        // kernel) and the world rays in the traced permutation's world stage over this list (SSR.shader).
+        std::optional<System::SSRRenderer::WorldList> worldList;
+        if ( traced && !hitLit )
+            worldList = System::SSRRenderer::CreateWorldList( graph, *traceTargets );
+        const System::SSRRenderer::WorldList* const worldPtr = worldList ? &*worldList : nullptr;
         const bool                                  hardwareTraced =
              traced && traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
         const System::SSRRenderer::TracedReads* const tracedPtr = traced ? &*traced : nullptr;
@@ -2188,7 +2196,7 @@ namespace Desert::Graphic
              {
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                            traceUniforms, System::SSRRenderer::TraceStage::Classify, listPtr,
-                                           tracedPtr, frontPtr );
+                                           worldPtr, tracedPtr, frontPtr );
                  // Only the textures the trace samples (its block): an unsampled G-buffer colour declared here
                  // joined the screen probes' async run at its last pass, the first reader of the shading word
                  // ("ScreenProbes: Disocclusion"), and the graphics queue waited for the whole run before it.
@@ -2204,13 +2212,32 @@ namespace Desert::Graphic
                  {
                      ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                                traceUniforms, System::SSRRenderer::TraceStage::Trace, listPtr,
-                                               tracedPtr, frontPtr );
+                                               worldPtr, tracedPtr, frontPtr );
                  },
                  [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
                   sceneHistoryReadable, seed,
                   listArgs = traceList->Args]( RDG::PassContext& context ) -> Common::BoolResultStr {
                      return ssrPtr->RecordTraceList( context, cameraPos, settings, sceneHistoryReadable, seed,
                                                      listArgs );
+                 } );
+        }
+        if ( worldList )
+        {
+            const char* const worldName = hardwareTraced ? "Deferred: Reflections World (HardwareTraced)"
+                                                         : "Deferred: Reflections World (SoftwareTraced)";
+            graph.AddPass(
+                 worldName, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
+                                               traceUniforms, System::SSRRenderer::TraceStage::World, listPtr,
+                                               worldPtr, tracedPtr, frontPtr );
+                 },
+                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                  sceneHistoryReadable, seed,
+                  worldArgs = worldList->Args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                     return ssrPtr->RecordWorldList( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                     worldArgs );
                  } );
         }
         if ( hitLit )
