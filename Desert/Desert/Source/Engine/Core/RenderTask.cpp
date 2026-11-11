@@ -327,11 +327,19 @@ namespace Desert::Engine
         return m_Jobs.empty() || m_Jobs.front().Frame >= frame;
     }
 
-    void RenderTask::RunDueCommands( const uint64_t currentFrame )
+    uint64_t RenderTask::FirstUnfinishedFrame() const noexcept
     {
-        // In order, and only those deferred behind a frame that has finished: a command queued behind this
-        // frame's own work waits for it (the next Join or the next SyncPreviousFrame).
-        while ( !m_AfterJoin.empty() && ( m_AfterJoin.front().Frame < currentFrame || !InFlight() ) )
+        // The running job is older than every queued one, and the queue is in frame order.
+        if ( m_Running )
+            return m_RunningFrame;
+        return m_Jobs.empty() ? UINT64_MAX : m_Jobs.front().Frame;
+    }
+
+    void RenderTask::RunDueCommands( const uint64_t doneBefore )
+    {
+        // In order, and only those deferred behind a frame that has finished: a command queued behind work still
+        // in flight waits for it (the next Join or the next SyncPreviousFrame).
+        while ( !m_AfterJoin.empty() && ( m_AfterJoin.front().Frame < doneBefore || !InFlight() ) )
         {
             Deferred command = std::move( m_AfterJoin.front() );
             m_AfterJoin.erase( m_AfterJoin.begin() );
@@ -339,20 +347,48 @@ namespace Desert::Engine
         }
     }
 
-    void RenderTask::SyncPreviousFrame()
+    uint64_t RenderTask::SyncPreviousFrame()
     {
         if ( OnRenderThread() || !OnGameThread() || m_Joining )
-            return;
-        const uint64_t current = FrameManager::GetInstance().GetGameFrameCount();
+            return InFlight() ? 0 : UINT64_MAX;
+        const uint64_t current   = FrameManager::GetInstance().GetGameFrameCount();
+        const bool     pipelined = GameRenderPipelining();
+        // Off: frames before N (N-1 out). On: frames before N-1 (N-2 out; N-1 is bounded by the next tick's
+        // first view bracket, whose JoinViews waits for N's views, which run behind all of N-1).
+        const uint64_t waitBefore = pipelined ? ( current > 0 ? current - 1 : 0 ) : current;
+        uint64_t       doneBefore = UINT64_MAX;
         if ( InFlight() )
         {
             DESERT_PROFILE_WAIT( "Render task: FrameEndSync (frame N-1)" );
             std::unique_lock<std::mutex> lock( m_Mutex );
-            m_Drained.wait( lock, [this, current]() { return FramesBeforeDone( current ); } );
+            m_Drained.wait( lock, [this, waitBefore]() { return FramesBeforeDone( waitBefore ); } );
+            // Off: exactly the frames waited for (today's order). On: every frame already out, which is usually
+            // N-1 as well - its commands and notifications are not held a frame longer than they have to be.
+            doneBefore = pipelined ? FirstUnfinishedFrame() : current;
         }
         m_Joining = true;
-        RunDueCommands( current );
+        RunDueCommands( doneBefore );
         m_Joining = false;
+        return doneBefore;
+    }
+
+    void RenderTask::WaitFrameSubmitted( const uint64_t frame )
+    {
+        if ( OnRenderThread() || !OnGameThread() || !InFlight() )
+            return;
+        DESERT_PROFILE_WAIT( "Render task: wait for frame N-k submitted" );
+        std::unique_lock<std::mutex> lock( m_Mutex );
+        m_Drained.wait( lock, [this, frame]() { return FramesBeforeDone( frame + 1 ); } );
+    }
+
+    void RenderTask::SetGameRenderPipelining( const bool pipelined )
+    {
+        Join();
+        m_Pipelined.store( pipelined, std::memory_order_relaxed );
+        LOG_INFO( "[RenderTask] game/render pipelining {}",
+                  pipelined
+                       ? "on: the interface of frame N overlaps frame N-1's interface draw, submit and present"
+                       : "off: frame N-1 is out before the interface of frame N is painted" );
     }
 
     void RenderTask::JoinUnlessOwnedBy( const void* owner )

@@ -4,8 +4,11 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <atomic>
 #include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -36,6 +39,16 @@ namespace Desert::Localization
      * lives in the `desert-shared` submodule, shared with the launcher, and this task does not own it.
      * The set of languages a project HAS is derived anyway — it is the union of what its tables carry —
      * and `Common/Core/Constants.hpp` already refused fourteen derivable fields on that ground.
+     *
+     * THREADS (FPS-GAME-RENDER-PIPE, debt #18; UE: the game thread builds, the readers see an immutable copy).
+     * The writers - SetLanguage, BindTableSource, TableRequested/Settled, RegisterTable, UnregisterTable,
+     * Clear - are the GAME THREAD's. They never edit what a reader holds: each builds the next immutable
+     * `Snapshot` (the rows copied only when the rows change, shared otherwise) and publishes it with one
+     * pointer swap and a generation bump. `Resolve`, `Format`, `Language`, `IsPending` and `Generation` read
+     * one published snapshot from start to end and are safe on any thread (the UI text walk on a worker);
+     * the miss register they append to has its own lock. `Find`, `Keys`, `TableIds`, `AvailableLanguages`
+     * and `RequestedLanguage` are the editor panel's, game thread only; `Find`'s pointer lives until the
+     * next writer call, as before.
      */
     class Localization
     {
@@ -53,7 +66,7 @@ namespace Desert::Localization
         /// Never null. Starts at `kSourceLanguage`.
         [[nodiscard]] const LocaleRow& Language() const
         {
-            return *m_Language;
+            return *m_Language.load( std::memory_order_acquire );
         }
 
         /**
@@ -78,7 +91,7 @@ namespace Desert::Localization
          */
         [[nodiscard]] const LocaleRow& RequestedLanguage() const
         {
-            return m_Requested != nullptr ? *m_Requested : *m_Language;
+            return m_Requested != nullptr ? *m_Requested : Language();
         }
 
         /// Asked with a language whose files are to be requested; answers nothing - each request it makes
@@ -107,7 +120,7 @@ namespace Desert::Localization
         /// resolved string — the editor's own panels do — comparing it is the whole invalidation rule.
         [[nodiscard]] uint32_t Generation() const
         {
-            return m_Generation;
+            return m_Generation.load( std::memory_order_acquire );
         }
 
         /**
@@ -178,10 +191,8 @@ namespace Desert::Localization
 
         /// Every (key, language) this session has failed to resolve, newest last. The editor's panel
         /// shows it, and its emptiness is the only cheap answer to "is this build's content translated?".
-        [[nodiscard]] const std::vector<std::string>& Misses() const
-        {
-            return m_MissOrder;
-        }
+        /// A copy: a resolve on another thread may append while the caller reads.
+        [[nodiscard]] std::vector<std::string> Misses() const;
 
     private:
         struct Row
@@ -191,19 +202,51 @@ namespace Desert::Localization
             std::map<std::string, std::string> Owners;
             LocalizedEntry                     Entry;
         };
+        /// The rows and the table ids: copied on a table change only, shared by every snapshot in between.
+        struct RowTable
+        {
+            std::unordered_map<std::string, Row> Rows;
+            std::unordered_set<std::string>      Tables;
+        };
+        /// What a reader sees, all of it from one publish: never written after `Publish`.
+        struct Snapshot
+        {
+            std::shared_ptr<const RowTable> Table;
+            const LocaleRow*                Language = nullptr;
+            /// Languages with a table requested and not yet arrived (m_InFlight's keys at the publish).
+            std::unordered_set<std::string> Pending;
+        };
 
-        Resolved ResolveKey( std::string_view key, std::string_view authored, const FormatArguments& args );
+        /// The snapshot published last (any thread; one short lock, one reference count).
+        [[nodiscard]] std::shared_ptr<const Snapshot> Current() const;
+        /// GAME THREAD: publishes the next snapshot - @p table (null: the current rows), the language, the
+        /// pending set. @p clearMisses: the miss register goes with it. @p bump: the generation moves (a
+        /// language or table change; a pending-set change alone is not one, Generation's contract).
+        void Publish( std::shared_ptr<const RowTable> table, bool clearMisses, bool bump = true );
+        /// Withdraws one table's forms from @p table (RegisterTable's replace, UnregisterTable).
+        static void RemoveTable( RowTable& table, const std::string& tableId );
+
+        Resolved ResolveKey( const Snapshot& snapshot, std::string_view key, std::string_view authored,
+                             const FormatArguments& args );
         void     Commit( const LocaleRow& row );
+        /// Appends @p token to the miss register; true the first time (the caller logs then).
+        bool     ReportMiss( const std::string& token, bool listed );
 
-        const LocaleRow*                     m_Language  = nullptr;
+        // GAME THREAD (the writers' own state).
         const LocaleRow*                     m_Requested = nullptr;
         TableRequester                       m_Requester;
         std::unordered_set<std::string>      m_LanguagesOnDisk;
         std::unordered_map<std::string, int> m_InFlight;
-        std::unordered_map<std::string, Row> m_Rows;
-        std::unordered_set<std::string>      m_Tables;
-        std::unordered_set<std::string>      m_Reported;
-        std::vector<std::string>             m_MissOrder;
-        uint32_t                             m_Generation = 0;
+
+        // PUBLISHED (THREADS above).
+        std::atomic<const LocaleRow*>   m_Language{ nullptr };
+        std::atomic<uint32_t>           m_Generation{ 0 };
+        mutable std::mutex              m_PublishMutex;
+        std::shared_ptr<const Snapshot> m_Published; // under m_PublishMutex
+
+        // The miss register: appended by any resolving thread.
+        mutable std::mutex              m_MissMutex;
+        std::unordered_set<std::string> m_Reported;  // under m_MissMutex
+        std::vector<std::string>        m_MissOrder; // under m_MissMutex
     };
 } // namespace Desert::Localization
