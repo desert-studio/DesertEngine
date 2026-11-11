@@ -100,6 +100,18 @@ namespace Desert::Editor
                                   ::Desert::Engine::RenderTask::Get().SetSerial( false );
                                   return PaletteCommandDone();
                               } } );
+        // FPS-GAME-RENDER-PIPE: the frame boundary's lag (RenderTask::SetGameRenderPipelining). 0 = the order
+        // before it (frame N-1 out before the interface of N), the frame-compare reference for 1.
+        commands.push_back( { "RenderPipeline", "GameRenderPipelining 0", []() -> Common::BoolResultStr
+                              {
+                                  ::Desert::Engine::RenderTask::Get().SetGameRenderPipelining( false );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "RenderPipeline", "GameRenderPipelining 1", []() -> Common::BoolResultStr
+                              {
+                                  ::Desert::Engine::RenderTask::Get().SetGameRenderPipelining( true );
+                                  return PaletteCommandDone();
+                              } } );
     }
 
     void AppendProfilerDrawSplitCommands( std::vector<PaletteCommand>& commands )
