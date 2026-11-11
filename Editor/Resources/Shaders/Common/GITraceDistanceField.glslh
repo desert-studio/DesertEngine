@@ -221,7 +221,30 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
 
 GIHit GIFarFieldSurface( vec3 position, vec3 direction, float distance, int level );
 
-// THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax.
+// FPS-PROBES-FAR THE SKY EARLY OUT: how far from @p start along the unit @p direction the march can find anything -
+// where the ray leaves the field's occupied box (GI_TRACE_GDF_OCCUPIED_BOX, GlobalDistanceField::FrameField), 0 when
+// it never meets it or nothing is placed. Past it no clipmap sample is in the band (the box's margin), so cutting
+// the march's length there changes no step it takes before: the same hits, and a sky-bound ray (a probe's upper
+// hemisphere, a hit's sun shadow ray) stops above the scene instead of crossing the coarsest clipmap to its edge.
+float GIFarFieldOccupiedExit( vec3 start, vec3 direction )
+{
+    const vec3 boxMin = GI_TRACE_GDF_OCCUPIED_BOX[0].xyz;
+    const vec3 boxMax = GI_TRACE_GDF_OCCUPIED_BOX[1].xyz;
+    if ( any( greaterThan( boxMin, boxMax ) ) )
+        return 0.0;
+    const vec3 safe   = mix( direction, vec3( 1.0e-8 ), lessThan( abs( direction ), vec3( 1.0e-8 ) ) );
+    const vec3 inv    = 1.0 / safe;
+    const vec3 t0     = ( boxMin - start ) * inv;
+    const vec3 t1     = ( boxMax - start ) * inv;
+    const vec3 lo     = min( t0, t1 );
+    const vec3 hi     = max( t0, t1 );
+    const float enter = max( max( lo.x, lo.y ), max( lo.z, 0.0 ) );
+    const float leave = min( min( hi.x, hi.y ), hi.z );
+    return leave >= enter ? leave : 0.0;
+}
+
+// THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax, cut where the ray leaves the field's
+// occupied box (GIFarFieldOccupiedExit).
 GITraceResult GITraceFarField( GITraceInput ray )
 {
     GITraceResult result;
@@ -235,12 +258,15 @@ GITraceResult GITraceFarField( GITraceInput ray )
     if ( globalStart >= ray.tMax )
         return result;
 
-    const vec3 start = ray.origin + ray.direction * globalStart;
+    const vec3  start  = ray.origin + ray.direction * globalStart;
+    const float marchLength = min( ray.tMax - globalStart, GIFarFieldOccupiedExit( start, ray.direction ) );
+    if ( marchLength <= 0.0 )
+        return result;
     // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
     // (normal, level) is never built - its callers read .hit alone.
     const bool                   anyHit = !dithered;
     const GlobalDistanceFieldHit march  = TraceGlobalDistanceField(
-         start, ray.direction, ray.tMax - globalStart, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed,
+         start, ray.direction, marchLength, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed,
          anyHit );
     if ( !march.Hit )
         return result;

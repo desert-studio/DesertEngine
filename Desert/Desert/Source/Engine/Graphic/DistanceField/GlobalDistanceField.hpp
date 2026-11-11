@@ -215,6 +215,12 @@ namespace Desert::Graphic::DistanceField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
+            // THE OCCUPIED BOX (FPS-PROBES-FAR): (min.xyz, 0), (max.xyz, 0) cm - the union of every placed
+            // record's box (the meshes and the landscape tiles: all the clipmaps were composited from), grown by
+            // kGdfOccupiedMarginVoxels of the coarsest clipmap. Outside it no clipmap sample can be in a march's
+            // band, so a far-field march ends where its ray leaves it (Common/GITraceDistanceField.glslh
+            // GIFarFieldOccupiedExit). Min > Max: nothing is placed, no ray can hit.
+            std::array<glm::vec4, 2>                                  OccupiedBox{};
             RDG::TextureRef                                           ObjectGrid; // the object grid (above)
             MeshDistanceFieldReads                                    MeshFields;
         };
@@ -263,6 +269,7 @@ namespace Desert::Graphic::DistanceField
             uint64_t                        PoolGeneration = 0;
             uint64_t                        Lookups       = 0;
             std::vector<Common::Math::AABB> PlacedBounds;
+            std::array<glm::vec4, 2>        OccupiedBox{}; // FrameField::OccupiedBox, made from PlacedBounds
             std::vector<glm::vec4>          ObjectData;
             // The placed mesh objects, which lead PlacedBounds and ObjectData; the landscape tiles follow them
             // (the global field's only - MeshDistanceFieldReads::NumMeshObjects).
@@ -292,6 +299,7 @@ namespace Desert::Graphic::DistanceField
             glm::vec3                                           Camera{ 0.0f };
             uint64_t                                            Objects = 0;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps> Levels{};
+            std::array<glm::vec4, 2>                            OccupiedBox{};
             uint32_t                                            NumMeshObjects = 0;
             uint32_t                                            NumObjects     = 0;
         };

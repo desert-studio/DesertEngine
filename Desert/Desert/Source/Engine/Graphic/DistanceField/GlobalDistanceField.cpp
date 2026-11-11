@@ -102,6 +102,10 @@ namespace Desert::Graphic::DistanceField
             return plane / glm::length( glm::vec3( plane ) );
         }
 
+        // FrameField::OccupiedBox's margin past the placed boxes, in voxels of the coarsest clipmap: over the
+        // band's half voxel plus the trilinear undershoot's sqrt(3)/2 (1.37), rounded up.
+        constexpr float kGdfOccupiedMarginVoxels = 2.0f;
+
         float GdfInfluenceRadius( const float voxelSize )
         {
             return DFShared::GDF_INFLUENCE_RANGE_IN_VOXELS * voxelSize;
@@ -427,6 +431,7 @@ namespace Desert::Graphic::DistanceField
                 again.Clipmaps[level] = import( m_Clipmaps[level], kGdfClipmapTags[level] );
             again.ObjectGrid                = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
             again.Levels                    = m_FrameUpdate->Levels;
+            again.OccupiedBox               = m_FrameUpdate->OccupiedBox;
             again.MeshFields.NumMeshObjects = m_FrameUpdate->NumMeshObjects;
             again.MeshFields.NumObjects     = m_FrameUpdate->NumObjects;
             again.MeshFields.BrickAtlas     = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
@@ -535,6 +540,25 @@ namespace Desert::Graphic::DistanceField
                 ++tracked.Count;
                 placement.PlacedBounds.push_back( tile.Bounds );
             }
+            // THE OCCUPIED BOX (FrameField::OccupiedBox): every record the clipmaps are composited from lies in
+            // the union of the placed boxes. A march's band is the field under half a voxel; the trilinear
+            // reconstruction of a 1-Lipschitz field undershoots by at most sqrt(3)/2 of a voxel; so past a margin
+            // of two coarsest voxels no level's sample is in any band and a ray that left the box finds nothing.
+            glm::vec3 occupiedMin( std::numeric_limits<float>::max() );
+            glm::vec3 occupiedMax( std::numeric_limits<float>::lowest() );
+            for ( const Common::Math::AABB& box : placement.PlacedBounds )
+            {
+                occupiedMin = glm::min( occupiedMin, box.Min );
+                occupiedMax = glm::max( occupiedMax, box.Max );
+            }
+            if ( !placement.PlacedBounds.empty() )
+            {
+                const float margin =
+                     kGdfOccupiedMarginVoxels * ClipmapVoxelSize( kGlobalDistanceFieldClipmaps - 1 );
+                occupiedMin -= margin;
+                occupiedMax += margin;
+            }
+            placement.OccupiedBox = { glm::vec4( occupiedMin, 0.0f ), glm::vec4( occupiedMax, 0.0f ) };
             for ( const auto& [key, tracked] : current )
                 if ( const auto it = m_Tracked.find( key );
                      it == m_Tracked.end() || it->second.Count != tracked.Count )
@@ -617,6 +641,7 @@ namespace Desert::Graphic::DistanceField
         FrameField frame;
         // The near field culls the mesh objects only; every placed record, the tiles too, composites the clipmaps.
         frame.MeshFields.NumMeshObjects = m_Placement->MeshObjects;
+        frame.OccupiedBox               = m_Placement->OccupiedBox;
         // Every placed record (the meshes, then the tiles): what the shadow tile cull walks.
         frame.MeshFields.NumObjects = static_cast<uint32_t>( m_Placement->ObjectData.size() / kGdfObjectStride );
 
@@ -691,6 +716,7 @@ namespace Desert::Graphic::DistanceField
                                      .Camera         = camera,
                                      .Objects        = inputs,
                                      .Levels         = frame.Levels,
+                                     .OccupiedBox    = frame.OccupiedBox,
                                      .NumMeshObjects = frame.MeshFields.NumMeshObjects,
                                      .NumObjects     = frame.MeshFields.NumObjects };
         if ( updateBricks.empty() )

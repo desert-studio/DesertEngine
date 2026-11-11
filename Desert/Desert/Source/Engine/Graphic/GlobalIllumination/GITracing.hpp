@@ -246,8 +246,10 @@ namespace Desert::Graphic::GlobalIllumination
     {
         std::array<glm::vec4, 4>            GlobalDistanceFieldLevels{};
         DistanceField::MeshSDFGridPlacement MeshSDFGrid; // MeshDistanceFieldReads::NearFieldGridPlacement
+        // GlobalDistanceField::FrameField::OccupiedBox: where a far-field march ends (GIFarFieldOccupiedExit).
+        std::array<glm::vec4, 2> GlobalDistanceFieldOccupiedBox{};
     };
-    static_assert( sizeof( TracerSoftwarePayload ) == 176 );
+    static_assert( sizeof( TracerSoftwarePayload ) == 208 );
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).

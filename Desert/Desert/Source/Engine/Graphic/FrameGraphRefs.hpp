@@ -192,6 +192,7 @@ namespace Desert::Graphic
         // Global Distance Field"
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
+        std::array<glm::vec4, 2> GlobalDistanceFieldOccupiedBox{};    // FrameField::OccupiedBox -> the GI tracer
         RDG::TextureRef                GlobalDistanceFieldObjectGrid; // its object grid (GlobalDistanceField.hpp)
         // The mesh fields it is composited from and the near-field object grid (the same update) -> the GI
         // tracer's near field
