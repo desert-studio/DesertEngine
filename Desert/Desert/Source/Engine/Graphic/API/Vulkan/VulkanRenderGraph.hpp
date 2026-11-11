@@ -738,6 +738,79 @@ namespace Desert::Graphic::API::Vulkan
         mutable std::unordered_map<BufferKey, RDG::MemoryRequirements, KeyHash>  m_BufferCache;
     };
 
+    // FPS-UPLOAD-RING #10 (UE: FRHIUploadBuffer / the per-frame upload ring a QueueBufferUpload is staged in). The
+    // bytes of every graph upload (VulkanRdgBackend::UploadBuffer) are copied into a persistently mapped,
+    // host-coherent TRANSFER_SRC buffer of the frame slot being recorded, and the upload records a
+    // vkCmdCopyBuffer region from there - one copy per destination per pass with all its regions, where
+    // vkCmdUpdateBuffer put every byte into the command buffer in 64 KiB pieces.
+    //
+    // LIFETIME: a slot's blocks are reused only by BeginFrameSlot of the same slot, which the frame loop calls
+    // after that slot's fence (VulkanRendererAPI::BeginRdgFrame -> VulkanRdgBackend::BeginFrame); every graph of
+    // the frame is submitted with the slot's submissions, so the copies that read a block have finished by then.
+    // The host writes are visible to the copy by the queue submission (host-coherent memory, no flush), and the
+    // copy is a TRANSFER-stage write, the stage and access vkCmdUpdateBuffer had: the graph's barriers around
+    // the upload are unchanged.
+    //
+    // OVERFLOW: a request that does not fit the slot's current block opens a fresh block (error as value when the
+    // allocator refuses one); the next BeginFrameSlot of that slot folds its blocks into one of their total size,
+    // so a frame that overflowed once fits in one block from then on.
+    class VulkanRdgUploadRing final
+    {
+    public:
+        explicit VulkanRdgUploadRing( const VulkanRdgDevice& device ) : m_Device( device )
+        {
+        }
+        ~VulkanRdgUploadRing();
+        VulkanRdgUploadRing( const VulkanRdgUploadRing& )            = delete;
+        VulkanRdgUploadRing& operator=( const VulkanRdgUploadRing& ) = delete;
+
+        // Where one upload's bytes go: Mapped (host) is Offset bytes into Buffer (device).
+        struct Span
+        {
+            VkBuffer   Buffer = VK_NULL_HANDLE;
+            uint64_t   Offset = 0;
+            std::byte* Mapped = nullptr;
+        };
+
+        // The slot the next allocations belong to; its earlier blocks are free again (the slot's fence was
+        // waited). Not concurrent with Allocate.
+        void BeginFrameSlot( uint32_t slot ) noexcept;
+        // @p bytes of the current slot's ring. Thread-safe: graph chunks record uploads on task workers.
+        [[nodiscard]] Common::ResultStr<Span> Allocate( uint64_t bytes ) noexcept;
+
+    private:
+        struct Block
+        {
+            VmaAllocator      Allocator  = nullptr;
+            VkBuffer          Buffer     = VK_NULL_HANDLE;
+            VmaAllocation     Allocation = nullptr;
+            std::byte*        Mapped     = nullptr;
+            uint64_t          Size       = 0;
+            ResourceOwnership Ledger;
+
+            Block() = default;
+            ~Block();
+            Block( const Block& )            = delete;
+            Block& operator=( const Block& ) = delete;
+        };
+        struct Slot
+        {
+            std::vector<std::unique_ptr<Block>> Blocks;   // the last one is being filled
+            uint64_t                            Head = 0; // first free byte of Blocks.back()
+            uint64_t                            Want = 0; // the size the next first block is made with
+        };
+        static constexpr uint64_t kFirstBlockBytes = 1ull << 20;
+        static constexpr uint64_t kAlignment       = 16;
+
+        // A mapped host-coherent TRANSFER_SRC block of @p bytes into @p out, or the reason it could not be made.
+        [[nodiscard]] Common::BoolResultStr MakeBlock( uint64_t bytes, std::unique_ptr<Block>& out ) const noexcept;
+
+        const VulkanRdgDevice& m_Device;
+        std::mutex             m_Lock;
+        std::vector<Slot>      m_Slots;
+        uint32_t               m_Slot = 0;
+    };
+
     class VulkanRdgBackend final : public RDG::IBackend
     {
     public:
@@ -795,7 +868,10 @@ namespace Desert::Graphic::API::Vulkan
         void                  EndPass( const RDG::CompiledPass& pass ) override;
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
-        // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
+        // FPS-UPLOAD-RING #10: the bytes are staged in the frame slot's upload ring (VulkanRdgUploadRing) and the
+        // copy is queued as one region of the pass's batch for that destination (PendingUpload), recorded by
+        // FlushUploads - at the end of the pass, or before any other command this backend records into the pass.
+        // Outside any render pass.
         Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t at,
                                             std::span<const std::byte> bytes ) override;
         Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
@@ -868,6 +944,18 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         struct PreparedRenderPass; // below
+        // FPS-UPLOAD-RING #10: one staged upload region not yet recorded. The copies of one pass are unordered
+        // against each other (the builder joins only disjoint ranges into one upload pass), so the regions are
+        // grouped by (staging block, destination) and each group is ONE vkCmdCopyBuffer.
+        struct PendingUpload
+        {
+            VkBuffer     Source = VK_NULL_HANDLE;
+            VkBuffer     Target = VK_NULL_HANDLE;
+            VkBufferCopy Region{};
+        };
+        // Records @p pending into @p commandBuffer (grouped as above) and empties it; a null buffer only empties
+        // it (its graph recorded nothing more, as every other command of the pass).
+        static void FlushUploads( VkCommandBuffer commandBuffer, std::vector<PendingUpload>& pending ) noexcept;
         // Everything one chunk keeps while its worker records it: what the frame's state holds for the calling
         // thread (m_CommandBuffer -> Record.CommandBuffer, m_OpenRenderPass, m_PassSets, m_ProfilerScopes,
         // m_CpuScope), and the debug labels its passes opened (EndChunk closes what a failed pass left open).
@@ -899,6 +987,8 @@ namespace Desert::Graphic::API::Vulkan
             // CPU-FRAME-ARENA (MEM-7): the barrier and render-pass scratch of its passes (ScratchArena). Reset by
             // BeginChunks; every user takes it under a ScopedMark, so it is empty between two calls.
             Common::Memory::FrameArena Scratch;
+            // FPS-UPLOAD-RING: its open pass's staged upload regions (PendingUploadsState); capacity reused.
+            std::vector<PendingUpload> Uploads;
         };
         // The chunk bound to the calling thread by BeginChunk, when it is this backend's; else null.
         [[nodiscard]] Chunk* BoundChunk() const noexcept
@@ -936,6 +1026,14 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::unique_ptr<Chunk>> m_Chunks; // reused across graphs; the first m_ChunkCount are this graph's
         uint32_t                            m_ChunkCount = 0;
         Common::Memory::FrameArena          m_Scratch; // ScratchArena of the thread recording without a chunk
+        // FPS-UPLOAD-RING: the staged upload regions of the open pass of the calling thread's recording - its
+        // chunk's on a worker (the same split as RecordingBuffer).
+        [[nodiscard]] std::vector<PendingUpload>& PendingUploadsState() noexcept
+        {
+            Chunk* const chunk = BoundChunk();
+            return chunk != nullptr ? chunk->Uploads : m_Uploads;
+        }
+        std::vector<PendingUpload> m_Uploads;
         // FPS-GPU-MARKER: this graph's breadcrumb base (kNoSerial: no markers), and the open pass's serial and
         // pipe on the thread recording without a chunk (Chunk::OpenCrumb on a worker).
         uint32_t  m_CrumbBase     = VulkanGpuBreadcrumbs::kNoSerial;
@@ -977,6 +1075,8 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
+        // FPS-UPLOAD-RING: the frame slot's staging for UploadBuffer; BeginFrame turns it to the slot.
+        VulkanRdgUploadRing m_UploadRing;
         VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
         RecordingListener           m_RecordingListener;
         PassBoundaryListener        m_PassBoundaryListener;

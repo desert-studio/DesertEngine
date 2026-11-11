@@ -2652,14 +2652,22 @@ namespace Desert::Graphic::API::Vulkan
         if ( binding.Info.buffer == VK_NULL_HANDLE || binding.Info.range == 0 )
             return Common::MakeError( "ImportBuffer: the buffer's copy for this frame has no VkBuffer" );
 
-        // The record names the copy the last graph imported; a different copy (a per-frame buffer's next
-        // frame, or a copy rebuilt after a resize) starts untouched with a fresh handle.
-        VulkanStorageBuffer::GraphRecord& record = vulkanBuffer->GetGraphRecord();
-        if ( record.CopyId != binding.CopyId || !record.Physical )
+        // FPS-UPLOAD-RING #9: one record per copy (VulkanStorageBuffer::GraphRecord). A copy keeps the handle it
+        // was wrapped with for as long as the table holds it; a copy the table does not hold (new, rebuilt after a
+        // resize, or evicted) is wrapped here. The STATE carries only while the buffer keeps importing the same
+        // copy: an import that moves to another copy (a per-frame buffer's next frame) starts it untouched, the
+        // truth the frames-in-flight fence and the submit's host-write visibility give - the barriers one record
+        // gave, unchanged.
+        VulkanStorageBuffer::GraphRecord& record = vulkanBuffer->RecordForCopy( binding.CopyId );
+        if ( !record.Physical )
         {
-            record.CopyId   = binding.CopyId;
             record.Physical = VulkanRdgBuffer::Wrap( binding.Info.buffer, binding.Info.range );
             record.State    = RDG::GetAccessState( RDG::Access::None );
+        }
+        if ( vulkanBuffer->LastImportedCopy() != binding.CopyId )
+        {
+            record.State = RDG::GetAccessState( RDG::Access::None );
+            vulkanBuffer->SetLastImportedCopy( binding.CopyId );
         }
         // RENDER-CPU-COST-2 (UE: a pooled buffer is wrapped for the graph once; RegisterExternalBuffer of it each
         // frame only reads the state it carries). @p into already imports this very copy - the record's handle is
@@ -2683,10 +2691,12 @@ namespace Desert::Graphic::API::Vulkan
             const std::shared_ptr<VulkanStorageBuffer> target = weak.lock();
             if ( !target )
                 return Common::MakeError( "the imported buffer was destroyed before its graph finished" );
-            VulkanStorageBuffer::GraphRecord& record = target->GetGraphRecord();
-            // Another graph imported a different copy since: this state belongs to a copy no longer recorded.
-            if ( record.CopyId == copy )
-                record.State = state;
+            // Another graph imported a different copy since: the next import of this copy starts it untouched
+            // anyway (ImportBuffer), so the state is dropped, as the single record dropped it.
+            if ( target->LastImportedCopy() != copy )
+                return Common::MakeSuccess( true );
+            if ( VulkanStorageBuffer::GraphRecord* const record = target->FindRecord( copy ) )
+                record->State = state;
             return Common::MakeSuccess( true );
         };
         return Common::MakeSuccess( true );

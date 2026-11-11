@@ -339,4 +339,36 @@ namespace Desert::ShaderResources::API::Vulkan
                                                          m_BufferName );
         return Common::MakeSuccess( address );
     }
+
+    VulkanStorageBuffer::GraphRecord* VulkanStorageBuffer::FindRecord( const uint64_t copyId ) noexcept
+    {
+        if ( copyId == 0 )
+            return nullptr;
+        for ( GraphRecord& record : m_GraphRecords )
+        {
+            if ( record.CopyId == copyId )
+                return &record;
+        }
+        return nullptr;
+    }
+
+    VulkanStorageBuffer::GraphRecord& VulkanStorageBuffer::RecordForCopy( const uint64_t copyId ) noexcept
+    {
+        GraphRecord* record = FindRecord( copyId );
+        if ( record == nullptr )
+        {
+            // The least recently imported slot (an empty one has LastUse 0, so it goes first).
+            record = &m_GraphRecords[0];
+            for ( GraphRecord& candidate : m_GraphRecords )
+            {
+                if ( candidate.LastUse < record->LastUse )
+                    record = &candidate;
+            }
+            record->CopyId = copyId;
+            record->Physical.reset();
+            record->State = Desert::Graphic::RDG::AccessState{};
+        }
+        record->LastUse = ++m_GraphRecordClock;
+        return *record;
+    }
 } // namespace Desert::ShaderResources::API::Vulkan
