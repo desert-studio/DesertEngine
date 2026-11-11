@@ -4499,7 +4499,8 @@ namespace Desert::Graphic
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows,
                                            bool                                    visibleInRayTracing,
-                                           const RayTracing::RayTracingProgramHit& rayHit )
+                                           const RayTracing::RayTracingProgramHit& rayHit,
+                                           const GenericValuesRevision             revision )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -4515,6 +4516,8 @@ namespace Desert::Graphic
                                              .OverridesRef            = &overrides,
                                              .DirectTextureSamplerRef = &directTextureSampler,
                                              .RayHitRef               = &rayHit,
+                                             .ValuesRevision          = revision.Revision,
+                                             .RevisionHasShaderName   = revision.HasShaderName,
                                              .Outlined                = outlined,
                                              .CastShadows             = castShadows,
                                              .VisibleInRayTracing     = visibleInRayTracing,

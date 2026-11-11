@@ -2620,13 +2620,38 @@ namespace Desert::Graphic::System
             words.Value( ( rayHit.Template.empty() ? 0u : 1u ) | ( rayHit.Opacity.has_value() ? 2u : 0u ) );
             // The surface cache's card gather keeps a generic draw's capture while the static casters' revision
             // holds (SCENE-CACHE-5): a Shader Override's program, textures and values are its cards' surface.
-            words.Value( std::hash<std::string>{}( data.ShaderName() ) );
-            words.Value( std::hash<std::string>{}( GenericTextureKey( data ) ) );
-            for ( const auto& [name, value] : data.Overrides().Params )
+            // A per-slot draw (SlotMaterial) has none of them: its material is its surface, keyed above.
+            if ( data.SlotMaterial != nullptr )
+                return words.Hash;
+            // A producer-kept record: its revision IS its overrides, hit and (when it carries it) shader name -
+            // no string hashed, no texture key built, no override walked per frame (GenericMeshDrawParams).
+            if ( data.ValuesRevision != 0u )
+                words.Value( data.ValuesRevision );
+            else
             {
-                words.Value( std::hash<std::string>{}( name ) );
-                for ( int lane = 0; lane < 4; ++lane )
-                    words.Value( std::hash<float>{}( value[lane] ) );
+                // The command's own values, by value. The texture overrides in submission order: an order change
+                // of an equal set is a spurious content change at worst (GenericTextureKey sorts for sharing, the
+                // content only needs to see every change). Unset slots (handle 0) bind nothing, as in the key.
+                for ( const auto& [name, value] : data.Overrides().Params )
+                {
+                    words.Value( std::hash<std::string_view>{}( name ) );
+                    for ( int lane = 0; lane < 4; ++lane )
+                        words.Value( std::hash<float>{}( value[lane] ) );
+                }
+                for ( const auto& [sampler, handle] : data.Overrides().Textures )
+                    if ( handle != 0u )
+                    {
+                        words.Value( std::hash<std::string_view>{}( sampler ) );
+                        words.Value( handle );
+                    }
+            }
+            if ( data.ValuesRevision == 0u || !data.RevisionHasShaderName )
+                words.Value( std::hash<std::string_view>{}( data.ShaderName() ) );
+            // The runtime texture is the command's (the text atlas), never the params': its address and sampler.
+            if ( data.DirectTexture != nullptr && !data.DirectTextureSampler().empty() )
+            {
+                words.Pointer( data.DirectTexture );
+                words.Value( std::hash<std::string_view>{}( data.DirectTextureSampler() ) );
             }
             return words.Hash;
         };

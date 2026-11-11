@@ -534,10 +534,20 @@ namespace Desert::Graphic
         // record (MeshRenderer::GenericMeshRenderData::ShaderNameRef): they must outlive the frame's passes, as
         // the recorded command's members and its producer-kept GenericMeshDrawParams do. No defaults, because a
         // defaulted `{}` would be a temporary that dies at the call's semicolon.
+        // @p revision: what of those values the producer's GenericMeshDrawParams::Revision stands for
+        // (MeshRenderer::GenericMeshRenderData::ValuesRevision); {} = the command's own values, hashed per frame.
+        struct GenericValuesRevision
+        {
+            // GenericMeshDrawParams::Revision of @p overrides and @p rayHit; 0 = none (the command's own values).
+            uint64_t Revision = 0;
+            // The revision covers @p shaderName too (the params carry it), not only the overrides and the hit.
+            bool HasShaderName = false;
+        };
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides, bool outlined,
                                 Image2D* directTexture, const std::string& directTextureSampler, bool castShadows,
-                                bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit );
+                                bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit,
+                                GenericValuesRevision revision );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part

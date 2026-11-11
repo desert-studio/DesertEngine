@@ -10,12 +10,22 @@
 
 #include <glm/mat4x4.hpp>
 
+#include <atomic>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::Render
 {
+    // The next GenericMeshDrawParams::Revision: process-unique, never 0, never reused (a params object built at a
+    // freed one's address is another revision).
+    [[nodiscard]] inline uint64_t NextGenericMeshDrawParamsRevision() noexcept
+    {
+        static std::atomic<uint64_t> next{ 1u };
+        return next.fetch_add( 1u, std::memory_order_relaxed );
+    }
+
     // A DRAW'S PER-OBJECT VALUES KEPT BY ITS PRODUCER (UE: a proxy's material relevance built on change, not per
     // frame): the material overrides and the program hit a producer builds when its colour/emission/atlas moves
     // and hands every frame by pointer, so a steady frame copies no vector and no string (TextECSSystem, and
@@ -28,6 +38,13 @@ namespace Desert::Graphic::Render
         // can pass the small-string buffer, so a per-frame copy into the command would allocate). Empty: the
         // command's ShaderName (text passes a short literal).
         std::string ShaderName;
+        // THE VALUES' REVISION (UE: a proxy's material relevance is rebuilt on a material change event, not
+        // re-hashed per frame): stamped once when the producer builds the object. A producer never edits a
+        // published object, it builds a new one (and retires the old: ECS::RetireRenderCache), so equal
+        // revisions are equal Overrides, RayHit and ShaderName. The renderer keys the record's content and its
+        // texture-set key by it (MeshRenderer::GenericMeshRenderData::ValuesRevision) instead of hashing the
+        // strings and every override per record per frame. Const: a copy keeps the values it was stamped for.
+        const uint64_t Revision = NextGenericMeshDrawParamsRevision();
     };
 
     // A static mesh drawn with a generic data-driven material (a MaterialComponent assigning a non-lit
@@ -37,11 +54,11 @@ namespace Desert::Graphic::Render
         // The entity that owns the draw (entt id incl. version): GpuSceneRegistry keys this draw's
         // GpuScene primitive by it (MotionKey), so the velocity of a moving object is its own.
         uint32_t                   Entity;
-        Desert::Mesh*            Mesh;
-        glm::mat4                Transform;
-        std::string              ShaderName;
+        Desert::Mesh*              Mesh;
+        glm::mat4                  Transform;
+        std::string                ShaderName;
         Graphic::MaterialOverrides Overrides;
-        bool                     Outlined = false;
+        bool                       Outlined = false;
 
         // Optional runtime-owned texture (no asset handle) bound to DirectTextureSampler — the text
         // system feeds its SDF atlas here. Non-owning: the producer keeps it alive for the frame.
@@ -104,15 +121,22 @@ namespace Desert::Graphic::Render
             const Graphic::MaterialOverrides*                overrides  = &Overrides;
             const Graphic::RayTracing::RayTracingProgramHit* rayHit     = &RayHit;
             const std::string*                               shaderName = &ShaderName;
+            // 0: the values are this command's own (hashed by the renderer); else the params' revision.
+            SceneRenderer::GenericValuesRevision revision{};
             if ( Params != nullptr )
             {
-                overrides = &Params->Overrides;
-                rayHit    = &Params->RayHit;
+                overrides         = &Params->Overrides;
+                rayHit            = &Params->RayHit;
+                revision.Revision = Params->Revision;
                 if ( !Params->ShaderName.empty() )
-                    shaderName = &Params->ShaderName;
+                {
+                    shaderName             = &Params->ShaderName;
+                    revision.HasShaderName = true;
+                }
             }
             renderer.SubmitGenericMesh( Entity, Mesh, Transform, *shaderName, *overrides, Outlined, DirectTexture,
-                                        DirectTextureSampler, CastShadows, VisibleInRayTracing, *rayHit );
+                                        DirectTextureSampler, CastShadows, VisibleInRayTracing, *rayHit,
+                                        revision );
         }
     };
 } // namespace Desert::Graphic::Render
