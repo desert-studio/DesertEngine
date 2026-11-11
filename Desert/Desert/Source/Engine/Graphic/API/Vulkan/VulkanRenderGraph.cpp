@@ -2839,6 +2839,8 @@ namespace Desert::Graphic::API::Vulkan
         region.srcOffset = from->GetOffset() + sourceOffset;
         region.dstOffset = into->GetOffset() + targetOffset;
         region.size      = bytes;
+        // Staged uploads of this pass first (as FillBuffer): a copy reading an uploaded range sees the bytes.
+        FlushUploads( commandBuffer, PendingUploadsState() );
         vkCmdCopyBuffer( commandBuffer, from->GetBuffer(), into->GetBuffer(), 1, &region );
         return Common::MakeSuccess( true );
     }
