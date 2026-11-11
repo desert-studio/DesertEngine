@@ -84,6 +84,12 @@ namespace Desert::Graphic::GlobalIllumination
         // LocalSize 8x8; UE TraceFromProbes over probe trace tiles), so the budget's probes fill the GPU instead
         // of leaving one group per probe to walk its res^2 rays in series.
         constexpr uint32_t kTraceTileTexels = 64;
+        // RadianceCacheMark's box key: clamp(base, -1, grid - 1) + 1 in 9 bits an axis, the clipmap in 3 bits
+        // under bit 31 (the key never reaches RC_MARK_NONE).
+        constexpr uint32_t kMarkKeyMaxGrid     = 511;
+        constexpr uint32_t kMarkKeyMaxClipmaps = 7;
+        static_assert( RadianceCache::kGridResolution <= kMarkKeyMaxGrid );
+        static_assert( RadianceCache::kMaxClipmaps <= kMarkKeyMaxClipmaps );
         // The "[RadianceCache] traced X of budget Y, full update Z" line: once per this many updates of a view.
         constexpr uint32_t kCountsLogFrames = 60;
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the update's event
@@ -206,6 +212,10 @@ namespace Desert::Graphic::GlobalIllumination
         if ( shape.ProbeResolution == 0 || shape.ProbesPerFrame == 0 )
             return Common::MakeError<RadianceCacheFrame>(
                  "radiance cache: the quality gives no probe resolution or budget" );
+        if ( shape.GridResolution > kMarkKeyMaxGrid || shape.Clipmaps > kMarkKeyMaxClipmaps )
+            return Common::MakeFormattedError<RadianceCacheFrame>(
+                 "radiance cache: grid {} x {} clipmaps exceeds the Mark key ({} x {})", shape.GridResolution,
+                 shape.Clipmaps, kMarkKeyMaxGrid, kMarkKeyMaxClipmaps );
         if ( const auto ensured = EnsureResources( shape ); !ensured )
             return Common::MakeError<RadianceCacheFrame>( ensured.GetError() );
         if ( const std::string_view missing = TracerFrameMissing( inputs.Tracer ); !missing.empty() )
