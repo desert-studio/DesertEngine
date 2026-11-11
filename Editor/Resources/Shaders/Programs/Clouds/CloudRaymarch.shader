@@ -415,6 +415,20 @@ Shader "CloudRaymarch"
         // that start on the ray's dither) and four more shuffles an iteration.
         #define CLOUD_MARCH_SEGMENT_LANES 8u
 
+        // THE LANES' EXCHANGE AS A LOG-SCAN (FPS-CLOUDS-SCAN): 1 = the front transmittance every iteration, the
+        // ray's activity, the front-to-back composition and the census sums go through a butterfly over the
+        // ray's aligned lane block (subgroupShuffleXor with 1, 2, 4: log2(CLOUD_MARCH_SEGMENT_LANES) exchanges in
+        // place of CLOUD_MARCH_SEGMENT_LANES), the wave-level scan Unreal and Frostbite run; 0 = one shuffle per
+        // lane, the loops as they were, kept for the A/B. Each butterfly step joins two neighbouring blocks with
+        // the same operands on both partners (the lower block's aggregate times the upper's - IEEE multiply and
+        // add commute exactly), so every lane of the ray holds bit-identical totals. What differs from 0 is only
+        // the grouping of the products: lanes 0-3 get the old front transmittance bit for bit, lanes 4-7 a tree
+        // ((T0 T1)(T2 T3))... instead of the left fold, a few ulps apart (relative ~2e-7), which moves a stop
+        // decision only where frontT * T sits within those ulps of the stop threshold. The composition's sums
+        // regroup the same way (ulps of the stored radiance); the integer census is exact.
+        // CLOUD_MARCH_SEGMENT_LANES must stay a power of two (the blocks are lane ^ d), as it is aligned already.
+        #define CLOUD_LANE_SCAN 1
+
         // THE COARSE TIER'S LOOKAHEAD (FPS-CLOUDS-MARCH-3): how many lattice points of the empty-space search one
         // iteration fetches together. The search was one probe and one field evaluation per iteration, each
         // waiting on the last, and on the FIELD_Barn turn that chain was the march (34 field evaluations and 9
@@ -1001,13 +1015,40 @@ Shader "CloudRaymarch"
                 // the loop on the iteration after its last lane did, seen through the activity read here.
                 float frontT    = 1.0f;
                 bool  rayActive = false;
-                vec2  ownState  = vec2(transmittance, float(laneActive));
-                for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                // Exclusive product scan by butterfly (FPS-CLOUDS-SCAN, CLOUD_LANE_SCAN): blockState = (product
+                // of the transmittances of this lane's block, any lane of the block active). At step d the block
+                // of 2d lanes is joined from two blocks of d; a lane in the upper half has the lower half in front
+                // of it, so its front transmittance takes the lower block's product (in front of what it had).
+                // The condition is a compile-time constant: the compiler keeps one branch.
+                if (CLOUD_LANE_SCAN != 0)
                 {
-                    vec2 laneState = subgroupShuffle(ownState, laneBase + lane);
-                    if (lane < segmentLane)
-                        frontT *= laneState.x;
-                    rayActive = rayActive || laneState.y > 0.5f;
+                    vec2 blockState = vec2(transmittance, float(laneActive));
+                    for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                    {
+                        vec2 partnerState = subgroupShuffleXor(blockState, d);
+                        if ((segmentLane & d) != 0u)
+                        {
+                            frontT       = partnerState.x * frontT;
+                            blockState.x = partnerState.x * blockState.x;
+                        }
+                        else
+                        {
+                            blockState.x = blockState.x * partnerState.x;
+                        }
+                        blockState.y = max(blockState.y, partnerState.y);
+                    }
+                    rayActive = blockState.y > 0.5f;
+                }
+                else
+                {
+                    vec2 ownState = vec2(transmittance, float(laneActive));
+                    for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                    {
+                        vec2 laneState = subgroupShuffle(ownState, laneBase + lane);
+                        if (lane < segmentLane)
+                            frontT *= laneState.x;
+                        rayActive = rayActive || laneState.y > 0.5f;
+                    }
                 }
                 if (!rayActive)
                     break;
@@ -1357,6 +1398,28 @@ Shader "CloudRaymarch"
             // reaches this point (each one left the loop; nothing above returned for one lane and not another),
             // so every shuffle below reads an active lane. Each lane's own sums are weighted by the transmittance
             // of the lanes in front of it; afterwards every lane holds the whole ray's result.
+            //
+            // CLOUD_LANE_SCAN: the same composition as a butterfly. Each lane holds its block's aggregate
+            // (L, W, S, T); joining a front block a with a back block b is (L_a + T_a L_b, ..., T_a T_b), and both
+            // partners evaluate it with the same operands in the same order, so all lanes end bit-identical.
+            if (CLOUD_LANE_SCAN != 0)
+            {
+                for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                {
+                    vec3  partnerL = subgroupShuffleXor(luminance, d);
+                    vec3  partnerA = subgroupShuffleXor(vec3(aerialWeightedT, aerialWeightSum, transmittance), d);
+                    bool  back     = (segmentLane & d) != 0u;
+                    vec3  frontL   = back ? partnerL : luminance;
+                    vec3  backL    = back ? luminance : partnerL;
+                    vec3  frontA   = back ? partnerA : vec3(aerialWeightedT, aerialWeightSum, transmittance);
+                    vec3  backA    = back ? vec3(aerialWeightedT, aerialWeightSum, transmittance) : partnerA;
+                    luminance       = frontL + frontA.z * backL;
+                    aerialWeightedT = frontA.x + frontA.z * backA.x;
+                    aerialWeightSum = frontA.y + frontA.z * backA.y;
+                    transmittance   = frontA.z * backA.z;
+                }
+            }
+            else
             {
                 vec3  composedLuminance = vec3(0.0f, 0.0f, 0.0f);
                 float composedWeightedT = 0.0f;
@@ -1392,6 +1455,19 @@ Shader "CloudRaymarch"
             CloudMarchCount(CLOUD_MARCH_COUNT_FULL_LIGHT_RAYS, uint(censusFullLightRays));
 
             // The census view shows the whole ray's cost: the lanes' counts summed into every lane.
+            // CLOUD_LANE_SCAN: a butterfly sum over the ray's lane block (the integers exact, the float regrouped).
+            if (CLOUD_LANE_SCAN != 0)
+            {
+                for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                {
+                    ivec2 partnerCounts = subgroupShuffleXor(ivec2(censusFieldEvaluations, censusLitSamples), d);
+                    float partnerLight  = subgroupShuffleXor(censusLightSamples, d);
+                    censusFieldEvaluations += partnerCounts.x;
+                    censusLitSamples       += partnerCounts.y;
+                    censusLightSamples     += partnerLight;
+                }
+            }
+            else
             {
                 int   rayFieldEvaluations = 0;
                 int   rayLitSamples       = 0;
