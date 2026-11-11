@@ -157,7 +157,8 @@ namespace Desert::Graphic::System
     class GrassRenderer final : public RenderSystem
     {
     public:
-        using RenderSystem::RenderSystem;
+        // Out of line (GrassRenderer.cpp): m_Plan's deleter needs the complete GrassFramePlan.
+        GrassRenderer( SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer );
 
         Common::BoolResultStr Initialize() override;
 

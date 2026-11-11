@@ -744,6 +744,11 @@ namespace Desert::Graphic::System
         std::vector<VarietyPlan> Serial;
     };
 
+    GrassRenderer::GrassRenderer( SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer )
+         : RenderSystem( sceneRenderer, targetFramebuffer )
+    {
+    }
+
     GrassRenderer::~GrassRenderer() = default;
 
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
