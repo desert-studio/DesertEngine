@@ -501,9 +501,13 @@ namespace Desert::Graphic::System
             // The card is not a view of its own (no jitter, no previous frame): its camera, in each section's
             // material. The frame state also carries the view's ObjectMotions and ObjectBones, which place a
             // static or generic mesh and pose a skinned one by its motion row.
-            const ViewFrame cardView =
-                 MakeStillViewFrame( capture.View, capture.Projection, capture.Eye, m_WorldTimeSeconds );
             const SurfaceCache::AtlasRect rect = capture.CaptureRect;
+            ViewFrame                     cardView =
+                 MakeStillViewFrame( capture.View, capture.Projection, capture.Eye, m_WorldTimeSeconds );
+            // Its cells rasterise into its own rectangle of the atlas (the draws' ViewportRegion below): the
+            // G-buffer cells' pixel-to-NDC map is that rectangle's (ViewFrame::RasterRect).
+            cardView.RasterRect = glm::vec4( static_cast<float>( rect.X ), static_cast<float>( rect.Y ),
+                                             static_cast<float>( rect.Width ), static_cast<float>( rect.Height ) );
             for ( const CardCaptureSection& section : source.Sections )
             {
                 DataDrivenMaterial* material = nullptr;

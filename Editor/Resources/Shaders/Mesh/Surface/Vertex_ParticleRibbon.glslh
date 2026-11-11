@@ -116,7 +116,9 @@ void main()
     v_Surface.VertexColor   = colour;
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( tangent, -side, facing );
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
+#endif
     v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
     v_Surface.ObjectMoved = 1.0;

@@ -480,6 +480,10 @@ namespace Desert::Graphic
         ViewFrame f;
         f.FrameIndex = m_HasCommitted ? m_Committed.FrameIndex + 1 : 0;
         f.Split      = split.GetValue();
+        // The scene is rasterised into the whole render target (VulkanRenderGraph: the render pass's viewport is
+        // the target's extent, which the view's targets are built at, Split.Render).
+        f.RasterRect = glm::vec4( 0.0f, 0.0f, static_cast<float>( f.Split.Render.Width ),
+                                  static_cast<float>( f.Split.Render.Height ) );
         f.Method     = method.GetValue();
         f.Quality    = inputs.Quality;
 

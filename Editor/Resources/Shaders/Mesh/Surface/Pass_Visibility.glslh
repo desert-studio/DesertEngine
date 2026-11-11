@@ -18,8 +18,8 @@ void main()
 {
     DESERT_SURFACE_BEGIN_FRAGMENT();
 #ifdef DESERT_SURFACE_MASKED
-    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
-                                               v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN,
+                                               v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
 #endif
     // A row holds 128 triangles of one instance: a blade strip has fewer (its row is v_VisibilityRow), a mesh

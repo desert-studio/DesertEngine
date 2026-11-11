@@ -98,7 +98,9 @@ void main()
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
     // same sum one frame earlier (UE's water writes velocity from the previous frame's waves).
     const vec4 prevPos    = vec4( restPos.xyz + WaterWavesDisplacement( plane, cameraUB.PrevTime ) * atten, 1.0 );
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
+#endif
     v_Surface.PrevClip    = cameraUB.PrevViewProjection * prevPos;
     v_Surface.ObjectMoved = 0.0;
     gl_Position           = cameraUB.JitteredViewProjection * worldPos;

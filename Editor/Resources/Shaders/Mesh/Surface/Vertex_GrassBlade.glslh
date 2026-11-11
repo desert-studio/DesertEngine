@@ -215,9 +215,9 @@ void main()
     v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
     v_Surface.UV0           = BladeCardUV( BladeCard( Blade, model[0].w ), side, t );
     v_Surface.UV1           = vec2( model[2].w, t );
-    v_Surface.VertexColor   = a_Color;
     v_Surface.ObjectScaleUp = 1.0;
-    v_Surface.TBN           = mat3( 1.0 ); // not read by the depth cells' fragment stage
+    v_Surface.Along         = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
+    v_Surface.Right         = vec3( 1.0, 0.0, 0.0 ); // not read by the depth cells' fragment stage
     v_Surface.Clip          = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.ObjectMoved   = 0.0;
@@ -237,16 +237,20 @@ void main()
     v_Surface.Normal        = normal;
     v_Surface.UV0           = BladeCardUV( card, side, t );
     v_Surface.UV1           = vec2( model[2].w, t );
-    v_Surface.VertexColor   = a_Color;
     v_Surface.ObjectScaleUp = 1.0;
-    v_Surface.TBN           = mat3( blade.Right, along, normal );
+    // The shading frame (Right, Along, Normal) without its third axis - Normal is it - and with the blade's one
+    // across axis flat; no vertex colour: the strip has none (SurfaceTypes.glslh DESERT_SURFACE_GRASS_BLADE_VARYINGS).
+    v_Surface.Along         = along;
+    v_Surface.Right         = blade.Right;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
     const BladePoint previous = BladeAt( Blade, model, side, t, windA,
                                          vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ) );
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
+#endif
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a blade never moves, only the wind bends it.
     v_Surface.ObjectMoved = 0.0;

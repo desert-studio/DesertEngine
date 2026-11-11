@@ -38,20 +38,35 @@ layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 layout( depth_less ) out float gl_FragDepth;
 #endif
 
+#ifdef DESERT_SURFACE_CLIP_FROM_PIXEL
+// The pixel's UNJITTERED clip position (SurfaceTypes.glslh DESERT_SURFACE_CLIP_FROM_PIXEL; UE
+// SvPositionToScreenPosition): gl_FragCoord is where the jittered raster put the fragment, PixelToNdc maps it to the
+// jittered NDC through the view's raster viewport (ShaderProtocols::MakeCameraUB of ViewFrame::RasterRect: its
+// origin, its size and the flipped y of the engine's negative-height viewport), and the jitter is a pure NDC
+// translation (ViewFrame.cpp ApplyJitter), so the unjittered NDC is that less JitterNdc. The depth is the raster's
+// own (the jitter leaves z alone, the viewport's depth range is [0, 1]). w = 1: the w-divide the interpolated clip
+// position needed is the one the raster already did.
+vec4 DesertGBufferClipFromPixel()
+{
+    const vec2 jitteredNdc = gl_FragCoord.xy * cameraUB.PixelToNdc.xy + cameraUB.PixelToNdc.zw;
+    return vec4( jitteredNdc - cameraUB.JitterNdc, gl_FragCoord.z, 1.0 );
+}
+#endif
+
 void main()
 {
     DESERT_SURFACE_BEGIN_FRAGMENT();
 #ifdef DESERT_SURFACE_PARTICLE_SPRITE
     SurfaceInput i =
-         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
-                              v_Surface.VertexColor, gl_FrontFacing );
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN,
+                             v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
     i.Particle.Color        = v_ParticleColor;
     i.Particle.RelativeTime = v_ParticleTimeRandom.x;
     i.Particle.Random       = v_ParticleTimeRandom.y;
 #else
     SurfaceInput i =
-         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
-                              v_Surface.VertexColor, gl_FrontFacing );
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN,
+                             v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
 #endif
     // DESERT_SURFACE_DEPTH_EQUAL (Graphic::kSurfaceDepthEqualDefine): a Masked section the masked depth prepass
     // (Pass_Depth.glslh) already drew - its clip wrote the depth - is drawn here with an EQUAL depth test and no writes
@@ -68,7 +83,11 @@ void main()
 #else
     const SurfaceOutput s = EvaluateSurface( i );
 #endif
+#ifdef DESERT_SURFACE_CLIP_FROM_PIXEL
+    vec4 clip     = DesertGBufferClipFromPixel();
+#else
     vec4 clip     = v_Surface.Clip;
+#endif
     vec4 prevClip = v_Surface.PrevClip;
 #ifdef DESERT_SURFACE_PARALLAX
     // The relief's depth and motion (SurfaceParallax.glslh); the composite reconstructs the moved position from it.

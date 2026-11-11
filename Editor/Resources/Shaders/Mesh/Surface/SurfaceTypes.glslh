@@ -304,8 +304,54 @@ SurfaceOutput DefaultSurfaceOutput()
 #define DESERT_SURFACE_BINNED_VARYINGS
 #endif
 
+// THE CURRENT CLIP POSITION OF A G-BUFFER CELL IS THE PIXEL'S (FPS-GBUFFER2; UE's base pass: SvPosition ->
+// SvPositionToScreenPosition, no clip-position interpolant). The fragment's own gl_FragCoord is the jittered raster
+// position, so the unjittered NDC velocity needs is gl_FragCoord.xy through the view's CameraUB::PixelToNdc
+// (the raster viewport, ViewFrame::RasterRect) less JitterNdc, at depth gl_FragCoord.z (the jitter moves only x
+// and y; the viewport's depth range is [0, 1]) - Pass_GBuffer.glslh DesertGBufferClipFromPixel. The vertex stage
+// writes no Clip: 4 interpolants and a matrix multiply less on every G-buffer draw. A `.Parallax` cell keeps the
+// interpolated clip: its pixel depth offset moves it in homogeneous space (SurfaceParallax.glslh
+// DesertPixelDepthOffsetVelocity). The forward and translucent cells keep it as well (their own passes).
+#if defined( DESERT_SURFACE_PASS_GBuffer ) && !defined( DESERT_SURFACE_PARALLAX )
+#define DESERT_SURFACE_CLIP_FROM_PIXEL 1
+#define DESERT_SURFACE_CLIP_VARYING
+#else
+#define DESERT_SURFACE_CLIP_VARYING vec4 Clip;
+#endif
+
+// THE GRASS BLADE'S VARYINGS (FPS-GBUFFER2; UE: a vertex factory interpolates only what its material reads). A
+// procedural blade (Vertex_GrassBlade.glslh) hands down less than a mesh does:
+//   * no vertex colour - its strip has no colour stream (GrassRenderer::BladeStrip, no MeshVertexStreams), so every
+//     vertex read the shared white buffer: the input is white, as a mesh without the stream reads (not a canopy);
+//   * no third frame axis - the frame's normal IS the blade's shading normal, v_Surface.Normal;
+//   * its across axis flat - BladeAt's Right is the instance matrix's width axis, one value for the whole blade.
+// What reads the input reads it through DESERT_SURFACE_VARYING_TBN / _VERTEX_COLOR, so each pass header builds
+// SurfaceInput the same way whichever layout its path has.
+#ifdef DESERT_SURFACE_PATH_GrassBlade
+#define DESERT_SURFACE_GRASS_BLADE_VARYINGS 1
+#endif
+
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
 // What only the vertex can know; what the view knows (camera position, time) the fragment reads from the view block.
+#ifdef DESERT_SURFACE_GRASS_BLADE_VARYINGS
+#define DESERT_SURFACE_VARYINGS( q ) \
+    layout( location = 0 ) q SurfaceVaryings \
+    { \
+        vec3 WorldPosition; \
+        vec3 Normal; \
+        vec2 UV0; \
+        vec3 Along; \
+        vec2 UV1; \
+        DESERT_SURFACE_CLIP_VARYING \
+        vec4 PrevClip; \
+        flat vec3 Right; \
+        flat float ObjectMoved; \
+        flat float ObjectScaleUp; \
+        DESERT_SURFACE_BINNED_VARYINGS \
+    } v_Surface;
+#define DESERT_SURFACE_VARYING_TBN          mat3( v_Surface.Right, v_Surface.Along, v_Surface.Normal )
+#define DESERT_SURFACE_VARYING_VERTEX_COLOR vec4( 1.0 )
+#else
 #define DESERT_SURFACE_VARYINGS( q ) \
     layout( location = 0 ) q SurfaceVaryings \
     { \
@@ -315,12 +361,15 @@ SurfaceOutput DefaultSurfaceOutput()
         mat3 TBN; \
         vec2 UV1; \
         vec4 VertexColor; \
-        vec4 Clip; \
+        DESERT_SURFACE_CLIP_VARYING \
         vec4 PrevClip; \
         flat float ObjectMoved; \
         flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
     } v_Surface;
+#define DESERT_SURFACE_VARYING_TBN          v_Surface.TBN
+#define DESERT_SURFACE_VARYING_VERTEX_COLOR v_Surface.VertexColor
+#endif
 
 // The material row the generated `Material` reads (DShaderParser: `MaterialRows[DESERT_SURFACE_MATERIAL_ROW]`): the
 // push block's MaterialIndex, or in a binned cell the row its vertex stage resolved. A global in a binned cell, set
