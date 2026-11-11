@@ -24,8 +24,8 @@ void main()
     // A `.Binned` cell (the deferred early-Z pass's twin of a G-buffer bin): `Material` is the row the vertex stage
     // resolved from the instance id (SurfaceTypes.glslh); nothing otherwise.
     DESERT_SURFACE_BEGIN_FRAGMENT();
-    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
-                                               v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN,
+                                               v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
 #endif
 #ifdef DESERT_SURFACE_PARALLAX

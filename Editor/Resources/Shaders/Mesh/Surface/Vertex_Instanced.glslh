@@ -335,7 +335,9 @@ void main()
     const vec4 prevWind          = vec4( INSTANCED_WIND_B.x, INSTANCED_WIND_B.z, 0.0, 0.0 );
     const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, INSTANCED_WIND_A, prevWind );
 #endif
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
+#endif
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the INSTANCE moved (a producer whose
     // instances move states their previous transforms); the wind bends the vertices of a still instance and leaves it 0.

@@ -192,7 +192,9 @@ void main()
     v_Surface.PrimitiveFlags = draw.Flags;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
+#endif
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * vec4( prevPosed, 1.0 ) );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): an animated skeleton is the object's own
     // motion (UE: a skeletal mesh writes velocity, so TemporalAA counts it dynamic), not a vertex deformation.

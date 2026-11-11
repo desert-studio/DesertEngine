@@ -64,9 +64,13 @@
     /* PixelsPerUnit) the landscape's far grass cover is laid through, by the raster and a ray hit alike */       \
     FIELD( glm::vec4, GrassLens, GrassLens, { 0.0f } ) /* offset 496 */                                           \
     /* light views only: the shadow wind rule's caster ring (ViewFrame::CasterWindRing, x the inner distance; */  \
-    /* y, z, w the block's tail pad) */                                                                           \
+    /* y, z, w unused) */                                                                                         \
     FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
-    /* block size 528 */
+    /* UE SvPositionToScreenPosition: a fragment's gl_FragCoord.xy to its JITTERED NDC through the view's */      \
+    /* raster viewport (ViewFrame::RasterRect), ndc = xy * PixelToNdc.xy + PixelToNdc.zw; the G-buffer cell's */  \
+    /* clip position (Mesh/Surface/Pass_GBuffer.glslh DesertGBufferClipFromPixel). 0 for a view with no rect */   \
+    FIELD( glm::vec4, PixelToNdc, PixelToNdc, { 0.0f } ) /* offset 528 (MakePixelToNdc) */                        \
+    /* block size 544 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -76,7 +80,19 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 528 );
+    static_assert( sizeof( Camera ) == 544 );
+
+    /// PURE. CameraUB::PixelToNdc of a raster viewport @p rect (x, y its origin, z, w its size, target pixels),
+    /// drawn as the engine draws every view - negative height, +Y up (VulkanRendererAPI::SetViewportRegion,
+    /// VulkanRenderGraph's whole-target viewport): ndc.x = 2 (px - x) / w - 1, ndc.y = 1 - 2 (py - y) / h. An
+    /// empty rect (a view that draws no G-buffer cell: a light view, a still preview) maps to 0.
+    [[nodiscard]] inline glm::vec4 MakePixelToNdc( const glm::vec4& rect ) noexcept
+    {
+        if ( !( rect.z > 0.0f ) || !( rect.w > 0.0f ) )
+            return glm::vec4( 0.0f );
+        return glm::vec4( 2.0f / rect.z, -2.0f / rect.w, -1.0f - 2.0f * rect.x / rect.z,
+                          1.0f + 2.0f * rect.y / rect.w );
+    }
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -123,6 +139,7 @@ namespace Desert::Graphic::ShaderProtocols
         ub.CasterWindOrigin          = frame.CasterWindOrigin;
         ub.CasterWindRing            = frame.CasterWindRing;
         ub.GrassLens                 = frame.GrassLens;
+        ub.PixelToNdc                = MakePixelToNdc( frame.RasterRect );
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols
