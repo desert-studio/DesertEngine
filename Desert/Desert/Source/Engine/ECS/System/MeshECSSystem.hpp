@@ -130,165 +130,10 @@ namespace Desert::ECS
             RecordStaticScene( registry, renderCommandBuffer, materialsVersion, drawnAsPieces );
 
             /* =========================
-               INSTANCED STATIC MESHES (UE-style ISM: one entity = N instances, one instanced draw)
+               INSTANCED STATIC MESHES (UE-style ISM: one entity = N instances, one instanced draw): the retained
+               records (RecordInstancedScene), only their changes rebuilt; per update only fade and wind
                ========================= */
-            {
-                // THE RETAINED ISM LIST (CPU-TAILS F10): rows staged in walk order, one snapshot published only
-                // when a row changed, one command per update; the frame's values go to a pooled array.
-                Graphic::Render::InstancedSceneFrame& ismFrame   = AcquireInstancedFrame();
-                size_t                                ismRows    = 0;
-                bool                                  ismChanged = false;
-                auto view = registry.view<InstancedStaticMeshComponent>();
-                view.each(
-                     [&]( entt::entity entity, InstancedStaticMeshComponent& ism )
-                     {
-                         if ( ECS::IsHidden( registry, entity ) )
-                             return;
-                         if ( ism.GetInstanceTransforms().empty() )
-                             return;
-
-                         // Resolve the single shared mesh (edited RuntimeMesh > primitive > asset handle).
-                         Desert::Mesh* targetMesh = nullptr;
-                         if ( ism.RuntimeMesh() )
-                             targetMesh = ism.RuntimeMesh().get();
-                         else if ( ism.GetPrimitive().has_value() )
-                             targetMesh = Geometry::PrimitiveMeshFactory::GetShared( ism.GetPrimitive().value() );
-                         else if ( ism.GetMeshHandle() )
-                             targetMesh = Runtime::ResourceRegistry::GetMeshService()->Get( ism.GetMeshHandle() );
-                         if ( !targetMesh )
-                             return;
-
-                         // Null slots take the mesh asset's section materials, the static and skinned twins'
-                         // one rule (UE: a foliage instance draws its mesh's materials unless overridden). The
-                         // painted and procedural foliage spawners set only MeshHandle, so without this every
-                         // field drew the default white surface, and a resimulate (which rebuilds the fields)
-                         // dropped any slots copied in by hand. An edited RuntimeMesh or a primitive has no
-                         // mesh asset to adopt from.
-                         if ( !ism.RuntimeMesh() && !ism.GetPrimitive().has_value() )
-                             AdoptComponentMaterialSlots( registry, entity, ism, &ECS::SetInstancedStaticMesh );
-
-                         // Invalidation stamp (see the static path) — rebuild on any Invalidate().
-                         if ( ism.SeenMaterialsVersion() != materialsVersion )
-                         {
-                             ism.RuntimeMaterialInstances().clear();
-                             ism.SeenMaterialsVersion() = materialsVersion;
-                         }
-
-                         // One material instance per slot, rebuilt only when the slot set changes.
-                         const size_t slotCount = ism.GetMaterialSlots().empty() ? 1 : ism.GetMaterialSlots().size();
-                         if ( ism.RuntimeMaterialInstances().size() != slotCount )
-                         {
-                             ism.RuntimeMaterialInstances().clear();
-                             ism.RuntimeDisplacedInstances().clear();
-                             // A displaced mesh's twins draw with the displaced siblings (base cells).
-                             if ( targetMesh->IsDisplaced() )
-                                 for ( const auto& h : ism.GetMaterialSlots() )
-                                 {
-                                     auto inst = Runtime::ResourceRegistry::GetMaterialService()
-                                                      ->CreateRuntimeInstance(
-                                                           h, Graphic::MeshVertexPath::Static, true );
-                                     ism.RuntimeDisplacedInstances().push_back(
-                                          inst ? std::move( inst )
-                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
-                                 }
-                             if ( ism.GetMaterialSlots().empty() )
-                                 ism.RuntimeMaterialInstances().push_back(
-                                      DefaultInstance( Graphic::MeshVertexPath::Static ) );
-                             else
-                                 for ( const auto& h : ism.GetMaterialSlots() )
-                                 {
-                                     auto inst = Runtime::ResourceRegistry::GetMaterialService()
-                                                      ->CreateRuntimeInstance( h );
-                                     ism.RuntimeMaterialInstances().push_back(
-                                          inst ? std::move( inst )
-                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
-                                 }
-                         }
-                         if ( ism.RuntimeMaterialInstances().empty() )
-                             return;
-
-                         // Per section, as a static mesh splits (Rules::SplitMeshSlotDraws): one instanced draw
-                         // per surface slot, each masking the sections of the others. A custom-shader slot cannot
-                         // drive the batched instancing path, and per-instance generic draws would defeat the
-                         // point of an ISM: its sections are not drawn, said once. CO-OWNED instances, for the
-                         // same reason the static path's slots are: they are owned by THIS component's
-                         // RuntimeMaterialInstances, and the entity can be destroyed by Lua between recording the
-                         // draw and executing it.
-                         const auto ismSplit = Rules::SplitMeshSlotDraws<Graphic::Material*>(
-                              std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 ),
-                              ism.RuntimeMaterialInstances().size(), /*hidden*/ 0ull, ism.GetCastShadows(),
-                              [&]( size_t slot ) -> Graphic::Material*
-                              { return CustomSlotMaterial( ism.RuntimeMaterialInstances()[slot].get() ); } );
-                         if ( !ismSplit.SlotDraws.empty() )
-                         {
-                             // An atomic: this tick runs on a worker (CanRunParallel), and every scene's
-                             // MeshECSSystem shares the function's static.
-                             static std::atomic<bool> s_WarnedCustomISM{ false };
-                             if ( !s_WarnedCustomISM.exchange( true ) )
-                             {
-                                 LOG_WARN( "Instanced Static Mesh doesn't support custom-shader materials "
-                                           "(instancing is a lit-path optimization) — the sections using one "
-                                           "are not drawn. Assign a lit material." );
-                             }
-                         }
-                         if ( ismSplit.SectionDraws.empty() )
-                             return;
-
-                         // InstanceTransforms are WORLD-space (the entity is a container). The command
-                         // carries a CO-OWNED snapshot, not the component's address: see the member's own
-                         // note and Graphic::MaterialSlotBinding (A8-3). The component's instance revision
-                         // is what makes the snapshot impossible to leave stale: it moves on every byte
-                         // change at the one writer, so a steady frame is one integer compare, not a memcmp
-                         // of every instance (UE: the ISM proxy follows the component's instance change).
-                         if ( !ism.RuntimeInstanceSnapshot() ||
-                              ism.RuntimeInstanceSnapshotRevision() != ism.GetInstanceRevision() )
-                         {
-                             ism.RuntimeInstanceSnapshot() =
-                                  std::make_shared<const std::vector<glm::mat4>>( ism.GetInstanceTransforms() );
-                             ism.RuntimeInstanceSnapshotRevision() = ism.GetInstanceRevision();
-                         }
-
-                         // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
-                         // (one source: the paint panel's edit re-reads into the same asset). A type still being
-                         // read culls nothing for those frames; one that failed says why once, in the service.
-                         // Its wind response (FO-7) comes from the same file; the wind itself is the scene's
-                         // one query, ECS::WindAt, at the field entity's world origin (one push per draw, so one
-                         // sample per field), at this frame's gameplay time.
-                         Graphic::InstanceCullDistance cullDistance;
-                         Graphic::InstanceWind         wind;
-                         if ( const auto* foliage = registry.try_get<FoliageComponent>( entity );
-                              foliage != nullptr && foliage->FoliageType )
-                             if ( const auto* type = Runtime::ResourceRegistry::GetFoliageTypeService()->Get(
-                                       foliage->FoliageType ) )
-                             {
-                                 cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
-                                 const glm::vec3 fieldOrigin =
-                                      glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
-                                 const glm::vec3 air = ECS::WindAt( registry, fieldOrigin ).Velocity;
-                                 wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
-                                                                   type->Wind.Height, glm::vec2( air.x, air.z ),
-                                                                   m_WindSeconds, m_PrevWindSeconds );
-                             }
-                         // Each section group is a row of the retained ISM list (StageInstancedRow: compared by
-                         // handle identity, assigned only on a change) and an entry of this frame's values.
-                         const auto fade =
-                              Graphic::ClipToMaxDrawDistance( cullDistance, ism.GetMaxDrawDistance() );
-                         const auto& displaced = ism.RuntimeDisplacedInstances();
-                         for ( const auto& d : ismSplit.SectionDraws )
-                         {
-                             const Graphic::MaterialInstancePtr& displacedSlot =
-                                  d.Slot < displaced.size() ? displaced[d.Slot] : m_NoInstance;
-                             const bool changed = StageInstancedRow(
-                                  ismRows, static_cast<uint32_t>( entity ), targetMesh,
-                                  ism.RuntimeMaterialInstances()[d.Slot], displacedSlot, d.HiddenMask,
-                                  ism.RuntimeInstanceSnapshot(), d.CastShadows, ism.GetCastContactShadow() );
-                             ismChanged = ismChanged || changed;
-                             ++ismRows;
-                             ismFrame.Rows.push_back( Graphic::Render::InstancedSceneRowFrame{ fade, wind } );
-                         }
-                     } );
-                PublishInstancedScene( ismRows, ismChanged, renderCommandBuffer );
-            }
+            RecordInstancedScene( registry, renderCommandBuffer, materialsVersion );
 
             /* =========================
                SKINNED MESHES
@@ -297,6 +142,7 @@ namespace Desert::ECS
                 // AnimationComponent is OPTIONAL: a skinned mesh with no animator renders in its BIND pose
                 // (identity bone matrices) — so imported/rigged characters show up in the skeleton editor.
                 auto view = registry.view<SkinnedMeshComponent, TransformComponent>();
+                InvalidateSkinnedAdoption( registry );
 
                 view.each(
                      [&]( entt::entity entity, SkinnedMeshComponent& mesh, const TransformComponent& transform )
@@ -316,9 +162,13 @@ namespace Desert::ECS
                          // submeshes' MaterialGuid, SkinnedMeshAsset::GetMaterialHandles): an entity with no slot
                          // of its own takes them, by the same rule. Without it every placed skinned mesh drew the
                          // grey default although its .demat and textures were written (THM1l, live on Fox.glb). A
-                         // runtime rig (Convert to Skinned) carries its own slots.
-                         if ( !mesh.GetRuntimeMesh() )
+                         // runtime rig (Convert to Skinned) carries its own slots. Asked once per component change
+                         // or section-material registration (BonePalette::AdoptChecked), never per frame.
+                         BonePalette& palette = m_BonePalettes[entity];
+                         palette.Seen         = m_StaticUpdate;
+                         if ( !mesh.GetRuntimeMesh() && !palette.AdoptChecked )
                              AdoptComponentMaterialSlots( registry, entity, mesh, &ECS::SetSkinnedMesh );
+                         palette.AdoptChecked = true;
 
                          // One skinned lit material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
@@ -422,8 +272,6 @@ namespace Desert::ECS
                          // THE POSE IS COPIED ONCE PER PUBLISHED POSE (UE: a skeletal proxy's bone buffer is
                          // updated on a new pose only): a still or paused character re-records the same co-owned
                          // buffer, and a new pose goes into a pooled buffer no command in flight holds.
-                         BonePalette& palette = m_BonePalettes[entity];
-                         palette.Seen         = m_StaticUpdate;
                          if ( animator != nullptr && palette.Current && palette.Source == animator &&
                               palette.Revision == animator->GetPoseRevision() )
                          {
@@ -491,9 +339,47 @@ namespace Desert::ECS
             const Animation::Animator*                           Source   = nullptr; // null: the bind pose
             uint64_t                                             Revision = 0;       // Source's pose revision
             uint32_t                                             Seen     = 0;       // m_StaticUpdate last drawn
+            // The slots' adoption was asked since the component last changed (the Skinned channel) and since a
+            // section material could last have been named (the serials): not asked again until one moves.
+            bool                                                 AdoptChecked = false;
             std::shared_ptr<const std::vector<glm::mat4>>        Current;
             std::vector<std::shared_ptr<std::vector<glm::mat4>>> Pool;
         };
+
+        // The skinned slots' adoption keys, once per update before the walk: a component changed (its entity in
+        // the Skinned channel) asks again for that entity; a section material that may have been named (the
+        // content-registry write or material-registration serial moved), a rebuilt or dropped mesh, a missed
+        // channel or another registry ask again for every entity (UE: the asset registry's OnAssetAdded).
+        void InvalidateSkinnedAdoption( entt::registry& registry )
+        {
+            const uint64_t contentWrites = Assets::ContentRegistry::WriteSerial();
+            const uint64_t registrations =
+                 Runtime::ResourceRegistry::GetMaterialService()->GetRegistrationSerial();
+            const uint64_t meshRevision = Runtime::ResourceRegistry::GetMeshService()->GetBuiltRevision();
+            bool everyone = contentWrites != m_SkinnedContentWrites || registrations != m_SkinnedRegistrations ||
+                            meshRevision != m_SkinnedMeshRevision || m_SkinnedRegistry != &registry;
+            m_SkinnedContentWrites = contentWrites;
+            m_SkinnedRegistrations = registrations;
+            m_SkinnedMeshRevision  = meshRevision;
+            m_SkinnedRegistry      = &registry;
+            const auto* link       = registry.try_ctx<RenderStateDeltaLink>();
+            if ( link != nullptr && link->Delta != nullptr )
+                everyone = link->Delta->Drain( RenderStateConsumer::Skinned, m_SkinnedDirty ) || everyone;
+            else
+            {
+                m_SkinnedDirty.clear();
+                everyone = true; // no feed: no component change is reported, so every update asks
+            }
+            if ( everyone )
+            {
+                for ( auto& entry : m_BonePalettes )
+                    entry.second.AdoptChecked = false;
+                return;
+            }
+            for ( const entt::entity entity : m_SkinnedDirty )
+                if ( const auto found = m_BonePalettes.find( entity ); found != m_BonePalettes.end() )
+                    found->second.AdoptChecked = false;
+        }
 
         // A buffer of @p palette no recorded command holds any more (or a new one, only while every pooled one is
         // in flight), made Current; its capacity is kept, so a steady animation allocates nothing.
@@ -911,6 +797,358 @@ namespace Desert::ECS
                      m_IsmScene, m_IsmFrames[m_IsmFrameIndex] );
         }
 
+        // ── THE RETAINED ISM RECORDS (UE: FInstancedStaticMeshSceneProxy, made on register, rebuilt only on
+        // MarkRenderStateDirty / MarkRenderInstancesDirty; per frame nothing walks a clean component) ──
+        //
+        // Every InstancedStaticMeshComponent entity owns a PERSISTENT RECORD SLOT (dense, recycled through a free
+        // list) holding what the per-update walk used to derive every frame: the resolved mesh, the section groups
+        // with their co-owned material instances, the transform snapshot, the foliage type and the field's world
+        // origin. A record is rebuilt only when its entity is in the Ism channel of the render-state delta (its
+        // ISM, foliage, visibility or transform component, an ancestor's transform), while its mesh is pending or
+        // not uploaded (m_IsmPolls), when a section material it waits for may have been named (m_IsmAdoptWait:
+        // the content-registry write and material-registration serials), or for everyone when no component signal
+        // carries the change (a dropped mesh, a material invalidation). Per update only the fade (the foliage
+        // type's CullDistance, re-read: the paint panel edits the type in place) and the wind (the scene's wind at
+        // the cached origin, at this update's gameplay time) are computed per record.
+        struct IsmSection
+        {
+            Graphic::MaterialInstancePtr Material;
+            Graphic::MaterialInstancePtr Displaced; // null when the mesh is not displaced
+            uint64_t                     HiddenMask  = 0;
+            bool                         CastShadows = true;
+        };
+        struct IsmRecord
+        {
+            entt::entity        Entity            = entt::null;
+            uint32_t            Rebuilt           = 0;       // m_IsmUpdate of its last rebuild (repeats absorbed)
+            Desert::Mesh*       Mesh              = nullptr; // null: draws nothing (hidden, empty, pending mesh)
+            uint64_t            MeshRevision      = 0;       // Mesh->GetRenderRevision() at the rebuild
+            bool                CastContactShadow = true;
+            float               MaxDrawDistance   = 0.0f;
+            Assets::AssetHandle FoliageType;                // null: no type fade, no wind
+            glm::vec3           Origin = glm::vec3( 0.0f ); // the field's world origin: the wind's sample point
+            std::shared_ptr<const std::vector<glm::mat4>> Transforms;
+            std::vector<IsmSection>                       Sections;
+        };
+        struct IsmBuild
+        {
+            bool Polls     = false; // the mesh is not built or not uploaded yet: rebuilt next update
+            bool AdoptWait = false; // a Null slot whose section material is not registered yet
+        };
+
+        void RemoveIsmRecord( const uint32_t slot )
+        {
+            IsmRecord& record = m_IsmRecords[slot];
+            record.Entity     = entt::null;
+            record.Mesh       = nullptr;
+            record.Transforms.reset();
+            record.Sections.clear();
+            SetSlotMembership( m_IsmPolls, slot, false );
+            SetSlotMembership( m_IsmAdoptWait, slot, false );
+            m_IsmFree.push_back( slot );
+        }
+
+        // One entity of the Ism delta: its record rebuilt from the components as they now stand, or freed when the
+        // entity no longer holds an ISM.
+        void RebuildIsmRecord( entt::registry& registry, const entt::entity entity,
+                               const uint32_t materialsVersion )
+        {
+            const bool alive = entity != entt::null && registry.valid( entity );
+            auto*      ism   = alive ? registry.try_get<InstancedStaticMeshComponent>( entity ) : nullptr;
+            const auto found = m_IsmSlotOf.find( entity );
+            if ( ism == nullptr )
+            {
+                if ( found != m_IsmSlotOf.end() )
+                {
+                    RemoveIsmRecord( found->second );
+                    m_IsmSlotOf.erase( found );
+                }
+                return;
+            }
+            uint32_t slot = 0;
+            if ( found != m_IsmSlotOf.end() )
+                slot = found->second;
+            else
+            {
+                if ( !m_IsmFree.empty() )
+                {
+                    slot = m_IsmFree.back();
+                    m_IsmFree.pop_back();
+                }
+                else
+                {
+                    slot = static_cast<uint32_t>( m_IsmRecords.size() );
+                    m_IsmRecords.emplace_back();
+                }
+                m_IsmSlotOf.emplace( entity, slot );
+            }
+            IsmRecord& record = m_IsmRecords[slot];
+            if ( record.Rebuilt == m_IsmUpdate && record.Entity == entity )
+                return;
+            record.Rebuilt       = m_IsmUpdate;
+            record.Entity        = entity;
+            const IsmBuild build = BuildIsmRecord( registry, entity, *ism, materialsVersion, record );
+            SetSlotMembership( m_IsmPolls, slot, build.Polls );
+            SetSlotMembership( m_IsmAdoptWait, slot, build.AdoptWait );
+        }
+
+        // The record of one ISM entity: what the per-update walk derived before (CPU-TAILS F10), minus the
+        // per-update fade and wind. Writes the component's runtime caches as that walk did.
+        IsmBuild BuildIsmRecord( entt::registry& registry, const entt::entity entity,
+                                 InstancedStaticMeshComponent& ism, const uint32_t materialsVersion,
+                                 IsmRecord& record )
+        {
+            record.Mesh = nullptr;
+            record.Transforms.reset();
+            record.Sections.clear();
+            record.FoliageType = Assets::AssetHandle();
+            IsmBuild build;
+            if ( ECS::IsHidden( registry, entity ) || ism.GetInstanceTransforms().empty() )
+                return build;
+
+            // Resolve the single shared mesh (edited RuntimeMesh > primitive > asset handle).
+            const bool    fromAsset  = !ism.RuntimeMesh() && !ism.GetPrimitive().has_value();
+            Desert::Mesh* targetMesh = nullptr;
+            if ( ism.RuntimeMesh() )
+                targetMesh = ism.RuntimeMesh().get();
+            else if ( ism.GetPrimitive().has_value() )
+                targetMesh = Geometry::PrimitiveMeshFactory::GetShared( ism.GetPrimitive().value() );
+            else if ( ism.GetMeshHandle() )
+                targetMesh = Runtime::ResourceRegistry::GetMeshService()->Get( ism.GetMeshHandle() );
+            if ( !targetMesh )
+            {
+                // A mesh asset not built yet answers nullptr until its first build (MeshService::GetBuiltRevision
+                // does not move for it): asked again next update.
+                build.Polls = fromAsset && ism.GetMeshHandle();
+                return build;
+            }
+            // An upload not made yet: its sections and revision settle at the fence, taken again next update.
+            build.Polls = targetMesh->IsGpuStale();
+
+            // Null slots take the mesh asset's section materials, the static and skinned twins' one rule (UE: a
+            // foliage instance draws its mesh's materials unless overridden). The painted and procedural foliage
+            // spawners set only MeshHandle, so without this every field drew the default white surface, and a
+            // resimulate (which rebuilds the fields) dropped any slots copied in by hand. An edited RuntimeMesh or
+            // a primitive has no mesh asset to adopt from. A slot still unadopted waits in m_IsmAdoptWait.
+            if ( fromAsset )
+            {
+                AdoptComponentMaterialSlots( registry, entity, ism, &ECS::SetInstancedStaticMesh );
+                build.AdoptWait = HasUnadoptedSlot( ism.GetMaterialSlots() );
+            }
+
+            // Invalidation stamp (see the static path) — rebuild on any Invalidate().
+            if ( ism.SeenMaterialsVersion() != materialsVersion )
+            {
+                ism.RuntimeMaterialInstances().clear();
+                ism.SeenMaterialsVersion() = materialsVersion;
+            }
+
+            // One material instance per slot, rebuilt only when the slot set changes.
+            const size_t slotCount = ism.GetMaterialSlots().empty() ? 1 : ism.GetMaterialSlots().size();
+            if ( ism.RuntimeMaterialInstances().size() != slotCount )
+            {
+                ism.RuntimeMaterialInstances().clear();
+                ism.RuntimeDisplacedInstances().clear();
+                // A displaced mesh's twins draw with the displaced siblings (base cells).
+                if ( targetMesh->IsDisplaced() )
+                    for ( const auto& h : ism.GetMaterialSlots() )
+                    {
+                        auto inst = Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
+                             h, Graphic::MeshVertexPath::Static, true );
+                        if ( !inst )
+                            inst = DefaultInstance( Graphic::MeshVertexPath::Static );
+                        ism.RuntimeDisplacedInstances().push_back( std::move( inst ) );
+                    }
+                if ( ism.GetMaterialSlots().empty() )
+                    ism.RuntimeMaterialInstances().push_back( DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                else
+                    for ( const auto& h : ism.GetMaterialSlots() )
+                    {
+                        auto inst = Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance( h );
+                        if ( !inst )
+                            inst = DefaultInstance( Graphic::MeshVertexPath::Static );
+                        ism.RuntimeMaterialInstances().push_back( std::move( inst ) );
+                    }
+            }
+            if ( ism.RuntimeMaterialInstances().empty() )
+                return build;
+
+            // Per section, as a static mesh splits (Rules::SplitMeshSlotDraws): one instanced draw per surface
+            // slot, each masking the sections of the others. A custom-shader slot cannot drive the batched
+            // instancing path, and per-instance generic draws would defeat the point of an ISM: its sections are
+            // not drawn, said once. CO-OWNED instances, for the same reason the static path's slots are: they are
+            // owned by THIS component's RuntimeMaterialInstances, and the entity can be destroyed by Lua between
+            // recording the draw and executing it.
+            const auto ismSplit = Rules::SplitMeshSlotDraws<Graphic::Material*>(
+                 std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 ), ism.RuntimeMaterialInstances().size(),
+                 /*hidden*/ 0ull, ism.GetCastShadows(), [&]( size_t slot ) -> Graphic::Material*
+                 { return CustomSlotMaterial( ism.RuntimeMaterialInstances()[slot].get() ); } );
+            if ( !ismSplit.SlotDraws.empty() )
+            {
+                // An atomic: this tick runs on a worker (CanRunParallel), and every scene's MeshECSSystem shares
+                // the function's static.
+                static std::atomic<bool> s_WarnedCustomISM{ false };
+                if ( !s_WarnedCustomISM.exchange( true ) )
+                {
+                    LOG_WARN( "Instanced Static Mesh doesn't support custom-shader materials "
+                              "(instancing is a lit-path optimization) — the sections using one "
+                              "are not drawn. Assign a lit material." );
+                }
+            }
+            if ( ismSplit.SectionDraws.empty() )
+                return build;
+
+            // InstanceTransforms are WORLD-space (the entity is a container). The record carries a CO-OWNED
+            // snapshot, not the component's address: see the member's own note and Graphic::MaterialSlotBinding
+            // (A8-3). The component's instance revision moves on every byte change at the one writer
+            // (SetInstancedStaticMesh, a patch: this record's rebuild), so the snapshot cannot be left stale.
+            if ( !ism.RuntimeInstanceSnapshot() ||
+                 ism.RuntimeInstanceSnapshotRevision() != ism.GetInstanceRevision() )
+            {
+                ism.RuntimeInstanceSnapshot() =
+                     std::make_shared<const std::vector<glm::mat4>>( ism.GetInstanceTransforms() );
+                ism.RuntimeInstanceSnapshotRevision() = ism.GetInstanceRevision();
+            }
+
+            record.Mesh              = targetMesh;
+            record.MeshRevision      = targetMesh->GetRenderRevision();
+            record.Transforms        = ism.RuntimeInstanceSnapshot();
+            record.CastContactShadow = ism.GetCastContactShadow();
+            record.MaxDrawDistance   = ism.GetMaxDrawDistance();
+            // A foliage field's type (its fade and wind response) and the wind's sample point: the field entity's
+            // world origin (its transform and its ancestors' mark this record, so the origin is kept).
+            if ( const auto* foliage = registry.try_get<FoliageComponent>( entity ) )
+                record.FoliageType = foliage->FoliageType;
+            record.Origin         = glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
+            const auto& displaced = ism.RuntimeDisplacedInstances();
+            record.Sections.reserve( ismSplit.SectionDraws.size() );
+            for ( const auto& d : ismSplit.SectionDraws )
+            {
+                IsmSection section;
+                section.Material = ism.RuntimeMaterialInstances()[d.Slot];
+                if ( d.Slot < displaced.size() )
+                    section.Displaced = displaced[d.Slot];
+                section.HiddenMask  = d.HiddenMask;
+                section.CastShadows = d.CastShadows;
+                record.Sections.push_back( std::move( section ) );
+            }
+            return build;
+        }
+
+        // THE ISM PATH, per update: the Ism channel's delta applied to the records, then one row per section group
+        // staged from the records with this update's fade and wind (StageInstancedRow: a steady row copies
+        // nothing), and the list published once (PublishInstancedScene).
+        void RecordInstancedScene( entt::registry&                       registry,
+                                   Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
+                                   const uint32_t                        materialsVersion )
+        {
+            ++m_IsmUpdate;
+            bool full        = m_IsmRegistry != &registry;
+            m_IsmRegistry    = &registry;
+            const auto* link = registry.try_ctx<RenderStateDeltaLink>();
+            if ( link != nullptr && link->Delta != nullptr )
+                full = link->Delta->Drain( RenderStateConsumer::Ism, m_IsmDirty ) || full;
+            else
+            {
+                m_IsmDirty.clear();
+                full = true; // no feed: nothing tells the records what changed, so they are trusted for nothing
+            }
+            // A dropped or rebuilt mesh, a material invalidation (the instances are rebuilt): no component signal
+            // carries them, and each may concern any record.
+            const uint64_t meshRevision = Runtime::ResourceRegistry::GetMeshService()->GetBuiltRevision();
+            if ( meshRevision != m_IsmMeshRevision || materialsVersion != m_IsmMaterialsVersion )
+                full = true;
+            m_IsmMeshRevision     = meshRevision;
+            m_IsmMaterialsVersion = materialsVersion;
+            // The section-material producers (as RecordStaticScene): read once per update.
+            const uint64_t contentWrites = Assets::ContentRegistry::WriteSerial();
+            const uint64_t registrations =
+                 Runtime::ResourceRegistry::GetMaterialService()->GetRegistrationSerial();
+            const bool materialsNamed = contentWrites != m_IsmContentWrites || registrations != m_IsmRegistrations;
+            m_IsmContentWrites        = contentWrites;
+            m_IsmRegistrations        = registrations;
+
+            if ( full )
+            {
+                m_IsmRecords.clear();
+                m_IsmFree.clear();
+                m_IsmSlotOf.clear();
+                m_IsmPolls.clear();
+                m_IsmAdoptWait.clear();
+                m_IsmStaleEpoch = Desert::Mesh::GetStaleEpoch(); // read before the rebuild reads the meshes
+                for ( const entt::entity entity : registry.view<InstancedStaticMeshComponent>() )
+                    RebuildIsmRecord( registry, entity, materialsVersion );
+            }
+            else
+            {
+                for ( const uint32_t slot : m_IsmPolls )
+                    m_IsmDirty.push_back( m_IsmRecords[slot].Entity );
+                if ( materialsNamed )
+                    for ( const uint32_t slot : m_IsmAdoptWait )
+                        m_IsmDirty.push_back( m_IsmRecords[slot].Entity );
+                for ( const entt::entity entity : m_IsmDirty )
+                    RebuildIsmRecord( registry, entity, materialsVersion );
+                // AN IN-PLACE MESH EDIT (DynamicMesh::Update on an ISM's RuntimeMesh) raises no component signal:
+                // when any mesh was marked stale since the last scan, the records whose mesh is stale or was
+                // re-uploaded since their rebuild are rebuilt (their section split follows the new submeshes). A
+                // still scene skips the scan in O(1); after the dirty rebuilds, so no freed record is read.
+                const uint64_t staleEpoch = Desert::Mesh::GetStaleEpoch();
+                if ( staleEpoch != m_IsmStaleEpoch )
+                {
+                    m_IsmStaleEpoch = staleEpoch;
+                    m_IsmEdited.clear();
+                    for ( const IsmRecord& record : m_IsmRecords )
+                        if ( record.Mesh != nullptr &&
+                             ( record.Mesh->IsGpuStale() ||
+                               record.MeshRevision != record.Mesh->GetRenderRevision() ) )
+                            m_IsmEdited.push_back( record.Entity );
+                    for ( const entt::entity entity : m_IsmEdited )
+                        RebuildIsmRecord( registry, entity, materialsVersion );
+                    m_IsmEdited.clear();
+                }
+            }
+
+            // Per update: the fade and the wind of each record, its section groups staged as rows of the retained
+            // ISM list (compared by handle identity, assigned only on a change), this update's values pooled.
+            Graphic::Render::InstancedSceneFrame& frame   = AcquireInstancedFrame();
+            size_t                                rows    = 0;
+            bool                                  changed = false;
+            auto*                                 types   = Runtime::ResourceRegistry::GetFoliageTypeService();
+            for ( const IsmRecord& record : m_IsmRecords )
+            {
+                if ( record.Mesh == nullptr || record.Sections.empty() )
+                    continue;
+                // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself (one source:
+                // the paint panel's edit re-reads into the same asset). A type still being read culls nothing for
+                // those frames; one that failed says why once, in the service. Its wind response (FO-7) comes from
+                // the same file; the wind itself is the scene's one query, ECS::WindAt, at the field's world
+                // origin (one push per draw, so one sample per field), at this frame's gameplay time.
+                Graphic::InstanceCullDistance cullDistance;
+                Graphic::InstanceWind         wind;
+                if ( record.FoliageType )
+                    if ( const auto* type = types->Get( record.FoliageType ) )
+                    {
+                        cullDistance        = { type->CullDistance.Min, type->CullDistance.Max };
+                        const glm::vec3 air = ECS::WindAt( registry, record.Origin ).Velocity;
+                        wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed, type->Wind.Height,
+                                                          glm::vec2( air.x, air.z ), m_WindSeconds,
+                                                          m_PrevWindSeconds );
+                    }
+                const auto fade = Graphic::ClipToMaxDrawDistance( cullDistance, record.MaxDrawDistance );
+                for ( const IsmSection& section : record.Sections )
+                {
+                    changed =
+                         StageInstancedRow( rows, static_cast<uint32_t>( record.Entity ), record.Mesh,
+                                            section.Material, section.Displaced, section.HiddenMask,
+                                            record.Transforms, section.CastShadows, record.CastContactShadow ) ||
+                         changed;
+                    ++rows;
+                    frame.Rows.push_back( Graphic::Render::InstancedSceneRowFrame{ fade, wind } );
+                }
+            }
+            PublishInstancedScene( rows, changed, renderCommandBuffer );
+        }
+
         // THE STATIC PATH, per update: the delta applied to the slots, the touched chunks rebuilt, the snapshot
         // recorded once, and the few entities that draw off the batched path (a slot of a custom-shader material,
         // a MaterialComponent shader) recorded from their slot's cached state.
@@ -1308,11 +1546,31 @@ namespace Desert::ECS
         std::vector<Graphic::Render::StaticSceneSection>                   m_StaticPrevious; // scratch
 
         // The retained ISM list's state (StageInstancedRow / PublishInstancedScene, CPU-TAILS F10).
-        std::vector<Graphic::Render::InstancedSceneRow>                    m_IsmRows;  // staged, walk order
+        std::vector<Graphic::Render::InstancedSceneRow>                    m_IsmRows;  // staged, record order
         std::shared_ptr<Graphic::Render::InstancedSceneSnapshot>           m_IsmScene; // published
         uint64_t                                                           m_IsmRevision = 0;
         std::vector<std::shared_ptr<Graphic::Render::InstancedSceneFrame>> m_IsmFrames; // pooled frame values
         size_t                                                             m_IsmFrameIndex = 0;
-        const Graphic::MaterialInstancePtr m_NoInstance; // a section with no displaced sibling names this
+        // The retained ISM records' state (RecordInstancedScene).
+        const entt::registry*                      m_IsmRegistry         = nullptr;
+        uint32_t                                   m_IsmUpdate           = 0;
+        uint64_t                                   m_IsmMeshRevision     = 0;
+        uint32_t                                   m_IsmMaterialsVersion = 0;
+        uint64_t                                   m_IsmContentWrites    = 0; // ContentRegistry::WriteSerial
+        uint64_t                                   m_IsmRegistrations = 0; // MaterialService registration serial
+        uint64_t                                   m_IsmStaleEpoch    = ~0ull; // Mesh::GetStaleEpoch, last scan
+        std::vector<IsmRecord>                     m_IsmRecords;               // by slot
+        std::vector<uint32_t>                      m_IsmFree;                  // freed slots
+        std::unordered_map<entt::entity, uint32_t> m_IsmSlotOf;                // entity -> slot
+        std::vector<uint32_t>                      m_IsmPolls;                 // pending / not uploaded meshes
+        std::vector<uint32_t>                      m_IsmAdoptWait;             // waiting for a section material
+        std::vector<entt::entity>                  m_IsmDirty;                 // this update's delta
+        std::vector<entt::entity>                  m_IsmEdited; // the in-place edit scan's records (scratch)
+        // The skinned slots' adoption keys (the skinned block): the Skinned channel's delta and the serials.
+        const entt::registry*     m_SkinnedRegistry      = nullptr;
+        uint64_t                  m_SkinnedContentWrites = 0;
+        uint64_t                  m_SkinnedRegistrations = 0;
+        uint64_t                  m_SkinnedMeshRevision  = 0;
+        std::vector<entt::entity> m_SkinnedDirty;
     };
 } // namespace Desert::ECS

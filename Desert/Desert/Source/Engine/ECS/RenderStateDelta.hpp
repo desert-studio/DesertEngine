@@ -29,6 +29,8 @@ namespace Desert::ECS
     enum class RenderStateConsumer : uint8_t
     {
         StaticScene, // MeshECSSystem::RecordStaticScene
+        Ism,         // MeshECSSystem::RecordInstancedScene (the retained ISM records)
+        Skinned,     // MeshECSSystem::InvalidateSkinnedAdoption (the skinned slots' adoption keys)
         Count
     };
 
