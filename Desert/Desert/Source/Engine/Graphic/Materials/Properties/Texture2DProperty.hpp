@@ -157,6 +157,19 @@ namespace Desert::Graphic
             const Image2D* image = m_Texture != nullptr ? m_Texture : DefaultTextures::Get().Resolve( m_Default );
             return image != nullptr ? image->GetBindlessSlot() : BindlessTextureSlot{};
         }
+        /// The mip-0 extent of the image GetBindlessSlot names, packed as the row slot carries it (Common/
+        /// BindlessTextures.glslh BindlessTexture.Extent: width in the low 16 bits, height in the high 16, each
+        /// clamped to 0xFFFF): what textureSize( ., 0 ) of that slot returns, so a surface reads it from its row
+        /// instead of querying the texture per pixel (FPS-GBUFFER). No slot: the table's missing texture, 1 x 1.
+        [[nodiscard]] uint32_t GetBindlessExtent() const
+        {
+            const Image2D* image = m_Texture != nullptr ? m_Texture : DefaultTextures::Get().Resolve( m_Default );
+            if ( image == nullptr || !image->GetBindlessSlot().IsValid() )
+                return 1u | ( 1u << 16u );
+            const uint32_t width  = image->GetWidth() < 0xFFFFu ? image->GetWidth() : 0xFFFFu;
+            const uint32_t height = image->GetHeight() < 0xFFFFu ? image->GetHeight() : 0xFFFFu;
+            return width | ( height << 16u );
+        }
         [[nodiscard]] BindlessSamplerSlot GetBindlessSampler() const
         {
             return BindlessSamplerFor( GetSamplerState() );

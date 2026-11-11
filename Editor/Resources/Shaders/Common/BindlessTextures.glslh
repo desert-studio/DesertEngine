@@ -52,14 +52,22 @@ vec4 SampleBindless( uint textureSlot, uint samplerSlot, vec2 uv, float lod )
 
 // A material texture as the material row carries it (Core::Formats::MaterialLayout, kMaterialTextureGlslType): the
 // table slot and the sampler index, written by Graphic::DataDrivenMaterial::GetParamRow from the material's
-// Texture2DProperty. Exactly one 16-byte row slot; the two reserved words are the slot's remainder.
+// Texture2DProperty. Exactly one 16-byte row slot. Extent: the mip-0 size of the image at Texture (width low 16
+// bits, height high 16; Texture2DProperty::GetBindlessExtent), what textureSize( ., 0 ) of the slot returns - a
+// surface reads "is a real map bound" from it (BindlessTextureExtent) instead of a texture query per pixel.
 struct BindlessTexture
 {
     uint Texture;
     uint Sampler;
-    uint Reserved0;
+    uint Extent;
     uint Reserved1;
 };
+
+// The row's extent of @p t, no texture query: BindlessTextureSize( t, 0 ) of a material row slot.
+ivec2 BindlessTextureExtent( BindlessTexture t )
+{
+    return ivec2( int( t.Extent & 0xFFFFu ), int( t.Extent >> 16u ) );
+}
 
 // Implicit-LOD forms. A ray tracing stage has no derivatives: its forms are below, at the ray cone's mip.
 #ifndef DESERT_RAY_TRACING_STAGE
