@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -198,6 +199,17 @@ namespace Desert::Graphic
 
         // Where a per-frame write goes right now: the view inside an ActiveViewScope, else the frame context.
         [[nodiscard]] static ViewResources& Active();
+
+        // THE CREATION LOCK (FPS-RDG-PREPARE; UE: FRDGBuilder's setup tasks create nothing shared without the
+        // allocator's own lock). A graph's record prerequisites prepare on task workers at once (Builder::Execute,
+        // IRecordPrerequisite::PreparesOnAnyThread); FINDING a view's copy is already safe from any thread (the
+        // view's copy lock), MAKING one is not: a copy maker allocates from per-view state with no lock of its
+        // own (the view's descriptor pool chain, VulkanViewDescriptorPools) and books ledger rows. So every maker
+        // - ViewCopiedBlock::MakeActive, ViewDescriptorSets::Resolve - runs under this one lock: creations are
+        // serial among themselves exactly as they were on the render thread, finds and writes stay parallel.
+        // Taken INSIDE a block's own lock, never before it (a maker never takes a block lock). Recursive: a set
+        // maker's initializer looks its sets up again through the same path.
+        [[nodiscard]] static std::recursive_mutex& CreationLock() noexcept;
 
     private:
         friend class ViewResources;

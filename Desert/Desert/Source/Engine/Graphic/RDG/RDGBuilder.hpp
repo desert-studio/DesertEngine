@@ -410,6 +410,18 @@ namespace Desert::Graphic::RDG
         {
             return m_ParallelExecute;
         }
+        // FPS-RDG-PREPARE (UE FRDGBuilder::SetupParallelExecute, r.RDG.ParallelSetup): true prepares the
+        // record prerequisites that PreparesOnAnyThread on task workers (Common::TaskGroup slices, joined before
+        // the first pass records); false prepares every one on the calling thread in pass order - the A/B and
+        // the rollback (Scalability RenderPipeline.ParallelSetup, SceneRenderer::OnUpdate).
+        void SetParallelPrepare( bool enabled ) noexcept
+        {
+            m_ParallelPrepare = enabled;
+        }
+        [[nodiscard]] bool GetParallelPrepare() const noexcept
+        {
+            return m_ParallelPrepare;
+        }
         void SetAsyncCompute( bool enabled )
         {
             m_AsyncCompute = enabled;
@@ -709,6 +721,7 @@ namespace Desert::Graphic::RDG
         bool                        m_PassCulling = true;
         bool                        m_AsyncCompute = true;
         bool                        m_ParallelExecute = true;
+        bool                        m_ParallelPrepare = true;
         // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).

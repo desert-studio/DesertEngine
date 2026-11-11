@@ -322,6 +322,15 @@ namespace Desert::Graphic
         return newest;
     }
 
+    bool MaterialExecutor::PreparesOnAnyThread() const noexcept
+    {
+        if ( !m_MaterialBackend || !m_TextureCubePropertiesStorage.empty() )
+            return false;
+        return std::none_of( m_Texture2DPropertiesStorage.begin(), m_Texture2DPropertiesStorage.end(),
+                             []( const auto& prop ) noexcept
+                             { return prop == nullptr || prop->GetImage() == nullptr; } );
+    }
+
     Common::BoolResultStr MaterialExecutor::PrepareForRecording() const
     {
         if ( !m_MaterialBackend )

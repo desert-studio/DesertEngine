@@ -162,6 +162,12 @@ namespace Desert::Graphic
         return t_ActiveView != nullptr ? *t_ActiveView : FrameContext();
     }
 
+    std::recursive_mutex& ViewResourceRegistry::CreationLock() noexcept
+    {
+        static std::recursive_mutex lock;
+        return lock;
+    }
+
     void ViewResourceRegistry::Register( ViewResources& view )
     {
         RegistryState&                    state = State();
