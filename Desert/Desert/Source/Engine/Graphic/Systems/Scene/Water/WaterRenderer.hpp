@@ -71,9 +71,18 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override;
 
-        // Before the render graph records: traverses every zone and uploads the rows. Nothing may draw the water
-        // this frame before it ran.
+        // THE FRAME'S WATER IN THREE STEPS (FPS-ARCH-SETUP3, UE FSceneRenderer task-based view setup), before the
+        // render graph records; nothing may draw the water this frame before FinishPrepare ran.
+        // PrepareFrame (render thread): the frame's material and program, its waves block (written into the
+        // upload's head), the camera's matrices and lens scale.
         void PrepareFrame();
+        // PrepareTiles (a setup task, or inline): every zone's retained quadtree walked from the camera
+        // PrepareFrame took, its tiles appended to the upload as rows and grouped into the frame's draws. Touches
+        // only the zone trees, the traversal scratch, the upload's rows and the draws - no service, no GPU object.
+        void PrepareTiles() noexcept;
+        // FinishPrepare (render thread, after the task joined): the material's fold, the WaterInfo ground and the
+        // rows' upload; the frame's program is set only here.
+        void FinishPrepare();
 
         [[nodiscard]] bool HasDraws() const
         {
@@ -81,12 +90,12 @@ namespace Desert::Graphic::System
         }
 
         // Whether this frame's water program samples @p textureName (a scene/view input by its shader name): the
-        // shadow gates' question (SceneRenderer ShadowMapReadersOutsideMeshes), answered after PrepareFrame. The
+        // shadow gates' question (SceneRenderer ShadowMapReadersOutsideMeshes), answered after FinishPrepare. The
         // water reads the sun's cascades and the point/spot atlas wherever it draws - it is in no opaque depth a
         // screen shadow mask could serve it from.
         [[nodiscard]] bool FrameSamples( std::string_view textureName ) const;
 
-        // The WaterInfo ground (UE WaterInfo texture) PrepareFrame keeps: a persistent image the frame graph
+        // The WaterInfo ground (UE WaterInfo texture) FinishPrepare keeps: a persistent image the frame graph
         // imports and the water pass samples as WaterInfoTexture - a pass input, not a material property.
         [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const
         {
@@ -224,6 +233,23 @@ namespace Desert::Graphic::System
             std::optional<Water::WaterQuadTree>    Tree;
         };
         std::vector<ZoneTree> m_ZoneTrees;
+        // What PrepareFrame hands the tile task and FinishPrepare (FPS-ARCH-SETUP3): the program the frame draws
+        // with (null: no water, the task walks nothing), the material and stamp its fold reads, the ground, the
+        // camera the quadtrees are walked from, and the task's row count.
+        struct TileWalk
+        {
+            WaterProgram*                                 Program  = nullptr;
+            Assets::AssetHandle                           Material = Assets::AssetHandle::Null();
+            MaterialStamp                                 Stamp;
+            std::shared_ptr<const Water::WaterInfoGround> Ground;
+            glm::mat4                                     View{ 1.0f };
+            glm::mat4                                     Projection{ 1.0f };
+            glm::vec3                                     Observer{ 0.0f };
+            float                                         LensScale      = 1.0f;
+            float                                         VerticalExtent = 0.0f;
+            uint32_t                                      Rows           = 0;
+        };
+        TileWalk m_Walk;
         // Per-view scratch the frame reuses, so a steady frame allocates nothing: the traversal's tiles, the
         // upload (the waves block, then the tile rows), and RenderManual's push block.
         Water::WaterTraversalBuffers m_Traversal;

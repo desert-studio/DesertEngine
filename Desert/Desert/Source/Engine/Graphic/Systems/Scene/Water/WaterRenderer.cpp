@@ -294,6 +294,7 @@ namespace Desert::Graphic::System
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
         m_Frame            = nullptr;
+        m_Walk             = TileWalk{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -385,18 +386,43 @@ namespace Desert::Graphic::System
             }
         }
 
-        const glm::mat4     view     = camera->GetViewMatrix();
-        const glm::mat4     proj     = camera->GetProjectionMatrix();
-        const glm::vec3     observer = glm::vec3( glm::inverse( view )[3] );
-        const Core::Frustum frustum( proj, view );
+        // The waves block is whole here (its WaterInfo lane reads the ground and the mask depth, both settled
+        // above): the upload's head, the tile task appends the rows after it.
+        if ( ground != nullptr && ground->ExtentCm > 0.0f )
+            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
+        m_Upload.resize( sizeof( WaterWavesBlock ) );
+        std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
+
+        const glm::mat4 view     = camera->GetViewMatrix();
+        const glm::mat4 proj     = camera->GetProjectionMatrix();
+        const glm::vec3 observer = glm::vec3( glm::inverse( view )[3] );
         // The lens stretches every water LOD ring (VIEW-LOD-FOV): the one view scale meshes, foliage and terrain
         // read, so a 10-degree scope keeps the far sea as fine as it looks.
         const float lensScale = DrawDistanceScale( Geometry::LODView{ .Origin = observer, .Projection = proj } );
+        m_Walk                = TileWalk{ .Program        = program,
+                                          .Material       = material,
+                                          .Stamp          = stamp,
+                                          .Ground         = std::move( ground ),
+                                          .View           = view,
+                                          .Projection     = proj,
+                                          .Observer       = observer,
+                                          .LensScale      = lensScale,
+                                          .VerticalExtent = verticalExtent,
+                                          .Rows           = 0 };
+    }
+
+    void WaterRenderer::PrepareTiles() noexcept
+    {
+        if ( m_Walk.Program == nullptr )
+            return;
+        const Core::Frustum frustum( m_Walk.Projection, m_Walk.View );
+        const glm::vec3     observer       = m_Walk.Observer;
+        const float         lensScale      = m_Walk.LensScale;
+        const float         verticalExtent = m_Walk.VerticalExtent;
 
         // Every zone's tiles in its density order: one instanced draw per run of one grid density (a row carries
         // its own zone, so a run may span two zones). The rows go straight into the upload, after its waves block
-        // (written last: its WaterInfo lane needs the ground).
-        m_Upload.resize( sizeof( WaterWavesBlock ) );
+        // (PrepareFrame wrote it).
         uint32_t rowCount = 0;
         m_ZoneTrees.resize( m_Queue.size() );
         for ( size_t z = 0; z < m_Queue.size(); ++z )
@@ -434,13 +460,20 @@ namespace Desert::Graphic::System
                 ++rowCount;
             }
         }
-        if ( rowCount == 0u )
+        m_Walk.Rows = rowCount;
+    }
+
+    void WaterRenderer::FinishPrepare()
+    {
+        WaterProgram* const program = m_Walk.Program;
+        if ( program == nullptr || m_Walk.Rows == 0u )
             return;
 
-        ApplyMaterial( material, stamp, *program );
+        ApplyMaterial( m_Walk.Material, m_Walk.Stamp, *program );
 
         // THE WATER INFO GROUND (UE WaterInfo): re-uploaded only when the collector baked a new one. Over no
         // landscape the texture is one texel of kWaterInfoNoGroundCm - a bottom no wave reaches.
+        const std::shared_ptr<const Water::WaterInfoGround>& ground = m_Walk.Ground;
         if ( ground != m_GroundBaked || m_WaterInfo == nullptr )
         {
             m_GroundBaked = ground;
@@ -448,13 +481,8 @@ namespace Desert::Graphic::System
                                  ? CreateWaterInfoImage( ground->Size, ground->HeightCm )
                                  : CreateWaterInfoImage( 1u, { Water::kWaterInfoNoGroundCm } );
         }
-        if ( ground != nullptr && ground->ExtentCm > 0.0f )
-            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
-        {
-            std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
             tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
-        }
         m_Frame = program;
     }
 

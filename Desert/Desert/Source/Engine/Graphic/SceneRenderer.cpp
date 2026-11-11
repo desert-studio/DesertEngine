@@ -1901,8 +1901,8 @@ namespace Desert::Graphic
         m_CurrentViewFrame = &frame;
         const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
 
-        // The water's tiles, once, before its node records: the quadtree walked from the main camera. After the
-        // view frame is current: PrepareFrame uploads this frame's view-projection pair from it.
+        // The water's frame, once, before its node records: its material, waves and camera here; the quadtree walk
+        // from the main camera on a setup task below (PrepareTiles), the upload after the join (FinishPrepare).
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Water + terrain frame" );
         {
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
@@ -1934,6 +1934,14 @@ namespace Desert::Graphic
             prepareTasks.Launch(
                  "Terrain: Prepare tile rows",
                  Common::InlineJob( [terrain, prepared]() noexcept { terrain->PrepareTileRows( *prepared ); } ) );
+        }
+        // FPS-ARCH-SETUP3: the water's quadtree walk - every zone's tiles as rows and draws - on its own setup
+        // task beside the terrain's (they share no state), joined at the same point; its material, WaterInfo
+        // ground and upload follow the join (FinishPrepare). Nothing between here and the join reads the water.
+        {
+            auto* const water = m_Systems.Water.get();
+            prepareTasks.Launch( "Water: Prepare tiles",
+                                 Common::InlineJob( [water]() noexcept { water->PrepareTiles(); } ) );
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
         if ( const Common::BoolResultStr physical =
@@ -1969,9 +1977,10 @@ namespace Desert::Graphic
         // The landscape's dice pool (its displaced sub-vertices, evaluated once), before any node that draws the
         // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual
         // shadows.
-        DESERT_PROFILE_PHASE( setupPhases, "Setup: Join terrain tile rows" );
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Join terrain + water tasks" );
         prepareTasks.Join();
         m_Systems.Terrain->FinishPrepare();
+        m_Systems.Water->FinishPrepare();
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
             auto* terrain = m_Systems.Terrain.get();
@@ -3224,7 +3233,7 @@ namespace Desert::Graphic
         // same Point/SpotLightShadow every surface reads (Mesh/LocalLightShadowLookup.glslh). Without its maps the
         // lights' ShadowView is -1 and the froxels light through every wall. The water is in no opaque depth the
         // screen masks were traced against either: its program reads the maps wherever it draws
-        // (WaterRenderer::FrameSamples, after PrepareFrame).
+        // (WaterRenderer::FrameSamples, after FinishPrepare).
         bool ShadowMapReadersOutsideMeshes( const SceneRenderSystems& systems, const std::string_view mapName )
         {
             if ( systems.VolumetricFog && systems.VolumetricFog->IsActive() )
