@@ -331,6 +331,24 @@ namespace Desert::Graphic
                              { return prop == nullptr || prop->GetImage() == nullptr; } );
     }
 
+    void MaterialExecutor::CollectSharedWrites( std::vector<const void*>& keys ) const noexcept
+    {
+        // What ApplyForRecording writes into a buffer: step 1 (the owner's registered upload, which may claim an
+        // unclaimed buffer's field route) and step 2 (UpdateFields of a field-filled buffer behind its fields).
+        // A whole-filled buffer is its filler's and is never written here.
+        const bool ownerPending = m_Owner != nullptr && m_Owner->HasPendingRegisteredProperties();
+        for ( const auto& prop : m_UniformBufferPropertiesStorage )
+        {
+            if ( prop == nullptr || prop->GetUniform() == nullptr )
+                continue;
+            const ShaderResources::FillKind fill = prop->GetFillKind();
+            if ( fill == ShaderResources::FillKind::Whole )
+                continue;
+            if ( ownerPending || ( fill == ShaderResources::FillKind::Fields && prop->HasDirtyFields() ) )
+                keys.push_back( prop->GetUniform().get() );
+        }
+    }
+
     Common::BoolResultStr MaterialExecutor::PrepareForRecording() const
     {
         if ( !m_MaterialBackend )

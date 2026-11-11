@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -174,12 +175,15 @@ namespace Desert::ShaderResources
         // THREADING (RDG-PARALLEL-5). The lookup takes no lock of this block: ViewResources::Find is safe from
         // any chunk, and a recording pass only ever finds (the seal in MakeActive refuses a make). Making a copy
         // reads the CPU image to seed it, so that path runs under m_Lock, the lock every write of the image holds.
+        // FPS-RDG-PREPARE2: CreationLock first, then m_Lock (ViewResourceRegistry, THE LOCK HIERARCHY).
         [[nodiscard]] Common::BoolResultStr Resolve( const uint32_t frameIndex, const CopyMaker& make,
                                                      IBlockCopy*& out )
         {
             if ( FindActive( frameIndex, out ) )
                 return Common::MakeSuccess( true );
-            std::scoped_lock lock( m_Lock );
+            const Graphic::ViewResourceRegistry::CreationScope creation;
+            std::scoped_lock                                   lock( m_Lock );
+            const Graphic::ViewResourceRegistry::BlockLockMark held;
             return MakeActive( frameIndex, make, out );
         }
 
@@ -217,24 +221,40 @@ namespace Desert::ShaderResources
             if ( data == nullptr && size != 0 )
                 return Common::MakeError<bool>( "a block write was given a null source" );
 
-            std::scoped_lock lock( m_Lock );
-            if ( static_cast<uint64_t>( offset ) + size > m_Contents.size() )
-                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit a {}-byte block",
-                                                         size, offset, m_Contents.size() );
-
-            // Resolved BEFORE the image changes, so a copy created here is seeded with the previous
-            // contents and then receives this write like any existing one: one path, not two.
-            IBlockCopy* copy = nullptr;
-            if ( !FindActive( frameIndex, copy ) )
+            // FPS-RDG-PREPARE2: a write that may have to make its copy takes CreationLock BEFORE m_Lock
+            // (ViewResourceRegistry, THE LOCK HIERARCHY); one whose copy exists takes m_Lock alone. A copy found
+            // here and dropped (Reset, Grow) before m_Lock is taken goes round once more, now with CreationLock.
+            bool withCreation = false;
+            for ( ;; )
             {
-                auto made = MakeActive( frameIndex, make, copy );
-                if ( !made.IsSuccess() )
-                    return made;
-            }
+                IBlockCopy*                                                 copy = nullptr;
+                std::optional<Graphic::ViewResourceRegistry::CreationScope> creation;
+                if ( withCreation || !FindActive( frameIndex, copy ) )
+                    creation.emplace();
+                std::scoped_lock                                   lock( m_Lock );
+                const Graphic::ViewResourceRegistry::BlockLockMark held;
+                if ( static_cast<uint64_t>( offset ) + size > m_Contents.size() )
+                    return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit a {}-byte block",
+                                                             size, offset, m_Contents.size() );
 
-            if ( size != 0 )
-                std::memcpy( m_Contents.data() + offset, data, size );
-            return copy->Write( data, size, offset );
+                // Resolved BEFORE the image changes, so a copy created here is seeded with the previous
+                // contents and then receives this write like any existing one: one path, not two.
+                if ( !FindActive( frameIndex, copy ) )
+                {
+                    if ( !creation.has_value() )
+                    {
+                        withCreation = true;
+                        continue;
+                    }
+                    auto made = MakeActive( frameIndex, make, copy );
+                    if ( !made.IsSuccess() )
+                        return made;
+                }
+
+                if ( size != 0 )
+                    std::memcpy( m_Contents.data() + offset, data, size );
+                return copy->Write( data, size, offset );
+            }
         }
 
     private:
@@ -269,9 +289,11 @@ namespace Desert::ShaderResources
                      "material in its setup (PassBuilder::Prepares)",
                      view.GetName(), frameIndex );
 
-            // FPS-RDG-PREPARE: makers run one at a time across threads (ViewResourceRegistry::CreationLock),
-            // taken inside m_Lock - this block's copy cannot appear meanwhile, so no second find is needed.
-            const std::scoped_lock creation( Graphic::ViewResourceRegistry::CreationLock() );
+            // FPS-RDG-PREPARE: makers run one at a time across threads (ViewResourceRegistry::CreationLock).
+            // FPS-RDG-PREPARE2: the caller took it BEFORE m_Lock (THE LOCK HIERARCHY); under both, this block's
+            // copy cannot appear meanwhile, so no second find is needed.
+            assert( Graphic::ViewResourceRegistry::CreationScope::HeldHere() &&
+                    "ViewCopiedBlock::MakeActive without CreationLock: Resolve / Write take it before m_Lock" );
 
             // Every refusal is produced BEFORE Acquire: Acquire refuses only a null copy, and a view must never
             // be handed a copy that could not be seeded.
@@ -343,7 +365,8 @@ namespace Desert::ShaderResources
         // GetCopyEpoch; 0 until the first copy is made.
         std::atomic<uint64_t> m_CopyEpoch{ 0 };
         // Guards m_Contents and the write of the active copy's bytes (Write), and the make-and-seed of a copy
-        // (MakeActive). Taken before any ViewResources lock, never the other way round.
+        // (MakeActive). Taken after CreationLock and before any ViewResources lock, never the other way round
+        // (ViewResourceRegistry, THE LOCK HIERARCHY; BlockLockMark beside every hold that may reach a make).
         std::mutex m_Lock;
     };
 

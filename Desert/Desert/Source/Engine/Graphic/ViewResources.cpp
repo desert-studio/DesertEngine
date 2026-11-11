@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -166,6 +168,44 @@ namespace Desert::Graphic
     {
         static std::recursive_mutex lock;
         return lock;
+    }
+
+    namespace
+    {
+        // FPS-RDG-PREPARE2: the lock hierarchy's per-thread bookkeeping (ViewResourceRegistry, THE LOCK
+        // HIERARCHY). How deep this thread is in CreationScope, and how many block locks it holds.
+        thread_local uint32_t t_CreationDepth  = 0;
+        thread_local uint32_t t_BlockLocksHeld = 0;
+    } // namespace
+
+    ViewResourceRegistry::CreationScope::CreationScope() noexcept
+    {
+        // Level 1 after level 2 would invert the order a maker holding CreationLock takes a block lock in.
+        assert( ( t_CreationDepth != 0 || t_BlockLocksHeld == 0 ) &&
+                "CreationLock taken under a block lock: the order is CreationLock, then the block" );
+        CreationLock().lock();
+        ++t_CreationDepth;
+    }
+
+    ViewResourceRegistry::CreationScope::~CreationScope() noexcept
+    {
+        --t_CreationDepth;
+        CreationLock().unlock();
+    }
+
+    bool ViewResourceRegistry::CreationScope::HeldHere() noexcept
+    {
+        return t_CreationDepth != 0;
+    }
+
+    ViewResourceRegistry::BlockLockMark::BlockLockMark() noexcept
+    {
+        ++t_BlockLocksHeld;
+    }
+
+    ViewResourceRegistry::BlockLockMark::~BlockLockMark() noexcept
+    {
+        --t_BlockLocksHeld;
     }
 
     void ViewResourceRegistry::Register( ViewResources& view )
