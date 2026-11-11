@@ -4254,6 +4254,11 @@ namespace Desert::Graphic::System
         // view's and the scrolled strips' union (CascadeStaticSignature's are its runs', IsmSignatureRun::Bits).
         std::vector<uint64_t> m_ScratchCasterBits;
         std::vector<uint64_t> m_ScratchStripBits;
+        // A cascade's static casters in view (UE FViewInfo::PrimitiveVisibilityMap for a shadow view): one bit per
+        // m_StaticQueue row, the view's verdict AND the strips' union, filled four rows per register before the
+        // walk, which then visits the set bits only (the columns, CpuWalkHidden and the caster flag are read for
+        // a row in view alone).
+        std::vector<uint64_t> m_ScratchStaticCasterBits;
         // THE MAIN VIEW'S PER-INSTANCE ISM CULL, CACHED PER FIELD (GPU-COST-37; UE FCachedMeshDrawCommandInfo's
         // rule for the one per-instance CPU walk of a view pass: built when its inputs change, reused while they
         // do not). The key is every input CollectIsmInstances reads that is the field's own: its immutable
@@ -4547,10 +4552,15 @@ namespace Desert::Graphic::System
         };
         std::array<DrawBuildScratch, 2> m_DrawBuildScratch;
         // Records [first, last) of m_StaticQueue walked in the main view @p view / @p frustum into @p chunk
-        // (BuildStaticDraws' static walk): CpuWalkUninterned, the frustum test, the section's surface. A setup
-        // task may run it: it reads the queue and the walk's inputs and writes @p chunk alone.
+        // (BuildStaticDraws' static walk): the frustum test, CpuWalkUninterned, the section's surface. A setup
+        // task may run it: it reads the queue and the walk's inputs and writes @p chunk alone - and, when
+        // @p fillBits, the words of @p viewBits its records own (first a multiple of 64, last one too or the
+        // queue's end). @p viewBits (m_MainStaticBits.Words, one bit per queue entry): the frustum's verdicts,
+        // the walk visits the set bits only; empty when the snapshot's lanes are not current (each record is then
+        // asked StaticEntryInView).
         void WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum, std::size_t first,
-                              std::size_t last, DrawBuildScratch::StaticWalkChunk& chunk ) const;
+                              std::size_t last, std::span<uint64_t> viewBits, bool fillBits,
+                              DrawBuildScratch::StaticWalkChunk& chunk ) const;
         // The G-buffer halves' own lists (DeclareGBufferDraws: Equal, Rest statics, Rest skinned), appended to
         // m_GBufferDraws in the old order once the tasks joined. Members so the vectors keep their capacity.
         std::array<MeshRendererDetail::MeshDrawList, 3> m_GBufferHalfDraws;
@@ -4647,12 +4657,31 @@ namespace Desert::Graphic::System
             std::vector<Common::Math::AABB> WorldBounds;   // per m_StaticQueue entry
             std::vector<Common::Math::AABB> GenericBounds; // per m_GenericQueue entry
             // WorldBounds again as dense columns (CPU-SIMD 4; UE FScene::PrimitiveBounds' SoA batch cull), filled
-            // in the same pass: the main view's static chunks test four entries per register
-            // (StaticEntriesInView4).
+            // in the same pass: the main view's bits test four entries per register (m_MainStaticBits).
             Common::Math::AABBLanes         WorldLanes;
             uint64_t                        Gather = 0;
+            // Bumped each time the boxes are rebuilt (FinishStaticCasterRows): a view's bits of them
+            // (m_MainStaticBits) are of this revision or asked again.
+            uint64_t Revision = 0;
         };
         StaticInstanceSnapshot m_StaticSnapshot;
+        // THE MAIN VIEW'S STATIC VISIBILITY BITS (UE FViewInfo::PrimitiveVisibilityMap, filled once by
+        // ComputeViewVisibility; the mesh passes then walk TConstSetBitIterator): one bit per m_StaticQueue entry,
+        // the camera frustum's verdict on its snapshot box (VisibleInView4, StaticEntryInView's answer bit for
+        // bit). Filled by the first static walk of a frame's view (BuildStaticDraws, its chunks each their own
+        // words) and reused by every later walk of the same view - the deferred early-Z and G-buffer walks, the
+        // forward prepass and base pass - while its key stands: the frustum's six planes, the snapshot's revision
+        // and gather, the queue's size. Written only by BuildStaticDraws' walk (serial call, chunk-owned words).
+        struct StaticViewBits
+        {
+            std::vector<uint64_t>               Words;
+            std::array<Core::Frustum::Plane, 6> Planes{};
+            uint64_t                            Revision = 0;
+            uint64_t                            Gather   = 0;
+            std::size_t                         Count    = 0;
+            bool                                Valid    = false;
+        };
+        StaticViewBits m_MainStaticBits;
         // THE STATIC QUEUE'S HOT COLUMNS (CPU-FRAME-ARENA 14; UE FScene's dense primitive arrays -
         // PrimitiveBounds, PrimitiveVisibilityIds, PrimitiveSceneProxies by packed index): what every per-view
         // walk of m_StaticQueue reads per record, one dense array per field indexed by queue position, so a walk
@@ -4759,12 +4788,8 @@ namespace Desert::Graphic::System
         // is of this gather, else the box IsVisibleInView builds from the entry (the same box, the same answer).
         [[nodiscard]] bool StaticEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
         // Whether the snapshot's lanes (m_StaticSnapshot.WorldLanes) are of this gather and cover every entry:
-        // then StaticEntriesInView4 answers StaticEntryInView for four entries at once.
+        // then VisibleInViewBits over them answers StaticEntryInView for every entry (m_MainStaticBits).
         [[nodiscard]] bool StaticLanesCurrent() const noexcept;
-        // StaticEntryInView for entries @p base .. base + 3 (base below the queue's size, StaticLanesCurrent):
-        // bit i for entry base + i, by VisibleInView4 over the snapshot's lanes - the same box, the same answer.
-        [[nodiscard]] uint32_t StaticEntriesInView4( const Core::Frustum& frustum,
-                                                     std::size_t          base ) const noexcept;
         // StaticEntryInView for m_GenericQueue entry @p index (whose Mesh is set).
         [[nodiscard]] bool GenericEntryInView( const Core::Frustum& frustum, std::size_t index ) const;
         // The world box of m_StaticQueue entry @p index (whose Mesh is set): the snapshot's when it is of this
