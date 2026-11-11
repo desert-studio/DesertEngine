@@ -86,24 +86,24 @@ namespace Desert::Graphic::System
             return key;
         }
 
-        void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                    const std::string_view shaderName, const bool logRefused )
-        {
-            material.ApplyDefaults();
-            for ( const auto& [name, value] : g.Overrides().Params )
-                material.SetParamRaw( name, value );
-            ApplyGenericTextures( material, g, shaderName, logRefused );
-        }
-
         void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                   const std::string_view shaderName, const bool logRefused )
+                                   const std::string_view shaderName, const bool logRefused, const uint64_t epoch )
         {
-            // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler name.
-            // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
-            // the material and not per draw, because the key above guarantees every draw sharing
-            // this material asked for the same set.
-            for ( const auto& [name, handle] : g.Overrides().Textures )
+            // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler. Unset samplers keep
+            // the backend fallback texture, so this is purely additive. Bound on the material and not per draw,
+            // because the key above guarantees every draw sharing this material asked for the same set - so it is
+            // bound ONCE a frame per material (@p epoch, the queue's frame; 0 = bind regardless), through the
+            // handles the material keeps per override position (no sampler name looked up while they stand).
+            // A refusal said by a slice that does not name refusals leaves the material unbound for this frame,
+            // so the slice that names them still says it.
+            const std::unique_lock<std::mutex> lock = material.LockOverrideTextures();
+            if ( material.OverrideTexturesBound( epoch ) )
+                return;
+            bool        refusedUnsaid = false;
+            const auto& textures      = g.Overrides().Textures;
+            for ( size_t index = 0; index < textures.size(); ++index )
             {
+                const auto& [name, handle] = textures[index];
                 if ( handle == 0 )
                     continue;
                 auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
@@ -113,15 +113,27 @@ namespace Desert::Graphic::System
                 // type
                 auto* img = static_cast<Image2D*>(
                      Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                if ( img != nullptr && !material.SetTexture( name, img ) && logRefused )
+                if ( img == nullptr || material.SetTexture( material.OverrideTextureHandle( index ), name, img ) )
+                    continue;
+                if ( logRefused )
                     LogRefusedTextureOverride( shaderName, name );
+                else
+                    refusedUnsaid = true;
             }
 
-            // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
-            // SDF atlas takes this path.
+            // Runtime-owned texture (no asset handle) bound straight to its sampler - the text SDF atlas takes
+            // this path. Its handle sits past the asset overrides'.
             if ( g.DirectTexture != nullptr && !g.DirectTextureSampler().empty() &&
-                 !material.SetTexture( g.DirectTextureSampler(), g.DirectTexture ) && logRefused )
-                LogRefusedTextureOverride( shaderName, g.DirectTextureSampler() );
+                 !material.SetTexture( material.OverrideTextureHandle( textures.size() ), g.DirectTextureSampler(),
+                                       g.DirectTexture ) )
+            {
+                if ( logRefused )
+                    LogRefusedTextureOverride( shaderName, g.DirectTextureSampler() );
+                else
+                    refusedUnsaid = true;
+            }
+            if ( !refusedUnsaid )
+                material.MarkOverrideTexturesBound( epoch );
         }
     } // namespace MeshRendererDetail
 
@@ -176,15 +188,31 @@ namespace Desert::Graphic::System
             {
                 shared = SharedGenericMaterial( g.ShaderName(), gi, shader );
             }
-            // The draw-time slices name a refused texture; this row build does not repeat it.
-            ApplyGenericOverrides( *shared, g, g.ShaderName(), false );
+            // The textures first: a TextureBinding-free template's row textures are row slots read from them. The
+            // draw-time slices name a refused texture; this row build does not repeat it.
+            ApplyGenericTextures( *shared, g, g.ShaderName(), false, m_GenericTextureEpoch );
             const GpuDriven::MaterialRowKey key{ .Material = shared,
                                                  .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
                                                           static_cast<uint64_t>( g.MotionPart ) };
             const auto [claimed, fresh] = ClaimFrameMaterialRow( key );
             if ( fresh )
             {
-                claimed->Index = registry.SyncMaterialRow( key, shared->GetParamRow() );
+                // WRITTEN ONLY WHEN SOMETHING MOVED (UE: FMaterialRenderProxy's uniform expression cache): the row
+                // is what the template's defaults and row textures (the base revision) and this record's
+                // Params (their revision, compared by value, no name read) make; while both stand, the table's
+                // row is this record's already and nothing is written or compared.
+                const GpuDriven::MaterialRowRevision revision{
+                     .Template = shared->GetBaseRowRevision(),
+                     .Instance = DataDrivenMaterial::SyncOverrideRevision( g.Overrides() ) };
+                if ( const std::optional<uint32_t> reused = registry.ReuseMaterialRow( key, revision ) )
+                {
+                    claimed->Index = *reused;
+                }
+                else
+                {
+                    shared->ApplyOverrides( g.Overrides() ); // defaults in place, Params by handle
+                    claimed->Index = registry.SyncMaterialRow( key, shared->GetParamRow(), revision );
+                }
             }
             else
             {
@@ -554,7 +582,10 @@ namespace Desert::Graphic::System
                 row = m_GenericStandInRow;
             else if ( g.SlotMaterial == nullptr )
                 // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
-                ApplyGenericTextures( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal && slice != GenericSlice::ForwardDepth );
+                ApplyGenericTextures( *material, g, shaderName,
+                                      slice != GenericSlice::DeferredDepthNormal &&
+                                           slice != GenericSlice::ForwardDepth,
+                                      m_GenericTextureEpoch );
             if ( !row )
                 continue; // the stand-in's row: SyncGpuScene registers it whenever the generic queue is not empty
 
@@ -4038,6 +4069,8 @@ namespace Desert::Graphic::System
                 const auto interned      = m_GenericTextureSetIds.try_emplace( key, next ).first;
                 m_GenericTextureSets[gi] = interned->second;
             }
+            // A new frame of the queue: every shared material binds its override textures once in it.
+            ++m_GenericTextureEpoch;
             m_GenericProgramsResolved = true;
         }
         return m_GenericPrograms[index];

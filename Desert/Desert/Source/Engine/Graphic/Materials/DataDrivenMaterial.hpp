@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Materials/MaterialParamHandle.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
@@ -133,6 +135,55 @@ namespace Desert::Graphic
             return written;
         }
 
+        // THE HANDLE ROUTE (UE: FMaterialRenderProxy's uniform expression cache resolves a parameter's offset once
+        // per shader map, a draw writes by index). The stamp of the layout this material writes through now: the
+        // program's serial and code generation (MaterialLayoutStamp), {0, 0} without a program.
+        [[nodiscard]] MaterialLayoutStamp GetLayoutStamp() const noexcept
+        {
+            const Shader* shader = m_MaterialExecutor ? m_MaterialExecutor->GetShader().get() : nullptr;
+            if ( shader == nullptr )
+                return {};
+            return { .Serial = shader->GetSerial(), .Generation = shader->GetCodeGeneration() };
+        }
+
+        // @p name's row slot in the current layout; IsValue() false when the row has no such numeric parameter
+        // (a texture slot is written from the material's texture, never as a value - WriteRowParam's rule).
+        [[nodiscard]] MaterialParamHandle ResolveParam( std::string_view name ) const
+        {
+            MaterialParamHandle handle;
+            handle.Stamp       = GetLayoutStamp();
+            const auto& params = GetMaterialLayout().Params;
+            for ( size_t index = 0; index < params.size(); ++index )
+            {
+                const auto& p = params[index];
+                if ( p.Name != name )
+                    continue;
+                const uint32_t slot = p.Offset / Core::Formats::kMaterialParamSlotSize;
+                if ( p.IsTexture || slot >= m_Row.size() )
+                    break;
+                handle.Slot  = slot;
+                handle.Param = static_cast<uint32_t>( index );
+                break;
+            }
+            return handle;
+        }
+
+        // SetParam through a handle the caller keeps: re-resolved by @p name only when the layout's stamp moved
+        // (a hot reload bumps the generation, another program has another serial), else written by slot.
+        bool SetParam( MaterialParamHandle& handle, std::string_view name, const glm::vec4& value )
+        {
+            if ( handle.Stamp != GetLayoutStamp() )
+                handle = ResolveParam( name );
+            if ( !handle.IsValue() || handle.Slot >= m_Row.size() )
+                return false;
+            const auto& params = GetMaterialLayout().Params;
+            if ( handle.Param >= params.size() )
+                return false;
+            m_Row[handle.Slot] = Core::Formats::MaterialRowSlotValue( params[handle.Param].Type, value );
+            m_RowRevision      = NextMaterialRevision();
+            return true;
+        }
+
         // The name the override producers use. Identical to SetParam now — it was a separate entry point
         // only because the old transport needed a different byte count and a different flush for it.
         bool SetParamRaw( const std::string& name, const glm::vec4& value )
@@ -170,14 +221,149 @@ namespace Desert::Graphic
             return false;
         }
 
-        // Seed every numeric param with its `Properties ... = default` value, at the cell layout's offset.
+        // THE TEXTURE HANDLE ROUTE: @p name's Texture2D property in the current layout and executor (Property null
+        // when the shader declares no such texture - SetTexture's "false").
+        [[nodiscard]] MaterialTextureHandle ResolveTexture( std::string_view name ) const
+        {
+            MaterialTextureHandle handle;
+            handle.Stamp    = GetLayoutStamp();
+            handle.Executor = m_MaterialExecutor.get();
+            handle.Name.assign( name );
+            handle.Resolved = true;
+            if ( m_MaterialExecutor )
+                handle.Property = m_MaterialExecutor->FindTexture2DProperty( name );
+            return handle;
+        }
+
+        // SetTexture through a handle: re-resolved by @p name only when the layout, the executor or the name at
+        // the handle's position moved, else bound through the kept property. A null image is "none", as above.
+        bool SetTexture( MaterialTextureHandle& handle, std::string_view name, const Image2D* image )
+        {
+            if ( !handle.Resolved || handle.Stamp != GetLayoutStamp() ||
+                 handle.Executor != static_cast<const void*>( m_MaterialExecutor.get() ) || handle.Name != name )
+                handle = ResolveTexture( name );
+            if ( !image )
+                return BindSchemaDefaultTexture( handle.Name );
+            if ( handle.Property == nullptr )
+                return false;
+            handle.Property->SetImage( image, RDG::Access::SampledGraphics );
+            return true;
+        }
+
+        // The handle this material keeps for the texture override at @p index of the set it is keyed by (the
+        // renderer keys one material per texture set, so every draw through it names the same samplers in the
+        // same places). Grown on first use, never shrunk: the capacity is the material's.
+        [[nodiscard]] MaterialTextureHandle& OverrideTextureHandle( const size_t index )
+        {
+            if ( m_OverrideTextures.size() <= index )
+                m_OverrideTextures.resize( index + 1 );
+            return m_OverrideTextures[index];
+        }
+
+        // ONCE PER MATERIAL PER FRAME (UE: a material's descriptor set is built once, every draw of it binds it):
+        // whether the override textures were bound under @p epoch (the renderer's frame of the queue) and the
+        // current layout. Epoch 0 is "no frame": never answered as bound.
+        // The caller holds LockOverrideTextures() across the check, the binds and the mark: two views' walks may
+        // record one shared material at once, and the handles above grow and re-resolve in place.
+        [[nodiscard]] std::unique_lock<std::mutex> LockOverrideTextures()
+        {
+            return std::unique_lock<std::mutex>( m_OverrideTexturesLock );
+        }
+        [[nodiscard]] bool OverrideTexturesBound( const uint64_t epoch ) const noexcept
+        {
+            return epoch != 0 && m_OverrideTexturesEpoch == epoch && m_OverrideTexturesStamp == GetLayoutStamp();
+        }
+        void MarkOverrideTexturesBound( const uint64_t epoch ) noexcept
+        {
+            m_OverrideTexturesEpoch = epoch;
+            m_OverrideTexturesStamp = GetLayoutStamp();
+        }
+
+        // Seed every numeric param with its `Properties ... = default` value, at the cell layout's offset. The
+        // defaults are built once per layout (RefreshDefaultRow) and copied into the row's own storage: no
+        // allocation once the row has its size.
         void ApplyDefaults()
         {
-            m_Row         = MaterialBinder::DefaultRow( GetMaterialLayout() );
+            RefreshDefaultRow();
+            m_Row.assign( m_DefaultRow.begin(), m_DefaultRow.end() );
             m_RowRevision = NextMaterialRevision();
         }
 
+        // WHAT A DRAW'S ROW STARTS FROM, AS A REVISION (UE: a cached mesh draw command stays valid until its
+        // material changes): the layout's defaults and the row textures' bindless slots. Moves when the layout
+        // is another one (a hot reload, another program) or a row texture's slot changed; never with a value
+        // a draw writes. With SyncOverrideRevision it is the scene row's MaterialRowRevision.
+        [[nodiscard]] uint64_t GetBaseRowRevision()
+        {
+            RefreshDefaultRow();
+            WriteTextureSlots();
+            return m_BaseRevision;
+        }
+
+        // The revision of @p overrides' Params as they stand (MaterialOverrideHandles): kept while the same
+        // vector holds the same values bitwise, a new one otherwise. Reads no name.
+        static uint64_t SyncOverrideRevision( const MaterialOverrides& overrides )
+        {
+            MaterialOverrideHandles& resolved = overrides.Resolved;
+            const auto&              params   = overrides.Params;
+            if ( resolved.Revision == 0 || resolved.ParamsData != static_cast<const void*>( params.data() ) ||
+                 resolved.ParamsCount != params.size() )
+            {
+                resolved.Handles.assign( params.size(), MaterialParamHandle{} );
+                resolved.Written.resize( params.size() );
+                for ( size_t index = 0; index < params.size(); ++index )
+                    resolved.Written[index] = params[index].second;
+                resolved.ParamsData  = params.data();
+                resolved.ParamsCount = params.size();
+                resolved.Revision    = NextMaterialRevision();
+                return resolved.Revision;
+            }
+            bool moved = false;
+            for ( size_t index = 0; index < params.size(); ++index )
+            {
+                // Bitwise, as the texture slots: a NaN a person typed must not read as a change every frame.
+                if ( std::memcmp( &resolved.Written[index], &params[index].second, sizeof( glm::vec4 ) ) == 0 )
+                    continue;
+                resolved.Written[index] = params[index].second;
+                moved                   = true;
+            }
+            if ( moved )
+                resolved.Revision = NextMaterialRevision();
+            return resolved.Revision;
+        }
+
+        // The row of @p overrides: the defaults, then each Params value through its handle (resolved by name only
+        // when the layout moved). A parameter the layout lacks is skipped, as SetParamRaw's miss always was.
+        void ApplyOverrides( const MaterialOverrides& overrides )
+        {
+            ApplyDefaults();
+            MaterialOverrideHandles& resolved = overrides.Resolved;
+            const auto&              params   = overrides.Params;
+            if ( resolved.Handles.size() != params.size() )
+                resolved.Handles.assign( params.size(), MaterialParamHandle{} );
+            for ( size_t index = 0; index < params.size(); ++index )
+                SetParam( resolved.Handles[index], params[index].first, params[index].second );
+        }
+
     private:
+        // The layout's default row, rebuilt only when the layout is another one (its stamp, its object, its
+        // Params); a rebuild moves the base revision (GetBaseRowRevision).
+        void RefreshDefaultRow()
+        {
+            const auto&               layout = GetMaterialLayout();
+            const MaterialLayoutStamp stamp  = GetLayoutStamp();
+            if ( m_DefaultRowBuilt && m_DefaultRowStamp == stamp && m_DefaultRowLayout == &layout &&
+                 m_DefaultRowParams == layout.Params.data() && m_DefaultRowParamCount == layout.Params.size() )
+                return;
+            m_DefaultRow           = MaterialBinder::DefaultRow( layout );
+            m_DefaultRowBuilt      = true;
+            m_DefaultRowStamp      = stamp;
+            m_DefaultRowLayout     = &layout;
+            m_DefaultRowParams     = layout.Params.data();
+            m_DefaultRowParamCount = layout.Params.size();
+            m_BaseRevision         = NextMaterialRevision();
+        }
+
         // One row texture of the layout: its row slot, its parameter's index in the layout's Params (for the name
         // the report says) and the property its slot is written from.
         struct TextureSlot
@@ -185,6 +371,9 @@ namespace Desert::Graphic
             uint32_t                 Slot     = 0;
             uint32_t                 Param    = 0;
             const Texture2DProperty* Property = nullptr;
+            // The bindless value last written from it (WriteTextureSlots): another one moves the base revision.
+            glm::vec4 Value   = glm::vec4( 0.0f );
+            bool      Written = false;
         };
 
         // THE SLOT TABLE, RESOLVED ONCE PER LAYOUT (UE: FMaterialRenderProxy's uniform expression cache resolves
@@ -232,7 +421,7 @@ namespace Desert::Graphic
             const std::lock_guard<std::mutex> lock( m_TextureSlotsLock );
             ResolveTextureSlots();
             const auto& params = GetMaterialLayout().Params;
-            for ( const TextureSlot& entry : m_TextureSlots )
+            for ( TextureSlot& entry : m_TextureSlots )
             {
                 const uint32_t           slot    = entry.Slot;
                 const Texture2DProperty* texture = entry.Property;
@@ -258,6 +447,12 @@ namespace Desert::Graphic
                 const glm::vec4 value( glm::uintBitsToFloat( image.Index ),
                                        glm::uintBitsToFloat( texture->GetBindlessSampler().Index ), 0.0f, 0.0f );
                 // Bitwise: the slot holds index bits, and a NaN pattern must not read as a change every frame.
+                if ( !entry.Written || std::memcmp( &entry.Value, &value, sizeof( value ) ) != 0 )
+                {
+                    entry.Value    = value;
+                    entry.Written  = true;
+                    m_BaseRevision = NextMaterialRevision();
+                }
                 if ( std::memcmp( &m_Row[slot], &value, sizeof( value ) ) != 0 )
                 {
                     m_Row[slot]   = value;
@@ -284,5 +479,19 @@ namespace Desert::Graphic
         mutable const Core::Formats::MaterialLayout*      m_TextureSlotsLayout     = nullptr;
         mutable const Core::Formats::MaterialLayoutParam* m_TextureSlotsParams     = nullptr;
         mutable size_t                                    m_TextureSlotsParamCount = 0;
+        // GetBaseRowRevision: moved by RefreshDefaultRow's rebuild and by a row texture's new bindless value.
+        mutable uint64_t m_BaseRevision = NextMaterialRevision();
+        // RefreshDefaultRow's row and the layout identity it was built for.
+        Core::Formats::MaterialParamRow           m_DefaultRow;
+        bool                                      m_DefaultRowBuilt = false;
+        MaterialLayoutStamp                       m_DefaultRowStamp;
+        const Core::Formats::MaterialLayout*      m_DefaultRowLayout     = nullptr;
+        const Core::Formats::MaterialLayoutParam* m_DefaultRowParams     = nullptr;
+        size_t                                    m_DefaultRowParamCount = 0;
+        // OverrideTextureHandle's handles and MarkOverrideTexturesBound's frame and layout.
+        std::mutex                         m_OverrideTexturesLock;
+        std::vector<MaterialTextureHandle> m_OverrideTextures;
+        uint64_t                           m_OverrideTexturesEpoch = 0;
+        MaterialLayoutStamp                m_OverrideTexturesStamp;
     };
 } // namespace Desert::Graphic

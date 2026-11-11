@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Materials/MaterialParamHandle.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
@@ -182,6 +183,9 @@ namespace Desert::Graphic
         // Writes one push field BY NAME through the shader's reconciled layout (MaterialBinder). False when
         // the cell does not declare the field — nothing is written then — or when `size` is not its size.
         bool WritePushField( std::string_view field, const void* value, uint32_t size );
+        // The same write through a handle resolved once per layout (MaterialPushHandle): the stamp compare decides
+        // whether @p field is looked up again (a hot reload, another program), otherwise the offset is used as is.
+        bool WritePushField( MaterialPushHandle& handle, std::string_view field, const void* value, uint32_t size );
 
         // Public for editor introspection (PropertyEditorBuilder reads reflected properties to build UI).
         const std::vector<IProperty*>& GetRegisteredProperties() const
@@ -322,6 +326,8 @@ namespace Desert::Graphic
         std::vector<std::string>          m_PropertyNames;
         // Slots already reported by ReportMissingProperty: each (material, name) is logged once, not per frame.
         mutable std::unordered_set<std::string> m_ReportedMissing;
+        // The push fields of the per-draw setters (SetMaterialIndex ... SetSkinnedBoneOffset), resolved per layout.
+        MaterialPushHandles m_PushHandles;
         std::unique_ptr<MaterialExecutor> m_MaterialExecutor;
         std::vector<IProperty*>           m_RegisteredProperties;
         // Bumped by every write of a registered property (RegisterProperty attaches it; the properties are the

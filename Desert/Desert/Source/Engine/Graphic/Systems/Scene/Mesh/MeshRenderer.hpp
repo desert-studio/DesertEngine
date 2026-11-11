@@ -2934,6 +2934,9 @@ namespace Desert::Graphic::System
         // or never resolved): compared, never hashed, so a stable queue order asks the service no name a frame.
         mutable std::vector<std::string> m_GenericProgramNames;
         mutable bool                         m_GenericProgramsResolved = false;
+        // The queue's frame for ApplyGenericTextures (DataDrivenMaterial::OverrideTexturesBound): moved each time
+        // GenericProgramOf resolves a new queue, never 0 once a queue was resolved.
+        mutable uint64_t m_GenericTextureEpoch = 0;
         // Forgets every row when the shader service's RecompileGeneration moved.
         void SyncProgramFacts() const;
         // @p shader's facts (made on the first ask of its serial at its code generation).
