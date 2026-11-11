@@ -1343,6 +1343,7 @@ namespace Desert::Graphic
         const DistanceField::GlobalDistanceField::FrameField& fieldFrame = field.GetValue();
         textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
+        textures.Transients.GlobalDistanceFieldOccupiedBox               = fieldFrame.OccupiedBox;
         textures.Transients.MeshDistanceFields            = fieldFrame.MeshFields;
         textures.Transients.GlobalDistanceFieldObjectGrid = fieldFrame.ObjectGrid;
     }
