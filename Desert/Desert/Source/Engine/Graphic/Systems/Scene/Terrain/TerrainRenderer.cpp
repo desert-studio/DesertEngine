@@ -1403,28 +1403,38 @@ namespace Desert::Graphic::System
                                 bound.ArrayNames[kind] == layers.ArrayNames[kind];
                 if ( !unchanged )
                 {
+                    // FPS-MAT-HANDLES3: every bind below goes through a handle (ProgramMaterials::TextureHandles,
+                    // the surface's OverrideTextureHandle): a name is searched only when the layout, the executor
+                    // or the name at the handle's place moved.
+                    ProgramMaterials::TextureHandles& handles = materials.Handles;
                     for ( size_t s = 0; s < proxy.Samplers.size(); ++s )
                     {
                         const std::string& name = t.Overrides->Textures[proxy.Samplers[s]].first;
                         const Image2D*     img  = m_GroupSamplerScratch[s];
-                        if ( img != nullptr && !surface->SetTexture( name, img ) )
+                        if ( img != nullptr &&
+                             !surface->SetTexture( surface->OverrideTextureHandle( s ), name, img ) )
                             LogRefusedTextureOverride( surface->GetShaderName(), name );
                     }
                     for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
                         if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
-                             !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
+                             !surface->SetTexture( handles.LayerArrays[kind], layers.ArrayNames[kind],
+                                                   layers.Arrays[kind].get() ) )
                             LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                    surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                    materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                    materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
-                    materials.Depth->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                    // The casters in TextureHandles' order: Shadow, VirtualShadow, Depth.
+                    const std::array<DataDrivenMaterial*, 3> casters = {
+                         materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() };
+                    surface->SetTexture( handles.SurfaceHeightmap, "HeightmapTexture", t.Heightmap.get() );
+                    for ( size_t c = 0; c < casters.size(); ++c )
+                        casters[c]->SetTexture( handles.CasterHeightmap[c], "HeightmapTexture",
+                                                t.Heightmap.get() );
                     if ( t.Weights.Weightmap != nullptr )
                     {
-                        surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                        surface->SetTexture( handles.SurfaceWeightmap, "WeightmapTexture",
+                                             t.Weights.Weightmap.get() );
                         // The casters read the visibility channel too: a hole must not cast a shadow.
-                        materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
-                        materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
-                        materials.Depth->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                        for ( size_t c = 0; c < casters.size(); ++c )
+                            casters[c]->SetTexture( handles.CasterWeightmap[c], "WeightmapTexture",
+                                                    t.Weights.Weightmap.get() );
                     }
                     bound.Valid     = true;
                     bound.Surface   = surface;
@@ -1451,9 +1461,9 @@ namespace Desert::Graphic::System
                 if ( materials.AppliedOverrides != t.Overrides || materials.AppliedSurface != surface ||
                      materials.AppliedGeneration != generation )
                 {
-                    surface->ApplyDefaults();
-                    for ( const auto& [name, value] : t.Overrides->Params )
-                        surface->SetParamRaw( name, value );
+                    // The defaults, then each param by its handle (MaterialOverrides::Resolved, resolved by name
+                    // once per layout stamp; the overrides object is immutable once published).
+                    surface->ApplyOverrides( *t.Overrides );
                     materials.AppliedOverrides  = t.Overrides;
                     materials.AppliedSurface    = surface;
                     materials.AppliedGeneration = generation;

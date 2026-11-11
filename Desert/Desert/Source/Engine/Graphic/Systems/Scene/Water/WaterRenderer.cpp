@@ -266,14 +266,17 @@ namespace Desert::Graphic::System
             folded.Stamp    = stamp;
             folded.Overrides.Params.clear();
             folded.Overrides.Textures.clear();
+            // The refilled Params may name other parameters in the same places: the handles start over.
+            folded.Overrides.Resolved.Reset();
             if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
                 (void)materials->ResolveOverrides( material, folded.Overrides );
-            cell.ApplyDefaults();
-            for ( const auto& [name, value] : folded.Overrides.Params )
-                (void)cell.SetParam( name, value );
+            // FPS-MAT-HANDLES3: the defaults, then each param by its handle (resolved once per layout stamp).
+            cell.ApplyOverrides( folded.Overrides );
         }
-        for ( const auto& [name, handle] : folded.Overrides.Textures )
+        const auto& textures = folded.Overrides.Textures;
+        for ( size_t index = 0; index < textures.size(); ++index )
         {
+            const auto& [name, handle] = textures[index];
             if ( handle == 0 )
                 continue;
             auto* texture = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
@@ -281,12 +284,30 @@ namespace Desert::Graphic::System
                 continue; // still loading: picked up the frame it lands
             const auto* image = dynamic_cast<Image2D*>(
                  Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
+            // FPS-MAT-HANDLES3: through the cell's handle for this override's place (re-resolved by name only
+            // when the layout, the executor or the name there moved).
             if ( image != nullptr )
-                (void)cell.SetTexture( name, image );
+                (void)cell.SetTexture( cell.OverrideTextureHandle( index ), name, image );
         }
         const Core::Formats::MaterialParamRow& row = cell.GetParamRow();
-        if ( auto* rows = cell.Get<StorageBufferProperty>( WaterShaderParameters::Materials ) )
+        if ( auto* rows = BlocksOf( program ).Rows )
             rows->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
+    }
+
+    const WaterRenderer::WaterProgram::CellBlocks& WaterRenderer::BlocksOf( WaterProgram& program )
+    {
+        WaterProgram::CellBlocks& blocks   = program.Blocks;
+        const DataDrivenMaterial& cell     = *program.Material;
+        const MaterialLayoutStamp stamp    = cell.GetLayoutStamp();
+        const MaterialExecutor*   executor = cell.GetMaterialExecutor();
+        if ( blocks.Resolved && blocks.Stamp == stamp && blocks.Executor == executor )
+            return blocks;
+        blocks.Stamp    = stamp;
+        blocks.Executor = executor;
+        blocks.Rows     = cell.Get<StorageBufferProperty>( WaterShaderParameters::Materials );
+        blocks.Tiles    = cell.Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles );
+        blocks.Resolved = true;
+        return blocks;
     }
 
     void WaterRenderer::PrepareFrame()
@@ -481,7 +502,7 @@ namespace Desert::Graphic::System
                                  ? CreateWaterInfoImage( ground->Size, ground->HeightCm )
                                  : CreateWaterInfoImage( 1u, { Water::kWaterInfoNoGroundCm } );
         }
-        if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
+        if ( auto* tiles = BlocksOf( *program ).Tiles )
             tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
         m_Frame = program;
     }
@@ -528,6 +549,11 @@ namespace Desert::Graphic::System
         const MaterialExecutor*       executor = material.GetMaterialExecutor();
         const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
         std::vector<std::byte>&       push     = m_Push;
+        // FPS-MAT-HANDLES3: the cell's push fields placed once per shader code (DrawPushFields::ShaderPlacements,
+        // as TerrainRenderer::RecordDraws), copied here so a later Of on this thread cannot move it under the
+        // loop; no field is found by name per draw.
+        const DrawPushFields::Placement placement =
+             DrawPushFields::ThreadShaderPlacements().Of( executor->GetShader().get() );
         for ( const FrameDraw& draw : m_FrameDraws )
         {
             push.assign( pushed.Size, std::byte{ 0 } );
@@ -535,7 +561,7 @@ namespace Desert::Graphic::System
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
             DrawPushFields fields;
             fields.Transform( glm::mat4( 1.0f ) ).MaterialIndex( 0u ).PrimitiveIndex( draw.FirstRow );
-            if ( auto written = fields.WriteInto( push, material.GetMaterialLayout() ); !written )
+            if ( auto written = fields.WriteInto( push, placement ); !written )
                 return Common::MakeFormattedError( "{}: water draw at tile row {}: {}", context.GetPassName(),
                                                    draw.FirstRow, written.GetError() );
             if ( auto drawn = Renderer::GetInstance().DrawProcedural( block, *m_Frame->Pipeline, executor,

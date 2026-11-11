@@ -407,6 +407,19 @@ namespace Desert::Graphic::System
                 const Image2D*                                    Heightmap = nullptr;
                 const Image2D*                                    Weightmap = nullptr;
             } Bound;
+            // FPS-MAT-HANDLES3, THE GROUP'S TEXTURE HANDLES (UE FShaderResourceParameter: bound once per shader
+            // map): the Texture2D properties the SetTexture block above binds, resolved by name once per
+            // (layout stamp, executor, name) - DataDrivenMaterial::SetTexture( MaterialTextureHandle&, ... ) - and
+            // bound through the kept property otherwise. The casters are Shadow, VirtualShadow, Depth in that
+            // order; the surface's Overrides samplers use the surface's own OverrideTextureHandle( index ).
+            struct TextureHandles
+            {
+                MaterialTextureHandle                                    SurfaceHeightmap;
+                MaterialTextureHandle                                    SurfaceWeightmap;
+                std::array<MaterialTextureHandle, 3>                     CasterHeightmap;
+                std::array<MaterialTextureHandle, 3>                     CasterWeightmap;
+                std::array<MaterialTextureHandle, kTerrainLayerMapKinds> LayerArrays;
+            } Handles;
 
             // FPS-CPU2-TAILS, THE GROUP'S ROW BLOCKS (UE: a shader's uniform-buffer slots are resolved once per
             // shader map): each program's Materials[] and TerrainInstances storage-buffer properties, in the
