@@ -197,9 +197,24 @@ namespace Desert::Graphic::System
         // every directional light @p meshes fitted cascades for this frame
         // (MeshRenderer::DirectionalCasterSweeps), the camera's own list by the camera's planes; AddFrame runs
         // after MeshRenderer::UpdateCascades.
-        // @p parallelSetup: RenderPipeline.ParallelSetup - the varieties' plans (PlanVariety) on TaskGroup tasks.
-        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing,
-                       const GrassOcclusion& occlusion, bool parallelSetup );
+        // FPS-GRASS-PLAN (UE FSceneRenderer setup tasks: the CPU plan on a task into a plain struct, the resources
+        // and the graph after the join) - the frame in three steps:
+        // PrepareFrame, render thread, once @p occlusion is known (after UpdateCascades): the view volumes, the
+        // frame's resets, and every planned variety's mesh (BladeStrip), entry and read-back counts.
+        // PlanFrame, noexcept, on a setup task the caller launches after PrepareFrame and joins before
+        // CommitFrame: every planned variety's PrepareVariety (capacities, pool ranges, records, visibility rows)
+        // then its PlanVariety (on TaskGroup slices) - no GPU object, no service, no graph. Nothing else calls the
+        // grass between the launch and the join. CommitFrame, render thread after the join: the field buffers, the
+        // varieties' shape and visibility tables, the applies, the varieties past a repeated key (prepared
+        // serially, as before), the pools and the passes. A frame refused between PrepareFrame and CommitFrame
+        // draws no grass; the next PrepareFrame starts anew.
+        // @p parallelSetup: RenderPipeline.ParallelSetup - off, the caller's task runs inline at its launch and
+        // the plans inline in it: the same plan, the same frame.
+        void PrepareFrame( const ViewFrame& frame, const MeshRenderer& meshes, bool rayTracing,
+                           const GrassOcclusion& occlusion, bool parallelSetup );
+        void PlanFrame() noexcept;
+        void CommitFrame( RDG::Builder& graph, MeshRenderer& meshes );
+        ~GrassRenderer();
 
         // GRASS-VIS phase 2 (UE two-phase occlusion): after this frame's furthest HZB of the phase-1 depth, the
         // instances last frame's HZB held back from the camera are re-tested against @p hzb (through the unjittered
@@ -411,6 +426,12 @@ namespace Desert::Graphic::System
             // GRASS-VIS-MESH-1, Kind Mesh: per section (the variety's Sections order) its raster-stream rows
             // (GrassMeshVisibilityGpu); null: the section draws through the prepass pair this frame.
             std::vector<std::shared_ptr<ShaderResources::StorageBuffer>> MeshVisibility;
+            // FPS-GRASS-PLAN: what PrepareVariety (on the plan task) leaves for CommitVarietyObjects (render
+            // thread): a (re)build's new Shape (made there; kept true across a refused frame), and per section the
+            // rows its MeshVisibility table is written with and whether it is tabled this frame.
+            bool                                            ShapeRemade = false;
+            std::vector<GrassMeshVisibilityGpu>             MeshVisibilityRows;
+            std::vector<uint8_t>                            MeshVisibilityTabled;
             uint32_t                                        Buckets     = 1;
             // The first bucket below kMinScreenRadiusForDepthPrepass through this frame's lens (MeshRenderer::
             // GpuInstancedRenderData::PrepassBuckets); Buckets: every bucket is prepassed.
@@ -648,6 +669,29 @@ namespace Desert::Graphic::System
                                                   VarietyPlan& plan );
         void               PlanVariety( VarietyPlan& plan ) const;
         [[nodiscard]] bool ApplyVariety( VarietyPlan& plan );
+        // FPS-GRASS-PLAN, render thread. The mesh a variety draws (a blade's strip, made on first use), null when
+        // it is not drawable this frame (not resident, no indices, no sections).
+        [[nodiscard]] class Desert::Mesh* DrawableMesh( const GrassVarietyDraw& variety );
+        // True when @p plans already holds @p variety's key (a content fault: two layers resolve to one variety),
+        // said once per key; the repeat is prepared after its first's apply.
+        [[nodiscard]] static bool RepeatedKey( std::span<const VarietyPlan> plans,
+                                               const GrassVarietyDraw&      variety );
+        // The counts the GPU wrote into @p plan's entry's feedback range FramesInFlight frames ago, into the plan
+        // (PrepareVariety reads them there) - a StorageBuffer read, so never on the plan task.
+        void ReadVarietyFeedback( VarietyPlan& plan ) const;
+        // The GPU objects PrepareVariety decided on: a (re)build's blade shape buffer and its data, a mesh
+        // variety's section visibility tables. False: the variety is not drawn this frame.
+        [[nodiscard]] bool CommitVarietyObjects( const VarietyPlan& plan );
+        // ApplyVariety and what follows it for one variety of @p field: the refs, the frame lists, the keys, the
+        // tile lists, the texture demand and the variety's FrameSubmit.
+        void ApplyPlanned( VarietyPlan& plan, const FieldGpu& fieldGpu, const GrassFieldDraw& field,
+                           const ViewFrame& frame );
+        // The plan PrepareFrame fills, PlanFrame completes and CommitFrame consumes (GrassRenderer.cpp); made by
+        // the first PrepareFrame, kept across frames so a frame allocates nothing once grown.
+        struct GrassFramePlan;
+        std::unique_ptr<GrassFramePlan> m_Plan;
+        // The world's SnowDepth (PrepareFrame reads it: the scene renderer is not a task's to touch).
+        float m_FrameSnowDepth = 0.0f;
         // GRASS-TILE-1: @p gpu's tiles for this frame's eye - the pool (re)made when the placement or the pool's
         // room asks for it, tiles past the radius freed, missing / stale ones built nearest first, at most
         // kGrassTileBuildsPerFrame - and its tile table (VarietyGpu::TileEntries). @p placement / @p thin: the

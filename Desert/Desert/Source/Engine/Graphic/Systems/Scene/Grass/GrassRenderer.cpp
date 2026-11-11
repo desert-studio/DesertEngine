@@ -34,6 +34,7 @@
 #include <cstring>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <unordered_set>
@@ -690,7 +691,42 @@ namespace Desert::Graphic::System
         std::vector<uint32_t> TileThin;
         glm::vec3             Eye{ 0.0f };
         float                 Stray = 0.0f;
+        // FPS-GRASS-PLAN: ReadVarietyFeedback's, render thread, before PrepareVariety: the entry's feedback words
+        // (its Buckets at the read, then the tail) and whether they were read; the field (an index of m_Queue)
+        // and whether PrepareVariety kept the variety (PlanFrame plans and CommitFrame applies only those).
+        std::array<uint32_t, kLawBuckets + kFeedbackTailWords> Counted{};
+        uint32_t                                               CountedBuckets = 0u;
+        bool                                                   CountedRead    = false;
+        bool                                                   Prepared       = false;
+        std::size_t                                            FieldIndex     = 0u;
     };
+
+    // RISK 9 (UE ParallelFor MinBatchSize): a PlanVariety slice holds at least this many plans - a field of fewer
+    // than twice as many varieties is planned by one task, with no hand-out cost.
+    constexpr std::size_t kMinGrassPlansPerTask = 8;
+
+    // FPS-GRASS-PLAN (UE FSceneRenderer setup tasks): the frame PrepareFrame fills on the render thread, PlanFrame
+    // completes on its task and CommitFrame consumes after the join. The vectors are kept across frames.
+    struct GrassRenderer::GrassFramePlan
+    {
+        const ViewFrame*    Frame  = nullptr;
+        const MeshRenderer* Meshes = nullptr;
+        ViewVolumes         Volumes{};
+        GrassOcclusion      Occlusion{};
+        bool                Parallel = false;
+        bool                Ready    = false; // PrepareFrame planned varieties CommitFrame has not consumed
+        // The planned varieties, in field and variety order, up to the first repeated key of a field.
+        std::vector<VarietyPlan> Varieties;
+        // Where the serial rest starts (CommitFrame): a field (m_Queue index) and its variety; past the queue:
+        // none.
+        std::size_t ResumeField  = std::numeric_limits<std::size_t>::max();
+        std::size_t ResumeCursor = 0u;
+        // CommitFrame's: per m_Queue field whether its buffer is in this frame's graph; the serial rest's plans.
+        std::vector<uint8_t>     FieldReady;
+        std::vector<VarietyPlan> Serial;
+    };
+
+    GrassRenderer::~GrassRenderer() = default;
 
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
                                                               const ViewFrame& frame, const ViewVolumes& volumes,
@@ -771,7 +807,9 @@ namespace Desert::Graphic::System
                                    ? 2.0 * 1.41421356 * variety.Blade->ClumpSize * variety.Blade->ClumpPull +
                                          2.0 * variety.Blade->Scatter * cell
                                    : 0.0;
-        VarietyGpu&  gpu    = m_Varieties[variety.Key];
+        // FPS-GRASS-PLAN: the entry is the render thread's (PrepareFrame / CommitFrame insert it): a task never
+        // inserts into m_Varieties.
+        VarietyGpu& gpu = *plan.Gpu;
         // The distance past which a blade's coarsest level is its small bucket (BladeStrip's BladeSmall).
         float        smallDistance = 0.0f;
         {
@@ -827,33 +865,25 @@ namespace Desert::Graphic::System
                                          .PixelSpread = perspective ? 2.0f * tanHalfY / rows : 0.0f };
             }
         }
-        // What the GPU counted for each bucket FramesInFlight frames ago (GrassCull FinalizeFull), when this frame's copy
-        // has been written since the feedback buffer was made for this bucket count.
-        // At most kLawBuckets + kFeedbackTailWords words (buckets <= kLawBuckets above): a stack array, no heap.
-        std::array<uint32_t, kLawBuckets + kFeedbackTailWords> counted{};
-        bool                                                   fedBack = false;
-        gpu.Drawn                                                      = std::nullopt;
-        gpu.DrawnCascades                                              = {};
+        // What the GPU counted for each bucket FramesInFlight frames ago (GrassCull FinalizeFull), when this
+        // frame's copy has been written since the feedback buffer was made for this bucket count. At most
+        // kLawBuckets + kFeedbackTailWords words (buckets <= kLawBuckets above): the plan's array, no heap.
+        // FPS-GRASS-PLAN: read by ReadVarietyFeedback on the render thread before this ran (the entry's Buckets
+        // then are its Buckets now: only this function changes them).
+        const std::array<uint32_t, kLawBuckets + kFeedbackTailWords>& counted = plan.Counted;
+        bool                                                          fedBack = false;
+        gpu.Drawn                                                             = std::nullopt;
+        gpu.DrawnCascades                                                     = {};
         // CPU-GRASS-POOL-7: the variety's range of the shared readback pool, its own counts only where they carry
         // its mark (a range handed out anew, or a remade pool, holds none of its writes yet).
-        const std::shared_ptr<ShaderResources::StorageBuffer>& feedback = m_FeedbackPool.Buffer();
-        if ( feedback && gpu.Feedback.Bytes != 0u && gpu.Buckets == buckets )
+        if ( plan.CountedRead && plan.CountedBuckets == buckets )
         {
-            if ( const auto read = feedback->ReadBack( counted.data(), ( buckets + kFeedbackTailWords ) * 4u,
-                                                       static_cast<uint32_t>( gpu.Feedback.Offset ) );
-                 !read.IsSuccess() )
+            fedBack = counted[buckets] == gpu.FeedbackMark;
+            if ( fedBack )
             {
-                LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
-            }
-            else
-            {
-                fedBack = counted[buckets] == gpu.FeedbackMark;
-                if ( fedBack )
-                {
-                    gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
-                    for ( uint32_t v = 0; v < kGrassCascadeLists; ++v )
-                        gpu.DrawnCascades[v] = counted[buckets + 4u + v];
-                }
+                gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
+                for ( uint32_t v = 0; v < kGrassCascadeLists; ++v )
+                    gpu.DrawnCascades[v] = counted[buckets + 4u + v];
             }
         }
         if ( gpu.LowFrames.size() != buckets )
@@ -1177,10 +1207,8 @@ namespace Desert::Graphic::System
             }
             m_FeedbackMarks  = m_FeedbackMarks + 1u == 0u ? 1u : m_FeedbackMarks + 1u;
             gpu.FeedbackMark = m_FeedbackMarks;
-            gpu.Shape.reset();
-            if ( variety.Blade )
-                gpu.Shape =
-                     ShaderResources::StorageBuffer::Create( "GrassBladeShape", sizeof( GrassBladeShapeGpu ), 13 );
+            // FPS-GRASS-PLAN: a new shape buffer (a blade's) or none, made by CommitVarietyObjects.
+            gpu.ShapeRemade = true;
         }
         if ( variety.Blade )
         {
@@ -1205,12 +1233,7 @@ namespace Desert::Graphic::System
             for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
                   first += capacities[bucket], ++bucket )
                 gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;
-            if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
-                 !wrote.IsSuccess() )
-            {
-                LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
-                return nullptr;
-            }
+            // FPS-GRASS-PLAN: written into Shape by CommitVarietyObjects (render thread).
         }
 
         // GRASS-VIS-MESH-1: a mesh variety's sections each take their rows of this frame's raster stream
@@ -1221,7 +1244,10 @@ namespace Desert::Graphic::System
         // (MeshRenderer admits only a tabled section), said once.
         if ( !variety.Blade )
         {
-            gpu.MeshVisibility.resize( variety.Sections.size() );
+            // FPS-GRASS-PLAN: the rows and the tabled flags here; the tables are made and written by
+            // CommitVarietyObjects (render thread).
+            gpu.MeshVisibilityRows.resize( variety.Sections.size() );
+            gpu.MeshVisibilityTabled.assign( variety.Sections.size(), uint8_t{ 0u } );
             const auto&    geometry      = mesh.GetGeometry();
             const auto     submeshCount  = static_cast<uint32_t>( submeshes.size() );
             const uint64_t vertexAddress = geometry.Vertices ? geometry.Vertices->GetDeviceAddress() : 0u;
@@ -1238,10 +1264,10 @@ namespace Desert::Graphic::System
             constexpr uint32_t kRowTriangles = 1u << VirtualGeometry::kVisTriangleBits;
             for ( size_t s = 0; s < variety.Sections.size(); ++s )
             {
-                std::shared_ptr<ShaderResources::StorageBuffer>& table  = gpu.MeshVisibility[s];
-                const uint64_t                                   hidden = variety.Sections[s].HiddenSubmeshes;
-                GrassMeshVisibilityGpu                           rows{};
-                uint32_t                                         perInstance = 0;
+                const uint64_t          hidden = variety.Sections[s].HiddenSubmeshes;
+                GrassMeshVisibilityGpu& rows   = gpu.MeshVisibilityRows[s];
+                rows                           = GrassMeshVisibilityGpu{};
+                uint32_t perInstance           = 0;
                 for ( uint32_t level = 0; fits && level < buckets; ++level )
                 {
                     uint32_t offset = 0;
@@ -1282,7 +1308,8 @@ namespace Desert::Graphic::System
                 if ( !addressed || !fits || !distinct || perInstance == 0u ||
                      m_VisibilityRows + need > kGrassVisibilityMaxRows )
                 {
-                    table.reset();
+                    // Untabled (MeshVisibilityTabled 0): CommitVarietyObjects drops the table. One thread at a
+                    // time says it: the plan task, or the render thread's serial rest after the join.
                     static std::unordered_set<uint64_t> s_Untabled;
                     if ( s_Untabled.insert( variety.Key * 64u + s ).second )
                     {
@@ -1317,15 +1344,7 @@ namespace Desert::Graphic::System
                     rows.Submeshes[si] =
                          glm::uvec4( submeshes[si].VertexOffset, submeshes[si].VertexCount, drawn, 0u );
                 }
-                if ( !table )
-                    table = ShaderResources::StorageBuffer::Create( "GrassMeshVisibility",
-                                                                    sizeof( GrassMeshVisibilityGpu ), 13 );
-                if ( const auto wrote = table->SetData( &rows, sizeof( rows ) ); !wrote.IsSuccess() )
-                {
-                    LOG_ERROR( "[Grass] a mesh section's visibility rows were not written: {}", wrote.GetError() );
-                    table.reset();
-                    continue;
-                }
+                gpu.MeshVisibilityTabled[s] = 1u;
                 m_VisibilityRows += need;
             }
         }
@@ -1354,17 +1373,122 @@ namespace Desert::Graphic::System
         plan.Buckets        = buckets;
         plan.Records        = records;
         plan.FieldRevision  = fieldRevision;
-        // The world's snow depth (below, params.Lean.z), read here: the scene renderer is not a task's to touch.
-        plan.SnowDepth = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
+        // The world's snow depth (PlanVariety, params.Lean.z), read by PrepareFrame: the scene renderer is not a
+        // task's to touch.
+        plan.SnowDepth = m_FrameSnowDepth;
         return &gpu;
+    }
+
+    void GrassRenderer::ReadVarietyFeedback( VarietyPlan& plan ) const
+    {
+        // Render thread (a StorageBuffer read picks the frame in flight's copy). The words of the entry's
+        // current bucket count; PrepareVariety uses them only when it keeps that count.
+        const VarietyGpu& gpu                                           = *plan.Gpu;
+        plan.CountedRead                                                = false;
+        plan.CountedBuckets                                             = gpu.Buckets;
+        const std::shared_ptr<ShaderResources::StorageBuffer>& feedback = m_FeedbackPool.Buffer();
+        if ( !feedback || gpu.Feedback.Bytes == 0u || gpu.Buckets > kLawBuckets )
+            return;
+        if ( const auto read = feedback->ReadBack( plan.Counted.data(), ( gpu.Buckets + kFeedbackTailWords ) * 4u,
+                                                   static_cast<uint32_t>( gpu.Feedback.Offset ) );
+             !read.IsSuccess() )
+        {
+            LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
+            return;
+        }
+        plan.CountedRead = true;
+    }
+
+    bool GrassRenderer::CommitVarietyObjects( const VarietyPlan& plan )
+    {
+        // Render thread, after PrepareVariety: what it decided, as GPU objects.
+        const GrassVarietyDraw& variety = *plan.Variety;
+        VarietyGpu&             gpu     = *plan.Gpu;
+        if ( gpu.ShapeRemade )
+        {
+            gpu.Shape.reset();
+            if ( variety.Blade )
+                gpu.Shape =
+                     ShaderResources::StorageBuffer::Create( "GrassBladeShape", sizeof( GrassBladeShapeGpu ), 13 );
+            gpu.ShapeRemade = false;
+        }
+        if ( variety.Blade )
+        {
+            if ( !gpu.Shape )
+            {
+                LOG_ERROR( "[Grass] variety {:016x}: the blade shape buffer was not made", variety.Key );
+                gpu.ShapeRemade = true; // made anew next frame
+                return false;
+            }
+            if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
+                 !wrote.IsSuccess() )
+            {
+                LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
+                return false;
+            }
+            return true;
+        }
+        gpu.MeshVisibility.resize( gpu.MeshVisibilityTabled.size() );
+        for ( std::size_t s = 0; s < gpu.MeshVisibilityTabled.size(); ++s )
+        {
+            std::shared_ptr<ShaderResources::StorageBuffer>& table = gpu.MeshVisibility[s];
+            if ( gpu.MeshVisibilityTabled[s] == 0u )
+            {
+                table.reset();
+                continue;
+            }
+            if ( !table )
+                table = ShaderResources::StorageBuffer::Create( "GrassMeshVisibility",
+                                                                sizeof( GrassMeshVisibilityGpu ), 13 );
+            if ( !table )
+            {
+                LOG_ERROR( "[Grass] variety {:016x} section {}: its visibility table was not made; the section "
+                           "stays in the masked depth prepass and the G-buffer this frame",
+                           variety.Key, s );
+                continue;
+            }
+            if ( const auto wrote = table->SetData( &gpu.MeshVisibilityRows[s], sizeof( GrassMeshVisibilityGpu ) );
+                 !wrote.IsSuccess() )
+            {
+                LOG_ERROR( "[Grass] a mesh section's visibility rows were not written: {}", wrote.GetError() );
+                table.reset();
+            }
+        }
+        return true;
+    }
+
+    Desert::Mesh* GrassRenderer::DrawableMesh( const GrassVarietyDraw& variety )
+    {
+        Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
+        if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
+             mesh->GetGeometry().IndexCount == 0 )
+            return nullptr;
+        return mesh;
+    }
+
+    bool GrassRenderer::RepeatedKey( const std::span<const VarietyPlan> plans, const GrassVarietyDraw& variety )
+    {
+        const bool repeated = std::any_of( plans.begin(), plans.end(), [&variety]( const VarietyPlan& plan )
+                                           { return plan.Variety->Key == variety.Key; } );
+        if ( repeated )
+        {
+            // A content fault (two layers resolving to one variety): drawn twice at two Prepares' cost, as the
+            // sequential code drew it - said once per key, not once per frame (render thread only).
+            static std::unordered_set<uint64_t> s_WarnedRepeatedKey;
+            if ( s_WarnedRepeatedKey.insert( variety.Key ).second )
+                LOG_ERROR( "[Grass] a field queues variety key {:#x} more than once; each repeat is "
+                           "prepared and drawn again (two layers resolve to one variety)",
+                           variety.Key );
+        }
+        return repeated;
     }
 
     void GrassRenderer::PlanVariety( VarietyPlan& plan ) const
     {
-        // RENDER-PARALLEL-SETUP: on a TaskGroup task (AddFrame). It reads the plan, the view and the mesh renderer
-        // fitted cascades (const; MeshRenderer::UpdateCascades ran first); it writes the plan and its own
-        // VarietyGpu's ShadowLod and CascadeRings - a distinct entry per task (AddFrame starts a segment at a
-        // repeated key).
+        // RENDER-PARALLEL-SETUP: on a TaskGroup task (PlanFrame, or CommitFrame's serial rest). It reads the plan,
+        // the view and the mesh renderer fitted cascades (const; MeshRenderer::UpdateCascades ran first); it
+        // writes the plan and its own VarietyGpu's ShadowLod and CascadeRings - a distinct entry per task
+        // (PrepareFrame ends the plan, and CommitFrame starts a segment, at a repeated key).
         const GrassVarietyDraw& variety        = *plan.Variety;
         VarietyGpu&             gpu            = *plan.Gpu;
         const ViewFrame&        frame          = *plan.Frame;
@@ -2464,19 +2588,101 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes,
-                                  const bool rayTracing, const GrassOcclusion& occlusion,
-                                  const bool parallelSetup )
+    void GrassRenderer::ApplyPlanned( VarietyPlan& plan, const FieldGpu& fieldGpu, const GrassFieldDraw& field,
+                                      const ViewFrame& frame )
+    {
+        // Render thread, in variety order (CommitFrame): the serial apply of a prepared and planned variety.
+        const GrassVarietyDraw& variety = *plan.Variety;
+        Desert::Mesh* const     mesh    = plan.MeshAsset;
+        DESERT_PROFILE_PHASES( varietyPhases );
+        DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Apply params + tiles" );
+        if ( !ApplyVariety( plan ) )
+            return;
+        VarietyGpu* const gpu = plan.Gpu;
+        DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Register refs" );
+        // CPU-GRASS-POOL-7: no buffer of the variety's own is imported - its params, chunks, segment
+        // table and feedback are ranges of the shared pools CommitVarietyPools commits once after each
+        // variety; CPU-GRASS-POOL-8: its rows, ids, records, candidates and law scales are ranges
+        // of the pools CommitListPools commits once after the field loop, which sets the list refs.
+        gpu->FieldRef    = fieldGpu.Ref;
+        gpu->FieldBuffer = fieldGpu.Buffer;
+        DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
+        m_Frame.push_back( gpu );
+        if ( gpu->Drawn )
+            DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades );
+        const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
+        gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
+        gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+        if ( gpu->FrameKey != gpu->GenerateKey )
+        {
+            gpu->GenerateKey = gpu->FrameKey;
+            ++gpu->Generation;
+        }
+        gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
+        gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+        if ( gpu->LawKey != gpu->LawedKey )
+        {
+            gpu->LawedKey = gpu->LawKey;
+            ++gpu->LawGeneration;
+        }
+        // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over
+        // the build's chunks. The tile passes run on a frame that frees or builds tiles and read the
+        // table written then (a per-frame-in-flight copy); a fresh pool's Init pass writes its words
+        // first.
+        const bool grown = gpu->TileGrowFrom != gpu->TilePages; // GRASS-VRAM-BUDGET-1
+        bool       tiles = gpu->PoolFresh || grown || gpu->TileFrees != 0u || gpu->TileBuilds != 0u;
+        if ( tiles )
+        {
+            // CPU-GRASS-POOL-2: the variety's run of the shared tile table, written once for every
+            // variety (CommitTileTable, which marks a fresh pool made). CPU-GRASS-POOL-3: its words
+            // are a range of the shared words pool, imported once after every variety
+            // (CommitTileWords).
+            gpu->TileTableBase = static_cast<uint32_t>( m_TileTableImage.size() );
+            m_TileTableImage.insert( m_TileTableImage.end(), gpu->TileEntries.begin(), gpu->TileEntries.end() );
+        }
+        if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
+            m_FrameTileFree.push_back( gpu );
+        if ( tiles && gpu->TileBuilds != 0u )
+            m_FrameTileBuild.push_back( gpu );
+        // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
+        // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
+        // among them), so it is culled when the variety generates.
+        // Every frame: the camera's planes and the cascades' boxes are this frame's
+        // (GRASS-CULL-UNIFY-1).
+        m_FrameCull.push_back( gpu );
+        DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
+        NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
+                                  ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
+
+        // CPU-GRASS-POOL-8: the sections name the list pools' buffers and refs, so they are built
+        // after CommitListPools (below the field loop).
+        m_FrameSubmits.push_back( FrameSubmit{ .Variety = &variety, .MeshAsset = mesh, .Gpu = gpu } );
+    }
+
+    void GrassRenderer::PrepareFrame( const ViewFrame& frame, const MeshRenderer& meshes, const bool rayTracing,
+                                      const GrassOcclusion& occlusion, const bool parallelSetup )
     {
         // TURN-CPU-SETUP-1: the frame's grass by stage, one profile row each (inside SceneRenderer's "Setup:
-        // Grass").
+        // Grass plan").
         DESERT_PROFILE_PHASES( grassPhases );
         DESERT_PROFILE_PHASE( grassPhases, "Grass: View volumes" );
-        const bool testsHzb = occlusion.Hzb.IsValid();
+        if ( !m_Plan )
+            m_Plan = std::make_unique<GrassFramePlan>();
+        GrassFramePlan& framePlan = *m_Plan;
+        framePlan.Frame           = &frame;
+        framePlan.Meshes          = &meshes;
+        framePlan.Occlusion       = occlusion;
+        framePlan.Parallel        = parallelSetup;
+        framePlan.Ready           = false;
+        framePlan.Varieties.clear();
+        framePlan.ResumeField  = std::numeric_limits<std::size_t>::max();
+        framePlan.ResumeCursor = 0u;
+        const bool testsHzb    = occlusion.Hzb.IsValid();
         // The two volumes (GRASS-VIS-6): the camera's side planes, and the same planes swept along every light
         // whose cascades this frame fitted (UpdateCascades ran before this) for the full list the cascades and
         // the TLAS draw. While they differ the camera keeps a list of its own even with no HZB to test.
-        ViewVolumes volumes;
+        ViewVolumes& volumes = framePlan.Volumes;
+        volumes              = ViewVolumes{};
         SidePlanes( frame.ViewProjection, volumes.Camera );
         volumes.List = testsHzb ? CameraList::PlanesAndHzb : CameraList::Planes;
         // GPU-COST-21: the cascade views this frame draws, each with its own list culled by its caster box - the
@@ -2537,9 +2743,93 @@ namespace Desert::Graphic::System
         if ( m_Queue.empty() || !m_Generate || !m_Cull )
             return;
 
-        DESERT_PROFILE_PHASE( grassPhases, "Grass: Prepare varieties" );
-        for ( const GrassFieldDraw& field : m_Queue )
+        // FPS-GRASS-PLAN: the varieties the plan task prepares and plans, in field and variety order - each with
+        // its mesh (BladeStrip makes a strip on first use), its entry (inserted here: a task never inserts) and
+        // its read-back counts. A field's repeated key ends the plan there (RISK 8: the repeat is prepared after
+        // its first's apply); CommitFrame runs the rest serially from that variety on.
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Pick varieties" );
+        m_FrameSnowDepth = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
+        framePlan.Ready  = true;
+        for ( std::size_t f = 0; f < m_Queue.size(); ++f )
         {
+            const GrassFieldDraw& field = m_Queue[f];
+            if ( !field.Field || field.Field->Words.size() < 8 )
+                continue;
+            const std::size_t fieldFirst = framePlan.Varieties.size();
+            for ( std::size_t cursor = 0; cursor < field.Varieties.size(); ++cursor )
+            {
+                const GrassVarietyDraw& variety = field.Varieties[cursor];
+                Desert::Mesh* const     mesh    = DrawableMesh( variety );
+                if ( mesh == nullptr )
+                    continue;
+                const std::span<const VarietyPlan> fieldPlans =
+                     std::span<const VarietyPlan>( framePlan.Varieties ).subspan( fieldFirst );
+                if ( RepeatedKey( fieldPlans, variety ) )
+                {
+                    framePlan.ResumeField  = f;
+                    framePlan.ResumeCursor = cursor;
+                    return;
+                }
+                VarietyPlan& plan = framePlan.Varieties.emplace_back();
+                plan.Variety      = &variety;
+                plan.MeshAsset    = mesh;
+                plan.Gpu          = &m_Varieties[variety.Key];
+                plan.FieldIndex   = f;
+                ReadVarietyFeedback( plan );
+            }
+        }
+    }
+
+    void GrassRenderer::PlanFrame() noexcept
+    {
+        // FPS-GRASS-PLAN, on the caller's setup task (SceneRenderer "Grass: Plan frame"). It writes the grass's
+        // own state only - the planned entries, the list pools' CPU ranges, the visibility rows, the feedback
+        // marks, m_Settling - and reads the view, the queue, the field words and the mesh renderer's fitted
+        // cascades (const; UpdateCascades ran before PrepareFrame). No GPU object, no service, no graph: those are
+        // CommitFrame's. The same steps, in the same variety order, whichever thread runs them.
+        if ( !m_Plan || !m_Plan->Ready )
+            return;
+        GrassFramePlan&           framePlan = *m_Plan;
+        std::vector<VarietyPlan>& plans     = framePlan.Varieties;
+        for ( VarietyPlan& plan : plans )
+        {
+            const GrassFieldDraw& field    = m_Queue[plan.FieldIndex];
+            const auto            revision = static_cast<uint64_t>( field.Field->Revision );
+            plan.Prepared = PrepareVariety( *plan.Variety, *plan.MeshAsset, *framePlan.Frame, framePlan.Volumes,
+                                            *framePlan.Meshes, revision, plan ) != nullptr;
+        }
+        // RISK 9 (UE ParallelFor MinBatchSize / FParallelMeshDrawCommandPass): the plans in contiguous slices, one
+        // task each (a TaskGroup inside a task: its Join runs the unstarted slices here), never under
+        // kMinGrassPlansPerTask plans a slice. Each plan is written by exactly one task, in variety order.
+        Common::TaskGroup tasks( framePlan.Parallel );
+        tasks.LaunchSlices( "Grass variety: Plan", plans.size(), kMinGrassPlansPerTask,
+                            [this, &plans]( const std::size_t first, const std::size_t last ) noexcept
+                            {
+                                for ( std::size_t i = first; i < last; ++i )
+                                    if ( plans[i].Prepared )
+                                        PlanVariety( plans[i] );
+                            } );
+        tasks.Join();
+    }
+
+    void GrassRenderer::CommitFrame( RDG::Builder& graph, MeshRenderer& meshes )
+    {
+        // FPS-GRASS-PLAN, render thread after the plan task's join: the field buffers, the varieties' GPU objects
+        // and applies in variety order, the serial rest past a repeated key, then the pools, sections and passes.
+        if ( !m_Plan || !m_Plan->Ready )
+            return;
+        GrassFramePlan& framePlan       = *m_Plan;
+        framePlan.Ready                 = false;
+        const ViewFrame&      frame     = *framePlan.Frame;
+        const ViewVolumes&    volumes   = framePlan.Volumes;
+        const GrassOcclusion& occlusion = framePlan.Occlusion;
+        const bool            testsHzb  = m_FrameTested;
+        DESERT_PROFILE_PHASES( grassPhases );
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Field buffers" );
+        framePlan.FieldReady.assign( m_Queue.size(), uint8_t{ 0u } );
+        for ( std::size_t f = 0; f < m_Queue.size(); ++f )
+        {
+            const GrassFieldDraw& field = m_Queue[f];
             if ( !field.Field || field.Field->Words.size() < 8 )
                 continue;
             FieldGpu& fieldGpu = m_Fields[field.Root];
@@ -2562,66 +2852,75 @@ namespace Desert::Graphic::System
                 continue;
             }
             fieldGpu.Ref = graph.RegisterExternal( fieldGpu.Import, "GrassField" );
+            framePlan.FieldReady[f] = 1u;
+        }
 
-            // RENDER-PARALLEL-SETUP (UE RDG setup tasks): the field's varieties in three passes. The serial half
-            // in variety order (PrepareVariety: the entry, read-back counts, rebuilt buffers, visibility rows),
-            // the pure plans on TaskGroup tasks (PlanVariety: the params and the tile build's inputs, a task its
-            // own contiguous slice of plans and their entries), then the serial apply in variety order
-            // (ApplyVariety: the params' upload, the tiles, whose pool budget spans varieties; then the import,
-            // the graph and the sections below). Every shared write keeps the variety order whatever thread ran a
-            // plan: RenderPipeline.ParallelSetup 0, 1 make the same frame.
-            // RISK 8: a key is (root, layer, grass type, variety): one entry, so one plan of it at a time. The
-            // varieties run in contiguous SEGMENTS of unique keys, each prepared, planned and applied before the
-            // next one is prepared, and a repeated key starts the next segment - so the repeat is prepared after
-            // its first's Apply, as the sequential code ran it. With no repeat the field is one segment, as
-            // before.
-            std::vector<VarietyPlan> plans;
-            plans.reserve( field.Varieties.size() );
-            for ( std::size_t cursor = 0; cursor < field.Varieties.size(); )
+        // RENDER-PARALLEL-SETUP: the planned varieties' serial half after their plans, in variety order: the GPU
+        // objects PrepareVariety decided on, every variety's words of the shared tile feedback before any reads
+        // them (CPU-GRASS-POOL-2: a remade feedback makes every pool anew, so it is not remade between two
+        // varieties' tile updates), then the applies. Every shared write keeps the variety order:
+        // RenderPipeline.ParallelSetup 0, 1 make the same frame.
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Apply varieties" );
+        std::vector<VarietyPlan>& planned = framePlan.Varieties;
+        for ( VarietyPlan& plan : planned )
+            plan.Prepared =
+                 plan.Prepared && framePlan.FieldReady[plan.FieldIndex] != 0u && CommitVarietyObjects( plan );
+        for ( VarietyPlan& plan : planned )
+            if ( plan.Prepared && !EnsureTileFeedback( *plan.Gpu ) )
+                break;
+        for ( VarietyPlan& plan : planned )
+        {
+            if ( !plan.Prepared )
+                continue;
+            const GrassFieldDraw& field = m_Queue[plan.FieldIndex];
+            ApplyPlanned( plan, m_Fields[field.Root], field, frame );
+        }
+
+        // RISK 8: past a field's repeated key the varieties run here as before the plan task, in contiguous
+        // SEGMENTS of unique keys - each prepared, planned and applied before the next one is prepared, so the
+        // repeat is prepared after its first's apply. With no repeat (ResumeField past the queue) nothing runs.
+        DESERT_PROFILE_PHASE( grassPhases, "Grass: Serial varieties" );
+        for ( std::size_t f = framePlan.ResumeField; f < m_Queue.size(); ++f )
+        {
+            if ( framePlan.FieldReady[f] == 0u )
+                continue;
+            const GrassFieldDraw&     field    = m_Queue[f];
+            const FieldGpu&           fieldGpu = m_Fields[field.Root];
+            std::vector<VarietyPlan>& plans    = framePlan.Serial;
+            std::size_t               cursor   = 0u;
+            if ( f == framePlan.ResumeField )
+                cursor = framePlan.ResumeCursor;
+            while ( cursor < field.Varieties.size() )
             {
                 plans.clear();
                 for ( ; cursor < field.Varieties.size(); ++cursor )
                 {
                     const GrassVarietyDraw& variety = field.Varieties[cursor];
-                    Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
-                    if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
-                         mesh->GetGeometry().IndexCount == 0 )
+                    Desert::Mesh* const     mesh    = DrawableMesh( variety );
+                    if ( mesh == nullptr )
                         continue;
-                    const bool repeated =
-                         std::any_of( plans.begin(), plans.end(), [&variety]( const VarietyPlan& plan )
-                                      { return plan.Variety->Key == variety.Key; } );
-                    if ( repeated )
-                    {
-                        // A content fault (two layers resolving to one variety): drawn twice at two Prepares'
-                        // cost, as the sequential code drew it - said once per key, not once per frame.
-                        static std::unordered_set<uint64_t> s_WarnedRepeatedKey;
-                        if ( s_WarnedRepeatedKey.insert( variety.Key ).second )
-                            LOG_ERROR( "[Grass] a field queues variety key {:#x} more than once; each repeat is "
-                                       "prepared and drawn again (two layers resolve to one variety)",
-                                       variety.Key );
-                        break; // the next segment starts at the repeat, after this one's Apply
-                    }
-                    // RENDER-CPU-COST-1: a row of its own per step of a variety (the phase had none: 0.70 ms self
-                    // on the turn, scn-1104-073309); each row sums every variety's step.
+                    if ( RepeatedKey( plans, variety ) )
+                        break; // the next segment starts at the repeat, after this one's applies
                     DESERT_PROFILE_PHASES( varietyPhases );
                     DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Prepare" );
-                    plans.emplace_back();
+                    VarietyPlan& plan = plans.emplace_back();
+                    plan.Variety      = &variety;
+                    plan.MeshAsset    = mesh;
+                    plan.Gpu          = &m_Varieties[variety.Key];
+                    plan.FieldIndex   = f;
+                    ReadVarietyFeedback( plan );
                     const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
-                    if ( PrepareVariety( variety, *mesh, frame, volumes, meshes, revision, plans.back() ) ==
-                         nullptr )
+                    plan.Prepared =
+                         PrepareVariety( variety, *mesh, frame, volumes, meshes, revision, plan ) != nullptr &&
+                         CommitVarietyObjects( plan );
+                    if ( !plan.Prepared )
                         plans.pop_back();
                 }
                 {
                     DESERT_PROFILE_PHASES( planPhases );
                     DESERT_PROFILE_PHASE( planPhases, "Grass: Plan varieties (tasks + join)" );
-                    // RISK 9 (UE ParallelFor MinBatchSize / FParallelMeshDrawCommandPass): the plans in contiguous
-                    // slices, one task each, as many as there are participants but never under kMinPlansPerTask
-                    // plans a slice - a field of fewer than 2 x kMinPlansPerTask varieties is planned here,
-                    // inline, with no hand-out cost. Each plan is still written by exactly one task, in variety
-                    // order.
-                    constexpr std::size_t kMinPlansPerTask = 8;
-                    Common::TaskGroup     tasks( parallelSetup );
-                    tasks.LaunchSlices( "Grass variety: Plan", plans.size(), kMinPlansPerTask,
+                    Common::TaskGroup tasks( framePlan.Parallel );
+                    tasks.LaunchSlices( "Grass variety: Plan", plans.size(), kMinGrassPlansPerTask,
                                         [this, &plans]( const std::size_t first, const std::size_t last ) noexcept
                                         {
                                             for ( std::size_t i = first; i < last; ++i )
@@ -2629,82 +2928,11 @@ namespace Desert::Graphic::System
                                         } );
                     tasks.Join();
                 }
-                // CPU-GRASS-POOL-2: every variety's words of the shared tile feedback, before any reads them
-                // (UpdateTiles) - a remade feedback makes every pool anew, so it is not remade between two
-                // varieties' tile updates.
                 for ( VarietyPlan& plan : plans )
                     if ( !EnsureTileFeedback( *plan.Gpu ) )
                         break;
                 for ( VarietyPlan& plan : plans )
-                {
-                    const GrassVarietyDraw& variety = *plan.Variety;
-                    Desert::Mesh* const     mesh    = plan.MeshAsset;
-                    DESERT_PROFILE_PHASES( varietyPhases );
-                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Apply params + tiles" );
-                    if ( !ApplyVariety( plan ) )
-                        continue;
-                    VarietyGpu* const gpu = plan.Gpu;
-                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Register refs" );
-                    // CPU-GRASS-POOL-7: no buffer of the variety's own is imported - its params, chunks, segment
-                    // table and feedback are ranges of the shared pools CommitVarietyPools commits once after each
-                    // variety; CPU-GRASS-POOL-8: its rows, ids, records, candidates and law scales are ranges
-                    // of the pools CommitListPools commits once after the field loop, which sets the list refs.
-                    gpu->FieldRef    = fieldGpu.Ref;
-                    gpu->FieldBuffer = fieldGpu.Buffer;
-                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
-                    m_Frame.push_back( gpu );
-                    if ( gpu->Drawn )
-                        DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z,
-                                                  gpu->DrawnCascades );
-                    const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
-                    gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
-                    gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                    if ( gpu->FrameKey != gpu->GenerateKey )
-                    {
-                        gpu->GenerateKey = gpu->FrameKey;
-                        ++gpu->Generation;
-                    }
-                    gpu->LawKey.push_back( static_cast<uint32_t>( revision ) );
-                    gpu->LawKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
-                    if ( gpu->LawKey != gpu->LawedKey )
-                    {
-                        gpu->LawedKey = gpu->LawKey;
-                        ++gpu->LawGeneration;
-                    }
-                    // GRASS-VIEW-LAW-1: nothing is generated per view - the law is GrassCull's, every frame, over
-                    // the build's chunks. The tile passes run on a frame that frees or builds tiles and read the
-                    // table written then (a per-frame-in-flight copy); a fresh pool's Init pass writes its words
-                    // first.
-                    const bool grown = gpu->TileGrowFrom != gpu->TilePages; // GRASS-VRAM-BUDGET-1
-                    bool       tiles = gpu->PoolFresh || grown || gpu->TileFrees != 0u || gpu->TileBuilds != 0u;
-                    if ( tiles )
-                    {
-                        // CPU-GRASS-POOL-2: the variety's run of the shared tile table, written once for every
-                        // variety (CommitTileTable, which marks a fresh pool made). CPU-GRASS-POOL-3: its words
-                        // are a range of the shared words pool, imported once after every variety
-                        // (CommitTileWords).
-                        gpu->TileTableBase = static_cast<uint32_t>( m_TileTableImage.size() );
-                        m_TileTableImage.insert( m_TileTableImage.end(), gpu->TileEntries.begin(),
-                                                 gpu->TileEntries.end() );
-                    }
-                    if ( tiles && ( gpu->PoolFresh || grown || gpu->TileFrees != 0u ) )
-                        m_FrameTileFree.push_back( gpu );
-                    if ( tiles && gpu->TileBuilds != 0u )
-                        m_FrameTileBuild.push_back( gpu );
-                    // The camera's list depends on last frame's depth when it is HZB-tested, so it is culled every
-                    // such frame; by the camera's planes alone it follows the generation's inputs (the planes are
-                    // among them), so it is culled when the variety generates.
-                    // Every frame: the camera's planes and the cascades' boxes are this frame's
-                    // (GRASS-CULL-UNIFY-1).
-                    m_FrameCull.push_back( gpu );
-                    DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
-                    NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
-                                              ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
-
-                    // CPU-GRASS-POOL-8: the sections name the list pools' buffers and refs, so they are built
-                    // after CommitListPools (below the field loop).
-                    m_FrameSubmits.push_back( FrameSubmit{ .Variety = &variety, .MeshAsset = mesh, .Gpu = gpu } );
-                }
+                    ApplyPlanned( plan, fieldGpu, field, frame );
             }
         }
         // CPU-GRASS-POOL-8 (UE GPUScene: each pool committed and registered once a frame, after every upload was
