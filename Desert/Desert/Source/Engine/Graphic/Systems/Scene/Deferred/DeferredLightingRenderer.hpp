@@ -144,6 +144,9 @@ namespace Desert::Graphic::System
     // Runs in the manual chain (like Tonemap), only when RenderPath == Deferred.
     class DeferredLightingRenderer final : public RenderSystem
     {
+        // Defined below with the programs; the public declare helpers take it by reference.
+        struct CompositeProgram;
+
     public:
         using RenderSystem::RenderSystem;
 
