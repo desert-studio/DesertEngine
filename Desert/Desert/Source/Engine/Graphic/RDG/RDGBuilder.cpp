@@ -1755,7 +1755,7 @@ namespace Desert::Graphic::RDG
             std::string                       BackendFailure;
             // CPU-RDG-RECORD: LostRoot[i] is pass LostRootBase + i. A chunk's state covers only its own pass
             // range: the lowest to the highest pass index over its positions (positions do NOT keep AddPass
-            // order - HoistQueuedUploads and ScheduleAsyncOverlap move passes - so the first position's pass
+            // order - HoistQueuedUploads and ScheduleIntoAsyncWindows move passes - so the first position's pass
             // need not be the lowest); a pass outside it was not recorded by this state and reads as not lost.
             uint32_t LostRootBase = 0;
             [[nodiscard]] int32_t LostRootOf( uint32_t pass ) const noexcept

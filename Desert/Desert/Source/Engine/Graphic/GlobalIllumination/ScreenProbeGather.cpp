@@ -794,9 +794,8 @@ namespace Desert::Graphic::GlobalIllumination
         // such work: FPS-FIELD-BARN-TURN (scn-1112-132840) - the radiance cache (0.4 ms), this piece (0.94 ms, the
         // AO 0.90 of it) and the trace .. temporal piece (2.04 ms) run back to back on the async queue from 'HZB',
         // the graphics queue renders everything that reads none of them in that window (HZB, the clouds, SSR, the
-        // world reflections, the direct lighting - the passes RDGCompile's async schedule (then
-        // ScheduleIntoAsyncWindows / SinkIntoAsyncWindows, now ScheduleAsyncOverlap) can move are already
-        // there) and then waits 1.42 ms before 'Deferred: Composite'.
+        // world reflections, the direct lighting - the passes RDGCompile ScheduleIntoAsyncWindows /
+        // SinkIntoAsyncWindows can move are already there) and then waits 1.42 ms before 'Deferred: Composite'.
         // The AO reads only what Graphics holds (the G-buffer depth / normal, the queued params and GI frame
         // record: shared read groups Graphics opened, RDGCompile FindAsyncRuns), so it joins no async run; its
         // one reader is the integrate, whose piece the graph forks anew after it (CutRunsAtConsumers). The AO thus

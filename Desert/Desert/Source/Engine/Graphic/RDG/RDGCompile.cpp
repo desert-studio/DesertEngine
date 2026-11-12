@@ -3,8 +3,8 @@
 // function per phase - FlushCullStack, the fork/join pass, MergeRenderPasses, CollectPassBarriers,
 // CompilePassOps, AllocateTransientResources, CreatePassBarriers, FinalizeResources - adapted to a graph
 // whose passes keep their declaration order except where HoistQueuedUploads moves a queued upload to the graph
-// head and ScheduleAsyncOverlap list-schedules the passes, along their dependency edges, so async forks come
-// as early and joins as late as the edges allow.
+// head and ScheduleIntoAsyncWindows / SinkIntoAsyncWindows move a graphics pass, along its dependency edges,
+// into an async run's overlap window.
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGDeclarationKey.hpp>
@@ -20,7 +20,6 @@
 #include <bit>
 #include <functional>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <set>
 #include <tuple>
@@ -310,7 +309,8 @@ namespace Desert::Graphic::RDG
         void                                CollectDependencyEdges();
         void                                ChoosePipes();
         void                                HoistQueuedUploads();
-        void                                ScheduleAsyncOverlap();
+        void                                ScheduleIntoAsyncWindows();
+        void                                SinkIntoAsyncWindows();
         void                                FindAsyncRuns();
         void                                CutRunsAtConsumers();
         void                                CreateAsyncSyncs();
@@ -931,7 +931,7 @@ namespace Desert::Graphic::RDG
         }
     }
 
-    // ── S1. Pipe choice. A pipe per pass (reordering: HoistQueuedUploads, ScheduleAsyncOverlap) ──────────
+    // ── S1. Pipe choice. A pipe per pass (reordering: HoistQueuedUploads, ScheduleIntoAsyncWindows) ──────
     void Builder::Compiler::ChoosePipes()
     {
         m_Result.Pipes = m_Pipes;
@@ -1019,50 +1019,168 @@ namespace Desert::Graphic::RDG
         m_PipeAt = std::move( pipes );
     }
 
-    // ── S2 (pre). The async overlap schedule (FPS-ASYNC-OVERLAP) ─────────────────────────────────────────
-    // UE's rule for async compute: fork as early as the inputs allow, join as late as the consumers allow, and
-    // the graphics queue renders the work that reads neither in between. UE gets it from the renderer's hand-
-    // placed call order; the graph has every dependency edge, so the compile decides it - one list schedule of
-    // the whole graph, not a window-by-window move (it replaced RDG-ASYNC-1's pull and GPU-TURN-1's sink, whose
-    // windows ended at the next run and at the last settled insertion point: on FPS-FIELD-BARN-TURN the
-    // radiance-cache and screen-probe runs follow each other on the queue, none of them had a window of its own,
-    // the forks 'ScreenProbes: Trace Screen' / 'Disocclusion' / 'Integrate Classify' stayed behind independent
-    // graphics work and the graphics queue waited 0.61 ms before 'Deferred: Composite').
-    // Every async pass has its queue index (the order the async queue runs them; kept). A graphics pass gets two
-    // facts from the edges: Feeds - the lowest queue index it reaches (through any passes), and Waits - the
-    // highest queue index that reaches it. The schedule emits, at each step:
-    //   1. the next async pass in queue order once every pass it depends on is emitted (its fork is that pass);
-    //   2. else the ready graphics pass with the smallest key: a queued upload, then the passes that feed an async
-    //      pass by Feeds (the queue's next fork first), then the passes that feed none by Waits (work no async
-    //      pass touches first, then the consumers of the earliest runs, the consumers of the last run last);
-    //      a tie keeps the declaration order.
-    // Every dependency edge keeps its direction, so the graph's result is the same. Order no edge records is
-    // kept: a NeverParallel pass (its exec writes renderer state later passes read while recording), an
-    // ExternalQueue pass and the queued-upload head are fixed and nothing moves across them (the schedule runs
-    // per segment between them). A raster pass that continues the raster pass right before it (an edge between
-    // them: a render-pass merge) moves with it as one unit.
-    void Builder::Compiler::ScheduleAsyncOverlap()
+    // ── S2 (pre). Graphics work into the async windows (RDG-ASYNC-1) ─────────────────────────────────────
+    // The graphics queue waits at a run's join when the graphics passes between the run's fork and its first
+    // consumer take less time than the run (FPS-FIELD-BARN: 1.5-1.9 ms of graphics against a 2.41 ms chain).
+    // A graphics pass after that consumer and before the next run that depends on no async pass, and on no
+    // pass from the insertion point on that is not moved itself, is moved - in its order - to just before the
+    // consumer: every dependency edge keeps its direction, so the graph's result is the same and the queue
+    // fills the window. UE leaves this to the renderer's declaration order; the graph has the edges, so the
+    // compile decides it, with no hand-placed order in the renderer.
+    // Order no edge records is kept: a NeverParallel pass (its exec writes renderer state later passes read
+    // while recording) and an ExternalQueue pass are never moved, nothing moves across them, and a consumer
+    // that is one of them takes nothing in front of it. The insertion point steps back over a raster chain the
+    // consumer continues (a raster predecessor right before a raster consumer), so a render-pass merge stays.
+    void Builder::Compiler::ScheduleIntoAsyncWindows()
     {
         if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
             return;
-        constexpr uint32_t kNone = std::numeric_limits<uint32_t>::max();
-        const uint32_t     count = m_ExecutedCount;
-        // Direct predecessors and successors of each position (CSR).
-        ScratchVector<uint32_t> predBegin( count + 1, 0 );
-        ScratchVector<uint32_t> succBegin( count + 1, 0 );
+        // Direct predecessors of each position, from the dependency edges (CSR).
+        ScratchVector<uint32_t> predBegin( m_ExecutedCount + 1, 0 );
         for ( const DependencyEdge& edge : m_Result.Edges )
-        {
             ++predBegin[m_PositionOf[edge.To] + 1];
-            ++succBegin[m_PositionOf[edge.From] + 1];
-        }
-        for ( uint32_t position = 0; position < count; ++position )
-        {
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
             predBegin[position + 1] += predBegin[position];
-            succBegin[position + 1] += succBegin[position];
-        }
         ScratchVector<uint32_t> preds( m_Result.Edges.size() );
-        ScratchVector<uint32_t> succs( m_Result.Edges.size() );
         {
+            ScratchVector<uint32_t> fill( predBegin.begin(), predBegin.end() - 1 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+                preds[fill[m_PositionOf[edge.To]]++] = m_PositionOf[edge.From];
+        }
+        const auto keepsOrder = [&]( uint32_t position )
+        {
+            const PassRecord& pass = m_Passes[m_Executed[position]];
+            return HasFlag( pass.Flags, PassFlags::NeverParallel ) || pass.External.has_value();
+        };
+        const auto isRaster = [&]( uint32_t position )
+        { return HasFlag( m_Passes[m_Executed[position]].Flags, PassFlags::Raster ); };
+        const auto dependsOn = [&]( uint32_t position, uint32_t on )
+        {
+            return std::find( preds.begin() + predBegin[position], preds.begin() + predBegin[position + 1], on ) !=
+                   preds.begin() + predBegin[position + 1];
+        };
+
+        ScratchVector<bool>     moved( m_ExecutedCount, false );
+        ScratchVector<uint32_t> order; // new position -> old position
+        uint32_t              emitted  = 0;
+        uint32_t              position = 0;
+        while ( position < m_ExecutedCount )
+        {
+            if ( m_PipeAt[position] != Pipe::AsyncCompute )
+            {
+                ++position;
+                continue;
+            }
+            const uint32_t first = position;
+            while ( position < m_ExecutedCount && m_PipeAt[position] == Pipe::AsyncCompute )
+                ++position;
+            const uint32_t last      = position - 1;
+            uint32_t       nextFirst = position;
+            while ( nextFirst < m_ExecutedCount && m_PipeAt[nextFirst] != Pipe::AsyncCompute )
+                ++nextFirst;
+            // The run's first consumer before the next run: the first graphics pass with an edge from it.
+            uint32_t join = nextFirst;
+            for ( uint32_t q = last + 1; q < nextFirst && join == nextFirst; ++q )
+            {
+                for ( uint32_t k = predBegin[q]; k < predBegin[q + 1]; ++k )
+                {
+                    if ( preds[k] >= first && preds[k] <= last )
+                        join = q;
+                }
+            }
+            if ( join == nextFirst || keepsOrder( join ) )
+                continue;
+            uint32_t insertAt = join;
+            while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
+                    isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
+                --insertAt;
+            bool any = false;
+            for ( uint32_t q = join + 1; q < nextFirst; ++q )
+            {
+                if ( keepsOrder( q ) )
+                    break;
+                bool free = true;
+                for ( uint32_t k = predBegin[q]; k < predBegin[q + 1] && free; ++k )
+                {
+                    const uint32_t before = preds[k];
+                    free = m_PipeAt[before] != Pipe::AsyncCompute && ( before < insertAt || moved[before] );
+                }
+                moved[q] = free;
+                any      = any || free;
+            }
+            if ( !any )
+                continue;
+            order.reserve( m_ExecutedCount );
+            for ( ; emitted < insertAt; ++emitted )
+                order.push_back( emitted );
+            for ( uint32_t q = insertAt; q < nextFirst; ++q )
+            {
+                if ( moved[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = insertAt; q < nextFirst; ++q )
+            {
+                if ( !moved[q] )
+                    order.push_back( q );
+            }
+            emitted = nextFirst;
+        }
+        if ( order.empty() )
+            return;
+        for ( ; emitted < m_ExecutedCount; ++emitted )
+            order.push_back( emitted );
+        ScratchVector<uint32_t> executed( m_ExecutedCount );
+        ScratchVector<Pipe>     pipes( m_ExecutedCount );
+        for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
+        {
+            executed[at]               = m_Executed[order[at]];
+            pipes[at]                  = m_PipeAt[order[at]];
+            m_PositionOf[executed[at]] = at;
+        }
+        std::copy( executed.begin(), executed.end(), m_Executed.begin() );
+        m_PipeAt = std::move( pipes );
+    }
+
+    // ── S2 (pre, cont.). Independent graphics work sunk into the async windows (GPU-TURN-1) ──────────────
+    // The pull above fills a window only with graphics work declared AFTER the run's first consumer. On
+    // FPS-FIELD-BARN-TURN that is all there is and the graphics queue still idles 0.46 ms ("RDG Wait: graphics
+    // queue on async compute before 'Deferred: Composite'"): the screen-probe piece outlasts the graphics work
+    // between the run's fork ('HZB: Mip 0' / 'HZB: Mip 10') and that consumer. The work it lacks is declared
+    // BEFORE the fork - the shadow depths, which only the lighting after the join reads. UE renders them after
+    // the base pass for exactly this overlap (RenderShadowDepthMaps after the async Lumen dispatch, beside
+    // RenderLights; raster depth work beside compute tracing), by a hand-placed call order. Here the graph has
+    // the edges, so the compile decides it: a graphics pass before a run's fork that no pass before the run's
+    // first consumer depends on - a pass sunk with it aside - is moved, in its order, to just before that
+    // consumer (the pull's insertion point). It runs on Graphics while the run runs on AsyncCompute, and the
+    // fork, no longer queued behind it, signals earlier. Every dependency edge keeps its direction, so the
+    // graph's result is the same. The pull's order rules hold: a NeverParallel or ExternalQueue pass is never
+    // moved and nothing moves across one, and a queued upload stays at the head HoistQueuedUploads put it at
+    // (the cascade copies "MeshShadowCascade{c}.FromCache" are Copy passes and do sink). A run whose first
+    // consumer is beyond the next run shares that run's window; positions before a window's insertion point
+    // are settled and never move again.
+    void Builder::Compiler::SinkIntoAsyncWindows()
+    {
+        if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
+            return;
+        // Direct predecessors and successors of each position (CSR), rebuilt after each move.
+        ScratchVector<uint32_t> predBegin;
+        ScratchVector<uint32_t> preds( m_Result.Edges.size() );
+        ScratchVector<uint32_t> succBegin;
+        ScratchVector<uint32_t> succs( m_Result.Edges.size() );
+        const auto buildAdjacency = [&]()
+        {
+            predBegin.assign( m_ExecutedCount + 1, 0 );
+            succBegin.assign( m_ExecutedCount + 1, 0 );
+            for ( const DependencyEdge& edge : m_Result.Edges )
+            {
+                ++predBegin[m_PositionOf[edge.To] + 1];
+                ++succBegin[m_PositionOf[edge.From] + 1];
+            }
+            for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+            {
+                predBegin[position + 1] += predBegin[position];
+                succBegin[position + 1] += succBegin[position];
+            }
             ScratchVector<uint32_t> predFill( predBegin.begin(), predBegin.end() - 1 );
             ScratchVector<uint32_t> succFill( succBegin.begin(), succBegin.end() - 1 );
             for ( const DependencyEdge& edge : m_Result.Edges )
@@ -1072,199 +1190,174 @@ namespace Desert::Graphic::RDG
                 preds[predFill[to]++]   = from;
                 succs[succFill[from]++] = to;
             }
-        }
-        const auto isAsync = [&]( uint32_t position ) { return m_PipeAt[position] == Pipe::AsyncCompute; };
-        const auto isFixed = [&]( uint32_t position )
+        };
+        const auto keepsOrder = [&]( uint32_t position )
         {
             const PassRecord& pass = m_Passes[m_Executed[position]];
-            return position < m_UploadHead || HasFlag( pass.Flags, PassFlags::NeverParallel ) ||
-                   pass.External.has_value();
+            return HasFlag( pass.Flags, PassFlags::NeverParallel ) || pass.External.has_value();
         };
         const auto isRaster = [&]( uint32_t position )
-        { return !isAsync( position ) && HasFlag( m_Passes[m_Executed[position]].Flags, PassFlags::Raster ); };
+        { return HasFlag( m_Passes[m_Executed[position]].Flags, PassFlags::Raster ); };
         const auto dependsOn = [&]( uint32_t position, uint32_t on )
         {
             return std::find( preds.begin() + predBegin[position], preds.begin() + predBegin[position + 1], on ) !=
                    preds.begin() + predBegin[position + 1];
         };
 
-        // Queue index of each async position; Feeds (lowest queue index reached, kNone: none) backwards and
-        // Waits (highest queue index + 1 that reaches it, 0: none) forwards - edges run forward in the order.
-        ScratchVector<uint32_t> queueIndex( count, kNone );
-        uint32_t                asyncCount = 0;
-        for ( uint32_t position = 0; position < count; ++position )
+        buildAdjacency();
+        ScratchVector<bool>     sunk( m_ExecutedCount, false );
+        ScratchVector<bool>     early( m_ExecutedCount, false );
+        ScratchVector<bool>     need( m_ExecutedCount, false );
+        ScratchVector<uint32_t> order;
+        uint32_t              settled  = 0;
+        uint32_t              position = 0;
+        while ( position < m_ExecutedCount )
         {
-            if ( isAsync( position ) )
-                queueIndex[position] = asyncCount++;
-        }
-        ScratchVector<uint32_t> feeds( count, kNone );
-        for ( uint32_t position = count; position-- > 0; )
-        {
-            if ( isAsync( position ) )
+            if ( m_PipeAt[position] != Pipe::AsyncCompute )
             {
-                feeds[position] = queueIndex[position];
+                ++position;
                 continue;
             }
-            for ( uint32_t k = succBegin[position]; k < succBegin[position + 1]; ++k )
-                feeds[position] = std::min( feeds[position], feeds[succs[k]] );
-        }
-        ScratchVector<uint32_t> waits( count, 0 );
-        for ( uint32_t position = 0; position < count; ++position )
-        {
-            if ( isAsync( position ) )
+            const uint32_t first = position;
+            while ( position < m_ExecutedCount && m_PipeAt[position] == Pipe::AsyncCompute )
+                ++position;
+            const uint32_t last      = position - 1;
+            uint32_t       nextFirst = position;
+            while ( nextFirst < m_ExecutedCount && m_PipeAt[nextFirst] != Pipe::AsyncCompute )
+                ++nextFirst;
+            // The run's first consumer before the next run, and its fork: the latest graphics position a pass
+            // of the run depends on (every graphics position the run depends on is before `first`).
+            uint32_t join = nextFirst;
+            for ( uint32_t q = last + 1; q < nextFirst && join == nextFirst; ++q )
             {
-                waits[position] = queueIndex[position] + 1;
-                continue;
-            }
-            for ( uint32_t k = predBegin[position]; k < predBegin[position + 1]; ++k )
-                waits[position] = std::max( waits[position], waits[preds[k]] );
-        }
-
-        // Units: one position, or a raster chain whose every pass continues the one before it.
-        ScratchVector<uint32_t> unitOf( count, kNone );
-        ScratchVector<uint32_t> unitFirst;
-        unitFirst.reserve( count + 1 );
-        for ( uint32_t position = 0; position < count; ++position )
-        {
-            const bool continues = position > 0 && !isFixed( position ) && !isFixed( position - 1 ) &&
-                                   isRaster( position ) && isRaster( position - 1 ) &&
-                                   dependsOn( position, position - 1 );
-            if ( !continues )
-                unitFirst.push_back( position );
-            unitOf[position] = static_cast<uint32_t>( unitFirst.size() - 1 );
-        }
-        const uint32_t unitCount = static_cast<uint32_t>( unitFirst.size() );
-        unitFirst.push_back( count );
-        // A unit's key: (class, value, declaration position); class 0 a queued upload, 1 feeds (value Feeds),
-        // 2 feeds nothing (value Waits). Async units take step 1 and no key.
-        struct UnitKey
-        {
-            uint32_t Class = 0;
-            uint32_t Value = 0;
-            uint32_t First = 0;
-            bool     operator<( const UnitKey& other ) const noexcept
-            {
-                if ( Class != other.Class )
-                    return Class < other.Class;
-                if ( Value != other.Value )
-                    return Value < other.Value;
-                return First < other.First;
-            }
-        };
-        ScratchVector<UnitKey> keys( unitCount );
-        for ( uint32_t unit = 0; unit < unitCount; ++unit )
-        {
-            uint32_t unitFeeds = kNone;
-            uint32_t unitWaits = 0;
-            bool     upload    = false;
-            for ( uint32_t position = unitFirst[unit]; position < unitFirst[unit + 1]; ++position )
-            {
-                unitFeeds = std::min( unitFeeds, feeds[position] );
-                unitWaits = std::max( unitWaits, waits[position] );
-                upload    = upload || m_Passes[m_Executed[position]].QueuedUpload;
-            }
-            UnitKey& key = keys[unit];
-            key.First    = unitFirst[unit];
-            key.Class    = upload ? 0u : ( unitFeeds != kNone ? 1u : 2u );
-            key.Value    = key.Class == 1u ? unitFeeds : ( key.Class == 2u ? unitWaits : 0u );
-        }
-
-        ScratchVector<uint32_t> order; // new position -> old position
-        order.reserve( count );
-        ScratchVector<uint32_t> pending( unitCount, 0 ); // unscheduled predecessor units in the segment
-        ScratchVector<uint32_t> ready;
-        ScratchVector<uint32_t> asyncUnits;
-        uint32_t                segmentBegin = 0;
-        while ( segmentBegin < count )
-        {
-            if ( isFixed( segmentBegin ) )
-            {
-                order.push_back( segmentBegin++ );
-                continue;
-            }
-            uint32_t segmentEnd = segmentBegin;
-            while ( segmentEnd < count && !isFixed( segmentEnd ) )
-                ++segmentEnd;
-            // Units of [segmentBegin, segmentEnd) (a unit never crosses a fixed position); a predecessor before
-            // the segment is already emitted.
-            const uint32_t firstUnit = unitOf[segmentBegin];
-            const uint32_t endUnit   = unitOf[segmentEnd - 1] + 1;
-            ready.clear();
-            asyncUnits.clear();
-            for ( uint32_t unit = firstUnit; unit < endUnit; ++unit )
-            {
-                pending[unit] = 0;
-                for ( uint32_t position = unitFirst[unit]; position < unitFirst[unit + 1]; ++position )
+                for ( uint32_t k = predBegin[q]; k < predBegin[q + 1]; ++k )
                 {
-                    for ( uint32_t k = predBegin[position]; k < predBegin[position + 1]; ++k )
-                    {
-                        const uint32_t from = preds[k];
-                        if ( from >= segmentBegin && unitOf[from] != unit )
-                            ++pending[unit];
-                    }
+                    if ( preds[k] >= first && preds[k] <= last )
+                        join = q;
                 }
-                if ( isAsync( unitFirst[unit] ) )
-                    asyncUnits.push_back( unit );
-                else if ( pending[unit] == 0 )
-                    ready.push_back( unit );
             }
-            uint32_t nextAsync = 0; // into asyncUnits: the queue order is kept
-            uint32_t emitted   = 0;
-            while ( emitted < endUnit - firstUnit )
+            uint32_t forkEnd = 0; // one past the fork; 0: the run depends on no graphics pass
+            for ( uint32_t a = first; a <= last; ++a )
             {
-                uint32_t pick = kNone;
-                if ( nextAsync < asyncUnits.size() && pending[asyncUnits[nextAsync]] == 0 )
+                for ( uint32_t k = predBegin[a]; k < predBegin[a + 1]; ++k )
                 {
-                    pick = asyncUnits[nextAsync++];
+                    if ( m_PipeAt[preds[k]] != Pipe::AsyncCompute )
+                        forkEnd = std::max( forkEnd, preds[k] + 1 );
                 }
-                else
+            }
+            // Nothing moves across an order-keeping pass, nor out of an earlier window's settled positions: the
+            // fork's own range for the early move, up to the insertion point for the sink.
+            uint32_t earlyStart = settled;
+            for ( uint32_t q = settled; q < forkEnd; ++q )
+            {
+                if ( keepsOrder( q ) )
+                    earlyStart = q + 1;
+            }
+            const bool hasWindow = join != nextFirst && !keepsOrder( join );
+            uint32_t   insertAt  = forkEnd;
+            uint32_t   scanStart = earlyStart;
+            if ( hasWindow )
+            {
+                insertAt = join;
+                while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
+                        isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
+                    --insertAt;
+                scanStart = settled;
+                for ( uint32_t q = settled; q < insertAt; ++q )
                 {
-                    uint32_t best = kNone;
-                    for ( uint32_t at = 0; at < ready.size(); ++at )
-                    {
-                        if ( best == kNone || keys[ready[at]] < keys[ready[best]] )
-                            best = at;
-                    }
-                    // The earliest unemitted unit in declaration order always has every predecessor emitted
-                    // (edges run forward), so it is the next async unit or a ready graphics unit: best is set.
-                    if ( best == kNone )
-                        return;
-                    pick        = ready[best];
-                    ready[best] = ready.back();
-                    ready.pop_back();
+                    if ( keepsOrder( q ) )
+                        scanStart = q + 1;
                 }
-                ++emitted;
-                for ( uint32_t position = unitFirst[pick]; position < unitFirst[pick + 1]; ++position )
+                settled = insertAt;
+            }
+            // From the fork back: a pass sinks when each of its successors is at or after the insertion point
+            // or sinks itself (positions from the fork on never sink, so a successor there keeps it).
+            std::fill( sunk.begin(), sunk.end(), false );
+            std::fill( early.begin(), early.end(), false );
+            bool sinking = false;
+            if ( hasWindow && forkEnd > scanStart )
+            {
+                for ( uint32_t q = forkEnd; q-- > scanStart; )
                 {
-                    order.push_back( position );
-                    for ( uint32_t k = succBegin[position]; k < succBegin[position + 1]; ++k )
+                    if ( m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload )
+                        continue;
+                    bool free = true;
+                    for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
+                        free = succs[k] >= insertAt || sunk[succs[k]];
+                    sunk[q] = free;
+                    sinking = sinking || free;
+                }
+            }
+            // THE FORK AT ITS PRODUCERS (UE: the async dispatch right after the depth / G-buffer it reads). From
+            // the fork back, a pass the fork needs stays before it: the fork itself, an async pass and a queued
+            // upload, a pass any async pass reads (moving it later would move that pass's fork later) and a pass
+            // with a staying successor before the fork. Every other graphics pass that does not sink moves, in
+            // its order, to right after the fork: the fork signals once the work it needs is done, not behind
+            // work only later graphics passes read. Every dependency edge keeps its direction.
+            // A fork a raster pass continues (a render-pass merge across it) takes nothing after it.
+            bool hoisting = false;
+            if ( forkEnd > earlyStart + 1 &&
+                 !( isRaster( forkEnd - 1 ) && isRaster( forkEnd ) && dependsOn( forkEnd, forkEnd - 1 ) ) )
+            {
+                std::fill( need.begin() + earlyStart, need.begin() + forkEnd, false );
+                need[forkEnd - 1] = true;
+                for ( uint32_t q = forkEnd - 1; q-- > earlyStart; )
+                {
+                    if ( sunk[q] )
+                        continue;
+                    bool stays = m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload;
+                    for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && !stays; ++k )
                     {
                         const uint32_t to = succs[k];
-                        if ( to >= segmentEnd || unitOf[to] == pick )
-                            continue;
-                        if ( --pending[unitOf[to]] == 0 && !isAsync( to ) )
-                            ready.push_back( unitOf[to] );
+                        stays             = m_PipeAt[to] != Pipe::Graphics || ( to < forkEnd && need[to] );
                     }
+                    need[q]  = stays;
+                    early[q] = !stays;
+                    hoisting = hoisting || !stays;
                 }
             }
-            segmentBegin = segmentEnd;
+            if ( !sinking && !hoisting )
+                continue;
+            // [settled, the fork] that stays, the passes moved past the fork, the fork's window up to the
+            // insertion point, the sunk passes, the rest.
+            const uint32_t limit = sinking ? insertAt : forkEnd;
+            order.clear();
+            order.reserve( m_ExecutedCount );
+            for ( uint32_t q = 0; q < earlyStart; ++q )
+                order.push_back( q );
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
+            {
+                if ( !sunk[q] && !early[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
+            {
+                if ( early[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = forkEnd; q < limit; ++q )
+                order.push_back( q );
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
+            {
+                if ( sunk[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = limit; q < m_ExecutedCount; ++q )
+                order.push_back( q );
+            ScratchVector<uint32_t> executed( m_ExecutedCount );
+            ScratchVector<Pipe>     pipes( m_ExecutedCount );
+            for ( uint32_t at = 0; at < m_ExecutedCount; ++at )
+            {
+                executed[at]               = m_Executed[order[at]];
+                pipes[at]                  = m_PipeAt[order[at]];
+                m_PositionOf[executed[at]] = at;
+            }
+            std::copy( executed.begin(), executed.end(), m_Executed.begin() );
+            m_PipeAt = std::move( pipes );
+            // The run moved down by the sunk passes before it; positions from insertAt on did not move.
+            buildAdjacency();
+            position = nextFirst;
         }
-
-        bool changed = false;
-        for ( uint32_t at = 0; at < count && !changed; ++at )
-            changed = order[at] != at;
-        if ( !changed )
-            return;
-        ScratchVector<uint32_t> executed( count );
-        ScratchVector<Pipe>     pipes( count );
-        for ( uint32_t at = 0; at < count; ++at )
-        {
-            executed[at]               = m_Executed[order[at]];
-            pipes[at]                  = m_PipeAt[order[at]];
-            m_PositionOf[executed[at]] = at;
-        }
-        std::copy( executed.begin(), executed.end(), m_Executed.begin() );
-        m_PipeAt = std::move( pipes );
     }
 
     // ── S2. Async runs and their fork / join (UE's fork/join pass in Compile) ─────────────────────────────
@@ -2650,7 +2743,8 @@ namespace Desert::Graphic::RDG
         DESERT_PROFILE_PHASE( stages, "RDG Compile: pipes and async runs" );
         compiler.ChoosePipes();
         compiler.HoistQueuedUploads();
-        compiler.ScheduleAsyncOverlap();
+        compiler.ScheduleIntoAsyncWindows();
+        compiler.SinkIntoAsyncWindows();
         compiler.FindAsyncRuns();
         compiler.CreateAsyncSyncs();
         DESERT_PROFILE_PHASE( stages, "RDG Compile: lifetimes" );
