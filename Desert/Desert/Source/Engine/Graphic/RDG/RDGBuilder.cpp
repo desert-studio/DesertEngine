@@ -710,6 +710,24 @@ namespace Desert::Graphic::RDG
         return BufferRef{ static_cast<uint32_t>( m_Resources.size() - 1 ) };
     }
 
+    void Builder::LendToRoute( const std::string_view slot, const BufferRef buffer )
+    {
+        CheckNotInSetupTask( m_Name, "LendToRoute" );
+        if ( FindResource( buffer.Index, ResourceKind::Buffer ) == nullptr )
+        {
+            RecordError( fmt::format( "graph '{}': LendToRoute('{}') of invalid buffer handle {}", m_Name, slot,
+                                      buffer.Index ) );
+            return;
+        }
+        for ( RouteLentBuffer& lent : m_RouteLent )
+            if ( lent.Slot == slot )
+            {
+                lent.Buffer = buffer;
+                return;
+            }
+        m_RouteLent.push_back( RouteLentBuffer{ slot, buffer } );
+    }
+
     void Builder::Extract( TextureRef texture, ExternalTexture& into, Access final,
                            std::initializer_list<Access> later )
     {
@@ -819,6 +837,7 @@ namespace Desert::Graphic::RDG
         m_SetupDepth     = 0;
         m_KeyedExternals.clear();
         m_RoleResources.clear();
+        m_RouteLent.clear();
         m_Arena.Reset();
     }
 
@@ -1207,6 +1226,25 @@ namespace Desert::Graphic::RDG
 
         pass.Uses.push_back( { buffer.Index, access, SubresourceRange{ 0, 1, 0, 1 }, -1 } );
         m_Builder.m_Resources[buffer.Index].DeclaredByPass = true;
+    }
+
+    void PassBuilder::DeclareRouteLentReads( const OtherRouteFill& fill )
+    {
+        Builder::PassRecord& pass = m_Builder.m_Passes[m_Pass];
+        // A copy pass binds no route; what it may not declare is not declared for it.
+        if ( !RdgPassKindAllows( pass.Flags, Access::StorageRead ) )
+            return;
+        for ( const Builder::RouteLentBuffer& lent : m_Builder.m_RouteLent )
+        {
+            if ( std::find( fill.Slots.begin(), fill.Slots.end(), lent.Slot ) == fill.Slots.end() )
+                continue;
+            // Once per pass: a mesh pass declares one block per material, every one of them filling the slot.
+            const bool declared = std::any_of( pass.Uses.begin(), pass.Uses.end(),
+                                               [&lent]( const Builder::ResourceUse& use )
+                                               { return use.Resource == lent.Buffer.Index; } );
+            if ( !declared )
+                DeclareBuffer( lent.Buffer, Access::StorageRead, false, "Bindings (route-lent)" );
+        }
     }
 
     void PassBuilder::DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access,

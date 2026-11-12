@@ -483,6 +483,10 @@ namespace Desert::Graphic::RDG
     BindingBlockBuilder PassBuilder::Bindings( const std::shared_ptr<const ShaderBindingLayout>& layout,
                                                std::shared_ptr<const OtherRouteFill>             other )
     {
+        // FPS-DEVLOST18: what the other route binds from the graph (a material's lent scene tables) is a read of
+        // this pass, declared here once for every route-bound pass (Builder::LendToRoute).
+        if ( other && !other->Slots.empty() && !m_Builder.m_RouteLent.empty() )
+            DeclareRouteLentReads( *other );
         auto& blocks = m_Builder.m_Passes[m_Pass].Blocks; // CPU-FRAME-ARENA: an arena vector
         // CPU-RDG-ALLOC: the entries live in the graph's arena too - no heap vector per block per frame.
         blocks.push_back( DeclaredBindingBlock{

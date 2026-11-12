@@ -406,11 +406,32 @@ namespace Desert::Graphic::DistanceField
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr GlobalDistanceField::RegisterMeshFields( RDG::Builder&                 graph,
+                                                                   const DistanceFieldSceneData& scene,
+                                                                   const MeshFieldImports&       imports,
+                                                                   MeshDistanceFieldReads&       into ) const
+    {
+        if ( imports.Assets == nullptr || imports.Indirection == nullptr || imports.Objects == nullptr )
+            return Common::MakeError<bool>( "global distance field: the view handed no import for the mesh fields" );
+        using BufferImport = std::tuple<const std::shared_ptr<ShaderResources::StorageBuffer>*, RDG::ExternalBuffer*,
+                                        const char*>;
+        for ( const auto& [buffer, external, name] :
+              { BufferImport{ &scene.GetAssetBuffer(), imports.Assets, "DistanceField.Assets" },
+                BufferImport{ &scene.GetIndirectionBuffer(), imports.Indirection, "DistanceField.Indirection" },
+                BufferImport{ &m_ObjectBuffer, imports.Objects, "DistanceField.Objects" } } )
+            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
+                return Common::MakeFormattedError<bool>( "global distance field: {}: {}", name, imported.GetError() );
+        into.Assets      = graph.RegisterExternal( *imports.Assets, "DistanceField.Assets" );
+        into.Indirection = graph.RegisterExternal( *imports.Indirection, "DistanceField.Indirection" );
+        into.Objects     = graph.RegisterExternal( *imports.Objects, "DistanceField.Objects" );
+        return BOOLSUCCESS;
+    }
+
     Common::ResultStr<GlobalDistanceField::FrameField>
     GlobalDistanceField::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                                           const GlobalDistanceFieldObjectSet& objects,
                                           DistanceFieldSceneData& scene, const uint64_t engineFrame,
-                                          const uint32_t poolMiB )
+                                          const uint32_t poolMiB, const MeshFieldImports& imports )
     {
         // The owner's rows: the per-frame buffers grow on upload (GdfUpload) inside the asking view's scope.
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
@@ -435,6 +456,8 @@ namespace Desert::Graphic::DistanceField
             again.MeshFields.NumMeshObjects = m_FrameUpdate->NumMeshObjects;
             again.MeshFields.NumObjects     = m_FrameUpdate->NumObjects;
             again.MeshFields.BrickAtlas     = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
+            if ( const auto registered = RegisterMeshFields( graph, scene, imports, again.MeshFields ); !registered )
+                return Common::MakeError<FrameField>( registered.GetError() );
             return Common::MakeSuccess( again );
         }
         if ( objects.Bounds.size() != objects.Objects.size() ||
@@ -711,6 +734,12 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeError<FrameField>( r.GetError() );
         const RDG::TextureRef atlas = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
         frame.MeshFields.BrickAtlas = atlas;
+        // FPS-DEVLOST18: registered here, after the objects' upload and before the composites that read them.
+        if ( const auto registered = RegisterMeshFields( graph, scene, imports, frame.MeshFields ); !registered )
+            return Common::MakeError<FrameField>( registered.GetError() );
+        const RDG::BufferRef assets      = frame.MeshFields.Assets;
+        const RDG::BufferRef indirection = frame.MeshFields.Indirection;
+        const RDG::BufferRef objectRefs  = frame.MeshFields.Objects;
         // The frame is updated from here on, also when it has no bricks to rewrite: the object buffer holds it.
         m_FrameUpdate = FrameUpdate{ .Frame          = engineFrame,
                                      .Camera         = camera,
@@ -729,7 +758,10 @@ namespace Desert::Graphic::DistanceField
         // ASYNC COMPUTE (UE distance-field scene update on the async pipe): the composite reads the brick
         // atlas (a graph import) and buffers the host wrote before the graph ran, and writes only the clipmaps
         // and the object grid; it overlaps the shadow and base passes until the first graphics reader of the
-        // field joins it.
+        // field joins it. The asset, indirection and object buffers its pipeline setters bind are graph buffers
+        // of this graph (RegisterMeshFields): their reads are declared, so the graph orders them against every
+        // other use with a barrier and a cross-queue join (FPS-DEVLOST18). The update-brick and brick-list
+        // buffers are the field's own per-frame copies, never registered in a graph.
         const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
@@ -753,6 +785,9 @@ namespace Desert::Graphic::DistanceField
                      pipeline->SetStorageBuffer( kGdfObjectBinding, m_ObjectBuffer.get() );
                      pipeline->SetStorageBuffer( kGdfUpdateBinding, m_UpdateBrickBuffer.get() );
                      pipeline->SetStorageBuffer( kGdfBrickListBinding, m_BrickObjectBuffer.get() );
+                     pass.Read( assets, RDG::Access::StorageRead );
+                     pass.Read( indirection, RDG::Access::StorageRead );
+                     pass.Read( objectRefs, RDG::Access::StorageRead );
                      pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
                           .Texture( GlobalDistanceFieldCompositeShaderParameters::DistanceFieldBrickAtlasTexture, atlas, RDG::Access::SampledCompute,
@@ -779,24 +814,15 @@ namespace Desert::Graphic::DistanceField
                                              DistanceFieldSceneData& scene, const uint64_t engineFrame,
                                              const uint32_t poolMiB, const NearFieldView& view )
     {
-        auto updated =
-             field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame, poolMiB );
+        // This graph's view of the buffers a trace reads - the scene's records and table, the field's objects -
+        // registered by the field's update in this graph through this view's imports (RegisterMeshFields).
+        const GlobalDistanceField::MeshFieldImports imports{
+             .Assets = &m_AssetImport, .Indirection = &m_IndirectionImport, .Objects = &m_ObjectImport };
+        auto updated = field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame,
+                                              poolMiB, imports );
         if ( !updated )
             return Common::MakeError<GlobalDistanceField::FrameField>( updated.GetError() );
         GlobalDistanceField::FrameField frame = updated.GetValue();
-        // This graph's view of the buffers a trace reads: the scene's records and table, the field's objects.
-        using BufferImport = std::tuple<const std::shared_ptr<ShaderResources::StorageBuffer>*, RDG::ExternalBuffer*,
-                                        const char*>;
-        for ( const auto& [buffer, external, name] :
-              { BufferImport{ &scene.GetAssetBuffer(), &m_AssetImport, "DistanceField.Assets" },
-                BufferImport{ &scene.GetIndirectionBuffer(), &m_IndirectionImport, "DistanceField.Indirection" },
-                BufferImport{ &field.GetObjectBuffer(), &m_ObjectImport, "DistanceField.Objects" } } )
-            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
-                return Common::MakeFormattedError<GlobalDistanceField::FrameField>( "global distance field: {}: {}",
-                                                                                    name, imported.GetError() );
-        frame.MeshFields.Assets      = graph.RegisterExternal( m_AssetImport, "DistanceField.Assets" );
-        frame.MeshFields.Indirection = graph.RegisterExternal( m_IndirectionImport, "DistanceField.Indirection" );
-        frame.MeshFields.Objects     = graph.RegisterExternal( m_ObjectImport, "DistanceField.Objects" );
         if ( const auto culled = AddNearFieldCullPasses( graph, frame, view ); !culled )
             return Common::MakeError<GlobalDistanceField::FrameField>( culled.GetError() );
         return Common::MakeSuccess( frame );

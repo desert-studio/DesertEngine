@@ -225,16 +225,29 @@ namespace Desert::Graphic::DistanceField
             MeshDistanceFieldReads                                    MeshFields;
         };
 
+        // FPS-DEVLOST18: where the asking view keeps its graph's imports of the buffers the composite and a trace
+        // read - the scene's asset records and indirection, the field's objects (GlobalDistanceFieldView's
+        // m_AssetImport / m_IndirectionImport / m_ObjectImport). None may be null.
+        struct MeshFieldImports
+        {
+            RDG::ExternalBuffer* Assets      = nullptr;
+            RDG::ExternalBuffer* Indirection = nullptr;
+            RDG::ExternalBuffer* Objects     = nullptr;
+        };
+
         // Brings the clipmaps up to @p camera and @p objects, once per @p engineFrame (the class comment). The
         // mesh fields are @p scene's - the one DistanceFieldSceneData of the Core::Scene every view of it shares:
         // the frame's update starts its frame there (@p poolMiB: Scalability
         // GlobalIllumination.DistanceFieldPoolMiB), looks its objects' fields up in the set the scene decided; then
         // its update plan and one composite pass per level that has bricks to rewrite. Every call imports the
-        // clipmaps, the object grid and the brick atlas into @p graph through @p import.
+        // clipmaps, the object grid and the brick atlas into @p graph through @p import, and registers the asset,
+        // indirection and object buffers through @p imports (FrameField::MeshFields) once this frame's objects
+        // are uploaded - BEFORE the composites, which declare their reads of all three (they run on the async
+        // queue: an undeclared read gets neither a barrier nor a cross-queue join).
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const GlobalDistanceFieldObjectSet& objects, DistanceFieldSceneData& scene,
-                         uint64_t engineFrame, uint32_t poolMiB );
+                         uint64_t engineFrame, uint32_t poolMiB, const MeshFieldImports& imports );
 
         // The object records of the frame's update (DF_OBJECT_*): what a view's graph registers as
         // MeshDistanceFieldReads::Objects.
@@ -244,6 +257,13 @@ namespace Desert::Graphic::DistanceField
         }
 
     private:
+        // FPS-DEVLOST18: imports @p scene's asset and indirection buffers and this field's objects (each frame in
+        // flight has its own copy: called after this frame's uploads) through @p imports and registers them in
+        // @p graph as @p into's Assets / Indirection / Objects.
+        [[nodiscard]] Common::BoolResultStr RegisterMeshFields( RDG::Builder& graph, const DistanceFieldSceneData& scene,
+                                                                const MeshFieldImports& imports,
+                                                                MeshDistanceFieldReads& into ) const;
+
         struct TrackedObject
         {
             Common::Math::AABB Bounds;
