@@ -23,12 +23,29 @@
 //   far field   -> cache read (no hit, at the cache) and, with the software tracer, hit lighting (its global-field
 //                  hits, distance only)
 //   cache read  -> cache miss (no traced probe answered)
-// A list's dispatch is x = its groups of SP_TRACE_LEG_GROUP_SIZE rays (the largest end any run reached,
-// atomicMax), y = z = 1 (uploaded); its allocator counts the rays listed (0 uploaded). 256: the hit-lighting leg's
-// group orders its rays by direction before lighting them (ScreenProbeTrace.shader THE GROUP'S RAYS BY DIRECTION),
-// and 256 listed rays come from a few neighbouring probes, so a subgroup holds rays of a few adjacent texels; the
-// other legs trace in list order (probe by probe), where the size only sets the group count.
+// A list's dispatch is x = its groups of its CONSUMING leg's group size (the largest end any run reached,
+// atomicMax), y = z = 1 (uploaded); its allocator counts the rays listed (0 uploaded). Two sizes:
+//   SP_TRACE_BINNED_LEG_GROUP_SIZE 256: the hit-lighting leg's group orders its rays by direction before lighting
+//     them (ScreenProbeTrace.shader THE GROUP'S RAYS BY DIRECTION), and 256 listed rays come from a few neighbouring
+//     probes, so a subgroup holds rays of a few adjacent texels. Only the far field lists for it (its hits).
+//   SP_TRACE_LEG_GROUP_SIZE 64 (256 past 8x8 traced texels): every other leg traces in list order (probe by probe,
+//     lane i = the list's ray i, no groupshared, no barrier), so the size changes neither a ray's lane inputs nor
+//     its subgroup. FPS-GI-TRACE (UE ScreenProbeTraceVoxelsCS / TraceMeshSDFs: 64-thread groups): a workgroup's
+//     slots are freed only when its LAST wave ends, and a march is as long as its longest lane - one grazing or
+//     sky-long ray (up to GI_GDF_MAX_STEPS dependent fetches, the 'outside the cache' rays to SP_TRACE_DISTANCE)
+//     held the seven other waves of a 256-thread group resident and idle, so the far field (0.8 global-field steps
+//     a ray on FIELD_Barn TURN) ran 0.5 ms in rounds of mostly-idle groups. A 64-thread group pins two waves. Past
+//     8x8 traced texels a probe has more than 64 rays and 256 keeps the group count at most the probe count (the
+//     screen leg's own dispatch, under the device's group-count limit).
+#if SP_TRACED_TEXELS > 8
+#define SP_TRACE_LEG_THREADS 256 // a plain int: LocalSize's layout qualifier (ScreenProbeTrace.shader)
 #define SP_TRACE_LEG_GROUP_SIZE 256u
+#else
+#define SP_TRACE_LEG_THREADS 64
+#define SP_TRACE_LEG_GROUP_SIZE 64u
+#endif
+#define SP_TRACE_BINNED_LEG_THREADS 256
+#define SP_TRACE_BINNED_LEG_GROUP_SIZE 256u
 
 // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the radiance cache's own).
 #define SP_TRACE_DISTANCE 20000.0

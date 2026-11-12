@@ -605,8 +605,8 @@ namespace Desert::Graphic::GlobalIllumination
         // is a compute dispatch whose every input and output is a graph resource (G-buffer, HZB, velocity, the
         // radiance cache, the tracer's field / TLAS, the surface cache), so the graph forks at the last graphics
         // writer of what the run reads (the G-buffer, HZB) and joins at the first graphics reader of its lighting
-        // (Deferred: Composite). Three nodes are the graphics queue's: the short-range AO (below, FPS-ASYNC-JOIN)
-        // and the placement and the screen leg (below, FPS-ASYNC-JOIN2) - the gather's head the radiance cache
+        // (Deferred: Composite). Five nodes are the graphics queue's: the short-range AO (below, FPS-ASYNC-JOIN)
+        // and the placement and the screen leg (below, FPS-ASYNC-JOIN2), the disocclusion and the integrate classification (below, FPS-COMPOSITE-WAIT) - the passes the radiance cache
         // does not gate, run beside the cache instead of queued behind it.
         const RDG::PassFlags kAsyncPass    = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const RDG::PassFlags kGraphicsPass = RDG::PassFlags::Compute;
@@ -917,6 +917,120 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
+        // HISTORY AND INTEGRATION CLASSIFICATION ON THE GRAPHICS QUEUE (FPS-COMPOSITE-WAIT), beside the radiance
+        // cache like the placement, the short-range AO and the screen leg (FPS-ASYNC-JOIN / -JOIN2). The async
+        // queue is one FIFO and the composite joins the end of radiance cache (~0.9 ms on FIELD_Barn TURN) + near
+        // .. temporal (~2.1 ms), a chain every pass of which reads the cache or the traced radiance - except these
+        // two: the disocclusion reads the queued params, the GI frame, the velocity, the G-buffer and the view's
+        // history; the integrate classification the GI frame and the G-buffer normal - all of it held by Graphics.
+        // On AsyncCompute they lengthened the chain the composite waited for (0.71-0.85 ms "RDG Wait .. before
+        // 'Deferred: Composite (Simple Tiles)'", scn-1112-195853) by their 0.12 + 0.04 ms; here Graphics runs them
+        // while the async queue still runs the cache, and the spatial filter's / the integrate's pieces read what
+        // they wrote (a graphics producer before the near field's fork, so no new fork). The same dispatches,
+        // inputs and outputs in the same order of their readers: the image is unchanged.
+        RDG::BufferRef  disocclusion;
+        RDG::TextureRef historyTaps;
+        if ( inputs.Denoise )
+        {
+            disocclusion = graph.CreateBuffer(
+                 RDG::BufferDesc{ static_cast<uint64_t>( layout.UniformProbes ) * sizeof( float ) },
+                 "ScreenProbes.Disocclusion" );
+            historyTaps = graph.CreateTexture(
+                 RDG::TextureDesc{ .Size   = { .Width = inputs.Extent.x, .Height = inputs.Extent.y },
+                                   .Format = Core::Formats::ImageFormat::RG32_UINT },
+                 "ScreenProbes.HistoryTaps" );
+            {
+                // One group per uniform tile, from the strip before the jittered grid (tile -1) to past the frame.
+                const glm::uvec2       classifyGroups( DivideRoundUp( inputs.Extent.x, layout.Downsample ) + 1u,
+                                                       DivideRoundUp( inputs.Extent.y, layout.Downsample ) + 1u );
+                ComputePipeline* const pipeline = m_Pipelines[Disocclusion].get();
+                graph.AddPass(
+                     "ScreenProbes: Disocclusion", kGraphicsPass,
+                     [&]( RDG::PassBuilder& builder )
+                     {
+                         auto block = builder.Bindings( m_Layouts[Disocclusion].Get( m_Shaders[Disocclusion] ),
+                                                        Renderer::GetPipelineRouteFill( *pipeline ) );
+                         block.Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeParamsUB,
+                                        paramsBuffer, kR )
+                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeHistoryTaps,
+                                        historyTaps, kW )
+                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::GIFrameUB, inputs.GIFrame,
+                                        kR )
+                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::Velocity, inputs.Velocity,
+                                        kS, all )
+                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::GBufferShadingWord,
+                                        inputs.GBufferShadingWord, kS, all )
+                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::DiffuseIndirectHistory,
+                                        historyOrBlack( History::DiffuseIndirect ), kS, all )
+                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::HistoryGuide,
+                                        historyOrBlack( History::Guide ), kS, all )
+                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeDisocclusionUB,
+                                        disocclusion, kW );
+                         gbuf( block );
+                     },
+                     [pipeline, classifyGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         return Renderer::DispatchCompute( bindings, *pipeline, classifyGroups.x, classifyGroups.y,
+                                                           1u );
+                     } );
+            }
+        }
+        // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification): every 8x8
+        // tile listed simple-diffuse or full (ScreenProbeIntegrate.shader SP_INTEGRATE_CLASSIFY), then the two
+        // integrate permutations dispatched indirectly over their own lists.
+        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
+        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
+                                             DivideRoundUp( inputs.Extent.y, 8u ) );
+        const RDG::BufferRef integrateArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
+        graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
+        const RDG::BufferRef integrateTileList = graph.CreateBuffer(
+             RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
+             "ScreenProbes.IntegrateTiles" );
+        // THE UNCOVERED PIXELS (ScreenProbeIntegrate.shader): the tiles holding a pixel no probe holds, their
+        // dispatch and the per-tile pixel masks.
+        const uint64_t       integrateTileCount = static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y;
+        const RDG::BufferRef uncoveredArgs      = graph.CreateBuffer(
+             RDG::BufferDesc{ sizeof( kIntegrateUncoveredArgsReset ) }, "ScreenProbes.IntegrateUncoveredArgs" );
+        graph.QueueStaticBufferUpload( uncoveredArgs, std::as_bytes( std::span( kIntegrateUncoveredArgsReset ) ) );
+        const RDG::BufferRef uncoveredTiles = graph.CreateBuffer(
+             RDG::BufferDesc{ integrateTileCount * sizeof( uint32_t ) }, "ScreenProbes.IntegrateUncoveredTiles" );
+        const RDG::BufferRef uncoveredMask = graph.CreateBuffer(
+             RDG::BufferDesc{ integrateTileCount * kIntegrateUncoveredMaskWords * sizeof( uint32_t ) },
+             "ScreenProbes.IntegrateUncoveredMask" );
+        {
+            ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
+            graph.AddPass(
+                 "ScreenProbes: Integrate Classify", kGraphicsPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block =
+                          builder.Bindings( m_Layouts[IntegrateClassify].Get( m_Shaders[IntegrateClassify] ),
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
+                          .Texture( IntegrateSlots::GBufferBTexture, inputs.GBufferB, kS, all )
+                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredMaskUB, uncoveredMask, kW );
+                 },
+                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
+                                                       1u );
+                 } );
+        }
+
         // One world leg over its list, one thread per ray (ScreenProbeTrace.shader's permutation), listing the
         // rays it leaves for the next legs in @p out (and @p out2: the far field's hits for the hit lighting, the
         // near field's misses at the cache for the cache read).
@@ -1028,60 +1142,8 @@ namespace Desert::Graphic::GlobalIllumination
         // FilterScreenProbes, SpatialFilterNumPasses): then three passes across neighbouring probes, each reading
         // the last one's radiance.
         RDG::TextureRef radiance = traced;
-        RDG::TextureRef historyTaps;
         if ( inputs.Denoise )
         {
-            const RDG::BufferRef disocclusion = graph.CreateBuffer(
-                 RDG::BufferDesc{ static_cast<uint64_t>( layout.UniformProbes ) * sizeof( float ) },
-                 "ScreenProbes.Disocclusion" );
-            historyTaps = graph.CreateTexture(
-                 RDG::TextureDesc{ .Size   = { .Width = inputs.Extent.x, .Height = inputs.Extent.y },
-                                   .Format = Core::Formats::ImageFormat::RG32_UINT },
-                 "ScreenProbes.HistoryTaps" );
-            {
-                // One group per uniform tile, from the strip before the jittered grid (tile -1) to past the frame.
-                const glm::uvec2       classifyGroups( DivideRoundUp( inputs.Extent.x, layout.Downsample ) + 1u,
-                                                       DivideRoundUp( inputs.Extent.y, layout.Downsample ) + 1u );
-                ComputePipeline* const pipeline = m_Pipelines[Disocclusion].get();
-                graph.AddPass(
-                     "ScreenProbes: Disocclusion", kAsyncPass,
-                     [&]( RDG::PassBuilder& builder )
-                     {
-                         auto block = builder.Bindings( m_Layouts[Disocclusion].Get( m_Shaders[Disocclusion] ),
-                                                        Renderer::GetPipelineRouteFill( *pipeline ) );
-                         block.Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeParamsUB,
-                                        paramsBuffer, kR )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeHistoryTaps,
-                                        historyTaps, kW )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::GIFrameUB, inputs.GIFrame,
-                                        kR )
-                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::Velocity, inputs.Velocity,
-                                        kS, all )
-                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::GBufferShadingWord,
-                                        inputs.GBufferShadingWord, kS, all )
-                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::DiffuseIndirectHistory,
-                                        historyOrBlack( History::DiffuseIndirect ), kS, all )
-                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Texture( ScreenProbeGatherDisocclusionShaderParameters::HistoryGuide,
-                                        historyOrBlack( History::Guide ), kS, all )
-                              .Sampler( ScreenProbeGatherDisocclusionShaderParameters::PointClampSampler,
-                                        RDG::SamplerDesc::PointClamp() )
-                              .Storage( ScreenProbeGatherDisocclusionShaderParameters::ScreenProbeDisocclusionUB,
-                                        disocclusion, kW );
-                         gbuf( block );
-                     },
-                     [pipeline, classifyGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
-                     {
-                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         return Renderer::DispatchCompute( bindings, *pipeline, classifyGroups.x, classifyGroups.y,
-                                                           1u );
-                     } );
-            }
             const uint32_t         res = layout.TracedTexels;
             const RDG::TextureDesc atlasDesc{
                  .Size   = { .Width = layout.AtlasProbesRow * res, .Height = layout.AtlasRows * res },
@@ -1165,52 +1227,6 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
-                 } );
-        }
-        // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification): every 8x8
-        // tile listed simple-diffuse or full (ScreenProbeIntegrate.shader SP_INTEGRATE_CLASSIFY), then the two
-        // integrate permutations dispatched indirectly over their own lists.
-        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
-        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
-                                             DivideRoundUp( inputs.Extent.y, 8u ) );
-        const RDG::BufferRef integrateArgs =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
-        graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
-        const RDG::BufferRef integrateTileList = graph.CreateBuffer(
-             RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
-             "ScreenProbes.IntegrateTiles" );
-        // THE UNCOVERED PIXELS (ScreenProbeIntegrate.shader): the tiles holding a pixel no probe holds, their
-        // dispatch and the per-tile pixel masks.
-        const uint64_t       integrateTileCount = static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y;
-        const RDG::BufferRef uncoveredArgs      = graph.CreateBuffer(
-             RDG::BufferDesc{ sizeof( kIntegrateUncoveredArgsReset ) }, "ScreenProbes.IntegrateUncoveredArgs" );
-        graph.QueueStaticBufferUpload( uncoveredArgs, std::as_bytes( std::span( kIntegrateUncoveredArgsReset ) ) );
-        const RDG::BufferRef uncoveredTiles = graph.CreateBuffer(
-             RDG::BufferDesc{ integrateTileCount * sizeof( uint32_t ) }, "ScreenProbes.IntegrateUncoveredTiles" );
-        const RDG::BufferRef uncoveredMask = graph.CreateBuffer(
-             RDG::BufferDesc{ integrateTileCount * kIntegrateUncoveredMaskWords * sizeof( uint32_t ) },
-             "ScreenProbes.IntegrateUncoveredMask" );
-        {
-            ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
-            graph.AddPass(
-                 "ScreenProbes: Integrate Classify", kAsyncPass,
-                 [&]( RDG::PassBuilder& builder )
-                 {
-                     auto block =
-                          builder.Bindings( m_Layouts[IntegrateClassify].Get( m_Shaders[IntegrateClassify] ),
-                                            Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
-                          .Texture( IntegrateSlots::GBufferBTexture, inputs.GBufferB, kS, all )
-                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateUncoveredMaskUB, uncoveredMask, kW );
-                 },
-                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
-                                                       1u );
                  } );
         }
         // One integrate permutation over its tiles: the simple-diffuse one binds no filtered radiance (it samples
