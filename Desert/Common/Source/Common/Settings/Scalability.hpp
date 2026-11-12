@@ -548,7 +548,19 @@ namespace Common::Scalability
         // lives here once. Inside [Min, Max] (static_assert in Scalability.cpp). Set to the Epic value (SCAL-UX).
         ParameterValue      Default    = 0;
         ParameterVisibility Visibility = ParameterVisibility::Advanced;
+        // THE LEGAL VALUES ARE THE POWERS OF TWO INSIDE [Min, Max], not every integer (a shader permutation keyed
+        // by log2, e.g. GlobalIllumination.ScreenProbeDownsample's SP_DOWNSAMPLE_LOG2). The table refuses any
+        // other value, Resolve lowers an override to the power of two below it (a Fallback, logged), and the
+        // palette offers only these - otherwise "ScreenProbeDownsample 24" was offered and refused by the gather.
+        bool PowersOfTwo = false;
     };
+    // Whether @p value is a value @p spec can take: inside [Min, Max] and, for a PowersOfTwo spec, a power of two.
+    [[nodiscard]] constexpr bool IsLegalValue( const ParameterSpec& spec, const ParameterValue value )
+    {
+        if ( value < spec.Min || value > spec.Max )
+            return false;
+        return !spec.PowersOfTwo || ( value > 0 && ( value & ( value - 1 ) ) == 0 );
+    }
     [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
     {
         return !spec.Reader.has_value();
