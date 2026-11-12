@@ -624,8 +624,9 @@ namespace Desert::Graphic::API::Vulkan
         // Thread-safe (sharded locks): chunk workers look up and keep concurrently.
         // @p key -> the kept sets into @p sets; false (and @p sets untouched) when not kept or no longer live.
         [[nodiscard]] bool FindBound( std::span<const uint64_t> key, std::vector<VkDescriptorSet>& sets );
-        // Keeps @p sets (each held by its @p stamps entry; null for the bindless table's set, which is in the
-        // key) under @p key.
+        // Keeps @p sets (each held by its @p stamps entry; null for the bindless table's set, which the key
+        // does not name - FPS-SET-MEMO3: the caller replaces it on a hit with the table's set of now) under
+        // @p key.
         void KeepBound( std::span<const uint64_t> key, std::span<const VkDescriptorSet> sets,
                         std::span<const CachedStamp> stamps );
         // A fresh set that is not published (an error return before its writes ended): freed once no frame in

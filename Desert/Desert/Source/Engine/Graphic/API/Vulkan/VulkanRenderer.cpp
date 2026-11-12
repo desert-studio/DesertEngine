@@ -1022,13 +1022,13 @@ namespace Desert::Graphic::API::Vulkan
         // FPS-SET-MEMO: the bound-sets memo key of one graphics draw combination (VulkanRdgPassDescriptors::
         // FindBound): everything ResolveRdgPassBindings and WriteRdgPassSets read to produce the sets. The shader
         // (address and code generation: the slots and reflection), the pipeline layout and every set layout,
-        // the bindless table's set (bound as it is), the material part (as WriteRdgPassSets keys set 0: the set,
-        // its copy record's identity and version, and the copied bindings) and both push routes, then per block
-        // entry what it names: name hash and slot (where it is placed), kind and declared access (the descriptor
-        // type and image layout), the physical identity and range of the resource or the shared sampler.
-        // Never a graph-local index (BindingBlockRef restarts with every graph). False when an entry's physical
-        // resource cannot be named: the caller takes the resolution, which reports why.
-        // FPS-SET-MEMO2: what one word of a BoundSetsKey is, for the dev miss census (BoundMissCensus). Entry
+        // whether the bindless table is bound (FPS-SET-MEMO3: not its set handle), the material part (as
+        // WriteRdgPassSets keys set 0: the set, its copy record's identity and version, and the copied bindings)
+        // and both push routes, then per block entry what it names: name hash and slot (where it is placed), kind
+        // and declared access (the descriptor type and image layout), the physical identity and range of the
+        // resource or the shared sampler. Never a graph-local index (BindingBlockRef restarts with every graph).
+        // False when an entry's physical resource cannot be named: the caller takes the resolution, which reports
+        // why. FPS-SET-MEMO2: what one word of a BoundSetsKey is, for the dev miss census (BoundMissCensus). Entry
         // fields carry the block entry's index (textures first, then buffers).
         enum class BoundKeyField : uint8_t
         {
@@ -1078,7 +1078,7 @@ namespace Desert::Graphic::API::Vulkan
                 case BoundKeyField::SetLayout:
                     return "set layout";
                 case BoundKeyField::BindlessSet:
-                    return "bindless set";
+                    return "binds the bindless table";
                 case BoundKeyField::MaterialCount:
                     return "material copied binding count";
                 case BoundKeyField::MaterialSet:
@@ -1147,9 +1147,14 @@ namespace Desert::Graphic::API::Vulkan
                     return false;
                 put( HandleWord( layout->Handle() ), BoundKeyField::SetLayout );
             }
+            // FPS-SET-MEMO3 (UE: the bindless heap is one global descriptor set, never part of a draw's cached
+            // bindings): only WHETHER the pipeline binds the table, never its set handle. The table replaces its
+            // set on growth, a slot rewrite or a sampler change (VulkanBindlessTextureTable::Rebuild) - every few
+            // frames while textures stream - and each replacement made every combination of every bindless pass
+            // miss. A hit binds the table's set of NOW at kBindlessSetIndex (BindGraphicsPassState's FindBound
+            // hit), so the kept sets never carry a retired one.
             const VulkanBindlessTextureTable* bindless = BindlessTableIn( built.Layouts );
-            put( bindless != nullptr ? HandleWord( bindless->GetDescriptorSet() ) : 0,
-                 BoundKeyField::BindlessSet );
+            put( bindless != nullptr ? 1U : 0U, BoundKeyField::BindlessSet );
             put( material.Bindings.size(), BoundKeyField::MaterialCount );
             if ( !material.Bindings.empty() )
             {
@@ -2681,7 +2686,13 @@ namespace Desert::Graphic::API::Vulkan
             boundKeyed = BoundSetsKey( *descriptors.GetValue(), *shader, built, bindings, materialSlots,
                                        other.PushConstants, t_BoundKey, boundTags );
             if ( boundKeyed && descriptors.GetValue()->FindBound( t_BoundKey, t_BoundSets ) )
+            {
+                // FPS-SET-MEMO3: the key names only that the table is bound; its set is the one live NOW.
+                if ( const VulkanBindlessTextureTable* bindless = BindlessTableIn( layouts );
+                     bindless != nullptr && t_BoundSets.size() > kBindlessSetIndex )
+                    t_BoundSets[kBindlessSetIndex] = bindless->GetDescriptorSet();
                 kept = memo.GetValue()->Keep( key, t_BoundSets );
+            }
         }
         if ( !kept.has_value() )
         {
