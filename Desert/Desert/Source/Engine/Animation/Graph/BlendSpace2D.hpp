@@ -9,10 +9,14 @@
  *
  * TRIANGULATION, as UE 5 does it by default (FBlendSpaceData, bInterpolateUsingGrid off): the samples are
  * Delaunay-triangulated ONCE, in normalized coordinates (each axis over the samples' own range mapped to [0, 1],
- * so cm/s against degrees does not decide the triangles' shape). A point inside a triangle weights its three
- * samples by barycentric coordinates; a point outside the hull is projected onto the nearest hull edge and weights
- * that edge's two samples (UE's extrapolation onto the closest boundary). Every other sample weighs 0; the weights
- * sum to 1. The triangulation is DERIVED from the samples, never stored: the samples are the one source of truth.
+ * so cm/s against degrees does not decide the triangles' shape). The triangles cover the samples' convex hull
+ * exactly, nearly collinear hull samples included. Where four samples lie on one circle (a grid of samples: every
+ * cell's two diagonals are both Delaunay) the cell is split along `PreferredTriangulation`, UE's
+ * PreferredTriangulationDirection (Tangential by default, as UE's new blend spaces). A point inside a triangle
+ * weights its three samples by barycentric coordinates; a point outside the hull is projected onto the nearest
+ * hull edge and weights that edge's two samples (UE's extrapolation onto the closest boundary). Every other sample
+ * weighs 0; the weights sum to 1. The triangulation is DERIVED from the samples, never stored: the samples are the
+ * one source of truth.
  *
  * SMOOTHING and SYNC are the 1D blend space's own (BlendSpace1D.hpp): InterpolateBlendWeights moves the weights at
  * `WeightSpeed`, AdvanceSyncedPhase plays every sample at one shared normalized phase.
@@ -42,11 +46,27 @@ namespace Desert::Animation::Graph
         float       Y = 0.0F;
     };
 
+    /// UE EPreferredTriangulationDirection: how a cell whose four samples lie on one circle (a rectangle of a
+    /// sample grid) is split, the triangulation being free to take either diagonal there. Serialized as its number.
+    enum class PreferredTriangulationDirection : uint8_t
+    {
+        /// The diagonal the triangulation meets first (no consistent direction across the grid).
+        None = 0,
+        /// The diagonal more across the line from the axes' origin (0, 0): diagonals go around a circle centered
+        /// on the origin.
+        Tangential = 1,
+        /// The diagonal more along the line from the axes' origin: diagonals go out from the origin.
+        Radial = 2,
+    };
+
     /// The payload of a BlendSpace2D node.
     struct BlendSpace2DNode
     {
         /// At least three, no two at one point, not all on one line (BlendSpace2DError): the plane the axes walk.
         std::vector<BlendSample2D> Samples;
+        /// How a cell of four samples on one circle is split (UE PreferredTriangulationDirection; UE's default for
+        /// a new blend space).
+        PreferredTriangulationDirection PreferredTriangulation = PreferredTriangulationDirection::Tangential;
         /// UE TargetWeightInterpolationSpeedPerSec: weight per second a sample's weight may move; 0 = no
         /// smoothing.
         float WeightSpeed = 0.0F;
@@ -82,17 +102,23 @@ namespace Desert::Animation::Graph
     };
 
     /// Empty when `node` can be played; otherwise what is wrong: fewer than three samples, a sample naming no
-    /// clip, a non-finite point, two samples at one point, a negative or non-finite WeightSpeed, or samples that
-    /// all lie on one line (which spans no area: that is a Blend Space 1D).
+    /// clip, a non-finite point, two samples at one point, a negative or non-finite WeightSpeed, an unknown
+    /// PreferredTriangulation, samples that all lie on one line (which spans no area: that is a Blend Space 1D), or
+    /// a sample so close to the others that no triangle takes it.
     [[nodiscard]] std::string BlendSpace2DError( const BlendSpace2DNode& node );
 
-    /// The Delaunay triangulation of `node`'s samples (Bowyer-Watson in normalized coordinates). `node` has at
-    /// least one sample; a node BlendSpace2DError refuses may come back with no triangle.
+    /// The Delaunay triangulation of `node`'s samples in normalized coordinates: a sweep over the samples in (x, y)
+    /// order joins each to the hull edges it sees (so the triangles cover the convex hull exactly, with no outer
+    /// triangle to cut a hull edge away), then Lawson's edge flips make it Delaunay and split each cell of four
+    /// samples on one circle by `node.PreferredTriangulation`. A node BlendSpace2DError refuses may come back with
+    /// no triangle.
     [[nodiscard]] BlendSpace2DTriangulation TriangulateBlendSpace2D( const BlendSpace2DNode& node );
 
     /// The weights the samples take at the point (`x`, `y`) of the axes (one per sample into `out`, sized by the
     /// caller to the samples): barycentric in the triangle holding the point, else the two samples of the nearest
-    /// hull edge by the projection onto it; summing to 1.
+    /// hull edge by the projection onto it; summing to 1. A NaN axis reads as the samples' lowest value on it (as
+    /// the 1D row reads a NaN axis as its start); an infinite one as the farthest finite value, projected like any
+    /// point outside.
     void BlendSpace2DTargetWeights( const BlendSpace2DTriangulation& triangulation, float x, float y,
                                     std::span<float> out );
 } // namespace Desert::Animation::Graph
