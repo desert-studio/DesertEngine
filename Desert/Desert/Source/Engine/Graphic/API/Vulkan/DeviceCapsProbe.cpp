@@ -77,6 +77,8 @@ namespace Desert::Graphic::API::Vulkan
                 case Capability::PortabilitySubset:
                 case Capability::MemoryBudget:
                 case Capability::BufferMarker:
+                case Capability::ExternalMemoryHost:
+                case Capability::DiagnosticCheckpoints:
                 case Capability::DeferredHostOperations:
                 case Capability::ExternalMemoryWin32:
                 case Capability::ExternalSemaphoreWin32:

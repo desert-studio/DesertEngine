@@ -2445,16 +2445,27 @@ namespace Desert::Graphic::API::Vulkan
             // FPS-GPU-MARKER: the pass breadcrumbs the [DeviceLost] report reads (RenderPipeline.
             // GpuCrashBreadcrumbs turns their writes on). Without VK_AMD_buffer_marker the report names no
             // pass, said here once.
-            if ( device->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::BufferMarker ) )
+            // FPS-DEVLOST4: plus NVIDIA checkpoints, and the words in application-owned memory when the device
+            // can import it (a TDR resets driver-owned memory; the words read 0 after the loss).
+            const DeviceCaps&                  caps = device->GetPhysicalDevice()->GetDeviceCaps();
+            const VulkanGpuBreadcrumbs::Routes routes{ .BufferMarker = caps.Has( Capability::BufferMarker ),
+                                                       .HostImport   = caps.Has( Capability::ExternalMemoryHost ),
+                                                       .Checkpoints =
+                                                            caps.Has( Capability::DiagnosticCheckpoints ) };
+            if ( routes.BufferMarker || routes.Checkpoints )
             {
                 auto                        crumbs = std::make_unique<VulkanGpuBreadcrumbs>();
                 const Common::BoolResultStr made =
-                     crumbs->Init( m_RdgDevice.Device, m_RdgDevice.Allocator, m_RdgDevice.Sharing );
+                     crumbs->Init( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), m_RdgDevice.Device,
+                                   m_RdgDevice.Allocator, m_RdgDevice.Sharing, routes );
                 if ( made )
                 {
                     m_Breadcrumbs            = std::move( crumbs );
                     m_RdgDevice.Breadcrumbs  = m_Breadcrumbs.get();
                     Graphic::DeviceLost::SetBreadcrumbReader( &VulkanGpuBreadcrumbs::Read, m_Breadcrumbs.get() );
+                    LOG_INFO( "[GpuBreadcrumbs] buffer marker {}, NV checkpoints {}; words in {}",
+                              routes.BufferMarker ? "on" : "absent", routes.Checkpoints ? "on" : "absent",
+                              m_Breadcrumbs->WordsHome() );
                 }
                 else
                 {
@@ -2497,6 +2508,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgQueues.ComputeQueue   = separate ? device->GetComputeQueue() : VK_NULL_HANDLE;
             m_RdgQueues.ComputeFamily  = computeFamily;
             m_RdgQueues.Objects        = &m_FrameLoop->GetQueueObjects();
+            if ( m_Breadcrumbs )
+                m_Breadcrumbs->SetQueues( m_RdgQueues.GraphicsQueue, m_RdgQueues.ComputeQueue );
         }
         // EACH STAGE A ROW (VK-SUBMIT-THREAD): "Vulkan: begin RDG frame" measured 0.22-0.25 ms on the field turn
         // with no row under it, so the profile names which stage it is.
@@ -2509,6 +2522,9 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( Common::BoolResultStr begun = m_FrameLoop->BeginSlot( slot ); !begun )
             return begun;
+        // FPS-DEVLOST4: after the slot fence a frame has finished on the GPU: say once whether its words arrived.
+        if ( m_Breadcrumbs )
+            m_Breadcrumbs->ObserveLive();
         DESERT_PROFILE_PHASE( stages, "RDG frame: physical pool" );
         m_RdgPool->BeginFrame();
         DESERT_PROFILE_PHASE( stages, "RDG frame: transient heaps" );

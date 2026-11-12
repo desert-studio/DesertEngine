@@ -69,16 +69,37 @@ namespace Desert::Graphic::API::Vulkan
         VulkanGpuBreadcrumbs( const VulkanGpuBreadcrumbs& )            = delete;
         VulkanGpuBreadcrumbs& operator=( const VulkanGpuBreadcrumbs& ) = delete;
 
-        // The device must have VK_AMD_buffer_marker enabled (Capability::BufferMarker).
-        Common::BoolResultStr Init( VkDevice device, VmaAllocator allocator,
-                                    const VulkanResourceSharing& sharing ) noexcept;
-        void                  SetEnabled( bool enabled ) noexcept;
+        // FPS-DEVLOST4: which of the device's routes the breadcrumbs take (each its DeviceCaps row, enabled).
+        struct Routes
+        {
+            bool BufferMarker = false; // VK_AMD_buffer_marker: the per-queue words
+            bool HostImport   = false; // VK_EXT_external_memory_host: the words in application-owned memory
+            bool Checkpoints  = false; // VK_NV_device_diagnostic_checkpoints: the driver's per-queue record
+        };
+        // At least one of BufferMarker / Checkpoints. A failed host import is not an error: the words go to a
+        // driver-owned host-coherent allocation and WordsHome() says so (and why) - logged once by the caller.
+        Common::BoolResultStr Init( VkPhysicalDevice physicalDevice, VkDevice device, VmaAllocator allocator,
+                                    const VulkanResourceSharing& sharing, const Routes& routes ) noexcept;
+        // The queues the checkpoint report reads after a loss; compute is VK_NULL_HANDLE when the async pipe runs
+        // on the graphics queue. Before the first frame, on the frame thread.
+        void SetQueues( VkQueue graphics, VkQueue compute ) noexcept;
+        void SetEnabled( bool enabled ) noexcept;
+        // FPS-DEVLOST4: once per frame after the slot fence. Says ONCE that the GPU's words reached the host on a
+        // healthy run (the tool works) - or, kLiveProbeFrames frames after enabling with every word still 0, that
+        // they never do (the tool is broken on this device, and a loss report's "(none yet)" means nothing).
+        void ObserveLive() noexcept;
+        // Where the words live, for the startup line and the report.
+        [[nodiscard]] const std::string& WordsHome() const noexcept
+        {
+            return m_WordsHome;
+        }
         // Calling thread, before any pass of the graph records: reserves the graph's serials and names its passes.
         // The graph's base serial, or kNoSerial when disabled (then the graph records no marker).
         [[nodiscard]] uint32_t BeginGraph( std::span<const RDG::CompiledPass> passes ) noexcept;
         void MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
         void MarkFinished( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
-        // The report, from the mapped words; issues no device call (legal on a lost device).
+        // The report, from the host words and vkGetQueueCheckpointDataNV (serial << 1 | finished per checkpoint;
+        // the one device call it makes, legal on a lost device - that is what the extension is for).
         [[nodiscard]] std::string Describe() const;
         // DeviceLost::BreadcrumbReader: context is the VulkanGpuBreadcrumbs.
         [[nodiscard]] static std::string Read( const void* context );
@@ -92,16 +113,32 @@ namespace Desert::Graphic::API::Vulkan
         };
         [[nodiscard]] std::string NameOf( uint32_t serial, RDG::Pipe& pipe ) const;
 
-        VkDevice                         m_Device     = VK_NULL_HANDLE;
-        VmaAllocator                     m_Allocator  = nullptr;
-        VkBuffer                         m_Buffer     = VK_NULL_HANDLE;
-        VmaAllocation                    m_Allocation = nullptr;
-        const volatile uint32_t*         m_Words      = nullptr; // [queue * 2 + 0] started, [+ 1] finished
-        PFN_vkCmdWriteBufferMarkerAMD    m_WriteMarker = nullptr;
-        std::atomic<bool>                m_Enabled{ false };
-        bool                             m_EverEnabled = false;
-        uint32_t                         m_NextSerial  = 1; // BeginGraph's thread only
-        std::unique_ptr<Entry[]>         m_Ring;
+        [[nodiscard]] Common::BoolResultStr MakeWordsImported( VkPhysicalDevice          physicalDevice,
+                                                               const VkBufferCreateInfo& info ) noexcept;
+        [[nodiscard]] Common::BoolResultStr MakeWordsAllocated( const VkBufferCreateInfo& info ) noexcept;
+        [[nodiscard]] std::string           DescribeCheckpoints() const;
+
+        static constexpr uint32_t kLiveProbeFrames = 300;
+
+        VkDevice                       m_Device         = VK_NULL_HANDLE;
+        VmaAllocator                   m_Allocator      = nullptr;
+        VkBuffer                       m_Buffer         = VK_NULL_HANDLE;
+        VmaAllocation                  m_Allocation     = nullptr;        // the VMA route
+        VkDeviceMemory                 m_HostMemory     = VK_NULL_HANDLE; // the host-import route
+        void*                          m_HostBlock      = nullptr;        // its application-owned block
+        const volatile uint32_t*       m_Words          = nullptr; // [queue * 2 + 0] started, [+ 1] finished
+        std::string                    m_WordsHome      = "none (no VK_AMD_buffer_marker)";
+        PFN_vkCmdWriteBufferMarkerAMD  m_WriteMarker    = nullptr;
+        PFN_vkCmdSetCheckpointNV       m_SetCheckpoint  = nullptr;
+        PFN_vkGetQueueCheckpointDataNV m_GetCheckpoints = nullptr;
+        VkQueue                        m_GraphicsQueue  = VK_NULL_HANDLE;
+        VkQueue                        m_ComputeQueue   = VK_NULL_HANDLE;
+        std::atomic<bool>              m_Enabled{ false };
+        bool                           m_EverEnabled = false;
+        uint32_t                       m_NextSerial  = 1; // BeginGraph's thread only
+        uint32_t                       m_LiveFrames  = 0; // ObserveLive's thread only
+        bool                           m_LiveSaid    = false;
+        std::unique_ptr<Entry[]>       m_Ring;
     };
 
     struct VulkanRdgDevice

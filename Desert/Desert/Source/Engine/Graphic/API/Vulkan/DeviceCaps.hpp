@@ -46,6 +46,15 @@ namespace Desert::Graphic::API::Vulkan
         // id at a pipeline stage, inside or outside a render pass, on any queue. Optional: without it the
         // [DeviceLost] report names no pass, said once.
         BufferMarker,
+        // FPS-DEVLOST4: the breadcrumb words live in memory the APPLICATION owns, imported with
+        // VK_EXT_external_memory_host (UE: the D3D12 diagnostic buffer opened from a VirtualAlloc address), so a
+        // TDR that resets the device cannot take them with it. Optional: without it the words sit in a
+        // driver-owned host-coherent allocation, said once.
+        ExternalMemoryHost,
+        // FPS-DEVLOST4: NVIDIA's own post-loss record (VK_NV_device_diagnostic_checkpoints: vkCmdSetCheckpointNV
+        // per pass, vkGetQueueCheckpointDataNV per queue after the loss). Optional; the [DeviceLost] report prints
+        // it next to the buffer-marker words.
+        DiagnosticCheckpoints,
         // Vulkan 1.2 / 1.3 — asked for and recorded; VKF2 makes them required when it starts using them.
         // DescriptorIndexing is already required: the global bindless texture table (BindlessTextureTable.hpp)
         // is the one way a shader reaches a texture by index, and there is no second, non-bindless path.
