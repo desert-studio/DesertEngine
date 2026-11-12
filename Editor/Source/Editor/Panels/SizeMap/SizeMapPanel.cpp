@@ -1,15 +1,20 @@
 #include "SizeMapPanel.hpp"
 
+#include <Editor/Core/FileType.hpp>
+#include <Editor/Core/PanelRequests.hpp>
+#include <Editor/Panels/FileExplorer/FileTypeInfo.hpp>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <format>
-#include <functional>
-#include <mutex>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -25,23 +30,73 @@ namespace Desert::Editor
             return panel;
         }
 
-        // A copy taken under the registry's lock: the async loader's completions note rows from workers.
-        Common::Utils::AssetRegistry SizeMapRegistrySnapshot()
+        // The stable keys the request maps: each asset's own, and every row under each folder. A folder's rows are
+        // those whose key starts with the key a file directly inside it would get, less that file's name -
+        // "assets:VFX/" for a folder, "assets:" for a content root itself (StableKeyForPath has no relative path
+        // to give a root, so the root's own key is untagged). A redirector row is a move's trace, not content the
+        // folder holds (Common::Content::ReferrersOf skips it for the same reason).
+        Common::ResultStr<std::vector<std::string>>
+        SizeMapRootKeys( const Common::Utils::AssetRegistry&       registry,
+                         const std::vector<std::filesystem::path>& assets,
+                         const std::vector<std::filesystem::path>& folders )
         {
-            Assets::ContentRegistry::Detail::State& state = Assets::ContentRegistry::Detail::Get_();
-            const std::lock_guard<std::mutex>       lock( state.Mutex );
-            return state.Registry;
+            using Keys = std::vector<std::string>;
+            Keys keys;
+            for ( const std::filesystem::path& asset : assets )
+            {
+                std::string key = Common::AssetHandle::StableKeyForPath( asset );
+                if ( !Common::AssetHandle::IsProjectRelativeKey( key ) )
+                    return Common::MakeError<Keys>(
+                         std::format( "Size Map: '{}' is outside every content root", asset.generic_string() ) );
+                keys.push_back( std::move( key ) );
+            }
+            const std::string_view redirector =
+                 Common::Content::KindName( Common::Content::ContentKind::Redirector );
+            for ( const std::filesystem::path& folder : folders )
+            {
+                const std::string probe = Common::AssetHandle::StableKeyForPath( folder / "_" );
+                if ( !Common::AssetHandle::IsProjectRelativeKey( probe ) )
+                    return Common::MakeError<Keys>( std::format(
+                         "Size Map: the folder '{}' is outside every content root", folder.generic_string() ) );
+                const std::string prefix = probe.substr( 0, probe.size() - 1 );
+                std::size_t       found  = 0;
+                for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+                {
+                    if ( row.Key.starts_with( prefix ) && row.Kind != redirector )
+                    {
+                        keys.push_back( row.Key );
+                        ++found;
+                    }
+                }
+                if ( found == 0 )
+                    return Common::MakeError<Keys>( std::format(
+                         "Size Map: the folder '{}' holds no registry content", folder.generic_string() ) );
+            }
+            return Common::MakeSuccess( std::move( keys ) );
         }
 
+        // UE colours a box by its asset type (the type actions' colour); ours is the Content Browser's own type
+        // colour (FileTypeInfoOf), so a box and its tile agree. The asset's own bytes are a darker shade of it.
         ImU32 SizeMapFill( const SizeMap::Node& node )
         {
             if ( node.Role == SizeMap::NodeRole::Shared || node.Role == SizeMap::NodeRole::Group )
                 return IM_COL32( 70, 70, 76, 255 );
-            const float hue = static_cast<float>( std::hash<std::string>{}( node.Kind ) % 360u ) / 360.0f;
-            const float value = node.Role == SizeMap::NodeRole::Self ? 0.42f : 0.55f;
-            float       r = 0.0f, g = 0.0f, b = 0.0f;
-            ImGui::ColorConvertHSVtoRGB( hue, 0.45f, value, r, g, b );
-            return ImGui::ColorConvertFloat4ToU32( ImVec4( r, g, b, 1.0f ) );
+            const std::size_t colon = node.Key.find( ':' );
+            std::string       extension =
+                 std::filesystem::path( colon == std::string::npos ? node.Key : node.Key.substr( colon + 1 ) )
+                      .extension()
+                      .string();
+            if ( !extension.empty() )
+                extension.erase( 0, 1 );
+            std::transform( extension.begin(), extension.end(), extension.begin(),
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            std::optional<Common::Content::ContentKind> kind;
+            if ( node.Kind == Common::Content::KindName( Common::Content::ContentKind::Skybox ) )
+                kind = Common::Content::ContentKind::Skybox;
+            const ImVec4 type  = FileTypeInfoOf( FileTypeOfContent( extension, kind ) ).Colour;
+            const float  shade = node.Role == SizeMap::NodeRole::Self ? 0.45f : 0.65f;
+            return ImGui::ColorConvertFloat4ToU32(
+                 ImVec4( type.x * shade, type.y * shade, type.z * shade, 1.0f ) );
         }
 
         std::string SizeMapLabel( const SizeMap::Node& node )
@@ -69,37 +124,13 @@ namespace Desert::Editor
             SizeMapPanelInstance() = nullptr;
     }
 
-    Common::BoolResultStr SizeMapPanel::ShowFor( const std::vector<std::filesystem::path>& files )
+    Common::BoolResultStr SizeMapPanel::ShowFor( std::vector<std::filesystem::path> assets,
+                                                 std::vector<std::filesystem::path> folders )
     {
-        m_Registry = SizeMapRegistrySnapshot();
-        std::vector<std::string> keys;
-        for ( const std::filesystem::path& file : files )
-        {
-            const std::string key = Common::AssetHandle::StableKeyForPath( file );
-            if ( key.empty() )
-                return Common::MakeError<bool>( std::format( "Size Map: '{}' is outside every content root", file.generic_string() ) );
-            std::error_code ec;
-            if ( !std::filesystem::is_directory( file, ec ) )
-            {
-                keys.push_back( key );
-                continue;
-            }
-            // A FOLDER STANDS FOR ITS ASSETS (UE: Size Map on a folder maps every asset under it).
-            const std::string prefix = key + "/";
-            std::size_t       found  = 0;
-            for ( const Common::Utils::AssetRegistryEntry& row : m_Registry.Entries() )
-            {
-                if ( row.Key.starts_with( prefix ) )
-                {
-                    keys.push_back( row.Key );
-                    ++found;
-                }
-            }
-            if ( found == 0 )
-                return Common::MakeError<bool>( std::format( "Size Map: the folder '{}' holds no registry content", file.generic_string() ) );
-        }
-        m_RootKeys = std::move( keys );
-        GetVisibility() = true;
+        m_Assets  = std::move( assets );
+        m_Folders = std::move( folders );
+        // Shown and brought forward even when refused: the window says why (UE: TryInvokeTab, then the map).
+        Core::PanelRequests::Open( GetName() );
         return Rebuild();
     }
 
@@ -107,26 +138,31 @@ namespace Desert::Editor
     {
         m_ViewHistory.clear();
         m_ViewRoot = -1;
+        m_Tree     = {};
         m_Error.clear();
-        auto built = SizeMap::Build( m_Registry, m_RootKeys );
+        // A copy taken under the registry's lock: the async loader's completions note rows from workers.
+        m_Registry = Assets::ContentRegistry::Snapshot();
+        auto keys  = SizeMapRootKeys( m_Registry, m_Assets, m_Folders );
+        if ( !keys )
+        {
+            m_Error = keys.GetError();
+            return Common::MakeError<bool>( m_Error );
+        }
+        auto built = SizeMap::Build( m_Registry, keys.ExtractValue() );
         if ( !built )
         {
-            m_Tree  = {};
             m_Error = built.GetError();
             return Common::MakeError<bool>( m_Error );
         }
-        m_Tree     = std::move( built.GetValue() );
+        m_Tree     = built.ExtractValue();
         m_ViewRoot = m_Tree.Root;
         return Common::MakeSuccess( true );
     }
 
     void SizeMapPanel::OnUIRender()
     {
-        if ( ImGui::Button( "Refresh" ) && !m_RootKeys.empty() )
-        {
-            m_Registry = SizeMapRegistrySnapshot();
+        if ( ImGui::Button( "Refresh" ) && ( !m_Assets.empty() || !m_Folders.empty() ) )
             static_cast<void>( Rebuild() ); // a refusal is kept in m_Error and drawn below
-        }
         ImGui::SameLine();
         const bool canGoUp = !m_ViewHistory.empty();
         ImGui::BeginDisabled( !canGoUp );
@@ -171,7 +207,7 @@ namespace Desert::Editor
         ImGui::InvisibleButton( "##sizemapCanvas", avail );
         const bool canvasHovered = ImGui::IsItemHovered();
 
-        m_Hovered = -1;
+        m_Hovered            = -1;
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         drawList->PushClipRect( origin, ImVec2( origin.x + avail.x, origin.y + avail.y ), true );
         DrawBox( m_ViewRoot, SizeMap::Rect{ origin.x, origin.y, avail.x, avail.y }, 0 );
@@ -197,31 +233,31 @@ namespace Desert::Editor
     {
         const SizeMap::Node& data     = m_Tree.Nodes[static_cast<std::size_t>( node )];
         ImDrawList*          drawList = ImGui::GetWindowDrawList();
-        const ImVec2         min( box.X, box.Y );
-        const ImVec2         max( box.X + box.W, box.Y + box.H );
+        const ImVec2         topLeft( box.X, box.Y );
+        const ImVec2         bottomRight( box.X + box.W, box.Y + box.H );
         const bool           isView = node == m_ViewRoot;
 
         if ( !isView )
         {
-            drawList->AddRectFilled( min, max, SizeMapFill( data ) );
-            drawList->AddRect( min, max, IM_COL32( 20, 20, 22, 255 ) );
-            if ( ImGui::IsMouseHoveringRect( min, max ) )
+            drawList->AddRectFilled( topLeft, bottomRight, SizeMapFill( data ) );
+            drawList->AddRect( topLeft, bottomRight, IM_COL32( 20, 20, 22, 255 ) );
+            if ( ImGui::IsMouseHoveringRect( topLeft, bottomRight ) )
                 m_Hovered = node; // children are drawn after their parent, so the deepest box wins
         }
 
         const bool open = isView || ( !data.Children.empty() && depth < kSizeMapMaxDepth &&
                                       box.W >= kSizeMapMinOpenW && box.H >= kSizeMapMinOpenH );
-        const std::string label = SizeMapLabel( data );
         if ( !isView && box.W > 28.0f && box.H > 14.0f )
         {
-            drawList->PushClipRect( min, max, true );
+            const std::string label = SizeMapLabel( data );
+            drawList->PushClipRect( topLeft, bottomRight, true );
             drawList->AddText( ImVec2( box.X + 4.0f, box.Y + 2.0f ), IM_COL32( 235, 235, 235, 255 ), label.c_str() );
             drawList->PopClipRect();
         }
         if ( !open )
             return;
 
-        const float          header = isView ? 0.0f : kSizeMapHeader;
+        const float         header = isView ? 0.0f : kSizeMapHeader;
         const SizeMap::Rect inner{ box.X + 2.0f, box.Y + header, std::max( 0.0f, box.W - 4.0f ),
                                    std::max( 0.0f, box.H - header - 2.0f ) };
         for ( const SizeMap::Placed& child : SizeMap::Squarify( m_Tree, node, inner ) )
@@ -235,19 +271,19 @@ namespace Desert::Editor
         ImGui::TextUnformatted( data.Name.c_str() );
         switch ( data.Role )
         {
-        case SizeMap::NodeRole::Shared:
-            ImGui::TextDisabled( "Assets reached from more than one of the mapped assets" );
-            break;
-        case SizeMap::NodeRole::Group:
-            break;
-        case SizeMap::NodeRole::Self:
-            ImGui::TextDisabled( "The asset's own file, without what it names" );
-            [[fallthrough]];
-        case SizeMap::NodeRole::Asset:
-            ImGui::TextUnformatted( data.Key.c_str() );
-            ImGui::Text( "Kind: %s", data.Kind.c_str() );
-            ImGui::Text( "Own size: %s", SizeMap::FormatBytes( data.OwnBytes ).c_str() );
-            break;
+            case SizeMap::NodeRole::Shared:
+                ImGui::TextDisabled( "Assets reached from more than one of the mapped assets" );
+                break;
+            case SizeMap::NodeRole::Group:
+                break;
+            case SizeMap::NodeRole::Self:
+                ImGui::TextDisabled( "The asset's own file, without what it names" );
+                [[fallthrough]];
+            case SizeMap::NodeRole::Asset:
+                ImGui::TextUnformatted( data.Key.c_str() );
+                ImGui::Text( "Kind: %s", data.Kind.c_str() );
+                ImGui::Text( "Own size: %s", SizeMap::FormatBytes( data.OwnBytes ).c_str() );
+                break;
         }
         ImGui::Text( "Total size: %s", SizeMap::FormatBytes( data.TotalBytes ).c_str() );
         if ( data.Assets > 0 )
@@ -255,11 +291,12 @@ namespace Desert::Editor
         ImGui::EndTooltip();
     }
 
-    Common::BoolResultStr OpenSizeMap( const std::vector<std::filesystem::path>& files )
+    Common::BoolResultStr OpenSizeMap( std::vector<std::filesystem::path> assets,
+                                       std::vector<std::filesystem::path> folders )
     {
         SizeMapPanel* panel = SizeMapPanelInstance();
         if ( panel == nullptr )
             return Common::MakeError<bool>( "Size Map: this editor has no Size Map panel" );
-        return panel->ShowFor( files );
+        return panel->ShowFor( std::move( assets ), std::move( folders ) );
     }
 } // namespace Desert::Editor

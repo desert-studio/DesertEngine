@@ -286,6 +286,15 @@ namespace Desert::Assets
             return Detail::Get_().Registry;
         }
 
+        // A COPY of every row, taken under the lock: for a tool that walks the whole registry at its own pace (the
+        // Size Map, Editor/Panels/SizeMap) while the async loader's completions keep noting rows from workers.
+        inline Common::Utils::AssetRegistry Snapshot()
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            return state.Registry;
+        }
+
         // The current key of the asset a redirector names, through any further redirectors; "" when the
         // registry cannot say. The namer Common::Content::RefuseRedirectorBytes takes.
         inline std::string KeyOfRedirectorTarget( const Common::Content::AssetGuid& target )

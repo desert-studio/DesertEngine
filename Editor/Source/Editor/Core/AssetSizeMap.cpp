@@ -78,6 +78,8 @@ namespace Desert::Editor::SizeMap
                 std::vector<const SizeMapRow*> rows;
                 for ( const uint64_t edge : row.Dependencies )
                 {
+                    if ( edge == 0 )
+                        continue; // the null handle is no reference (a null GUID folds to it)
                     const SizeMapRow* named = Rows.FindByHandle( edge );
                     if ( named == nullptr )
                     {
