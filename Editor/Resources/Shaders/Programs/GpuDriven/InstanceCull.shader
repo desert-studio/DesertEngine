@@ -312,7 +312,19 @@ Shader "InstanceCull"
             {
                 const uint slot = pd.FirstDrawSlot + level * pd.SubmeshCount + s;
                 const uint bin  = DrawSlots[slot].Bin;
+                // FPS-DEVLOST7: never past the bin's room. Capacity is the CPU's (DrawCommandCache: the sum of its
+                // slots' instances when the table was built); the GPU scene's primitive can hold more instances by
+                // then (instances added before the cache rebuilds). Unbounded, k walked into the next bin's and the
+                // next view's range of Visible[] - and past the buffer for the last view - and the draw's
+                // instanceCount read that far (MeshShadowCascade0.1.Static lost the device). The same net-capacity
+                // rule as ClusterCut's HwDraw: an overflowing append takes its count back, so the drawn count ends
+                // at min( appended, Capacity ) and every k below it is one written entry.
                 const uint k    = atomicAdd( Draws[localView * Params2.x + bin].InstanceCount, 1u );
+                if ( k >= Bins[bin].Capacity )
+                {
+                    atomicAdd( Draws[localView * Params2.x + bin].InstanceCount, 0xFFFFFFFFu );
+                    continue;
+                }
                 const uint entry = localView * Params2.y + Bins[bin].FirstVisible + k;
                 Visible[entry] =
                      GpuVisibleInstance( instanceRow, restPose ? slot | DESERT_GPU_VISIBLE_REST_POSE : slot );
