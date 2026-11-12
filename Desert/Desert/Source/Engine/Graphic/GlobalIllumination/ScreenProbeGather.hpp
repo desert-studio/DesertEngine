@@ -390,6 +390,7 @@ namespace Desert::Graphic::GlobalIllumination
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
             TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
                               // there
+            TraceNearHitLighting, // the same program's leg lighting the software near field's hits (FPS-NEAR-FIELD)
             Disocclusion,
             SpatialFilter,
             Filter,
@@ -402,8 +403,8 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         // ScreenProbeTrace's world legs, each a permutation of one program (EnsureTraceProgram, ProgramVariants).
-        static constexpr std::array<Program, 5> kTracePrograms{ TraceNearField, TraceFarField, TraceCacheMiss,
-                                                                TraceHitLighting, TraceCacheRead };
+        static constexpr std::array<Program, 6> kTracePrograms{ TraceNearField,   TraceFarField,  TraceCacheMiss,
+                                                                TraceHitLighting, TraceCacheRead, TraceNearHitLighting };
 
         // A trace leg's permutation define (SP_TRACE_*): the one key TraceLegExists / TraceLegLightsHits decide
         // on.

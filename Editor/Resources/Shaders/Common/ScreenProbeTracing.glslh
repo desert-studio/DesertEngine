@@ -19,7 +19,9 @@
 // screen one run per probe (a groupshared prefix sum, texel order), a world leg one run per subgroup (lane order):
 //   screen      -> near field (no hit, not at the cache, before the near field's end) and far field (the other
 //                  rays with no hit: at the cache, or past the near field's end)
-//   near field  -> far field (every ray it does not hit)
+//   near field  -> far field (every ray it does not hit, not at the cache), cache read (its misses at the cache)
+//                  and, with the software tracer, near hit lighting (its hits: object and exact distance in
+//                  ScreenProbes.NearHit, binned groups)
 //   far field   -> cache read (no hit, at the cache) and, with the software tracer, hit lighting (its global-field
 //                  hits, distance only)
 //   cache read  -> cache miss (no traced probe answered)
@@ -27,7 +29,8 @@
 // atomicMax), y = z = 1 (uploaded); its allocator counts the rays listed (0 uploaded). Two sizes:
 //   SP_TRACE_BINNED_LEG_GROUP_SIZE 256: the hit-lighting leg's group orders its rays by direction before lighting
 //     them (ScreenProbeTrace.shader THE GROUP'S RAYS BY DIRECTION), and 256 listed rays come from a few neighbouring
-//     probes, so a subgroup holds rays of a few adjacent texels. Only the far field lists for it (its hits).
+//     probes, so a subgroup holds rays of a few adjacent texels. The far field lists for it (its hits), the
+//     software near field for the near hit lighting, binned the same way (its hits).
 //   SP_TRACE_LEG_GROUP_SIZE 64 (256 past 8x8 traced texels): every other leg traces in list order (probe by probe,
 //     lane i = the list's ray i, no groupshared, no barrier), so the size changes neither a ray's lane inputs nor
 //     its subgroup. FPS-GI-TRACE (UE ScreenProbeTraceVoxelsCS / TraceMeshSDFs: 64-thread groups): a workgroup's

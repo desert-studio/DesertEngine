@@ -54,8 +54,8 @@ float GIMeshObjectVoxel( uint objectIndex )
 
 // ONE OBJECT OF THE NEAR FIELD (UE RayTraceSingleMeshSDF): the ray clipped to the object's volume box, sphere traced
 // in world centimetres through the object's field (DistanceToMeshSurfaceStandalone, volume -> world at the
-// smallest axis scale: conservative under a non-uniform scale). A hit before @p tEnd lowers @p tEnd to it and
-// writes its world normal (the field's gradient in volume space through the transpose of world -> volume).
+// smallest axis scale: conservative under a non-uniform scale). A hit before @p tEnd lowers @p tEnd to it
+// (GIMeshObjectNormal builds its world normal at that distance).
 //
 // THE SURFACE IS EXPANDED BY HALF A VOXEL OF THE FINEST RESIDENT MIP, as the global field's (GlobalDistanceField.glslh):
 // a leaf card thinner than a voxel reconstructs to a V that never goes negative, and a step can cross it; the
@@ -66,7 +66,7 @@ float GIMeshObjectVoxel( uint objectIndex )
 // cone cannot tell apart are one sheet to it - entered once, stepped through at the cone's pace (cone tracing's
 // sample radius) rather than at the finest voxel's, which made a crown cost up to the step cap per leaf object.
 bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tStart, inout float tEnd,
-                        bool ditheredTransparency, float tanConeAngle, uint seed, inout vec3 normal )
+                        bool ditheredTransparency, float tanConeAngle, uint seed )
 {
     const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
     const vec4 r0          = DistanceFieldObjects[base + 0u];
@@ -116,19 +116,9 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                          ( !previousInBand && GlobalDistanceFieldStepNoise( objectSeed, step ) <=
                                                   GDF_DITHERED_TRANSPARENCY_STEP_THRESHOLD ) ) )
         {
-            // A shadow ray (no dither, GITraceNearField) reads only that it hit: no normal (six more fetches).
+            // The hit's distance only: its normal (six more fetches) is built once, for the closest object of the
+            // list (GIMeshObjectNormal) - not for every object that moved the hit closer on the way.
             tEnd = t;
-            if ( !ditheredTransparency )
-                return true;
-            const float h = voxelVolume;
-            const vec3  g = vec3( DistanceToMeshSurfaceStandalone( clamp( v + vec3( h, 0, 0 ), -extent, extent ), assetIndex ) -
-                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( h, 0, 0 ), -extent, extent ), assetIndex ),
-                                  DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, h, 0 ), -extent, extent ), assetIndex ) -
-                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, h, 0 ), -extent, extent ), assetIndex ),
-                                  DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, 0, h ), -extent, extent ), assetIndex ) -
-                                      DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, 0, h ), -extent, extent ), assetIndex ) );
-            const vec3 worldGradient = g.x * r0.xyz + g.y * r1.xyz + g.z * r2.xyz;
-            normal = dot( worldGradient, worldGradient ) > 1e-12 ? normalize( worldGradient ) : -direction;
             return true;
         }
         previousInBand = inBand;
@@ -136,6 +126,37 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
         t += max( abs( distance ), band );
     }
     return false;
+}
+
+// The world normal of object @p objectIndex where the ray (@p origin, unit @p direction) hit it at @p t
+// (GITraceMeshObject's tEnd): the field's gradient in volume space, one finest-mip voxel apart, through the
+// transpose of world -> volume - at the same volume point GITraceMeshObject's hitting step sampled.
+vec3 GIMeshObjectNormal( uint objectIndex, vec3 origin, vec3 direction, float t )
+{
+    const uint base        = objectIndex * uint( DF_OBJECT_STRIDE );
+    const vec4 r0          = DistanceFieldObjects[base + 0u];
+    const vec4 r1          = DistanceFieldObjects[base + 1u];
+    const vec4 r2          = DistanceFieldObjects[base + 2u];
+    const vec3 extent      = DistanceFieldObjects[base + 3u].xyz;
+    const vec3 vo     = vec3( dot( r0, vec4( origin, 1.0 ) ), dot( r1, vec4( origin, 1.0 ) ), dot( r2, vec4( origin, 1.0 ) ) );
+    const vec3 vd     = vec3( dot( r0.xyz, direction ), dot( r1.xyz, direction ), dot( r2.xyz, direction ) );
+    const uint assetIndex = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
+    const uint numMips    = DFAssetNumMips( assetIndex );
+    if ( numMips == 0u )
+        return -direction; // never hit: GITraceMeshObject enters no object without a resident mip
+    const DFAssetMip finest = LoadDFAssetMip( assetIndex, numMips - 1u );
+    const float      h      = 1.0 / ( float( DF_UNIQUE_BRICK_SIZE ) *
+                                  max( finest.VolumeToIndirectionScale.x,
+                                       max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
+    const vec3 v = clamp( vo + vd * t, -extent, extent );
+    const vec3 g = vec3( DistanceToMeshSurfaceStandalone( clamp( v + vec3( h, 0, 0 ), -extent, extent ), assetIndex ) -
+                             DistanceToMeshSurfaceStandalone( clamp( v - vec3( h, 0, 0 ), -extent, extent ), assetIndex ),
+                         DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, h, 0 ), -extent, extent ), assetIndex ) -
+                             DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, h, 0 ), -extent, extent ), assetIndex ),
+                         DistanceToMeshSurfaceStandalone( clamp( v + vec3( 0, 0, h ), -extent, extent ), assetIndex ) -
+                             DistanceToMeshSurfaceStandalone( clamp( v - vec3( 0, 0, h ), -extent, extent ), assetIndex ) );
+    const vec3 worldGradient = g.x * r0.xyz + g.y * r1.xyz + g.z * r2.xyz;
+    return dot( worldGradient, worldGradient ) > 1e-12 ? normalize( worldGradient ) : -direction;
 }
 
 // The dither seed of @p ray (UE bDitheredTransparency): the ray itself - every consumer already jitters its rays per
@@ -148,76 +169,87 @@ uint GITraceSeed( GITraceInput ray )
            ( d.y * 2246822519u );
 }
 
-// THE NEAR FIELD (UE TraceMeshSDFs): the mesh SDFs of the origin's froxel from ray.tMin, up to
-// DF_MESH_SDF_TRACE_DISTANCE. @p farStart is where the far field goes on after a miss: the near field's end when the
-// origin's froxel listed the objects (the list holds every object the ray can reach before it), ray.tMin outside the
-// grid.
-GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
+// THE NEAR FIELD'S MARCH (UE TraceMeshSDFs): the mesh SDFs of the origin's froxel from ray.tMin, up to
+// DF_MESH_SDF_TRACE_DISTANCE - true on a hit, @p tHit its distance and @p hitObject the closest object's index (its
+// surface: GINearFieldSurface). @p farStart is where the far field goes on: the hit's distance; after a miss the near
+// field's end when the origin's froxel listed the objects (the list holds every object the ray can reach before it),
+// ray.tMin outside the grid. GITraceNearField's walk, apart for a caller that lights the hit in a pass of its own
+// (ScreenProbeTrace.shader SP_TRACE_NEAR_HIT_LIGHTING: UE's hit lighting is its own compacted pass).
+bool GITraceNearFieldMarch( GITraceInput ray, out float farStart, out float tHit, out uint hitObject )
 {
-    GITraceResult result;
-    result.hit = false;
     // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it.
     const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
     const uint seed     = GITraceSeed( ray );
+    hitObject           = 0u;
 
     // The near field: the objects of the origin's froxel, the closest hit. The list holds every object the ray can
     // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped, closest to the froxel first:
     // an early near hit clips every later object to its box test.
-    float       globalStart = ray.tMin;
-    const float nearEnd     = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
-    uvec2       list        = uvec2( 0u );
-    if ( ray.tMin < nearEnd && GIMeshObjectList( ray.origin, list ) )
+    farStart            = ray.tMin;
+    const float nearEnd = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
+    tHit                = nearEnd;
+    uvec2 list          = uvec2( 0u );
+    if ( !( ray.tMin < nearEnd && GIMeshObjectList( ray.origin, list ) ) )
+        return false;
+    bool        hit     = false;
+    const float tanCone = tan( ray.coneAngle );
+    for ( uint i = 0u; i < list.y; ++i )
     {
-        float      tHit   = nearEnd;
-        vec3       normal = -ray.direction;
-        bool       hit    = false;
-        uint       hitObject = 0u;
-        const float tanCone = tan( ray.coneAngle );
-        for ( uint i = 0u; i < list.y; ++i )
+        const uint object = giTracerMeshSDFGridCells[list.x + i];
+        if ( GITraceMeshObject( object, ray.origin, ray.direction, ray.tMin, tHit, dithered, tanCone, seed ) )
         {
-            const uint object = giTracerMeshSDFGridCells[list.x + i];
-            if ( GITraceMeshObject( object, ray.origin, ray.direction, ray.tMin, tHit, dithered, tanCone, seed,
-                                    normal ) )
-            {
-                hit       = true;
-                hitObject = object;
-                // A shadow ray is answered by any hit (UE's shadow traces are any-hit): the rest of the list could
-                // only move it closer.
-                if ( !dithered )
-                    break;
-            }
+            hit       = true;
+            hitObject = object;
+            // A shadow ray is answered by any hit (UE's shadow traces are any-hit): the rest of the list could
+            // only move it closer.
+            if ( !dithered )
+                break;
         }
-        if ( hit )
-        {
-            result.hit                  = true;
-            result.surface.distance     = tHit;
-            result.surface.position     = ray.origin + ray.direction * tHit;
-            result.surface.meshCards    = GI_NO_MESH_CARDS;
-            // The hit object's instance-table row (DF_OBJECT_ROW_FLAGS .y): GIHitInstanceRows reads its cards first
-            // (UE ConeTraceMeshSDFsAndInterpolateFromCards: the hit object's MeshCardsIndex).
-            result.surface.instance =
-                 floatBitsToUint( DistanceFieldObjects[hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_FLAGS )].y );
-            result.surface.primitive    = 0u;
-            result.surface.barycentrics = vec2( 0.0 );
-            result.surface.normal       = normal;
-            result.surface.frontFace    = dot( normal, ray.direction ) < 0.0;
-            // The hit object's world -> previous world rows (UE CalculateMeshSDFDerivedData, bCalculateHitVelocity).
-            const uint motionBase = hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_TO_PREVIOUS_WORLD );
-            const vec4 hitAt      = vec4( result.surface.position, 1.0 );
-            const vec3 previous   = vec3( dot( DistanceFieldObjects[motionBase + 0u], hitAt ),
-                                          dot( DistanceFieldObjects[motionBase + 1u], hitAt ),
-                                          dot( DistanceFieldObjects[motionBase + 2u], hitAt ) );
-            result.surface.velocity    = result.surface.position - previous;
-            result.surface.motionKnown = true;
-            result.surface.globalField = false;
-            farStart                    = tHit;
-            return result;
-        }
-        // The global field goes on from where the near field ended (UE: the global SDF trace starts at the mesh
-        // SDF trace distance).
-        globalStart = nearEnd;
     }
-    farStart = globalStart;
+    // A miss: the global field goes on from where the near field ended (UE: the global SDF trace starts at the mesh
+    // SDF trace distance).
+    farStart = hit ? tHit : nearEnd;
+    return hit;
+}
+
+// The surface of a near-field hit (GITraceNearFieldMarch): object @p hitObject at @p tHit along the ray (@p origin,
+// unit @p direction). @p withNormal false (a shadow ray, read for its hit alone): the normal is -direction, not built.
+GIHit GINearFieldSurface( vec3 origin, vec3 direction, uint hitObject, float tHit, bool withNormal )
+{
+    GIHit surface;
+    surface.distance  = tHit;
+    surface.position  = origin + direction * tHit;
+    surface.meshCards = GI_NO_MESH_CARDS;
+    // The hit object's instance-table row (DF_OBJECT_ROW_FLAGS .y): GIHitInstanceRows reads its cards first
+    // (UE ConeTraceMeshSDFsAndInterpolateFromCards: the hit object's MeshCardsIndex).
+    surface.instance =
+         floatBitsToUint( DistanceFieldObjects[hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_FLAGS )].y );
+    surface.primitive    = 0u;
+    surface.barycentrics = vec2( 0.0 );
+    surface.normal       = withNormal ? GIMeshObjectNormal( hitObject, origin, direction, tHit ) : -direction;
+    surface.frontFace    = dot( surface.normal, direction ) < 0.0;
+    // The hit object's world -> previous world rows (UE CalculateMeshSDFDerivedData, bCalculateHitVelocity).
+    const uint motionBase = hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_TO_PREVIOUS_WORLD );
+    const vec4 hitAt      = vec4( surface.position, 1.0 );
+    const vec3 previous   = vec3( dot( DistanceFieldObjects[motionBase + 0u], hitAt ),
+                                  dot( DistanceFieldObjects[motionBase + 1u], hitAt ),
+                                  dot( DistanceFieldObjects[motionBase + 2u], hitAt ) );
+    surface.velocity    = surface.position - previous;
+    surface.motionKnown = true;
+    surface.globalField = false;
+    return surface;
+}
+
+// THE NEAR FIELD (UE TraceMeshSDFs): GITraceNearFieldMarch, then the hit's surface (GINearFieldSurface).
+GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
+{
+    GITraceResult result;
+    float         tHit;
+    uint          hitObject;
+    result.hit = GITraceNearFieldMarch( ray, farStart, tHit, hitObject );
+    if ( result.hit )
+        result.surface = GINearFieldSurface( ray.origin, ray.direction, hitObject, tHit,
+                                             ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u );
     return result;
 }
 
