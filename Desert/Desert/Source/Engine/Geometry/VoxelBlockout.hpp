@@ -156,6 +156,63 @@ namespace Desert::Geometry::VoxelBlockout
         int VMax = 0;
     };
 
+    // The CubeGrid selection: a free set of BASE cells (u, v) on the work-plane - any shape, islands included -
+    // where UE's UCubeGridTool keeps one axis-aligned box. A marquee replaces it, adds a rectangle to it or
+    // removes one from it, Space turns it; Push / Pull, Slide and Paint act on every cell in it. A rectangle
+    // converts into it (all of its cells), so a box selection is simply the common case. The cells are kept
+    // sorted (u, then v) and unique, so a selection iterates in one order whichever edits built it.
+    class CellSelection
+    {
+    public:
+        CellSelection() = default;
+        // Every cell of `r`. Implicit on purpose: a rectangle IS a selection, wherever one is taken.
+        CellSelection( const Rect& r );
+        // Any cells, in any order, repeats allowed.
+        explicit CellSelection( std::vector<glm::ivec2> cells );
+
+        bool Empty() const
+        {
+            return m_Cells.empty();
+        }
+        std::size_t Size() const
+        {
+            return m_Cells.size();
+        }
+        const std::vector<glm::ivec2>& Cells() const
+        {
+            return m_Cells;
+        }
+        bool Contains( const glm::ivec2& c ) const;
+        void Clear()
+        {
+            m_Cells.clear();
+        }
+        void Add( const Rect& r );    // union with every cell of `r`
+        void Remove( const Rect& r ); // difference: every cell of `r` leaves the selection
+
+        // The inclusive range the cells span. Only meaningful for a non-empty selection.
+        Rect Bounds() const;
+        // The selection when it is exactly one rectangle (every cell of its bounds), else empty.
+        std::optional<Rect> AsRect() const;
+        // Every cell split into F x F, as Volume::Refine splits the base it indexes.
+        CellSelection Refined( int F ) const;
+
+        // Doubled coordinates of the point Space turns the selection about: the centre of its bounds, moved
+        // down to the nearest block corner or block centre (blocks of K cells) when one side spans an odd
+        // number of blocks and the other an even one. Both doubled coordinates then have one parity, so a turn
+        // maps whole cells onto whole cells and whole blocks onto whole blocks. Bounds that are not
+        // block-aligned (the Block Size changed under the selection) snap the same way to single cells.
+        glm::ivec2 TurnPivot2( int K ) const;
+        // The selection turned 90 degrees about the point with doubled coordinates `pivot2` (TurnPivot2), the
+        // +u axis onto +v. Four turns about one pivot give back the same cells.
+        CellSelection Turned90( const glm::ivec2& pivot2 ) const;
+
+    private:
+        void SortUnique();
+
+        std::vector<glm::ivec2> m_Cells;
+    };
+
     // The four posts of the selection rectangle, as (at uMax, at vMax). Index order is (uMin,vMin) (uMax,vMin)
     // (uMin,vMax) (uMax,vMax) - the order of Corner Mode's height array.
     struct RectPost
@@ -186,9 +243,10 @@ namespace Desert::Geometry::VoxelBlockout
         GridFrame Frame; // grid frame this piece was built in
     };
 
-    // Re-express a marquee (stored in BASE cells) in a new base, keeping its world position, then re-snap it
-    // out to whole blocks of K cells. The plane cell and the marquee's press anchor move with it.
-    void RescaleSelection( WorkPlane& plane, glm::ivec2& anchor, Rect& sel, float oldUnit, float newUnit, int K );
+    // Re-express a selection (stored in BASE cells) in a new base, keeping its world position, then re-snap
+    // every cell out to whole blocks of K cells. The plane cell and the marquee's press anchor move with it.
+    void RescaleSelection( WorkPlane& plane, glm::ivec2& anchor, CellSelection& sel, float oldUnit, float newUnit,
+                           int K );
 
     class Volume
     {
@@ -215,17 +273,18 @@ namespace Desert::Geometry::VoxelBlockout
         // Commit the active volume into an immutable layer; afterwards the next Block Size starts a new base.
         // Returns false (and changes nothing) when there is nothing to commit.
         bool Freeze();
-        // dir > 0: per column of `sel`, fill `height` base cells from the first empty cell out of the plane;
+        // dir > 0: per column of `sel` (every selected cell), fill `height` base cells from the first empty cell
+        // out of the plane;
         // every face of a new cell takes `material`. dir <= 0: remove `height` base cells just inside the
         // plane; the faces of the remaining active cells that the removal exposes take `material` (UE gives
         // every triangle an op creates the op's material, the walls of a hole included). The plane moves with
         // the edit.
-        void PushPull( WorkPlane& plane, const Rect& sel, int dir, int height, uint8_t material );
+        void PushPull( WorkPlane& plane, const CellSelection& sel, int dir, int height, uint8_t material );
         // Shift+B: every exposed face, in ANY layer whose frame shares the active axes (a turned piece's faces
         // never lie on this lattice's planes), that lies on the work-plane and faces out of it, with its
-        // centre inside `sel`, takes `material`. Geometry is untouched. Returns the faces painted; 0
+        // centre in a selected cell, takes `material`. Geometry is untouched. Returns the faces painted; 0
         // when no active base is chosen yet or nothing under the selection faces that way.
-        int PaintFaces( const WorkPlane& plane, const Rect& sel, uint8_t material );
+        int PaintFaces( const WorkPlane& plane, const CellSelection& sel, uint8_t material );
         // Corner Mode: every outer corner of the cell layer just inside the work-plane, under the selection,
         // takes the bilinear blend of the four posts along the plane's normal (a wall slopes as a floor does),
         // so raising two posts yields one clean ramp and raising one a hip; the cells take `crosswise`.

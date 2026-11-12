@@ -315,7 +315,143 @@ namespace Desert::Geometry::VoxelBlockout
         return p;
     }
 
-    void RescaleSelection( WorkPlane& plane, glm::ivec2& anchor, Rect& sel, float oldUnit, float newUnit, int K )
+    namespace
+    {
+        // CellSelection's order: u, then v.
+        bool CellLess( const glm::ivec2& a, const glm::ivec2& b )
+        {
+            return a.x != b.x ? a.x < b.x : a.y < b.y;
+        }
+
+        // Every cell of `r`, in CellSelection's order; none for an inverted rectangle.
+        std::vector<glm::ivec2> RectCells( const Rect& r )
+        {
+            std::vector<glm::ivec2> cells;
+            if ( r.UMax < r.UMin || r.VMax < r.VMin )
+                return cells;
+            cells.reserve( static_cast<std::size_t>( r.UMax - r.UMin + 1 ) *
+                           static_cast<std::size_t>( r.VMax - r.VMin + 1 ) );
+            for ( int u = r.UMin; u <= r.UMax; ++u )
+                for ( int v = r.VMin; v <= r.VMax; ++v )
+                    cells.emplace_back( u, v );
+            return cells;
+        }
+    } // namespace
+
+    CellSelection::CellSelection( const Rect& r ) : m_Cells( RectCells( r ) )
+    {
+    }
+
+    CellSelection::CellSelection( std::vector<glm::ivec2> cells ) : m_Cells( std::move( cells ) )
+    {
+        SortUnique();
+    }
+
+    void CellSelection::SortUnique()
+    {
+        std::sort( m_Cells.begin(), m_Cells.end(), CellLess );
+        m_Cells.erase( std::unique( m_Cells.begin(), m_Cells.end() ), m_Cells.end() );
+    }
+
+    bool CellSelection::Contains( const glm::ivec2& c ) const
+    {
+        return std::binary_search( m_Cells.begin(), m_Cells.end(), c, CellLess );
+    }
+
+    void CellSelection::Add( const Rect& r )
+    {
+        const std::vector<glm::ivec2> add = RectCells( r );
+        std::vector<glm::ivec2>       merged;
+        merged.reserve( m_Cells.size() + add.size() );
+        std::set_union( m_Cells.begin(), m_Cells.end(), add.begin(), add.end(), std::back_inserter( merged ),
+                        CellLess );
+        m_Cells = std::move( merged );
+    }
+
+    void CellSelection::Remove( const Rect& r )
+    {
+        std::erase_if( m_Cells, [&]( const glm::ivec2& c )
+                       { return c.x >= r.UMin && c.x <= r.UMax && c.y >= r.VMin && c.y <= r.VMax; } );
+    }
+
+    Rect CellSelection::Bounds() const
+    {
+        if ( m_Cells.empty() )
+            return Rect{};
+        // Sorted by u first: the first and last cells carry the u range.
+        Rect b{ m_Cells.front().x, m_Cells.back().x, m_Cells.front().y, m_Cells.front().y };
+        for ( const glm::ivec2& c : m_Cells )
+        {
+            b.VMin = std::min( b.VMin, c.y );
+            b.VMax = std::max( b.VMax, c.y );
+        }
+        return b;
+    }
+
+    std::optional<Rect> CellSelection::AsRect() const
+    {
+        if ( m_Cells.empty() )
+            return std::nullopt;
+        // Unique cells inside the bounds fill them exactly when there are as many as the bounds hold.
+        const Rect        b = Bounds();
+        const std::size_t area =
+             static_cast<std::size_t>( b.UMax - b.UMin + 1 ) * static_cast<std::size_t>( b.VMax - b.VMin + 1 );
+        if ( area != m_Cells.size() )
+            return std::nullopt;
+        return b;
+    }
+
+    CellSelection CellSelection::Refined( int F ) const
+    {
+        std::vector<glm::ivec2> cells;
+        cells.reserve( m_Cells.size() * static_cast<std::size_t>( F ) * static_cast<std::size_t>( F ) );
+        for ( const glm::ivec2& c : m_Cells )
+            for ( int du = 0; du < F; ++du )
+                for ( int dv = 0; dv < F; ++dv )
+                    cells.emplace_back( c.x * F + du, c.y * F + dv );
+        return CellSelection( std::move( cells ) );
+    }
+
+    glm::ivec2 CellSelection::TurnPivot2( int K ) const
+    {
+        const Rect b = Bounds();
+        const int  w = b.UMax - b.UMin + 1;
+        const int  h = b.VMax - b.VMin + 1;
+        // Work in blocks when the bounds are whole blocks, so the pivot lands on a block corner or centre.
+        const bool blocks = K > 1 && b.UMin % K == 0 && b.VMin % K == 0 && w % K == 0 && h % K == 0;
+        const int  g      = blocks ? K : 1;
+        // The bounds' centre, doubled, in units of g: exact, as the bounds are whole units of g.
+        glm::ivec2 p( ( 2 * b.UMin + w ) / g, ( 2 * b.VMin + h ) / g );
+        // One odd and one even coordinate is a point no quarter turn maps the lattice onto itself about:
+        // the odd one moves down by half a unit.
+        if ( ( p.x - p.y ) % 2 != 0 )
+        {
+            if ( p.x % 2 != 0 )
+                p.x -= 1;
+            else
+                p.y -= 1;
+        }
+        return p * g;
+    }
+
+    CellSelection CellSelection::Turned90( const glm::ivec2& pivot2 ) const
+    {
+        std::vector<glm::ivec2> cells;
+        cells.reserve( m_Cells.size() );
+        for ( const glm::ivec2& c : m_Cells )
+        {
+            // The cell's doubled centre (2u+1, 2v+1) relative to the pivot, turned (x, y) -> (-y, x). Both
+            // doubled pivot coordinates share one parity, so the turned centre is odd on both axes again: a
+            // cell centre, and the halving below is exact.
+            const int du = 2 * c.x + 1 - pivot2.x;
+            const int dv = 2 * c.y + 1 - pivot2.y;
+            cells.emplace_back( ( pivot2.x - dv - 1 ) / 2, ( pivot2.y + du - 1 ) / 2 );
+        }
+        return CellSelection( std::move( cells ) );
+    }
+
+    void RescaleSelection( WorkPlane& plane, glm::ivec2& anchor, CellSelection& sel, float oldUnit, float newUnit,
+                           int K )
     {
         const float s = oldUnit / newUnit;
         auto toNewMin = [&]( int c ) { return static_cast<int>( std::floor( static_cast<float>( c ) * s ) ); };
@@ -326,14 +462,20 @@ namespace Desert::Geometry::VoxelBlockout
         plane.Cell         = static_cast<int>( std::lround( planeW / newUnit ) ) - ( plane.Sign > 0 ? 0 : 1 );
         anchor             = { toNewMin( anchor.x ), toNewMin( anchor.y ) };
 
-        const int uMin = toNewMin( sel.UMin );
-        const int uMax = toNewMax( sel.UMax );
-        const int vMin = toNewMin( sel.VMin );
-        const int vMax = toNewMax( sel.VMax );
-        sel.UMin       = FloorDiv( uMin, K ) * K;
-        sel.UMax       = FloorDiv( uMax, K ) * K + K - 1;
-        sel.VMin       = FloorDiv( vMin, K ) * K;
-        sel.VMax       = FloorDiv( vMax, K ) * K + K - 1;
+        // Each old cell covers a range of new ones, re-snapped out to whole blocks; adjacent cells' ranges
+        // touch, so a rectangle stays one rectangle and a free shape keeps its shape.
+        std::vector<glm::ivec2> cells;
+        for ( const glm::ivec2& c : sel.Cells() )
+        {
+            const int uMin = FloorDiv( toNewMin( c.x ), K ) * K;
+            const int uMax = FloorDiv( toNewMax( c.x ), K ) * K + K - 1;
+            const int vMin = FloorDiv( toNewMin( c.y ), K ) * K;
+            const int vMax = FloorDiv( toNewMax( c.y ), K ) * K + K - 1;
+            for ( int uu = uMin; uu <= uMax; ++uu )
+                for ( int vv = vMin; vv <= vMax; ++vv )
+                    cells.emplace_back( uu, vv );
+        }
+        sel = CellSelection( std::move( cells ) );
     }
 
     bool Volume::SolidAt( const glm::ivec3& c, float unit, const GridFrame& frame ) const
@@ -414,7 +556,7 @@ namespace Desert::Geometry::VoxelBlockout
         return true;
     }
 
-    void Volume::PushPull( WorkPlane& plane, const Rect& sel, int dir, int height, uint8_t material )
+    void Volume::PushPull( WorkPlane& plane, const CellSelection& sel, int dir, int height, uint8_t material )
     {
         Cell fresh;
         std::fill( std::begin( fresh.Mat ), std::end( fresh.Mat ), material );
@@ -426,33 +568,31 @@ namespace Desert::Geometry::VoxelBlockout
 
         if ( dir > 0 ) // Extrude out: fill `height` base cells from the first empty cell, per column
         {
-            for ( int u = sel.UMin; u <= sel.UMax; ++u )
-                for ( int v = sel.VMin; v <= sel.VMax; ++v )
-                {
-                    glm::ivec3 c{ 0 };
-                    c[na] = plane.Cell;
-                    c[ua] = u;
-                    c[va] = v;
-                    while ( occ( c ) )
-                        c[na] += sign;
-                    for ( int s = 0; s < height; ++s, c[na] += sign )
-                        m_Cells[Pack( c )] = fresh;
-                }
+            for ( const glm::ivec2& uv : sel.Cells() )
+            {
+                glm::ivec3 c{ 0 };
+                c[na] = plane.Cell;
+                c[ua] = uv.x;
+                c[va] = uv.y;
+                while ( occ( c ) )
+                    c[na] += sign;
+                for ( int s = 0; s < height; ++s, c[na] += sign )
+                    m_Cells[Pack( c )] = fresh;
+            }
             plane.Cell += sign * height;
         }
         else // Push in: remove `height` base cells just inside the plane, per column
         {
             std::vector<glm::ivec3> cut;
-            for ( int u = sel.UMin; u <= sel.UMax; ++u )
-                for ( int v = sel.VMin; v <= sel.VMax; ++v )
-                {
-                    glm::ivec3 c{ 0 };
-                    c[na] = plane.Cell - sign;
-                    c[ua] = u;
-                    c[va] = v;
-                    for ( int s = 0; s < height; ++s, c[na] -= sign )
-                        cut.push_back( c );
-                }
+            for ( const glm::ivec2& uv : sel.Cells() )
+            {
+                glm::ivec3 c{ 0 };
+                c[na] = plane.Cell - sign;
+                c[ua] = uv.x;
+                c[va] = uv.y;
+                for ( int s = 0; s < height; ++s, c[na] -= sign )
+                    cut.push_back( c );
+            }
             ThawUnder( cut );
             std::vector<glm::ivec3> removed;
             for ( const glm::ivec3& c : cut )
@@ -572,7 +712,7 @@ namespace Desert::Geometry::VoxelBlockout
         return h;
     }
 
-    int Volume::PaintFaces( const WorkPlane& plane, const Rect& sel, uint8_t material )
+    int Volume::PaintFaces( const WorkPlane& plane, const CellSelection& sel, uint8_t material )
     {
         if ( m_Unit <= 0.0f )
             return 0;
@@ -585,13 +725,9 @@ namespace Desert::Geometry::VoxelBlockout
             if ( kNeighbor[f][na] == sign )
                 face = f;
 
-        // The plane and the rectangle in the ACTIVE frame: every layer has its own cell size and grid frame,
-        // and the selection (in the active base) may sit on a face of any of them.
+        // The plane in the ACTIVE frame: every layer has its own cell size and grid frame, and the selection
+        // (cells of the active base) may sit on a face of any of them.
         const float planeW = static_cast<float>( plane.Cell + ( sign > 0 ? 0 : 1 ) ) * m_Unit;
-        const float uLo    = static_cast<float>( sel.UMin ) * m_Unit;
-        const float uHi    = static_cast<float>( sel.UMax + 1 ) * m_Unit;
-        const float vLo    = static_cast<float>( sel.VMin ) * m_Unit;
-        const float vHi    = static_cast<float>( sel.VMax + 1 ) * m_Unit;
 
         int  painted    = 0;
         auto paintLayer = [&]( CellMap& cells, float lu, const GridFrame& lf )
@@ -609,7 +745,10 @@ namespace Desert::Geometry::VoxelBlockout
                     continue;
                 const float cu = ( static_cast<float>( c[ua] ) + 0.5f ) * lu + lo[ua];
                 const float cv = ( static_cast<float>( c[va] ) + 0.5f ) * lu + lo[va];
-                if ( cu < uLo || cu > uHi || cv < vLo || cv > vHi )
+                // The active cell the face's centre falls in must be selected.
+                const glm::ivec2 under( static_cast<int>( std::floor( cu / m_Unit ) ),
+                                        static_cast<int>( std::floor( cv / m_Unit ) ) );
+                if ( !sel.Contains( under ) )
                     continue;
                 if ( FaceHidden( cells, c, cell, face, lu, lf ) )
                     continue;
