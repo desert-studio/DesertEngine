@@ -359,6 +359,13 @@ namespace Desert::Graphic::API::Vulkan
         // VulkanRendererAPI::ImportVertexBufferRange); every descriptor, barrier, copy and device address the
         // graph derives from the handle is of [offset, offset + size).
         static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size, uint64_t offset = 0 );
+        // FPS-VB-IDENTITY: Wrap of a span of an engine buffer that owns its identity (a GeometryPool buffer,
+        // VulkanVertexBuffer::GetSpanIdentity): every wrap of that VkBuffer carries @p identity, the span being
+        // its offset and size, so a descriptor content key (identity, offset, size) of the same span is equal in
+        // every graph and the set written once is bound again (AcquireCached) instead of being written anew.
+        // @p identity: nonzero, from NextRdgPhysicalIdentity, never shared with another VkBuffer.
+        static std::shared_ptr<VulkanRdgBuffer> WrapSpan( VkBuffer buffer, uint64_t identity, uint64_t size,
+                                                          uint64_t offset );
         // Wrap of the buffer backing @p accelerationStructure (a view's TLAS): a block entry of kind
         // AccelerationStructure on it binds @p accelerationStructure.
         static std::shared_ptr<VulkanRdgBuffer>
@@ -389,7 +396,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_AccessMask;
         }
-        // NextRdgPhysicalIdentity: this object's buffer range (and acceleration structure), fixed for its life.
+        // NextRdgPhysicalIdentity: this object's buffer range (and acceleration structure), fixed for its life;
+        // for a WrapSpan the identity of the whole wrapped VkBuffer (a key adds GetOffset and GetSize).
         [[nodiscard]] uint64_t GetIdentity() const
         {
             return m_Identity;
