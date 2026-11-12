@@ -2190,12 +2190,15 @@ namespace Desert::Graphic
         // UE LumenReflectionTracing: the screen trace, then the world traces over the compacted rays it left. A
         // traced frame that is not hit-lit runs its classify and screen walk in the screen leg (no tracer in that
         // kernel) and the world rays in the traced permutation's world stage over this list (SSR.shader).
+        const bool hardwareTraced =
+             traced && traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
+        // The software tracer's world stage runs as three legs over compacted lists (near field, far field, hit
+        // lighting; SSR.shader, UE LumenReflectionTracing's TraceMeshSDFs / TraceVoxels split); the hardware
+        // tracer's is one ray query.
         std::optional<System::SSRRenderer::WorldList> worldList;
         if ( traced && !hitLit )
-            worldList = System::SSRRenderer::CreateWorldList( graph, *traceTargets );
+            worldList = System::SSRRenderer::CreateWorldList( graph, *traceTargets, !hardwareTraced );
         const System::SSRRenderer::WorldList* const worldPtr = worldList ? &*worldList : nullptr;
-        const bool                                  hardwareTraced =
-             traced && traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
         const System::SSRRenderer::TracedReads* const tracedPtr = traced ? &*traced : nullptr;
         const System::SSRRenderer::FrontLayerInputs* const frontPtr = frontLayer != nullptr ? &frontInputs : nullptr;
         const char* const classifyName = !traced          ? "Deferred: SSR"
@@ -2238,22 +2241,32 @@ namespace Desert::Graphic
         }
         if ( worldList )
         {
-            const char* const worldName = hardwareTraced ? "Deferred: Reflections World (HardwareTraced)"
-                                                         : "Deferred: Reflections World (SoftwareTraced)";
-            graph.AddPass(
-                 worldName, RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
-                                               traceUniforms, System::SSRRenderer::TraceStage::World, listPtr,
-                                               worldPtr, tracedPtr, frontPtr );
-                 },
-                 [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
-                  sceneHistoryReadable, seed,
-                  worldArgs = worldList->Args]( RDG::PassContext& context ) -> Common::BoolResultStr {
-                     return ssrPtr->RecordWorldList( context, cameraPos, settings, sceneHistoryReadable, seed,
-                                                     worldArgs );
-                 } );
+            using Stage = System::SSRRenderer::TraceStage;
+            const auto addWorldPass = [&]( const char* const name, const Stage stage, const RDG::BufferRef args )
+            {
+                graph.AddPass(
+                     name, RDG::PassFlags::Compute,
+                     [&, stage]( RDG::PassBuilder& pass )
+                     {
+                         ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
+                                                   traceUniforms, stage, listPtr, worldPtr, tracedPtr, frontPtr );
+                     },
+                     [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                      sceneHistoryReadable, seed, stage, args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                         return ssrPtr->RecordWorldList( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                         stage, args );
+                     } );
+            };
+            addWorldPass( hardwareTraced ? "Deferred: Reflections World (HardwareTraced)"
+                                         : "Deferred: Reflections World (SoftwareTraced)",
+                          Stage::World, worldList->Args );
+            if ( worldList->Legs )
+            {
+                addWorldPass( "Deferred: Reflections World Far Field (SoftwareTraced)", Stage::WorldFarField,
+                              worldList->Far );
+                addWorldPass( "Deferred: Reflections World Hit Lighting (SoftwareTraced)", Stage::WorldHitLighting,
+                              worldList->Hits );
+            }
         }
         if ( hitLit )
         {

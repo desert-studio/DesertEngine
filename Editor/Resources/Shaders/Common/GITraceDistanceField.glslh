@@ -245,37 +245,58 @@ float GIFarFieldOccupiedExit( vec3 start, vec3 direction )
     return leave >= enter ? leave : 0.0;
 }
 
+// THE FAR FIELD'S SPAN of @p ray: @p globalStart = where its march begins along the ray (ray.tMin, never before the
+// far field's own offset ray.farTMin is reached - GIRayBias.farOffset: a ray that left its surface by the near
+// field's few cm would re-enter it in the coarse field), @p marchLength = how far it marches from there (to ray.tMax,
+// cut where the ray leaves the field's occupied box, GIFarFieldOccupiedExit). False: the far field has nothing to
+// march - a caller that compacts its far-field rays (SSR.shader's world legs) lists none of those.
+bool GIFarFieldSpan( GITraceInput ray, out float globalStart, out float marchLength )
+{
+    globalStart = max( ray.tMin, ray.farTMin );
+    marchLength = 0.0;
+    if ( globalStart >= ray.tMax )
+        return false;
+    const vec3 start = ray.origin + ray.direction * globalStart;
+    marchLength      = min( ray.tMax - globalStart, GIFarFieldOccupiedExit( start, ray.direction ) );
+    return marchLength > 0.0;
+}
+
+// THE FAR FIELD'S MARCH of @p ray over its span (GIFarFieldSpan): true on a hit, @p march the global field's answer
+// (T from @p globalStart). GITraceFarField's walk, apart for a caller that builds the hit's surface in a pass of its
+// own (SSR.shader's world hit lighting: GIFarFieldSurface of the same position and level, so the same surface).
+bool GITraceFarFieldMarch( GITraceInput ray, out float globalStart, out GlobalDistanceFieldHit march )
+{
+    march.Hit   = false;
+    march.T     = 0.0;
+    march.Level = -1;
+    march.Steps = 0;
+    float marchLength;
+    if ( !GIFarFieldSpan( ray, globalStart, marchLength ) )
+        return false;
+    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    const uint seed     = GITraceSeed( ray );
+    const vec3 start    = ray.origin + ray.direction * globalStart;
+    // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
+    // (normal, level) is never built - its callers read .hit alone.
+    march = TraceGlobalDistanceField( start, ray.direction, marchLength, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS,
+                                      dithered, seed, !dithered );
+    return march.Hit;
+}
+
 // THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax, cut where the ray leaves the field's
 // occupied box (GIFarFieldOccupiedExit).
 GITraceResult GITraceFarField( GITraceInput ray )
 {
-    GITraceResult result;
-    result.hit          = false;
-    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
-    const uint seed     = GITraceSeed( ray );
-    float      globalStart = ray.tMin;
-    // Never before the far field's own offset is reached (GIRayBias.farOffset: a ray that left its surface by the
-    // near field's few cm would re-enter it in the coarse field).
-    globalStart = max( globalStart, ray.farTMin );
-    if ( globalStart >= ray.tMax )
+    GITraceResult          result;
+    result.hit = false;
+    float                  globalStart;
+    GlobalDistanceFieldHit march;
+    if ( !GITraceFarFieldMarch( ray, globalStart, march ) )
         return result;
 
-    const vec3  start  = ray.origin + ray.direction * globalStart;
-    const float marchLength = min( ray.tMax - globalStart, GIFarFieldOccupiedExit( start, ray.direction ) );
-    if ( marchLength <= 0.0 )
-        return result;
-    // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
-    // (normal, level) is never built - its callers read .hit alone.
-    const bool                   anyHit = !dithered;
-    const GlobalDistanceFieldHit march  = TraceGlobalDistanceField(
-         start, ray.direction, marchLength, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered, seed,
-         anyHit );
-    if ( !march.Hit )
-        return result;
-
-    result.hit                   = true;
-    result.surface.distance      = globalStart + march.T;
-    if ( anyHit )
+    result.hit              = true;
+    result.surface.distance = globalStart + march.T;
+    if ( ( ray.flags & GI_TRACE_SHADOW_RAY ) != 0u )
         return result;
     if ( ( ray.flags & GI_TRACE_DISTANCE_ONLY ) != 0u )
     {
@@ -283,8 +304,9 @@ GITraceResult GITraceFarField( GITraceInput ray )
         result.surface.globalField = true;
         return result;
     }
-    result.surface = GIFarFieldSurface( start + ray.direction * march.T, ray.direction, result.surface.distance,
-                                        march.Level );
+    const vec3 start = ray.origin + ray.direction * globalStart;
+    result.surface   = GIFarFieldSurface( start + ray.direction * march.T, ray.direction, result.surface.distance,
+                                          march.Level );
     return result;
 }
 

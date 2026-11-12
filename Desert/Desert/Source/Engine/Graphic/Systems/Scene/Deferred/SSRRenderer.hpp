@@ -57,6 +57,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrTraceListUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldListArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldListUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldFarListUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldHitListUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -417,9 +419,19 @@ namespace Desert::Graphic::System
             Trace,
             // A traced frame that is not hit-lit: Classify and Trace run the screen leg (ScreenLegVariant), which
             // lists the texels that drew a world ray (WorldList); World = the traced permutation's compute, one
-            // thread per listed texel.
+            // thread per listed texel. Under the software tracer World is the near field (the mesh SDFs) and two
+            // more dispatches of the same program follow over their own compacted lists (WorldList::Legs; UE
+            // LumenReflectionTracing's TraceMeshSDFs, CompactReflectionTraces, TraceVoxels): WorldFarField = the
+            // global field's march of the rays the near field missed, WorldHitLighting = the lighting of its hits.
             World,
+            WorldFarField,
+            WorldHitLighting,
         };
+        [[nodiscard]] static constexpr bool IsWorldStage( const TraceStage stage )
+        {
+            return stage == TraceStage::World || stage == TraceStage::WorldFarField ||
+                   stage == TraceStage::WorldHitLighting;
+        }
 
         // THE TRACED TEXELS' LIST of one frame (Common/SSRTrace.glslh SsrTraceListArgsUB / SsrTraceListUB), graph
         // buffers: Args = the trace's indirect dispatch (x = workgroups, y = z = 1) + w = the texels listed, reset
@@ -447,23 +459,44 @@ namespace Desert::Graphic::System
         // graph buffers: Args = the world stage's indirect dispatch + w = the texels listed, reset by the graph's
         // upload; Rays = one SSRWorldRay (the screen's sums of a texel that drew a world ray), sized for every
         // texel of the trace - the screen leg's writes, the world stage's reads.
+        // Legs (the software tracer, Common/SSRTrace.glslh THE SOFTWARE TRACER'S WORLD LEGS): Far = the rays the
+        // near field (TraceStage::World) missed, Hits = the far field's hits (TraceStage::WorldFarField's), each a
+        // uvec4 header - the next leg's indirect dispatch + w = entries, reset by the graph's upload - then one
+        // uvec4 entry per trace texel at most. Null without legs (the hardware tracer's one ray query).
         struct WorldList
         {
             RDG::BufferRef Args;
             RDG::BufferRef Rays;
+            RDG::BufferRef Far;
+            RDG::BufferRef Hits;
+            bool           Legs = false;
         };
         // sizeof SSRWorldRay under std430: two vec4, three floats and a uint.
         static constexpr uint64_t kWorldRayBytes = 48u;
+        // A leg list's header and entry (SsrWorldFarListUB / SsrWorldHitListUB): one uvec4 each.
+        static constexpr uint64_t kWorldLegEntryBytes = 16u;
 
         // GRAPH BUILD: this frame's world list for @p targets, its arguments reset by the graph's upload pass.
-        static WorldList CreateWorldList( RDG::Builder& graph, const TraceTargets& targets )
+        // @p legs: the software tracer's (the traced frame's tracer is
+        // GlobalIllumination::Tracer::SoftwareDistanceField).
+        static WorldList CreateWorldList( RDG::Builder& graph, const TraceTargets& targets, const bool legs )
         {
-            const uint64_t  texels = static_cast<uint64_t>( targets.Trace.Size.Width ) * targets.Trace.Size.Height;
-            const WorldList list{
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kTraceListArgsReset ) }, "SSR.WorldListArgs" ),
-                 graph.CreateBuffer( RDG::BufferDesc{ std::max<uint64_t>( texels, 1u ) * kWorldRayBytes },
-                                     "SSR.WorldList" ) };
+            const uint64_t texels = std::max<uint64_t>(
+                 static_cast<uint64_t>( targets.Trace.Size.Width ) * targets.Trace.Size.Height, 1u );
+            WorldList list{
+                 .Args =
+                      graph.CreateBuffer( RDG::BufferDesc{ sizeof( kTraceListArgsReset ) }, "SSR.WorldListArgs" ),
+                 .Rays = graph.CreateBuffer( RDG::BufferDesc{ texels * kWorldRayBytes }, "SSR.WorldList" ) };
             graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            if ( !legs )
+                return list;
+            const uint64_t legBytes = kWorldLegEntryBytes + texels * kWorldLegEntryBytes;
+            list.Far                = graph.CreateBuffer( RDG::BufferDesc{ legBytes }, "SSR.WorldFarList" );
+            list.Hits               = graph.CreateBuffer( RDG::BufferDesc{ legBytes }, "SSR.WorldHitList" );
+            list.Legs               = true;
+            static_assert( sizeof( kTraceListArgsReset ) == kWorldLegEntryBytes );
+            graph.QueueStaticBufferUpload( list.Far, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            graph.QueueStaticBufferUpload( list.Hits, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             return list;
         }
 
@@ -565,7 +598,7 @@ namespace Desert::Graphic::System
         {
             // A traced frame with a world list: its classify and trace run the screen leg (no tracer reads), its
             // world stage the traced permutation.
-            const bool screenLeg     = traced != nullptr && world != nullptr && stage != TraceStage::World;
+            const bool screenLeg     = traced != nullptr && world != nullptr && !IsWorldStage( stage );
             const bool tracedProgram = traced != nullptr && !screenLeg && m_TracedPipeline;
             const bool screenLegReady = screenLeg && m_ScreenLegPipeline;
             if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram && !screenLegReady ) )
@@ -596,7 +629,7 @@ namespace Desert::Graphic::System
                  .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             // The world stage's program keeps no trace list (SSRTrace.glslh).
-            if ( list != nullptr && stage != TraceStage::World )
+            if ( list != nullptr && !IsWorldStage( stage ) )
             {
                 // A storage read and the indirect-argument read of one buffer in one pass are one use
                 // (RDGCompile.cpp: a buffer has no layout).
@@ -612,11 +645,27 @@ namespace Desert::Graphic::System
                 // Both programs declare it: the screen leg writes it (its classify only through the shared
                 // declaration), the world stage reads it and takes its indirect arguments from it.
                 const RDG::Access worldAccess =
-                     stage == TraceStage::World ? RDG::Access::StorageRead : RDG::Access::StorageWrite;
+                     IsWorldStage( stage ) ? RDG::Access::StorageRead : RDG::Access::StorageWrite;
                 block.Storage( SSRTraceShaderParameters::SsrWorldListArgsUB, world->Args, worldAccess )
                      .Storage( SSRTraceShaderParameters::SsrWorldListUB, world->Rays, worldAccess );
                 if ( stage == TraceStage::World )
                     pass.Read( world->Args, RDG::Access::IndirectArgs );
+                // The software tracer's legs (one program, every leg declares both lists): the near field writes
+                // the far list, the far field reads it (its indirect arguments too) and writes the hit list, the
+                // hit lighting reads that (its indirect arguments too).
+                if ( world->Legs && IsWorldStage( stage ) )
+                {
+                    const RDG::Access farAccess =
+                         stage == TraceStage::World ? RDG::Access::StorageWrite : RDG::Access::StorageRead;
+                    const RDG::Access hitAccess =
+                         stage == TraceStage::WorldFarField ? RDG::Access::StorageWrite : RDG::Access::StorageRead;
+                    block.Storage( SSRTraceShaderParameters::SsrWorldFarListUB, world->Far, farAccess )
+                         .Storage( SSRTraceShaderParameters::SsrWorldHitListUB, world->Hits, hitAccess );
+                    if ( stage == TraceStage::WorldFarField )
+                        pass.Read( world->Far, RDG::Access::IndirectArgs );
+                    if ( stage == TraceStage::WorldHitLighting )
+                        pass.Read( world->Hits, RDG::Access::IndirectArgs );
+                }
             }
             if ( tracedProgram )
                 DeclareTracedReads( block, *traced );
@@ -730,24 +779,39 @@ namespace Desert::Graphic::System
             return Renderer::DispatchComputeIndirect( bindings, *pipeline, listArgs, 0u );
         }
 
-        // The world stage (TraceStage::World, a traced frame that is not hit-lit): one thread per texel the screen
-        // leg listed in the world list, the workgroup count from @p worldArgs (WorldList::Args, the node's
-        // IndirectArgs read).
+        // The world stage (a traced frame that is not hit-lit), one dispatch of @p stage (IsWorldStage): World = one
+        // thread per texel the screen leg listed in the world list (the whole ray, or the software tracer's near
+        // field), WorldFarField / WorldHitLighting = one per entry of the software tracer's far / hit list
+        // (WorldList::Legs). The workgroup count from @p args (WorldList::Args, Far or Hits: the node's IndirectArgs
+        // read, its header at offset 0).
         [[nodiscard]] Common::BoolResultStr RecordWorldList( const RDG::PassContext& context,
                                                              const glm::vec4&        cameraPos,
                                                              const TraceSettings&    settings,
                                                              const bool sceneHistoryReadable, const uint32_t seed,
-                                                             const RDG::BufferRef worldArgs ) const
+                                                             const TraceStage stage, const RDG::BufferRef args ) const
         {
-            DESERT_PROFILE_PASS( "SSR: World trace" );
-            ComputePipeline* const pipeline = StagePipeline( settings, TraceStage::World );
-            if ( pipeline == nullptr )
-                return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
-            const TracePush push =
-                 MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::World );
-            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::DispatchComputeIndirect( bindings, *pipeline, worldArgs, 0u );
+            switch ( stage )
+            {
+            case TraceStage::World:
+            {
+                DESERT_PROFILE_PASS( "SSR: World trace" );
+                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
+            }
+            case TraceStage::WorldFarField:
+            {
+                DESERT_PROFILE_PASS( "SSR: World far field" );
+                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
+            }
+            case TraceStage::WorldHitLighting:
+            {
+                DESERT_PROFILE_PASS( "SSR: World hit lighting" );
+                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
+            }
+            case TraceStage::Classify:
+            case TraceStage::Trace:
+                break;
+            }
+            return Common::MakeError( "SSR: RecordWorldList was given a stage that is not the world's" );
         }
 
         // EXEC of the hit-lit node: the same push constants as the classify's, one ray generation per trace texel,
@@ -803,13 +867,29 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // RecordWorldList's dispatch, under its stage's profile scope.
+        [[nodiscard]] Common::BoolResultStr DispatchWorldStage( const RDG::PassContext& context,
+                                                                const glm::vec4&        cameraPos,
+                                                                const TraceSettings&    settings,
+                                                                const bool sceneHistoryReadable, const uint32_t seed,
+                                                                const TraceStage stage, const RDG::BufferRef args ) const
+        {
+            ComputePipeline* const pipeline = StagePipeline( settings, stage );
+            if ( pipeline == nullptr )
+                return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
+            const TracePush   push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, stage );
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
+        }
+
         // The compute program of @p stage (DeclareTraceBindings picks the same one): the screen alone; for a
         // traced frame the traced permutation when it is hit-lit or at the world stage, the screen leg otherwise.
         [[nodiscard]] ComputePipeline* StagePipeline( const TraceSettings& settings, const TraceStage stage ) const
         {
             if ( !settings.Traced )
                 return m_TracePipeline.get();
-            if ( settings.HitLit || stage == TraceStage::World )
+            if ( settings.HitLit || IsWorldStage( stage ) )
                 return m_TracedPipeline.get();
             return m_ScreenLegPipeline.get();
         }
@@ -821,9 +901,25 @@ namespace Desert::Graphic::System
         {
             const float screenLeg   = sceneHistoryReadable ? 1.0f : 0.0f;
             const float roughFromGI = settings.Traced && settings.RoughSpecularFromGI ? 1.0f : 0.0f;
-            const float traceStage  = stage == TraceStage::World   ? 2.0f
-                                      : stage == TraceStage::Trace ? 1.0f
-                                                                   : 0.0f;
+            // SSR.shader's SsrParams3.w: 0 classify, 1 trace, 2 world (the software tracer's near field), 3 its far
+            // field, 4 its hit lighting.
+            const float traceStage = [stage]
+            {
+                switch ( stage )
+                {
+                case TraceStage::Classify:
+                    return 0.0f;
+                case TraceStage::Trace:
+                    return 1.0f;
+                case TraceStage::World:
+                    return 2.0f;
+                case TraceStage::WorldFarField:
+                    return 3.0f;
+                case TraceStage::WorldHitLighting:
+                    return 4.0f;
+                }
+                return 0.0f;
+            }();
             return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                               glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                          static_cast<float>( settings.Iterations ), settings.Intensity,

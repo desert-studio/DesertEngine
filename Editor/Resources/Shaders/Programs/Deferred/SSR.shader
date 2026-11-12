@@ -140,22 +140,21 @@ Shader "SSR"
         // over the indirect dispatch it sized - the texel's frame and its drawn ray recomputed from the texel
         // (SSRTexelSetup, SSRRayDirection: the screen leg's statements), the world ray traced, and on a hit the
         // texel rewritten from the screen's sums plus the world's answer. A miss leaves the texel as the screen
-        // leg wrote it. ---
-        void TraceWorldListed()
+        // leg wrote it. The software tracer runs it as three legs over compacted lists (near field, far field, hit
+        // lighting: Common/SSRTrace.glslh THE SOFTWARE TRACER'S WORLD LEGS), the hardware tracer as one ray query. ---
+
+        // World list entry @p index rebuilt: its trace texel @p q, the texel's frame @p t and the screen's sums @p s
+        // with the drawn world ray (s.worldL). False: the texel's frame cannot be rebuilt (nothing to trace).
+        bool SSRWorldListedTexel(uint index, out ivec2 q, out SSRTexel t, out SSRTraceSums s)
         {
-        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
-        	if (index >= ssrWorldListArgs.w)
-        		return;
         	const SSRWorldRay listed = ssrWorldList[index];
         	const uint        packed = listed.TexelRay;
-        	const ivec2       q      = ivec2(int(packed & 0x3FFFu), int((packed >> 14u) & 0x3FFFu));
+        	q                        = ivec2(int(packed & 0x3FFFu), int((packed >> 14u) & 0x3FFFu));
         	const ivec2       full   = textureSize(GBufferNormalTexture, 0);
         	const int         factor = int(SsrParams3.x + 0.5);
         	const ivec2       src    = SSRTraceSourcePixel(q, factor, int(CameraPosition.w), full);
-        	SSRTexel          t;
         	if (!SSRTexelSetup(src, full, t))
-        		return;
-        	SSRTraceSums s;
+        		return false;
         	s.radiance    = listed.RadianceHitWeight.rgb;
         	s.hitWeight   = listed.RadianceHitWeight.a;
         	s.coverage    = listed.HitPointCoverage.w;
@@ -170,13 +169,164 @@ Shader "SSR"
         	s.worldL = L;
         	// Only read when nothing hit, which a world hit rules out (its weight is > 0).
         	s.rayDir = Lt;
-        	if (!SSRAddWorldRay(t, s))
+        	return true;
+        }
+
+        // The world ray's hit (radiance @p L_i at @p surface) added to the screen's sums and texel @p q rewritten.
+        void SSRWorldWriteHit(ivec2 q, SSRTexel t, SSRTraceSums s, vec3 L_i, vec3 surface)
+        {
+        	SSRAddWorldHit(s, L_i, surface);
+        	vec4       ray;
+        	const vec4 trace = SSRResolveTexel(t, s, ray);
+        	imageStore(SsrTraceTexture, q, trace);
+        	imageStore(TraceRayTexture, q, ray);
+        }
+
+        #if defined( DESERT_GI_TRACER_SOFTWARE )
+        // --- THE SOFTWARE TRACER'S WORLD LEGS (Common/SSRTrace.glslh SsrWorldFarListUB / SsrWorldHitListUB). Each
+        // leg appends what it leaves to the next leg's list as the screen leg appends to the world list: a
+        // groupshared count, one global atomic per workgroup, the next leg's workgroup count raised by atomicMax -
+        // so no early return before the barriers. ---
+        shared uint s_LegCount;
+        shared uint s_LegStart;
+
+        // Workgroup compaction into a leg list, first half: this lane's place among the workgroup's listed lanes
+        // (s_LegCount their number). The caller then reserves the run in its list (its lane 0 adds s_LegCount to
+        // its list's count into s_LegStart and raises the next leg's workgroups), barrier(), and writes at
+        // s_LegStart + the place. Called from uniform control flow (barriers).
+        uint SSRLegPlace(bool listed)
+        {
+        	if (gl_LocalInvocationIndex == 0u)
+        		s_LegCount = 0u;
+        	barrier();
+        	uint place = 0u;
+        	if (listed)
+        		place = atomicAdd(s_LegCount, 1u);
+        	barrier();
+        	return place;
+        }
+
+        // --- NEAR FIELD (SsrParams3.w = 2, "SSR: World trace"): one thread per world list entry - the mesh SDFs of
+        // the origin's froxel; a hit lit (GIHitRadiance) and written, a miss with a far-field span listed. ---
+        void TraceWorldNearField()
+        {
+        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	bool  toFar = false;
+        	uvec4 far   = uvec4(0u);
+        	ivec2        q;
+        	SSRTexel     t;
+        	SSRTraceSums s;
+        	if (index < ssrWorldListArgs.w && SSRWorldListedTexel(index, q, t, s) && s.worldWeight > 0.0)
+        	{
+        		const GITraceBias  bias    = GIRayBias(t.worldPos, t.N);
+        		const float        farTMin = GIFarFieldTMin(bias, t.N, s.worldL);
+        		GITraceInput       ray     = SSRWorldRayInput(t.worldPos, t.N, s.worldL, s.worldStart, bias.nearOffset,
+        		                                              farTMin);
+        		float              farStart;
+        		const GITraceResult near = GITraceNearField(ray, farStart);
+        		if (near.hit)
+        			SSRWorldWriteHit(q, t, s, GIHitRadiance(near.surface, s.worldL), near.surface.position);
+        		else
+        		{
+        			ray.tMin = farStart;
+        			float globalStart;
+        			float marchLength;
+        			toFar = GIFarFieldSpan(ray, globalStart, marchLength);
+        			far   = uvec4(index, floatBitsToUint(farStart), floatBitsToUint(bias.nearOffset),
+        			              floatBitsToUint(farTMin));
+        		}
+        	}
+        	const uint place = SSRLegPlace(toFar);
+        	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
+        	{
+        		s_LegStart = atomicAdd(ssrWorldFarArgs.w, s_LegCount);
+        		atomicMax(ssrWorldFarArgs.x, (s_LegStart + s_LegCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (toFar)
+        		ssrWorldFar[s_LegStart + place] = far;
+        }
+
+        // --- FAR FIELD (SsrParams3.w = 3, "SSR: World far field"): one thread per far list entry - the global
+        // field's march from where the near field ended; a hit listed for the hit lighting. ---
+        void TraceWorldFarField()
+        {
+        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	bool  toHit = false;
+        	uvec4 hit   = uvec4(0u);
+        	ivec2        q;
+        	SSRTexel     t;
+        	SSRTraceSums s;
+        	if (index < ssrWorldFarArgs.w)
+        	{
+        		const uvec4 far        = ssrWorldFar[index];
+        		const float nearOffset = uintBitsToFloat(far.z);
+        		if (SSRWorldListedTexel(far.x, q, t, s))
+        		{
+        			GITraceInput ray = SSRWorldRayInput(t.worldPos, t.N, s.worldL, s.worldStart, nearOffset,
+        			                                    uintBitsToFloat(far.w));
+        			ray.tMin = uintBitsToFloat(far.y);
+        			float                  globalStart;
+        			GlobalDistanceFieldHit march;
+        			toHit = GITraceFarFieldMarch(ray, globalStart, march);
+        			hit   = uvec4(far.x | (uint(clamp(march.Level + 1, 0, 15)) << 28u), far.z,
+        			              floatBitsToUint(globalStart), floatBitsToUint(march.T));
+        		}
+        	}
+        	const uint place = SSRLegPlace(toHit);
+        	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
+        	{
+        		s_LegStart = atomicAdd(ssrWorldHitArgs.w, s_LegCount);
+        		atomicMax(ssrWorldHitArgs.x, (s_LegStart + s_LegCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (toHit)
+        		ssrWorldHit[s_LegStart + place] = hit;
+        }
+
+        // --- HIT LIGHTING (SsrParams3.w = 4, "SSR: World hit lighting"): one thread per hit list entry - the far
+        // field hit's surface rebuilt (GITraceFarField's GIFarFieldSurface of the same position and clipmap), lit by
+        // GIHitRadiance and written. ---
+        void LightWorldHits()
+        {
+        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	if (index >= ssrWorldHitArgs.w)
+        		return;
+        	const uvec4 hit = ssrWorldHit[index];
+        	ivec2        q;
+        	SSRTexel     t;
+        	SSRTraceSums s;
+        	if (!SSRWorldListedTexel(hit.x & 0x0FFFFFFFu, q, t, s))
+        		return;
+        	const float nearOffset  = uintBitsToFloat(hit.y);
+        	const float globalStart = uintBitsToFloat(hit.z);
+        	const float marchT      = uintBitsToFloat(hit.w);
+        	const int   level       = int(hit.x >> 28u) - 1;
+        	const vec3  origin      = t.worldPos + t.N * nearOffset;
+        	const vec3  start       = origin + s.worldL * globalStart;
+        	const GIHit surface =
+        	     GIFarFieldSurface(start + s.worldL * marchT, s.worldL, globalStart + marchT, level);
+        	SSRWorldWriteHit(q, t, s, GIHitRadiance(surface, s.worldL), surface.position);
+        }
+        #else
+        // --- THE WHOLE WORLD RAY (SsrParams3.w = 2, "SSR: World trace"; the hardware tracer: one ray query, no legs):
+        // one thread per world list entry, written on a hit. ---
+        void TraceWorldListed()
+        {
+        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	if (index >= ssrWorldListArgs.w)
+        		return;
+        	ivec2        q;
+        	SSRTexel     t;
+        	SSRTraceSums s;
+        	if (!SSRWorldListedTexel(index, q, t, s) || !SSRAddWorldRay(t, s))
         		return;
         	vec4       ray;
         	const vec4 trace = SSRResolveTexel(t, s, ray);
         	imageStore(SsrTraceTexture, q, trace);
         	imageStore(TraceRayTexture, q, ray);
         }
+        #endif
         #endif
 
         #if !defined( DESERT_REFLECTIONS_WORLD_STAGE )
@@ -266,7 +416,16 @@ Shader "SSR"
 
         void main()
         {
-        #if defined( DESERT_REFLECTIONS_WORLD_STAGE )
+        #if defined( DESERT_REFLECTIONS_WORLD_STAGE ) && defined( DESERT_GI_TRACER_SOFTWARE )
+        	// The legs by SsrParams3.w (SSRRenderer::TraceStage World / WorldFarField / WorldHitLighting): uniform
+        	// across the dispatch, so the legs' barriers are in uniform control flow.
+        	if (SsrParams3.w >= 3.5)
+        		LightWorldHits();
+        	else if (SsrParams3.w >= 2.5)
+        		TraceWorldFarField();
+        	else
+        		TraceWorldNearField();
+        #elif defined( DESERT_REFLECTIONS_WORLD_STAGE )
         	TraceWorldListed();
         #else
         #if !defined( DESERT_REFLECTIONS_TRACED )
