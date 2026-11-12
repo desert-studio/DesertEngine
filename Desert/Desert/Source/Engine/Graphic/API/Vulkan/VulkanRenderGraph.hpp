@@ -689,6 +689,12 @@ namespace Desert::Graphic::API::Vulkan
             std::unordered_map<uint64_t, std::vector<BoundSetsEntry>> Buckets; // by the key's hash
         };
         // EvictCached: drops the entries no draw found for this many frames (their sets age out of the cache).
+        // FPS-SET-MEMO2: also how long an UNUSED content-cache entry keeps its set (never less than the frames
+        // in flight). Before, a cached set was freed once unused for the frames in flight (2-3), so a bound-sets
+        // entry of a combination drawn every 4..8 frames (a staggered shadow cascade or probe, a pass that runs
+        // every other view) held a freed stamp and missed although nothing it names had changed: the memo's
+        // retention was dead past the frames in flight. A kept set naming a destroyed resource is never bound
+        // (its key holds the resource's never-reused identity), so keeping it longer only costs its descriptors.
         static constexpr uint64_t kBoundSetsRetainFrames = 8;
         struct CachedSetShard
         {

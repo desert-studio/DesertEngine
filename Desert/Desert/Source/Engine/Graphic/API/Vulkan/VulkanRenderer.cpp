@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
@@ -1027,47 +1028,151 @@ namespace Desert::Graphic::API::Vulkan
         // type and image layout), the physical identity and range of the resource or the shared sampler.
         // Never a graph-local index (BindingBlockRef restarts with every graph). False when an entry's physical
         // resource cannot be named: the caller takes the resolution, which reports why.
+        // FPS-SET-MEMO2: what one word of a BoundSetsKey is, for the dev miss census (BoundMissCensus). Entry
+        // fields carry the block entry's index (textures first, then buffers).
+        enum class BoundKeyField : uint8_t
+        {
+            Shader,
+            CodeGeneration,
+            PipelineLayout,
+            LayoutCount,
+            SetLayout,
+            BindlessSet,
+            MaterialCount,
+            MaterialSet,
+            MaterialIdentity,
+            MaterialVersion,
+            MaterialBinding,
+            PushRoutes,
+            BlockCounts,
+            EntryName,
+            EntrySlotKindAccess,
+            Sampler,
+            TextureIdentity,
+            TextureMips,
+            TextureLayers,
+            BufferIdentity,
+            BufferOffset,
+            BufferSize,
+            BufferAccelerationStructure,
+        };
+        struct BoundKeyTag
+        {
+            BoundKeyField Field = BoundKeyField::Shader;
+            uint32_t      Entry = 0; // the block entry an entry field belongs to
+        };
+
+#if DESERT_DEV_INSTRUMENTS
+        [[nodiscard]] constexpr std::string_view BoundKeyFieldName( const BoundKeyField field ) noexcept
+        {
+            switch ( field )
+            {
+                case BoundKeyField::Shader:
+                    return "shader";
+                case BoundKeyField::CodeGeneration:
+                    return "shader code generation";
+                case BoundKeyField::PipelineLayout:
+                    return "pipeline layout";
+                case BoundKeyField::LayoutCount:
+                    return "set layout count";
+                case BoundKeyField::SetLayout:
+                    return "set layout";
+                case BoundKeyField::BindlessSet:
+                    return "bindless set";
+                case BoundKeyField::MaterialCount:
+                    return "material copied binding count";
+                case BoundKeyField::MaterialSet:
+                    return "material set";
+                case BoundKeyField::MaterialIdentity:
+                    return "material copy record identity";
+                case BoundKeyField::MaterialVersion:
+                    return "material copy record version";
+                case BoundKeyField::MaterialBinding:
+                    return "material copied binding";
+                case BoundKeyField::PushRoutes:
+                    return "push routes";
+                case BoundKeyField::BlockCounts:
+                    return "block entry counts";
+                case BoundKeyField::EntryName:
+                    return "entry name hash";
+                case BoundKeyField::EntrySlotKindAccess:
+                    return "entry slot/kind/access";
+                case BoundKeyField::Sampler:
+                    return "sampler";
+                case BoundKeyField::TextureIdentity:
+                    return "texture physical identity";
+                case BoundKeyField::TextureMips:
+                    return "texture mip range";
+                case BoundKeyField::TextureLayers:
+                    return "texture layer range";
+                case BoundKeyField::BufferIdentity:
+                    return "buffer physical identity";
+                case BoundKeyField::BufferOffset:
+                    return "buffer offset";
+                case BoundKeyField::BufferSize:
+                    return "buffer size";
+                case BoundKeyField::BufferAccelerationStructure:
+                    return "buffer acceleration structure";
+            }
+            return "?";
+        }
+#endif
+
+        // @p tags (FPS-SET-MEMO2, optional, dev census): one tag per key word, what the word is.
         bool BoundSetsKey( VulkanRdgPassDescriptors& descriptors, const VulkanShader& shader,
                            const VulkanBuiltPipeline& built, const RDG::PassBindings& bindings,
                            const VulkanMaterialBackend::WrittenSlots& material, bool materialPush,
-                           std::vector<uint64_t>& key )
+                           std::vector<uint64_t>& key, std::vector<BoundKeyTag>* tags = nullptr )
         {
             key.clear();
+            if ( tags != nullptr )
+                tags->clear();
+            uint32_t   entry = 0;
+            const auto put   = [&key, tags, &entry]( const uint64_t word, const BoundKeyField field )
+            {
+                key.push_back( word );
+                if ( tags != nullptr )
+                    tags->push_back( BoundKeyTag{ .Field = field, .Entry = entry } );
+            };
             // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast): the shader's address is an identity,
             // compared and never turned back into a pointer
-            key.push_back( static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( &shader ) ) );
+            put( static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( &shader ) ), BoundKeyField::Shader );
             // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
-            key.push_back( shader.GetCodeGeneration() );
-            key.push_back( HandleWord( built.PipelineLayout ) );
-            key.push_back( built.Layouts.size() );
+            put( shader.GetCodeGeneration(), BoundKeyField::CodeGeneration );
+            put( HandleWord( built.PipelineLayout ), BoundKeyField::PipelineLayout );
+            put( built.Layouts.size(), BoundKeyField::LayoutCount );
             for ( const DescriptorSetLayoutRef& layout : built.Layouts )
             {
                 if ( !layout )
                     return false;
-                key.push_back( HandleWord( layout->Handle() ) );
+                put( HandleWord( layout->Handle() ), BoundKeyField::SetLayout );
             }
             const VulkanBindlessTextureTable* bindless = BindlessTableIn( built.Layouts );
-            key.push_back( bindless != nullptr ? HandleWord( bindless->GetDescriptorSet() ) : 0 );
-            key.push_back( material.Bindings.size() );
+            put( bindless != nullptr ? HandleWord( bindless->GetDescriptorSet() ) : 0,
+                 BoundKeyField::BindlessSet );
+            put( material.Bindings.size(), BoundKeyField::MaterialCount );
             if ( !material.Bindings.empty() )
             {
-                key.push_back( HandleWord( material.Set ) );
-                key.push_back( material.Identity );
-                key.push_back( material.Version );
+                put( HandleWord( material.Set ), BoundKeyField::MaterialSet );
+                put( material.Identity, BoundKeyField::MaterialIdentity );
+                put( material.Version, BoundKeyField::MaterialVersion );
                 for ( const uint32_t binding : material.Bindings )
-                    key.push_back( binding );
+                    put( binding, BoundKeyField::MaterialBinding );
             }
-            key.push_back( ( static_cast<uint64_t>( materialPush ) << 32U ) | bindings.GetPushConstants().size() );
+            put( ( static_cast<uint64_t>( materialPush ) << 32U ) | bindings.GetPushConstants().size(),
+                 BoundKeyField::PushRoutes );
 
             const std::span<const RDG::BoundTexture> textures = bindings.GetTextures();
             const std::span<const RDG::BoundBuffer>  buffers  = bindings.GetBuffers();
-            key.push_back( ( static_cast<uint64_t>( textures.size() ) << 32U ) | buffers.size() );
+            put( ( static_cast<uint64_t>( textures.size() ) << 32U ) | buffers.size(),
+                 BoundKeyField::BlockCounts );
             for ( const RDG::BoundTexture& texture : textures )
             {
-                key.push_back( texture.NameHash );
-                key.push_back( ( static_cast<uint64_t>( texture.Slot ) << 32U ) |
-                               ( static_cast<uint64_t>( texture.Kind ) << 16U ) |
-                               static_cast<uint64_t>( texture.Declared ) );
+                put( texture.NameHash, BoundKeyField::EntryName );
+                put( ( static_cast<uint64_t>( texture.Slot ) << 32U ) |
+                          ( static_cast<uint64_t>( texture.Kind ) << 16U ) |
+                          static_cast<uint64_t>( texture.Declared ),
+                     BoundKeyField::EntrySlotKindAccess );
                 if ( texture.Kind == RDG::ShaderResourceKind::Sampler )
                 {
                     if ( !texture.Sampler )
@@ -1076,7 +1181,8 @@ namespace Desert::Graphic::API::Vulkan
                     const Common::ResultStr<VkSampler> sampler = descriptors.GetSampler( *texture.Sampler );
                     if ( !sampler )
                         return false;
-                    key.push_back( HandleWord( sampler.GetValue() ) );
+                    put( HandleWord( sampler.GetValue() ), BoundKeyField::Sampler );
+                    ++entry;
                     continue;
                 }
                 if ( texture.Sampler )
@@ -1084,27 +1190,187 @@ namespace Desert::Graphic::API::Vulkan
                 const Common::ResultStr<VulkanRdgTexture*> physical = VulkanRdgBackend::TextureOf( texture.Texture );
                 if ( !physical )
                     return false;
-                key.push_back( physical.GetValue()->GetIdentity() );
-                key.push_back( ( static_cast<uint64_t>( texture.Range.BaseMip ) << 32U ) | texture.Range.MipCount );
-                key.push_back( ( static_cast<uint64_t>( texture.Range.BaseLayer ) << 32U ) |
-                               texture.Range.LayerCount );
+                put( physical.GetValue()->GetIdentity(), BoundKeyField::TextureIdentity );
+                put( ( static_cast<uint64_t>( texture.Range.BaseMip ) << 32U ) | texture.Range.MipCount,
+                     BoundKeyField::TextureMips );
+                put( ( static_cast<uint64_t>( texture.Range.BaseLayer ) << 32U ) | texture.Range.LayerCount,
+                     BoundKeyField::TextureLayers );
+                ++entry;
             }
             for ( const RDG::BoundBuffer& buffer : buffers )
             {
-                key.push_back( buffer.NameHash );
-                key.push_back( ( static_cast<uint64_t>( buffer.Slot ) << 32U ) |
-                               ( static_cast<uint64_t>( buffer.Kind ) << 16U ) |
-                               static_cast<uint64_t>( buffer.Declared ) );
+                put( buffer.NameHash, BoundKeyField::EntryName );
+                put( ( static_cast<uint64_t>( buffer.Slot ) << 32U ) |
+                          ( static_cast<uint64_t>( buffer.Kind ) << 16U ) |
+                          static_cast<uint64_t>( buffer.Declared ),
+                     BoundKeyField::EntrySlotKindAccess );
                 const Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( buffer.Buffer );
                 if ( !physical )
                     return false;
-                key.push_back( physical.GetValue()->GetIdentity() );
-                key.push_back( physical.GetValue()->GetOffset() );
-                key.push_back( physical.GetValue()->GetSize() );
-                key.push_back( HandleWord( physical.GetValue()->GetAccelerationStructure() ) );
+                put( physical.GetValue()->GetIdentity(), BoundKeyField::BufferIdentity );
+                put( physical.GetValue()->GetOffset(), BoundKeyField::BufferOffset );
+                put( physical.GetValue()->GetSize(), BoundKeyField::BufferSize );
+                put( HandleWord( physical.GetValue()->GetAccelerationStructure() ),
+                     BoundKeyField::BufferAccelerationStructure );
+                ++entry;
             }
             return true;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-SET-MEMO2, THE MISS CENSUS (dev only): why a graphics draw combination missed the bound-sets memo
+        // in a steady state. Per (pass, shader, pipeline layout) the last kMissHistory miss keys are kept; a new
+        // miss is compared with the CLOSEST of them (fewest differing words: a frame-indexed material set or a
+        // per-slot transient cycles, so the last miss alone would blame the cycle) and the fields that differ are
+        // named - which key word changes every frame. An equal key that missed again names the gap in frames
+        // (the kept entry was dropped or its set freed, or it was never kept). Each distinct finding is logged
+        // once. A combination's first miss is the cold start and is not reported.
+        // The shader-side name of block entry @p entry (textures first, then buffers; BoundKeyTag::Entry).
+        std::string_view EntryNameOf( const RDG::PassBindings& bindings, const uint32_t entry ) noexcept
+        {
+            const std::span<const RDG::BoundTexture> textures = bindings.GetTextures();
+            const std::span<const RDG::BoundBuffer>  buffers  = bindings.GetBuffers();
+            if ( entry < textures.size() )
+                return textures[entry].ShaderName;
+            if ( entry - textures.size() < buffers.size() )
+                return buffers[entry - textures.size()].ShaderName;
+            return "?";
+        }
+
+        class BoundMissCensus
+        {
+        public:
+            static BoundMissCensus& Get() noexcept
+            {
+                static BoundMissCensus s_Census;
+                return s_Census;
+            }
+
+            // A miss whose key BoundSetsKey built (@p tags: its words' fields).
+            void NoteMiss( std::string_view pass, const VulkanShader& shader, VkPipelineLayout layout,
+                           const RDG::PassBindings& bindings, std::span<const uint64_t> key,
+                           std::span<const BoundKeyTag> tags ) noexcept
+            {
+                const uint64_t         frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+                const uint64_t         combo = ComboOf( pass, shader, layout );
+                std::string            finding;
+                std::string            shape;
+                const std::scoped_lock lock( m_Lock );
+                std::vector<Seen>&     seen        = m_Seen[combo];
+                const Seen*            closest     = nullptr;
+                size_t                 closestDiff = ~size_t{ 0 };
+                for ( const Seen& candidate : seen )
+                {
+                    const size_t diff = Differing( candidate.Key, key );
+                    if ( diff < closestDiff )
+                    {
+                        closest     = &candidate;
+                        closestDiff = diff;
+                    }
+                }
+                if ( closest != nullptr )
+                    finding = Describe( *closest, key, tags, bindings, frame, shape );
+                if ( seen.size() >= kMissHistory )
+                    seen.erase( seen.begin() );
+                seen.push_back( Seen{ .Key = std::vector<uint64_t>( key.begin(), key.end() ), .Frame = frame } );
+                if ( finding.empty() )
+                    return;
+                Report( combo, pass, shader, finding, shape );
+            }
+
+            // A combination whose key could not be built (it never reaches the memo) or whose sets were not kept.
+            void NoteUnkept( std::string_view pass, const VulkanShader& shader, VkPipelineLayout layout,
+                             std::string_view why ) noexcept
+            {
+                const std::scoped_lock lock( m_Lock );
+                Report( ComboOf( pass, shader, layout ), pass, shader, std::string( why ), std::string( why ) );
+            }
+
+        private:
+            static constexpr size_t kMissHistory = 8;
+            struct Seen
+            {
+                std::vector<uint64_t> Key;
+                uint64_t              Frame = 0;
+            };
+
+            static uint64_t ComboOf( std::string_view pass, const VulkanShader& shader,
+                                     VkPipelineLayout layout ) noexcept
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): the shader's address as an identity
+                const auto shaderWord = static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( &shader ) );
+                uint64_t   hash       = std::hash<std::string_view>{}( pass );
+                hash                  = ( hash ^ shaderWord ) * 0x100000001B3ULL;
+                hash                  = ( hash ^ HandleWord( layout ) ) * 0x100000001B3ULL;
+                return hash;
+            }
+
+            static size_t Differing( std::span<const uint64_t> stored, std::span<const uint64_t> key ) noexcept
+            {
+                const size_t common = std::min( stored.size(), key.size() );
+                size_t       diff   = std::max( stored.size(), key.size() ) - common;
+                for ( size_t index = 0; index < common; ++index )
+                    diff += stored[index] != key[index] ? 1U : 0U;
+                return diff;
+            }
+
+            static std::string Describe( const Seen& closest, std::span<const uint64_t> key,
+                                         std::span<const BoundKeyTag> tags, const RDG::PassBindings& bindings,
+                                         const uint64_t frame, std::string& shape )
+            {
+                // @p shape: the finding without its values (they differ every frame), what is reported once.
+                shape.clear();
+                if ( std::ranges::equal( closest.Key, key ) )
+                {
+                    shape = "same key";
+                    return std::format(
+                         "the same key missed again {} frame(s) after its last miss (the kept entry "
+                         "was dropped, a set of it freed, or it was never kept)",
+                         frame - closest.Frame );
+                }
+                std::string  out;
+                size_t       named  = 0;
+                const size_t common = std::min( closest.Key.size(), key.size() );
+                for ( size_t index = 0; index < common && named < 4; ++index )
+                {
+                    if ( closest.Key[index] == key[index] || index >= tags.size() )
+                        continue;
+                    const BoundKeyTag tag        = tags[index];
+                    const bool        entryField = tag.Field >= BoundKeyField::EntryName;
+                    const std::string field =
+                         std::format( "{}{}{}", BoundKeyFieldName( tag.Field ), entryField ? " of " : "",
+                                      entryField ? EntryNameOf( bindings, tag.Entry ) : std::string_view() );
+                    out += std::format( "{}{} {:#x} -> {:#x}", named == 0 ? "" : "; ", field, closest.Key[index],
+                                        key[index] );
+                    shape += field;
+                    shape += ';';
+                    ++named;
+                }
+                if ( closest.Key.size() != key.size() )
+                {
+                    out += std::format( "{}key length {} -> {}", out.empty() ? "" : "; ", closest.Key.size(),
+                                        key.size() );
+                    shape += "key length;";
+                }
+                return std::format( "differs from the closest earlier miss ({} frame(s) before) in: {}",
+                                    frame - closest.Frame, out );
+            }
+
+            void Report( const uint64_t combo, std::string_view pass, const VulkanShader& shader,
+                         const std::string& finding, const std::string& shape )
+            {
+                // Values differ every frame; the finding's FIELDS (@p shape) are what is reported once.
+                const uint64_t once = combo ^ ( std::hash<std::string>{}( shape ) * 0x9E3779B97F4A7C15ULL );
+                if ( !m_Reported.insert( once ).second )
+                    return;
+                LOG_INFO( "[SetMemo] miss census: pass '{}' shader '{}': {}", pass, shader.GetName(), finding );
+            }
+
+            std::mutex                                      m_Lock;
+            std::unordered_map<uint64_t, std::vector<Seen>> m_Seen;
+            std::unordered_set<uint64_t>                    m_Reported;
+        };
+#endif
 
         // The push constants of the draw: the block's, or the other route's when the block has none (the
         // resolution already refused both, and neither while the shader declares a range).
@@ -2402,11 +2668,18 @@ namespace Desert::Graphic::API::Vulkan
         thread_local std::vector<uint64_t>        t_BoundKey;
         thread_local std::vector<VkDescriptorSet> t_BoundSets;
         bool                                      boundKeyed = false;
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-SET-MEMO2: the key's word fields, for the miss census.
+        thread_local std::vector<BoundKeyTag> t_BoundTags;
+        std::vector<BoundKeyTag>* const       boundTags = &t_BoundTags;
+#else
+        std::vector<BoundKeyTag>* const boundTags = nullptr;
+#endif
         if ( !kept.has_value() )
         {
             DESERT_PROFILE_SCOPE( "VulkanRendererAPI::BindGraphicsPassState: bound sets memo" );
             boundKeyed = BoundSetsKey( *descriptors.GetValue(), *shader, built, bindings, materialSlots,
-                                       other.PushConstants, t_BoundKey );
+                                       other.PushConstants, t_BoundKey, boundTags );
             if ( boundKeyed && descriptors.GetValue()->FindBound( t_BoundKey, t_BoundSets ) )
                 kept = memo.GetValue()->Keep( key, t_BoundSets );
         }
@@ -2415,6 +2688,24 @@ namespace Desert::Graphic::API::Vulkan
             // FPS-CPU2-VKRECORD: the miss's own row, so a draw's cost splits into memo hit (the caller's row
             // minus this) and miss (resolve + write + descriptor cache).
             DESERT_PROFILE_SCOPE( "VulkanRendererAPI::BindGraphicsPassState: set memo miss" );
+#if DESERT_DEV_INSTRUMENTS
+            // FPS-SET-MEMO2: which key field made this combination miss (once per finding).
+            if ( boundKeyed )
+                BoundMissCensus::Get().NoteMiss( pass, *shader, built.PipelineLayout, bindings, t_BoundKey,
+                                                 t_BoundTags );
+            else
+                BoundMissCensus::Get().NoteUnkept(
+                     pass, *shader, built.PipelineLayout,
+                     t_BoundTags.empty()
+                          ? std::string( "no bound-sets key: a set layout of the pipeline is missing" )
+                          : std::format( "no bound-sets key (it stopped after the {} of entry '{}': the sampler, "
+                                         "or the physical resource, could not be named), so it resolves every "
+                                         "frame",
+                                         BoundKeyFieldName( t_BoundTags.back().Field ),
+                                         t_BoundTags.back().Field >= BoundKeyField::EntryName
+                                              ? EntryNameOf( bindings, t_BoundTags.back().Entry )
+                                              : std::string_view( "-" ) ) );
+#endif
             // CPU-FRAME-5: the other route's filled slots are read only by the resolution, so a draw the memo
             // serves builds none.
             for ( const uint32_t binding : materialSlots.Bindings )
@@ -2435,6 +2726,13 @@ namespace Desert::Graphic::API::Vulkan
             kept = memo.GetValue()->Keep( key, written.GetValue() );
             if ( boundKeyed && t_Stamps.size() == written.GetValue().size() )
                 descriptors.GetValue()->KeepBound( t_BoundKey, written.GetValue(), t_Stamps );
+#if DESERT_DEV_INSTRUMENTS
+            else if ( boundKeyed )
+                BoundMissCensus::Get().NoteUnkept(
+                     pass, *shader, built.PipelineLayout,
+                     "its sets were not kept: a fresh set lost its publish to an "
+                     "equal one another thread wrote, so the next frame misses again" );
+#endif
             t_Stamps.clear(); // holds no cache entry past the draw
         }
         const std::span<const VkDescriptorSet> sets = *kept;

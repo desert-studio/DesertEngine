@@ -1264,6 +1264,11 @@ namespace Desert::Graphic::API::Vulkan
         const uint64_t frame    = m_CacheFrame.fetch_add( 1, std::memory_order_relaxed ) + 1;
         const uint64_t inFlight = static_cast<uint64_t>( m_Slots.size() );
         const auto     expired  = [frame, inFlight]( uint64_t used ) { return used + inFlight < frame; };
+        // FPS-SET-MEMO2: a published entry outlives the frames in flight by the bound-sets memo's retention, so a
+        // combination drawn every few frames finds its sets again (kBoundSetsRetainFrames). A retired set (never
+        // findable) still goes after the frames in flight.
+        const uint64_t         keep   = std::max( inFlight, kBoundSetsRetainFrames );
+        const auto             unused = [frame, keep]( uint64_t used ) { return used + keep < frame; };
         const std::scoped_lock poolLock( m_CachedPoolLock );
         const auto             release = [this]( VkDescriptorPool pool, VkDescriptorSet set )
         { vkFreeDescriptorSets( m_Device, pool, 1, &set ); };
@@ -1273,12 +1278,12 @@ namespace Desert::Graphic::API::Vulkan
             for ( auto bucket = shard.Buckets.begin(); bucket != shard.Buckets.end(); )
             {
                 std::erase_if( bucket->second,
-                               [&expired, &release]( const CachedSetEntry& entry )
+                               [&unused, &release]( const CachedSetEntry& entry )
                                {
                                    // FPS-SET-MEMO: the bound-sets memo touches the stamp without this lock; the
                                    // exchange decides between its touch and this free.
                                    uint64_t used = entry.Stamp->load( std::memory_order_relaxed );
-                                   if ( !expired( used ) )
+                                   if ( !unused( used ) )
                                        return false;
                                    if ( !entry.Stamp->compare_exchange_strong( used, kStampFreed,
                                                                                std::memory_order_relaxed ) )
