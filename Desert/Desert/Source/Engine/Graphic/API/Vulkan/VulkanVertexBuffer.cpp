@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
@@ -97,6 +98,7 @@ namespace Desert::Graphic::API::Vulkan
             m_VulkanBuffer     = nullptr;
             m_MemoryAllocation = nullptr;
             m_DeviceAddress.store( 0, std::memory_order_relaxed );
+            m_SpanIdentity.store( 0, std::memory_order_release );
         }
 
         if ( m_Usage == BufferUsage::GpuWritten )
@@ -122,6 +124,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( !created.IsSuccess() )
                 return Common::MakeError<bool>( created.GetError() );
             m_MemoryAllocation = created.GetValue();
+            // FPS-VB-IDENTITY: one identity for this VkBuffer's life (GetSpanIdentity).
+            m_SpanIdentity.store( NextRdgPhysicalIdentity(), std::memory_order_release );
             return Common::MakeSuccess( true );
         }
 
@@ -225,6 +229,7 @@ namespace Desert::Graphic::API::Vulkan
         m_VulkanBuffer     = nullptr;
         m_MemoryAllocation = nullptr;
         m_DeviceAddress.store( 0, std::memory_order_relaxed );
+        m_SpanIdentity.store( 0, std::memory_order_release );
         return BOOLSUCCESS;
     }
 

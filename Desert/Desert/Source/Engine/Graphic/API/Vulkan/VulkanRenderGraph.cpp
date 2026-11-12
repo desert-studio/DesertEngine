@@ -706,6 +706,14 @@ namespace Desert::Graphic::API::Vulkan
         return wrapped;
     }
 
+    std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::WrapSpan( VkBuffer buffer, uint64_t identity, uint64_t size,
+                                                                uint64_t offset )
+    {
+        std::shared_ptr<VulkanRdgBuffer> wrapped = Wrap( buffer, size, offset );
+        wrapped->m_Identity                      = identity;
+        return wrapped;
+    }
+
     std::shared_ptr<VulkanRdgBuffer>
     VulkanRdgBuffer::WrapAccelerationStructure( VkBuffer buffer, uint64_t size,
                                                 VkAccelerationStructureKHR accelerationStructure )

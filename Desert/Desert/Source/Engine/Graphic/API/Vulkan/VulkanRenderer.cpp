@@ -2944,8 +2944,15 @@ namespace Desert::Graphic::API::Vulkan
         }
         // A storage descriptor of the span needs minStorageBufferOffsetAlignment (<= 256 by the spec): the pool
         // starts every span on a 256-byte boundary of each of its buffers (GeometryPool.cpp kSpanByteAlignment).
+        // FPS-VB-IDENTITY: every span carries the pool buffer's one identity (a fresh Wrap identity per import
+        // made every set naming a span miss the descriptor content cache and be written again every frame).
+        const uint64_t identity = vulkanBuffer->GetSpanIdentity();
+        if ( identity == 0 )
+            return Common::MakeError(
+                 "ImportVertexBufferRange: the pooled vertex buffer has no span identity (its "
+                 "VkBuffer was not created by RT_Invalidate)" );
         into.Desc.Bytes       = bytes;
-        into.Physical         = VulkanRdgBuffer::Wrap( handle, bytes, offset );
+        into.Physical         = VulkanRdgBuffer::WrapSpan( handle, identity, bytes, offset );
         into.State            = RDG::GetAccessState( RDG::Access::None );
         into.RecordFinalState = []( const RDG::AccessState& ) -> Common::BoolResultStr { return BOOLSUCCESS; };
         return Common::MakeSuccess( true );

@@ -64,6 +64,17 @@ namespace Desert::Graphic::API::Vulkan
             return m_GraphRecord;
         }
 
+        // FPS-VB-IDENTITY (UE: a pooled buffer has one RHI identity for its life, RegisterExternalBuffer of it
+        // returns the same resource): the RDG physical identity (NextRdgPhysicalIdentity) of a Pooled buffer's
+        // current VkBuffer, which every span import of it (VulkanRendererAPI::ImportVertexBufferRange) carries,
+        // the span itself being the wrap's offset and size. Drawn when RT_Invalidate creates the VkBuffer and
+        // dropped (0) when it is destroyed, so a descriptor content key (identity, offset, size) stays equal
+        // across frames for the buffer's life and never matches a later buffer with a recycled handle. 0: none.
+        [[nodiscard]] uint64_t GetSpanIdentity() const
+        {
+            return m_SpanIdentity.load( std::memory_order_acquire );
+        }
+
     private:
         GraphRecord m_GraphRecord;
 
@@ -73,6 +84,8 @@ namespace Desert::Graphic::API::Vulkan
         VkBuffer               m_VulkanBuffer = nullptr;
         // GetDeviceAddress, read once per buffer (0: not read yet, or none).
         mutable std::atomic<uint64_t> m_DeviceAddress{ 0 };
+        // GetSpanIdentity (Pooled only).
+        std::atomic<uint64_t>  m_SpanIdentity{ 0 };
         VmaAllocation          m_MemoryAllocation;
         Common::Memory::Buffer m_StorageBuffer;
         // The static upload released m_StorageBuffer (RT_Invalidate): the buffer cannot be uploaded again.
