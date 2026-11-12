@@ -219,6 +219,9 @@ namespace Desert::Graphic::RDG
         void DeclareTexture( TextureRef texture, Access access, SubresourceRange range, bool asWrite,
                              std::string_view call );
         void DeclareBuffer( BufferRef buffer, Access access, bool asWrite, std::string_view call );
+        // FPS-DEVLOST18: the StorageRead of every buffer the graph lent to a route slot (Builder::LendToRoute)
+        // that @p fill fills - the block's other route binds it, so the pass reads it. Called by Bindings.
+        void DeclareRouteLentReads( const OtherRouteFill& fill );
         void DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access, const LoadOp& load,
                                 uint32_t mip, uint32_t layer, StoreAction store, bool isResolve = false );
 
@@ -256,6 +259,18 @@ namespace Desert::Graphic::RDG
         // graph does not take a second copy of it as an argument.
         TextureRef RegisterExternal( ExternalTexture& texture, std::string_view name );
         BufferRef  RegisterExternal( ExternalBuffer& buffer, std::string_view name );
+
+        // FPS-DEVLOST18 (UE: the scene uniform buffer - FSceneUniformParameters' GPUScene primitives / instances /
+        // material tables - is a parameter of every mesh pass, so RDG orders each table's writers before every
+        // pass that draws a material). @p buffer of this graph is what a route (a material's own set, a pipeline's
+        // setters) binds at slot @p slot - a scene table a material holds by lend (StorageBufferProperty::
+        // LendViewBuffer). From here on, every block declared with an OtherRouteFill that fills @p slot
+        // declares StorageRead of @p buffer for its pass (PassBuilder::Bindings): the read the route's descriptor
+        // makes is a declared read, ordered after the buffer's writers by barrier and cross-queue join like any
+        // block entry. ONE place for every material-route pass, derived from what the route fills (the
+        // material's layout bindings), not a list per pass. @p slot must outlive the graph (a constant). Lending
+        // the same slot again replaces the buffer. Refused for a handle that is not a buffer of this graph.
+        void LendToRoute( std::string_view slot, BufferRef buffer );
 
         // Registers the attachments of an engine framebuffer, each carrying the state the engine recorded
         // for it (colour i as "<name>.Color<i>", depth as "<name>.Depth"). @p depth may be null. Execute
@@ -768,5 +783,13 @@ namespace Desert::Graphic::RDG
         uint32_t                   m_SetupDepth     = 0; // AddPass setups running (an AddPass inside a setup)
         std::vector<KeyedExternal> m_KeyedExternals;
         std::vector<uint32_t>      m_RoleResources;
+        // FPS-DEVLOST18: LendToRoute's slots, in call order (a handful: the scene tables). Cleared by Reset,
+        // keeps its capacity.
+        struct RouteLentBuffer
+        {
+            std::string_view Slot;
+            BufferRef        Buffer;
+        };
+        std::vector<RouteLentBuffer> m_RouteLent;
     };
 } // namespace Desert::Graphic::RDG

@@ -1,11 +1,13 @@
 #include <Engine/Graphic/GpuDriven/GpuScene.hpp>
 
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -129,6 +131,11 @@ namespace Desert::Graphic::GpuDriven
         const char* Name     = "";
         uint32_t    Binding  = 0;
         uint32_t    RowWords = 0;
+        // FPS-DEVLOST18: the material slot this table is lent at (StorageBufferProperty::LendViewBuffer:
+        // SceneFrameBinding's GpuScenePrimitives / ObjectBones, MeshRenderer::LendMaterialTable's Materials), or
+        // null when no material binds it. Every graph that registers the table lends it there
+        // (RDG::Builder::LendToRoute), so every pass whose block a material fills declares its read.
+        const char* RouteSlot = nullptr;
 
         std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
         RDG::ExternalBuffer                             Import;
@@ -148,13 +155,23 @@ namespace Desert::Graphic::GpuDriven
     namespace
     {
         std::unique_ptr<GpuScene::Table> MakeTable( const char* name, const uint32_t binding,
-                                                    const uint32_t rowWords )
+                                                    const uint32_t rowWords, const char* routeSlot = nullptr )
         {
-            auto table      = std::make_unique<GpuScene::Table>();
-            table->Name     = name;
-            table->Binding  = binding;
-            table->RowWords = rowWords;
+            auto table       = std::make_unique<GpuScene::Table>();
+            table->Name      = name;
+            table->Binding   = binding;
+            table->RowWords  = rowWords;
+            table->RouteSlot = routeSlot;
             return table;
+        }
+
+        // FPS-DEVLOST18: the table's one registration in @p graph, lent to the material slot that binds it.
+        RDG::BufferRef RegisterTable( RDG::Builder& graph, GpuScene::Table& table )
+        {
+            const RDG::BufferRef ref = graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
+            if ( table.RouteSlot != nullptr )
+                graph.LendToRoute( table.RouteSlot, ref );
+            return ref;
         }
 
         Common::ResultStr<std::shared_ptr<ComputePipeline>> EnsurePipeline( GpuSceneUploadPipeline& upload )
@@ -226,7 +243,7 @@ namespace Desert::Graphic::GpuDriven
             if ( registered )
                 ref = *table.GraphRef;
             else
-                ref = graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
+                ref = RegisterTable( graph, table );
 
             if ( table.Full )
             {
@@ -302,12 +319,15 @@ namespace Desert::Graphic::GpuDriven
 
     GpuScene::GpuScene()
          : m_PrimitiveTable(
-                MakeTable( "Primitives", Core::kGpuScenePrimitivesBinding, WordsOf<GpuScenePrimitive>() ) ),
+                MakeTable( "Primitives", Core::kGpuScenePrimitivesBinding, WordsOf<GpuScenePrimitive>(),
+                           SceneResources::kGpuScenePrimitivesName ) ),
            m_InstanceTable( MakeTable( "Instances", 0u, WordsOf<GpuSceneInstance>() ) ),
            m_LodTable( MakeTable( "LodScreenSizes", 0u, 1u ) ),
            m_WorldBoundsTable( MakeTable( "WorldBounds", 0u, WordsOf<GpuSceneWorldBounds>() ) ),
-           m_BonesTable( MakeTable( "ObjectBones", Core::kObjectBonesBinding, WordsOf<glm::mat4>() ) ),
-           m_MaterialTable( MakeTable( "MaterialRows", 0u, WordsOf<glm::vec4>() ) ),
+           m_BonesTable( MakeTable( "ObjectBones", Core::kObjectBonesBinding, WordsOf<glm::mat4>(),
+                                    SceneResources::kObjectBonesName ) ),
+           m_MaterialTable(
+                MakeTable( "MaterialRows", 0u, WordsOf<glm::vec4>(), Core::Formats::kMaterialRowBlockName ) ),
            m_Upload( std::make_unique<GpuSceneUploadPipeline>() )
     {
     }
@@ -836,7 +856,7 @@ namespace Desert::Graphic::GpuDriven
             if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
                 return Common::MakeError( std::format( "GPUScene {}: the table could not be imported: {}",
                                                        table.Name, imported.GetError() ) );
-            into = graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
+            into = RegisterTable( graph, table );
             if ( tablesGraph )
                 table.GraphRef = into;
             return BOOLSUCCESS;
