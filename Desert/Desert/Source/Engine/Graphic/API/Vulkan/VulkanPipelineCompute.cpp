@@ -121,6 +121,23 @@ namespace Desert::Graphic::API::Vulkan
         return *this;
     }
 
+    void VulkanPipelineCompute::VisitBoundStorageCopies( const uint32_t frameIndex, const StorageCopyVisitor visit,
+                                                         const void* const user ) const noexcept
+    {
+        if ( visit == nullptr )
+            return;
+        for ( const auto& [binding, buffer] : m_BoundStorageBuffers )
+        {
+            if ( buffer.Vulkan == nullptr )
+                continue;
+            ShaderResources::API::Vulkan::ViewCopyBinding copy;
+            if ( !buffer.Vulkan->BindActiveCopy( frameIndex, copy ).IsSuccess() ||
+                 copy.Info.buffer == VK_NULL_HANDLE )
+                continue;
+            visit( binding, copy.Info, user );
+        }
+    }
+
     ComputePipeline& VulkanPipelineCompute::SetPushConstants( const void* data, uint32_t size )
     {
         const auto* bytes = reinterpret_cast<const std::byte*>( data );

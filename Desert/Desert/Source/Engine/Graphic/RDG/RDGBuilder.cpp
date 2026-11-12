@@ -1355,6 +1355,27 @@ namespace Desert::Graphic::RDG
         return Pipe::Graphics; // a context exists only for an executed pass, which is always listed above
     }
 
+    std::string_view PassContext::FindUndeclaredExternalBuffer( const PhysicalBufferMatch match,
+                                                                const void*               user ) const noexcept
+    {
+        if ( match == nullptr )
+            return {};
+        const Builder::PassRecord& pass = m_Builder.m_Passes[m_Pass];
+        for ( uint32_t index = 0; index < m_Builder.m_Resources.size(); ++index )
+        {
+            const Builder::ResourceRecord& resource = m_Builder.m_Resources[index];
+            if ( resource.Kind != ResourceKind::Buffer || resource.ExternalBuf == nullptr ||
+                 resource.ExternalBuf->Physical == nullptr || !match( *resource.ExternalBuf->Physical, user ) )
+                continue;
+            // Any declared use orders the bind: the compiler then places the barrier and, across pipes, the join.
+            const bool declared = std::ranges::any_of( pass.Uses, [index]( const Builder::ResourceUse& use )
+                                                       { return use.Resource == index; } );
+            if ( !declared )
+                return std::string_view( resource.Name.data(), resource.Name.size() );
+        }
+        return {};
+    }
+
     Common::ResultStr<TextureDesc> PassContext::GetTextureDesc( TextureRef texture ) const
     {
         return m_Builder.GetTextureDesc( texture );

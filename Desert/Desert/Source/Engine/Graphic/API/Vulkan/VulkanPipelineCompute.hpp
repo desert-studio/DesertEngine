@@ -122,6 +122,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_BoundBindingList;
         }
+        // FPS-DEVLOST16: the range the storage-buffer setter at each binding binds for @p frameIndex (the copy
+        // WriteBoundResources writes), as @p visit( binding, info, user ). A buffer with no copy is skipped:
+        // WriteBoundResources refuses that dispatch itself.
+        using StorageCopyVisitor = void ( * )( uint32_t binding, const VkDescriptorBufferInfo& info,
+                                               const void* user ) noexcept;
+        void VisitBoundStorageCopies( uint32_t frameIndex, StorageCopyVisitor visit,
+                                      const void* user ) const noexcept;
         [[nodiscard]] std::span<const std::byte> GetBoundPushConstants() const
         {
             return m_BoundPushConstants;
