@@ -8,7 +8,13 @@
 //   SP_TRACE_NEAR_FIELD  the GI ray contract's near field (Common/GITracing.glslh GITraceNearField: the software
 //             tracer's mesh SDFs of the view's near-field froxel grid, UE LumenMeshSDFCulling; a hit reads its
 //             object's cards first) over the rays not past its end; a hit's radiance goes to ScreenProbes.Traced, a
-//             miss hands the far field where it goes on.
+//             miss hands the far field where it goes on. With the software tracer the march keeps only the hit's
+//             distance and object (ScreenProbes.NearHit) and lists the ray for SP_TRACE_NEAR_HIT_LIGHTING.
+//   SP_TRACE_NEAR_HIT_LIGHTING over the software near field's hits (FPS-NEAR-FIELD; UE TraceMeshSDFs leaves its hits
+//             to the hit lighting pass, a compacted list of its own): the hit object's surface rebuilt at the same
+//             distance (GINearFieldSurface: its gradient normal, its motion) and lit - the cards first, else in
+//             place with the visibility rays of GIHitRadianceLit. The near field's waves no longer hold the gradient
+//             of every object that moved a hit closer, the card search and the shadow rays of their few hit lanes.
 //   SP_TRACE_FAR_FIELD   over every ray with no hit: the contract's far field (GITraceFarField: the global field) only
 //             as far as the world radiance cache's coverage asks (minTraceDistanceBeforeCache: past it the cache's
 //             probes see what the ray would); a ray that gets there without a hit is left at the cache (reached, no
@@ -139,7 +145,7 @@ Shader "ScreenProbeTrace"
         // those readers in the headers; the pass binds them under the same rule (ScreenProbeGather.cpp
         // TraceLegLightsHits). The software far field defers its hits, the cache read reads the cache alone.
         #if !defined( SP_TRACE_NEAR_FIELD ) && !defined( SP_TRACE_FAR_FIELD ) && !defined( SP_TRACE_CACHE_MISS )
-        #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ )
+        #if !defined( SP_TRACE_HIT_LIGHTING ) && !defined( SP_TRACE_CACHE_READ ) && !defined( SP_TRACE_NEAR_HIT_LIGHTING )
         #define SP_TRACE_CACHE_READ 1 // the registered default compile (no pass dispatches it; no tracer, no hits)
         #endif
         #endif
@@ -188,7 +194,36 @@ Shader "ScreenProbeTrace"
             uint screenProbeOut2Texels[];
         };
         #endif
-        #if defined( SP_TRACE_NEAR_FIELD ) || defined( SP_TRACE_CACHE_MISS )
+        // FPS-NEAR-FIELD: the third list - the software near field's hits for the near hit lighting (binned groups),
+        // and each listed ray's hit (ScreenProbes.NearHit, per ray: x = the hit object, y = its distance's bits -
+        // exact, where the trace hit buffer's encoding drops two bits).
+        #if defined( SP_TRACE_NEAR_FIELD ) && defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_DEFERS_NEAR_HITS 1
+        Buffer(50) ScreenProbeOut3ArgsUB
+        {
+            uvec4 screenProbeOut3Args;
+        };
+        Buffer(51) ScreenProbeOut3AllocatorUB
+        {
+            uint screenProbeOut3Allocator;
+        };
+        Buffer(52) ScreenProbeOut3TexelsUB
+        {
+            uint screenProbeOut3Texels[];
+        };
+        Buffer(53) ScreenProbeNearHitUB
+        {
+            uvec2 screenProbeNearHit[];
+        };
+        #elif defined( SP_TRACE_NEAR_HIT_LIGHTING )
+        ReadBuffer(53) ScreenProbeNearHitUB
+        {
+            uvec2 screenProbeNearHit[];
+        };
+        #endif
+        #if defined( SP_TRACE_NEAR_FIELD ) && !defined( DESERT_GI_TRACER_SOFTWARE )
+        #define SP_TRACE_LIGHTS_HITS 1 // the hardware near field's hits are triangles: lit where they are found
+        #elif defined( SP_TRACE_CACHE_MISS ) || defined( SP_TRACE_NEAR_HIT_LIGHTING )
         #define SP_TRACE_LIGHTS_HITS 1
         #elif defined( SP_TRACE_HIT_LIGHTING ) && defined( DESERT_GI_TRACER_SOFTWARE )
         #define SP_TRACE_LIGHTS_HITS 1
@@ -219,7 +254,7 @@ Shader "ScreenProbeTrace"
         #include <Common/ScreenProbeTracing.glslh>
         // The leg's group (Common/ScreenProbeTracing.glslh THE LEGS' LISTS): the hit lighting bins its group's rays
         // (SP_TRACE_BINNED_LEG_GROUP_SIZE); every other leg traces in list order (SP_TRACE_LEG_GROUP_SIZE).
-        #if defined( SP_TRACE_HIT_LIGHTING )
+        #if defined( SP_TRACE_HIT_LIGHTING ) || defined( SP_TRACE_NEAR_HIT_LIGHTING )
         LocalSize(SP_TRACE_BINNED_LEG_THREADS, 1, 1);
         #else
         LocalSize(SP_TRACE_LEG_THREADS, 1, 1);
@@ -341,6 +376,26 @@ Shader "ScreenProbeTrace"
                 screenProbeOut2Texels[start + subgroupBallotExclusiveBitCount( ballot )] = slot;
         }
 #endif
+#if defined( SP_TRACE_DEFERS_NEAR_HITS )
+        // The same into the third list (the software near field's hits for the near hit lighting's binned groups).
+        void SPListRay3( const bool listed, const uint slot )
+        {
+            const uvec4 ballot = subgroupBallot( listed );
+            const uint  count  = subgroupBallotBitCount( ballot );
+            if ( count == 0u )
+                return;
+            uint start = 0u;
+            if ( subgroupElect() )
+            {
+                start = atomicAdd( screenProbeOut3Allocator, count );
+                atomicMax( screenProbeOut3Args.x, ( start + count + SP_TRACE_BINNED_LEG_GROUP_SIZE - 1u ) /
+                                                      SP_TRACE_BINNED_LEG_GROUP_SIZE );
+            }
+            start = subgroupBroadcastFirst( start );
+            if ( listed )
+                screenProbeOut3Texels[start + subgroupBallotExclusiveBitCount( ballot )] = slot;
+        }
+#endif
 
         // FPS-SP-NEARFAR: only the hit-lighting leg orders its group's rays by direction. The near field walks
         // the object list of the ray's origin froxel (GITraceNearField) and the far field marches the global field
@@ -351,7 +406,7 @@ Shader "ScreenProbeTrace"
         // cache miss read and trace from the probe's point the same way. Those legs take lane i = the list's ray,
         // with the probe's bias inline and no barrier. The hit lighting lights surfaces the rays reached, where
         // neighbouring probes' rays of one direction land together: it keeps the binning and the bias table.
-        #if defined( SP_TRACE_HIT_LIGHTING )
+        #if defined( SP_TRACE_HIT_LIGHTING ) || defined( SP_TRACE_NEAR_HIT_LIGHTING )
         #define SP_TRACE_LEG_BINS_RAYS 1
         #endif
         #if defined( SP_TRACE_LEG_BINS_RAYS )
@@ -513,7 +568,39 @@ Shader "ScreenProbeTrace"
             ray.flags     = 0u;
 #endif
 
-#if defined( SP_TRACE_NEAR_FIELD )
+#if defined( SP_TRACE_NEAR_FIELD ) && defined( SP_TRACE_DEFERS_NEAR_HITS )
+            // The march alone: a hit keeps its distance and object for the near hit lighting (hit bit set, nothing
+            // stored yet - that leg writes the radiance and the moving bit).
+            float      farStart;
+            float      tHit;
+            uint       hitObject;
+            const bool hit     = GITraceNearFieldMarch( ray, farStart, tHit, hitObject );
+            const bool atCache = !hit && texel.coverage.valid && farStart >= texel.tMax;
+            if ( hit )
+            {
+                screenProbeNearHit[slot]  = uvec2( hitObject, floatBitsToUint( tHit ) );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( tHit, true, false, false );
+            }
+            else
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( farStart, false, false, atCache );
+            // FPS-SP-TRACE-4: a miss at the cache goes straight to the cache read, every other miss on to the far
+            // field.
+            SPListRay( !hit && !atCache, slot );
+            SPListRay2( atCache, slot );
+            SPListRay3( hit, slot );
+#elif defined( SP_TRACE_NEAR_HIT_LIGHTING )
+            // A software near-field hit (FPS-NEAR-FIELD): the surface GITraceNearField would have built - the same
+            // ray, object and exact distance - lit as it would have lit it (GIHitRadiance). The software tracer only
+            // (ScreenProbeGather.cpp TraceLegExists): no other near field defers its hits.
+#if defined( DESERT_GI_TRACER_SOFTWARE )
+            const uvec2 nearHit  = screenProbeNearHit[slot];
+            const float distance = uintBitsToFloat( nearHit.y );
+            const GIHit surface  = GINearFieldSurface( origin, dir, nearHit.x, distance, true );
+            imageStore( ScreenProbeTracedTexture, at, vec4( GIHitRadiance( surface, dir ), distance ) );
+            screenProbeTraceHit[slot] =
+                 SPEncodeTraceHit( distance, true, SPTraceHitMoving( probe, texel, surface ), false );
+#endif
+#elif defined( SP_TRACE_NEAR_FIELD )
             float               farStart;
             const GITraceResult near = GITraceNearField( ray, farStart );
             const bool atCache = !near.hit && texel.coverage.valid && farStart >= texel.tMax;
