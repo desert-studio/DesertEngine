@@ -583,10 +583,20 @@ namespace Desert::Graphic
         // depth, and "Deferred: Decals" below reconstructs its receivers from it - the resolve folds the DBuffer
         // in like the G-buffer cells (Pass_VisibilityResolve.glslh). The base pass, the ground and the particles
         // after it then test the blades' depth (EQUAL / LESS as ever), and the resolve's CloserOrEqual keeps what
-        // lies in front of a blade. A view without a decal keeps the raster after them (SceneRenderer::OnUpdate):
-        // the masked early-Z alone leaves the opaque meshes out of this depth, the raster would lose their
-        // occlusion.
-        const bool grassBeforeDecals = grassVisibility.IsValid() && m_Decals.HasDraws();
+        // lies in front of a blade.
+        // THE BLADES' DEPTH BEFORE THE GROUND'S BASE PASS (FPS-HZB-CULL; UE: Nanite's depth precedes the base
+        // pass, so the landscape's DepthEqual base pass shades no texel a Nanite blade covers). Whenever the
+        // ground prepassed its depth ("Deferred: Terrain Depth Prepass" above), this depth holds the ground, the
+        // large opaque occluders ("Deferred: Occluder Depth Prepass") and the masked meshes, so phase 1's raster
+        // keeps its occlusion by every one of them, and "TerrainGBuffer" (DESERT_TERRAIN_DEPTH_EQUAL, early
+        // fragment tests) then rejects every ground texel under a blade before its layers are fetched - with the
+        // raster after it, the ground shaded the whole field under the grass and the resolve overwrote it. The
+        // final depth is the nearest fragment in either order and the resolve keeps what lies in front of a blade,
+        // so the picture does not move; the meshes' G-buffer and the ground stay one render pass. Only a view
+        // whose ground did not prepass (early-Z off, or no ground) and that has no decal keeps the raster after
+        // the base pass (SceneRenderer::OnUpdate): there the depth would lack the ground and the opaque meshes.
+        const bool groundPrepassed   = terrain != nullptr && terrain->PrepassesGBuffer();
+        const bool grassBeforeDecals = grassVisibility.IsValid() && ( m_Decals.HasDraws() || groundPrepassed );
         if ( grassBeforeDecals )
             AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
         AddFrameDecals( graph, textures, targets->Depth );
@@ -639,12 +649,14 @@ namespace Desert::Graphic
                                                  const bool                                    postOcclusion )
     {
         // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material
-        // pass). The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles - in a view
-        // with decals the full early-Z's, before "Deferred: Decals", AddFrameGBuffer), tests it
-        // and writes none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins
-        // whatever order the draws ran in and no overdraw is shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets):
-        // after phase 1's raster "Grass: Visibility Depth" writes the words' depth WITHOUT the material, so the
-        // HZB phase 2 tests sees the grass; the material runs once, after phase 2 (AddFrameGrassVisibilityResolve)
+        // pass). The raster LOADs the G-buffer's depth (the early-Z's - the ground, the large occluders, the
+        // masked meshes; every opaque mesh in a view with decals - before "Deferred: Decals" and the base pass
+        // whenever the ground prepassed or a decal is drawn, AddFrameGBuffer; else the opaque scene, the terrain
+        // and the particles after the base pass), tests it and writes none: a blade fragment that survives its
+        // mask atomic-maxes its word, so the nearest wins whatever order the draws ran in and no overdraw is
+        // shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets): after phase 1's raster "Grass: Visibility Depth"
+        // writes the words' depth WITHOUT the material, so the HZB phase 2 tests sees the grass; the material runs
+        // once, after phase 2 (AddFrameGrassVisibilityResolve)
         // - before, the phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve
         // Post 1.67 ms).
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );

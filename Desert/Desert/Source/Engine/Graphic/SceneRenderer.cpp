@@ -2604,7 +2604,9 @@ namespace Desert::Graphic
             m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
                                    GetPipelineCache() );
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
-            // A view with decals rasters the grass's phase 1 inside AddFrameGBuffer, before "Deferred: Decals".
+            // A view with decals or a prepassed ground rasters the grass's phase 1 inside AddFrameGBuffer, before
+            // "Deferred: Decals" and the base pass, so "TerrainGBuffer" rejects the ground under the blades
+            // (FPS-HZB-CULL).
             const bool grassRasteredBeforeDecals =
                  AddFrameGBuffer( graph, textures, meshRenderer, grassVisibility );
             AddFrameTerrainGBuffer( graph, textures );
