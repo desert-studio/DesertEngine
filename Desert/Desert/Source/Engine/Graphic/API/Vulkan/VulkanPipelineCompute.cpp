@@ -3,6 +3,7 @@
 #include <utility>
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRecordContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -136,6 +137,18 @@ namespace Desert::Graphic::API::Vulkan
                 continue;
             visit( binding, copy.Info, user );
         }
+    }
+
+    void VulkanPipelineCompute::VisitBoundImages( const ImageVisitor visit, const void* const user ) const noexcept
+    {
+        if ( visit == nullptr )
+            return;
+        for ( const auto& [binding, input] : m_BoundInputs )
+            if ( input.Vulkan != nullptr && input.Vulkan->GetResource().Image != VK_NULL_HANDLE )
+                visit( binding, input.Vulkan->GetResource().Image, user );
+        for ( const auto& [binding, output] : m_BoundOutputs )
+            if ( output.Vulkan != nullptr && output.Vulkan->GetResource().Image != VK_NULL_HANDLE )
+                visit( binding, output.Vulkan->GetResource().Image, user );
     }
 
     ComputePipeline& VulkanPipelineCompute::SetPushConstants( const void* data, uint32_t size )

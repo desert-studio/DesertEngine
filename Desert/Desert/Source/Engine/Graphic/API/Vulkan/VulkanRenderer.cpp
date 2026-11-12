@@ -1130,6 +1130,28 @@ namespace Desert::Graphic::API::Vulkan
         // (a compute pipeline's own storage-buffer setter, a material's storage buffer) of a range that is an
         // external buffer of the recording graph, by a pass that declares no use of it, is invisible to the
         // compiler: no barrier and, across the async pipe, no join orders it. Logged once per (pass, buffer).
+        // FPS-DEVLOST17: transients too, images (CheckRawImageBind) and device-address fetches (kNoBinding).
+        constexpr uint32_t kNoBinding = UINT32_MAX; // a device address: no descriptor binding
+
+        void ReportUndeclaredOnce( const RDG::PassContext& context, const std::string_view kind,
+                                   const std::string_view resource, const std::string_view route,
+                                   const uint32_t binding ) noexcept
+        {
+            static std::mutex                      s_Mutex;
+            static std::unordered_set<std::string> s_Reported;
+            std::string                            key = std::format( "{}|{}", context.GetPassName(), resource );
+            {
+                const std::lock_guard lock( s_Mutex );
+                if ( !s_Reported.insert( std::move( key ) ).second )
+                    return;
+            }
+            const std::string where =
+                 binding == kNoBinding ? std::string( "no binding" ) : std::format( "binding {}", binding );
+            LOG_WARN( "[RDG] pass '{}' binds graph {} '{}' outside its declaration ({} route, {}): "
+                      "no barrier, no cross-queue join",
+                      context.GetPassName(), kind, resource, route, where );
+        }
+
         struct RawBufferBind
         {
             VkBuffer Buffer = VK_NULL_HANDLE;
@@ -1171,20 +1193,9 @@ namespace Desert::Graphic::API::Vulkan
                  t_Last.Bind.Begin == bind.Begin && t_Last.Bind.End == bind.End )
                 return;
             t_Last                          = LastScan{ .Pass = passKey, .Frame = frame, .Bind = bind };
-            const std::string_view resource = context.FindUndeclaredExternalBuffer( &OverlapsRawBind, &bind );
-            if ( resource.empty() )
-                return;
-            static std::mutex                      s_Mutex;
-            static std::unordered_set<std::string> s_Reported;
-            std::string                            key = std::format( "{}|{}", context.GetPassName(), resource );
-            {
-                const std::lock_guard lock( s_Mutex );
-                if ( !s_Reported.insert( std::move( key ) ).second )
-                    return;
-            }
-            LOG_WARN( "[RDG] pass '{}' binds graph buffer '{}' outside its declaration ({} route, binding {}): "
-                      "no barrier, no cross-queue join",
-                      context.GetPassName(), resource, route, binding );
+            const std::string_view resource = context.FindUndeclaredGraphBuffer( &OverlapsRawBind, &bind );
+            if ( !resource.empty() )
+                ReportUndeclaredOnce( context, "buffer", resource, route, binding );
         }
 
         void CheckComputeStorageCopy( const uint32_t binding, const VkDescriptorBufferInfo& info,
@@ -1192,8 +1203,63 @@ namespace Desert::Graphic::API::Vulkan
         {
             CheckRawBufferBind( *static_cast<const RDG::PassContext*>( user ), binding, info, "compute setter" );
         }
+
+        // FPS-DEVLOST17: the same check for an image a raw route binds (compute SetInput / SetOutput, a
+        // material's texture property): a texture of this graph whose VkImage it is, undeclared by the pass.
+        bool IsRawImage( const RDG::IPhysicalTexture& physical, const void* user ) noexcept
+        {
+            if ( physical.GetBackendKind() != RDG::BackendKind::Vulkan )
+                return false;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the backend kind says Vulkan
+            const auto& texture = static_cast<const VulkanRdgTexture&>( physical );
+            return texture.GetImage() == *static_cast<const VkImage*>( user );
+        }
+
+        void CheckRawImageBind( const RDG::PassContext& context, const uint32_t binding, const VkImage image,
+                                const std::string_view route ) noexcept
+        {
+            if ( image == VK_NULL_HANDLE )
+                return;
+            struct LastScan
+            {
+                const char* Pass  = nullptr;
+                uint64_t    Frame = 0;
+                VkImage     Image = VK_NULL_HANDLE;
+            };
+            thread_local LastScan t_Last;
+            const char* const     passKey = context.GetPassName().data();
+            const uint64_t        frame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            if ( t_Last.Pass == passKey && t_Last.Frame == frame && t_Last.Image == image )
+                return;
+            t_Last                          = LastScan{ .Pass = passKey, .Frame = frame, .Image = image };
+            const std::string_view resource = context.FindUndeclaredGraphTexture( &IsRawImage, &image );
+            if ( !resource.empty() )
+                ReportUndeclaredOnce( context, "image", resource, route, binding );
+        }
+
+        void CheckComputeImage( const uint32_t binding, const VkImage image, const void* const user ) noexcept
+        {
+            CheckRawImageBind( *static_cast<const RDG::PassContext*>( user ), binding, image, "compute setter" );
+        }
 #endif
     } // namespace
+
+#if DESERT_DEV_INSTRUMENTS
+} // namespace Desert::Graphic::API::Vulkan
+
+namespace Desert::ShaderResources::API::Vulkan
+{
+    void CheckExecutingPassAddress( const VkDescriptorBufferInfo& range ) noexcept
+    {
+        if ( const Graphic::RDG::PassContext* const context = Graphic::RDG::PassContext::GetExecuting() )
+            Graphic::API::Vulkan::CheckRawBufferBind( *context, Graphic::API::Vulkan::kNoBinding, range,
+                                                      "device address" );
+    }
+} // namespace Desert::ShaderResources::API::Vulkan
+
+namespace Desert::Graphic::API::Vulkan
+{
+#endif
 
     RDG::ShaderBindingLayout VulkanRendererAPI::GetBindingLayout( const Shader& shader ) const
     {
@@ -1293,8 +1359,12 @@ namespace Desert::Graphic::API::Vulkan
 #if DESERT_DEV_INSTRUMENTS
         // FPS-DEVLOST16: a setter's storage buffer that is an external of this graph must be declared by the pass.
         if ( setters )
+        {
             compute.VisitBoundStorageCopies( EngineContext::GetInstance().GetCurrentFrameIndex(),
                                              &CheckComputeStorageCopy, &context );
+            // FPS-DEVLOST17: and every SetInput / SetOutput image that is a texture of this graph.
+            compute.VisitBoundImages( &CheckComputeImage, &context );
+        }
 #endif
 
         // FPS-CPU2-VKRECORD (GPU-COST-36's memo, as the graphics draws use it): the sets an earlier dispatch of

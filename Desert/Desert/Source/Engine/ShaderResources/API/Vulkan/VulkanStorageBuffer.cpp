@@ -1,5 +1,6 @@
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -337,6 +338,10 @@ namespace Desert::ShaderResources::API::Vulkan
         if ( address == 0 )
             return Common::MakeFormattedError<uint64_t>( "storage buffer '{}': its buffer has no device address",
                                                          m_BufferName );
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-DEVLOST17: an address fetched inside a graph pass's exec is a read of that range by the pass.
+        CheckExecutingPassAddress( copy->Binding().Info );
+#endif
         return Common::MakeSuccess( address );
     }
 

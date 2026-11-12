@@ -87,12 +87,23 @@ namespace Desert::Graphic::RDG
         // FPS-DEVLOST16 (UE: RDG validation refuses a pass touching a graph resource its parameters did not
         // declare). A raw bind - a pipeline's own setter, a material's storage buffer - is invisible to the
         // compiler: no barrier and no cross-queue join orders it against the graph's other uses. The backend
-        // asks here whether the range it binds is an external buffer of THIS graph that THIS pass declares no
-        // use of: the name of the first external whose physical buffer @p match accepts and that no use of this
-        // pass names; empty when there is none.
+        // asks here whether the range it binds is a buffer of THIS graph that THIS pass declares no use of.
+        // FPS-DEVLOST17: every buffer of the graph - externals and transients (the backend's physical) - is
+        // matched, and the bind is clean when ANY resource @p match accepts is declared by the pass (two aliased
+        // transients share a range; the pass declaring one of them is ordered). Returns the name of the first
+        // accepted resource when none of them is declared; empty when the bind is clean or nothing matched.
         using PhysicalBufferMatch = bool ( * )( const IPhysicalBuffer& physical, const void* user ) noexcept;
-        [[nodiscard]] std::string_view FindUndeclaredExternalBuffer( PhysicalBufferMatch match,
-                                                                     const void*         user ) const noexcept;
+        [[nodiscard]] std::string_view FindUndeclaredGraphBuffer( PhysicalBufferMatch match,
+                                                                  const void*         user ) const noexcept;
+        // FPS-DEVLOST17: the same question for an image a raw route binds (a compute pipeline's SetInput /
+        // SetOutput, a material's texture property): a texture of this graph whose physical @p match accepts.
+        using PhysicalTextureMatch = bool ( * )( const IPhysicalTexture& physical, const void* user ) noexcept;
+        [[nodiscard]] std::string_view FindUndeclaredGraphTexture( PhysicalTextureMatch match,
+                                                                   const void*          user ) const noexcept;
+        // FPS-DEVLOST17: the context of the pass whose exec runs on the calling thread (null outside an exec, and
+        // always null without DESERT_DEV_INSTRUMENTS). Lets a raw route with no context in hand - a storage
+        // buffer's device-address fetch - ask the question above.
+        [[nodiscard]] static const PassContext* GetExecuting() noexcept;
 
         // RDG-CONTRACTS A(3) - the renderer-facing contract for a graph transient (UE: FRDGTexture accessed
         // through the pass parameters, never stored). A renderer moving an owned intermediate into the graph:
@@ -124,6 +135,10 @@ namespace Desert::Graphic::RDG
              : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass ), m_Late( late )
         {
         }
+        // FPS-DEVLOST17: GetExecuting's slot, set by Builder around one exec on its recording thread.
+        static void SetExecuting( const PassContext* context ) noexcept;
+        // Whether this pass declares any use of resource @p index.
+        [[nodiscard]] bool DeclaresResource( uint32_t index ) const noexcept;
 
         const Builder&                          m_Builder;
         const CompileResult&                    m_Result;

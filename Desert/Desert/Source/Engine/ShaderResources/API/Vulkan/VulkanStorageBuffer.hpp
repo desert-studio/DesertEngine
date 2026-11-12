@@ -171,4 +171,10 @@ namespace Desert::ShaderResources::API::Vulkan
         const uint32_t    m_Binding;
         const std::string m_BufferName;
     };
+
+    // FPS-DEVLOST17 (UE: a buffer read by device address is declared like any other read, RDG_BUFFER_ACCESS):
+    // called by GetDeviceAddress under DESERT_DEV_INSTRUMENTS. When a graph pass's exec runs on this thread
+    // (RDG::PassContext::GetExecuting) and @p range is a buffer of that graph the pass declares no use of, logs
+    // once per (pass, buffer). Defined in VulkanRenderer.cpp in dev builds only; never called otherwise.
+    void CheckExecutingPassAddress( const VkDescriptorBufferInfo& range ) noexcept;
 } // namespace Desert::ShaderResources::API::Vulkan
