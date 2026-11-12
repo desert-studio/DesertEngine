@@ -40,6 +40,7 @@
 #include <Engine/Graphic/GpuDriven/IndirectDrawSubmission.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
@@ -48,11 +49,29 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    namespace
+    {
+        // FPS-DEVLOST8: RenderPipeline.GpuCrashBreadcrumbs straight from the one quality state, published the
+        // moment it resolves (boot, machine.json, a scenario's override) - not from the scene renderer's per-frame
+        // copy, which reached the backend only one frame AFTER the first scene view had been submitted, so the
+        // editor's boot frames, the first scene frame and every upload before it carried no marker and a loss
+        // there read "(none yet)" on every queue.
+        void PublishBreadcrumbsWanted( const Common::Scalability::ResolvedQuality& resolved, void* )
+        {
+            Graphic::DeviceLost::SetBreadcrumbsWanted(
+                 resolved.As<int>( Common::Scalability::Parameter::RenderPipelineGpuCrashBreadcrumbs ) != 0 );
+        }
+    } // namespace
+
     void VulkanRendererAPI::Init()
     {
 #if DESERT_DEV_INSTRUMENTS
         m_GpuProfiler.Init();
 #endif
+        // Before QualityState::Initialize the listener is told at Initialize; after it, now.
+        Common::Scalability::QualityState::Subscribe( &PublishBreadcrumbsWanted, nullptr );
+        if ( Common::Scalability::QualityState::Initialized() )
+            PublishBreadcrumbsWanted( Common::Scalability::QualityState::Resolved(), nullptr );
     }
     void VulkanRendererAPI::Shutdown()
     {
@@ -62,6 +81,7 @@ namespace Desert::Graphic::API::Vulkan
         // The breadcrumb memory goes with this API: the [DeviceLost] report stops reading it first.
         Graphic::DeviceLost::SetBreadcrumbReader( nullptr, nullptr );
         CommandBufferAllocator::SetOneOffMarker( nullptr, nullptr );
+        Common::Scalability::QualityState::Unsubscribe( &PublishBreadcrumbsWanted, nullptr );
 #if DESERT_DEV_INSTRUMENTS
         m_GpuProfiler.Shutdown();
 #endif
@@ -2513,7 +2533,8 @@ namespace Desert::Graphic::API::Vulkan
             m_RdgQueues.ComputeFamily  = computeFamily;
             m_RdgQueues.Objects        = &m_FrameLoop->GetQueueObjects();
             if ( m_Breadcrumbs )
-                m_Breadcrumbs->SetQueues( m_RdgQueues.GraphicsQueue, m_RdgQueues.ComputeQueue );
+                m_Breadcrumbs->SetQueues( m_RdgQueues.GraphicsQueue, m_RdgQueues.ComputeQueue,
+                                          device->GetComputeQueue(), device->GetTransferQueue() );
         }
         // EACH STAGE A ROW (VK-SUBMIT-THREAD): "Vulkan: begin RDG frame" measured 0.22-0.25 ms on the field turn
         // with no row under it, so the profile names which stage it is.

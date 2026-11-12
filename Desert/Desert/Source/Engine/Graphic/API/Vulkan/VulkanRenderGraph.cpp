@@ -2079,9 +2079,13 @@ namespace Desert::Graphic::API::Vulkan
     namespace
     {
         constexpr uint32_t kCrumbQueues = RDG::kPipeCount;
-        // FPS-DEVLOST6: after the graph words, two per queue for the one-off submits (MarkOneOff).
+        // FPS-DEVLOST6: after the graph words, two per DEVICE queue for the one-off submits (MarkOneOff;
+        // FPS-DEVLOST8: graphics, compute, transfer - not per graph pipe).
+        constexpr uint32_t     kOneOffQueues    = VulkanGpuBreadcrumbs::kOneOffQueues;
         constexpr uint32_t     kOneOffWords     = 2 * kCrumbQueues;
-        constexpr VkDeviceSize kCrumbBufferSize = sizeof( uint32_t ) * ( 2 * kCrumbQueues + 2 * kCrumbQueues );
+        constexpr VkDeviceSize kCrumbBufferSize = sizeof( uint32_t ) * ( 2 * kCrumbQueues + 2 * kOneOffQueues );
+        constexpr std::array<std::string_view, kOneOffQueues> kOneOffQueueNames{ "Graphics", "Compute",
+                                                                                 "Transfer" };
         constexpr uint32_t     kCrumbListMax    = 24; // in-flight names listed per queue
 
         [[nodiscard]] constexpr uint32_t CrumbQueue( RDG::Pipe pipe ) noexcept
@@ -2307,10 +2311,17 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    void VulkanGpuBreadcrumbs::SetQueues( VkQueue graphics, VkQueue compute ) noexcept
+    void VulkanGpuBreadcrumbs::SetQueues( VkQueue graphics, VkQueue compute, VkQueue deviceCompute,
+                                          VkQueue transfer ) noexcept
     {
         m_GraphicsQueue = graphics;
         m_ComputeQueue  = compute != graphics ? compute : VK_NULL_HANDLE;
+        // FPS-DEVLOST8: each device queue once (a queue shared by two roles keeps the first slot).
+        m_OneOffQueues = { graphics, deviceCompute, transfer };
+        for ( uint32_t index = 1; index < kOneOffQueues; ++index )
+            for ( uint32_t earlier = 0; earlier < index; ++earlier )
+                if ( m_OneOffQueues[index] == m_OneOffQueues[earlier] )
+                    m_OneOffQueues[index] = VK_NULL_HANDLE;
     }
 
     void VulkanGpuBreadcrumbs::SetEnabled( bool enabled ) noexcept
@@ -2322,9 +2333,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_LiveSaid || !m_EverEnabled || m_Words == nullptr )
             return;
-        uint32_t words[2 * kCrumbQueues]{};
+        // FPS-DEVLOST8: the one-off words count too (uploads before the first graph frame).
+        uint32_t words[2 * kCrumbQueues + 2 * kOneOffQueues]{};
         bool     any = false;
-        for ( uint32_t index = 0; index < 2 * kCrumbQueues; ++index )
+        for ( uint32_t index = 0; index < 2 * kCrumbQueues + 2 * kOneOffQueues; ++index )
         {
             words[index] = m_Words[index];
             any          = any || words[index] != kNoSerial;
@@ -2334,8 +2346,8 @@ namespace Desert::Graphic::API::Vulkan
             m_LiveSaid = true;
             LOG_INFO(
                  "[GpuBreadcrumbs] live after {} frame(s): the GPU's words reach the host (graphics started #{} "
-                 "finished #{}, async started #{} finished #{}; words in {})",
-                 m_LiveFrames, words[0], words[1], words[2], words[3], m_WordsHome );
+                 "finished #{}, async started #{} finished #{}, graphics-queue one-off reached #{}; words in {})",
+                 m_LiveFrames, words[0], words[1], words[2], words[3], words[kOneOffWords], m_WordsHome );
             return;
         }
         if ( ++m_LiveFrames < kLiveProbeFrames )
@@ -2404,14 +2416,13 @@ namespace Desert::Graphic::API::Vulkan
         *written.out       = '\0';
         entry.Serial.store( serial, std::memory_order_release );
 
-        // The words: only on a queue of the graph's families (the buffer's sharing); the async pipe's queue is
-        // m_ComputeQueue only when it is a queue of its own (SetQueues).
-        uint32_t slot = kCrumbQueues;
-        if ( queue != VK_NULL_HANDLE && queue == self->m_GraphicsQueue )
-            slot = CrumbQueue( RDG::Pipe::Graphics );
-        else if ( queue != VK_NULL_HANDLE && queue == self->m_ComputeQueue )
-            slot = CrumbQueue( RDG::Pipe::AsyncCompute );
-        if ( self->m_WriteMarker != nullptr && slot < kCrumbQueues )
+        // The words of the device queue it goes to (FPS-DEVLOST8: graphics, compute or transfer - the buffer is
+        // CONCURRENT over all three families). A queue SetQueues was not told of gets the checkpoints only.
+        uint32_t slot = kOneOffQueues;
+        for ( uint32_t index = 0; index < kOneOffQueues && queue != VK_NULL_HANDLE; ++index )
+            if ( self->m_OneOffQueues[index] == queue )
+                slot = index;
+        if ( self->m_WriteMarker != nullptr && slot < kOneOffQueues )
         {
             const VkDeviceSize started = sizeof( uint32_t ) * ( kOneOffWords + 2 * slot );
             self->m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, self->m_Buffer, started,
@@ -2511,13 +2522,16 @@ namespace Desert::Graphic::API::Vulkan
         }
         // FPS-DEVLOST6: per queue, the last one-off submit (upload, one-shot flush) whose end the front end
         // reached and the last whose commands completed; differing = that one-off was in flight at the loss.
-        for ( uint32_t queue = 0; queue < kCrumbQueues && m_Words != nullptr; ++queue )
+        // FPS-DEVLOST8: every device queue (graphics, compute, transfer), not only the graph's pipes.
+        for ( uint32_t queue = 0; queue < kOneOffQueues && m_Words != nullptr; ++queue )
         {
+            if ( m_OneOffQueues[queue] == VK_NULL_HANDLE )
+                continue;
             const uint32_t started  = m_Words[kOneOffWords + 2 * queue];
             const uint32_t finished = m_Words[kOneOffWords + 2 * queue + 1];
             RDG::Pipe      ignored  = RDG::Pipe::Graphics;
-            text += std::format( "\n  {} one-off submits: last reached {}, last completed {}{}",
-                                 kQueueNames[queue], NameOf( started, ignored ), NameOf( finished, ignored ),
+            text += std::format( "\n  {} queue one-off submits: last reached {}, last completed {}{}",
+                                 kOneOffQueueNames[queue], NameOf( started, ignored ), NameOf( finished, ignored ),
                                  started != kNoSerial && started != finished ? " - IN FLIGHT" : "" );
         }
         text += DescribeCheckpoints();
@@ -2530,15 +2544,18 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_GetCheckpoints == nullptr )
             return "\n  checkpoints: none (no VK_NV_device_diagnostic_checkpoints)";
-        std::string                                               text;
-        const std::array<std::pair<std::string_view, VkQueue>, 2> queues{
-             { { m_ComputeQueue != VK_NULL_HANDLE ? "Graphics queue" : "Graphics queue (async pipe on it too)",
-                 m_GraphicsQueue },
-               { "Compute queue", m_ComputeQueue } } };
-        for ( const auto& [label, queue] : queues )
+        // FPS-DEVLOST8: every device queue anything is submitted to (graphics, compute, transfer), each once.
+        std::string text;
+        for ( uint32_t slot = 0; slot < kOneOffQueues; ++slot )
         {
+            const VkQueue queue = m_OneOffQueues[slot];
             if ( queue == VK_NULL_HANDLE )
                 continue;
+            const std::string                    label = slot == 0 && m_ComputeQueue == VK_NULL_HANDLE
+                                                              ? std::string( "Graphics queue (async pipe on it too)" )
+                                                         : slot == 1 && queue == m_ComputeQueue
+                                                              ? std::string( "Compute queue (the async pipe)" )
+                                                              : std::format( "{} queue", kOneOffQueueNames[slot] );
             constexpr uint32_t                   kMax = 32;
             std::array<VkCheckpointDataNV, kMax> data{};
             for ( VkCheckpointDataNV& entry : data )

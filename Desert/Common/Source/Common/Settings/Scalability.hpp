@@ -400,8 +400,8 @@ namespace Common::Scalability
         // r.MinScreenRadiusForDepthPrepass, in thousandths: 30 = UE's 0.03): the GPU-driven opaque instances whose
         // bounds' screen radius (Geometry::BoundsScreenRadiusSquared's measure) reaches it write their depth in
         // "Deferred: Occluder Depth Prepass" before the masked prepass, so the grass and foliage they hide fail
-        // early-Z before their clip runs; the G-buffer still draws them with their own depth test and write. 0 = no
-        // occluder pass. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius. Key
+        // early-Z before their clip runs; the G-buffer still draws them with their own depth test and write. 0 =
+        // no occluder pass. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius. Key
         // "RenderPipeline.EarlyZOccluderScreenRadius": equal at every level (a cost choice that never moves a
         // texel: the depth it writes is the depth the G-buffer writes), so only a machine override names it.
         EarlyZOccluderScreenRadius,
@@ -470,9 +470,10 @@ namespace Common::Scalability
         // markers): every render-graph pass writes its id into a host-visible word of its queue at its start and
         // at its end (VK_AMD_buffer_marker), so the [DeviceLost] report names, per queue, the last pass the GPU
         // started and the last it finished. 0 = no marker is recorded (zero cost). A device without the extension
-        // has no breadcrumbs and says so once. Read by SceneRenderer::OnUpdate -> DeviceLost::SetBreadcrumbsWanted
-        // -> VulkanRendererAPI::BeginRdgFrame. Key "RenderPipeline.GpuCrashBreadcrumbs": equal at every level (a
-        // diagnostic, not a quality step), so only a machine override names it.
+        // has no breadcrumbs and says so once. Read by a QualityState listener (VulkanRendererAPI::Init) ->
+        // DeviceLost::SetBreadcrumbsWanted -> VulkanRendererAPI::BeginRdgFrame. Key
+        // "RenderPipeline.GpuCrashBreadcrumbs": equal at every level (a diagnostic, not a quality step), so only a
+        // machine override names it.
         RenderPipelineGpuCrashBreadcrumbs,
         // The ceiling the Effects level puts on VolumetricCloudData::LightMarchLocalSamples: the SHORT sun ray a
         // lit cloud sample marches where the cloud shadow map supplies the far optical depth (Programs/Clouds/

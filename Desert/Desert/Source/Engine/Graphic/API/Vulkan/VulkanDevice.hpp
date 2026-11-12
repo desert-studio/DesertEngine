@@ -226,6 +226,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_ComputeQueue;
         }
+        // FPS-DEVLOST8: for the breadcrumbs' per-queue report (one-off transfer flushes go to it).
+        VkQueue GetTransferQueue()
+        {
+            return m_TransferQueue;
+        }
 
         /// THE ONLY vkQueueSubmit OF THE ENGINE. A VkQueue must be externally synchronised (VUID-vkQueueSubmit-
         /// queue-parameter): two threads submitting to it at once is undefined behaviour, and the validation
