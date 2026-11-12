@@ -135,9 +135,13 @@ Shader "ScreenProbeTrace"
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
+        // The software near field only marches and lists its hits (SP_TRACE_DEFERS_NEAR_HITS below): it samples
+        // nothing linear-clamped, so it declares no LinearClampSampler (shared-sampler rule) and the pass binds none.
+        #if !( defined( SP_TRACE_NEAR_FIELD ) && defined( DESERT_GI_TRACER_SOFTWARE ) )
         Uniform sampler LinearClampSampler;
         Uniform(16) textureCube EnvironmentSpecularTexture;
         #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        #endif
         // GPU-FARFIELD-7 (UE shared samplers: a permutation declares the samplers its code samples through): the
         // legs that LIGHT a hit read the cards (Common/SurfaceCacheSampling.glslh), the G-buffer (GIHitMaterial)
         // and the software field's object grid (GIHitObjectGridRows), all through PointClampSampler. One switch

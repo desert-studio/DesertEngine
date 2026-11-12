@@ -1113,10 +1113,12 @@ namespace Desert::Graphic::GlobalIllumination
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
-                     block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
-                                    inputs.EnvSpecular, kS, all )
-                          .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() );
+                     // The software near field defers its hits and samples nothing (ScreenProbeTrace.shader).
+                     if ( !( program == TraceNearField && nearHitLightingList ) )
+                         block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
+                                        inputs.EnvSpecular, kS, all )
+                              .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
+                                        RDG::SamplerDesc::LinearClamp() );
                      if ( lightsHits )
                          block.Texture( ScreenProbeGatherTraceShaderParameters::GBufferDepthTexture,
                                         inputs.GBufferDepth, kS, all )
