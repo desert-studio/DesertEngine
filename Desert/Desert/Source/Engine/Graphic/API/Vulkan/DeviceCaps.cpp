@@ -64,6 +64,12 @@ namespace Desert::Graphic::API::Vulkan
              { C::MemoryBudget, "memory_budget", N::Optional, 0, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME },
              // GPU crash breadcrumbs (DeviceCaps.hpp). NVIDIA, AMD and Intel desktop drivers carry it.
              { C::BufferMarker, "buffer_marker", N::Optional, 0, VK_AMD_BUFFER_MARKER_EXTENSION_NAME },
+             // FPS-DEVLOST4: breadcrumb words in application-owned memory, readable after a TDR (DeviceCaps.hpp).
+             { C::ExternalMemoryHost, "external_memory_host", N::Optional, 0,
+               VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME },
+             // FPS-DEVLOST4: NVIDIA's per-queue checkpoints, read after the loss (DeviceCaps.hpp).
+             { C::DiagnosticCheckpoints, "device_diagnostic_checkpoints", N::Optional, 0,
+               VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME },
              // Required: one-off uploads signal a timeline that the async-compute pipe and the compute/transfer
              // one-offs wait on the GPU (CommandBufferAllocator::NewestUploadSync). Core in 1.2, the minimum.
              { C::TimelineSemaphore, "timelineSemaphore", N::Required, V12,
@@ -139,11 +145,15 @@ namespace Desert::Graphic::API::Vulkan
                "VK_KHR_external_semaphore_win32" },
              { C::ExternalMemoryFd, "external_memory_fd", N::Optional, 0, "VK_KHR_external_memory_fd" },
              { C::ExternalSemaphoreFd, "external_semaphore_fd", N::Optional, 0, "VK_KHR_external_semaphore_fd" },
-             // The grass visibility buffer's 64-bit word (DeviceCaps.hpp). shaderInt64 is a 1.0 feature; the atomics
-             // are core in 1.2 (VK_KHR_shader_atomic_int64 below it) and mean nothing without the type.
+             // The grass visibility buffer's 64-bit word (DeviceCaps.hpp). shaderInt64 is a 1.0 feature; the
+             // atomics are core in 1.2 (VK_KHR_shader_atomic_int64 below it) and mean nothing without the type.
              { C::ShaderInt64, "shaderInt64", N::Optional, V10, {} },
-             { C::ShaderBufferInt64Atomics, "shaderBufferInt64Atomics", N::Optional, V12,
-               VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, VK_API_VERSION_1_1,
+             { C::ShaderBufferInt64Atomics,
+               "shaderBufferInt64Atomics",
+               N::Optional,
+               V12,
+               VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME,
+               VK_API_VERSION_1_1,
                { C::ShaderInt64, C::Count, C::Count } },
              // The compacted bins' count and draw index (DeviceCaps.hpp). drawIndirectCount is core in 1.2
              // (VK_KHR_draw_indirect_count below it), shaderDrawParameters in 1.1 (VK_KHR_shader_draw_parameters).

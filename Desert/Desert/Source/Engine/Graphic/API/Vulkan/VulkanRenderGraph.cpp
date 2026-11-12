@@ -19,6 +19,9 @@
 #include <iterator>
 #include <cstdio>
 #include <cstdlib>
+#if defined( _MSC_VER )
+#include <malloc.h> // _aligned_malloc: the breadcrumb words' host block (FPS-DEVLOST4)
+#endif
 #include <format>
 
 namespace Desert::Graphic::API::Vulkan
@@ -2085,17 +2088,64 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
+    namespace
+    {
+        void* AllocateHostBlock( size_t bytes, size_t alignment ) noexcept
+        {
+#if defined( _MSC_VER )
+            return _aligned_malloc( bytes, alignment );
+#else
+            return std::aligned_alloc( alignment, bytes );
+#endif
+        }
+
+        void FreeHostBlock( void* block ) noexcept
+        {
+#if defined( _MSC_VER )
+            _aligned_free( block );
+#else
+            std::free( block );
+#endif
+        }
+    } // namespace
+
     VulkanGpuBreadcrumbs::~VulkanGpuBreadcrumbs()
     {
-        if ( m_Buffer != VK_NULL_HANDLE )
+        if ( m_HostMemory != VK_NULL_HANDLE )
+        {
+            if ( m_Buffer != VK_NULL_HANDLE )
+                vkDestroyBuffer( m_Device, m_Buffer, nullptr );
+            vkFreeMemory( m_Device, m_HostMemory, nullptr );
+        }
+        else if ( m_Buffer != VK_NULL_HANDLE )
             vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
+        // The block outlives the memory imported from it (VK_EXT_external_memory_host).
+        if ( m_HostBlock != nullptr )
+            FreeHostBlock( m_HostBlock );
     }
 
-    Common::BoolResultStr VulkanGpuBreadcrumbs::Init( VkDevice device, VmaAllocator allocator,
-                                                      const VulkanResourceSharing& sharing ) noexcept
+    Common::BoolResultStr VulkanGpuBreadcrumbs::Init( VkPhysicalDevice physicalDevice, VkDevice device,
+                                                      VmaAllocator allocator, const VulkanResourceSharing& sharing,
+                                                      const Routes& routes ) noexcept
     {
-        m_Device      = device;
-        m_Allocator   = allocator;
+        m_Device    = device;
+        m_Allocator = allocator;
+        if ( !routes.BufferMarker && !routes.Checkpoints )
+            return Common::MakeError( "neither VK_AMD_buffer_marker nor VK_NV_device_diagnostic_checkpoints" );
+        if ( routes.Checkpoints )
+        {
+            m_SetCheckpoint = reinterpret_cast<PFN_vkCmdSetCheckpointNV>(
+                 vkGetDeviceProcAddr( device, "vkCmdSetCheckpointNV" ) );
+            m_GetCheckpoints = reinterpret_cast<PFN_vkGetQueueCheckpointDataNV>(
+                 vkGetDeviceProcAddr( device, "vkGetQueueCheckpointDataNV" ) );
+            if ( m_SetCheckpoint == nullptr || m_GetCheckpoints == nullptr )
+                return Common::MakeError( "vkGetDeviceProcAddr did not resolve vkCmdSetCheckpointNV / "
+                                          "vkGetQueueCheckpointDataNV" );
+        }
+        m_Ring = std::make_unique<Entry[]>( kRingSize );
+        if ( !routes.BufferMarker )
+            return Common::MakeSuccess( true );
+
         m_WriteMarker = reinterpret_cast<PFN_vkCmdWriteBufferMarkerAMD>(
              vkGetDeviceProcAddr( device, "vkCmdWriteBufferMarkerAMD" ) );
         if ( m_WriteMarker == nullptr )
@@ -2112,17 +2162,139 @@ namespace Desert::Graphic::API::Vulkan
             info.pQueueFamilyIndices   = sharing.Families.data();
         }
 
+        // FPS-DEVLOST4: the words in memory the application owns, so the TDR that resets the device cannot reset
+        // or unmap them (UE D3D12: the diagnostic buffer is OpenExistingHeapFromAddress over a VirtualAlloc block
+        // for exactly this). A driver-owned allocation is the route only without the extension or when the
+        // import is refused - and WordsHome says which and why.
+        if ( routes.HostImport )
+        {
+            const Common::BoolResultStr imported = MakeWordsImported( physicalDevice, info );
+            if ( imported )
+                return imported;
+            m_WordsHome = std::format( "a driver-owned host-coherent VMA allocation (the host import was refused: "
+                                       "{}) - a TDR may take the words with it",
+                                       imported.GetError() );
+        }
+        else
+            m_WordsHome = "a driver-owned host-coherent VMA allocation (no VK_EXT_external_memory_host) - a TDR "
+                          "may take the words with it";
+        return MakeWordsAllocated( info );
+    }
+
+    Common::BoolResultStr VulkanGpuBreadcrumbs::MakeWordsImported( VkPhysicalDevice          physicalDevice,
+                                                                   const VkBufferCreateInfo& base ) noexcept
+    {
+        VkPhysicalDeviceExternalMemoryHostPropertiesEXT hostProperties{
+             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT };
+        VkPhysicalDeviceProperties2 properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
+        properties.pNext = &hostProperties;
+        vkGetPhysicalDeviceProperties2( physicalDevice, &properties );
+        const VkDeviceSize alignment =
+             std::max<VkDeviceSize>( hostProperties.minImportedHostPointerAlignment, 4096 );
+        // One aligned block; the import's size must be a multiple of the alignment.
+        const VkDeviceSize bytes = ( kCrumbBufferSize + alignment - 1 ) / alignment * alignment;
+
+        const auto hostPointerProperties = reinterpret_cast<PFN_vkGetMemoryHostPointerPropertiesEXT>(
+             vkGetDeviceProcAddr( m_Device, "vkGetMemoryHostPointerPropertiesEXT" ) );
+        if ( hostPointerProperties == nullptr )
+            return Common::MakeError( "vkGetDeviceProcAddr did not resolve vkGetMemoryHostPointerPropertiesEXT" );
+
+        void* const block = AllocateHostBlock( static_cast<size_t>( bytes ), static_cast<size_t>( alignment ) );
+        if ( block == nullptr )
+            return Common::MakeFormattedError( "no {}-byte host block aligned to {}", bytes, alignment );
+        std::memset( block, 0, static_cast<size_t>( bytes ) );
+
+        VkMemoryHostPointerPropertiesEXT pointerTypes{ VK_STRUCTURE_TYPE_MEMORY_HOST_POINTER_PROPERTIES_EXT };
+        if ( const VkResult result = hostPointerProperties(
+                  m_Device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT, block, &pointerTypes );
+             result != VK_SUCCESS )
+        {
+            FreeHostBlock( block );
+            return Common::MakeFormattedError( "vkGetMemoryHostPointerPropertiesEXT (VkResult {})",
+                                               static_cast<int>( result ) );
+        }
+
+        VkExternalMemoryBufferCreateInfo external{ VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO };
+        external.handleTypes    = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+        VkBufferCreateInfo info = base;
+        info.pNext              = &external;
+        VkBuffer buffer         = VK_NULL_HANDLE;
+        if ( const VkResult result = vkCreateBuffer( m_Device, &info, nullptr, &buffer ); result != VK_SUCCESS )
+        {
+            FreeHostBlock( block );
+            return Common::MakeFormattedError( "vkCreateBuffer for the imported words (VkResult {})",
+                                               static_cast<int>( result ) );
+        }
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements( m_Device, buffer, &requirements );
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties( physicalDevice, &memory );
+        constexpr VkMemoryPropertyFlags kWanted =
+             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        const uint32_t usable = requirements.memoryTypeBits & pointerTypes.memoryTypeBits;
+        uint32_t       type   = UINT32_MAX;
+        for ( uint32_t index = 0; index < memory.memoryTypeCount && type == UINT32_MAX; ++index )
+            if ( ( usable & ( 1u << index ) ) != 0 &&
+                 ( memory.memoryTypes[index].propertyFlags & kWanted ) == kWanted )
+                type = index;
+        if ( type == UINT32_MAX || requirements.size > bytes )
+        {
+            vkDestroyBuffer( m_Device, buffer, nullptr );
+            FreeHostBlock( block );
+            return Common::MakeFormattedError( "no host-visible coherent memory type imports the block (buffer "
+                                               "types {:#x}, pointer types {:#x}, {} of {} bytes)",
+                                               requirements.memoryTypeBits, pointerTypes.memoryTypeBits,
+                                               requirements.size, bytes );
+        }
+
+        VkImportMemoryHostPointerInfoEXT importInfo{ VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT };
+        importInfo.handleType   = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT;
+        importInfo.pHostPointer = block;
+        VkMemoryAllocateInfo allocate{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+        allocate.pNext              = &importInfo;
+        allocate.allocationSize     = bytes;
+        allocate.memoryTypeIndex    = type;
+        VkDeviceMemory deviceMemory = VK_NULL_HANDLE;
+        if ( const VkResult result = vkAllocateMemory( m_Device, &allocate, nullptr, &deviceMemory );
+             result != VK_SUCCESS )
+        {
+            vkDestroyBuffer( m_Device, buffer, nullptr );
+            FreeHostBlock( block );
+            return Common::MakeFormattedError( "vkAllocateMemory importing the host block (VkResult {})",
+                                               static_cast<int>( result ) );
+        }
+        if ( const VkResult result = vkBindBufferMemory( m_Device, buffer, deviceMemory, 0 );
+             result != VK_SUCCESS )
+        {
+            vkDestroyBuffer( m_Device, buffer, nullptr );
+            vkFreeMemory( m_Device, deviceMemory, nullptr );
+            FreeHostBlock( block );
+            return Common::MakeFormattedError( "vkBindBufferMemory of the imported words (VkResult {})",
+                                               static_cast<int>( result ) );
+        }
+        m_Buffer     = buffer;
+        m_HostMemory = deviceMemory;
+        m_HostBlock  = block;
+        m_Words      = static_cast<const volatile uint32_t*>( block );
+        m_WordsHome  = std::format( "an application-owned {}-byte block imported with VK_EXT_external_memory_host "
+                                     "(memory type {}) - it survives a TDR",
+                                    bytes, type );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanGpuBreadcrumbs::MakeWordsAllocated( const VkBufferCreateInfo& info ) noexcept
+    {
         VmaAllocationCreateInfo allocation{};
         allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
         allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
         allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
         VmaAllocationInfo allocated{};
         const VkResult    result =
-             vmaCreateBuffer( allocator, &info, &allocation, &m_Buffer, &m_Allocation, &allocated );
+             vmaCreateBuffer( m_Allocator, &info, &allocation, &m_Buffer, &m_Allocation, &allocated );
         if ( result != VK_SUCCESS || allocated.pMappedData == nullptr )
         {
             if ( result == VK_SUCCESS )
-                vmaDestroyBuffer( allocator, m_Buffer, m_Allocation );
+                vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
             m_Buffer = VK_NULL_HANDLE;
             return Common::MakeFormattedError( "the breadcrumb buffer ({} bytes, host-visible coherent) could not "
                                                "be made (VkResult {})",
@@ -2130,13 +2302,47 @@ namespace Desert::Graphic::API::Vulkan
         }
         std::memset( allocated.pMappedData, 0, static_cast<size_t>( kCrumbBufferSize ) );
         m_Words = static_cast<const volatile uint32_t*>( allocated.pMappedData );
-        m_Ring  = std::make_unique<Entry[]>( kRingSize );
         return Common::MakeSuccess( true );
+    }
+
+    void VulkanGpuBreadcrumbs::SetQueues( VkQueue graphics, VkQueue compute ) noexcept
+    {
+        m_GraphicsQueue = graphics;
+        m_ComputeQueue  = compute != graphics ? compute : VK_NULL_HANDLE;
     }
 
     void VulkanGpuBreadcrumbs::SetEnabled( bool enabled ) noexcept
     {
         m_Enabled.store( enabled, std::memory_order_relaxed );
+    }
+
+    void VulkanGpuBreadcrumbs::ObserveLive() noexcept
+    {
+        if ( m_LiveSaid || !m_EverEnabled || m_Words == nullptr )
+            return;
+        uint32_t words[2 * kCrumbQueues]{};
+        bool     any = false;
+        for ( uint32_t index = 0; index < 2 * kCrumbQueues; ++index )
+        {
+            words[index] = m_Words[index];
+            any          = any || words[index] != kNoSerial;
+        }
+        if ( any )
+        {
+            m_LiveSaid = true;
+            LOG_INFO(
+                 "[GpuBreadcrumbs] live after {} frame(s): the GPU's words reach the host (graphics started #{} "
+                 "finished #{}, async started #{} finished #{}; words in {})",
+                 m_LiveFrames, words[0], words[1], words[2], words[3], m_WordsHome );
+            return;
+        }
+        if ( ++m_LiveFrames < kLiveProbeFrames )
+            return;
+        m_LiveSaid = true;
+        LOG_WARN( "[GpuBreadcrumbs] {} frames after enabling, every breadcrumb word still reads 0: the GPU's "
+                  "vkCmdWriteBufferMarkerAMD writes do not reach {} - a [DeviceLost] '(none yet)' on this run "
+                  "names nothing (read the checkpoint lines instead)",
+                  kLiveProbeFrames, m_WordsHome );
     }
 
     uint32_t VulkanGpuBreadcrumbs::BeginGraph( std::span<const RDG::CompiledPass> passes ) noexcept
@@ -2169,15 +2375,27 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanGpuBreadcrumbs::MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe,
                                             uint32_t serial ) const noexcept
     {
-        const VkDeviceSize offset = sizeof( uint32_t ) * ( 2 * CrumbQueue( pipe ) );
-        m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_Buffer, offset, serial );
+        if ( m_WriteMarker != nullptr )
+        {
+            const VkDeviceSize offset = sizeof( uint32_t ) * ( 2 * CrumbQueue( pipe ) );
+            m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_Buffer, offset, serial );
+        }
+        if ( m_SetCheckpoint != nullptr )
+            m_SetCheckpoint( commandBuffer,
+                             reinterpret_cast<const void*>( static_cast<uintptr_t>( serial ) << 1 ) );
     }
 
     void VulkanGpuBreadcrumbs::MarkFinished( VkCommandBuffer commandBuffer, RDG::Pipe pipe,
                                              uint32_t serial ) const noexcept
     {
-        const VkDeviceSize offset = sizeof( uint32_t ) * ( 2 * CrumbQueue( pipe ) + 1 );
-        m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Buffer, offset, serial );
+        if ( m_WriteMarker != nullptr )
+        {
+            const VkDeviceSize offset = sizeof( uint32_t ) * ( 2 * CrumbQueue( pipe ) + 1 );
+            m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Buffer, offset, serial );
+        }
+        if ( m_SetCheckpoint != nullptr )
+            m_SetCheckpoint( commandBuffer,
+                             reinterpret_cast<const void*>( ( static_cast<uintptr_t>( serial ) << 1 ) | 1u ) );
     }
 
     std::string VulkanGpuBreadcrumbs::NameOf( uint32_t serial, RDG::Pipe& pipe ) const
@@ -2196,15 +2414,16 @@ namespace Desert::Graphic::API::Vulkan
 
     std::string VulkanGpuBreadcrumbs::Describe() const
     {
-        if ( !m_EverEnabled || m_Words == nullptr )
+        if ( !m_EverEnabled )
             return "[DeviceLost] GPU breadcrumbs: off - no pass is named. Set "
                    "\"RenderPipeline.GpuCrashBreadcrumbs\": 1 (machine override) and reproduce to name the pass "
                    "the GPU died in.";
         std::string text = "[DeviceLost] GPU breadcrumbs (RenderPipeline.GpuCrashBreadcrumbs): per queue, the "
                            "last graph pass the GPU STARTED (top of pipe) and the last it FINISHED (bottom of "
                            "pipe). The faulting pass is after 'finished' and at or before 'started':";
+        text += std::format( "\n  words in {}", m_WordsHome );
         constexpr std::array<std::string_view, kCrumbQueues> kQueueNames{ "Graphics", "AsyncCompute" };
-        for ( uint32_t queue = 0; queue < kCrumbQueues; ++queue )
+        for ( uint32_t queue = 0; queue < kCrumbQueues && m_Words != nullptr; ++queue )
         {
             const uint32_t started  = m_Words[2 * queue];
             const uint32_t finished = m_Words[2 * queue + 1];
@@ -2229,6 +2448,49 @@ namespace Desert::Graphic::API::Vulkan
             }
             if ( listed == kCrumbListMax )
                 text += "\n    ...";
+        }
+        text += DescribeCheckpoints();
+        return text;
+    }
+
+    // FPS-DEVLOST4: NVIDIA's record, per queue: for each pipeline stage the driver tracks, the last checkpoint
+    // (serial << 1 | finished) that stage reached before the loss.
+    std::string VulkanGpuBreadcrumbs::DescribeCheckpoints() const
+    {
+        if ( m_GetCheckpoints == nullptr )
+            return "\n  checkpoints: none (no VK_NV_device_diagnostic_checkpoints)";
+        std::string                                               text;
+        const std::array<std::pair<std::string_view, VkQueue>, 2> queues{
+             { { m_ComputeQueue != VK_NULL_HANDLE ? "Graphics queue" : "Graphics queue (async pipe on it too)",
+                 m_GraphicsQueue },
+               { "Compute queue", m_ComputeQueue } } };
+        for ( const auto& [label, queue] : queues )
+        {
+            if ( queue == VK_NULL_HANDLE )
+                continue;
+            constexpr uint32_t                   kMax = 32;
+            std::array<VkCheckpointDataNV, kMax> data{};
+            for ( VkCheckpointDataNV& entry : data )
+                entry.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
+            uint32_t count = 0;
+            m_GetCheckpoints( queue, &count, nullptr );
+            count = std::min( count, kMax );
+            if ( count != 0 )
+                m_GetCheckpoints( queue, &count, data.data() );
+            text += std::format( "\n  {} checkpoints ({}):", label, count );
+            if ( count == 0 )
+                text += " none reached";
+            for ( uint32_t index = 0; index < count; ++index )
+            {
+                const uintptr_t marker = reinterpret_cast<uintptr_t>( data[index].pCheckpointMarker );
+                const uint32_t  serial = static_cast<uint32_t>( marker >> 1 );
+                RDG::Pipe       pipe   = RDG::Pipe::Graphics;
+                const char*     stage  = data[index].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT ? "top of pipe"
+                                         : data[index].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT ? "bottom of pipe"
+                                                                                                     : "stage";
+                text += std::format( "\n    {} {:#x}: {} {}", stage, static_cast<uint32_t>( data[index].stage ),
+                                     ( marker & 1u ) != 0 ? "finished" : "started", NameOf( serial, pipe ) );
+            }
         }
         return text;
     }
