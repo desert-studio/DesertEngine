@@ -605,7 +605,9 @@ namespace Desert::Graphic::GlobalIllumination
         // is a compute dispatch whose every input and output is a graph resource (G-buffer, HZB, velocity, the
         // radiance cache, the tracer's field / TLAS, the surface cache), so the graph forks at the last graphics
         // writer of what the run reads (the G-buffer, HZB) and joins at the first graphics reader of its lighting
-        // (Deferred: Composite). One node is the graphics queue's: the short-range AO (below, FPS-ASYNC-JOIN).
+        // (Deferred: Composite). Three nodes are the graphics queue's: the short-range AO (below, FPS-ASYNC-JOIN)
+        // and the placement and the screen leg (below, FPS-ASYNC-JOIN2) - the gather's head the radiance cache
+        // does not gate, run beside the cache instead of queued behind it.
         const RDG::PassFlags kAsyncPass    = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const RDG::PassFlags kGraphicsPass = RDG::PassFlags::Compute;
         if ( inputs.Extent.x == 0 || inputs.Extent.y == 0 || inputs.Extent.x >= 4096 || inputs.Extent.y >= 4096 )
@@ -724,6 +726,18 @@ namespace Desert::Graphic::GlobalIllumination
 
         // Place: level 0 (uniform, and the tiles' adaptive counts reset), then the two adaptive levels, each
         // reading the probes the coarser ones placed.
+        // ON THE GRAPHICS QUEUE, with the screen leg (FPS-ASYNC-JOIN2). The async queue is one FIFO: the radiance
+        // cache (Mark .. Filter, ~0.9 ms on FPS-FIELD-BARN-TURN scn-1112-151554) is submitted before the gather,
+        // so on AsyncCompute the placement and the screen leg ran only after it, although neither reads anything
+        // the cache writes (the placement: the queued params / GI frame, velocity, the G-buffer; the screen leg:
+        // those, the HZB, the scene colour history and the cache's queued params - every one a resource Graphics
+        // holds, RDGCompile FindAsyncRuns). The first leg that reads the cache is the near field (its indirection
+        // and probes). The chain the composite waited for (1.03 ms "RDG Wait .. before 'Deferred: Composite'")
+        // was cache + placement + screen + near .. temporal in a row; with the head on Graphics it is cache +
+        // near .. temporal, and the head runs on Graphics in the same window (UE overlaps the cache update and the
+        // screen trace the same way: the cache's own dispatches and the screen traces do not wait on each other).
+        // The near field's piece forks after the screen leg (CutRunsAtConsumers / the fork at its producers), long
+        // before the cache ends. The same dispatches, inputs and outputs: the image is unchanged.
         for ( uint32_t level = 0; level < layout.Levels; ++level )
         {
             ComputePipeline* const pipeline = m_Pipelines[Place].get();
@@ -731,7 +745,7 @@ namespace Desert::Graphic::GlobalIllumination
             const glm::uvec2       groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, spacing ), 8u ),
                                            DivideRoundUp( DivideRoundUp( inputs.Extent.y, spacing ), 8u ) );
             graph.AddPass(
-                 kPlaceNames[level], kAsyncPass,
+                 kPlaceNames[level], kGraphicsPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[Place].Get( m_Shaders[Place] ),
@@ -863,7 +877,7 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
             const TraceScreenPush  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
             graph.AddPass(
-                 "ScreenProbes: Trace Screen", kAsyncPass,
+                 "ScreenProbes: Trace Screen", kGraphicsPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[TraceScreen].Get( m_Shaders[TraceScreen] ),
