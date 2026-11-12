@@ -77,11 +77,16 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
 }
 
 #endif // GI_HIT_LIGHTING_NONE
+// FPS-NEAR-FIELD-FIX: an includer that samples no sky (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS) defines
+// GI_MISS_RADIANCE_NONE and declares no EnvironmentSpecularTexture; GIMissRadiance stays a prototype
+// (Common/GITracing.glslh) no reachable code calls.
+#if !defined( GI_MISS_RADIANCE_NONE )
 vec3 GIMissRadiance( vec3 rayDirection )
 {
     return ApplySkyGain( textureLod( EnvironmentSpecularTexture, SkyLookDirection( rayDirection, giFrame.skyYawCosSin.xy ), 0.0 ).rgb,
                          giFrame.skyGain.rgb );
 }
+#endif // GI_MISS_RADIANCE_NONE
 
 // The material a hit is lit with. Specular = false: a diffuse-only surface (GIHitMaterial's guess, which knows no
 // roughness); true: the hit's own material from a closest-hit shader, lit diffuse + specular.
