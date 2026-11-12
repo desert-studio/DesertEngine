@@ -802,9 +802,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         auto window    = EngineContext::GetInstance().GetWindow();
         auto swapchain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
-        const std::shared_ptr<Graphic::Framebuffer> framebuffer = swapchain->GetCompositeFramebuffer();
-        const Common::Scalability::DisplayOutput     output      = Graphic::CurrentDisplayOutput().Output;
-        if ( m_EncodePipeline && framebuffer == m_EncodeFramebuffer && output == m_EncodeOutput )
+        // The format ImportBackBuffer gives the DisplayEncode pass's target (RecordInterface).
+        const Core::Formats::ImageFormat         format = swapchain->BackBufferFormat();
+        const Common::Scalability::DisplayOutput output = Graphic::CurrentDisplayOutput().Output;
+        if ( m_EncodePipeline && m_EncodeFormat == format && output == m_EncodeOutput )
             return BOOLSUCCESS;
 
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
@@ -819,7 +820,11 @@ namespace Desert::Graphic::API::Vulkan
         Graphic::GraphicsPipelineSpecification spec;
         spec.DebugName         = std::format( "DisplayEncode:{}", shaderName );
         spec.Shader            = shader;
-        spec.Framebuffer       = framebuffer;
+        // FPS-DEVLOST11 (UE: a PSO is built for the render targets of the pass that draws it): the encode draws
+        // inside a render-graph pass, whose render pass is the canonical one of its target layout - never the
+        // swapchain wrapper's present render pass (PresentTarget), which is not compatible with it
+        // (VUID-vkCmdDraw-renderPass-02684).
+        spec.TargetLayout      = Graphic::RenderTargetLayout{ .ColorFormats = { format }, .Samples = 1u };
         spec.DepthTestEnabled  = false;
         spec.DepthWriteEnabled = false;
         spec.CullMode          = Graphic::CullMode::None;
@@ -828,7 +833,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( pipeline.GetError() );
         m_EncodePipeline    = pipeline.GetValue();
         m_EncodeExecutor    = Graphic::MaterialExecutor::Create( shaderName, shader );
-        m_EncodeFramebuffer = framebuffer;
+        m_EncodeFormat      = format;
         m_EncodeOutput      = output;
         LOG_INFO( "[Display] editor UI composite -> back buffer through {} ({})", shaderName,
                   Common::Scalability::DisplayOutputName( output ) );

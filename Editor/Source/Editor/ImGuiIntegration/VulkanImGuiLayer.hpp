@@ -50,10 +50,12 @@ namespace Desert::Graphic::API::Vulkan
         // HDR-OUTPUT: THE UI COMPOSITE. The interface is drawn into a half-float target (kUICompositeFormat, one
         // format whatever the display, so the backend's pipeline never has to be rebuilt when the output
         // changes), then encoded into the back buffer by the display's encode: SwapchainBlit on SDR (a copy,
-        // quantised once), DisplayEncodeScRGB on scRGB (extended sRGB -> linear; UI on paper white). Rebuilt
-        // when the swapchain's composite framebuffer or the output changes.
+        // quantised once), DisplayEncodeScRGB on scRGB (extended sRGB -> linear; UI on paper white). Drawn in
+        // the interface graph's DisplayEncode pass, so built against that pass's target layout (the back buffer's
+        // format, one sample - FPS-DEVLOST11, VUID-vkCmdDraw-renderPass-02684); rebuilt when that format or the
+        // output changes.
         [[nodiscard]] Common::BoolResultStr EnsureDisplayEncode();
-        std::shared_ptr<Graphic::Framebuffer>        m_EncodeFramebuffer;
+        std::optional<Core::Formats::ImageFormat>    m_EncodeFormat;
         Common::Scalability::DisplayOutput            m_EncodeOutput = Common::Scalability::DisplayOutput::SDR_sRGB;
         std::shared_ptr<Graphic::GraphicsPipeline>   m_EncodePipeline;
         std::unique_ptr<Graphic::MaterialExecutor>   m_EncodeExecutor;
