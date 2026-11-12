@@ -176,6 +176,30 @@ layout(location = 0) rayPayloadEXT DesertRayPayload payload;
 // How far a ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance; the screen probes' own).
 const float kTracedMaxDistance = 20000.0;
 
+// The world ray from the surface @p worldPos (normal @p N) along @p L, starting @p start cm along it (where the
+// screen was certain), its origin @p nearOffset off the surface and its far field counting hits from @p farTMin on
+// (GIRayBias, GIFarFieldTMin). One statement for the whole world leg (TraceWorld) and the software tracer's legs
+// (SSR.shader: the far field rebuilds the ray the near field listed from the two offsets it kept).
+GITraceInput SSRWorldRayInput(vec3 worldPos, vec3 N, vec3 L, float start, float nearOffset, float farTMin)
+{
+	GITraceInput ray;
+	ray.origin    = worldPos + N * nearOffset;
+	ray.farTMin   = farTMin;
+	ray.direction = L;
+	ray.tMax      = kTracedMaxDistance;
+	ray.coneAngle = 0.0;
+	ray.flags     = 0u;
+	ray.tMin      = min(start, ray.tMax);
+	return ray;
+}
+
+// SSRWorldRayInput with the tracer's offsets of the surface (GIRayBias).
+GITraceInput SSRWorldRayFromSurface(vec3 worldPos, vec3 N, vec3 L, float start)
+{
+	const GITraceBias bias = GIRayBias(worldPos, N);
+	return SSRWorldRayInput(worldPos, N, L, start, bias.nearOffset, GIFarFieldTMin(bias, N, L));
+}
+
 // The world leg of one ray from the surface @p worldPos (normal @p N) along @p L, starting @p start cm along
 // it (where the screen was certain): the tracer to kTracedMaxDistance (Common/GITracer.glslh: for the software
 // tracer the near field's froxel grid of mesh SDFs, then the global field). True on a hit: @p radiance =
@@ -184,15 +208,7 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 {
 	radiance = vec3(0.0);
 	hitPoint = worldPos;
-	const GITraceBias bias = GIRayBias(worldPos, N);
-	GITraceInput ray;
-	ray.origin    = worldPos + N * bias.nearOffset;
-	ray.farTMin   = GIFarFieldTMin(bias, N, L);
-	ray.direction = L;
-	ray.tMax      = kTracedMaxDistance;
-	ray.coneAngle = 0.0;
-	ray.flags     = 0u;
-	ray.tMin      = min(start, ray.tMax);
+	const GITraceInput ray = SSRWorldRayFromSurface(worldPos, N, L, start);
 #if defined( DESERT_REFLECTIONS_HIT_LIGHTING ) && defined( DESERT_RAY_TRACING_STAGE )
 	// The ray cone of the texel (UE GetPixelSpreadAngle): its width where the reflection leaves the surface and the
 	// view's per-pixel spread, so the hit's texture LOD is the one the reflected footprint sees.
@@ -338,6 +354,33 @@ layout(std430, binding = 45) buffer SsrWorldListUB
 {
 	SSRWorldRay ssrWorldList[];
 };
+#if defined( DESERT_REFLECTIONS_WORLD_STAGE ) && defined( DESERT_GI_TRACER_SOFTWARE )
+// THE SOFTWARE TRACER'S WORLD LEGS (UE LumenReflectionTracing: TraceMeshSDFs over the compacted rays, then
+// CompactReflectionTraces of the rays the mesh SDFs left, then TraceVoxels; ScreenProbeTrace.shader's legs are the
+// GI's same split): the world stage is three dispatches of this compute over three lists, so a wave holds lanes of
+// one leg only - its near-field lanes do not wait on the far-field march of the lanes that missed, its march lanes
+// not on the gradient, card search and shadow marches of the few that hit.
+//   near field (SsrParams3.w = 2) over the world list: the mesh SDFs (GITraceNearField); a hit is lit and written
+//       there, a miss whose far field has a span (GIFarFieldSpan) is listed in the far list;
+//   far field (SsrParams3.w = 3) over the far list: the global field's march (GITraceFarFieldMarch); a hit is
+//       listed in the hit list, a miss leaves the texel as the screen leg wrote it;
+//   hit lighting (SsrParams3.w = 4) over the hit list: the hit's surface (GIFarFieldSurface of the march's position
+//       and clipmap) lit by GIHitRadiance, the texel written.
+// The same ray (SSRWorldRayInput from the offsets each list keeps), the same sums in the same order: the texels of
+// the one-kernel world trace. Both lists: x = the next leg's workgroups (atomicMax), y = z = 1, w = entries; reset
+// by the graph's upload (SSRRenderer::kTraceListArgsReset); entries sized for every texel of the trace.
+layout(std430, binding = 46) buffer SsrWorldFarListUB
+{
+	uvec4 ssrWorldFarArgs;
+	uvec4 ssrWorldFar[]; // x = the world list index, y = farStart, z = nearOffset, w = farTMin (float bits)
+};
+layout(std430, binding = 47) buffer SsrWorldHitListUB
+{
+	uvec4 ssrWorldHitArgs;
+	uvec4 ssrWorldHit[]; // x = the world list index | (march clipmap + 1) << 28, y = nearOffset, z = globalStart,
+	                     // w = the march's T (float bits)
+};
+#endif
 #endif
 #endif
 
@@ -589,6 +632,17 @@ bool SSRTraceTexel(ivec2 gPix, ivec2 gSize, out SSRTexel t, out SSRTraceSums s)
 }
 
 #if defined( DESERT_REFLECTIONS_TRACED )
+// The drawn world ray's hit, radiance @p L_i at @p surface, added to the sums (SSRAddWorldRay; the software
+// tracer's world legs in SSR.shader, which trace the ray leg by leg).
+void SSRAddWorldHit(inout SSRTraceSums s, vec3 L_i, vec3 surface)
+{
+	const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
+	s.radiance  += L_i * (s.worldWeight * karis);
+	s.hitWeight += s.worldWeight * karis;
+	s.coverage  += s.worldWeight;
+	s.hitPoint  += s.worldWeight * surface;
+}
+
 // The drawn world ray of @p s (SSRTraceTexel), added to the sums when it hits. False: no world ray, or it missed -
 // the sums are the screen's alone.
 bool SSRAddWorldRay(SSRTexel t, inout SSRTraceSums s)
@@ -599,11 +653,7 @@ bool SSRAddWorldRay(SSRTexel t, inout SSRTraceSums s)
 	vec3 surface;
 	if (!TraceWorld(t.worldPos, t.N, s.worldL, s.worldStart, L_i, surface))
 		return false;
-	const float karis = 1.0 / (1.0 + dot(L_i, vec3(0.2126, 0.7152, 0.0722)));
-	s.radiance  += L_i * (s.worldWeight * karis);
-	s.hitWeight += s.worldWeight * karis;
-	s.coverage  += s.worldWeight;
-	s.hitPoint  += s.worldWeight * surface;
+	SSRAddWorldHit(s, L_i, surface);
 	return true;
 }
 #endif
