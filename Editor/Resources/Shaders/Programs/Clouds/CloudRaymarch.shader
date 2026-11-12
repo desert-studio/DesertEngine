@@ -437,6 +437,24 @@ Shader "CloudRaymarch"
         // and the walk then visits exactly the points the one-at-a-time search visited.
         #define CLOUD_COARSE_SEARCH_GROUP 4
 
+        // THE EMPTY-SPACE SKIP PAST THE GROUP (FPS-CLOUD-SKIP), Unreal's StepSizeOnZeroConservativeDensity run
+        // ahead of the exact search. The group above fetches the probe AND the exact profile of four consecutive
+        // lattice points; where the probe clears, the walk jumps a whole reach (emptyColumnStrides points) and the
+        // profile it paid for is never read. On a steep ray (the stride is the fine step, the reach several
+        // strides) a cleared iteration therefore bought ONE reach for four probes and four field evaluations; on
+        // a long ray it bought four strides for four field evaluations the bound had already proved zero.
+        // These probes - the conservative bound alone, no field evaluation - sit on the walk's own jump lattice
+        // PAST the group (the first multiple of the reach at or after the group's end, then one reach apart), are
+        // issued with the group's fetches (their positions depend on t and the lattice only, never on an answer),
+        // and the walk continues on them while they clear: up to this many more reaches per iteration, landing on
+        // exactly the lattice points the one-group-per-iteration walk lands on, so the picture is the search's own.
+        // The first point they do not clear is where the next iteration's exact group starts, as before. 0 = the
+        // walk as it was, kept for the A/B.
+        #define CLOUD_COARSE_SKIP_PROBES 6
+        // The arrays' size: GLSL has no zero-length array, so one slot more than the loop reads (the A/B's 0
+        // keeps a single unused one; an element no index reaches is dropped by the compiler).
+        #define CLOUD_COARSE_SKIP_SLOTS (CLOUD_COARSE_SKIP_PROBES + 1)
+
         // THE FINE TIER'S PAIRING (FPS-CLOUDS-MARCH2): 1 = two fine samples per iteration, both fetched before
         // either is integrated (field, density, shadow ray, sky occlusion, sun LUT - none depends on the ray's
         // transmittance), then integrated in order with the stop tested per sample; 0 = one sample per
@@ -1099,6 +1117,31 @@ Shader "CloudRaymarch"
                             SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
                     }
 
+                    // THE SKIP PROBES (CLOUD_COARSE_SKIP_PROBES), fetched with the group: the lattice points the walk
+                    // lands on past the group when every point it lands on clears - the first multiple of the reach
+                    // at or after the group's end, then one reach apart. The same probe, at the same span, as the
+                    // group's own; a point at or past the lane's end is not fetched (the walk stops before it).
+                    int   skipFirst = ((CLOUD_COARSE_SEARCH_GROUP + emptyColumnStrides - 1) / emptyColumnStrides) *
+                                      emptyColumnStrides;
+                    float skipT[CLOUD_COARSE_SKIP_SLOTS];
+                    bool  skipCleared[CLOUD_COARSE_SKIP_SLOTS];
+                    for (int m = 0; m < CLOUD_COARSE_SKIP_PROBES; ++m)
+                    {
+                        float pointT   = t + float(skipFirst + m * emptyColumnStrides) * coarseStepKm;
+                        skipT[m]       = pointT;
+                        skipCleared[m] = false;
+                        if (probeColumns && pointT < laneEndKm)
+                        {
+                            vec3 pointPos       = originKm + rayDir * pointT;
+                            vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, pointT,
+                                                                             min(pointT + emptyColumnSkipKm,
+                                                                                 segment.y));
+                            skipCleared[m] = CloudProceduralColumnsEmpty(params, pointPos.xz - params.WindOffsetKm.xz,
+                                                                         CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
+                                                                         skippedHeights.y);
+                        }
+                    }
+
                     // THE WALK, which is the one-at-a-time search's own: a point the probe clears jumps
                     // emptyColumnStrides points (the reach it proved, CloudEmptyColumnAdvanceKm), one with no
                     // profile steps to the next, the first with a profile is the hit, and a point at or past the
@@ -1126,6 +1169,21 @@ Shader "CloudRaymarch"
                             break;
                         }
                         next = j + 1;
+                    }
+
+                    // The walk continued on the skip probes: only when it left the group with no hit and stands on
+                    // the first of them (a break - a hit or the lane's end - leaves next inside the group). Each probe
+                    // that clears jumps one more reach; the first that does not, or the lane's end, is where t lands,
+                    // and the next iteration's exact group starts there, as the one-group walk's next iteration did.
+                    if (hit < 0 && next == skipFirst)
+                    {
+                        for (int m = 0; m < CLOUD_COARSE_SKIP_PROBES; ++m)
+                        {
+                            if (skipT[m] >= laneEndKm || !skipCleared[m])
+                                break;
+                            next += emptyColumnStrides;
+                            ++censusColumnJumps;
+                        }
                     }
 
                     // Outside cloud: keep striding, from the point the walk stopped on (a jump may land past
