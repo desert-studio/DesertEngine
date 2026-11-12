@@ -5,6 +5,7 @@
 #include <Common/Json/Document.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -357,7 +358,7 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
                "the SP_DOWNSAMPLE permutation, 8 / 16 / 32 / 64)",
-               16, Vis::Advanced },
+               16, Vis::Advanced, /*PowersOfTwo*/ true },
              { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
                16, CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (traced texels a probe side: "
@@ -516,6 +517,18 @@ namespace Common::Scalability
             return true;
         }
         static_assert( DefaultsInRange(), "a ParameterSpec Default lies outside its [Min, Max]" );
+
+        // A PowersOfTwo row's Min, Max and Default are themselves legal (Resolve lowers to a power of two >= Min).
+        constexpr bool PowersOfTwoSpecsLegal()
+        {
+            for ( const ParameterSpec& spec : kParameterSpecs )
+                if ( spec.PowersOfTwo && ( !IsLegalValue( spec, spec.Min ) || !IsLegalValue( spec, spec.Max ) ||
+                                           !IsLegalValue( spec, spec.Default ) ) )
+                    return false;
+            return true;
+        }
+        static_assert( PowersOfTwoSpecsLegal(),
+                       "a PowersOfTwo ParameterSpec has a Min/Max/Default off the powers" );
     } // namespace
 
     namespace
@@ -680,6 +693,13 @@ namespace Common::Scalability
             if ( value < spec.Min || value > spec.Max )
             {
                 errors.Add( node, "{}: {} is outside [{}, {}]", spec.Key, value, spec.Min, spec.Max );
+                return std::nullopt;
+            }
+            if ( !IsLegalValue( spec, value ) )
+            {
+                errors.Add( node,
+                            "{}: {} is not a power of two (the legal values are the powers of two in [{}, {}])",
+                            spec.Key, value, spec.Min, spec.Max );
                 return std::nullopt;
             }
             // A level states the render method it renders (RenderMethods.hpp): one this build has not implemented
@@ -1285,6 +1305,13 @@ namespace Common::Scalability
         for ( const ParameterSpec& spec : kParameterSpecs )
         {
             r.Set( spec.Id, std::clamp( r.Get( spec.Id ), spec.Min, spec.Max ), "outside the parameter's range" );
+            // Inside [Min, Max] now; a PowersOfTwo spec's Min is a power of two (PowersOfTwoSpecsLegal), so the
+            // power of two below the value is >= Min.
+            if ( !IsLegalValue( spec, r.Get( spec.Id ) ) )
+            {
+                const auto lowered = std::bit_floor( static_cast<uint32_t>( r.Get( spec.Id ) ) );
+                r.Set( spec.Id, static_cast<ParameterValue>( lowered ), "not a power of two" );
+            }
             NarrowByCatalog( spec, catalog, r );
         }
         {
