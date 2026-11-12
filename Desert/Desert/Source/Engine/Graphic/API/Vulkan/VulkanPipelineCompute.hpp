@@ -129,6 +129,10 @@ namespace Desert::Graphic::API::Vulkan
                                                const void* user ) noexcept;
         void VisitBoundStorageCopies( uint32_t frameIndex, StorageCopyVisitor visit,
                                       const void* user ) const noexcept;
+        // FPS-DEVLOST17: the VkImage each SetInput / SetOutput binding binds, as @p visit( binding, image, user ).
+        // An image of another backend or with no VkImage yet is skipped (the write refuses or skips it itself).
+        using ImageVisitor = void ( * )( uint32_t binding, VkImage image, const void* user ) noexcept;
+        void VisitBoundImages( ImageVisitor visit, const void* user ) const noexcept;
         [[nodiscard]] std::span<const std::byte> GetBoundPushConstants() const
         {
             return m_BoundPushConstants;

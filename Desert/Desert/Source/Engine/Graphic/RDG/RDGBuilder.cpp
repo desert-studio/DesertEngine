@@ -1355,25 +1355,76 @@ namespace Desert::Graphic::RDG
         return Pipe::Graphics; // a context exists only for an executed pass, which is always listed above
     }
 
-    std::string_view PassContext::FindUndeclaredExternalBuffer( const PhysicalBufferMatch match,
-                                                                const void*               user ) const noexcept
+    namespace
+    {
+        // FPS-DEVLOST17: the context of the exec running on this thread (PassContext::GetExecuting).
+        thread_local const PassContext* t_ExecutingPass = nullptr;
+    } // namespace
+
+    const PassContext* PassContext::GetExecuting() noexcept
+    {
+        return t_ExecutingPass;
+    }
+
+    void PassContext::SetExecuting( const PassContext* const context ) noexcept
+    {
+        t_ExecutingPass = context;
+    }
+
+    bool PassContext::DeclaresResource( const uint32_t index ) const noexcept
+    {
+        // Any declared use orders the bind: the compiler then places the barrier and, across pipes, the join.
+        return std::ranges::any_of( m_Builder.m_Passes[m_Pass].Uses,
+                                    [index]( const Builder::ResourceUse& use ) { return use.Resource == index; } );
+    }
+
+    std::string_view PassContext::FindUndeclaredGraphBuffer( const PhysicalBufferMatch match,
+                                                             const void*               user ) const noexcept
     {
         if ( match == nullptr )
             return {};
-        const Builder::PassRecord& pass = m_Builder.m_Passes[m_Pass];
+        std::string_view undeclared;
         for ( uint32_t index = 0; index < m_Builder.m_Resources.size(); ++index )
         {
             const Builder::ResourceRecord& resource = m_Builder.m_Resources[index];
-            if ( resource.Kind != ResourceKind::Buffer || resource.ExternalBuf == nullptr ||
-                 resource.ExternalBuf->Physical == nullptr || !match( *resource.ExternalBuf->Physical, user ) )
+            if ( resource.Kind != ResourceKind::Buffer )
                 continue;
-            // Any declared use orders the bind: the compiler then places the barrier and, across pipes, the join.
-            const bool declared = std::ranges::any_of( pass.Uses, [index]( const Builder::ResourceUse& use )
-                                                       { return use.Resource == index; } );
-            if ( !declared )
-                return std::string_view( resource.Name.data(), resource.Name.size() );
+            // An external carries its physical; a transient's is the backend's (null while not placed).
+            const IPhysicalBuffer* const physical = resource.ExternalBuf != nullptr
+                                                         ? resource.ExternalBuf->Physical.get()
+                                                         : m_Backend.FindPhysicalBuffer( index );
+            if ( physical == nullptr || !match( *physical, user ) )
+                continue;
+            if ( DeclaresResource( index ) )
+                return {}; // an aliased neighbour of a declared resource is the same ordered bytes
+            if ( undeclared.empty() )
+                undeclared = std::string_view( resource.Name.data(), resource.Name.size() );
         }
-        return {};
+        return undeclared;
+    }
+
+    std::string_view PassContext::FindUndeclaredGraphTexture( const PhysicalTextureMatch match,
+                                                              const void*                user ) const noexcept
+    {
+        if ( match == nullptr )
+            return {};
+        std::string_view undeclared;
+        for ( uint32_t index = 0; index < m_Builder.m_Resources.size(); ++index )
+        {
+            const Builder::ResourceRecord& resource = m_Builder.m_Resources[index];
+            if ( resource.Kind != ResourceKind::Texture )
+                continue;
+            const IPhysicalTexture* const physical = resource.ExternalTex != nullptr
+                                                          ? resource.ExternalTex->Physical.get()
+                                                          : m_Backend.FindPhysicalTexture( index );
+            if ( physical == nullptr || !match( *physical, user ) )
+                continue;
+            if ( DeclaresResource( index ) )
+                return {};
+            if ( undeclared.empty() )
+                undeclared = std::string_view( resource.Name.data(), resource.Name.size() );
+        }
+        return undeclared;
     }
 
     Common::ResultStr<TextureDesc> PassContext::GetTextureDesc( TextureRef texture ) const
@@ -1858,7 +1909,16 @@ namespace Desert::Graphic::RDG
                     std::optional<RecordingSeal> seal;
                     if ( !m_Passes[p].Prerequisites.empty() )
                         seal.emplace();
+#if DESERT_DEV_INSTRUMENTS
+                    // FPS-DEVLOST17: a raw route with no context in hand (a device-address fetch) finds this one.
+                    const PassContext* const outer = PassContext::GetExecuting(); // a graph run from an exec
+                    PassContext::SetExecuting( &context );
+                    Common::BoolResultStr executed = m_Passes[p].Exec( context );
+                    PassContext::SetExecuting( outer );
+                    return executed;
+#else
                     return m_Passes[p].Exec( context );
+#endif
                 }();
                 if ( !outcome )
                     lateFault( state, p, PassFaultStage::Execution, outcome.GetError(), std::nullopt );
