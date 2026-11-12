@@ -488,7 +488,7 @@ namespace Common::Scalability
              { P::RenderPipelineGrassCullAsync, G::ViewDistance, "RenderPipeline.GrassCullAsync", 0, 1, CL::None,
                "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
                "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
-               1, Vis::Advanced },
+               0, Vis::Advanced },
              { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
                CL::None,
                "SceneRenderer::OnUpdate -> DeviceLost::SetBreadcrumbsWanted -> VulkanRendererAPI::BeginRdgFrame "

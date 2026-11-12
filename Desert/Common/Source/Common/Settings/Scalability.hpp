@@ -465,6 +465,8 @@ namespace Common::Scalability
         // rollback; RenderPipeline.AsyncCompute 0 or a device without a compute family demotes them anyway.
         // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
         // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
+        // Default 0 until FPS-DEVLOST3: with it on, FIELD_Barn loses the device (a TDR-length GPU hang, 2 of 3
+        // runs, sync validation clean); 1 is the A/B that reproduces it.
         RenderPipelineGrassCullAsync,
         // 0/1: GPU crash breadcrumbs (FPS-GPU-MARKER; UE r.GPUCrashDebugging + FGPUBreadcrumbs, NVIDIA Aftermath
         // markers): every render-graph pass writes its id into a host-visible word of its queue at its start and
