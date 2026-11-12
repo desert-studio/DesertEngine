@@ -195,8 +195,11 @@ uint GrassSegmentRecord( uint record )
 
 // The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its levels); a
 // blade's in sets of one record per bucket, each set a shadow LOD of the same buckets.
+// FPS-DEVLOST6: @p buckets 0 (a row with no bucket; its callers write nothing for it) divides by nothing: bucket 0.
 uint GrassBucketOfRecord( uint s, uint records, uint buckets, bool blade )
 {
+    if ( buckets == 0u )
+        return 0u;
     if ( blade )
         return s % buckets;
     return min( s / max( 1u, records / buckets ), buckets - 1u );
