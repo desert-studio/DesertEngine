@@ -45,7 +45,7 @@ Shader "ScreenProbeTrace"
         // (subgroupAdd).
         #extension GL_KHR_shader_subgroup_arithmetic : require
 #endif
-        LocalSize(256, 1, 1); // SP_TRACE_LEG_GROUP_SIZE (Common/ScreenProbeTracing.glslh)
+        // LocalSize: after Common/ScreenProbeTracing.glslh below (its group sizes).
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
@@ -168,6 +168,13 @@ Shader "ScreenProbeTrace"
         #endif
         #if defined( SP_TRACE_LISTS_HITS ) || defined( SP_TRACE_NEAR_FIELD )
         #define SP_TRACE_LISTS_RAYS2 1
+        // The second list's dispatch counts groups of its consumer (Common/ScreenProbeTracing.glslh THE LEGS' LISTS):
+        // the hit lighting's binned groups, the cache read's list-order ones.
+        #if defined( SP_TRACE_LISTS_HITS )
+        #define SP_TRACE_LIST2_GROUP_SIZE SP_TRACE_BINNED_LEG_GROUP_SIZE
+        #else
+        #define SP_TRACE_LIST2_GROUP_SIZE SP_TRACE_LEG_GROUP_SIZE
+        #endif
         Buffer(47) ScreenProbeOut2ArgsUB
         {
             uvec4 screenProbeOut2Args;
@@ -210,6 +217,13 @@ Shader "ScreenProbeTrace"
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #include <Common/ScreenProbeTracing.glslh>
+        // The leg's group (Common/ScreenProbeTracing.glslh THE LEGS' LISTS): the hit lighting bins its group's rays
+        // (SP_TRACE_BINNED_LEG_GROUP_SIZE); every other leg traces in list order (SP_TRACE_LEG_GROUP_SIZE).
+        #if defined( SP_TRACE_HIT_LIGHTING )
+        LocalSize(SP_TRACE_BINNED_LEG_THREADS, 1, 1);
+        #else
+        LocalSize(SP_TRACE_LEG_THREADS, 1, 1);
+        #endif
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture
@@ -320,7 +334,7 @@ Shader "ScreenProbeTrace"
             {
                 start = atomicAdd( screenProbeOut2Allocator, count );
                 atomicMax( screenProbeOut2Args.x,
-                           ( start + count + SP_TRACE_LEG_GROUP_SIZE - 1u ) / SP_TRACE_LEG_GROUP_SIZE );
+                           ( start + count + SP_TRACE_LIST2_GROUP_SIZE - 1u ) / SP_TRACE_LIST2_GROUP_SIZE );
             }
             start = subgroupBroadcastFirst( start );
             if ( listed )
@@ -352,10 +366,10 @@ Shader "ScreenProbeTrace"
         // list (SPListRay: any order is a valid list), changes.
         // The key: the Morton order of the texel's (x, y) (SP_RES <= 16: four bits each, below 256), so adjacent
         // keys are adjacent texels in both axes.
-        #define SP_LEG_BINS 256u // == SP_TRACE_LEG_GROUP_SIZE: one bin a lane to clear and to scan
+        #define SP_LEG_BINS 256u // == SP_TRACE_BINNED_LEG_GROUP_SIZE: one bin a lane to clear and to scan
         shared uint s_LegBinCount[SP_LEG_BINS];
         shared uint s_LegBinScan[2u * SP_LEG_BINS]; // ping-pong halves of the inclusive prefix sum
-        shared uint s_LegSorted[SP_TRACE_LEG_GROUP_SIZE];
+        shared uint s_LegSorted[SP_TRACE_BINNED_LEG_GROUP_SIZE];
 
         uint SPLegMortonNibble( uint v )
         {
@@ -374,9 +388,9 @@ Shader "ScreenProbeTrace"
         bool SPLegSortedSlot( out uint slot )
         {
             const uint lane   = gl_LocalInvocationIndex;
-            const uint first  = gl_WorkGroupID.x * SP_TRACE_LEG_GROUP_SIZE;
+            const uint first  = gl_WorkGroupID.x * SP_TRACE_BINNED_LEG_GROUP_SIZE;
             const uint listed = min( screenProbeCompactAllocator - min( first, screenProbeCompactAllocator ),
-                                     SP_TRACE_LEG_GROUP_SIZE ); // this group's rays: lanes 0 .. listed - 1
+                                     SP_TRACE_BINNED_LEG_GROUP_SIZE ); // this group's rays: lanes 0 .. listed - 1
             const bool mine   = lane < listed;
             const uint read   = mine ? screenProbeCompactTexels[first + lane] : 0u;
             const uint key    = SPLegDirectionKey( read );
@@ -417,8 +431,8 @@ Shader "ScreenProbeTrace"
         #define SP_LEG_NO_PROBE 0xFFFFFFFFu
         shared uint        s_LegProbeKey[SP_LEG_BINS];          // the table: a probe, or SP_LEG_NO_PROBE
         shared uint        s_LegProbeIndex[SP_LEG_BINS];        // the table: that probe's dense index
-        shared uint        s_LegProbe[SP_TRACE_LEG_GROUP_SIZE]; // dense index -> probe
-        shared GITraceBias s_LegBias[SP_TRACE_LEG_GROUP_SIZE];  // dense index -> its probe's bias
+        shared uint        s_LegProbe[SP_TRACE_BINNED_LEG_GROUP_SIZE]; // dense index -> probe
+        shared GITraceBias s_LegBias[SP_TRACE_BINNED_LEG_GROUP_SIZE];  // dense index -> its probe's bias
         shared uint        s_LegProbes;                         // the group's distinct probes
 
         // Called by every thread of the group in uniform control flow (it holds the barriers), with what
