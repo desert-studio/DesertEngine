@@ -68,6 +68,20 @@ Shader "BloomDownsample"
                                                        LocalExposureContrast, LocalExposureThreshold ) );
         }
 
+        // UE PostProcessBloomSetup: the scene colour the bloom chain starts from is clamped first ("to avoid
+        // artifacts from exceeding fp16"), and a non-finite texel is no energy at all. The Karis average below
+        // weighs a box by 1 / (1 + luma): an Inf tap gives its box weight 0 and Inf * 0 = NaN, so ONE non-finite
+        // scene texel turned the whole 13-tap footprint, then every mip and upsample over it, into a bloomed ball
+        // (FPS-FIREFLY2). Here a NaN/Inf tap reads as black and a finite one at most the fp16 maximum, which every
+        // finite rgba16f texel already is: no change to a finite scene.
+        const float kBloomMaxSource = 65504.0;
+        vec3 BloomFiniteSource( const vec3 c )
+        {
+            if ( any( isnan( c ) ) || any( isinf( c ) ) )
+                return vec3( 0.0 );
+            return clamp( c, vec3( 0.0 ), vec3( kBloomMaxSource ) );
+        }
+
         void main()
         {
             ivec2 dstSize  = imageSize( DestinationMipTexture );
@@ -94,7 +108,7 @@ Shader "BloomDownsample"
 
             // The pass binds SourceMipTexture with a clamp-to-edge sampler (SamplerDesc::LinearClamp), so taps that
             // fall outside [0,1] read the edge texel and a bright object never wraps to the opposite edge.
-        #define TAP( off ) LocallyExposed( textureLod( SourceMipTexture, uv + t * ( off ), 0.0 ).rgb, uv + t * ( off ), \
+        #define TAP( off ) LocallyExposed( BloomFiniteSource( textureLod( SourceMipTexture, uv + t * ( off ), 0.0 ).rgb ), uv + t * ( off ), \
                                            applyLE, logExposure )
 
             // 13 taps around uv (in source texels).
