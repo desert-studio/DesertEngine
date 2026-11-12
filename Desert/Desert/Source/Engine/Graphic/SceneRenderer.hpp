@@ -2429,6 +2429,10 @@ namespace Desert::Graphic
         GpuDriven::CulledRowStore m_GpuCullRowsPrepass;
         GpuDriven::CulledRowStore m_GpuCullRowsValidation;
         GpuDriven::CulledRowStore m_GpuCullRowsVsm;
+        // FPS-SET-MEMO4: the view's per-frame light buffers (AddFrameLightGrid -> UploadLights) and tile lists
+        // (AddFrameTileClassify -> CreateTileLists), kept with a stable VkBuffer per frame slot.
+        System::DeferredLightBufferStore m_KeptLights;
+        FrameKeptBuffer                  m_KeptDeferredTiles;
         // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
         std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
         std::string                               m_DrawBinsLastError;

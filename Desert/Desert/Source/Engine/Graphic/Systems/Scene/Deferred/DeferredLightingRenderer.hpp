@@ -12,6 +12,7 @@
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Graphic/FrameKeptBuffer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredTileLists.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/LightPayloadBytes.hpp>
@@ -137,6 +138,17 @@ namespace Desert::Graphic::System
     struct DeferredCompositeLights : ViewLightBuffers
     {
         LightGridParamsPayload Grid;
+    };
+
+    // FPS-SET-MEMO4: the view's kept light buffers (FrameKeptBuffer, a stable VkBuffer per frame slot), one per
+    // buffer UploadLights makes; the caller (SceneRenderer, per view) owns it.
+    struct DeferredLightBufferStore
+    {
+        FrameKeptBuffer Point;
+        FrameKeptBuffer Spot;
+        FrameKeptBuffer ShadowViews;
+        FrameKeptBuffer GridParams;
+        FrameKeptBuffer GridCells;
     };
 
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
@@ -307,7 +319,10 @@ namespace Desert::Graphic::System
         // vertex past the simple list, and the extent the classify and the vertex stage read.
         // FPS-DIRECT-TILES: then the mixed tiles' record, the mask of the models with a list of their own
         // (ModelListMask) and one record per model index, each list's first vertex past the lists before it.
-        DeferredTileLists CreateTileLists( RDG::Builder& graph, const uint32_t width, const uint32_t height ) const
+        // FPS-SET-MEMO4: the buffer is the caller's kept one (@p kept, a stable VkBuffer per frame slot); refused
+        // when it cannot be made or imported.
+        Common::ResultStr<DeferredTileLists> CreateTileLists( RDG::Builder& graph, const uint32_t width,
+                                                              const uint32_t height, FrameKeptBuffer& kept ) const
         {
             DeferredTileLists lists;
             lists.Tiles          = glm::uvec2( TileGrid( width ), TileGrid( height ) );
@@ -321,7 +336,10 @@ namespace Desert::Graphic::System
                  ( uint64_t{ kTileHeaderWords } +
                    uint64_t{ DeferredTileLists::kListsBeforeModels + modelLists } * uint64_t{ count } ) *
                  sizeof( uint32_t );
-            lists.Buffer         = graph.CreateBuffer( RDG::BufferDesc{ bytes }, "DeferredTiles" );
+            const Common::ResultStr<RDG::BufferRef> buffer = kept.Register( graph, bytes, "DeferredTiles" );
+            if ( !buffer )
+                return Common::MakeError<DeferredTileLists>( buffer.GetError() );
+            lists.Buffer = buffer.GetValue();
             // Both draw records, the extent, then both dispatch records (Common/DeferredTiles.glslh).
             std::array<uint32_t, kTileHeaderWords> header = {
                  0u, 1u, 0u, 0u, 0u, 1u, count * kTileVertices, 0u, width, height, lists.Tiles.x, count, 0u, 1u,
@@ -333,7 +351,7 @@ namespace Desert::Graphic::System
                 header[word + 2u]   = ( DeferredTileLists::kListsBeforeModels + model ) * count * kTileVertices;
             }
             graph.QueueBufferUpload( lists.Buffer, std::as_bytes( std::span<const uint32_t>( header ) ) );
-            return lists;
+            return Common::MakeSuccess( lists );
         }
 
         // SETUP of "Deferred: Tile Classify": the G-buffer normal and shading word read, the lists written.
@@ -446,33 +464,43 @@ namespace Desert::Graphic::System
         // upload command. No light is one zeroed entry (a storage buffer is never empty); the counts are the
         // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its parameters are uploaded too
         // and its cell buffer created, which "LightGrid" fills.
-        static DeferredCompositeLights UploadLights( RDG::Builder&                              graph,
-                                                     const ShaderProtocols::PointLight&         points,
-                                                     const ShaderProtocols::SpotLight&          spots,
-                                                     const std::vector<LocalShadowViewPayload>& shadowViews,
-                                                     const LightGridParamsPayload&              grid )
+        // FPS-SET-MEMO4: every buffer is the view's kept one (@p kept, a stable VkBuffer per frame slot), not a
+        // graph transient; refused when one cannot be made or imported.
+        static Common::ResultStr<DeferredCompositeLights>
+        UploadLights( RDG::Builder& graph, const ShaderProtocols::PointLight& points,
+                      const ShaderProtocols::SpotLight& spots, const std::vector<LocalShadowViewPayload>& shadowViews,
+                      const LightGridParamsPayload& grid, DeferredLightBufferStore& kept )
         {
-            const auto upload = [&graph]( const auto& lights, std::string_view name )
+            using Made        = Common::ResultStr<RDG::BufferRef>;
+            const auto upload = [&graph]( FrameKeptBuffer& into, const std::span<const std::byte> bytes,
+                                          const std::string_view name ) -> Made
             {
-                const std::span<const std::byte> bytes  = ShaderProtocols::LightPayloadBytes( lights );
-                const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes.size() }, name );
-                graph.QueueBufferUpload( buffer, bytes );
+                const Made buffer = into.Register( graph, bytes.size(), name );
+                if ( buffer )
+                    graph.QueueBufferUpload( buffer.GetValue(), bytes );
                 return buffer;
             };
-            const RDG::BufferRef gridParams =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( LightGridParamsPayload ) }, "Lights.GridParams" );
-            graph.QueueBufferUpload( gridParams,
-                                     std::as_bytes( std::span<const LightGridParamsPayload>( &grid, 1 ) ) );
-            const RDG::BufferRef gridCells =
-                 graph.CreateBuffer( RDG::BufferDesc{ LightGridCellBufferBytes( grid ) }, "Lights.GridCells" );
+            const Made point  = upload( kept.Point, ShaderProtocols::LightPayloadBytes( points.PointLights ),
+                                        "Lights.Point" );
+            const Made spot   = upload( kept.Spot, ShaderProtocols::LightPayloadBytes( spots.SpotLights ),
+                                        "Lights.Spot" );
+            const Made shadow = upload( kept.ShadowViews, ShaderProtocols::LightPayloadBytes( shadowViews ),
+                                        "Lights.ShadowViews" );
+            const Made params =
+                 upload( kept.GridParams, std::as_bytes( std::span<const LightGridParamsPayload>( &grid, 1 ) ),
+                         "Lights.GridParams" );
+            const Made cells = kept.GridCells.Register( graph, LightGridCellBufferBytes( grid ), "Lights.GridCells" );
+            for ( const Made* made : { &point, &spot, &shadow, &params, &cells } )
+                if ( !*made )
+                    return Common::MakeError<DeferredCompositeLights>( made->GetError() );
             DeferredCompositeLights lights;
-            lights.Point       = upload( points.PointLights, "Lights.Point" );
-            lights.Spot        = upload( spots.SpotLights, "Lights.Spot" );
-            lights.ShadowViews = upload( shadowViews, "Lights.ShadowViews" );
-            lights.GridParams  = gridParams;
-            lights.GridCells   = gridCells;
+            lights.Point       = point.GetValue();
+            lights.Spot        = spot.GetValue();
+            lights.ShadowViews = shadow.GetValue();
+            lights.GridParams  = params.GetValue();
+            lights.GridCells   = cells.GetValue();
             lights.Grid        = grid;
-            return lights;
+            return Common::MakeSuccess( lights );
         }
 
         // GRAPH BUILD (before "LightGridWorld"): the world layout's parameters uploaded and its cell buffer
