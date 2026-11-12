@@ -2078,8 +2078,10 @@ namespace Desert::Graphic::API::Vulkan
     // ---- FPS-GPU-MARKER: GPU crash breadcrumbs (VulkanRenderGraph.hpp) ----
     namespace
     {
-        constexpr uint32_t     kCrumbQueues     = RDG::kPipeCount;
-        constexpr VkDeviceSize kCrumbBufferSize = sizeof( uint32_t ) * 2 * kCrumbQueues;
+        constexpr uint32_t kCrumbQueues = RDG::kPipeCount;
+        // FPS-DEVLOST6: after the graph words, two per queue for the one-off submits (MarkOneOff).
+        constexpr uint32_t     kOneOffWords     = 2 * kCrumbQueues;
+        constexpr VkDeviceSize kCrumbBufferSize = sizeof( uint32_t ) * ( 2 * kCrumbQueues + 2 * kCrumbQueues );
         constexpr uint32_t     kCrumbListMax    = 24; // in-flight names listed per queue
 
         [[nodiscard]] constexpr uint32_t CrumbQueue( RDG::Pipe pipe ) noexcept
@@ -2349,27 +2351,81 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !m_Enabled.load( std::memory_order_relaxed ) || m_Ring == nullptr )
             return kNoSerial;
-        m_EverEnabled  = true;
+        m_EverEnabled.store( true, std::memory_order_relaxed );
         uint32_t count = 0;
         for ( const RDG::CompiledPass& pass : passes )
             count = std::max( count, pass.Pass + 1 );
-        // Serials never wrap through kNoSerial: a range that would is started again at 1.
-        if ( m_NextSerial > UINT32_MAX - count )
-            m_NextSerial = 1;
-        const uint32_t graphBase = m_NextSerial;
-        m_NextSerial += std::max( count, 1u );
+        const uint32_t graphBase = ReserveSerials( count );
         for ( const RDG::CompiledPass& pass : passes )
         {
             const uint32_t serial = graphBase + pass.Pass;
             Entry&         entry  = m_Ring[serial & ( kRingSize - 1 )];
             entry.Serial.store( kNoSerial, std::memory_order_release );
             entry.OnPipe        = pass.OnPipe;
+            entry.OneOff        = false;
             const size_t length = std::min<size_t>( pass.Name.size(), kNameBytes - 1 );
             std::memcpy( entry.Name, pass.Name.data(), length );
             entry.Name[length] = '\0';
             entry.Serial.store( serial, std::memory_order_release );
         }
         return graphBase;
+    }
+
+    uint32_t VulkanGpuBreadcrumbs::ReserveSerials( uint32_t count ) noexcept
+    {
+        count          = std::max( count, 1u );
+        uint32_t first = m_NextSerial.load( std::memory_order_relaxed );
+        for ( ;; )
+        {
+            // Serials never wrap through kNoSerial: a range that would is started again at 1.
+            const uint32_t base = first > UINT32_MAX - count ? 1u : first;
+            if ( m_NextSerial.compare_exchange_weak( first, base + count, std::memory_order_relaxed ) )
+                return base;
+        }
+    }
+
+    void VulkanGpuBreadcrumbs::MarkOneOff( void* context, VkCommandBuffer commandBuffer, VkQueue queue,
+                                           const std::source_location& where ) noexcept
+    {
+        auto* const self = static_cast<VulkanGpuBreadcrumbs*>( context );
+        if ( self == nullptr || commandBuffer == VK_NULL_HANDLE || self->m_Ring == nullptr ||
+             !self->m_Enabled.load( std::memory_order_relaxed ) )
+            return;
+        self->m_EverEnabled.store( true, std::memory_order_relaxed );
+        const uint32_t serial = self->ReserveSerials( 1u );
+        Entry&         entry  = self->m_Ring[serial & ( kRingSize - 1 )];
+        entry.Serial.store( kNoSerial, std::memory_order_release );
+        entry.OnPipe          = RDG::Pipe::Graphics;
+        entry.OneOff          = true;
+        std::string_view file = where.file_name();
+        if ( const size_t slash = file.find_last_of( "/\\" ); slash != std::string_view::npos )
+            file.remove_prefix( slash + 1 );
+        const auto written = std::format_to_n( entry.Name, kNameBytes - 1, "one-off {}:{}", file, where.line() );
+        *written.out       = '\0';
+        entry.Serial.store( serial, std::memory_order_release );
+
+        // The words: only on a queue of the graph's families (the buffer's sharing); the async pipe's queue is
+        // m_ComputeQueue only when it is a queue of its own (SetQueues).
+        uint32_t slot = kCrumbQueues;
+        if ( queue != VK_NULL_HANDLE && queue == self->m_GraphicsQueue )
+            slot = CrumbQueue( RDG::Pipe::Graphics );
+        else if ( queue != VK_NULL_HANDLE && queue == self->m_ComputeQueue )
+            slot = CrumbQueue( RDG::Pipe::AsyncCompute );
+        if ( self->m_WriteMarker != nullptr && slot < kCrumbQueues )
+        {
+            const VkDeviceSize started = sizeof( uint32_t ) * ( kOneOffWords + 2 * slot );
+            self->m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, self->m_Buffer, started,
+                                 serial );
+            self->m_WriteMarker( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, self->m_Buffer,
+                                 started + sizeof( uint32_t ), serial );
+        }
+        if ( self->m_SetCheckpoint != nullptr )
+        {
+            self->m_SetCheckpoint( commandBuffer,
+                                   reinterpret_cast<const void*>( static_cast<uintptr_t>( serial ) << 1 ) );
+            self->m_SetCheckpoint(
+                 commandBuffer, reinterpret_cast<const void*>( ( static_cast<uintptr_t>( serial ) << 1 ) | 1u ) );
+        }
     }
 
     void VulkanGpuBreadcrumbs::MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe,
@@ -2443,11 +2499,26 @@ namespace Desert::Graphic::API::Vulkan
                 const std::string name = NameOf( serial, pipe );
                 if ( pipe != RDG::Pipe::Count && CrumbQueue( pipe ) != queue )
                     continue;
+                // FPS-DEVLOST6: a one-off submit's serial is reported by its own words below.
+                if ( const Entry& entry = m_Ring[serial & ( kRingSize - 1 )];
+                     entry.OneOff && entry.Serial.load( std::memory_order_acquire ) == serial )
+                    continue;
                 text += std::format( "\n    {}", name );
                 ++listed;
             }
             if ( listed == kCrumbListMax )
                 text += "\n    ...";
+        }
+        // FPS-DEVLOST6: per queue, the last one-off submit (upload, one-shot flush) whose end the front end
+        // reached and the last whose commands completed; differing = that one-off was in flight at the loss.
+        for ( uint32_t queue = 0; queue < kCrumbQueues && m_Words != nullptr; ++queue )
+        {
+            const uint32_t started  = m_Words[kOneOffWords + 2 * queue];
+            const uint32_t finished = m_Words[kOneOffWords + 2 * queue + 1];
+            RDG::Pipe      ignored  = RDG::Pipe::Graphics;
+            text += std::format( "\n  {} one-off submits: last reached {}, last completed {}{}",
+                                 kQueueNames[queue], NameOf( started, ignored ), NameOf( finished, ignored ),
+                                 started != kNoSerial && started != finished ? " - IN FLIGHT" : "" );
         }
         text += DescribeCheckpoints();
         return text;

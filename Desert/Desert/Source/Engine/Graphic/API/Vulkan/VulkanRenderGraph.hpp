@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <compare>
 #include <functional>
+#include <source_location>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -98,6 +99,16 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] uint32_t BeginGraph( std::span<const RDG::CompiledPass> passes ) noexcept;
         void MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
         void MarkFinished( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
+        // FPS-DEVLOST6, ONE-OFF SUBMITS (UE: a breadcrumb on every queue submit, not only graph passes): an upload
+        // or one-shot flush recorded outside any graph (CommandBufferAllocator::OneOffMarker; context is the
+        // VulkanGpuBreadcrumbs), called just before its vkEndCommandBuffer, any thread. Reserves a serial named
+        // "one-off <file>:<line>" (@p where: the caller) and records, after the buffer's commands, a TOP_OF_PIPE
+        // marker (the front end reached the end of the buffer) and a BOTTOM_OF_PIPE one (its commands completed)
+        // into the submit words of @p queue (graphics or the async pipe's queue; another queue - transfer, a
+        // compute queue the graph does not use - gets the NV checkpoints only: the words buffer is shared with
+        // the graph's families alone). Their own words: a one-off is not in the graphs' serial order on its queue.
+        static void MarkOneOff( void* context, VkCommandBuffer commandBuffer, VkQueue queue,
+                                const std::source_location& where ) noexcept;
         // The report, from the host words and vkGetQueueCheckpointDataNV (serial << 1 | finished per checkpoint;
         // the one device call it makes, legal on a lost device - that is what the extension is for).
         [[nodiscard]] std::string Describe() const;
@@ -110,6 +121,7 @@ namespace Desert::Graphic::API::Vulkan
             std::atomic<uint32_t> Serial{ kNoSerial }; // published after OnPipe and Name
             RDG::Pipe             OnPipe = RDG::Pipe::Graphics;
             char                  Name[kNameBytes]{};
+            bool                  OneOff = false; // FPS-DEVLOST6: a one-off submit's serial, not a graph pass's
         };
         [[nodiscard]] std::string NameOf( uint32_t serial, RDG::Pipe& pipe ) const;
 
@@ -133,9 +145,13 @@ namespace Desert::Graphic::API::Vulkan
         PFN_vkGetQueueCheckpointDataNV m_GetCheckpoints = nullptr;
         VkQueue                        m_GraphicsQueue  = VK_NULL_HANDLE;
         VkQueue                        m_ComputeQueue   = VK_NULL_HANDLE;
+        // FPS-DEVLOST6: [first, first + count) of the serials, never through kNoSerial; any thread (graphs and
+        // one-off submits).
+        [[nodiscard]] uint32_t ReserveSerials( uint32_t count ) noexcept;
+
         std::atomic<bool>              m_Enabled{ false };
-        bool                           m_EverEnabled = false;
-        uint32_t                       m_NextSerial  = 1; // BeginGraph's thread only
+        std::atomic<bool>              m_EverEnabled{ false };
+        std::atomic<uint32_t>          m_NextSerial{ 1 };
         uint32_t                       m_LiveFrames  = 0; // ObserveLive's thread only
         bool                           m_LiveSaid    = false;
         std::unique_ptr<Entry[]>       m_Ring;

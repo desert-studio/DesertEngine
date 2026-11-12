@@ -1198,11 +1198,29 @@ Shader "GrassCull"
         // into this frame in flight's Feedback (the renderer sizes the capacities from them), the written mark and
         // the drawn count (mode 2). A row whose cascades hold keeps the counts and the list of the frame that culled
         // them, so every frame in flight's copy gets them.
+        // FPS-DEVLOST6, THE LOOPS' BOUNDS ARE THE CPU'S (UE GPU culling: the bounds and capacities of a list come
+        // from the CPU's per-group constants, GPU-written words only ever as counts clamped to them): a row's
+        // bucket count and record count come from its row (Info.x; Info.y = the bucket table's first word =
+        // GpuInstances.hpp GpuInstanceArgsOffset( records ) / 4 = 4 + records x 5), never from its lists'
+        // header words (x = buckets, z = records), which the GPU can read before their upload lands or after a
+        // stray write - one such word near 2^32 made the one-group finalize loop ~4e9 times and write past its
+        // range through the device address. Every write below is inside [0, Info.y + Info.x x 4), the list's
+        // range (GrassRenderer argBytes). A row with no bucket has no record to draw: it writes nothing.
+        uint RowBuckets( uint r )
+        {
+            return VarietyRows[r].Info.x;
+        }
+        uint RowRecords( uint r )
+        {
+            return ( max( VarietyRows[r].Info.y, 4u ) - 4u ) / 5u;
+        }
+
         void ResetFull( uint r )
         {
             GrassWords args    = GrassWords( VarietyRows[r].Args );
-            uint       tableAt = 4u + args.Words[2] * 5u;
-            for ( uint b = 0u; b < args.Words[0]; ++b )
+            uint       tableAt = VarietyRows[r].Info.y;
+            uint       buckets = RowBuckets( r );
+            for ( uint b = 0u; b < buckets; ++b )
                 args.Words[tableAt + b * 4u] = 0u;
         }
         void FinalizeFull( uint r )
@@ -1210,8 +1228,8 @@ Shader "GrassCull"
             GrassWords args     = GrassWords( VarietyRows[r].Args );
             GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
             bool       blade    = ( VarietyRows[r].Info.z & kGrassRowBlade ) != 0u;
-            uint       buckets  = args.Words[0];
-            uint       records  = args.Words[2];
+            uint       buckets  = RowBuckets( r );
+            uint       records  = buckets == 0u ? 0u : RowRecords( r );
             uint       table    = 4u + records * 5u;
             for ( uint s = 0u; s < records; ++s )
             {
@@ -1240,8 +1258,8 @@ Shader "GrassCull"
         uint HeldCamera( uint r )
         {
             GrassWords camera  = GrassWords( VarietyRows[r].CameraArgs );
-            uint       buckets = camera.Words[0];
-            uint       records = camera.Words[2];
+            uint       buckets = RowBuckets( r );
+            uint       records = buckets == 0u ? 0u : RowRecords( r );
             uint       phases  = 4u + records * 5u + buckets * 4u;
             HeldCascadeFeedback( r, buckets );
             uint candidates = 0u;
@@ -1265,8 +1283,8 @@ Shader "GrassCull"
                 return HeldCamera( r );
             GrassWords camera  = GrassWords( VarietyRows[r].CameraArgs );
             bool       blade   = ( VarietyRows[r].Info.z & kGrassRowBlade ) != 0u;
-            uint       buckets = camera.Words[0];
-            uint       records = camera.Words[2];
+            uint       buckets = RowBuckets( r );
+            uint       records = buckets == 0u ? 0u : RowRecords( r );
             uint       table   = 4u + records * 5u;
             uint       phases  = table + buckets * 4u;
             for ( uint s = 0u; s < records; ++s )
@@ -1316,8 +1334,8 @@ Shader "GrassCull"
             GrassWords camera  = GrassWords( VarietyRows[r].CameraArgs );
             GrassWords post    = GrassWords( VarietyRows[r].PostArgs );
             bool       blade   = ( VarietyRows[r].Info.z & kGrassRowBlade ) != 0u;
-            uint       buckets = camera.Words[0];
-            uint       records = camera.Words[2];
+            uint       buckets = RowBuckets( r );
+            uint       records = buckets == 0u ? 0u : RowRecords( r );
             uint       table   = 4u + records * 5u;
             uint       phases  = table + buckets * 4u;
             for ( uint s = 0u; s < records; ++s )

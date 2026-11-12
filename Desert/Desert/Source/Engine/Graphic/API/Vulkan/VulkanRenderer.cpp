@@ -61,6 +61,7 @@ namespace Desert::Graphic::API::Vulkan
             m_FrameLoop->Drain();
         // The breadcrumb memory goes with this API: the [DeviceLost] report stops reading it first.
         Graphic::DeviceLost::SetBreadcrumbReader( nullptr, nullptr );
+        CommandBufferAllocator::SetOneOffMarker( nullptr, nullptr );
 #if DESERT_DEV_INSTRUMENTS
         m_GpuProfiler.Shutdown();
 #endif
@@ -2463,6 +2464,9 @@ namespace Desert::Graphic::API::Vulkan
                     m_Breadcrumbs            = std::move( crumbs );
                     m_RdgDevice.Breadcrumbs  = m_Breadcrumbs.get();
                     Graphic::DeviceLost::SetBreadcrumbReader( &VulkanGpuBreadcrumbs::Read, m_Breadcrumbs.get() );
+                    // FPS-DEVLOST6: the uploads and one-shot flushes carry breadcrumbs too.
+                    CommandBufferAllocator::SetOneOffMarker( &VulkanGpuBreadcrumbs::MarkOneOff,
+                                                             m_Breadcrumbs.get() );
                     LOG_INFO( "[GpuBreadcrumbs] buffer marker {}, NV checkpoints {}; words in {}",
                               routes.BufferMarker ? "on" : "absent", routes.Checkpoints ? "on" : "absent",
                               m_Breadcrumbs->WordsHome() );
