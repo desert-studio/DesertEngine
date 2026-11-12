@@ -93,7 +93,14 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 192 bytes.
+    // UE r.Lumen.ScreenProbeGather.MaxRayIntensity (40): the largest component a traced screen probe ray may
+    // carry, in the view's pre-exposed units (UE ClampMaxRayIntensity: MaxRayIntensity * View.OneOverPreExposure).
+    // One over-bright ray (a sun-lit hit lit through a bad card or a far-field surface rebuilt inside a lit wall)
+    // is otherwise spread by the probe filter over the probe's whole hemisphere and every pixel that probe lights
+    // (FPS-GLOW-ROOT: the red-orange ball in the grass of FIELD-BARN t0).
+    inline constexpr float kScreenProbeMaxRayIntensity = 40.0f;
+
+    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 208 bytes.
     struct ScreenProbeParamsPayload
     {
         glm::mat4  PrevViewProjection{ 1.0f };
@@ -103,8 +110,11 @@ namespace Desert::Graphic::GlobalIllumination
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
         glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = kScreenProbe* flags below,
                                 // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
+        // x = the largest component a traced ray's radiance may carry, absolute (kScreenProbeMaxRayIntensity /
+        // PreExposure); yzw unused (std430 vec4 alignment).
+        glm::vec4 RayClamp{ 0.0f };
     };
-    static_assert( sizeof( ScreenProbeParamsPayload ) == 192 );
+    static_assert( sizeof( ScreenProbeParamsPayload ) == 208 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh.
     inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the temporal history is the view's previous frame
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
@@ -258,6 +268,9 @@ namespace Desert::Graphic::GlobalIllumination
         // ViewFrame::PrevPreExposure: the scale the scene colour history (the screen trace's hit radiance) is
         // stored at; the trace divides by it so its output stays absolute.
         float PrevPreExposure = 1.0f;
+        // ViewFrame::PreExposure: this frame's scene colour scale; the ray clamp (kScreenProbeMaxRayIntensity) is
+        // relative to it, as UE's is to View.PreExposure.
+        float PreExposure = 1.0f;
         // The temporal filter's reprojection: the view's velocity (FrameTransients::Velocity), this frame's and
         // last frame's jitter (ViewFrame::JitterNdc / PrevJitterNdc), and whether the view's previous frame is a
         // previous frame of this one (ViewFrame::HistoryValid: false after a cut, a teleport, a resize).

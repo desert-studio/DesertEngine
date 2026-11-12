@@ -331,7 +331,8 @@ Shader "ScreenProbeTraceScreen"
                 if ( screen.hit )
                 {
                     imageStore( ScreenProbeTracedTexture, SPAtlasOrigin( probe, SP_RES ) + ray.texel,
-                                vec4( screen.radiance, screen.distance ) );
+                                vec4( SPClampRayRadiance( screen.radiance, screenProbeParams.rayClamp.x ),
+                                      screen.distance ) );
                     const float probeDepth = ( giFrame.viewProjection * vec4( ray.position, 1.0 ) ).w;
                     const bool  moving = SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, screen.velocity );
                     encoded            = SPEncodeTraceHit( screen.distance, true, moving, false );

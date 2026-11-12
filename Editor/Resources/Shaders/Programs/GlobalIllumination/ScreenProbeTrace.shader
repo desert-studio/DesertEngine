@@ -263,6 +263,13 @@ Shader "ScreenProbeTrace"
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #include <Common/ScreenProbeTracing.glslh>
+        // Every leg's one store of a traced ray (radiance, distance): the radiance clamped as UE clamps each traced
+        // ray (SPClampRayRadiance, r.Lumen.ScreenProbeGather.MaxRayIntensity) before the filter reads it.
+        void SPStoreTraced( ivec2 at, vec3 radiance, float distance )
+        {
+            imageStore( ScreenProbeTracedTexture, at,
+                        vec4( SPClampRayRadiance( radiance, screenProbeParams.rayClamp.x ), distance ) );
+        }
         // The leg's group (Common/ScreenProbeTracing.glslh THE LEGS' LISTS): the hit lighting bins its group's rays
         // (SP_TRACE_BINNED_LEG_GROUP_SIZE); every other leg traces in list order (SP_TRACE_LEG_GROUP_SIZE).
         #if defined( SP_TRACE_HIT_LIGHTING ) || defined( SP_TRACE_NEAR_HIT_LIGHTING )
@@ -609,7 +616,7 @@ Shader "ScreenProbeTrace"
             const uvec2 nearHit  = screenProbeNearHit[slot];
             const float distance = uintBitsToFloat( nearHit.y );
             const GIHit surface  = GINearFieldSurface( origin, dir, nearHit.x, distance, true );
-            imageStore( ScreenProbeTracedTexture, at, vec4( GIHitRadiance( surface, dir ), distance ) );
+            SPStoreTraced( at, GIHitRadiance( surface, dir ), distance );
             screenProbeTraceHit[slot] =
                  SPEncodeTraceHit( distance, true, SPTraceHitMoving( probe, texel, surface ), false );
 #endif
@@ -619,7 +626,7 @@ Shader "ScreenProbeTrace"
             const bool atCache = !near.hit && texel.coverage.valid && farStart >= texel.tMax;
             if ( near.hit )
             {
-                imageStore( ScreenProbeTracedTexture, at, vec4( GIHitRadiance( near.surface, dir ), near.surface.distance ) );
+                SPStoreTraced( at, GIHitRadiance( near.surface, dir ), near.surface.distance );
                 screenProbeTraceHit[slot] =
                      SPEncodeTraceHit( near.surface.distance, true, SPTraceHitMoving( probe, texel, near.surface ), false );
             }
@@ -637,7 +644,7 @@ Shader "ScreenProbeTrace"
             const GITraceResult rest = GITraceRay( ray );
             const vec4 result = rest.hit ? vec4( GIHitRadiance( rest.surface, dir ), rest.surface.distance )
                                          : vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE );
-            imageStore( ScreenProbeTracedTexture, at, result );
+            SPStoreTraced( at, result.rgb, result.a );
             screenProbeTraceHit[slot] =
                  SPEncodeTraceHit( result.a, rest.hit, rest.hit && SPTraceHitMoving( probe, texel, rest.surface ), false );
 #elif defined( SP_TRACE_HIT_LIGHTING )
@@ -654,7 +661,7 @@ Shader "ScreenProbeTrace"
                 SPCountFarFieldRays( SP_HIT_LIGHTING_CARD_HELD );
             SPCountSteps( SP_HIT_LIGHTING_STEPS );
 #endif
-            imageStore( ScreenProbeTracedTexture, at, vec4( radiance, distance ) );
+            SPStoreTraced( at, radiance, distance );
             // A global-field hit is never moving (UE TraceVoxels writes bMoving false).
             screenProbeTraceHit[slot] = SPEncodeTraceHit( distance, true, false, false );
 #endif
@@ -673,7 +680,7 @@ Shader "ScreenProbeTrace"
             // fallback): the state stays reached and unanswered, and the cache-miss leg traces the rest of the ray.
             if ( cache.a > 0.0 )
             {
-                imageStore( ScreenProbeTracedTexture, at, vec4( cache.rgb, SP_TRACE_DISTANCE ) );
+                SPStoreTraced( at, cache.rgb, SP_TRACE_DISTANCE );
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( SP_TRACE_DISTANCE, false, false, false );
             }
             SPListRay( !( cache.a > 0.0 ), slot ); // the cache-miss leg's list
@@ -730,7 +737,7 @@ Shader "ScreenProbeTrace"
                 result = vec4( GIMissRadiance( dir ), SP_TRACE_DISTANCE ); // tMax was the full distance
             if ( !atCache && !deferredHit )
             {
-                imageStore( ScreenProbeTracedTexture, at, result );
+                SPStoreTraced( at, result.rgb, result.a );
                 // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the
                 // filter reads its moving bit.
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( result.a, hit, moving, false );

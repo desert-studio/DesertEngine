@@ -55,7 +55,7 @@
 // GlobalIllumination::ScreenProbeLayout::AdaptivePerTile).
 #define SP_ADAPTIVE_PER_TILE ( ( 1u << ( 2u * ( SP_LEVELS - 1u ) ) ) - 1u )
 
-// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (192 bytes).
+// std430 — must match GlobalIllumination::ScreenProbeParamsPayload (208 bytes).
 struct ScreenProbeParams {
     mat4  prevViewProjection; // last frame's (unjittered) view-projection: the screen trace's reprojection
     mat4  prevInvViewProjection; // its inverse: the temporal filter's previous world position of a pixel
@@ -64,7 +64,19 @@ struct ScreenProbeParams {
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
     uvec4 atlas;              // x = probes per atlas row, y = frame index, z = SP_FLAG_* below,
                               // w = the probes' jitter in pixels (x | y << 16)
+    vec4  rayClamp;           // x = the largest component a traced ray may carry, absolute
+                              // (kScreenProbeMaxRayIntensity / PreExposure); yzw unused
 };
+
+// UE ClampMaxRayIntensity (LumenScreenProbeTracingCommon.ush): a traced ray's radiance scaled down so its largest
+// component is at most @p maxRayRadiance (ScreenProbeParams.rayClamp.x), keeping its hue. Every leg that stores
+// into ScreenProbes.Traced goes through it, so no single over-bright hit is spread by the probe filter over a
+// probe's hemisphere and every pixel the probe lights.
+vec3 SPClampRayRadiance( vec3 radiance, float maxRayRadiance )
+{
+    const float largest = max( radiance.r, max( radiance.g, radiance.b ) );
+    return largest > maxRayRadiance ? radiance * ( maxRayRadiance / largest ) : radiance;
+}
 
 // UE GetHistoryScreenPosition: where the surface seen at @p uv (top-left) with @p deviceDepth sat last frame, as
 // last frame's unjittered NDC.xyz - its unjittered NDC minus the velocity (NDC.xyz current - previous,

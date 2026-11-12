@@ -701,6 +701,9 @@ namespace Desert::Graphic::GlobalIllumination
         // w = 1 / PrevPreExposure: ScreenProbeTraceScreen undoes the scene colour history's pre-exposure.
         params.PrevCamera =
              glm::vec4( inputs.PrevCameraPosition, 1.0f / std::max( inputs.PrevPreExposure, 1e-30f ) );
+        // UE ClampMaxRayIntensity: MaxRayIntensity * View.OneOverPreExposure, the clamp of every traced ray.
+        params.RayClamp =
+             glm::vec4( kScreenProbeMaxRayIntensity / std::max( inputs.PreExposure, 1e-30f ), 0.0f, 0.0f, 0.0f );
         params.Jitter             = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
         const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex, layout.Downsample );
