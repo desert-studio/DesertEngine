@@ -2422,6 +2422,13 @@ namespace Desert::Graphic
         // GPU-DRIVEN CULL validation (DebugViewState::ValidateGpuCulling) on a frame without them.
         RDG::ExternalTexture m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
+        // FPS-SET-MEMO4: the cull's kept visible rows, ONE store per call site (a site's rows must not be shared
+        // by two culls in one graph): the draw bins' main view (AddFrameDrawBins + its phase 2), the depth
+        // prepass view, the GPU-DRIVEN CULL validation (+ its phase 2) and the VG shadow-page cut.
+        GpuDriven::CulledRowStore m_GpuCullRowsMain;
+        GpuDriven::CulledRowStore m_GpuCullRowsPrepass;
+        GpuDriven::CulledRowStore m_GpuCullRowsValidation;
+        GpuDriven::CulledRowStore m_GpuCullRowsVsm;
         // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
         std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
         std::string                               m_DrawBinsLastError;
