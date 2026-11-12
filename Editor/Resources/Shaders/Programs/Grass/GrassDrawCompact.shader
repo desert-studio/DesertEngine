@@ -60,6 +60,9 @@ Shader "GrassDrawCompact"
         PushConstant PushConstants
         {
             uvec4 Compact; // x = entries, y = the longest entry's Count, z = bins, w = the mode
+            // FPS-DEVLOST9: x = the table's slot capacity (CompactCommands / CompactDrawRows slots), y = its bin
+            // capacity (CompactCounts words) - the CPU's sizes of the buffers bound this frame.
+            uvec4 Bounds;
         };
 
         layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer CompactRecordWords
@@ -76,7 +79,7 @@ Shader "GrassDrawCompact"
         {
             if ( Compact.w == kModeClear )
             {
-                if ( gl_GlobalInvocationID.x < Compact.z )
+                if ( gl_GlobalInvocationID.x < min( Compact.z, Bounds.y ) )
                     BinCounts[gl_GlobalInvocationID.x] = 0u;
                 return;
             }
@@ -86,6 +89,14 @@ Shader "GrassDrawCompact"
             if ( e >= Compact.x )
                 return;
             const CompactEntry entry = CompactEntries[e];
+            // FPS-DEVLOST9 (UE: every GPU-written count bounded by a CPU-known capacity at its producer): an entry
+            // is gathered whole or not at all - its bin inside the counts, its slots inside the commands and the
+            // draw rows, and every one of its records reached by this dispatch (Compact.y) - so a bin's drawn count
+            // never covers a slot this gather did not write (an unwritten slot of a fresh table is an arbitrary
+            // command and an arbitrary row address: a device fault or a TDR in the pass that draws the bin).
+            if ( entry.Bin >= min( Compact.z, Bounds.y ) || entry.FirstSlot >= Bounds.x ||
+                 entry.Count > Bounds.x - entry.FirstSlot || entry.Count > Compact.y )
+                return;
             if ( k >= entry.Count )
                 return;
             if ( k == 0u )

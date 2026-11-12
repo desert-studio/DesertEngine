@@ -454,8 +454,11 @@ namespace Desert::Graphic::System
         struct GrassDrawCompactPush
         {
             glm::uvec4 Compact{ 0u }; // x entries, y the longest entry's Count, z bins, w 0 clear / 1 gather
+            // FPS-DEVLOST9: x the table's slot capacity, y its bin capacity (GpuDrawBinFrame::SlotCapacity /
+            // BinCapacity, the bound buffers' sizes): the gather writes and counts nothing past them.
+            glm::uvec4 Bounds{ 0u };
         };
-        static_assert( sizeof( GrassDrawCompactPush ) == 16 );
+        static_assert( sizeof( GrassDrawCompactPush ) == 32 );
         // The bins' table: at least kDrawBinMinSlots, at most kDrawBinMaxEntries (the gather's dispatch y, a row
         // per entry; a table holds no more slots than its entries can name). A frame a section did not fit
         // doubles it up to that bound (GpuDrawBinFrame::Overflow).
@@ -3789,7 +3792,9 @@ namespace Desert::Graphic::System
                            if ( const auto wrote = storage.Rows->SetData( bins.Rows.data(), rowBytes );
                                 !wrote.IsSuccess() )
                                return wrote;
-                           const GrassDrawCompactPush clear{ glm::uvec4( 0u, 0u, bins.Bins, 0u ) };
+                           const GrassDrawCompactPush clear{
+                                glm::uvec4( 0u, 0u, bins.Bins, 0u ),
+                                glm::uvec4( bins.SlotCapacity, bins.BinCapacity, 0u, 0u ) };
                            RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
                            bindings.PushConstants( &clear, sizeof( clear ) );
                            const uint32_t groups = ( bins.Bins + 63u ) / 64u;
@@ -3805,7 +3810,9 @@ namespace Desert::Graphic::System
                            for ( const GpuDrawCompactEntry& entry : bins.Entries )
                                longest = std::max( longest, entry.Count );
                            const uint32_t             entries = static_cast<uint32_t>( bins.Entries.size() );
-                           const GrassDrawCompactPush gather{ glm::uvec4( entries, longest, bins.Bins, 1u ) };
+                           const GrassDrawCompactPush gather{
+                                glm::uvec4( entries, longest, bins.Bins, 1u ),
+                                glm::uvec4( bins.SlotCapacity, bins.BinCapacity, 0u, 0u ) };
                            RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
                            bindings.PushConstants( &gather, sizeof( gather ) );
                            const uint32_t groups = ( longest + 63u ) / 64u;
