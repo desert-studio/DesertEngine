@@ -159,6 +159,34 @@ namespace Desert::Graphic::API::Vulkan
         return AllocateOneShot( m_TransferOpsFamily, begin );
     }
 
+    namespace
+    {
+        // FPS-DEVLOST6: the installed one-off marker; the context is stored first and cleared last, so a reader
+        // that sees the marker sees its context.
+        std::atomic<CommandBufferAllocator::OneOffMarker> g_OneOffMarker{ nullptr };
+        std::atomic<void*>                                g_OneOffContext{ nullptr };
+
+        void MarkOneOff( VkCommandBuffer commandBuffer, VkQueue queue, const std::source_location& where ) noexcept
+        {
+            if ( const CommandBufferAllocator::OneOffMarker marker =
+                      g_OneOffMarker.load( std::memory_order_acquire );
+                 marker != nullptr )
+                marker( g_OneOffContext.load( std::memory_order_acquire ), commandBuffer, queue, where );
+        }
+    } // namespace
+
+    void CommandBufferAllocator::SetOneOffMarker( OneOffMarker marker, void* context ) noexcept
+    {
+        if ( marker == nullptr )
+        {
+            g_OneOffMarker.store( nullptr, std::memory_order_release );
+            g_OneOffContext.store( nullptr, std::memory_order_release );
+            return;
+        }
+        g_OneOffContext.store( context, std::memory_order_release );
+        g_OneOffMarker.store( marker, std::memory_order_release );
+    }
+
     const char* CommandBufferAllocator::WaitSiteName( const std::source_location& where )
     {
         std::string_view file = where.file_name();
@@ -214,6 +242,8 @@ namespace Desert::Graphic::API::Vulkan
             return refuse( "the device is lost; the one-off command buffer is dropped rather than submitted.",
                            VK_NULL_HANDLE );
 
+        // FPS-DEVLOST6: the one-off's breadcrumb, after its commands (SetOneOffMarker).
+        MarkOneOff( commandBuffer, queue, where );
         if ( const VkResult ended = vkEndCommandBuffer( commandBuffer ); ended != VK_SUCCESS )
             return refuse( std::format( "vkEndCommandBuffer failed: {}", VkResultToString( ended ) ),
                            VK_NULL_HANDLE );
@@ -302,7 +332,8 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::ResultStr<CommandBufferAllocator::Submitted>
-    CommandBufferAllocator::RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_SubmitCommandBufferGraphic( VkCommandBuffer      commandBuffer,
+                                                           std::source_location where )
     {
         // m_OneShotPools is shared with the threads that upload (see m_PoolMutex): the lookup and the erase run
         // under it; the buffer itself is released through ReleaseOneShot, to its owning thread's pool.
@@ -333,6 +364,8 @@ namespace Desert::Graphic::API::Vulkan
             return refuse( "the upload timeline semaphore was never created (see the startup error); a graphics "
                            "one-off would be unordered against the compute and transfer queues." );
 
+        // FPS-DEVLOST6: the one-off's breadcrumb, after its commands (SetOneOffMarker).
+        MarkOneOff( commandBuffer, m_GraphicsQueue, where );
         if ( const VkResult ended = vkEndCommandBuffer( commandBuffer ); ended != VK_SUCCESS )
             return refuse( std::format( "vkEndCommandBuffer failed: {}", VkResultToString( ended ) ) );
         // QUEUED, NOT WAITED (VK-SUBMIT-THREAD step 3; UE 5.x: the render thread enqueues the upload as an RHI
