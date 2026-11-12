@@ -64,6 +64,8 @@ namespace Desert::Graphic::API::Vulkan
         static constexpr uint32_t kRingSize  = 8192; // power of two; > the passes of the frames in flight
         static constexpr uint32_t kNameBytes = 64;
         static constexpr uint32_t kNoSerial  = 0;
+        // FPS-DEVLOST8: the device queues a one-off submit's words are kept for (graphics, compute, transfer).
+        static constexpr uint32_t kOneOffQueues = 3;
 
         VulkanGpuBreadcrumbs() = default;
         ~VulkanGpuBreadcrumbs();
@@ -81,9 +83,11 @@ namespace Desert::Graphic::API::Vulkan
         // driver-owned host-coherent allocation and WordsHome() says so (and why) - logged once by the caller.
         Common::BoolResultStr Init( VkPhysicalDevice physicalDevice, VkDevice device, VmaAllocator allocator,
                                     const VulkanResourceSharing& sharing, const Routes& routes ) noexcept;
-        // The queues the checkpoint report reads after a loss; compute is VK_NULL_HANDLE when the async pipe runs
-        // on the graphics queue. Before the first frame, on the frame thread.
-        void SetQueues( VkQueue graphics, VkQueue compute ) noexcept;
+        // The graph's queues (compute is VK_NULL_HANDLE when the async pipe runs on the graphics queue) and, for
+        // the one-off submits and the checkpoint report (FPS-DEVLOST8: every queue anything is submitted to), the
+        // device's compute and transfer queues (either may equal another queue: reported once). Before the first
+        // frame, on the frame thread.
+        void SetQueues( VkQueue graphics, VkQueue compute, VkQueue deviceCompute, VkQueue transfer ) noexcept;
         void SetEnabled( bool enabled ) noexcept;
         // FPS-DEVLOST4: once per frame after the slot fence. Says ONCE that the GPU's words reached the host on a
         // healthy run (the tool works) - or, kLiveProbeFrames frames after enabling with every word still 0, that
@@ -104,9 +108,9 @@ namespace Desert::Graphic::API::Vulkan
         // VulkanGpuBreadcrumbs), called just before its vkEndCommandBuffer, any thread. Reserves a serial named
         // "one-off <file>:<line>" (@p where: the caller) and records, after the buffer's commands, a TOP_OF_PIPE
         // marker (the front end reached the end of the buffer) and a BOTTOM_OF_PIPE one (its commands completed)
-        // into the submit words of @p queue (graphics or the async pipe's queue; another queue - transfer, a
-        // compute queue the graph does not use - gets the NV checkpoints only: the words buffer is shared with
-        // the graph's families alone). Their own words: a one-off is not in the graphs' serial order on its queue.
+        // into the submit words of @p queue - graphics, the device's compute or its transfer queue (FPS-DEVLOST8;
+        // the words buffer is CONCURRENT over all three families, VulkanResourceSharing) - plus the NV
+        // checkpoints. Their own words: a one-off is not in the graphs' serial order on its queue.
         static void MarkOneOff( void* context, VkCommandBuffer commandBuffer, VkQueue queue,
                                 const std::source_location& where ) noexcept;
         // The report, from the host words and vkGetQueueCheckpointDataNV (serial << 1 | finished per checkpoint;
@@ -145,6 +149,9 @@ namespace Desert::Graphic::API::Vulkan
         PFN_vkGetQueueCheckpointDataNV m_GetCheckpoints = nullptr;
         VkQueue                        m_GraphicsQueue  = VK_NULL_HANDLE;
         VkQueue                        m_ComputeQueue   = VK_NULL_HANDLE;
+        // FPS-DEVLOST8: the one-off words' and the checkpoint report's queues: [0] graphics, [1] the device's
+        // compute, [2] its transfer; VK_NULL_HANDLE where it is the same queue as an earlier one.
+        std::array<VkQueue, kOneOffQueues> m_OneOffQueues{};
         // FPS-DEVLOST6: [first, first + count) of the serials, never through kNoSerial; any thread (graphs and
         // one-off submits).
         [[nodiscard]] uint32_t ReserveSerials( uint32_t count ) noexcept;

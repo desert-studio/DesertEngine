@@ -445,9 +445,10 @@ namespace Common::Scalability
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL; a frame with a "
                "DBuffer decal runs All)",
                Of( EarlyZPassMode::Masked ), Vis::Advanced },
-             { P::EarlyZOccluderScreenRadius, G::ViewDistance, "RenderPipeline.EarlyZOccluderScreenRadius", 0, 1000,
-               CL::None,
-               "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius (thousandths of the screen: "
+             { P::EarlyZOccluderScreenRadius, G::ViewDistance, "RenderPipeline.EarlyZOccluderScreenRadius", 0,
+               1000, CL::None,
+               "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius (thousandths of the "
+               "screen: "
                "the opaque GPU-driven instances at least that large write their depth before the masked prepass; "
                "0 = none)",
                30, Vis::Advanced },
@@ -491,8 +492,9 @@ namespace Common::Scalability
                1, Vis::Advanced },
              { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
                CL::None,
-               "SceneRenderer::OnUpdate -> DeviceLost::SetBreadcrumbsWanted -> VulkanRendererAPI::BeginRdgFrame "
-               "(a start and an end marker per render-graph pass, named per queue by the [DeviceLost] report)",
+               "QualityState listener (VulkanRendererAPI::Init) -> DeviceLost::SetBreadcrumbsWanted -> "
+               "VulkanRendererAPI::BeginRdgFrame (a start and an end marker per render-graph pass and per one-off "
+               "submit, named per queue by the [DeviceLost] report)",
                0, Vis::Advanced },
              { P::CloudLightLocalSamples, G::Effects, "Effects.CloudLightLocalSamples", 1, 16, CL::None,
                "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack "

@@ -89,7 +89,8 @@ namespace Desert::Graphic
         using BreadcrumbReader = std::string ( * )( const void* context );
         static void SetBreadcrumbReader( BreadcrumbReader reader, const void* context ) noexcept;
 
-        /// Scalability RenderPipeline.GpuCrashBreadcrumbs, published by the scene renderer every frame and read
+        /// Scalability RenderPipeline.GpuCrashBreadcrumbs, published by the backend's QualityState listener
+        /// whenever the quality resolves (FPS-DEVLOST8: from boot, not from the first scene frame) and read
         /// by the backend when it begins a frame (Engine/Graphic may not see the backend's types). False: no
         /// marker is recorded.
         static void SetBreadcrumbsWanted( bool wanted ) noexcept;
