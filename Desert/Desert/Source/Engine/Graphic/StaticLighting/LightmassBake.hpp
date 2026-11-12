@@ -4,6 +4,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/StaticLighting/LightingBuildData.hpp>
 #include <Engine/Assets/StaticLighting/StaticLightingInputs.hpp>
+#include <Engine/Graphic/StaticLighting/LightmassSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
@@ -38,23 +39,7 @@
 // Static primitive or light restarts it, as UE's realtime preview does). No separate process, no Swarm.
 namespace Desert::Graphic::StaticLighting
 {
-    // The level's bake settings (UE: AWorldSettings::LightmassSettings, FLightmassWorldInfoSettings, plus GPU
-    // Lightmass's UGPULightmassSettings). Q1: a member `Lightmass` of Core::SceneSettings — the World Settings —
-    // drawn by the World Settings panel; no separate settings component or asset. Their hash is
-    // LightingBuildDataAsset::SettingsHash and StaticLightingInputs::SettingsHash.
-    struct LightmassSettings
-    {
-        uint32_t GISamplesPerTexel        = 512;  // GPU Lightmass GISamples
-        uint32_t StationaryShadowSamples  = 128;  // GPU Lightmass StationaryLightShadowSamples
-        uint32_t MaxBounces               = 8;    // the path tracer's; CPU Lightmass's NumIndirectLightingBounces
-        float    StaticLightingLevelScale = 1.0f; // UE: scales every lightmap resolution of the level
-        bool     BuildVolumetricLightmap  = true;
-        float    VolumetricLightmapDetailCellSize = 200.0f; // cm, UE's default
-        uint32_t VolumetricLightmapMaxBricksMB    = 128;    // UE VolumetricLightmapMaximumBrickMemoryMb
-        bool     UseSkyOcclusion                  = true;
-        bool     Denoise                          = true; // Q3: Intel Open Image Denoise (ThirdParty, CPU), as UE GPU Lightmass
-        float    FrameBudgetMs                    = 30.0f;
-    };
+    // LightmassSettings (the level's bake settings, a member of Core::SceneSettings) is in LightmassSettings.hpp.
 
     enum class BakeStage : uint8_t
     {

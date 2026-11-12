@@ -4,8 +4,8 @@
 
 #include <cstdint>
 
-// LIGHTMASS CONTRACT (owner backlog LIGHTMASS; lead decisions Q1-Q8 of 10-22) — the ECS half of baked static
-// lighting. HEADER CONTRACT ONLY: nothing includes this yet.
+// LIGHTMASS (owner backlog LIGHTMASS; lead decisions Q1-Q8 of 10-22) — the ECS half of baked static lighting
+// (LIGHTMASS-DATA: the blocks are members of the components below, saved in scene schema v75).
 //
 // Q1: THERE IS NO STATIC-LIGHTING COMPONENT. These are settings BLOCKS, each embedded as a member of a component
 // that already exists, exactly as UE keeps LightmassSettings on the light / primitive / world (docs/contracts/
@@ -56,6 +56,20 @@ namespace Desert::ECS
         Movable,
     };
 
+    [[nodiscard]] constexpr const char* MobilityName( const Mobility mobility )
+    {
+        switch ( mobility )
+        {
+            case Mobility::Static:
+                return "Static";
+            case Mobility::Stationary:
+                return "Stationary";
+            case Mobility::Movable:
+                return "Movable";
+        }
+        return "Unknown";
+    }
+
     // On StaticMeshComponent / InstancedStaticMeshComponent / LandscapeComponent (member `StaticLighting`).
     struct StaticLightingPrimitiveSettings
     {
@@ -79,6 +93,8 @@ namespace Desert::ECS
                   Tooltip( "Multiplier on the diffuse albedo this primitive reflects in the bake's bounces (UE: "
                            "FLightmassPrimitiveSettings::DiffuseBoost)." ) )
         float DiffuseBoost = 1.0f;
+
+        [[nodiscard]] bool operator==( const StaticLightingPrimitiveSettings& ) const = default;
     };
 
     // On StaticMeshComponent / InstancedStaticMeshComponent / LandscapeComponent (member `Lightmap`): only on what
@@ -98,6 +114,8 @@ namespace Desert::ECS
                   Tooltip( "Side of LOD 0's square lightmap region in texels (a landscape: per tile), rounded up "
                            "to a multiple of 4 (the block size of the compressed lightmap). UE's default, 64." ) )
         int32_t LightmapResolution = 64;
+
+        [[nodiscard]] bool operator==( const StaticLightingLightmapSettings& ) const = default;
     };
 
     // On DirectionalLightData / PointLightData / SpotLightData (member `StaticLighting`).
@@ -127,5 +145,7 @@ namespace Desert::ECS
         // NOT HERE, unlike UE's ULightComponent::ShadowMapChannel: the stationary light's shadow channel is a
         // RESULT of the bake and lives only in the build data (Assets::BakedLightRecord::ShadowMapChannel), so a
         // scene file never carries a channel that disagrees with the build it was baked into.
+
+        [[nodiscard]] bool operator==( const StaticLightingLightSettings& ) const = default;
     };
 } // namespace Desert::ECS
