@@ -417,6 +417,17 @@ vec2 DesertCanopySnowData( const vec4 vertexColor, const vec2 uv1 )
                                                : vec2( 1.0, 0.0 );
 }
 
+// UE SafeNormalize: @p v as a unit vector, or @p fallback when it is no direction - a zero, denormal, Inf or NaN
+// length (a helper lane's varyings extrapolated past a sub-pixel grass blade, whose two sides' normals tilt apart,
+// can cross zero). normalize() of it is a NaN, and a NaN normal's derivative poisoned the quad's specular AA, the
+// G-buffer roughness and every lit pixel that read it (FPS-FIREFLY2). A finite non-zero @p v: normalize( v ).
+vec3 DesertSafeNormalize( const vec3 v, const vec3 fallback )
+{
+    const float lengthSquared = dot( v, v );
+    if ( !( lengthSquared > 1.0e-20 ) || isinf( lengthSquared ) )
+        return fallback;
+    return v * inversesqrt( lengthSquared );
+}
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
@@ -437,7 +448,7 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
     const float facing = ( frontFacing || DesertIsCanopyVertex( vertexColor ) ) ? 1.0 : -1.0;
     SurfaceInput i;
     i.WorldPosition = worldPosition;
-    i.Normal        = facing * normalize( normal );
+    i.Normal        = facing * DesertSafeNormalize( normal, vec3( 0.0, 1.0, 0.0 ) );
     i.UV0           = uv0;
     i.TBN           = facing * tbn;
     i.UV1           = uv1;
@@ -455,9 +466,11 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
 
 // The shading normal: the tangent-space output through the interpolated TBN. For the default (0,0,1) this is
 // the TBN's third column, the interpolated geometric normal — what the lit shaders used without a normal map.
+// A frame that turns the tangent normal into no direction (a helper lane extrapolated past a blade's edge, a
+// degenerate tangent frame) falls back to the interpolated geometric normal (UE SafeNormalize), never a NaN.
 vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 {
-    return normalize( i.TBN * s.Normal );
+    return DesertSafeNormalize( i.TBN * s.Normal, i.Normal );
 }
 
 // BlendMode Masked (UE's OpacityMask < OpacityMaskClipValue): the parser defines DESERT_SURFACE_MASKED, has refused

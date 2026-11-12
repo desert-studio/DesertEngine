@@ -41,6 +41,10 @@ Shader "LightShaftMask"
             vec2 uv = (vec2(coord) + vec2(0.5f, 0.5f)) / vec2(size);
 
             vec3  colour     = textureLod(SceneColorTexture, uv, 0.0f).rgb;
+            // A non-finite scene texel is no energy (as the bloom's BloomFiniteSource): min() below does not
+            // define its result for a NaN, and the radial blur that follows would streak it toward the sun.
+            if (any(isnan(colour)) || any(isinf(colour)))
+                colour = vec3(0.0f);
             float brightness = max(colour.r, max(colour.g, colour.b));
 
             // Keep only the energy above the threshold, hue preserved — the same bright-pass form the

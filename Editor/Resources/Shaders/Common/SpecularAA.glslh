@@ -33,8 +33,14 @@ const float kDesertSpecularAAClamp = 0.18;
 float DesertSpecularAA( const float roughness, const vec3 dNdx, const vec3 dNdy )
 {
     const float alpha    = roughness * roughness;
-    const float kernel   = 2.0 * kDesertSpecularAAVariance * ( dot( dNdx, dNdx ) + dot( dNdy, dNdy ) );
-    const float filtered = clamp( alpha * alpha + min( kernel, kDesertSpecularAAClamp ), 0.0, 1.0 );
+    const float kernel = 2.0 * kDesertSpecularAAVariance * ( dot( dNdx, dNdx ) + dot( dNdy, dNdy ) );
+    // A non-finite derivative (a quad neighbour - a helper lane past a sub-pixel blade's edge - whose extrapolated
+    // normal was no direction) describes no surface inside the pixel: the clamp's widening, as an edge gets. min()
+    // leaves a NaN's result undefined, and a NaN roughness in the G-buffer is a NaN in every lit pixel that reads
+    // it (FPS-FIREFLY2).
+    const float spread   = ( isnan( kernel ) || isinf( kernel ) ) ? kDesertSpecularAAClamp
+                                                                  : min( kernel, kDesertSpecularAAClamp );
+    const float filtered = clamp( alpha * alpha + spread, 0.0, 1.0 );
     return sqrt( sqrt( filtered ) );
 }
 
