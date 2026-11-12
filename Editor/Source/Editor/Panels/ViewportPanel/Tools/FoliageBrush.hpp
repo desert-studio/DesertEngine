@@ -43,11 +43,14 @@ namespace Desert::Editor::Tools
     {
         Landscape,
         StaticMesh,
+        Foliage, ///< an instance of another foliage type (UE: a foliage-owned component, bFoliageOwned)
     };
 
     struct FoliageTraceHit;
 
-    /// UE FFoliageUISettings' bFilterLandscape / bFilterStaticMesh: the surfaces the brush may place on.
+    /// UE FFoliageUISettings' bFilterLandscape / bFilterStaticMesh / bFilterFoliage / bFilterTranslucent: the
+    /// surfaces the brush may place on (FFoliagePaintingGeometryFilter: an allow list by surface kind, then a deny
+    /// list for translucent materials).
     struct FoliageSurfaceFilter
     {
         bool Landscape  = true;
@@ -58,10 +61,25 @@ namespace Desert::Editor::Tools
         /// a landscape is not filtered by layer, as with the type's rule.
         bool  LayerFiltered      = false;
         float MinimumLayerWeight = 0.5f;
+        /// UE bFilterFoliage: other foliage is a surface to paint on (moss on trees); off by default, as in UE. A
+        /// type is never painted on itself (UE FoliageTrace skips its own type's instances).
+        bool Foliage = false;
+        /// UE bFilterTranslucent: a surface whose material is translucent is painted on; off by default, as in UE,
+        /// so the brush passes through glass and water to what lies beneath.
+        bool Translucent = false;
 
         [[nodiscard]] bool Allows( FoliageSurface surface ) const
         {
-            return surface == FoliageSurface::Landscape ? Landscape : StaticMesh;
+            switch ( surface )
+            {
+                case FoliageSurface::Landscape:
+                    return Landscape;
+                case FoliageSurface::StaticMesh:
+                    return StaticMesh;
+                case FoliageSurface::Foliage:
+                    return Foliage;
+            }
+            return false;
         }
         /// Allows(surface) and the brush's layer rule on one traced hit.
         [[nodiscard]] bool AllowsHit( const FoliageTraceHit& hit ) const;

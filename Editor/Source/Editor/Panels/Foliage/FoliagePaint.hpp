@@ -152,6 +152,15 @@ namespace Desert::Editor::Core
         {
             return s_FilterStaticMesh;
         }
+        // UE FFoliageUISettings bFilterFoliage / bFilterTranslucent (both off by default, as in UE).
+        static bool& FilterFoliage()
+        {
+            return s_FilterFoliage;
+        }
+        static bool& FilterTranslucent()
+        {
+            return s_FilterTranslucent;
+        }
 
         // FO-UI1: the brush held to landscape layers (FoliageSurfaceFilter::LayerFiltered): the weight-plane
         // names the brush reads, and the weight they must reach. Empty = the filter is off.
@@ -170,6 +179,8 @@ namespace Desert::Editor::Core
             filter.StaticMesh         = s_FilterStaticMesh;
             filter.LayerFiltered      = !s_BrushLayers.empty();
             filter.MinimumLayerWeight = s_BrushLayerMinWeight;
+            filter.Foliage            = s_FilterFoliage;
+            filter.Translucent        = s_FilterTranslucent;
             return filter;
         }
 
@@ -220,6 +231,8 @@ namespace Desert::Editor::Core
         static inline std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;
         static inline bool                                                      s_FilterLandscape  = true;
         static inline bool                                                      s_FilterStaticMesh = true;
+        static inline bool                                                      s_FilterFoliage     = false;
+        static inline bool                                                      s_FilterTranslucent = false;
         static inline uint64_t                                                  s_StrokeCounter    = 0u;
         static inline std::vector<std::string>                                  s_BrushLayers;
         static inline float                                                     s_BrushLayerMinWeight = 0.5f;

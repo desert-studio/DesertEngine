@@ -15,6 +15,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Editor/Panels/Foliage/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliageToolProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
@@ -116,9 +117,7 @@ namespace Desert::Editor
                               [] { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
         // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
         // NOLINTBEGIN(bugprone-exception-escape)
-        for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
-                                  Core::FoliageTool::Lasso, Core::FoliageTool::Erase, Core::FoliageTool::Remove,
-                                  Core::FoliageTool::Reapply, Core::FoliageTool::Fill } )
+        for ( const auto tool : Core::kFoliageTools )
             commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
                                   [tool]() -> Common::BoolResultStr
                                   {
@@ -243,6 +242,16 @@ namespace Desert::Editor
         commands.push_back( { "Foliage", "Brush filter: static meshes on/off", []() -> Common::BoolResultStr
                               {
                                   Core::FoliagePaint::FilterStaticMesh() = !Core::FoliagePaint::FilterStaticMesh();
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Brush filter: foliage on/off", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::FilterFoliage() = !Core::FoliagePaint::FilterFoliage();
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Brush filter: translucent on/off", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::FilterTranslucent() = !Core::FoliagePaint::FilterTranslucent();
                                   return BOOLSUCCESS;
                               } } );
         commands.push_back( { "Foliage", "Brush layer filter: off", []() -> Common::BoolResultStr

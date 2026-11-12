@@ -43,7 +43,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<FoliageToolRow, 6> kFoliageToolRows = { {
+    inline constexpr std::array<FoliageToolRow, 9> kFoliageToolRows = { {
          { "Tool", "Tool", FoliageToolRow::Kind::Tool, 0.0f, 0.0f, nullptr, nullptr },
          { "BrushSize", "Brush Size", FoliageToolRow::Kind::Float, kFoliageBrushSizeMin, kFoliageBrushSizeMax,
            [] { return &FoliagePaint::BrushRadius(); }, nullptr },
@@ -53,14 +53,21 @@ namespace Desert::Editor::Core
            [] { return &FoliagePaint::FilterLandscape(); } },
          { "FilterStaticMesh", "Static Mesh", FoliageToolRow::Kind::Bool, 0.0f, 0.0f, nullptr,
            [] { return &FoliagePaint::FilterStaticMesh(); } },
+         { "FilterFoliage", "Foliage", FoliageToolRow::Kind::Bool, 0.0f, 0.0f, nullptr,
+           [] { return &FoliagePaint::FilterFoliage(); } },
+         { "FilterTranslucent", "Translucent", FoliageToolRow::Kind::Bool, 0.0f, 0.0f, nullptr,
+           [] { return &FoliagePaint::FilterTranslucent(); } },
+         { "EraseDensity", "Erase Density", FoliageToolRow::Kind::Float, 0.0f, 1.0f,
+           [] { return &FoliagePaint::EraseDensity(); }, nullptr },
          { "BrushLayerMinWeight", "Layer Min Weight", FoliageToolRow::Kind::Float, 0.0f, 1.0f,
            [] { return &FoliagePaint::BrushLayerMinWeight(); }, nullptr },
     } };
     // clang-format on
 
-    inline constexpr FoliageTool kFoliageTools[] = { FoliageTool::Paint, FoliageTool::Single, FoliageTool::Select,
-                                                     FoliageTool::Lasso, FoliageTool::Remove, FoliageTool::Reapply,
-                                                     FoliageTool::Fill };
+    // Every tool, in the toolbar's order: what `set tool Tool <name>` and the palette's "Tool: <name>" entries take.
+    inline constexpr FoliageTool kFoliageTools[] = { FoliageTool::Paint,   FoliageTool::Single, FoliageTool::Select,
+                                                     FoliageTool::Lasso,   FoliageTool::Erase,  FoliageTool::Remove,
+                                                     FoliageTool::Reapply, FoliageTool::Fill };
 
     [[nodiscard]] inline const char* FoliageToolRowType( const FoliageToolRow& row )
     {

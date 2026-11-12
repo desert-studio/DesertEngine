@@ -362,7 +362,7 @@ namespace Desert::Editor::Tools
             Row::EndPropertyRow();
         }
 
-        // ----- Filters (UE bFilterLandscape / bFilterStaticMesh; + the brush's landscape layer) -------------
+        // ----- Filters (UE bFilterLandscape / StaticMesh / Foliage / Translucent; + the brush's landscape layer)
         if ( Row::SectionHeader( "Filters", false ) )
         {
             Row::BeginPropertyRow( "Landscape" );
@@ -370,6 +370,14 @@ namespace Desert::Editor::Tools
             Row::EndPropertyRow();
             Row::BeginPropertyRow( "Static Meshes" );
             ImGui::Checkbox( "##FilterStaticMesh", &Core::FoliagePaint::FilterStaticMesh() );
+            Row::EndPropertyRow();
+            Row::BeginPropertyRow( "Foliage", "Paint on other foliage types' instances; a type is never painted on "
+                                              "itself" );
+            ImGui::Checkbox( "##FilterFoliage", &Core::FoliagePaint::FilterFoliage() );
+            Row::EndPropertyRow();
+            Row::BeginPropertyRow( "Translucent", "Paint on surfaces with a translucent material; off, the brush "
+                                                  "passes through them to what lies beneath" );
+            ImGui::Checkbox( "##FilterTranslucent", &Core::FoliagePaint::FilterTranslucent() );
             Row::EndPropertyRow();
 
             auto&             layers = Core::FoliagePaint::BrushLayers();
