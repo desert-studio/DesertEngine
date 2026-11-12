@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert
@@ -673,10 +674,9 @@ namespace Desert::Graphic::System
         // FPS-GRASS-PLAN, render thread. The mesh a variety draws (a blade's strip, made on first use), null when
         // it is not drawable this frame (not resident, no indices, no sections).
         [[nodiscard]] class Desert::Mesh* DrawableMesh( const GrassVarietyDraw& variety );
-        // True when @p plans already holds @p variety's key (a content fault: two layers resolve to one variety),
-        // said once per key; the repeat is prepared after its first's apply.
-        [[nodiscard]] static bool RepeatedKey( std::span<const VarietyPlan> plans,
-                                               const GrassVarietyDraw&      variety );
+        // True when @p keys (the frame's planned keys) already holds @p variety's key - a content fault, said once
+        // per key; the repeat is dropped. Otherwise the key is added to @p keys.
+        [[nodiscard]] static bool RepeatedKey( std::unordered_set<uint64_t>& keys, const GrassVarietyDraw& variety );
         // The counts the GPU wrote into @p plan's entry's feedback range FramesInFlight frames ago, into the plan
         // (PrepareVariety reads them there) - a StorageBuffer read, so never on the plan task.
         void ReadVarietyFeedback( VarietyPlan& plan ) const;
