@@ -115,6 +115,7 @@ namespace Desert::Graphic::GlobalIllumination
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
             };
             return Image2D::Create( spec );
         }

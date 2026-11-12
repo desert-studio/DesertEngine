@@ -326,6 +326,7 @@ namespace Desert::Graphic::SurfaceCache
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
             };
             m_Layers[i] = Image2D::Create( spec );
             if ( !m_Layers[i] )
@@ -345,6 +346,7 @@ namespace Desert::Graphic::SurfaceCache
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Attachment,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
             };
             m_LitLayers[i] = Image2D::Create( spec );
             if ( !m_LitLayers[i] )
@@ -363,6 +365,7 @@ namespace Desert::Graphic::SurfaceCache
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Attachment,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
             };
             m_RadiosityTrace = Image2D::Create( spec );
             if ( !m_RadiosityTrace )
