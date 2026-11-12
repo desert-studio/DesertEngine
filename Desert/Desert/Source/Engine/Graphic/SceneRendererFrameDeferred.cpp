@@ -729,6 +729,7 @@ namespace Desert::Graphic
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         gather.PrevPreExposure      = frame.PrevPreExposure;
+        gather.PreExposure          = frame.PreExposure;
         // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
         // system black texture with the leg off when the view has no screen trace.
         gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
