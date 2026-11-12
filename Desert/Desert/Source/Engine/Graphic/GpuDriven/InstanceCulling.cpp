@@ -281,7 +281,7 @@ namespace Desert::Graphic::GpuDriven
          RDG::Builder& graph, const GpuSceneBuffers& scene, const std::span<const PassDrawTable> tables,
          const std::span<const PassDrawBuffers> passes, const std::span<const CullViewInput> views,
          const RDG::TextureRef neutralHzb, const VirtualGeometryCandidateInput& virtualGeometry,
-         CulledRowStore& rows ) const
+         CulledRowStore& keptRows ) const
     {
         if ( views.empty() )
             return Common::MakeError<MainPhaseResult>( "GPUDriven: Cull: no view to cull for" );
@@ -434,7 +434,7 @@ namespace Desert::Graphic::GpuDriven
                  graph.CreateBuffer( RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * bins ) *
                                                                sizeof( GpuIndirectDraw ) },
                                      std::format( "GPUDriven.IndirectDraws.P{}", p ) );
-            if ( const Common::BoolResultStr kept = KeptRows( graph, rows.Main[p], uint64_t{ local } * capacity,
+            if ( const Common::BoolResultStr kept = KeptRows( graph, keptRows.Main[p], uint64_t{ local } * capacity,
                                                               std::format( ".P{}", p ), binds.Visible,
                                                               binds.VisibleIds );
                  !kept )
@@ -466,7 +466,7 @@ namespace Desert::Graphic::GpuDriven
     Common::ResultStr<std::vector<CulledDraws>> InstanceCulling::AddPostOcclusionPhase(
          RDG::Builder& graph, const GpuSceneBuffers& scene, const std::span<const PassDrawTable> tables,
          const std::span<const PassDrawBuffers> passes, const std::span<const CullViewInput> views,
-         const OcclusionCarry& carry, CulledRowStore& rows ) const
+         const OcclusionCarry& carry, CulledRowStore& keptRows ) const
     {
         using Result = std::vector<CulledDraws>;
         if ( views.empty() || views.size() != carry.ViewCount )
@@ -528,7 +528,7 @@ namespace Desert::Graphic::GpuDriven
                                                                sizeof( GpuIndirectDraw ) },
                                      std::format( "GPUDriven.IndirectDraws2.P{}", p ) );
             if ( const Common::BoolResultStr kept =
-                      KeptRows( graph, rows.Post[p], uint64_t{ local } * table.VisibleCapacity,
+                      KeptRows( graph, keptRows.Post[p], uint64_t{ local } * table.VisibleCapacity,
                                 std::format( "2.P{}", p ), binds.Visible, binds.VisibleIds );
                  !kept )
                 return Common::MakeError<Result>( kept.GetError() );
