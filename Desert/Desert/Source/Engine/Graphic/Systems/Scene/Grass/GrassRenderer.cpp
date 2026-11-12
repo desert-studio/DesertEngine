@@ -3480,6 +3480,15 @@ namespace Desert::Graphic::System
                 uint32_t flags = 0u;
                 if ( gpu->Shape )
                     flags = kRowBlade;
+                // FPS-DEVLOST10, ONE CASCADE MASK: the views this frame draws (ViewVolumes::CascadeMask) are the
+                // one source; the variety's copy (set by its (re)build, PrepareVariety) is what its sections hand
+                // MeshRenderer (list offsets, MeshRendererGpuInstanced sectionCasterOf) and what Info.w hands
+                // GrassCull, and the header's planes are laid list k = the k-th set bit of the frame's mask. A row
+                // whose copy differs would cull and draw lists against other views' planes and offsets: refused.
+                if ( gpu->CascadeMask != volumes.CascadeMask )
+                    return Common::MakeFormattedError(
+                         "a variety's cascade mask {:#x} is not this frame's {:#x} (its rebuild did not run)",
+                         gpu->CascadeMask, volumes.CascadeMask );
                 row.Info   = glm::uvec4( gpu->Buckets, gpu->TableWord, flags, gpu->CascadeMask );
                 // Never 0 (a chunk the build wrote carries 0), and consecutive generations differ.
                 row.LawGeneration = static_cast<uint32_t>( gpu->LawGeneration % 0xFFFFFFFFull ) + 1u;
