@@ -416,9 +416,16 @@ namespace Desert::Graphic
             return;
         }
         // The lighting targets' extent (AddFrameComposite's directDesc); a pass at another extent covers its view.
-        const System::DeferredTileLists lists = deferred->CreateTileLists(
-             graph, m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
-        textures.Transients.DeferredTiles = lists;
+        const Common::ResultStr<System::DeferredTileLists> made =
+             deferred->CreateTileLists( graph, m_TargetFramebuffer->GetFramebufferWidth(),
+                                        m_TargetFramebuffer->GetFramebufferHeight(), m_KeptDeferredTiles );
+        if ( !made )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: Tile Classify: {}; the view has no tile lists", made.GetError() );
+            return;
+        }
+        const System::DeferredTileLists& lists = made.GetValue();
+        textures.Transients.DeferredTiles      = lists;
         const RDG::TextureRef normal      = gbuffer[1];
         const RDG::TextureRef shadingWord = gbuffer[2];
         // ASYNC COMPUTE (UE Substrate's classification on the async pipe): every input is a graph resource. Fork:
@@ -450,10 +457,17 @@ namespace Desert::Graphic
              frame.Split.Render.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
         // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.ShadowViews" /
         // "Upload: Lights.GridParams", ordered before the nodes that read them.
-        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
-             graph, GetPointLights(), GetSpotLights(),
-             m_Systems.Mesh->GetLocalShadowRows(), grid );
-        textures.Transients.Lights = lights;
+        const Common::ResultStr<System::DeferredCompositeLights> uploaded =
+             System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights(),
+                                                             m_Systems.Mesh->GetLocalShadowRows(), grid,
+                                                             m_KeptLights );
+        if ( !uploaded )
+        {
+            LOG_ERROR( "[SceneRenderer] LightGrid: {}; the view has no light buffers", uploaded.GetError() );
+            return {};
+        }
+        const System::DeferredCompositeLights& lights = uploaded.GetValue();
+        textures.Transients.Lights                    = lights;
 
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
         // it, before any lit node reads the lists.

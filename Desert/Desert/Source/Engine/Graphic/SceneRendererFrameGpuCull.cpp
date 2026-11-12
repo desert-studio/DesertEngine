@@ -431,7 +431,8 @@ namespace Desert::Graphic
         bins.NeutralHzb = textures.GraphRefs().System.Black;
         const Common::ResultStr<GpuDriven::MainPhaseResult> culled =
              m_GpuCull.AddMainPhase( graph, scene.GetValue(), meshes->GetDrawCommandCache()->Passes(),
-                                     upload.GetValue().Passes, views, bins.NeutralHzb, vgTables.Input );
+                                     upload.GetValue().Passes, views, bins.NeutralHzb, vgTables.Input,
+                                     m_GpuCullRowsMain );
         if ( !culled )
         {
             refuse( culled.GetError() );
@@ -546,7 +547,8 @@ namespace Desert::Graphic
                 const Common::ResultStr<std::vector<GpuDriven::CulledDraws>> post =
                      m_GpuCull.AddPostOcclusionPhase( graph, bins.Scene,
                                                       meshRenderer->GetDrawCommandCache()->Passes(),
-                                                      bins.Upload.Passes, bins.Views, bins.Carry );
+                                                      bins.Upload.Passes, bins.Views, bins.Carry,
+                                                      m_GpuCullRowsMain );
                 if ( !post )
                     refuse( post.GetError() );
                 else if ( meshRenderer->SetFramePostOcclusion( GpuDriven::MeshPass::GBuffer, bins.ViewKeys.front(),
@@ -580,7 +582,8 @@ namespace Desert::Graphic
             }
             const Common::ResultStr<GpuDriven::MainPhaseResult> culled = m_GpuCull.AddMainPhase(
                  graph, bins.Scene, meshRenderer->GetDrawCommandCache()->Passes(), bins.Upload.Passes,
-                 std::span( &prepass, 1 ), bins.NeutralHzb, GpuDriven::VirtualGeometryCandidateInput{} );
+                 std::span( &prepass, 1 ), bins.NeutralHzb, GpuDriven::VirtualGeometryCandidateInput{},
+                 m_GpuCullRowsPrepass );
             if ( !culled )
                 refuse( std::format( "depth prepass view: {}; its bins are drawn on the CPU path",
                                      culled.GetError() ) );
@@ -730,7 +733,8 @@ namespace Desert::Graphic
 
         const Common::ResultStr<GpuDriven::MainPhaseResult> mainPhase =
              m_GpuCull.AddMainPhase( graph, scene.GetValue(), tables, passes, views, neutralHzb,
-                                     GpuDriven::VirtualGeometryCandidateInput{} ); // the validation cuts nothing
+                                     GpuDriven::VirtualGeometryCandidateInput{}, // the validation cuts nothing
+                                     m_GpuCullRowsValidation );
         if ( !mainPhase )
         {
             refuse( mainPhase.GetError() );
@@ -751,7 +755,8 @@ namespace Desert::Graphic
         {
             views[mainView].Hzb                                               = furthest;
             const Common::ResultStr<std::vector<GpuDriven::CulledDraws>> post = m_GpuCull.AddPostOcclusionPhase(
-                 graph, scene.GetValue(), tables, passes, views, mainPhase.GetValue().Carry );
+                 graph, scene.GetValue(), tables, passes, views, mainPhase.GetValue().Carry,
+                 m_GpuCullRowsValidation );
             if ( !post )
             {
                 refuse( post.GetError() );
@@ -1098,7 +1103,7 @@ namespace Desert::Graphic
         const Common::ResultStr<GpuDriven::MainPhaseResult> culled = m_GpuCull.AddMainPhase(
              graph, bins.Scene, std::array<GpuDriven::PassDrawTable, GpuDriven::kMeshPassCount>{},
              std::array<GpuDriven::PassDrawBuffers, GpuDriven::kMeshPassCount>{}, views, bins.NeutralHzb,
-             vgTables.GetValue().Input );
+             vgTables.GetValue().Input, m_GpuCullRowsVsm );
         if ( !culled )
         {
             logOnce( std::format( "VSM levels: {}", culled.GetError() ) );

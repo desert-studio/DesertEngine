@@ -9,10 +9,13 @@
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <format>
+#include <limits>
 #include <string>
 
 namespace Desert::Graphic::GpuDriven
@@ -87,6 +90,60 @@ namespace Desert::Graphic::GpuDriven
             const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = bytes }, name );
             graph.QueueBufferClear( buffer, 0u );
             return buffer;
+        }
+
+        // FPS-SET-MEMO4: @p bytes of a kept device-local buffer (CulledRowStore), imported into @p graph as
+        // @p name. Grow-only to the power of two of the need, so the buffer (and its size in the bound-sets memo
+        // key) stays put while VisibleCapacity moves; the shaders index rows by Params2.y, a larger buffer reads
+        // the same. Refused over a buffer's 32-bit size or when the buffer cannot be made or imported.
+        Common::ResultStr<RDG::BufferRef> KeptBuffer( RDG::Builder&                                              graph,
+                                                      std::shared_ptr<::Desert::ShaderResources::StorageBuffer>& buffer,
+                                                      RDG::ExternalBuffer& import, uint64_t& capacity,
+                                                      const uint64_t bytes, const std::string& name ) noexcept
+        {
+            constexpr uint64_t kMaxBytes = std::numeric_limits<uint32_t>::max();
+            if ( buffer == nullptr || bytes > capacity )
+            {
+                if ( bytes > kMaxBytes )
+                    return Common::MakeError<RDG::BufferRef>( std::format(
+                         "GPUDriven: Cull: '{}' needs {} bytes, over a buffer's 32-bit size", name, bytes ) );
+                const uint64_t grown = std::min( std::bit_ceil( std::max<uint64_t>( bytes, 256u ) ), kMaxBytes );
+                buffer               = ::Desert::ShaderResources::StorageBuffer::CreateDeviceLocal(
+                     name, static_cast<uint32_t>( grown ), 0u );
+                import               = RDG::ExternalBuffer{};
+                if ( buffer == nullptr )
+                {
+                    capacity = 0u;
+                    return Common::MakeError<RDG::BufferRef>(
+                         std::format( "GPUDriven: Cull: '{}' ({} bytes) was not made", name, grown ) );
+                }
+                capacity = grown;
+            }
+            if ( const Common::BoolResultStr imported = Renderer::ImportBuffer( buffer, import ); !imported )
+                return Common::MakeError<RDG::BufferRef>(
+                     std::format( "GPUDriven: Cull: '{}': {}", name, imported.GetError() ) );
+            return Common::MakeSuccess( graph.RegisterExternal( import, name ) );
+        }
+
+        // The visible rows of one pass's dispatch: the call site's kept pair (@p rows), @p rowCount rows each.
+        Common::BoolResultStr KeptRows( RDG::Builder& graph, CulledRowStore::Rows& rows, const uint64_t rowCount,
+                                        const std::string& suffix, RDG::BufferRef& visible,
+                                        RDG::BufferRef& visibleIds ) noexcept
+        {
+            const uint64_t                          count = std::max<uint64_t>( 1u, rowCount );
+            const Common::ResultStr<RDG::BufferRef> v =
+                 KeptBuffer( graph, rows.Visible, rows.VisibleImport, rows.VisibleBytes,
+                             count * sizeof( GpuVisibleInstance ), "GPUDriven.VisibleInstances" + suffix );
+            if ( !v )
+                return Common::MakeError( v.GetError() );
+            const Common::ResultStr<RDG::BufferRef> ids =
+                 KeptBuffer( graph, rows.VisibleIds, rows.VisibleIdsImport, rows.VisibleIdsBytes,
+                             count * sizeof( uint32_t ), "GPUDriven.VisibleInstanceIds" + suffix );
+            if ( !ids )
+                return Common::MakeError( ids.GetError() );
+            visible    = v.GetValue();
+            visibleIds = ids.GetValue();
+            return BOOLSUCCESS;
         }
 
         // The views of each mesh pass, in the caller's order.
@@ -223,7 +280,8 @@ namespace Desert::Graphic::GpuDriven
     Common::ResultStr<MainPhaseResult> InstanceCulling::AddMainPhase(
          RDG::Builder& graph, const GpuSceneBuffers& scene, const std::span<const PassDrawTable> tables,
          const std::span<const PassDrawBuffers> passes, const std::span<const CullViewInput> views,
-         const RDG::TextureRef neutralHzb, const VirtualGeometryCandidateInput& virtualGeometry ) const
+         const RDG::TextureRef neutralHzb, const VirtualGeometryCandidateInput& virtualGeometry,
+         CulledRowStore& rows ) const
     {
         if ( views.empty() )
             return Common::MakeError<MainPhaseResult>( "GPUDriven: Cull: no view to cull for" );
@@ -376,13 +434,11 @@ namespace Desert::Graphic::GpuDriven
                  graph.CreateBuffer( RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * bins ) *
                                                                sizeof( GpuIndirectDraw ) },
                                      std::format( "GPUDriven.IndirectDraws.P{}", p ) );
-            binds.Visible = graph.CreateBuffer(
-                 RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * capacity ) *
-                                           sizeof( GpuVisibleInstance ) },
-                 std::format( "GPUDriven.VisibleInstances.P{}", p ) );
-            binds.VisibleIds = graph.CreateBuffer(
-                 RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * capacity ) * sizeof( uint32_t ) },
-                 std::format( "GPUDriven.VisibleInstanceIds.P{}", p ) );
+            if ( const Common::BoolResultStr kept = KeptRows( graph, rows.Main[p], uint64_t{ local } * capacity,
+                                                              std::format( ".P{}", p ), binds.Visible,
+                                                              binds.VisibleIds );
+                 !kept )
+                return Common::MakeError<MainPhaseResult>( kept.GetError() );
 
             CullPush push;
             push.Params  = { kStepInitDraws, instances, local, firstRow[p] };
@@ -410,7 +466,7 @@ namespace Desert::Graphic::GpuDriven
     Common::ResultStr<std::vector<CulledDraws>> InstanceCulling::AddPostOcclusionPhase(
          RDG::Builder& graph, const GpuSceneBuffers& scene, const std::span<const PassDrawTable> tables,
          const std::span<const PassDrawBuffers> passes, const std::span<const CullViewInput> views,
-         const OcclusionCarry& carry ) const
+         const OcclusionCarry& carry, CulledRowStore& rows ) const
     {
         using Result = std::vector<CulledDraws>;
         if ( views.empty() || views.size() != carry.ViewCount )
@@ -471,14 +527,11 @@ namespace Desert::Graphic::GpuDriven
                  graph.CreateBuffer( RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * bins ) *
                                                                sizeof( GpuIndirectDraw ) },
                                      std::format( "GPUDriven.IndirectDraws2.P{}", p ) );
-            binds.Visible = graph.CreateBuffer(
-                 RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * table.VisibleCapacity ) *
-                                           sizeof( GpuVisibleInstance ) },
-                 std::format( "GPUDriven.VisibleInstances2.P{}", p ) );
-            binds.VisibleIds = graph.CreateBuffer(
-                 RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * table.VisibleCapacity ) *
-                                           sizeof( uint32_t ) },
-                 std::format( "GPUDriven.VisibleInstanceIds2.P{}", p ) );
+            if ( const Common::BoolResultStr kept =
+                      KeptRows( graph, rows.Post[p], uint64_t{ local } * table.VisibleCapacity,
+                                std::format( "2.P{}", p ), binds.Visible, binds.VisibleIds );
+                 !kept )
+                return Common::MakeError<Result>( kept.GetError() );
             binds.ArgsSlot = ZeroBuffer( graph, std::format( "GPUDriven.PostArgsSlot.P{}", p ) );
 
             CullPush push;
