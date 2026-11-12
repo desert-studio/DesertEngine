@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
@@ -399,6 +400,68 @@ namespace Desert::Physics
         // another body's contacts and overlaps see of the character. Queries skip it: a character's own
         // probes (the spring arm, the crouch check) start inside its capsule.
         constexpr JPH::uint64 kCharacterInnerBit = 2u;
+        // The user-data bits that are flags; the rest is the body's EngineMaterial address (8-aligned).
+        constexpr JPH::uint64 kUserDataFlagBits = 7u;
+
+        /**
+         * A physical material as the world holds it (UE FPhysicsMaterialHandle: one per UPhysicalMaterial, shared
+         * by every body that slides with it). A Jolt PhysicsMaterial, so a shape can also name it per sub-shape.
+         * Every body the world builds points at one through its user data: the solver's combine callbacks are
+         * plain functions, and the body is all they are handed.
+         */
+        class EngineMaterial final : public JPH::PhysicsMaterial
+        {
+        public:
+            EngineMaterial( PhysicalMaterialId id, const PhysicalMaterialDesc& desc ) : Id( id ), Desc( desc )
+            {
+            }
+
+            const PhysicalMaterialId   Id;
+            const PhysicalMaterialDesc Desc;
+        };
+        static_assert( alignof( EngineMaterial ) > kUserDataFlagBits,
+                       "the material's address shares the body's user data with the flag bits" );
+
+        JPH::uint64 MaterialBits( const EngineMaterial& material )
+        {
+            return static_cast<JPH::uint64>( reinterpret_cast<std::uintptr_t>( &material ) );
+        }
+
+        // Every body in a PhysicsWorld is built with a material (CreateBody, CreateCompoundBody,
+        // CreateInstancedStaticBody, CreateHeightField, a character's inner body, a ragdoll's parts).
+        const EngineMaterial& MaterialOf( const JPH::Body& body )
+        {
+            const auto address = static_cast<std::uintptr_t>( body.GetUserData() & ~kUserDataFlagBits );
+            JPH_ASSERT( address != 0u );
+            return *reinterpret_cast<const EngineMaterial*>( address );
+        }
+
+        // The solver's combine callbacks (ContactConstraintManager::CombineFunction): UE's pair rule over the two
+        // bodies' materials instead of Jolt's geometric-mean friction and max restitution.
+        float CombineFriction( const JPH::Body& body1, const JPH::SubShapeID&, const JPH::Body& body2,
+                               const JPH::SubShapeID& )
+        {
+            const PhysicalMaterialDesc& a = MaterialOf( body1 ).Desc;
+            const PhysicalMaterialDesc& b = MaterialOf( body2 ).Desc;
+            return CombineMaterialValues( a.Friction, a.FrictionCombine, b.Friction, b.FrictionCombine );
+        }
+
+        float CombineRestitution( const JPH::Body& body1, const JPH::SubShapeID&, const JPH::Body& body2,
+                                  const JPH::SubShapeID& )
+        {
+            const PhysicalMaterialDesc& a = MaterialOf( body1 ).Desc;
+            const PhysicalMaterialDesc& b = MaterialOf( body2 ).Desc;
+            return CombineMaterialValues( a.Restitution, a.RestitutionCombine, b.Restitution, b.RestitutionCombine );
+        }
+
+        // What a body's creation settings carry of its material: Jolt's own per-body values (read by whatever
+        // in Jolt asks a single body, e.g. a character's contact) and the material's address beside @p flags.
+        void ApplyMaterial( JPH::BodyCreationSettings& settings, const EngineMaterial& material, JPH::uint64 flags )
+        {
+            settings.mFriction    = material.Desc.Friction;
+            settings.mRestitution = material.Desc.Restitution;
+            settings.mUserData    = MaterialBits( material ) | flags;
+        }
 
         class NotCharacterBodyFilter final : public JPH::BodyFilter
         {
@@ -812,6 +875,19 @@ namespace Desert::Physics
 
         JPH::BodyInterface* Bodies = nullptr;
 
+        // The registered physical materials, by PhysicalMaterialId ([0] = the default Init was given). Never
+        // shrinks while the world lives: bodies point at these objects.
+        std::vector<JPH::Ref<EngineMaterial>> Materials;
+
+        /// The material @p id, or the refusal naming what asked for it.
+        Common::ResultStr<const EngineMaterial*> FindMaterial( PhysicalMaterialId id, std::string_view what ) const
+        {
+            if ( id >= Materials.size() )
+                return Common::MakeError<const EngineMaterial*>(
+                     std::format( "{} names physical material {}, the world has {}", what, id, Materials.size() ) );
+            return Common::MakeSuccess<const EngineMaterial*>( Materials[id].GetPtr() );
+        }
+
         // The heightfields' shapes, held non-const: SetHeights patches the shape the body already carries,
         // and the body only hands back a const reference to it.
         std::unordered_map<BodyHandle, JPH::Ref<JPH::HeightFieldShape>> HeightFields;
@@ -1083,7 +1159,8 @@ namespace Desert::Physics
     PhysicsWorld::PhysicsWorld()  = default;
     PhysicsWorld::~PhysicsWorld() { Shutdown(); }
 
-    bool PhysicsWorld::Init( float gravityCmPerS2, CollisionProfiles profiles )
+    bool PhysicsWorld::Init( float gravityCmPerS2, CollisionProfiles profiles,
+                             const PhysicalMaterialDesc& defaultMaterial )
     {
         if ( m_Impl )
             return true;
@@ -1115,12 +1192,38 @@ namespace Desert::Physics
         m_Impl->Impulses.System   = &m_Impl->System;
         m_Impl->Impulses.Profiles = &m_Impl->Profiles;
         m_Impl->System.SetContactListener( &m_Impl->Impulses );
+        m_Impl->System.SetCombineFriction( &CombineFriction );
+        m_Impl->System.SetCombineRestitution( &CombineRestitution );
+        m_Impl->Materials.emplace_back( new EngineMaterial( kDefaultPhysicalMaterial, defaultMaterial ) );
         return true;
     }
 
     const CollisionProfiles& PhysicsWorld::GetCollisionProfiles() const
     {
         return m_Impl->Profiles;
+    }
+
+    Common::ResultStr<PhysicalMaterialId> PhysicsWorld::RegisterPhysicalMaterial( const PhysicalMaterialDesc& desc )
+    {
+        if ( !m_Impl )
+            return Common::MakeError<PhysicalMaterialId>( "the physics world is not initialised" );
+        if ( auto valid = ValidatePhysicalMaterial( desc ); !valid )
+            return Common::MakeError<PhysicalMaterialId>( valid.GetError() );
+        const auto id = static_cast<PhysicalMaterialId>( m_Impl->Materials.size() );
+        m_Impl->Materials.emplace_back( new EngineMaterial( id, desc ) );
+        return Common::MakeSuccess( id );
+    }
+
+    const PhysicalMaterialDesc* PhysicsWorld::GetPhysicalMaterial( PhysicalMaterialId id ) const
+    {
+        if ( !m_Impl || id >= m_Impl->Materials.size() )
+            return nullptr;
+        return &m_Impl->Materials[id]->Desc;
+    }
+
+    uint32_t PhysicsWorld::GetPhysicalMaterialCount() const
+    {
+        return m_Impl ? static_cast<uint32_t>( m_Impl->Materials.size() ) : 0u;
     }
 
     void PhysicsWorld::SetGravity( float gravityCmPerS2 )
@@ -1273,6 +1376,9 @@ namespace Desert::Physics
             return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
         if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the compound body" ); !profiled )
             return Common::MakeError<BodyHandle>( profiled.GetError() );
+        const auto material = m_Impl->FindMaterial( desc.Material, "the compound body" );
+        if ( !material )
+            return Common::MakeError<BodyHandle>( material.GetError() );
         if ( desc.Parts.empty() )
             return Common::MakeError<BodyHandle>( "a compound body needs at least one part" );
 
@@ -1318,8 +1424,7 @@ namespace Desert::Physics
         JPH::BodyCreationSettings settings( result.Get(),
                                             JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );
-        settings.mFriction    = desc.Friction;
-        settings.mRestitution = desc.Restitution;
+        ApplyMaterial( settings, *material.GetValue(), desc.ReportContactImpulses ? kReportImpulsesBit : 0u );
         if ( desc.Type == BodyType::Dynamic )
         {
             settings.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
@@ -1329,7 +1434,6 @@ namespace Desert::Physics
         }
         if ( desc.ReportContactImpulses )
         {
-            settings.mUserData = kReportImpulsesBit;
             // Coplanar manifolds of different parts would be merged into one and keep one part's ID
             // (Body::SetUseManifoldReduction): every part's contact must name its own part.
             settings.mUseManifoldReduction = false;
@@ -1422,17 +1526,25 @@ namespace Desert::Physics
 
         JPH::BodyCreationSettings settings( shape, JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
                                             ToJolt( desc.Rotation ), motion, layer );
-        settings.mFriction    = desc.Friction;
-        settings.mRestitution = desc.Restitution;
+        ApplyMaterial( settings, *material.GetValue(), 0u );
         // A landscape is one heightfield BODY PER TILE, and the border edges of each are active edges: a
         // ball rolling across a seam met the neighbour's edge and hopped (+0.24 cm, then sank 0.38 cm, in the
         // landscape_raycast suite). The run-time check removes that ghost contact; measured smooth to the
         // steady rolling depth. Dynamic bodies only — static and kinematic ones are never pushed by contacts.
         settings.mEnhancedInternalEdgeRemoval = desc.Type == BodyType::Dynamic;
-        if ( desc.Type == BodyType::Dynamic && desc.Mass > 0.0f )
+        if ( desc.Type == BodyType::Dynamic )
         {
-            settings.mOverrideMassProperties     = JPH::EOverrideMassProperties::CalculateInertia;
-            settings.mMassPropertiesOverride.mMass = desc.Mass;
+            // No mass stated: the shape's volume (cm^3) at the material's density (g/cm^3), in kilograms. Jolt's
+            // own density (1000 per cubic unit) is a kilogram per cubic CENTIMETRE here, a thousand times water.
+            const float mass = desc.Mass > 0.0f
+                                    ? desc.Mass
+                                    : shape->GetVolume() * material.GetValue()->Desc.DensityGPerCm3 * 0.001f;
+            if ( !( mass > 0.0f ) )
+                return Common::MakeError<BodyHandle>(
+                     std::format( "the dynamic {} collider has no volume to derive a mass from; state its mass",
+                                  ShapeName( desc.Shape ) ) );
+            settings.mOverrideMassProperties       = JPH::EOverrideMassProperties::CalculateInertia;
+            settings.mMassPropertiesOverride.mMass = mass;
         }
 
         const JPH::EActivation activation = isStatic ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
@@ -1525,8 +1637,7 @@ namespace Desert::Physics
         JPH::BodyCreationSettings settings( result.Get(), JPH::RVec3( origin.x, origin.y, origin.z ),
                                             JPH::Quat::sIdentity(), JPH::EMotionType::Static,
                                             LayerOf( desc.Profile, false ) );
-        settings.mFriction    = desc.Friction;
-        settings.mRestitution = desc.Restitution;
+        ApplyMaterial( settings, *material.GetValue(), 0u );
         const JPH::BodyID id  = m_Impl->Bodies->CreateAndAddBody( settings, JPH::EActivation::DontActivate );
         if ( id.IsInvalid() )
             return Common::MakeError<BodyHandle>(
@@ -1558,6 +1669,9 @@ namespace Desert::Physics
             return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
         if ( auto profiled = CheckProfile( m_Impl->Profiles, desc.Profile, "the heightfield" ); !profiled )
             return Common::MakeError<BodyHandle>( profiled.GetError() );
+        const auto material = m_Impl->FindMaterial( desc.Material, "the heightfield" );
+        if ( !material )
+            return Common::MakeError<BodyHandle>( material.GetError() );
         auto shape = BuildHeightField( desc );
         if ( !shape.IsSuccess() )
             return Common::MakeError<BodyHandle>( shape.GetError() );
@@ -1565,7 +1679,7 @@ namespace Desert::Physics
         JPH::BodyCreationSettings settings(
              shape.GetValue(), JPH::RVec3( desc.Position.x, desc.Position.y, desc.Position.z ),
              JPH::Quat::sIdentity(), JPH::EMotionType::Static, LayerOf( desc.Profile, false ) );
-        settings.mFriction   = desc.Friction;
+        ApplyMaterial( settings, *material.GetValue(), 0u );
         const JPH::BodyID id = m_Impl->Bodies->CreateAndAddBody( settings, JPH::EActivation::DontActivate );
         if ( id.IsInvalid() )
             return Common::MakeError<BodyHandle>(

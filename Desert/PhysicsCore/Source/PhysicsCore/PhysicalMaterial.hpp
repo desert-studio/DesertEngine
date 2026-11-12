@@ -51,6 +51,12 @@ namespace Desert::Physics
         SurfaceTypeId   Surface            = kDefaultSurface;
     };
 
+    /// A physical material registered with a PhysicsWorld (PhysicsWorld::RegisterPhysicalMaterial): what a body
+    /// slides with, and what a query or a contact reports it met (UE FHitResult::PhysMaterial). Id 0 is the
+    /// world's default material, the one Init was given (UE GEngine->DefaultPhysMaterial).
+    using PhysicalMaterialId                                = uint32_t;
+    inline constexpr PhysicalMaterialId kDefaultPhysicalMaterial = 0u;
+
     /// The value of a contact between a surface of (@p a, @p modeA) and one of (@p b, @p modeB), by UE's rule: the
     /// higher mode of the two decides (Chaos FChaosPhysicsMaterial::CombineHelper).
     [[nodiscard]] float CombineMaterialValues( float a, MaterialCombine modeA, float b, MaterialCombine modeB );

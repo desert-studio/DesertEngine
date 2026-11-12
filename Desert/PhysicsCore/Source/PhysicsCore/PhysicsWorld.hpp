@@ -4,6 +4,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicalMaterial.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -60,9 +61,11 @@ namespace Desert::Physics
         std::span<const uint32_t>  MeshIndices;
 
         BodyType  Type        = BodyType::Dynamic;
-        float     Mass        = 1.0f;  // dynamic only (<=0 => density-derived)
-        float     Friction    = 0.5f;
-        float     Restitution = 0.1f;
+        // Dynamic only. <= 0: the shape's volume times the material's DensityGPerCm3 (UE FBodyInstance without
+        // bOverrideMass: the mass is the body setup's volume at the physical material's density).
+        float     Mass        = 1.0f;
+        /// UE FBodyInstance::PhysMaterialOverride resolved: the world's id of what the body slides with.
+        PhysicalMaterialId Material = kDefaultPhysicalMaterial;
 
         glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
@@ -121,7 +124,7 @@ namespace Desert::Physics
         float                  SpacingCm   = 100.0f;
         std::span<const float>
              HeightsCm; ///< SampleCount², row-major, X fastest; kHeightFieldNoCollision = a hole.
-        float                  Friction = 0.5f;
+        PhysicalMaterialId     Material = kDefaultPhysicalMaterial;
         CollisionProfileId     Profile  = kNoProfile; ///< Refused when kNoProfile.
     };
 
@@ -154,8 +157,7 @@ namespace Desert::Physics
 
         BodyType Type        = BodyType::Dynamic;
         float    Mass        = 1.0f; ///< Dynamic only; kilograms, inertia from the parts at this mass.
-        float    Friction    = 0.5f;
-        float    Restitution = 0.1f;
+        PhysicalMaterialId Material = kDefaultPhysicalMaterial;
 
         glm::vec3 Position        = { 0.0f, 0.0f, 0.0f };
         glm::quat Rotation        = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
@@ -194,8 +196,7 @@ namespace Desert::Physics
         /// World matrices of the instances (translation, rotation, scale; no shear). At least one.
         std::span<const glm::mat4> Instances;
 
-        float Friction    = 0.5f;
-        float Restitution = 0.1f;
+        PhysicalMaterialId Material = kDefaultPhysicalMaterial;
 
         CollisionProfileId Profile = kNoProfile; ///< Refused when kNoProfile.
     };
@@ -238,6 +239,9 @@ namespace Desert::Physics
         glm::vec3        Point   = { 0.0f, 0.0f, 0.0f }; ///< World, on Body1's surface; zero for EndOverlap
         glm::vec3        Normal  = { 0.0f, 0.0f, 0.0f }; ///< World, from Body1 towards Body2; zero for EndOverlap
         float            Impulse = 0.0f;                 ///< Hit only: estimated normal impulse, kg·cm/s
+        /// What each body slides with (UE FHitResult::PhysMaterial of each side of the hit).
+        PhysicalMaterialId Material1 = kDefaultPhysicalMaterial;
+        PhysicalMaterialId Material2 = kDefaultPhysicalMaterial;
     };
 
     struct RayHit
@@ -246,6 +250,9 @@ namespace Desert::Physics
         float      Distance = 0.0f; ///< Along the ray, in units of |direction|.
         glm::vec3  Point    = { 0.0f, 0.0f, 0.0f };
         glm::vec3  Normal   = { 0.0f, 1.0f, 0.0f };
+        /// What the struck body slides with (UE FHitResult::PhysMaterial): GetPhysicalMaterial answers its
+        /// values and its surface type.
+        PhysicalMaterialId Material = kDefaultPhysicalMaterial;
     };
 
     /// The length of every step the world takes (UE async physics' fixed tick, 60 Hz).
@@ -286,11 +293,28 @@ namespace Desert::Physics
         // own setting came to be ignored in the first place. @p profiles decides which bodies collide (UE
         // collision channels and profiles): each profile is a pair of Jolt object layers (static, moving),
         // and a pair of bodies meets in the narrow phase unless their profiles' response is Ignore. An
-        // Overlap pair's contacts are sensor contacts — found, never solved.
-        bool Init( float gravityCmPerS2, CollisionProfiles profiles );
+        // Overlap pair's contacts are sensor contacts — found, never solved. @p defaultMaterial becomes
+        // kDefaultPhysicalMaterial, what every body slides with that names no other (UE
+        // GEngine->DefaultPhysMaterial); as with the profiles there is no built-in one, and the caller has
+        // validated it (ValidatePhysicalMaterial).
+        bool Init( float gravityCmPerS2, CollisionProfiles profiles, const PhysicalMaterialDesc& defaultMaterial );
 
         /// The register the world was initialised with; a body's Profile is an id in it.
         [[nodiscard]] const CollisionProfiles& GetCollisionProfiles() const;
+
+        /**
+         * @brief Adds a physical material (UE: a UPhysicalMaterial's FPhysicsMaterialHandle, created once per
+         * material and shared by every body that slides with it). A contact combines the two bodies' values by
+         * UE's rule (CombineMaterialValues), in the solver's own friction and restitution callbacks.
+         *
+         * A material is never changed or removed while the world lives: a body keeps the values it was built
+         * with. Refused, with ValidatePhysicalMaterial's reason, for a material outside UE's ranges.
+         */
+        Common::ResultStr<PhysicalMaterialId> RegisterPhysicalMaterial( const PhysicalMaterialDesc& desc );
+        /// The values of @p id, or nullptr for an id the world did not register.
+        [[nodiscard]] const PhysicalMaterialDesc* GetPhysicalMaterial( PhysicalMaterialId id ) const;
+        /// How many materials the world holds, the default included.
+        [[nodiscard]] uint32_t GetPhysicalMaterialCount() const;
         void Shutdown();
 
         // Applies a new gravity to a running world. Called when the scene's setting changes so the knob is
@@ -472,6 +496,9 @@ namespace Desert::Physics
         /// The capsule centre to DRAW, interpolated as GetInterpolatedPosition is.
         [[nodiscard]] glm::vec3 GetInterpolatedCharacterPosition( CharacterHandle handle ) const;
         bool            IsCharacterOnGround( CharacterHandle handle ) const;
+        /// What the character stands on (UE CharacterMovement CurrentFloor.HitResult.PhysMaterial): the material
+        /// of its ground body, or nullopt when it is not supported by one (in the air, sliding off a wall).
+        [[nodiscard]] std::optional<PhysicalMaterialId> GetCharacterGroundMaterial( CharacterHandle handle ) const;
         void            SetCharacterPosition( CharacterHandle handle, const glm::vec3& position );
         /// Replaces the character's capsule (UE crouch: UCapsuleComponent::SetCapsuleSize). The centre stays
         /// where it is — the caller moves it so the feet stay put. Refused (false, shape unchanged) when the new
