@@ -202,6 +202,51 @@ namespace Desert::Core
         std::optional<glm::vec3> bestFace; // the crossed triangle's normal (complex trace), world space
         bool               hit = false;
 
+        // A hit on a box (a static mesh's submesh box, a skinned mesh's posed bounds), nearer than the best.
+        const auto boxHit = [&]( const ECS::Entity& entity, const glm::mat4& xf, const Common::Math::Ray& localRay,
+                                 const Common::Math::AABB& box )
+        {
+            float t = 0.0f;
+            if ( !localRay.IntersectsAABB( box, t ) || t <= 0.0f )
+                return;
+            // Compared in WORLD units: a local t is in the entity's own (scaled) units.
+            if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
+            {
+                closest    = d;
+                bestXf     = xf;
+                bestAABB   = box;
+                bestLocal  = localRay;
+                bestLocalT = t;
+                bestUUID   = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                bestFace.reset();
+                hit        = true;
+            }
+        };
+        // The world distance at which the ray enters @p box (0 when it starts inside); nullopt when it misses.
+        const auto boxEntry = [&]( const glm::mat4& xf, const Common::Math::Ray& localRay,
+                                   const Common::Math::AABB& box ) -> std::optional<float>
+        {
+            float t = 0.0f;
+            if ( !localRay.IntersectsAABB( box, t ) )
+                return std::nullopt;
+            return std::max( ray.WorldDistanceOf( localRay, std::max( t, 0.0f ), xf ), 0.0f );
+        };
+
+        // The complex trace's broad phase (UE: the scene query's bounds before a mesh's triangles): every static
+        // mesh whose submesh boxes the ray enters is a candidate, met on its triangles AFTER the boxes, nearest
+        // entry first, and none whose boxes the ray enters beyond the nearest hit found so far. Reading a mesh's
+        // triangles is an explicit CPU-access request that keeps its arrays resident (StaticMeshAsset::
+        // GetVertices), so only a mesh the ray can still meet first is asked: a foliage dab, the hover ring of
+        // every frame, does not make the scene's meshes resident nor walk their triangles.
+        struct TriangleCandidate
+        {
+            const ECS::Entity* Entity = nullptr;
+            glm::mat4          Xf     = glm::mat4( 1.0f );
+            Common::Math::Ray  Local;
+            float              Entry  = 0.0f;
+        };
+        std::vector<TriangleCandidate> candidates;
+
         for ( const auto& entity : GetAllEntities() )
         {
             ::Desert::Mesh* mesh    = nullptr;
@@ -223,87 +268,19 @@ namespace Desert::Core
             const glm::mat4 xf       = entity.GetWorldTransform();
             const auto      localRay = ray.ToLocalSpace( xf );
 
-            // The complex trace's broad phase before the triangles: a mesh whose submesh boxes the ray's line does
-            // not cross is not asked for its CPU triangles (reading them is an explicit CPU-access request that
-            // keeps the arrays resident, StaticMeshAsset::GetVertices), so one foliage dab does not make every
-            // static mesh of the scene resident.
-            const auto lineCrossesABox = [&]()
+            if ( complex && !skinned )
             {
+                std::optional<float> entry;
                 for ( const auto& sm : mesh->GetSubmeshes() )
-                {
-                    float t = 0.0f;
-                    if ( localRay.IntersectsAABB( sm.BoundingBox, t ) )
-                        return true;
-                }
-                return false;
-            };
-            if ( complex && !skinned && !lineCrossesABox() )
-                continue;
-            const auto triangles = complex && !skinned
-                                        ? StaticTriangles( entity.GetComponent<ECS::StaticMeshComponent>() )
-                                        : std::nullopt;
-            if ( triangles )
-            {
-                // The complex trace: every submesh the ray's line crosses (from inside too: a camera within a
-                // room's box still meets its walls), then its triangles, in the entity's own space.
-                for ( const auto& sm : triangles->Submeshes )
-                {
-                    float t = 0.0f;
-                    if ( !localRay.IntersectsAABB( sm.BoundingBox, t ) )
-                        continue;
-                    const uint32_t first = sm.IndexOffset / 3;
-                    const uint32_t count = sm.IndexCount / 3;
-                    if ( static_cast<uint64_t>( first ) + count > triangles->Indices.size() )
-                        continue;
-                    for ( uint32_t k = first; k < first + count; ++k )
-                    {
-                        const auto&    tri = triangles->Indices[k];
-                        const uint64_t a   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V1;
-                        const uint64_t b   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V2;
-                        const uint64_t c   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V3;
-                        if ( std::max( { a, b, c } ) >= triangles->Vertices.size() )
-                            continue;
-                        const glm::vec3& pa = triangles->Vertices[a].Position;
-                        const glm::vec3& pb = triangles->Vertices[b].Position;
-                        const glm::vec3& pc = triangles->Vertices[c].Position;
-                        float            tt = 0.0f;
-                        if ( !RayTriangle( localRay.Origin, localRay.Direction, pa, pb, pc, tt ) )
-                            continue;
-                        if ( const float d = ray.WorldDistanceOf( localRay, tt, xf ); d > 0.0f && d < closest )
-                        {
-                            // A normal is carried by the inverse transpose (a non-uniform scale tilts it).
-                            glm::vec3 n = glm::transpose( glm::inverse( glm::mat3( xf ) ) ) *
-                                          glm::cross( pb - pa, pc - pa );
-                            if ( glm::dot( n, ray.Direction ) > 0.0f )
-                                n = -n;
-                            closest  = d;
-                            bestUUID = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                            bestFace = glm::normalize( n );
-                            hit      = true;
-                        }
-                    }
-                }
+                    if ( const auto at = boxEntry( xf, localRay, sm.BoundingBox ); at && ( !entry || *at < *entry ) )
+                        entry = at;
+                if ( entry )
+                    candidates.push_back( TriangleCandidate{ &entity, xf, localRay, *entry } );
             }
             else if ( !skinned )
             {
                 for ( const auto& sm : mesh->GetSubmeshes() )
-                {
-                    float t = 0.0f;
-                    if ( !localRay.IntersectsAABB( sm.BoundingBox, t ) || t <= 0.0f )
-                        continue;
-                    // Compared in WORLD units: a local t is in the entity's own (scaled) units.
-                    if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
-                    {
-                        closest    = d;
-                        bestXf     = xf;
-                        bestAABB   = sm.BoundingBox;
-                        bestLocal  = localRay;
-                        bestLocalT = t;
-                        bestUUID   = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                        bestFace.reset();
-                        hit        = true;
-                    }
-                }
+                    boxHit( entity, xf, localRay, sm.BoundingBox );
             }
             else
             {
@@ -319,21 +296,63 @@ namespace Desert::Core
                 }
                 if ( skin.empty() )
                     sk->GetSkeleton().WriteBindSkinningMatrices( skin );
+                boxHit( entity, xf, localRay, SkinnedLocalBounds( *sk, skin ) );
+            }
+        }
 
-                const Common::Math::AABB bounds = SkinnedLocalBounds( *sk, skin );
-                float                    t      = 0.0f;
-                if ( !localRay.IntersectsAABB( bounds, t ) || t <= 0.0f )
+        std::sort( candidates.begin(), candidates.end(),
+                   []( const TriangleCandidate& a, const TriangleCandidate& b ) { return a.Entry < b.Entry; } );
+        for ( const auto& candidate : candidates )
+        {
+            if ( candidate.Entry > closest )
+                break; // every later mesh is entered beyond the nearest hit
+            const ECS::Entity&       entity   = *candidate.Entity;
+            const glm::mat4&         xf       = candidate.Xf;
+            const Common::Math::Ray& localRay = candidate.Local;
+            const auto triangles = StaticTriangles( entity.GetComponent<ECS::StaticMeshComponent>() );
+            if ( !triangles )
+            {
+                // No readable CPU triangles (StaticTriangles names when): the mesh is met on its boxes.
+                for ( const auto& sm : ResolveMesh( entity.GetComponent<ECS::StaticMeshComponent>() )->GetSubmeshes() )
+                    boxHit( entity, xf, localRay, sm.BoundingBox );
+                continue;
+            }
+            // Every submesh the ray enters before the nearest hit (from inside too: a camera within a room's box
+            // still meets its walls), then its triangles, in the entity's own space.
+            for ( const auto& sm : triangles->Submeshes )
+            {
+                if ( const auto at = boxEntry( xf, localRay, sm.BoundingBox ); !at || *at > closest )
                     continue;
-                if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
+                const uint32_t first = sm.IndexOffset / 3;
+                const uint32_t count = sm.IndexCount / 3;
+                if ( static_cast<uint64_t>( first ) + count > triangles->Indices.size() )
+                    continue;
+                for ( uint32_t k = first; k < first + count; ++k )
                 {
-                    closest    = d;
-                    bestXf     = xf;
-                    bestAABB   = bounds;
-                    bestLocal  = localRay;
-                    bestLocalT = t;
-                    bestUUID   = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                    bestFace.reset();
-                    hit        = true;
+                    const auto&    tri = triangles->Indices[k];
+                    const uint64_t a   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V1;
+                    const uint64_t b   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V2;
+                    const uint64_t c   = static_cast<uint64_t>( sm.VertexOffset ) + tri.V3;
+                    if ( std::max( { a, b, c } ) >= triangles->Vertices.size() )
+                        continue;
+                    const glm::vec3& pa = triangles->Vertices[a].Position;
+                    const glm::vec3& pb = triangles->Vertices[b].Position;
+                    const glm::vec3& pc = triangles->Vertices[c].Position;
+                    float            tt = 0.0f;
+                    if ( !RayTriangle( localRay.Origin, localRay.Direction, pa, pb, pc, tt ) )
+                        continue;
+                    if ( const float d = ray.WorldDistanceOf( localRay, tt, xf ); d > 0.0f && d < closest )
+                    {
+                        // A normal is carried by the inverse transpose (a non-uniform scale tilts it).
+                        glm::vec3 n =
+                             glm::transpose( glm::inverse( glm::mat3( xf ) ) ) * glm::cross( pb - pa, pc - pa );
+                        if ( glm::dot( n, ray.Direction ) > 0.0f )
+                            n = -n;
+                        closest  = d;
+                        bestUUID = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                        bestFace = glm::normalize( n );
+                        hit      = true;
+                    }
                 }
             }
         }
