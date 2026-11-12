@@ -605,8 +605,9 @@ namespace Desert::Graphic::GlobalIllumination
         // is a compute dispatch whose every input and output is a graph resource (G-buffer, HZB, velocity, the
         // radiance cache, the tracer's field / TLAS, the surface cache), so the graph forks at the last graphics
         // writer of what the run reads (the G-buffer, HZB) and joins at the first graphics reader of its lighting
-        // (Deferred: Composite). The passes are consecutive in AddPass order: one segment, one fork, one join.
-        const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+        // (Deferred: Composite). One node is the graphics queue's: the short-range AO (below, FPS-ASYNC-JOIN).
+        const RDG::PassFlags kAsyncPass    = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+        const RDG::PassFlags kGraphicsPass = RDG::PassFlags::Compute;
         if ( inputs.Extent.x == 0 || inputs.Extent.y == 0 || inputs.Extent.x >= 4096 || inputs.Extent.y >= 4096 )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>(
                  "screen probes: the G-buffer extent {}x{} is outside 1..4095 (a probe packs its pixel in 24 "
@@ -757,6 +758,19 @@ namespace Desert::Graphic::GlobalIllumination
         // Short-range AO: the bent normal and AO of every pixel, from the scene depth (UE
         // ScreenSpaceShortRangeAOCS). Off by scalability, the integrate reads the shading normal unoccluded (its
         // flag) and the composite applies SSAO to the gather instead.
+        // ON THE GRAPHICS QUEUE (FPS-ASYNC-JOIN). UE dispatches it on the async pipe with the rest of the gather,
+        // beside the graphics work it renders meanwhile (the shadow depths among it). Here the graph has no more
+        // such work: FPS-FIELD-BARN-TURN (scn-1112-132840) - the radiance cache (0.4 ms), this piece (0.94 ms, the
+        // AO 0.90 of it) and the trace .. temporal piece (2.04 ms) run back to back on the async queue from 'HZB',
+        // the graphics queue renders everything that reads none of them in that window (HZB, the clouds, SSR, the
+        // world reflections, the direct lighting - the passes RDGCompile ScheduleIntoAsyncWindows /
+        // SinkIntoAsyncWindows can move are already there) and then waits 1.42 ms before 'Deferred: Composite'.
+        // The AO reads only what Graphics holds (the G-buffer depth / normal, the queued params and GI frame
+        // record: shared read groups Graphics opened, RDGCompile FindAsyncRuns), so it joins no async run; its
+        // one reader is the integrate, whose piece the graph forks anew after it (CutRunsAtConsumers). The AO thus
+        // runs on Graphics while the async queue runs the radiance cache and the trace legs, which it does not
+        // gate (the integrate is ~1.5 ms of async work behind it), and the async chain the composite waits for
+        // is shorter by the AO. The same dispatch, inputs and output: the image is unchanged.
         if ( inputs.ShortRangeAO )
         {
             ComputePipeline* const pipeline = m_Pipelines[ShortRangeAO].get();
@@ -764,7 +778,7 @@ namespace Desert::Graphic::GlobalIllumination
             const glm::uvec2 groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ),
                                      DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) );
             graph.AddPass(
-                 "ScreenProbes: ShortRangeAO", kAsyncPass,
+                 "ScreenProbes: ShortRangeAO", kGraphicsPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[ShortRangeAO].Get( m_Shaders[ShortRangeAO] ),
