@@ -286,6 +286,15 @@ namespace Desert::Graphic::GlobalIllumination
             return false; // SP_TRACE_CACHE_READ: the radiance cache only
         }
 
+        // Whether the leg defers its near-field hits (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS - the same
+        // rule): the software near field only marches and lists its hits, so it declares no LinearClampSampler, no
+        // sky and no radiance cache texture, and the pass binds none of them (UE: a pass binds what its
+        // permutation declares).
+        [[nodiscard]] constexpr bool TraceLegDefersNearHits( const Tracer tracer, const std::string_view leg )
+        {
+            return leg == kTraceNearFieldDefine && tracer == Tracer::SoftwareDistanceField;
+        }
+
         // A trace leg's list (THE LEGS' LISTS, Common/ScreenProbeTracing.glslh): its dispatch x = groups, y = z =
         // 1 (a dispatch's three counts; w unused), counted up by the pass that lists the rays; the allocator: 0.
         constexpr std::array<uint32_t, 4> kCompactArgsReset{ 0u, 1u, 1u, 0u };
@@ -1059,6 +1068,9 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[program].get();
             // the declaration's own rule (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
             const bool lightsHits = TraceLegLightsHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
+            // (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS)
+            const bool samplesLinear =
+                 !TraceLegDefersNearHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             graph.AddPass(
                  name, kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -1114,12 +1126,19 @@ namespace Desert::Graphic::GlobalIllumination
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
-                     // The software near field defers its hits and samples nothing (ScreenProbeTrace.shader).
-                     if ( !( program == TraceNearField && nearHitLightingList ) )
+                     // The software near field defers its hits and samples nothing linear-clamped: no sky, no
+                     // radiance cache texture (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS).
+                     if ( samplesLinear )
                          block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
                                         inputs.EnvSpecular, kS, all )
                               .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                        RDG::SamplerDesc::LinearClamp() );
+                                        RDG::SamplerDesc::LinearClamp() )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheIrradianceTexture,
+                                        inputs.RadianceCache.Irradiance, kS, all )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheDepthTexture,
+                                        inputs.RadianceCache.Depth, kS, all )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheRadianceAtlasTexture,
+                                        inputs.RadianceCache.Radiance, kS, all );
                      if ( lightsHits )
                          block.Texture( ScreenProbeGatherTraceShaderParameters::GBufferDepthTexture,
                                         inputs.GBufferDepth, kS, all )
@@ -1129,13 +1148,7 @@ namespace Desert::Graphic::GlobalIllumination
                                         kS, all )
                               .Texture( ScreenProbeGatherTraceShaderParameters::GBufferEmissiveTexture,
                                         inputs.GBufferEmissive, kS, all );
-                     block.Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheIrradianceTexture,
-                                    inputs.RadianceCache.Irradiance, kS, all )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheDepthTexture,
-                                    inputs.RadianceCache.Depth, kS, all )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheRadianceAtlasTexture,
-                                    inputs.RadianceCache.Radiance, kS, all )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW );
+                     block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW );
                  },
                  [pipeline, args = in.Args]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

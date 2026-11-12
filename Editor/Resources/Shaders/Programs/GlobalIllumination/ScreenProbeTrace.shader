@@ -135,13 +135,7 @@ Shader "ScreenProbeTrace"
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
-        // The software near field only marches and lists its hits (SP_TRACE_DEFERS_NEAR_HITS below): it samples
-        // nothing linear-clamped, so it declares no LinearClampSampler (shared-sampler rule) and the pass binds none.
-        #if !( defined( SP_TRACE_NEAR_FIELD ) && defined( DESERT_GI_TRACER_SOFTWARE ) )
-        Uniform sampler LinearClampSampler;
-        Uniform(16) textureCube EnvironmentSpecularTexture;
-        #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
-        #endif
+        // LinearClampSampler and what is read through it are declared below, under SP_TRACE_DEFERS_NEAR_HITS.
         // GPU-FARFIELD-7 (UE shared samplers: a permutation declares the samplers its code samples through): the
         // legs that LIGHT a hit read the cards (Common/SurfaceCacheSampling.glslh), the G-buffer (GIHitMaterial)
         // and the software field's object grid (GIHitObjectGridRows), all through PointClampSampler. One switch
@@ -245,12 +239,25 @@ Shader "ScreenProbeTrace"
         #else
         #define GI_HIT_LIGHTING_NONE 1
         #endif
+        // FPS-NEAR-FIELD-FIX (UE shared samplers: a permutation declares the samplers its code samples through):
+        // everything read through LinearClampSampler - the sky (GIHitLighting.glslh GIMissRadiance) and the radiance
+        // cache's three textures (Common/RadianceCache.glslh's read sections) - under one switch,
+        // SP_TRACE_DEFERS_NEAR_HITS. The software near field only marches and lists its hits: it declares neither the
+        // sampler nor those textures nor their readers (GI_MISS_RADIANCE_NONE; no RADIANCE_CACHE_INDIRECTION below),
+        // and the pass binds none of them under the same rule (ScreenProbeGather.cpp TraceLegDefersNearHits).
+        #if defined( SP_TRACE_DEFERS_NEAR_HITS )
+        #define GI_MISS_RADIANCE_NONE 1
+        #else
+        Uniform sampler LinearClampSampler;
+        Uniform(16) textureCube EnvironmentSpecularTexture;
+        #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
         Uniform(20) texture2D RadianceCacheIrradianceTexture;
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(21) texture2D RadianceCacheDepthTexture;
         #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
         Uniform(22) texture2D RadianceCacheRadianceAtlasTexture;
         #define RadianceCacheRadianceAtlasTexture sampler2D(RadianceCacheRadianceAtlasTexture, LinearClampSampler)
+        #endif
         layout(binding = 23, rgba16f) restrict writeonly uniform image2D ScreenProbeTracedTexture;
 
         #define SCREEN_PROBES_DECLARED
@@ -263,10 +270,12 @@ Shader "ScreenProbeTrace"
         #else
         LocalSize(SP_TRACE_LEG_THREADS, 1, 1);
         #endif
+        #if !defined( SP_TRACE_DEFERS_NEAR_HITS ) // the cache's readers sample through LinearClampSampler (above)
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture
         #include <Common/RadianceCache.glslh>
+        #endif
 #if defined( SP_TRACE_MISS_REASONS )
         // The global field's sphere-trace steps this thread took (Common/GlobalDistanceField.glslh GDF_COUNT_STEPS).
         #define GDF_COUNT_STEPS 1
