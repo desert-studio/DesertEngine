@@ -579,17 +579,47 @@ namespace Desert::Graphic::API::Vulkan
         // the frames in flight is freed (BeginFrameSlot). Safe for chunks: the cache is sharded under locks, and
         // a fresh set is seen only by the thread that allocated it until that thread's batch wrote it and it
         // calls PublishCached.
+        // FPS-SET-MEMO: a cached entry's last-bindable frame (m_CacheFrame), shared with every holder of the set
+        // outside the cache (the bound-sets memo below). kStampFreed once EvictCached freed the set: a holder
+        // that finds it so never binds the set again. Touch (a bind) and eviction race only through this word
+        // (compare-exchange), so a set is either refreshed for this frame or freed, never both.
+        using CachedStamp = std::shared_ptr<std::atomic<uint64_t>>;
+        static constexpr uint64_t kStampFreed = ~uint64_t{ 0 };
+        // Marks @p stamp's set bindable in @p frame; false when the cache already freed it.
+        [[nodiscard]] static bool TouchCached( const CachedStamp& stamp, uint64_t frame ) noexcept;
+
         struct CachedSet
         {
             VkDescriptorSet  Set  = VK_NULL_HANDLE;
             VkDescriptorPool Pool = VK_NULL_HANDLE;
             bool             Hit  = false; // written before: bind it as it is and write nothing into it
+            CachedStamp      Stamp;        // a hit's entry stamp (null for a fresh set until PublishCached)
         };
         Common::ResultStr<CachedSet> AcquireCached( VkDescriptorSetLayout layout, std::span<const uint64_t> key );
-        // After the WriteBatch that wrote @p fresh (Hit false) has flushed: makes it findable under @p key. When
-        // another thread published an equal key first, that entry stays and @p fresh is freed once no frame in
-        // flight can bind it.
-        void PublishCached( std::span<const uint64_t> key, const CachedSet& fresh );
+        // After the WriteBatch that wrote @p fresh (Hit false) has flushed: makes it findable under @p key and
+        // returns its entry's stamp. When another thread published an equal key first, that entry stays, @p fresh
+        // is freed once no frame in flight can bind it, and the stamp is null (the set must not outlive the exec).
+        CachedStamp PublishCached( std::span<const uint64_t> key, const CachedSet& fresh );
+
+        // FPS-SET-MEMO (UE FMeshDrawCommand / FMeshDrawShaderBindings: a draw's bindings are built when their
+        // inputs change and every later frame only binds them). THE BOUND-SETS MEMO: the sets one graphics
+        // draw combination resolved to, kept ACROSS frames under the full content of what decided them - the
+        // shader (address and code generation), the pipeline and set layouts, the bindless table's set, the
+        // material part (set, copy record identity and version, copied bindings, push route) and the block's
+        // signature (per entry: name hash, slot, kind, access, the physical identity and range or sampler it
+        // names; VulkanRendererAPI::BindGraphicsPassState builds it). The pass set memo (VulkanRdgPassSetMemo)
+        // lives one pass exec, so before this every frame resolved, keyed and looked up every combination of
+        // every pass again (~150 "set memo miss" per frame on FIELD_Barn) for sets the content cache already
+        // held. Every kept set is a content-cache entry, held by its stamp: a hit touches each stamp, and a set
+        // the cache freed (unused for the frames in flight) makes the entry a miss and drops it. Equal keys mean
+        // the resolution and the writes would produce exactly these sets, so a hit binds what a miss would.
+        // Thread-safe (sharded locks): chunk workers look up and keep concurrently.
+        // @p key -> the kept sets into @p sets; false (and @p sets untouched) when not kept or no longer live.
+        [[nodiscard]] bool FindBound( std::span<const uint64_t> key, std::vector<VkDescriptorSet>& sets );
+        // Keeps @p sets (each held by its @p stamps entry; null for the bindless table's set, which is in the
+        // key) under @p key.
+        void KeepBound( std::span<const uint64_t> key, std::span<const VkDescriptorSet> sets,
+                        std::span<const CachedStamp> stamps );
         // A fresh set that is not published (an error return before its writes ended): freed once no frame in
         // flight can bind it.
         void DiscardCached( const CachedSet& fresh );
@@ -633,10 +663,25 @@ namespace Desert::Graphic::API::Vulkan
         struct CachedSetEntry
         {
             std::vector<uint64_t> Key;
-            VkDescriptorSet       Set      = VK_NULL_HANDLE;
-            VkDescriptorPool      Pool     = VK_NULL_HANDLE;
-            uint64_t              LastUsed = 0; // m_CacheFrame of the last exec that acquired it
+            VkDescriptorSet       Set  = VK_NULL_HANDLE;
+            VkDescriptorPool      Pool = VK_NULL_HANDLE;
+            CachedStamp           Stamp; // m_CacheFrame of the last exec that bound it (kStampFreed: freed)
         };
+        // FPS-SET-MEMO: one bound-sets memo entry (FindBound / KeepBound).
+        struct BoundSetsEntry
+        {
+            std::vector<uint64_t>        Key;
+            std::vector<VkDescriptorSet> Sets;
+            std::vector<CachedStamp>     Stamps;
+            uint64_t                     LastHit = 0; // m_CacheFrame of the last FindBound / KeepBound
+        };
+        struct BoundSetsShard
+        {
+            std::mutex                                                Lock;
+            std::unordered_map<uint64_t, std::vector<BoundSetsEntry>> Buckets; // by the key's hash
+        };
+        // EvictCached: drops the entries no draw found for this many frames (their sets age out of the cache).
+        static constexpr uint64_t kBoundSetsRetainFrames = 8;
         struct CachedSetShard
         {
             std::mutex                                                Lock;
@@ -658,6 +703,7 @@ namespace Desert::Graphic::API::Vulkan
         bool                   m_AccelerationStructures = false;
         // The content cache (AcquireCached). Its pools allow vkFreeDescriptorSets and are never reset.
         std::array<CachedSetShard, kCachedSetShards> m_CachedShards;
+        std::array<BoundSetsShard, kCachedSetShards> m_BoundShards; // FPS-SET-MEMO
         std::mutex                    m_CachedPoolLock; // m_CachedPools, m_CachedPoolCurrent, m_RetiredCached
         std::vector<VkDescriptorPool> m_CachedPools;
         size_t                        m_CachedPoolCurrent = 0;

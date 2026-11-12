@@ -1088,8 +1088,11 @@ namespace Desert::Graphic::API::Vulkan
                 {
                     if ( !SameCachedSetKey( entry.Key, key ) )
                         continue;
-                    entry.LastUsed = m_CacheFrame.load( std::memory_order_relaxed );
-                    return Common::MakeSuccess( CachedSet{ .Set = entry.Set, .Pool = entry.Pool, .Hit = true } );
+                    // Under the shard lock EvictCached frees nothing of this shard, so the touch succeeds.
+                    if ( !TouchCached( entry.Stamp, m_CacheFrame.load( std::memory_order_relaxed ) ) )
+                        continue;
+                    return Common::MakeSuccess(
+                         CachedSet{ .Set = entry.Set, .Pool = entry.Pool, .Hit = true, .Stamp = entry.Stamp } );
                 }
             }
         }
@@ -1135,7 +1138,8 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( CachedSet{ .Set = set, .Pool = pool.GetValue(), .Hit = false } );
     }
 
-    void VulkanRdgPassDescriptors::PublishCached( std::span<const uint64_t> key, const CachedSet& fresh )
+    VulkanRdgPassDescriptors::CachedStamp VulkanRdgPassDescriptors::PublishCached( std::span<const uint64_t> key,
+                                                                                    const CachedSet& fresh )
     {
         const uint64_t  hash  = HashCachedSetKey( key );
         CachedSetShard& shard = m_CachedShards[hash % kCachedSetShards];
@@ -1148,16 +1152,93 @@ namespace Desert::Graphic::API::Vulkan
             {
                 CachedSetEntry entry;
                 entry.Key.assign( key.begin(), key.end() );
-                entry.Set      = fresh.Set;
-                entry.Pool     = fresh.Pool;
-                entry.LastUsed = m_CacheFrame.load( std::memory_order_relaxed );
+                entry.Set   = fresh.Set;
+                entry.Pool  = fresh.Pool;
+                entry.Stamp = std::make_shared<std::atomic<uint64_t>>( m_CacheFrame.load( std::memory_order_relaxed ) );
+                CachedStamp stamp = entry.Stamp;
                 bucket.push_back( std::move( entry ) );
-                return;
+                return stamp;
             }
         }
         // An equal set another thread published first stays; this one is bound by this exec, so it is freed only
         // after the frames in flight.
         DiscardCached( fresh );
+        return nullptr;
+    }
+
+    bool VulkanRdgPassDescriptors::TouchCached( const CachedStamp& stamp, const uint64_t frame ) noexcept
+    {
+        if ( !stamp )
+            return false;
+        uint64_t used = stamp->load( std::memory_order_relaxed );
+        for ( ;; )
+        {
+            if ( used == kStampFreed )
+                return false;
+            if ( used >= frame )
+                return true;
+            if ( stamp->compare_exchange_weak( used, frame, std::memory_order_relaxed ) )
+                return true;
+        }
+    }
+
+    bool VulkanRdgPassDescriptors::FindBound( std::span<const uint64_t> key, std::vector<VkDescriptorSet>& sets )
+    {
+        const uint64_t         hash  = HashCachedSetKey( key );
+        BoundSetsShard&        shard = m_BoundShards[hash % kCachedSetShards];
+        const uint64_t         frame = m_CacheFrame.load( std::memory_order_relaxed );
+        const std::scoped_lock lock( shard.Lock );
+        const auto             bucket = shard.Buckets.find( hash );
+        if ( bucket == shard.Buckets.end() )
+            return false;
+        std::vector<BoundSetsEntry>& entries = bucket->second;
+        for ( size_t at = 0; at < entries.size(); ++at )
+        {
+            BoundSetsEntry& entry = entries[at];
+            if ( !SameCachedSetKey( entry.Key, key ) )
+                continue;
+            // Every cached set must still be live; one the cache freed makes the whole combination a miss.
+            const bool live = std::ranges::all_of( entry.Stamps, [frame]( const CachedStamp& stamp )
+                                                   { return !stamp || TouchCached( stamp, frame ); } );
+            if ( !live )
+            {
+                entries.erase( entries.begin() + static_cast<std::ptrdiff_t>( at ) );
+                if ( entries.empty() )
+                    shard.Buckets.erase( bucket );
+                return false;
+            }
+            entry.LastHit = frame;
+            sets.assign( entry.Sets.begin(), entry.Sets.end() );
+            return true;
+        }
+        return false;
+    }
+
+    void VulkanRdgPassDescriptors::KeepBound( std::span<const uint64_t> key, std::span<const VkDescriptorSet> sets,
+                                              std::span<const CachedStamp> stamps )
+    {
+        const uint64_t               hash  = HashCachedSetKey( key );
+        BoundSetsShard&              shard = m_BoundShards[hash % kCachedSetShards];
+        const uint64_t               frame = m_CacheFrame.load( std::memory_order_relaxed );
+        const std::scoped_lock       lock( shard.Lock );
+        std::vector<BoundSetsEntry>& bucket = shard.Buckets[hash];
+        for ( BoundSetsEntry& entry : bucket )
+        {
+            if ( !SameCachedSetKey( entry.Key, key ) )
+                continue;
+            // Another chunk kept the same combination first: the newer sets win, both are live content-cache
+            // entries of equal content.
+            entry.Sets.assign( sets.begin(), sets.end() );
+            entry.Stamps.assign( stamps.begin(), stamps.end() );
+            entry.LastHit = frame;
+            return;
+        }
+        BoundSetsEntry entry;
+        entry.Key.assign( key.begin(), key.end() );
+        entry.Sets.assign( sets.begin(), sets.end() );
+        entry.Stamps.assign( stamps.begin(), stamps.end() );
+        entry.LastHit = frame;
+        bucket.push_back( std::move( entry ) );
     }
 
     void VulkanRdgPassDescriptors::DiscardCached( const CachedSet& fresh )
@@ -1186,10 +1267,37 @@ namespace Desert::Graphic::API::Vulkan
                 std::erase_if( bucket->second,
                                [&expired, &release]( const CachedSetEntry& entry )
                                {
-                                   if ( !expired( entry.LastUsed ) )
+                                   // FPS-SET-MEMO: the bound-sets memo touches the stamp without this lock; the
+                                   // exchange decides between its touch and this free.
+                                   uint64_t used = entry.Stamp->load( std::memory_order_relaxed );
+                                   if ( !expired( used ) )
+                                       return false;
+                                   if ( !entry.Stamp->compare_exchange_strong( used, kStampFreed,
+                                                                               std::memory_order_relaxed ) )
                                        return false;
                                    release( entry.Pool, entry.Set );
                                    return true;
+                               } );
+                if ( bucket->second.empty() )
+                    bucket = shard.Buckets.erase( bucket );
+                else
+                    ++bucket;
+            }
+        }
+        // FPS-SET-MEMO: the bound-sets memo forgets what no draw found lately and what holds a freed set.
+        for ( BoundSetsShard& shard : m_BoundShards )
+        {
+            const std::scoped_lock lock( shard.Lock );
+            for ( auto bucket = shard.Buckets.begin(); bucket != shard.Buckets.end(); )
+            {
+                std::erase_if( bucket->second,
+                               [frame]( const BoundSetsEntry& entry )
+                               {
+                                   if ( entry.LastHit + kBoundSetsRetainFrames < frame )
+                                       return true;
+                                   return std::ranges::any_of(
+                                        entry.Stamps, []( const CachedStamp& stamp )
+                                        { return stamp && stamp->load( std::memory_order_relaxed ) == kStampFreed; } );
                                } );
                 if ( bucket->second.empty() )
                     bucket = shard.Buckets.erase( bucket );
