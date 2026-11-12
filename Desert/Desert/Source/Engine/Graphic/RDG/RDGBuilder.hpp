@@ -84,6 +84,16 @@ namespace Desert::Graphic::RDG
         // only: an exec lambda records the same work on either pipe.
         [[nodiscard]] Pipe GetPipe() const;
 
+        // FPS-DEVLOST16 (UE: RDG validation refuses a pass touching a graph resource its parameters did not
+        // declare). A raw bind - a pipeline's own setter, a material's storage buffer - is invisible to the
+        // compiler: no barrier and no cross-queue join orders it against the graph's other uses. The backend
+        // asks here whether the range it binds is an external buffer of THIS graph that THIS pass declares no
+        // use of: the name of the first external whose physical buffer @p match accepts and that no use of this
+        // pass names; empty when there is none.
+        using PhysicalBufferMatch = bool ( * )( const IPhysicalBuffer& physical, const void* user ) noexcept;
+        [[nodiscard]] std::string_view FindUndeclaredExternalBuffer( PhysicalBufferMatch match,
+                                                                     const void*         user ) const noexcept;
+
         // RDG-CONTRACTS A(3) - the renderer-facing contract for a graph transient (UE: FRDGTexture accessed
         // through the pass parameters, never stored). A renderer moving an owned intermediate into the graph:
         //   * declares it EVERY frame in the graph it builds: Builder::CreateTexture / CreateBuffer with a desc

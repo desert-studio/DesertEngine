@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 
+#include <algorithm>
 #include <bit>
 #include <limits>
 #include <cstring>
@@ -291,7 +292,8 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( WrittenSlots{ .Set      = handles[0],
                                                   .Bindings = sets->BoundCopies.GetWrittenBindings(),
                                                   .Identity = sets->BoundCopies.GetIdentity(),
-                                                  .Version  = sets->BoundCopies.GetVersion() } );
+                                                  .Version  = sets->BoundCopies.GetVersion(),
+                                                  .StorageRanges = sets->StorageRanges } );
     }
 
     void VulkanMaterialBackend::NoteDescriptorWrite( IViewDescriptorSetCopy& sets, const uint32_t binding,
@@ -463,6 +465,16 @@ namespace Desert::Graphic::API::Vulkan
         UpdateDescriptorSets( { wds } );
         NoteDescriptorWrite( *sets, binding, handle );
         record.NoteWritten( binding, copy.CopyId, kBufferDescriptorVersion );
+        // FPS-DEVLOST16: what the set's descriptor now holds, for the draw's undeclared-bind check.
+        const IViewDescriptorSetCopy::StorageRange range{
+             .Binding = binding, .Buffer = handle, .Offset = copy.Info.offset, .Range = copy.Info.range };
+        auto& ranges = sets->StorageRanges;
+        const auto held =
+             std::ranges::find( ranges, binding, &IViewDescriptorSetCopy::StorageRange::Binding );
+        if ( held != ranges.end() )
+            *held = range;
+        else
+            ranges.push_back( range );
     }
 
     bool VulkanMaterialBackend::WriteTextureWithSampler( IViewDescriptorSetCopy& sets, uint32_t frameIndex,

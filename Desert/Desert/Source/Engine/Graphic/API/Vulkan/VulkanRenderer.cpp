@@ -15,6 +15,7 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -1123,6 +1124,75 @@ namespace Desert::Graphic::API::Vulkan
                 return *slots;
             return kUnreflected;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-DEVLOST16 (UE: RDG validation of a pass touching a graph resource it did not declare). A raw bind
+        // (a compute pipeline's own storage-buffer setter, a material's storage buffer) of a range that is an
+        // external buffer of the recording graph, by a pass that declares no use of it, is invisible to the
+        // compiler: no barrier and, across the async pipe, no join orders it. Logged once per (pass, buffer).
+        struct RawBufferBind
+        {
+            VkBuffer Buffer = VK_NULL_HANDLE;
+            uint64_t Begin  = 0;
+            uint64_t End    = 0; // exclusive; UINT64_MAX for VK_WHOLE_SIZE
+        };
+
+        bool OverlapsRawBind( const RDG::IPhysicalBuffer& physical, const void* user ) noexcept
+        {
+            if ( physical.GetBackendKind() != RDG::BackendKind::Vulkan )
+                return false;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the backend kind says Vulkan
+            const auto& buffer = static_cast<const VulkanRdgBuffer&>( physical );
+            const auto* bind   = static_cast<const RawBufferBind*>( user );
+            if ( buffer.GetBuffer() != bind->Buffer )
+                return false;
+            const uint64_t begin = buffer.GetOffset();
+            const uint64_t end   = begin + buffer.GetSize();
+            return bind->Begin < end && begin < bind->End;
+        }
+
+        void CheckRawBufferBind( const RDG::PassContext& context, const uint32_t binding,
+                                 const VkDescriptorBufferInfo& info, const std::string_view route ) noexcept
+        {
+            const RawBufferBind bind{ .Buffer = info.buffer,
+                                      .Begin  = info.offset,
+                                      .End = info.range == VK_WHOLE_SIZE ? UINT64_MAX : info.offset + info.range };
+            // A material drawn many times in one pass binds the same range each draw: one scan per run of them.
+            struct LastScan
+            {
+                const char*   Pass  = nullptr;
+                uint64_t      Frame = 0;
+                RawBufferBind Bind;
+            };
+            thread_local LastScan t_Last;
+            const char* const     passKey = context.GetPassName().data();
+            const uint64_t        frame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            if ( t_Last.Pass == passKey && t_Last.Frame == frame && t_Last.Bind.Buffer == bind.Buffer &&
+                 t_Last.Bind.Begin == bind.Begin && t_Last.Bind.End == bind.End )
+                return;
+            t_Last                          = LastScan{ .Pass = passKey, .Frame = frame, .Bind = bind };
+            const std::string_view resource = context.FindUndeclaredExternalBuffer( &OverlapsRawBind, &bind );
+            if ( resource.empty() )
+                return;
+            static std::mutex                      s_Mutex;
+            static std::unordered_set<std::string> s_Reported;
+            std::string                            key = std::format( "{}|{}", context.GetPassName(), resource );
+            {
+                const std::lock_guard lock( s_Mutex );
+                if ( !s_Reported.insert( std::move( key ) ).second )
+                    return;
+            }
+            LOG_WARN( "[RDG] pass '{}' binds graph buffer '{}' outside its declaration ({} route, binding {}): "
+                      "no barrier, no cross-queue join",
+                      context.GetPassName(), resource, route, binding );
+        }
+
+        void CheckComputeStorageCopy( const uint32_t binding, const VkDescriptorBufferInfo& info,
+                                      const void* const user ) noexcept
+        {
+            CheckRawBufferBind( *static_cast<const RDG::PassContext*>( user ), binding, info, "compute setter" );
+        }
+#endif
     } // namespace
 
     RDG::ShaderBindingLayout VulkanRendererAPI::GetBindingLayout( const Shader& shader ) const
@@ -1220,6 +1290,12 @@ namespace Desert::Graphic::API::Vulkan
             other.Filled.push_back( RdgSlotKey{ .Set = 0, .Binding = binding } );
         other.PushConstants = !compute.GetBoundPushConstants().empty();
         const bool setters  = !other.Filled.empty();
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-DEVLOST16: a setter's storage buffer that is an external of this graph must be declared by the pass.
+        if ( setters )
+            compute.VisitBoundStorageCopies( EngineContext::GetInstance().GetCurrentFrameIndex(),
+                                             &CheckComputeStorageCopy, &context );
+#endif
 
         // FPS-CPU2-VKRECORD (GPU-COST-36's memo, as the graphics draws use it): the sets an earlier dispatch of
         // this pass exec wrote from the same block, shader and layout are bound again; only the first resolves
@@ -2189,6 +2265,20 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !written )
                     return Common::MakeFormattedError( "{}: {}", pass, written.GetError() );
                 materialSlots = written.GetValue();
+#if DESERT_DEV_INSTRUMENTS
+                // FPS-DEVLOST16: a material storage buffer the draw binds that is an external of this graph must
+                // be declared by the pass.
+                for ( const IViewDescriptorSetCopy::StorageRange& range : materialSlots.StorageRanges )
+                {
+                    if ( std::ranges::find( materialSlots.Bindings, range.Binding ) ==
+                         materialSlots.Bindings.end() )
+                        continue;
+                    const VkDescriptorBufferInfo info{ .buffer = std::bit_cast<VkBuffer>( range.Buffer ),
+                                                       .offset = range.Offset,
+                                                       .range  = range.Range };
+                    CheckRawBufferBind( context, range.Binding, info, "material" );
+                }
+#endif
             }
             const auto& pc = material->GetPushConstantBuffer();
             if ( pc.Size != 0u )

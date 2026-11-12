@@ -70,6 +70,16 @@ namespace Desert::Graphic
         // Which buffer COPY each binding was last written with. A fresh set points at fallbacks, so every
         // buffer binding is owed a write — which an empty record says by construction.
         ShaderResources::DescriptorCopyRecord BoundCopies;
+        // FPS-DEVLOST16: the buffer range each storage binding's descriptor holds since the material route wrote
+        // it (the RDG check that a graph pass binding a graph buffer declared it). Handle as its 64-bit value.
+        struct StorageRange
+        {
+            uint32_t Binding = 0;
+            uint64_t Buffer  = 0;
+            uint64_t Offset  = 0;
+            uint64_t Range   = 0;
+        };
+        std::vector<StorageRange> StorageRanges;
         // CPU-RDG-PREPARE: what the last complete prepare applied to THESE sets (one view, one frame in flight);
         // empty until one did, or after one met a refusal. Each frame-in-flight copy keeps its own, so a material
         // edited once still reaches every slot: each slot's revision is behind until that slot's prepare ran.
