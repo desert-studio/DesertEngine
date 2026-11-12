@@ -153,11 +153,23 @@ Shader "RadianceCacheTrace"
                         const ivec2 fine = t * int( blockSide ) + ivec2( i, j );
                         if ( fine.x >= int( res ) || fine.y >= int( res ) )
                             continue;
-                        vec4 value = traced;
+                        // FPS-GLOW-ROOT: the atlas is a history (an exponential blend over frames), so ONE
+                        // non-finite texel - an atlas slot never written since the image was created (its memory
+                        // undefined: CreateAtlas, EmptyPixelData) or one NaN ray - stayed NaN for ever:
+                        // mix( x, NaN, h ) is NaN for every h > 0, and every screen probe ray that read the probe
+                        // through the cache, and every reader of its irradiance, spread it. UE: a history texel
+                        // is valid only when written (FRadianceCacheState); here a non-finite last value is no
+                        // history (the texel restarts from this ray), and a non-finite ray never enters the atlas
+                        // (the texel keeps its last finite value, or 0 on a fresh probe). A finite texel and a
+                        // finite ray give exactly the old blend.
+                        const bool rayFinite  = !any( isnan( traced ) ) && !any( isinf( traced ) );
+                        vec4       value      = rayFinite ? traced : vec4( 0.0, 0.0, 0.0, RC_PROBE_TRACE_DISTANCE );
                         if ( !fresh )
                         {
-                            const vec4 last = imageLoad( RadianceCacheRadianceTexture, origin + fine );
-                            value           = mix( value, last, history );
+                            const vec4 last       = imageLoad( RadianceCacheRadianceTexture, origin + fine );
+                            const bool lastFinite = !any( isnan( last ) ) && !any( isinf( last ) );
+                            if ( lastFinite )
+                                value = rayFinite ? mix( traced, last, history ) : last;
                         }
                         imageStore( RadianceCacheRadianceTexture, origin + fine, value );
                     }
