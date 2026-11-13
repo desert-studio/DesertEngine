@@ -168,6 +168,12 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] virtual PipeCapabilities GetPipeCapabilities() const = 0;
         // B(4): the once-per-backend announcement of demoted AsyncCompute passes.
         virtual AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() = 0;
+        // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): sorted AsyncBalancePassKey of the AsyncCompute passes the
+        // backend's measured balance runs on Graphics; empty for a backend without one (every pass as declared).
+        [[nodiscard]] virtual std::span<const uint64_t> GetAsyncBalance() const
+        {
+            return {};
+        }
         // RDG-FAULT1: the one dedupe point for pass and frame faults (RDGFault.hpp). Valid for the backend's
         // whole life, so what it already said survives the per-frame graphs. Builder::Execute is its only caller.
         virtual PassFaultReporter& GetPassFaultReporter() = 0;

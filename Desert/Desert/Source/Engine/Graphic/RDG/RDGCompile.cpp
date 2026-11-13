@@ -6,6 +6,7 @@
 // head and ScheduleIntoAsyncWindows / SinkIntoAsyncWindows move a graphics pass, along its dependency edges,
 // into an async run's overlap window.
 
+#include <Engine/Graphic/RDG/RDGAsyncBalance.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGDeclarationKey.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -23,6 +24,7 @@
 #include <memory>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 
 namespace Desert::Graphic::RDG
 {
@@ -297,8 +299,8 @@ namespace Desert::Graphic::RDG
     class Builder::Compiler
     {
     public:
-        Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
-                  const PipeCapabilities& pipes );
+        Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory, const PipeCapabilities& pipes,
+                  std::span<const uint64_t> balancedToGraphics );
 
         [[nodiscard]] Common::BoolResultStr ValidateFaultDefaults() const;
         void                                FaultMalformedPasses();
@@ -337,10 +339,13 @@ namespace Desert::Graphic::RDG
         // FPS-CPU2-RDG (DESERT_DEV_INSTRUMENTS): the check of stored @p plan under @p key as a job of its own - a
         // copy of @p builder's declaration, of its externals' states and of the memory requirements the plan's
         // transients asked of @p memory, compiled off the render thread and compared with a copy of @p plan.
+        // FPS-ASYNC-BALANCE: @p balancedToGraphics is copied too - the backend's list changes on its next
+        // rebalance while the job may still run, and the stored plan was compiled (and keyed) under this one.
         [[nodiscard]] static CompileCache::Check MakeCheck( const Builder& builder, const CompileResult& plan,
                                                             const IMemoryRequirementsProvider& memory,
-                                                            const PipeCapabilities& pipes, CompileCache& cache,
-                                                            uint64_t key );
+                                                            const PipeCapabilities&   pipes,
+                                                            std::span<const uint64_t> balancedToGraphics,
+                                                            CompileCache& cache, uint64_t key );
 
         // Set by AddTransfers when a transfer's acquire would record before the join ordering it.
         const std::string& SyncError() const
@@ -377,6 +382,8 @@ namespace Desert::Graphic::RDG
         const bool                         m_PassCulling;
         const IMemoryRequirementsProvider& m_Memory;
         const PipeCapabilities&            m_Pipes;
+        // FPS-ASYNC-BALANCE: sorted AsyncBalancePassKey of the AsyncCompute passes the balance runs on Graphics.
+        std::span<const uint64_t>          m_BalancedToGraphics;
         const FaultDefaults&               m_FaultDefaults;
         const Builder&                     m_Builder; // MakeFrameFaultExternal
 
@@ -449,10 +456,11 @@ namespace Desert::Graphic::RDG
     };
 
     Builder::Compiler::Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
-                                 const PipeCapabilities& pipes )
+                                 const PipeCapabilities& pipes, std::span<const uint64_t> balancedToGraphics )
          : m_Passes( builder.m_Passes ), m_Resources( builder.m_Resources ), m_Name( builder.m_Name ),
            m_PassCulling( builder.m_PassCulling ), m_Memory( memory ), m_Pipes( pipes ),
-           m_FaultDefaults( builder.m_FaultDefaults ), m_Builder( builder )
+           m_BalancedToGraphics( balancedToGraphics ), m_FaultDefaults( builder.m_FaultDefaults ),
+           m_Builder( builder )
     {
         m_PassCount     = static_cast<uint32_t>( m_Passes.size() );
         m_ResourceCount = static_cast<uint32_t>( m_Resources.size() );
@@ -943,10 +951,18 @@ namespace Desert::Graphic::RDG
             m_PositionOf[p]  = position;
             if ( !HasFlag( m_Passes[p].Flags, PassFlags::AsyncCompute ) )
                 continue;
-            if ( m_Pipes.SeparateComputeFamily )
-                m_PipeAt[position] = Pipe::AsyncCompute;
-            else
+            if ( !m_Pipes.SeparateComputeFamily )
+            {
                 m_Result.DemotedAsyncPasses.push_back( p );
+                continue;
+            }
+            // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): the measured balance runs this pass on Graphics. Not a
+            // fallback - the pass keeps its AsyncCompute flag, so the balance can give it back.
+            if ( !m_BalancedToGraphics.empty() &&
+                 std::binary_search( m_BalancedToGraphics.begin(), m_BalancedToGraphics.end(),
+                                     AsyncBalancePassKey( m_Name, m_Passes[p].Name ) ) )
+                continue;
+            m_PipeAt[position] = Pipe::AsyncCompute;
         }
     }
 
@@ -2716,7 +2732,8 @@ namespace Desert::Graphic::RDG
     // transient memory, barriers with load/store ops, render-pass merging, final states, barrier rectangles,
     // per-pipe stages, segments.
     Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory,
-                                                       const PipeCapabilities&            pipes ) const
+                                                       const PipeCapabilities&            pipes,
+                                                       std::span<const uint64_t> balancedToGraphics ) const
     {
         if ( !m_DeclarationError.empty() )
             return Common::MakeError<CompileResult>( m_DeclarationError );
@@ -2727,7 +2744,7 @@ namespace Desert::Graphic::RDG
         // CPU-RDG-ALLOC: every working table of the compiler is a ScratchVector of this scope (declared before
         // the compiler, so the compiler dies first); the plan it returns is heap (it outlives the graph).
         const ScratchScope scratch( m_Scratch );
-        Compiler           compiler( *this, memory, pipes );
+        Compiler           compiler( *this, memory, pipes, balancedToGraphics );
         if ( const Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
             return Common::MakeError<CompileResult>( defaults.GetError() );
         DESERT_PROFILE_PHASE( stages, "RDG Compile: validate blocks" );
@@ -3112,18 +3129,21 @@ namespace Desert::Graphic::RDG
             std::vector<std::string>                      Names; // reserved once: the views into it stay
             SnapshotMemory                                Memory;
             PipeCapabilities                              Pipes;
+            std::vector<uint64_t>                         BalancedToGraphics; // FPS-ASYNC-BALANCE, sorted
             CompileResult                                 Stored;
         };
     } // namespace
 
     CompileCache::Check Builder::Compiler::MakeCheck( const Builder& builder, const CompileResult& plan,
                                                       const IMemoryRequirementsProvider& memory,
-                                                      const PipeCapabilities& pipes, CompileCache& cache,
-                                                      const uint64_t key )
+                                                      const PipeCapabilities&   pipes,
+                                                      std::span<const uint64_t> balancedToGraphics,
+                                                      CompileCache& cache, const uint64_t key )
     {
         const auto snapshot = std::make_shared<CheckSnapshot>( builder.m_Name );
         Builder&   graph    = snapshot->Graph;
         snapshot->Pipes     = pipes;
+        snapshot->BalancedToGraphics.assign( balancedToGraphics.begin(), balancedToGraphics.end() );
         snapshot->Stored    = plan;
         graph.m_PassCulling      = builder.m_PassCulling;
         graph.m_AsyncCompute     = builder.m_AsyncCompute;
@@ -3224,7 +3244,8 @@ namespace Desert::Graphic::RDG
         CompileCache* const target = &cache;
         return [snapshot, target, key]()
         {
-            Common::ResultStr<CompileResult> fresh = snapshot->Graph.Compile( snapshot->Memory, snapshot->Pipes );
+            Common::ResultStr<CompileResult> fresh = snapshot->Graph.Compile( snapshot->Memory, snapshot->Pipes,
+                                                                                    snapshot->BalancedToGraphics );
             std::string_view difference = "the fresh compile failed";
             if ( fresh )
                 difference = FirstPlanDifference( snapshot->Stored, fresh.GetValue() );
@@ -3238,10 +3259,12 @@ namespace Desert::Graphic::RDG
         const IMemoryRequirementsProvider& memory = backend.GetMemoryRequirements();
         const PipeCapabilities             pipes  = backend.GetPipeCapabilities();
         CompileCache* const                cache  = backend.GetCompileCache();
+        // FPS-ASYNC-BALANCE: the AsyncCompute passes the backend's measured balance runs on Graphics.
+        const std::span<const uint64_t> balanced = backend.GetAsyncBalance();
         // No cache, or a graph Compile refuses before reading anything: compiled as before the cache existed.
         if ( cache == nullptr || !m_DeclarationError.empty() )
         {
-            Common::ResultStr<CompileResult> compiled = Compile( memory, pipes );
+            Common::ResultStr<CompileResult> compiled = Compile( memory, pipes, balanced );
             if ( !compiled )
                 return Common::MakeError<Plan>( compiled.GetError() );
             return Common::MakeSuccess( std::make_shared<CompileResult>( compiled.ExtractValue() ) );
@@ -3250,6 +3273,9 @@ namespace Desert::Graphic::RDG
         {
             DESERT_PROFILE_SCOPE( "RDG Compile: cache key" );
             key = Compiler::HashDeclaration( *this, pipes );
+            // The balance's list decides pipes, so it is part of the key (the same list - the same plan).
+            if ( !balanced.empty() )
+                key = ( key ^ AsyncBalanceKeyOf( balanced ) ) * 0x100000001b3ull;
         }
         bool check = false;
         Plan plan  = cache->Find( m_Name, key, check );
@@ -3264,14 +3290,14 @@ namespace Desert::Graphic::RDG
             if ( check )
             {
                 DESERT_PROFILE_SCOPE( "RDG Compile: check snapshot" );
-                cache->RunCheck( Compiler::MakeCheck( *this, *plan, memory, pipes, *cache, key ) );
+                cache->RunCheck( Compiler::MakeCheck( *this, *plan, memory, pipes, balanced, *cache, key ) );
             }
 #else
             (void)check;
 #endif
             return Common::MakeSuccess( std::move( plan ) );
         }
-        Common::ResultStr<CompileResult> compiled = Compile( memory, pipes );
+        Common::ResultStr<CompileResult> compiled = Compile( memory, pipes, balanced );
         if ( !compiled )
             return Common::MakeError<Plan>( compiled.GetError() );
         plan = std::make_shared<CompileResult>( compiled.ExtractValue() );
@@ -3613,5 +3639,230 @@ namespace Desert::Graphic::RDG
             if ( !chunkLine.empty() )
                 m_Sink( false, chunkLine );
         }
+    }
+
+    // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp) ───────────────────────────────────────────────────────────────
+
+    uint64_t AsyncBalancePassKey( std::string_view graph, std::string_view pass ) noexcept
+    {
+        uint64_t   hash = 14695981039346656037ull;
+        const auto add  = [&hash]( std::string_view text )
+        {
+            for ( const char c : text )
+            {
+                hash ^= static_cast<uint8_t>( c );
+                hash *= 1099511628211ull;
+            }
+        };
+        add( graph );
+        hash ^= 0xffu; // the separator: ("ab", "c") and ("a", "bc") differ
+        hash *= 1099511628211ull;
+        add( pass );
+        return hash;
+    }
+
+    uint64_t AsyncBalanceKeyOf( std::span<const uint64_t> graphicsPasses ) noexcept
+    {
+        uint64_t key = 0;
+        for ( const uint64_t pass : graphicsPasses )
+            key = ( key ^ pass ) * 1099511628211ull + 0x9e3779b97f4a7c15ull;
+        return key;
+    }
+
+    void AsyncBalance::NotePlan( std::string_view graph, const CompileResult& plan )
+    {
+        Shape* shape = nullptr;
+        for ( Shape& kept : m_Shapes )
+            if ( kept.Graph == graph )
+                shape = &kept;
+        if ( shape == nullptr )
+        {
+            shape        = &m_Shapes.emplace_back();
+            shape->Graph = std::string( graph );
+        }
+        const size_t count = plan.Passes.size();
+        if ( shape->Plan == &plan && shape->Names.size() == count )
+            return;
+        shape->Plan = &plan;
+        shape->Names.resize( count );
+        shape->Keys.resize( count );
+        shape->Pipes.resize( count );
+        shape->Eligible.assign( count, false );
+        uint32_t lastPass = 0;
+        for ( const CompiledPass& pass : plan.Passes )
+            lastPass = std::max( lastPass, pass.Pass );
+        const size_t          passSlots = count == 0 ? 0 : static_cast<size_t>( lastPass ) + 1u;
+        std::vector<uint32_t> positionOf( passSlots, ~0u );
+        for ( size_t position = 0; position < count; ++position )
+        {
+            const CompiledPass& pass = plan.Passes[position];
+            shape->Names[position]   = pass.Name;
+            shape->Keys[position]    = AsyncBalancePassKey( graph, pass.Name );
+            shape->Pipes[position]   = pass.OnPipe;
+            shape->Eligible[position] =
+                 plan.Pipes.SeparateComputeFamily && HasFlag( pass.Flags, PassFlags::AsyncCompute );
+            positionOf[pass.Pass] = static_cast<uint32_t>( position );
+        }
+        const auto known = [&positionOf]( uint32_t pass )
+        { return pass < positionOf.size() && positionOf[pass] != ~0u; };
+        // The edges by the position they end at (CSR), each as the position it starts at.
+        shape->PredFirst.assign( count + 1, 0 );
+        for ( const DependencyEdge& edge : plan.Edges )
+            if ( known( edge.From ) && known( edge.To ) )
+                ++shape->PredFirst[positionOf[edge.To] + 1];
+        for ( size_t position = 0; position < count; ++position )
+            shape->PredFirst[position + 1] += shape->PredFirst[position];
+        shape->Preds.assign( shape->PredFirst[count], 0 );
+        std::vector<uint32_t> filled( shape->PredFirst.begin(), shape->PredFirst.end() - 1 );
+        for ( const DependencyEdge& edge : plan.Edges )
+            if ( known( edge.From ) && known( edge.To ) )
+                shape->Preds[filled[positionOf[edge.To]]++] = positionOf[edge.From];
+    }
+
+    // The two-queue list schedule: each queue in position order, a pass starts after its queue's previous pass
+    // and after every pass it depends on (a fork or a join where the two are on different queues). The graph's
+    // length is the later of the two queues' ends (the graph end joins the async queue).
+    double AsyncBalance::Simulate( const Shape& shape, std::span<const Pipe> pipes, std::span<const double> cost,
+                                   std::vector<double>& finish )
+    {
+        double graphicsFree = 0.0;
+        double asyncFree    = 0.0;
+        finish.assign( pipes.size(), 0.0 );
+        for ( size_t position = 0; position < pipes.size(); ++position )
+        {
+            const bool async = pipes[position] == Pipe::AsyncCompute;
+            double     start = async ? asyncFree : graphicsFree;
+            for ( uint32_t e = shape.PredFirst[position]; e < shape.PredFirst[position + 1]; ++e )
+                start = std::max( start, finish[shape.Preds[e]] );
+            finish[position] = start + cost[position];
+            if ( async )
+                asyncFree = finish[position];
+            else
+                graphicsFree = finish[position];
+        }
+        return std::max( graphicsFree, asyncFree );
+    }
+
+    AsyncBalance::Decision* AsyncBalance::Find( uint64_t key ) noexcept
+    {
+        for ( Decision& decision : m_Decisions )
+            if ( decision.Key == key )
+                return &decision;
+        return nullptr;
+    }
+
+    void AsyncBalance::SortList()
+    {
+        std::erase_if( m_Decisions, []( const Decision& decision )
+                       { return !decision.OnGraphics && decision.FrozenLeft == 0; } );
+        m_GraphicsPasses.clear();
+        for ( const Decision& decision : m_Decisions )
+            if ( decision.OnGraphics )
+                m_GraphicsPasses.push_back( decision.Key );
+        std::sort( m_GraphicsPasses.begin(), m_GraphicsPasses.end() );
+        m_GraphicsPasses.erase( std::unique( m_GraphicsPasses.begin(), m_GraphicsPasses.end() ),
+                                m_GraphicsPasses.end() );
+    }
+
+    bool AsyncBalance::Rebalance( const CostOf& costOf, const LogFn& log )
+    {
+        for ( Decision& decision : m_Decisions )
+            if ( decision.FrozenLeft > 0 )
+                --decision.FrozenLeft;
+        bool                                           changed = false;
+        std::vector<double>                            cost;
+        std::vector<Pipe>                              pipes;
+        std::vector<double>                            finish;
+        std::unordered_map<std::string_view, uint32_t> sameName;
+        for ( Shape& shape : m_Shapes )
+        {
+            const size_t count    = shape.Names.size();
+            bool         measured = false;
+            bool         eligible = false;
+            cost.assign( count, 0.0 );
+            // A row is per name: passes of one name in the graph (a pass declared once per cascade, per view)
+            // share its time evenly.
+            sameName.clear();
+            for ( const std::string& name : shape.Names )
+                ++sameName[name];
+            for ( size_t position = 0; position < count; ++position )
+            {
+                const Cost measuredCost = costOf( shape.Names[position] );
+                cost[position]          = measuredCost.Ms / static_cast<double>( sameName[shape.Names[position]] );
+                measured                = measured || measuredCost.Measured;
+                eligible                = eligible || shape.Eligible[position];
+            }
+            // No measurement (GPU timing off, the graph not drawn in the window) or nothing to choose: the
+            // choice stays as it is.
+            if ( !measured || !eligible )
+                continue;
+            pipes.assign( shape.Pipes.begin(), shape.Pipes.end() );
+            // A pass on Graphics by the balance is modelled on AsyncCompute with the cost it measured there.
+            const auto costOn = [&]( size_t position, Pipe pipe )
+            {
+                const Decision* const decision = Find( shape.Keys[position] );
+                if ( pipe == Pipe::AsyncCompute && decision != nullptr && decision->OnGraphics )
+                    return std::max( cost[position], decision->AsyncMs );
+                return cost[position];
+            };
+            double length = Simulate( shape, pipes, cost, finish );
+            for ( uint32_t flip = 0; flip < kFlipsPerWindow; ++flip )
+            {
+                double bestLength   = length;
+                size_t bestPosition = count;
+                for ( size_t position = 0; position < count; ++position )
+                {
+                    if ( !shape.Eligible[position] )
+                        continue;
+                    if ( const Decision* const decision = Find( shape.Keys[position] );
+                         decision != nullptr && decision->FrozenLeft > 0 )
+                        continue;
+                    const Pipe   was     = pipes[position];
+                    const double wasCost = cost[position];
+                    Pipe         other   = Pipe::AsyncCompute;
+                    if ( was == Pipe::AsyncCompute )
+                        other = Pipe::Graphics;
+                    cost[position]       = costOn( position, other );
+                    pipes[position]      = other;
+                    const double flipped = Simulate( shape, pipes, cost, finish );
+                    pipes[position]      = was;
+                    cost[position]       = wasCost;
+                    if ( flipped < bestLength )
+                    {
+                        bestLength   = flipped;
+                        bestPosition = position;
+                    }
+                }
+                if ( bestPosition == count || length - bestLength < kFlipMarginMs )
+                    break;
+                Pipe to = Pipe::AsyncCompute;
+                if ( pipes[bestPosition] == Pipe::AsyncCompute )
+                    to = Pipe::Graphics;
+                Decision* decision = Find( shape.Keys[bestPosition] );
+                if ( decision == nullptr )
+                {
+                    decision      = &m_Decisions.emplace_back();
+                    decision->Key = shape.Keys[bestPosition];
+                }
+                if ( to == Pipe::Graphics )
+                    decision->AsyncMs = cost[bestPosition];
+                cost[bestPosition]   = costOn( bestPosition, to );
+                decision->OnGraphics = to == Pipe::Graphics;
+                decision->FrozenLeft = kFrozenWindows;
+                pipes[bestPosition]  = to;
+                if ( log )
+                {
+                    const std::string_view queue = to == Pipe::Graphics ? "Graphics" : "AsyncCompute";
+                    log( fmt::format(
+                         "async balance '{}': '{}' -> {} ({:.3f} ms; modelled graph {:.3f} -> {:.3f} ms)",
+                         shape.Graph, shape.Names[bestPosition], queue, cost[bestPosition], length, bestLength ) );
+                }
+                length  = bestLength;
+                changed = true;
+            }
+            shape.Pipes.assign( pipes.begin(), pipes.end() );
+        }
+        SortList();
+        return changed;
     }
 } // namespace Desert::Graphic::RDG

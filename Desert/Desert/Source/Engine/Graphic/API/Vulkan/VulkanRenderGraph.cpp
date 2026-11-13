@@ -1865,6 +1865,37 @@ namespace Desert::Graphic::API::Vulkan
                                vkDestroyFramebuffer( m_Device.Device, keyed.second.Framebuffer, nullptr );
                            return dead;
                        } );
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-ASYNC-BALANCE: a newly published profiler window (an average over its frames: the smoothing) gives
+        // every pass its GPU self time; the balance flips the AsyncCompute passes its model gains from. A row
+        // drawn inside a view is "<view> | <pass>": the pass's time is the sum over the views. GPU timing off:
+        // no row has GPU calls and the choice stays (AsyncBalance::Rebalance).
+        if ( const Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
+             profiler.PublishCount() != m_BalanceWindow )
+        {
+            DESERT_PROFILE_SCOPE( "RDG: Async balance" );
+            m_BalanceWindow = profiler.PublishCount();
+            std::unordered_map<std::string_view, double> gpuSelf;
+            for ( const Common::Profiling::ScopeResult& row : profiler.LastFrame() )
+            {
+                if ( row.GpuCalls == 0 )
+                    continue;
+                std::string_view name = row.Name;
+                if ( const size_t view = name.find( " | " ); view != std::string_view::npos )
+                    name = name.substr( view + 3 );
+                gpuSelf[name] += row.GpuSelfMs;
+            }
+            (void)m_AsyncBalance.Rebalance(
+                 [&gpuSelf]( std::string_view pass )
+                 {
+                     const auto found = gpuSelf.find( pass );
+                     if ( found == gpuSelf.end() )
+                         return RDG::AsyncBalance::Cost{};
+                     return RDG::AsyncBalance::Cost{ found->second, true };
+                 },
+                 []( std::string_view line ) { LOG_INFO( "[RDG] {}", line ); } );
+        }
+#endif
         m_FrameSlot   = slot;
         m_Queues      = &queues;
         m_Transients  = &transients;
@@ -1935,6 +1966,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( graph.Result == nullptr )
             return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
                                                graph.Name );
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-ASYNC-BALANCE: the plan's shape for the next rebalance (walked only when the plan is new). The
+        // rebalance runs only where the profiler's GPU rows exist (BeginFrame), so the shape is kept only there.
+        m_AsyncBalance.NotePlan( graph.Name, *graph.Result );
+#endif
         // THE CROSSING RULE'S PRECONDITION (RecordBarriers): a graph with an AsyncCompute segment crosses queue
         // families, and its release / acquire pairs name no family - valid only when every resource is CONCURRENT
         // across both pipes' families (VulkanResourceSharing.hpp). A device set up otherwise is refused by name,
@@ -3543,6 +3579,11 @@ namespace Desert::Graphic::API::Vulkan
     RDG::PassFaultReporter& VulkanRdgBackend::GetPassFaultReporter()
     {
         return m_FaultReporter;
+    }
+
+    std::span<const uint64_t> VulkanRdgBackend::GetAsyncBalance() const
+    {
+        return m_AsyncBalance.GraphicsPasses();
     }
 
     RDG::CompileCache* VulkanRdgBackend::GetCompileCache()
