@@ -268,6 +268,11 @@ Shader "CloudRaymarch"
         // (CloudProceduralColumnsEmpty) and nothing else; the march's own binding, not the field's.
         Uniform(20) texture3D CloudColumnMaxTexture;
         #define CloudColumnMaxTexture sampler3D(CloudColumnMaxTexture, LinearRepeatSampler)
+        // ITS MAX-MIP CHAIN (Graphic::CloudProceduralClipmap::GetColumnMipImage, FPS-CLOUD-3): the same rows, mip
+        // m >= 1 packed along x at side - 2 (side >> m), side / 2 deep. texelFetched by the ray's empty-space walk
+        // (CloudSkipWalk -> CloudProceduralCellEmpty) and nothing else.
+        Uniform(22) texture3D CloudColumnMipTexture;
+        #define CloudColumnMipTexture sampler3D(CloudColumnMipTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
@@ -343,6 +348,17 @@ Shader "CloudRaymarch"
             return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, row, texel.y), 0);
         }
         #define CLOUD_SAMPLE_COLUMN_MAX(row, uv) CloudFetchColumnMax((row), (uv))
+        // Texel @p texel of mip @p mip of image row @p row: mip 0 is the column image itself, mip m >= 1 the
+        // packed chain (CloudProceduralClipmap::ColumnMipOffset). The caller keeps texel inside side >> mip.
+        vec4 CloudFetchColumnMip(int row, int mip, ivec2 texel)
+        {
+            if (mip == 0)
+                return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, row, texel.y), 0);
+            int side   = textureSize(CloudColumnMaxTexture, 0).x;
+            int offset = side - 2 * (side >> mip);
+            return texelFetch(CloudColumnMipTexture, ivec3(offset + texel.x, row, texel.y), 0);
+        }
+        #define CLOUD_SAMPLE_COLUMN_MIP(row, mip, texel) CloudFetchColumnMip((row), (mip), (texel))
 
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
@@ -466,8 +482,24 @@ Shader "CloudRaymarch"
         // 0 = lanes over the whole segment, the march as it was, kept for the A/B. Off for authored bodies, whose
         // boxes are not in the column-max image (the coarse tier's probeColumns rule).
         #define CLOUD_RAY_EMPTY_SPACE_TRIM 1
-        // Probes per lane for the trim; even (half tile the share's front and half its back when they cannot tile it).
+        // Probes per lane for the trim where they tile the lane's share (steep rays: reach >= share / probes).
         #define CLOUD_RAY_TRIM_PROBES 8
+        // THE KM-SCALE WALK FOR THE SHARES THE PROBES CANNOT TILE (FPS-CLOUD-3): a grazing ray's probe reaches
+        // ~0.18 km of a share of kilometres, so CLOUD-2 left the share's middle "might" and the horizon rays kept
+        // their whole chord. There each lane walks its share with a hierarchical DDA over the max-mip chain of
+        // the conservative density (CloudSkipWalk, CloudProceduralCellEmpty) - Unreal's empty-space skipping
+        // and Nubis' coarse weather-map skip: a front walker from the share's start and a back walker from its
+        // end, in lockstep (their fetches are independent, so one iteration costs one latency), each climbing a
+        // mip on a clear cell and descending one on a cell that might hold cloud, stopping at a "might" cell of
+        // mip 0 (the last level's voxel, 187.5 m at the default region) or when the iterations run out. Every
+        // stop is conservative: all air before it was proven empty by the cell's texel.
+        // 0 = the CLOUD-2 split (half the probes on each end, the middle "might"), kept for the A/B.
+        #define CLOUD_RAY_SKIP_WALK 1
+        // Lockstep iterations of the two walkers (each iteration = one cell test per walker).
+        #define CLOUD_SKIP_ITERATIONS 10
+        // The coarsest mip a walker climbs to: 2^5 last-level voxels = 6 km cells at the default 48 km region.
+        // Levels finer than the last read mip + (last - level), which the 256-texel chain holds up to 8.
+        #define CLOUD_SKIP_TOP_MIP 5
 
         PushConstant CloudPush
         {
@@ -649,6 +681,46 @@ Shader "CloudRaymarch"
             uint  rank     = 4u * CloudDitherRank2x2(subPixel) + CloudDitherRank2x2(gridPhase);
             float temporal = float((traceCycle * 0x9E3779B9u) >> 8u) * (1.0f / 16777216.0f);
             return fract(spatial + float(rank) * (1.0f / 16.0f) + temporal);
+        }
+
+        // ONE WALKER OF THE KM-SCALE EMPTY-SPACE WALK (CLOUD_RAY_SKIP_WALK): the ray from @p originKm along
+        // @p rayDir walked from distance @p fromKm toward @p toKm (either order), in the wind-space columns of the
+        // last level's voxel grid. State: .x the distance walked from fromKm (all air before it proven empty),
+        // .y the walker's mip, .z 1 once it stopped (reached toKm, or met a mip-0 cell that might hold cloud).
+        // One call = one cell test.
+        vec3 CloudSkipStep(CloudFieldParams params, CloudLayer layer, int side, vec3 originKm, vec3 rayDir,
+                           float fromKm, float toKm, vec3 state)
+        {
+            float lengthKm = abs(toKm - fromKm);
+            if (state.z > 0.5f || state.x >= lengthKm)
+                return vec3(min(state.x, lengthKm), state.y, 1.0f);
+
+            float sgn     = toKm >= fromKm ? 1.0f : -1.0f;
+            vec2  dirXz   = rayDir.xz * sgn;
+            vec2  startXz = originKm.xz + rayDir.xz * fromKm - params.WindOffsetKm.xz;
+            // A component at (nearly) zero never reaches a face along its axis: a huge positive inverse with the
+            // face ahead keeps that axis' exit distance huge and positive.
+            vec2  invDir  = vec2(abs(dirXz.x) > 1e-7f ? 1.0f / dirXz.x : 1e30f,
+                                 abs(dirXz.y) > 1e-7f ? 1.0f / dirXz.y : 1e30f);
+
+            int   mip    = int(state.y);
+            float cellKm = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].w * float(1 << mip);
+            // The cell holding the point just past the walked distance (10 cm on, so a point on a face picks the
+            // cell ahead; the 10 cm behind lie in the cell already proven, or inside the dilation at the start).
+            vec2  p      = startXz + dirXz * (state.x + 1e-4f);
+            ivec2 cell   = ivec2(floor(p / cellKm));
+            vec2  face   = (vec2(cell) + step(vec2(0.0f), invDir)) * cellKm;
+            vec2  exits  = (face - startXz) * invDir;
+            float exitKm = clamp(min(exits.x, exits.y), state.x, lengthKm);
+
+            float a       = fromKm + sgn * state.x;
+            float b       = fromKm + sgn * exitKm;
+            vec2  heights = CloudRayHeightFractionSpan(layer, originKm, rayDir, min(a, b), max(a, b));
+            if (CloudProceduralCellEmpty(params, side, cell, mip, heights.x, heights.y))
+                return vec3(exitKm, float(min(mip + 1, CLOUD_SKIP_TOP_MIP)), exitKm >= lengthKm ? 1.0f : 0.0f);
+            if (mip == 0)
+                return vec3(state.x, 0.0f, 1.0f);
+            return vec3(state.x, float(mip - 1), 0.0f);
         }
 
         void main()
@@ -970,52 +1042,83 @@ Shader "CloudRaymarch"
                 float trimPieceKm   = trimTiles ? trimShareKm / float(CLOUD_RAY_TRIM_PROBES) : trimReachKm;
                 const int kTrimHalf = CLOUD_RAY_TRIM_PROBES / 2;
 
-                float pieceFrom[CLOUD_RAY_TRIM_PROBES];
-                bool  pieceClear[CLOUD_RAY_TRIM_PROBES];
-                for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
-                {
-                    float from = trimShareFrom + float(j) * trimPieceKm;
-                    if (!trimTiles && j >= kTrimHalf)
-                        from = trimShareTo - float(CLOUD_RAY_TRIM_PROBES - j) * trimPieceKm;
-                    float to          = min(from + trimPieceKm, segment.y);
-                    vec3  probePos    = originKm + rayDir * from;
-                    vec2  heights     = CloudRayHeightFractionSpan(layer, originKm, rayDir, from, to);
-                    pieceFrom[j]      = from;
-                    pieceClear[j]     = CloudProceduralColumnsEmpty(params, probePos.xz - params.WindOffsetKm.xz,
-                                                                    CLOUD_COLUMN_PROBE_RADIUS_KM, heights.x, heights.y);
-                }
-
                 // This share's first and last distance that might hold cloud; +inf / -inf when it is all clear.
                 const float kTrimNone = 1.0e30f;
                 float shareFirst = kTrimNone;
                 float shareLast  = -kTrimNone;
-                for (int j = CLOUD_RAY_TRIM_PROBES - 1; j >= 0; --j)
+                if (CLOUD_RAY_SKIP_WALK != 0 && !trimTiles)
                 {
-                    if (!pieceClear[j])
-                        shareFirst = pieceFrom[j];
-                }
-                for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
-                {
-                    if (!pieceClear[j])
-                        shareLast = pieceFrom[j] + trimPieceKm;
-                }
-                if (!trimTiles)
-                {
-                    // The untiled middle might hold cloud: it starts the share's "might" when the front half is
-                    // clear and ends it when the back half is.
-                    float middleFrom = trimShareFrom + float(kTrimHalf) * trimPieceKm;
-                    float middleTo   = trimShareTo - float(kTrimHalf) * trimPieceKm;
-                    bool  frontClear = true;
-                    bool  backClear  = true;
-                    for (int j = 0; j < kTrimHalf; ++j)
+                    // The km-scale walk (CLOUD_RAY_SKIP_WALK): both walkers start at the mip whose cell spans the
+                    // share's horizontal run, so a clear share is usually one or two tests.
+                    int   skipSide    = textureSize(CloudColumnMaxTexture, 0).x;
+                    float skipVoxelKm = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].w;
+                    float shareRunKm  = trimShareKm * max(length(rayDir.xz), 1e-6f);
+                    float startMip    = clamp(ceil(log2(max(shareRunKm / max(skipVoxelKm, 1e-6f), 1.0f))), 0.0f,
+                                              float(CLOUD_SKIP_TOP_MIP));
+                    vec3  front       = vec3(0.0f, startMip, 0.0f);
+                    vec3  back        = vec3(0.0f, startMip, 0.0f);
+                    for (int i = 0; i < CLOUD_SKIP_ITERATIONS; ++i)
                     {
-                        frontClear = frontClear && pieceClear[j];
-                        backClear  = backClear && pieceClear[CLOUD_RAY_TRIM_PROBES - 1 - j];
+                        front = CloudSkipStep(params, layer, skipSide, originKm, rayDir, trimShareFrom, trimShareTo,
+                                              front);
+                        back  = CloudSkipStep(params, layer, skipSide, originKm, rayDir, trimShareTo, trimShareFrom,
+                                              back);
+                        if ((front.z > 0.5f && back.z > 0.5f) || front.x + back.x >= trimShareKm)
+                            break;
                     }
-                    if (frontClear)
-                        shareFirst = min(shareFirst, middleFrom);
-                    if (backClear)
-                        shareLast = max(shareLast, middleTo);
+                    // Each walker proved the air it walked; when the two proven ends meet the share is clear.
+                    if (front.x + back.x < trimShareKm)
+                    {
+                        shareFirst = trimShareFrom + front.x;
+                        shareLast  = trimShareTo - back.x;
+                    }
+                }
+                else
+                {
+                    float pieceFrom[CLOUD_RAY_TRIM_PROBES];
+                    bool  pieceClear[CLOUD_RAY_TRIM_PROBES];
+                    for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
+                    {
+                        float from = trimShareFrom + float(j) * trimPieceKm;
+                        if (!trimTiles && j >= kTrimHalf)
+                            from = trimShareTo - float(CLOUD_RAY_TRIM_PROBES - j) * trimPieceKm;
+                        float to       = min(from + trimPieceKm, segment.y);
+                        vec3  probePos = originKm + rayDir * from;
+                        vec2  heights  = CloudRayHeightFractionSpan(layer, originKm, rayDir, from, to);
+                        pieceFrom[j]   = from;
+                        pieceClear[j]  = CloudProceduralColumnsEmpty(params, probePos.xz - params.WindOffsetKm.xz,
+                                                                     CLOUD_COLUMN_PROBE_RADIUS_KM, heights.x,
+                                                                     heights.y);
+                    }
+
+                    for (int j = CLOUD_RAY_TRIM_PROBES - 1; j >= 0; --j)
+                    {
+                        if (!pieceClear[j])
+                            shareFirst = pieceFrom[j];
+                    }
+                    for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
+                    {
+                        if (!pieceClear[j])
+                            shareLast = pieceFrom[j] + trimPieceKm;
+                    }
+                    if (!trimTiles)
+                    {
+                        // The untiled middle might hold cloud (CLOUD_RAY_SKIP_WALK 0): it starts the share's "might"
+                        // when the front half is clear and ends it when the back half is.
+                        float middleFrom = trimShareFrom + float(kTrimHalf) * trimPieceKm;
+                        float middleTo   = trimShareTo - float(kTrimHalf) * trimPieceKm;
+                        bool  frontClear = true;
+                        bool  backClear  = true;
+                        for (int j = 0; j < kTrimHalf; ++j)
+                        {
+                            frontClear = frontClear && pieceClear[j];
+                            backClear  = backClear && pieceClear[CLOUD_RAY_TRIM_PROBES - 1 - j];
+                        }
+                        if (frontClear)
+                            shareFirst = min(shareFirst, middleFrom);
+                        if (backClear)
+                            shareLast = max(shareLast, middleTo);
+                    }
                 }
 
                 // The ray's span over its lanes: a butterfly min/max over the ray's aligned lane block, as the

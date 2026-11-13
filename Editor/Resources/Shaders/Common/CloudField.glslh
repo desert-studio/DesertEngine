@@ -576,6 +576,37 @@ vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction,
 // The far path has no baked image: where the disk reaches past the coarsest level's whole region the probe
 // says "might" and the exact sample answers, as it did before the probe existed. The levels are read finest
 // first and the answer is "might" at the first that reaches a cut, so a cloudy column pays one level's bands.
+//
+// The probe's cut per species (CloudColumnCut), half an 8-bit step low, so a filtered value rounding up past its
+// texels cannot slip through; a species that is absent (no coverage, or past the layer's count) keeps a cut no
+// byte reaches. Shared with the cell test below (CloudProceduralCellEmpty).
+vec4 CloudColumnCut( CloudFieldParams params )
+{
+    vec4 coverage     = clamp( vec4( params.Coverage ) * params.SpeciesCover, vec4( 0.0f ), vec4( 1.0f ) );
+    vec4 cut          = vec4( 2.0f );
+    int  speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
+    for ( int slot = 0; slot < speciesCount; ++slot )
+    {
+        if ( coverage[slot] > 0.0f )
+            cut[slot] = 1.0f - coverage[slot] - 0.5f / 255.0f;
+    }
+    return cut;
+}
+
+// The bands (first, last) the fetches of an interval between two height fractions read, in either order.
+ivec2 CloudColumnBands( float heightLow, float heightHigh )
+{
+    int   rowsPerBand = int( CLOUD_PROCEDURAL_VOLUME_HEIGHT ) / CLOUD_COLUMN_MAX_BANDS;
+    int   lastRow     = int( CLOUD_PROCEDURAL_VOLUME_HEIGHT ) - 1;
+    float rowLow      = clamp( min( heightLow, heightHigh ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
+                               CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
+    float rowHigh     = clamp( max( heightLow, heightHigh ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
+                               CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
+    int   firstRead   = clamp( int( floor( rowLow - 0.5f - CLOUD_COLUMN_ROW_MARGIN ) ), 0, lastRow );
+    int   lastRead    = clamp( int( floor( rowHigh - 0.5f + CLOUD_COLUMN_ROW_MARGIN ) ) + 1, 0, lastRow );
+    return ivec2( firstRead / rowsPerBand, lastRead / rowsPerBand );
+}
+
 bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm, float heightLow,
                                   float heightHigh )
 {
@@ -591,28 +622,10 @@ bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float
     if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f )
         return false;
 
-    // The cut per species, half an 8-bit step low, so a filtered value rounding up past its texels cannot slip
-    // through; a species that is absent (no coverage, or past the layer's count) keeps a cut no byte reaches.
-    vec4 coverage     = clamp( vec4( params.Coverage ) * params.SpeciesCover, vec4( 0.0f ), vec4( 1.0f ) );
-    vec4 cut          = vec4( 2.0f );
-    int  speciesCount = min( params.SpeciesCount, CLOUD_SPECIES_SLOTS );
-    for ( int slot = 0; slot < speciesCount; ++slot )
-    {
-        if ( coverage[slot] > 0.0f )
-            cut[slot] = 1.0f - coverage[slot] - 0.5f / 255.0f;
-    }
-
-    // The bands the interval's fetches read, in either order of the two heights.
-    int   rowsPerBand = int( CLOUD_PROCEDURAL_VOLUME_HEIGHT ) / CLOUD_COLUMN_MAX_BANDS;
-    int   lastRow     = int( CLOUD_PROCEDURAL_VOLUME_HEIGHT ) - 1;
-    float rowLow      = clamp( min( heightLow, heightHigh ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
-                               CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
-    float rowHigh     = clamp( max( heightLow, heightHigh ) * CLOUD_PROCEDURAL_VOLUME_HEIGHT, 0.5f,
-                               CLOUD_PROCEDURAL_VOLUME_HEIGHT - 0.5f );
-    int   firstRead   = clamp( int( floor( rowLow - 0.5f - CLOUD_COLUMN_ROW_MARGIN ) ), 0, lastRow );
-    int   lastRead    = clamp( int( floor( rowHigh - 0.5f + CLOUD_COLUMN_ROW_MARGIN ) ) + 1, 0, lastRow );
-    int   firstBand   = firstRead / rowsPerBand;
-    int   lastBand    = lastRead / rowsPerBand;
+    vec4  cut       = CloudColumnCut( params );
+    ivec2 bands     = CloudColumnBands( heightLow, heightHigh );
+    int   firstBand = bands.x;
+    int   lastBand  = bands.y;
 
     // A level answers at a column when it is the finest with weight there (its own share) or the coarser
     // partner of a finer level that is not whole there (CloudSampleProceduralBaked), so it can only answer
@@ -634,6 +647,78 @@ bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float
     }
     return true;
 }
+
+#if defined( CLOUD_SAMPLE_COLUMN_MIP )
+// THE KM-SCALE EMPTY-SPACE MAP (FPS-CLOUD-3): CloudProceduralColumnsEmpty for a whole CELL of the coarsest level's
+// max-mip chain instead of a disk around one column — the question the march's hierarchical DDA asks
+// (CloudRaymarch.shader CloudSkipWalk): Unreal's empty-space skipping and Nubis' coarse weather-map skip, on the
+// same conservative density the coarse tier already trusts.
+//
+// THE CELL is world cell @p cell (wind space) of side cellKm = the last level's voxel * 2^@p mip, i.e. world
+// voxels [cell * 2^mip, (cell + 1) * 2^mip) of the last level. The levels are nested on one world grid (each
+// halves the voxel of the next, Assets::CloudProceduralLevelSideKm; CloudProceduralLevelUvw addresses world /
+// voxel with REPEAT), so the same cell is world voxels [cell * 2^m_k, ...) of level k with m_k = mip + (last - k),
+// and its texel in that level's mip m_k is cell mod (side >> m_k) — toroidal exactly when side >> m_k divides the
+// side (Graphic::CloudProceduralClipmap::GetColumnMipImage). That texel is the max over the cell's DILATED
+// columns (and over the in-window columns congruent to them, which only adds), so it bounds every fetch at
+// every point of the cell, as the probe's texel bounds every fetch inside its radius.
+//
+// TRUE ONLY WHEN NO POINT OF THE CELL, AT ANY HEIGHT FRACTION BETWEEN @p heightLow AND @p heightHigh, CAN HAVE A
+// PROCEDURAL PROFILE ABOVE ZERO. Which levels answer is decided as the probe decides it, over the cell's
+// circumscribed disk; where that disk reaches the far path, or a level's mip does not exist, the answer is
+// "might". @p side is the levels' texel side. CLOUD_SAMPLE_COLUMN_MIP( row, mip, texel ) returns the texel of
+// image row @p row (level * CLOUD_COLUMN_MAX_BANDS + band) of mip @p mip (0 = the column image itself).
+bool CloudProceduralCellEmpty( CloudFieldParams params, int side, ivec2 cell, int mip, float heightLow,
+                               float heightHigh )
+{
+    const int last   = CLOUD_PROCEDURAL_CLIP_LEVELS - 1;
+    float     cellKm = params.ProceduralLevel[last].w * float( 1 << mip );
+    vec2      center = ( vec2( cell ) + vec2( 0.5f ) ) * cellKm;
+    // The circumscribed radius, a hair over sqrt(1/2) so the disk holds the cell's corners in float.
+    float     radius = 0.7072f * cellKm;
+
+    float lowest[CLOUD_PROCEDURAL_CLIP_LEVELS];
+    float highest[CLOUD_PROCEDURAL_CLIP_LEVELS];
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        float edge     = CloudProceduralLevelEdge( params, level, center );
+        float r        = radius * params.ProceduralLevel[level].z;
+        lowest[level]  = CloudProceduralEdgeWeight( edge - r );
+        highest[level] = CloudProceduralEdgeWeight( edge + r );
+    }
+    if ( lowest[last] < 1.0f )
+        return false;
+
+    vec4  cut   = CloudColumnCut( params );
+    ivec2 bands = CloudColumnBands( heightLow, heightHigh );
+
+    for ( int level = 0; level < CLOUD_PROCEDURAL_CLIP_LEVELS; ++level )
+    {
+        bool answers = highest[level] > 0.0f;
+        if ( level > 0 )
+            answers = lowest[level - 1] < 1.0f && ( highest[level - 1] > 0.0f || highest[level] > 0.0f );
+        if ( !answers )
+            continue;
+
+        int levelMip  = mip + ( last - level );
+        int levelSide = side >> levelMip;
+        if ( levelSide == 0 || ( levelSide << levelMip ) != side )
+            return false;
+        // The torus' modulo, non-negative for cells west or south of the origin too: in float, since GLSL leaves
+        // % of a negative int undefined (cell indices stay far inside float's exact integers).
+        vec2  wraps = floor( vec2( cell ) / float( levelSide ) );
+        ivec2 texel = cell - ivec2( wraps ) * levelSide;
+        texel += ivec2( lessThan( texel, ivec2( 0 ) ) ) * levelSide;
+        texel -= ivec2( greaterThanEqual( texel, ivec2( levelSide ) ) ) * levelSide;
+        vec4  reach = vec4( 0.0f );
+        for ( int band = bands.x; band <= bands.y; ++band )
+            reach = max( reach, CLOUD_SAMPLE_COLUMN_MIP( level * CLOUD_COLUMN_MAX_BANDS + band, levelMip, texel ) );
+        if ( any( greaterThanEqual( reach, cut ) ) )
+            return false;
+    }
+    return true;
+}
+#endif
 #endif
 
 // ---------------------------------------------------------------------------------------------------
