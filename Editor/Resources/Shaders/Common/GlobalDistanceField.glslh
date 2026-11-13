@@ -139,6 +139,49 @@ float GlobalDistanceFieldExcess(vec3 origin, vec3 direction, float t, vec4 level
     return field.x - GlobalDistanceFieldExpand(t, voxel, field.y);
 }
 
+// THREE BISECTION STEPS IN ONE ROUND OF FETCHES (FPS-GI-FARFIELD). The serial bisection's next three midpoints are
+// always among the seven of [lo, hi] at eighths, computed as the same halvings (p4 = mid of lo and hi, p2 of lo and
+// p4, ...), so all seven are fetched together and the three decisions replayed on them: the same lo, hi and excess
+// at hi, bit for bit, as three serial steps - one fetch latency instead of three on the hit's lane, which every
+// wave of a gather pass holds (a quarter of the far field's rays hit).
+void GlobalDistanceFieldBisect3(vec3 origin, vec3 direction, vec4 levels[GDF_NUM_CLIPMAPS], inout float lo,
+                                inout float hi, inout float hiExcess)
+{
+    const float p4 = 0.5 * (lo + hi);
+    const float p2 = 0.5 * (lo + p4);
+    const float p6 = 0.5 * (p4 + hi);
+    const float p1 = 0.5 * (lo + p2);
+    const float p3 = 0.5 * (p2 + p4);
+    const float p5 = 0.5 * (p4 + p6);
+    const float p7 = 0.5 * (p6 + hi);
+    const float e1 = GlobalDistanceFieldExcess(origin, direction, p1, levels);
+    const float e2 = GlobalDistanceFieldExcess(origin, direction, p2, levels);
+    const float e3 = GlobalDistanceFieldExcess(origin, direction, p3, levels);
+    const float e4 = GlobalDistanceFieldExcess(origin, direction, p4, levels);
+    const float e5 = GlobalDistanceFieldExcess(origin, direction, p5, levels);
+    const float e6 = GlobalDistanceFieldExcess(origin, direction, p6, levels);
+    const float e7 = GlobalDistanceFieldExcess(origin, direction, p7, levels);
+    // First step at p4.
+    const bool  inA  = e4 < 0.0;
+    const float loA  = inA ? lo : p4;
+    const float hiA  = inA ? p4 : hi;
+    const float heA  = inA ? e4 : hiExcess;
+    // Second at the middle of that half: p2 or p6.
+    const float pB   = inA ? p2 : p6;
+    const float eB   = inA ? e2 : e6;
+    const bool  inB  = eB < 0.0;
+    const float loB  = inB ? loA : pB;
+    const float hiB  = inB ? pB : hiA;
+    const float heB  = inB ? eB : heA;
+    // Third at the middle of that quarter: p1, p3, p5 or p7.
+    const float pC   = inA ? (inB ? p1 : p3) : (inB ? p5 : p7);
+    const float eC   = inA ? (inB ? e1 : e3) : (inB ? e5 : e7);
+    const bool  inC  = eC < 0.0;
+    lo       = inC ? loB : pC;
+    hi       = inC ? pC : hiB;
+    hiExcess = inC ? eC : heB;
+}
+
 // A uniform number in [0, 1) per ray @p seed and step (PCG hash), the per-step noise of the dithered transparency.
 float GlobalDistanceFieldStepNoise(uint seed, int step)
 {
@@ -163,18 +206,28 @@ const float GDF_SATURATED_FRACTION     = 0.95;
 
 // The step from @p p of level @p level whose own field reads @p distance there: the coarse field's longer
 // conservative step where @p distance is saturated, else @p fineStep.
+int GlobalDistanceFieldSkipLevel(int level)
+{
+    return min(level + GDF_SKIP_LEVELS, GDF_NUM_CLIPMAPS - 1);
+}
+
+// GlobalDistanceFieldSkipStep with the skip level's distance at p (@p coarseDistance) already read.
+float GlobalDistanceFieldSkipStepOf(int level, float distance, float fineStep, float coarseDistance,
+                                    vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    const int coarse = GlobalDistanceFieldSkipLevel(level);
+    if (distance < GDF_SATURATED_FRACTION * GDF_INFLUENCE_RANGE_IN_VOXELS * levels[level].w || coarse <= level)
+        return fineStep;
+    return max(fineStep, coarseDistance - GDF_SKIP_MARGIN_VOXELS * levels[coarse].w);
+}
+
 float GlobalDistanceFieldSkipStep(vec3 p, int level, float distance, float fineStep, vec4 levels[GDF_NUM_CLIPMAPS])
 {
-    const float voxel = levels[level].w;
-    if (distance < GDF_SATURATED_FRACTION * GDF_INFLUENCE_RANGE_IN_VOXELS * voxel)
+    const int coarse = GlobalDistanceFieldSkipLevel(level);
+    if (distance < GDF_SATURATED_FRACTION * GDF_INFLUENCE_RANGE_IN_VOXELS * levels[level].w || coarse <= level)
         return fineStep;
-    const int coarse = min(level + GDF_SKIP_LEVELS, GDF_NUM_CLIPMAPS - 1);
-    if (coarse <= level)
-        return fineStep;
-    const float coarseVoxel = levels[coarse].w;
-    const float coarseStep  = SampleGlobalDistanceFieldLevel(coarse, p, coarseVoxel) -
-                             GDF_SKIP_MARGIN_VOXELS * coarseVoxel;
-    return max(fineStep, coarseStep);
+    return GlobalDistanceFieldSkipStepOf(level, distance, fineStep,
+                                         SampleGlobalDistanceFieldLevel(coarse, p, levels[coarse].w), levels);
 }
 
 // @p anyHit (a shadow ray: visibility only) ends at the first sample in the band, unrefined - its T and Level are
@@ -199,6 +252,14 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
             break;
         const float voxel    = levels[level].w;
         const vec2  field    = SampleGlobalDistanceFieldLevelCoverage(level, p, voxel);
+#if defined(GDF_PREFETCH_SKIP_LEVEL)
+        // FPS-GI-FARFIELD: the skip level's distance at p read beside the level's own, not after it (a short march
+        // in open air - the far field's ~1 step a ray - is saturated at nearly every step and would wait on two
+        // dependent fetches a step). The includer opts in where its marches are short and mostly saturated; a long
+        // march near geometry would pay the second fetch on every unsaturated step for nothing.
+        const int   skipLevel    = GlobalDistanceFieldSkipLevel(level);
+        const float skipDistance = SampleGlobalDistanceFieldLevel(skipLevel, p, levels[skipLevel].w);
+#endif
         const float distance = field.x;
         const float coverage = field.y;
         result.Steps = step + 1;
@@ -222,17 +283,11 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
             float lo       = previousT;
             float hi       = t;
             float hiExcess = distance - GlobalDistanceFieldExpand(t, voxel, coverage);
-            for (int i = 0; i < 6 && step > 0 && !previousInBand; ++i)
+            // Six bisection steps as two rounds of three (GlobalDistanceFieldBisect3: the same result).
+            if (step > 0 && !previousInBand)
             {
-                const float mid       = 0.5 * (lo + hi);
-                const float midExcess = GlobalDistanceFieldExcess(origin, direction, mid, levels);
-                if (midExcess < 0.0)
-                {
-                    hi       = mid;
-                    hiExcess = midExcess;
-                }
-                else
-                    lo = mid;
+                GlobalDistanceFieldBisect3(origin, direction, levels, lo, hi, hiExcess);
+                GlobalDistanceFieldBisect3(origin, direction, levels, lo, hi, hiExcess);
             }
             result.Hit   = true;
             result.T     = max(hi + min(hiExcess, 0.0), 0.0);
@@ -242,7 +297,11 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         previousT      = t;
         previousInBand = inBand;
         const float fineStep = max(distance, voxel * mix(1.0, 0.1, coverage));
+#if defined(GDF_PREFETCH_SKIP_LEVEL)
+        t += GlobalDistanceFieldSkipStepOf(level, distance, fineStep, skipDistance, levels);
+#else
         t += GlobalDistanceFieldSkipStep(p, level, distance, fineStep, levels);
+#endif
     }
     result.T = t;
     return result;

@@ -307,6 +307,13 @@ Shader "ScreenProbeTrace"
         #define GDF_COUNT_STEPS 1
         uint gdfCountedSteps = 0u;
 #endif
+#if defined( SP_TRACE_FAR_FIELD )
+        // FPS-GI-FARFIELD: the far field marches ~1 global-field step a ray (FIELD_Barn TURN: 109k steps over 114k
+        // rays), in open air where the field is saturated, so each step's skip-level read goes beside the level's own
+        // (Common/GlobalDistanceField.glslh GDF_PREFETCH_SKIP_LEVEL): one fetch latency a step, not two. The other
+        // legs' marches (the cache miss to the full distance, the hit lighting's shadow marches) keep the lazy read.
+        #define GDF_PREFETCH_SKIP_LEVEL 1
+#endif
 #if defined( SP_TRACE_CACHE_READ )
         // The cache-read leg traces nothing and lights no hit: the tracer's types only, so it declares no
         // tracer resource and no shared sampler it would not sample (ScreenProbeGather binds none).

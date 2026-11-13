@@ -1,8 +1,8 @@
 // DesertAsset {"Kind":"Shader","Guid":"7548c0e5784f417ba082f07320812ea7","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCREEN PROBE GATHER, 3/4 — FILTER (UE ScreenProbeComputeIrradianceCS / ScreenProbeConvertToIrradianceCS,
 // LumenScreenProbeFiltering.usf): one workgroup per probe, one thread per texel, over the probes' radiance after
-// the spatial filter (ScreenProbeSpatialFilter, three passes; the traced radiance itself when the denoiser is
-// skipped):
+// the spatial filter (ScreenProbeSpatialFilter, three passes, the last of them run here: SP_FILTER_SPATIAL; the
+// traced radiance itself when the denoiser is skipped):
 //   radiance  the filtered texels, with a one-texel border repeating the hemi-octahedron's edge (bilinear reads
 //             stay in the probe): the rough reflections' source;
 //   irradiance second-order SH of the filtered radiance, each texel weighted by its solid angle, convolved with
@@ -87,6 +87,18 @@ Shader "ScreenProbeFilter"
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
+#if defined( SP_FILTER_SPATIAL )
+        // FPS-GI-FARFIELD: the spatial filter's last pass runs here, on this probe's texels (its output had no other
+        // reader): ScreenProbeRadiance is the pass before it, and each texel's radiance is that pass's answer at it
+        // (Common/ScreenProbeSpatialFilter.glslh), rounded to the half the atlas between them held - the same values
+        // as the separate pass, one dispatch, one atlas write and read and one barrier fewer.
+        ReadBuffer(15) ScreenProbeDisocclusionUB
+        {
+            float screenProbeDisocclusion[];
+        };
+        #include <Common/ScreenProbeTemporal.glslh>
+        #include <Common/ScreenProbeSpatialFilter.glslh>
+#endif
 
         shared vec3  s_Radiance[SP_RES * SP_RES];
         shared vec3  s_Direction[SP_RES * SP_RES];
@@ -114,7 +126,13 @@ Shader "ScreenProbeFilter"
             const mat3  frame  = SPProbeFrame( state.normal.xyz );
             const vec3  dir    = TexelDirection( frame, vec2( t ) + 0.5 );
 
+#if defined( SP_FILTER_SPATIAL )
+            const vec3  spatial  = SPSpatialFilterTexel( probe, state, t ).rgb;
+            const vec3  radiance = vec3( unpackHalf2x16( packHalf2x16( spatial.rg ) ),
+                                         unpackHalf2x16( packHalf2x16( vec2( spatial.b, 0.0 ) ) ).x );
+#else
             const vec3  radiance = texelFetch( ScreenProbeRadiance, SPAtlasOrigin( probe, SP_RES ) + t, 0 ).rgb;
+#endif
             const vec3  p        = state.position.xyz;
 
             // Solid angle of the texel: the area its four corners span on the sphere.
