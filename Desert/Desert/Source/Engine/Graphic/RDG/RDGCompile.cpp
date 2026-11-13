@@ -2116,27 +2116,6 @@ namespace Desert::Graphic::RDG
             m_Raws[at].push_back( { use.Sub, use.Resource, before, after, discard } );
             return static_cast<int32_t>( m_Raws[at].size() - 1 );
         };
-        // FPS-GI-ASYNC (UE batches a pass's transitions with the earliest ones it can share a barrier with): on
-        // AsyncCompute, the transition into this pass records at the first position of its run after the
-        // subresource's last use that already has a barrier, instead of a barrier of its own here. A pipeline
-        // barrier waits for every earlier dispatch of the queue, so a barrier of its own here would also wait for
-        // the passes between that never touched the subresource - two legs that read lists one producer wrote
-        // (the near field's hit lighting and the far field) ran one after the other only because of that. The
-        // run's fork wait is at its first position, so a hoisted acquire still follows the producer's release; no
-        // pass between the last use and this one touches the subresource, so the earlier state change is unseen.
-        // Graphics keeps the barrier here: a raster pass between may be inside a merged render pass.
-        auto hoistedPosition = [&]( const uint32_t lastUse ) -> uint32_t
-        {
-            if ( pipe != Pipe::AsyncCompute || m_RunAt[position] < 0 )
-                return position;
-            const uint32_t first = std::max( m_Runs[static_cast<size_t>( m_RunAt[position] )].First, lastUse + 1u );
-            for ( uint32_t q = first; q < position; ++q )
-            {
-                if ( !m_Raws[q].empty() )
-                    return q;
-            }
-            return position;
-        };
         // The subresource moves from pipe @p from to this pass's pipe. Contents the pass consumes are
         // transferred (release after the last use on @p from, acquire here); contents it discards
         // are not, and the transition starts from Undefined.
@@ -2148,7 +2127,7 @@ namespace Desert::Graphic::RDG
                 sub.GroupRaw = addRaw( position, kRdgUntouchedState, use.State, true );
                 return;
             }
-            const uint32_t at = hoistedPosition( releasePosition );
+            const uint32_t at = position;
             sub.GroupPosition = at;
             m_Raws[at].push_back( { use.Sub, use.Resource, before, use.State, false, BarrierKind::OwnershipAcquire,
                                     from, pipe, releasePosition } );
@@ -2359,7 +2338,7 @@ namespace Desert::Graphic::RDG
             }
             else
             {
-                const uint32_t at = hoistedPosition( sub.LastTouch );
+                const uint32_t at = position;
                 sub.GroupPosition = at;
                 sub.GroupRaw      = addRaw( at, sub.GroupBefore, use.State, false );
             }
