@@ -46,6 +46,7 @@ Shader "ScreenProbeTrace"
         // The legs' list appends (SPListRay: subgroupBallot / subgroupElect / subgroupBroadcastFirst).
         #extension GL_KHR_shader_subgroup_basic : require
         #extension GL_KHR_shader_subgroup_ballot : require
+        #include <Common/RadianceCacheReadReasons.glslh> // the counters number the reasons on every leg
 #if defined( SP_TRACE_MISS_REASONS )
         // The dev counter's atomics: one per subgroup and reason, the step totals summed per subgroup
         // (subgroupAdd).
