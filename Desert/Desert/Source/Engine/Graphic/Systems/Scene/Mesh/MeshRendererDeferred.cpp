@@ -1108,17 +1108,29 @@ namespace Desert::Graphic::System
                     GraphicsPipelineSpecification resolve    = ispec;
                     resolve.DebugName                        = "GrassVisibilityResolve";
                     resolve.CullMode                         = CullMode::None;
+                    // FPS-GRASS-VIS: an opaque cell's raster writes the depth it passes
+                    // (m_InstancedVisibilityWritePipeline): the nearest fragment's depth is the word's own
+                    // (gl_FragCoord.z both), so "Grass: Visibility Depth" and the resolve write the same value and
+                    // the frame is unchanged; the blades behind it are culled by early-Z instead of each running
+                    // an atomic.
+                    GraphicsPipelineSpecification visibilityWrite = depth;
+                    visibilityWrite.DebugName                     = "GrassVisibilityRasterDepthWrite";
+                    visibilityWrite.DepthWriteEnabled             = true;
                     const auto visibilityPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( visibility );
-                    const auto resolvePipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( resolve );
-                    if ( visibilityPipeline && resolvePipeline )
+                    const auto visibilityWritePipeline =
+                         m_SceneRenderer->GetPipelineCache().GetOrCreate( visibilityWrite );
+                    const auto resolvePipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( resolve );
+                    if ( visibilityPipeline && visibilityWritePipeline && resolvePipeline )
                     {
                         m_InstancedVisibilityPipeline        = visibilityPipeline.GetValue();
+                        m_InstancedVisibilityWritePipeline   = visibilityWritePipeline.GetValue();
                         m_InstancedVisibilityResolvePipeline = resolvePipeline.GetValue();
                     }
                     else
                         LOG_ERROR( "[MeshRenderer] no grass visibility buffer path: the blades keep the G-buffer. "
-                                   "raster: {} | resolve: {}",
+                                   "raster: {} | raster (depth write): {} | resolve: {}",
                                    visibilityPipeline ? "ok" : visibilityPipeline.GetError(),
+                                   visibilityWritePipeline ? "ok" : visibilityWritePipeline.GetError(),
                                    resolvePipeline ? "ok" : resolvePipeline.GetError() );
                 }
                 if ( !refused.empty() )
