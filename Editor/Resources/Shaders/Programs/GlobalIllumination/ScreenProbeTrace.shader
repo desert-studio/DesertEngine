@@ -46,7 +46,9 @@ Shader "ScreenProbeTrace"
         // The legs' list appends (SPListRay: subgroupBallot / subgroupElect / subgroupBroadcastFirst).
         #extension GL_KHR_shader_subgroup_basic : require
         #extension GL_KHR_shader_subgroup_ballot : require
-        #include <Common/RadianceCacheReadReasons.glslh> // the counters number the reasons on every leg
+        // The counters number the cache read reasons on every leg, also on legs that never include RadianceCache.glslh:
+        // RADIANCE_CACHE_READ_REASONS there, ScreenProbeGather.hpp kReasons on the C++ side (checked below where both exist).
+        #define SP_CACHE_READ_REASONS 6u
 #if defined( SP_TRACE_MISS_REASONS )
         // The dev counter's atomics: one per subgroup and reason, the step totals summed per subgroup
         // (subgroupAdd).
@@ -298,6 +300,7 @@ Shader "ScreenProbeTrace"
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture
         #include <Common/RadianceCache.glslh>
+        float spCacheReadReasonsMatch[ int( RADIANCE_CACHE_READ_REASONS == SP_CACHE_READ_REASONS ) * 2 - 1 ]; // the two counts agree
         #endif
 #if defined( SP_TRACE_MISS_REASONS )
         // The global field's sphere-trace steps this thread took (Common/GlobalDistanceField.glslh GDF_COUNT_STEPS).
@@ -329,7 +332,7 @@ Shader "ScreenProbeTrace"
         // One atomic per subgroup and reason: the cache-read leg reads the cache on every one of its rays.
         void SPCountCacheRead( uint why )
         {
-            for ( uint reason = 0u; reason < RADIANCE_CACHE_READ_REASONS; ++reason )
+            for ( uint reason = 0u; reason < SP_CACHE_READ_REASONS; ++reason )
             {
                 const uvec4 ballot = subgroupBallot( why == reason );
                 const uint  count  = subgroupBallotBitCount( ballot );
@@ -342,18 +345,18 @@ Shader "ScreenProbeTrace"
         // (ScreenProbeGather.hpp ScreenProbeMissReasons, same order): every ray listed, the rays the global field hit
         // (software: each lit by the hit-lighting leg; hardware: by GIHitRadiance here), the
         // rays outside the cache's coverage (marched to SP_TRACE_DISTANCE). One atomic per subgroup: the active lanes are the class.
-        #define SP_FAR_FIELD_RAYS_LISTED  ( RADIANCE_CACHE_READ_REASONS + 0u )
-        #define SP_FAR_FIELD_RAYS_HIT     ( RADIANCE_CACHE_READ_REASONS + 1u )
-        #define SP_FAR_FIELD_RAYS_OUTSIDE ( RADIANCE_CACHE_READ_REASONS + 2u )
+        #define SP_FAR_FIELD_RAYS_LISTED  ( SP_CACHE_READ_REASONS + 0u )
+        #define SP_FAR_FIELD_RAYS_HIT     ( SP_CACHE_READ_REASONS + 1u )
+        #define SP_FAR_FIELD_RAYS_OUTSIDE ( SP_CACHE_READ_REASONS + 2u )
         // GPU-FARFIELD-3: the global field's sphere-trace steps of the far field's own marches (all its listed
         // rays: steps a ray = this / LISTED), the hits it handed to the hit-lighting leg, and that leg's steps
         // (its directional lights' shadow marches: steps a hit = this / DEFERRED).
-        #define SP_FAR_FIELD_STEPS        ( RADIANCE_CACHE_READ_REASONS + 3u )
-        #define SP_FAR_FIELD_RAYS_DEFERRED ( RADIANCE_CACHE_READ_REASONS + 4u )
-        #define SP_HIT_LIGHTING_STEPS     ( RADIANCE_CACHE_READ_REASONS + 5u )
+        #define SP_FAR_FIELD_STEPS        ( SP_CACHE_READ_REASONS + 3u )
+        #define SP_FAR_FIELD_RAYS_DEFERRED ( SP_CACHE_READ_REASONS + 4u )
+        #define SP_HIT_LIGHTING_STEPS     ( SP_CACHE_READ_REASONS + 5u )
         // GPU-FARFIELD-5: every software far-field hit is handed over (DEFERRED = HIT); the hit-lighting leg's hits
         // a card holds (lit by the cards, no shadow march), the rest lit in place.
-        #define SP_HIT_LIGHTING_CARD_HELD ( RADIANCE_CACHE_READ_REASONS + 6u )
+        #define SP_HIT_LIGHTING_CARD_HELD ( SP_CACHE_READ_REASONS + 6u )
         void SPCountFarFieldRays( uint word )
         {
             const uint count = subgroupBallotBitCount( subgroupBallot( true ) );

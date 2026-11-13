@@ -407,7 +407,13 @@ vec3 RadianceCacheSampleProbeRadiance( uint probe, vec3 direction )
 // Why a read answered or not (RadianceCacheRadianceAt's @p why; the screen probe trace's dev counter of the rays
 // it hands to the cache-miss leg, ScreenProbeTrace.shader SP_TRACE_MISS_REASONS - the words of
 // ScreenProbeGather.cpp's ScreenProbes.MissReasons in this order).
-#include <Common/RadianceCacheReadReasons.glslh>
+#define RADIANCE_CACHE_READ_ANSWERED 0u // a traced probe answered (.a > 0)
+#define RADIANCE_CACHE_READ_EMPTY    1u // no probe in any of the eight cells (the atlas had no free slot)
+#define RADIANCE_CACHE_READ_UNTRACED 2u // probes allocated, none traced yet
+#define RADIANCE_CACHE_READ_REJECTED 3u // traced probes, every one's visibility of the point 0
+#define RADIANCE_CACHE_READ_NAN      4u // a traced probe's weight NaN (its distance moments), none answered
+#define RADIANCE_CACHE_READ_COARSER  5u // no traced probe in the coverage's clipmap yet: a coarser clipmap answered
+#define RADIANCE_CACHE_READ_REASONS  6u
 
 // One clipmap's interpolated radiance: the eight cells of @p clipmap around the read point of @p p seen from @p V
 // (RadianceCacheReadPoint: the cells RadianceCacheMark stamps for @p p's pixel); @p why says why it answered or not.
