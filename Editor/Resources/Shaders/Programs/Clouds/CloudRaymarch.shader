@@ -454,6 +454,21 @@ Shader "CloudRaymarch"
         #define CLOUD_FINE_PAIR  1
         #define CLOUD_FINE_GROUP (CLOUD_FINE_PAIR + 1)
 
+        // THE RAY'S EMPTY-SPACE TRIM (FPS-CLOUD-2): 1 = before the lanes split the ray, every lane probes its
+        // eighth of the segment with the column-max bound (CloudProceduralColumnsEmpty, CLOUD_RAY_TRIM_PROBES
+        // probes at once) and the ray's lanes then split only [first, last] distance that might hold cloud -
+        // Unreal's empty-space skipping start distance (and its end), done in the ray's own wave rather than in
+        // a pre-pass. The lanes were uniform over the whole shell chord, so on FIELD_Barn (35.5 field evaluations
+        // and 1.0 lit sample a ray) one or two lanes carried the stretch with cloud while the rest idled in the
+        // loop on clear air, and the pass waited on that one lane's serial chain. Every distance cut off is one
+        // the probe proved empty (no profile), so the integral is the same; what moves is where the lane starts
+        // fall, i.e. which realisation of the start dither each sample is (the reconstruction integrates it).
+        // 0 = lanes over the whole segment, the march as it was, kept for the A/B. Off for authored bodies, whose
+        // boxes are not in the column-max image (the coarse tier's probeColumns rule).
+        #define CLOUD_RAY_EMPTY_SPACE_TRIM 1
+        // Probes per lane for the trim; even (half tile the share's front and half its back when they cannot tile it).
+        #define CLOUD_RAY_TRIM_PROBES 8
+
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
@@ -933,12 +948,106 @@ Shader "CloudRaymarch"
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
             float transmittance = 1.0f;
 
-            // GPU-FARFIELD-4: THIS LANE'S STRETCH of the segment (CLOUD_MARCH_SEGMENT_LANES), with the same start
-            // offset inside its first step as the whole ray had at its entry. Everything below that read the
+            // THE RAY'S OWN EMPTY-SPACE TRIM (FPS-CLOUD-2, CLOUD_RAY_EMPTY_SPACE_TRIM): the stretch the lanes share
+            // is [marchStartKm, marchEndKm], the segment with the ends the column probe proves empty cut off, so
+            // the eight lanes split the part of the ray that can hold cloud instead of the whole shell chord.
+            float marchStartKm = segment.x;
+            float marchEndKm   = segment.y;
+            if (CLOUD_RAY_EMPTY_SPACE_TRIM != 0 && CLOUD_AUTHORED_COUNT == 0)
+            {
+                // Each lane probes its uniform share of the segment with CLOUD_RAY_TRIM_PROBES probes, all issued
+                // at once (no probe depends on another's answer). A probe at s clears [s, s + reach]: every point
+                // of that piece has its column within CLOUD_COLUMN_PROBE_REACH_FRACTION of the probe radius of s's
+                // column (the reach CloudEmptyColumnAdvanceKm proves), at the heights CloudRayHeightFractionSpan
+                // bounds over the piece. Where the probes cover the share they tile it; where they cannot (a
+                // grazing ray's reach is short), half tile its front and half its back and the middle is "might".
+                float trimShareKm   = (segment.y - segment.x) / float(CLOUD_MARCH_SEGMENT_LANES);
+                float trimShareFrom = segment.x + trimShareKm * float(segmentLane);
+                float trimShareTo   = trimShareFrom + trimShareKm;
+                float trimReachKm   = CLOUD_COLUMN_PROBE_REACH_FRACTION * CLOUD_COLUMN_PROBE_RADIUS_KM /
+                                      max(length(rayDir.xz), 1e-6f);
+                bool  trimTiles     = trimReachKm * float(CLOUD_RAY_TRIM_PROBES) >= trimShareKm;
+                float trimPieceKm   = trimTiles ? trimShareKm / float(CLOUD_RAY_TRIM_PROBES) : trimReachKm;
+                const int kTrimHalf = CLOUD_RAY_TRIM_PROBES / 2;
+
+                float pieceFrom[CLOUD_RAY_TRIM_PROBES];
+                bool  pieceClear[CLOUD_RAY_TRIM_PROBES];
+                for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
+                {
+                    float from = trimShareFrom + float(j) * trimPieceKm;
+                    if (!trimTiles && j >= kTrimHalf)
+                        from = trimShareTo - float(CLOUD_RAY_TRIM_PROBES - j) * trimPieceKm;
+                    float to          = min(from + trimPieceKm, segment.y);
+                    vec3  probePos    = originKm + rayDir * from;
+                    vec2  heights     = CloudRayHeightFractionSpan(layer, originKm, rayDir, from, to);
+                    pieceFrom[j]      = from;
+                    pieceClear[j]     = CloudProceduralColumnsEmpty(params, probePos.xz - params.WindOffsetKm.xz,
+                                                                    CLOUD_COLUMN_PROBE_RADIUS_KM, heights.x, heights.y);
+                }
+
+                // This share's first and last distance that might hold cloud; +inf / -inf when it is all clear.
+                const float kTrimNone = 1.0e30f;
+                float shareFirst = kTrimNone;
+                float shareLast  = -kTrimNone;
+                for (int j = CLOUD_RAY_TRIM_PROBES - 1; j >= 0; --j)
+                {
+                    if (!pieceClear[j])
+                        shareFirst = pieceFrom[j];
+                }
+                for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
+                {
+                    if (!pieceClear[j])
+                        shareLast = pieceFrom[j] + trimPieceKm;
+                }
+                if (!trimTiles)
+                {
+                    // The untiled middle might hold cloud: it starts the share's "might" when the front half is
+                    // clear and ends it when the back half is.
+                    float middleFrom = trimShareFrom + float(kTrimHalf) * trimPieceKm;
+                    float middleTo   = trimShareTo - float(kTrimHalf) * trimPieceKm;
+                    bool  frontClear = true;
+                    bool  backClear  = true;
+                    for (int j = 0; j < kTrimHalf; ++j)
+                    {
+                        frontClear = frontClear && pieceClear[j];
+                        backClear  = backClear && pieceClear[CLOUD_RAY_TRIM_PROBES - 1 - j];
+                    }
+                    if (frontClear)
+                        shareFirst = min(shareFirst, middleFrom);
+                    if (backClear)
+                        shareLast = max(shareLast, middleTo);
+                }
+
+                // The ray's span over its lanes: a butterfly min/max over the ray's aligned lane block, as the
+                // march's own exchanges run (every lane of the ray is here; a ray leaves main whole).
+                vec2 span = vec2(shareFirst, -shareLast);
+                for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                    span = min(span, subgroupShuffleXor(span, d));
+
+                // A ray whose every piece cleared gets an empty stretch: each lane starts at or past its end and
+                // leaves the loop on its first test, exactly as a ray that met nothing.
+                marchStartKm = clamp(span.x, segment.x, segment.y);
+                marchEndKm   = clamp(-span.y, marchStartKm, segment.y);
+
+                // NO LANE SHORTER THAN THE SEARCH STRIDE where the ray might hold cloud. A lane's first sample sits
+                // jitter * stepKm past its start, and on a lane shorter than that every lane of the ray (one jitter)
+                // would sample once or not at all together - the stretch's cloud drawn all-or-nothing from frame to
+                // frame, a flicker the reconstruction cannot settle. At a stride a lane every lane holds a sample, as
+                // every lane of the untrimmed segment did. The stretch grows past its end first, then before its start.
+                float minStretchKm = min(segment.y - segment.x, float(CLOUD_MARCH_SEGMENT_LANES) * coarseStepKm);
+                if (span.x < kTrimNone && marchEndKm - marchStartKm < minStretchKm)
+                {
+                    marchEndKm   = min(segment.y, marchStartKm + minStretchKm);
+                    marchStartKm = max(segment.x, marchEndKm - minStretchKm);
+                }
+            }
+
+            // GPU-FARFIELD-4: THIS LANE'S STRETCH of the march's stretch (CLOUD_MARCH_SEGMENT_LANES), with the same
+            // start offset inside its first step as the whole ray had at its entry. Everything below that read the
             // segment's ends as the march's own bounds reads these; the guide's "end of search" stays segment.y.
-            float laneLengthKm = (segment.y - segment.x) / float(CLOUD_MARCH_SEGMENT_LANES);
-            float laneStartKm  = segment.x + laneLengthKm * float(segmentLane);
-            float laneEndKm    = segment.y;
+            float laneLengthKm = (marchEndKm - marchStartKm) / float(CLOUD_MARCH_SEGMENT_LANES);
+            float laneStartKm  = marchStartKm + laneLengthKm * float(segmentLane);
+            float laneEndKm    = marchEndKm;
             if (segmentLane + 1u < CLOUD_MARCH_SEGMENT_LANES)
                 laneEndKm = laneStartKm + laneLengthKm;
             float t             = laneStartKm + jitter * stepKm;
