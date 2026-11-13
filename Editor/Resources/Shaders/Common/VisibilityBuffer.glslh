@@ -85,8 +85,15 @@ bool DesertVisibilityPixel( const ivec2 pixel, out uint index )
 void DesertWriteVisibility( const ivec2 pixel, const float reversedDepth, const uint row, const uint triangle )
 {
     uint index;
-    if ( DesertVisibilityPixel( pixel, index ) )
-        atomicMax( VisibilityWords[index], DesertPackVisibility( reversedDepth, row, triangle ) );
+    if ( !DesertVisibilityPixel( pixel, index ) )
+        return;
+    // FPS-GRASS-VIS: the word only grows during a raster (atomicMax), so a plain load that already holds this
+    // fragment's word or a larger one proves the atomic would change nothing - skipped, exactly. A stale load
+    // reads an older, smaller word and only lets the atomic run. The overdrawn blade fragments (a field's
+    // blades behind the nearest one) cost a cached read instead of a 64-bit L2 atomic.
+    const uint64_t word = DesertPackVisibility( reversedDepth, row, triangle );
+    if ( VisibilityWords[index] < word )
+        atomicMax( VisibilityWords[index], word );
 }
 #endif
 

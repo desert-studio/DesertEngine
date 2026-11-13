@@ -2862,6 +2862,11 @@ namespace Desert::Graphic::System
         // CullMode None - a full-screen triangle). Null: no grass visibility path, the sections keep the G-buffer.
         std::shared_ptr<GraphicsPipeline> m_InstancedVisibilityPipeline;
         std::shared_ptr<GraphicsPipeline> m_InstancedVisibilityResolvePipeline;
+        // FPS-GRASS-VIS: the raster's state for an OPAQUE cell (no clip): the same test WITH depth writes, so a
+        // blade behind one already rastered is rejected by early-Z before its fragment runs (UE: HW-raster
+        // overdraw bounded by the depth it writes). A Masked cell keeps m_InstancedVisibilityPipeline: under
+        // early fragment tests a depth write would land before its clip. Both resolve to the same words.
+        std::shared_ptr<GraphicsPipeline> m_InstancedVisibilityWritePipeline;
         // (Skinned x GBuffer): the deferred path draws skinned meshes in the base pass (UE), bones from the view's
         // ObjectBones, so the composite shades them and the ray-traced sun trace sees their depth and normal; the
         // surface cache captures a skinned mesh's cards with the same state. Null if the shader or the cell is

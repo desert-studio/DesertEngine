@@ -461,8 +461,17 @@ namespace Desert::Graphic::System
         record.Cell = prepassed ? depthEqualCell() : cellOf( pass );
         if ( record.Cell == nullptr )
             return &record;
+        // FPS-GRASS-VIS: an opaque cell's visibility raster writes the depth it passes (the carrier's depth-write
+        // twin, m_InstancedVisibilityWritePipeline), so the blades behind it die in early-Z; a Masked cell keeps
+        // the read-only carrier (its clip runs after the early depth write would have landed).
+        const bool visibilityWrites = pass == MeshPass::Visibility && m_InstancedVisibilityWritePipeline &&
+                                      carrier == m_InstancedVisibilityPipeline.get() && parent != nullptr &&
+                                      parent->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Opaque;
+        GraphicsPipeline* const passCarrier =
+             prepassed ? record.EqualCarrier
+                       : ( visibilityWrites ? m_InstancedVisibilityWritePipeline.get() : carrier );
         // The resolve's full-screen triangle is never culled (its carrier is CullMode None).
-        record.Pipeline = CullPermutation( CellPipeline( prepassed ? record.EqualCarrier : carrier, *record.Cell ),
+        record.Pipeline = CullPermutation( CellPipeline( passCarrier, *record.Cell ),
                                            twoSided || pass == MeshPass::VisibilityResolve );
         if ( maskedPrepass )
         {
