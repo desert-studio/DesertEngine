@@ -293,6 +293,21 @@ bool GIFarFieldSpan( GITraceInput ray, out float globalStart, out float marchLen
     return marchLength > 0.0;
 }
 
+// THE FAR FIELD'S MARCH of a span already taken (GIFarFieldSpan): from @p start (the ray's origin + direction x
+// globalStart) along the unit @p direction for @p marchLength cm, the dither drawn from @p seed (GITraceSeed of the
+// ray) and @p flags (GITraceInput::flags). GITraceFarFieldMarch's walk, for a caller whose far-field list carries
+// the march itself (SSR.shader's world far field: UE CompactReflectionTraces keeps the ray, not the texel), so the
+// march leg rebuilds nothing.
+GlobalDistanceFieldHit GITraceFarFieldMarchFrom( vec3 start, vec3 direction, float marchLength, uint seed,
+                                                 uint flags )
+{
+    const bool dithered = ( flags & GI_TRACE_SHADOW_RAY ) == 0u;
+    // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
+    // (normal, level) is never built - its callers read .hit alone.
+    return TraceGlobalDistanceField( start, direction, marchLength, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS, dithered,
+                                     seed, !dithered );
+}
+
 // THE FAR FIELD'S MARCH of @p ray over its span (GIFarFieldSpan): true on a hit, @p march the global field's answer
 // (T from @p globalStart). GITraceFarField's walk, apart for a caller that builds the hit's surface in a pass of its
 // own (SSR.shader's world hit lighting: GIFarFieldSurface of the same position and level, so the same surface).
@@ -305,13 +320,8 @@ bool GITraceFarFieldMarch( GITraceInput ray, out float globalStart, out GlobalDi
     float marchLength;
     if ( !GIFarFieldSpan( ray, globalStart, marchLength ) )
         return false;
-    const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
-    const uint seed     = GITraceSeed( ray );
-    const vec3 start    = ray.origin + ray.direction * globalStart;
-    // A shadow ray (no dither) is visibility only: any sample in the band answers it, unrefined, and its surface
-    // (normal, level) is never built - its callers read .hit alone.
-    march = TraceGlobalDistanceField( start, ray.direction, marchLength, GI_GDF_MAX_STEPS, GI_TRACE_GDF_LEVELS,
-                                      dithered, seed, !dithered );
+    march = GITraceFarFieldMarchFrom( ray.origin + ray.direction * globalStart, ray.direction, marchLength,
+                                      GITraceSeed( ray ), ray.flags );
     return march.Hit;
 }
 
