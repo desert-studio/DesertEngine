@@ -5,8 +5,12 @@
 // whose word (Common/VisibilityBuffer.glslh) names a row of THIS variety (Blade.Visibility.x, + its capacity) rebuilds
 // the blade triangle that won it - the same BladeAt the raster placed it with, the same wind push, the level from the
 // bucket table - takes the perspective-correct barycentrics of the pixel centre, evaluates the surface ONCE and
-// writes the texel through the G-buffer's one writer (GBufferOutputs.glslh) with the word's depth. Every other pixel
-// is discarded. Texture LOD: the analytic gradient of UV0 across one pixel (g_DesertVisibilityUVdx / dy, read by
+// writes the texel through the G-buffer's one writer (GBufferOutputs.glslh). No depth is written here
+// (FPS-GRASS-RESOLVE, UE Nanite's material pass): the pass's depth target is the material depth
+// ("Grass: Visibility Material Depth", Common/VisibilityTiles.glslh DesertVisibilityMaterialDepth), tested EQUAL
+// against the section's own value before this stage runs, so another section's pixel and a pixel a nearer mesh
+// holds never reach it; the words' depth reaches the G-buffer depth through "Grass: Visibility Depth
+// Post-Occlusion". The row checks below stay as the guard of the bounds they index. Texture LOD: the analytic gradient of UV0 across one pixel (g_DesertVisibilityUVdx / dy, read by
 // SurfaceTypes.glslh SurfaceSampleMaterial) - a quad of this pass spans several blades, its implicit derivatives
 // would not be the surface's.
 #include <Common/MaterialTransport.glslh>
@@ -47,7 +51,6 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 // without one binds System.Black and the writer reads nothing (DesertViewHasDBuffer).
 #define DESERT_SURFACE_DBUFFER_RECEIVE
 #include <Mesh/Surface/GBufferOutputs.glslh>
-layout( depth_any ) out float gl_FragDepth;
 
 // Perspective-correct barycentrics of the pixel at @p ndc in the triangle of clip positions @p c0..c2.
 vec3 VisibilityBarycentrics( const vec4 c0, const vec4 c1, const vec4 c2, const vec2 ndc )
@@ -196,7 +199,6 @@ void main()
     const SurfaceOutput s = EvaluateSurface( i );
 #endif
     const vec3 prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
-    gl_FragDepth            = depth;
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
@@ -269,7 +271,13 @@ void main()
     const uint  vertexStride  = MeshRows.Geometry[1].z;
     const uint  streamStride  = MeshRows.Geometry[1].w;
     const vec4  windPrev      = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
-    const mat3  normalMatrix  = transpose( inverse( mat3( model ) ) );
+    // The normal matrix as the cofactor matrix of the model's 3x3 (transpose( inverse ) x det: three cross
+    // products, no inverse or division per pixel - FPS-GRASS-RESOLVE), signed by det so a mirrored instance's
+    // normals face as the inverse's would; every use is normalized, so the dropped 1 / |det| changes nothing.
+    const mat3  linear        = mat3( model );
+    const mat3  cofactor      = mat3( cross( linear[1], linear[2] ), cross( linear[2], linear[0] ),
+                                      cross( linear[0], linear[1] ) );
+    const mat3  normalMatrix  = dot( linear[0], cofactor[0] ) < 0.0 ? -cofactor : cofactor;
     vec3        world[3];
     vec3        previous[3];
     vec4        jittered[3];
@@ -345,7 +353,6 @@ void main()
 #endif
     const vec3 prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
     const float moved       = prevModel != model ? 1.0 : 0.0;
-    gl_FragDepth            = depth;
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );

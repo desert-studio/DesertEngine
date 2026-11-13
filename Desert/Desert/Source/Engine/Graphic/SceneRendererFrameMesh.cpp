@@ -707,6 +707,24 @@ namespace Desert::Graphic
             MeshVertexPath Path;
         };
         m_GrassVisibility.AddClassify( graph, visibility );
+        // FPS-GRASS-RESOLVE (UE 5 Nanite EmitMaterialDepth + the material pass's depth EQUAL): the material depth
+        // of each won pixel's section, tested EQUAL by every resolve on its own depth target, so the hardware
+        // drops another section's pixels and a pixel a nearer mesh holds before the fragment stage; then the
+        // phase-2 words' depth into the G-buffer depth (the resolves write no depth), CloserOrEqual as they did.
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        const RDG::TextureRef materialDepth =
+             m_GrassVisibility.AddMaterialDepth( graph, visibility, targets->Depth );
+        if ( !materialDepth.IsValid() )
+            return;
+        AddRaster(
+             graph, "Grass: Visibility Depth Post-Occlusion", depthOnly, {}, RDG::LoadOp::Load(), {},
+             [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return m_GrassVisibility.RecordDepth( context ); },
+             [this, words = visibility.Words]( RDG::PassBuilder& pass )
+             { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+        RasterTargets resolveTargets = *targets;
+        resolveTargets.Depth         = materialDepth;
         constexpr std::array<ResolvePass, 2> kResolvePasses{
              ResolvePass{ "Grass: Visibility Resolve", MeshVertexPath::GrassBlade },
              ResolvePass{ "Grass: Mesh Visibility Resolve", MeshVertexPath::Instanced } };
@@ -716,7 +734,7 @@ namespace Desert::Graphic
                 continue;
             const MeshVertexPath path = resolve.Path;
             AddRaster(
-                 graph, resolve.Name, *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+                 graph, resolve.Name, resolveTargets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
                  RDG::LoadOp::Load(), {},
                  [meshRenderer, path]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderGrassVisibilityResolveManual( context, path ); },

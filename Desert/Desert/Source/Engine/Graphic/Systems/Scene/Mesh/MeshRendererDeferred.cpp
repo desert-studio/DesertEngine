@@ -1108,6 +1108,11 @@ namespace Desert::Graphic::System
                     GraphicsPipelineSpecification resolve    = ispec;
                     resolve.DebugName                        = "GrassVisibilityResolve";
                     resolve.CullMode                         = CullMode::None;
+                    // FPS-GRASS-RESOLVE: its depth target is the material depth ("Grass: Visibility Material
+                    // Depth"), its tiles at the section's own value: EQUAL, nothing written.
+                    resolve.DepthTestEnabled  = true;
+                    resolve.DepthCompareOp    = DepthCompare::Equal;
+                    resolve.DepthWriteEnabled = false;
                     // FPS-GRASS-VIS: an opaque cell's raster writes the depth it passes
                     // (m_InstancedVisibilityWritePipeline): the nearest fragment's depth is the word's own
                     // (gl_FragCoord.z both), so "Grass: Visibility Depth" and the resolve write the same value and

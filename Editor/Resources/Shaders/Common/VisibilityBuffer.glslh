@@ -62,7 +62,8 @@ vec4 DesertVisibilityTilePosition( const uint instance, const uint vertex, const
     const uvec2 cell  = uvec2( tile % grid.x, tile / grid.x );
     const vec2  pixel = min( ( vec2( cell ) + corner ) * float( kVisTileSize ), vec2( extent ) );
     const vec2  ndc   = pixel / vec2( extent ) * 2.0 - 1.0;
-    return vec4( ndc.x, -ndc.y, 0.0, 1.0 );
+    // At the section's material depth (DesertVisibilityMaterialDepth): the resolve tests it EQUAL.
+    return vec4( ndc.x, -ndc.y, DesertVisibilityMaterialDepth( first ), 1.0 );
 }
 
 uint64_t DesertPackVisibility( const float reversedDepth, const uint row, const uint triangle )

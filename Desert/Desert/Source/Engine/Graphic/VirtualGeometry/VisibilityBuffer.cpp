@@ -12,9 +12,12 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <format>
+#include <span>
+#include <vector>
 
 namespace Desert::Graphic::VirtualGeometry
 {
@@ -29,6 +32,14 @@ namespace Desert::Graphic::VirtualGeometry
         struct VisibilityDepthShaderParameters
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
+        };
+        // ... and the ones "Grass: Visibility Material Depth" binds (VisibilityMaterialDepth.shader).
+        struct VisibilityMaterialDepthShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Sections );
         };
         // ... and the ones "Grass: Visibility Classify" binds (VisibilityClassify.shader): the words read, the
         // tiles' records written after them, and the resolve's record 0 written.
@@ -97,6 +108,27 @@ namespace Desert::Graphic::VirtualGeometry
                  std::format( "VisibilityBuffer: the depth pass: {}", depthMade.GetError() ) );
         m_Depth = depthMade.GetValue();
 
+        // FPS-GRASS-RESOLVE, "Grass: Visibility Material Depth": its own DEPTH32F target (the resolves' cells are
+        // built for the G-buffer's layout, whose depth is the same format), every pixel written ALWAYS (a test
+        // that always passes: Vulkan writes depth only with the test on), both faces of the full-screen triangle.
+        const auto materialShader = shaders->GetByName( "VisibilityMaterialDepth" );
+        if ( !materialShader )
+            return Common::MakeError( "VisibilityBuffer: missing shader 'VisibilityMaterialDepth'" );
+        GraphicsPipelineSpecification material;
+        material.DebugName    = "GrassVisibilityMaterialDepth";
+        material.Shader       = materialShader;
+        material.TargetLayout = RenderTargetLayout{
+             .ColorFormats = {}, .DepthFormat = ViewTargetFormats::kGBufferDepth, .Samples = 1 };
+        material.DepthTestEnabled  = true;
+        material.DepthCompareOp    = CompareOp::Always;
+        material.DepthWriteEnabled = true;
+        material.CullMode          = CullMode::None;
+        const auto materialMade    = GraphicsPipeline::Create( material );
+        if ( !materialMade )
+            return Common::MakeError(
+                 std::format( "VisibilityBuffer: the material depth pass: {}", materialMade.GetError() ) );
+        m_MaterialDepth = materialMade.GetValue();
+
         m_ResolveArgs =
              ShaderResources::StorageBuffer::Create( "VisibilityResolveArgs", kResolveArgBytes, 0, true );
         if ( !m_ResolveArgs )
@@ -122,8 +154,9 @@ namespace Desert::Graphic::VirtualGeometry
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<VisibilityBufferFrame> VisibilityBuffer::AddFrame( RDG::Builder& graph, const uint32_t width,
-                                                                         const uint32_t height )
+    Common::ResultStr<VisibilityBufferFrame>
+    VisibilityBuffer::AddFrame( RDG::Builder& graph, const uint32_t width, const uint32_t height,
+                                const std::span<const uint32_t> sectionFirstRows )
     {
         if ( !IsInitialized() )
             return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: not initialised" );
@@ -146,9 +179,38 @@ namespace Desert::Graphic::VirtualGeometry
             m_Width  = width;
             m_Height = height;
         }
+        // The sections' first rows (VisibilityMaterialDepth.shader's Sections: the count, then the rows), per
+        // frame in flight so this frame's upload never lands under the previous frame's reads.
+        if ( sectionFirstRows.size() >= UINT32_MAX / 4u )
+            return Common::MakeError<VisibilityBufferFrame>( std::format(
+                 "VisibilityBuffer: {} sections, past one storage buffer", sectionFirstRows.size() ) );
+        const auto sectionCount = static_cast<uint32_t>( sectionFirstRows.size() );
+        if ( !m_Sections || sectionCount > m_SectionCapacity )
+        {
+            const uint32_t capacity = std::max( { sectionCount, m_SectionCapacity * 2u, 64u } );
+            m_Sections = ShaderResources::StorageBuffer::Create( "VisibilitySections", 4u * ( capacity + 1u ), 0 );
+            if ( !m_Sections )
+            {
+                m_SectionCapacity = 0;
+                return Common::MakeError<VisibilityBufferFrame>(
+                     std::format( "VisibilityBuffer: the table of {} sections was not created", capacity ) );
+            }
+            m_SectionCapacity = capacity;
+        }
+        std::vector<uint32_t> sections;
+        sections.reserve( sectionCount + 1u );
+        sections.push_back( sectionCount );
+        sections.insert( sections.end(), sectionFirstRows.begin(), sectionFirstRows.end() );
+        if ( const auto wrote = m_Sections->SetData( sections.data(), 4u * ( sectionCount + 1u ) );
+             !wrote.IsSuccess() )
+            return Common::MakeError<VisibilityBufferFrame>(
+                 std::format( "VisibilityBuffer: the sections' table: {}", wrote.GetError() ) );
+
         Common::BoolResultStr imported = Renderer::ImportBuffer( m_Words, m_WordsImport );
         if ( imported )
             imported = Renderer::ImportBuffer( m_ResolveArgs, m_ResolveArgsImport );
+        if ( imported )
+            imported = Renderer::ImportBuffer( m_Sections, m_SectionsImport );
         if ( !imported )
             return Common::MakeError<VisibilityBufferFrame>(
                  std::format( "VisibilityBuffer: not in the frame graph: {}", imported.GetError() ) );
@@ -156,6 +218,7 @@ namespace Desert::Graphic::VirtualGeometry
         VisibilityBufferFrame frame;
         frame.Words       = graph.RegisterExternal( m_WordsImport, "VisibilityBuffer" );
         frame.ResolveArgs = graph.RegisterExternal( m_ResolveArgsImport, "VisibilityResolveArgs" );
+        frame.Sections    = graph.RegisterExternal( m_SectionsImport, "VisibilitySections" );
         frame.Width       = width;
         frame.Height      = height;
 
@@ -222,5 +285,42 @@ namespace Desert::Graphic::VirtualGeometry
             return Common::MakeError( "Grass: Visibility Depth recorded without its pipeline" );
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_Depth, nullptr );
+    }
+
+    RDG::TextureRef VisibilityBuffer::AddMaterialDepth( RDG::Builder& graph, const VisibilityBufferFrame& frame,
+                                                        const RDG::TextureRef sceneDepth ) const
+    {
+        if ( !m_MaterialDepth || !frame.IsValid() || !frame.Sections.IsValid() || !sceneDepth.IsValid() ||
+             frame.Width == 0u || frame.Height == 0u )
+            return {};
+        RDG::TextureDesc desc;
+        desc.Size                           = RDG::Extent3D{ frame.Width, frame.Height, 1u };
+        desc.Format                         = ViewTargetFormats::kGBufferDepth;
+        const RDG::TextureRef materialDepth = graph.CreateTexture( desc, "GrassMaterialDepth" );
+        graph.AddPass(
+             "Grass: Visibility Material Depth", RDG::PassFlags::Raster,
+             [this, materialDepth, sceneDepth, words = frame.Words,
+              sections = frame.Sections]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( m_MaterialDepthLayout.Get( m_MaterialDepth->GetSpecification().Shader ),
+                                RDG::NoOtherRouteFill() )
+                      .Sampler( VisibilityMaterialDepthShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( VisibilityMaterialDepthShaderParameters::SceneDepthTexture, sceneDepth,
+                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                      .Storage( VisibilityMaterialDepthShaderParameters::Visibility, words,
+                                RDG::Access::StorageRead )
+                      .Storage( VisibilityMaterialDepthShaderParameters::Sections, sections,
+                                RDG::Access::StorageRead );
+                 // 0: no section's value (DesertVisibilityMaterialDepth is never 0), so a pixel no word won fails
+                 // every resolve's EQUAL.
+                 pass.DepthTarget( materialDepth, RDG::LoadOp::ClearDepth( 0.0f ), true );
+             },
+             [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::GetInstance().DrawFullscreen( bindings, *m_MaterialDepth, nullptr );
+             } );
+        return materialDepth;
     }
 } // namespace Desert::Graphic::VirtualGeometry

@@ -2551,7 +2551,8 @@ namespace Desert::Graphic
             m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
             if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
             {
-                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height );
+                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
+                                                        m_Systems.Grass->VisibilitySectionFirstRows() );
                 if ( made )
                 {
                     grassVisibility = made.GetValue();

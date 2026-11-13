@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace Desert::ShaderResources
 {
@@ -45,6 +46,7 @@ namespace Desert::Graphic::VirtualGeometry
     {
         RDG::BufferRef Words;       // Common/VisibilityBuffer.glslh `VisibilityBuffer` (binding 62)
         RDG::BufferRef ResolveArgs; // GpuInstanceArgs header + record 0 = {3, 2 x tiles, 0, 0, 0}
+        RDG::BufferRef Sections;    // count + the sections' first rows (VisibilityMaterialDepth.shader)
         uint32_t       Width  = 0;
         uint32_t       Height = 0;
 
@@ -62,13 +64,26 @@ namespace Desert::Graphic::VirtualGeometry
         [[nodiscard]] Common::BoolResultStr Initialize();
         [[nodiscard]] bool                  IsInitialized() const
         {
-            return m_Clear != nullptr && m_Classify != nullptr && m_Depth != nullptr && m_ResolveArgs != nullptr;
+            return m_Clear != nullptr && m_Classify != nullptr && m_Depth != nullptr &&
+                   m_MaterialDepth != nullptr && m_ResolveArgs != nullptr;
         }
 
-        // Registers the buffer (resized to @p width x @p height pixels) and the resolve's arguments in @p graph
-        // and adds "VirtualGeometry: Visibility Clear". An invalid frame with the error when it could not.
-        [[nodiscard]] Common::ResultStr<VisibilityBufferFrame> AddFrame( RDG::Builder& graph, uint32_t width,
-                                                                         uint32_t height );
+        // Registers the buffer (resized to @p width x @p height pixels), the resolve's arguments and this frame's
+        // sections (@p sectionFirstRows: the first raster-stream row of every section GrassRenderer handed rows
+        // to, ascending - GrassRenderer::VisibilitySectionFirstRows) in @p graph and adds "VirtualGeometry:
+        // Visibility Clear". An invalid frame with the error when it could not.
+        [[nodiscard]] Common::ResultStr<VisibilityBufferFrame>
+        AddFrame( RDG::Builder& graph, uint32_t width, uint32_t height,
+                  std::span<const uint32_t> sectionFirstRows );
+
+        // Adds "Grass: Visibility Material Depth" (VisibilityMaterialDepth.shader; UE 5 Nanite's
+        // EmitMaterialDepth) and returns its target: a DEPTH32F of the frame's extent, cleared to 0, holding at
+        // every pixel a drawn word not behind @p sceneDepth (the G-buffer depth, sampled) the material depth of
+        // the section owning its row (Common/VisibilityTiles.glslh DesertVisibilityMaterialDepth). The resolves
+        // draw on it as their depth target and test EQUAL. After the last raster into @p frame's words; invalid
+        // when nothing was added.
+        [[nodiscard]] RDG::TextureRef AddMaterialDepth( RDG::Builder& graph, const VisibilityBufferFrame& frame,
+                                                        RDG::TextureRef sceneDepth ) const;
 
         // Adds "Grass: Visibility Classify" (VisibilityClassify.shader): every tile's record of the rows its
         // pixels hold, and record 0's instance count (two triangles per tile). After the LAST raster into
@@ -89,6 +104,12 @@ namespace Desert::Graphic::VirtualGeometry
         mutable ShaderBindingLayoutCache                m_ClassifyLayout;
         std::shared_ptr<GraphicsPipeline>               m_Depth;
         mutable ShaderBindingLayoutCache                m_DepthLayout;
+        std::shared_ptr<GraphicsPipeline>               m_MaterialDepth;
+        mutable ShaderBindingLayoutCache                m_MaterialDepthLayout;
+        // The sections' first rows (count, then the rows; per frame in flight), grown to the largest count seen.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_Sections;
+        RDG::ExternalBuffer                             m_SectionsImport;
+        uint32_t                                        m_SectionCapacity = 0;
         std::shared_ptr<ShaderResources::StorageBuffer> m_Words;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveArgs;
         RDG::ExternalBuffer                             m_WordsImport;
