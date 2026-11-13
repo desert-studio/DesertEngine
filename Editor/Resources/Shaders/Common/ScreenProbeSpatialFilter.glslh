@@ -1,0 +1,70 @@
+#ifndef SCREEN_PROBE_SPATIAL_FILTER_GLSLH
+#define SCREEN_PROBE_SPATIAL_FILTER_GLSLH
+// ONE PASS OF THE SCREEN PROBE SPATIAL FILTER AT ONE TEXEL (UE LumenScreenProbeFiltering.usf GatherNeighborRadiance),
+// the one definition of its weights: ScreenProbeSpatialFilter.shader runs it over every texel per pass, and
+// ScreenProbeFilter.shader's SP_FILTER_SPATIAL permutation runs the last pass in place of its own read (FPS-GI-FARFIELD:
+// the last pass's output was read by its own probe's workgroup alone, so it never needs the atlas).
+//
+// The includer declares screenProbeParams, screenProbeIndex, screenProbes, screenProbeDisocclusion (float per uniform
+// tile) and the ScreenProbeRadiance sampler (rgb = radiance, a = hit distance cm, SP_RES² per probe), and includes
+// Common/ScreenProbes.glslh and Common/ScreenProbeTemporal.glslh (SP_DISOCCLUSION_FRACTION) first.
+//
+// Each texel gathers the same direction from the uniform probes of the four neighbouring tiles: weighted by how near
+// the neighbour lies to this probe's plane and by the angle, seen from THIS probe, to the point the neighbour's ray hit
+// (its hit distance clamped to this texel's own, which keeps contact shadows) - linear to zero at
+// SP_SPATIAL_FILTER_MAX_RADIANCE_HIT_ANGLE (UE SpatialFilterMaxRadianceHitAngle). A disoccluded probe
+// (ScreenProbeDisocclusion) drops the angle test: the temporal filter cannot help there.
+
+// UE r.Lumen.ScreenProbeGather.SpatialFilterPositionWeightScale and SpatialFilterMaxRadianceHitAngle (10 degrees, in
+// radians).
+#define SP_SPATIAL_FILTER_POSITION_WEIGHT_SCALE 1000.0
+#define SP_SPATIAL_FILTER_MAX_RADIANCE_HIT_ANGLE 0.17453293
+
+// Texel @p t of traced @p probe (whose record is @p state): the filtered radiance in rgb, the texel's own hit distance
+// carried through in a for the next pass.
+vec4 SPSpatialFilterTexel( uint probe, ScreenProbe state, ivec2 t )
+{
+    const ivec2 at          = SPAtlasOrigin( probe, SP_RES ) + t;
+    const mat3  frame       = SPProbeFrame( state.normal.xyz );
+    const vec3  dir         = frame * SPHemiOctDecode( ( vec2( t ) + 0.5 ) / float( SP_RES ) * 2.0 - 1.0 );
+    const vec4  own         = texelFetch( ScreenProbeRadiance, at, 0 );
+    const float hitDistance = own.a;
+    const vec3  p           = state.position.xyz;
+    const ivec2 tile        = SPUniformTileOf( SPProbePixelOf( state ) );
+    // The disoccluded share of the probe's uniform tile (ScreenProbeDisocclusion measures each tile once; an adaptive
+    // probe takes its tile's); a probe off the grid counts as disoccluded.
+    const bool relaxAngle = !SPUniformTileInside( tile ) ||
+                            screenProbeDisocclusion[SPUniformTileIndex( tile )] > SP_DISOCCLUSION_FRACTION;
+
+    vec3        sum        = own.rgb;
+    float       weight     = 1.0;
+    const ivec2 offsets[4] = ivec2[4]( ivec2( -1, 0 ), ivec2( 1, 0 ), ivec2( 0, -1 ), ivec2( 0, 1 ) );
+    for ( int i = 0; i < 4; ++i )
+    {
+        const uint other = SPUniformProbeAt( tile + offsets[i] );
+        if ( other == SP_INVALID || other == probe )
+            continue;
+        const ScreenProbe neighbour = screenProbes[other];
+        if ( neighbour.position.w <= 0.0 || dot( dir, neighbour.normal.xyz ) <= 0.0 )
+            continue;
+        const float plane          = abs( dot( neighbour.position.xyz - p, state.normal.xyz ) ) / state.position.w;
+        const float positionWeight = exp2( -SP_SPATIAL_FILTER_POSITION_WEIGHT_SCALE * plane * plane );
+        const vec4  ray            = texelFetch( ScreenProbeRadiance,
+                                                 SPAtlasOrigin( other, SP_RES ) +
+                                                      SPProbeTexel( SPProbeFrame( neighbour.normal.xyz ), dir ),
+                                                 0 );
+        float angleWeight = 1.0;
+        if ( !relaxAngle )
+        {
+            const vec3  toHit = neighbour.position.xyz + dir * min( ray.a, hitDistance ) - p;
+            const float angle = acos( clamp( dot( toHit, dir ) / max( length( toHit ), 1e-4 ), -1.0, 1.0 ) );
+            angleWeight       = 1.0 - clamp( angle / SP_SPATIAL_FILTER_MAX_RADIANCE_HIT_ANGLE, 0.0, 1.0 );
+        }
+        const float w = positionWeight * angleWeight;
+        sum += ray.rgb * w;
+        weight += w;
+    }
+    return vec4( sum / weight, hitDistance );
+}
+
+#endif // SCREEN_PROBE_SPATIAL_FILTER_GLSLH

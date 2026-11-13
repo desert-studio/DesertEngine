@@ -123,6 +123,7 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeDisocclusionUB ); // SP_FILTER_SPATIAL
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -206,17 +207,16 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 17> kScreenProbeShaderNames{
-             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
-             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
-             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
-             "ScreenProbeDisocclusion",
-             "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
-             "ScreenProbeTemporal" };
+        constexpr std::array<std::string_view, 18> kScreenProbeShaderNames{
+             "ScreenProbePlace",     "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",   "ScreenProbeTrace",
+             "ScreenProbeTrace",     "ScreenProbeTrace",        "ScreenProbeTrace",         "ScreenProbeTrace",
+             "ScreenProbeTrace",     "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter", "ScreenProbeFilter",
+             "ScreenProbeFilter",    "ScreenProbeIntegrate",    "ScreenProbeIntegrate",     "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate", "ScreenProbeTemporal" };
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
-        // integrate's tile classification, its simple-diffuse permutation and its uncovered-pixel pass
+        // filter with the spatial filter's last pass (ScreenProbeFilter.shader), the integrate's tile
+        // classification, its simple-diffuse permutation and its uncovered-pixel pass
         // (ScreenProbeIntegrate.shader).
         constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
              "",
@@ -231,6 +231,7 @@ namespace Desert::Graphic::GlobalIllumination
              "",
              "",
              "",
+             "SP_FILTER_SPATIAL",
              "SP_INTEGRATE_CLASSIFY",
              "SP_INTEGRATE_SIMPLE_DIFFUSE",
              "",
@@ -1225,7 +1226,8 @@ namespace Desert::Graphic::GlobalIllumination
         // history taps reprojected and tested once (ScreenProbeDisocclusion.shader), packed for the temporal
         // filter, and every uniform tile's disoccluded share for the spatial filter. SPATIAL FILTER (UE
         // FilterScreenProbes, SpatialFilterNumPasses): then three passes across neighbouring probes, each reading
-        // the last one's radiance.
+        // the last one's radiance; the last of them inside the filter (FilterSpatial, FPS-GI-FARFIELD: its output
+        // was read by its own probe's filter workgroup alone, so it skips the atlas round trip and a barrier).
         RDG::TextureRef radiance = traced;
         if ( inputs.Denoise )
         {
@@ -1233,7 +1235,7 @@ namespace Desert::Graphic::GlobalIllumination
             const RDG::TextureDesc atlasDesc{
                  .Size   = { .Width = layout.AtlasProbesRow * res, .Height = layout.AtlasRows * res },
                  .Format = Core::Formats::ImageFormat::RGBA16F };
-            for ( uint32_t pass = 0; pass < kSpatialFilterPasses; ++pass )
+            for ( uint32_t pass = 0; pass + 1u < kSpatialFilterPasses; ++pass )
             {
                 ComputePipeline* const pipeline = m_Pipelines[SpatialFilter].get();
                 const RDG::TextureRef  input    = radiance;
@@ -1270,13 +1272,19 @@ namespace Desert::Graphic::GlobalIllumination
             }
         }
         {
-            ComputePipeline* const pipeline = m_Pipelines[Filter].get();
+            // With the denoiser the filter runs the spatial filter's last pass on its texels first
+            // (FilterSpatial).
+            const Program          program  = inputs.Denoise ? FilterSpatial : Filter;
+            ComputePipeline* const pipeline = m_Pipelines[program].get();
             graph.AddPass(
                  "ScreenProbes: Filter", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
-                     auto block = builder.Bindings( m_Layouts[Filter].Get( m_Shaders[Filter] ),
+                     auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
+                     if ( program == FilterSpatial )
+                         block.Storage( ScreenProbeGatherFilterShaderParameters::ScreenProbeDisocclusionUB,
+                                        disocclusion, kR );
                      block.Storage( ScreenProbeGatherFilterShaderParameters::ScreenProbeParamsUB, paramsBuffer,
                                     kR )
                           .Storage( ScreenProbeGatherFilterShaderParameters::ScreenProbeIndexUB, index, kR )

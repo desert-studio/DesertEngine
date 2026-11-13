@@ -407,6 +407,7 @@ namespace Desert::Graphic::GlobalIllumination
             Disocclusion,
             SpatialFilter,
             Filter,
+            FilterSpatial,          // ScreenProbeFilter SP_FILTER_SPATIAL: the spatial filter's last pass first
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
             IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
             Integrate,              // the full permutation: the tiles that evaluate GGX samples
