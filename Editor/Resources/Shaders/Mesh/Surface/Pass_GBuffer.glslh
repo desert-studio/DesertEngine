@@ -48,7 +48,7 @@ layout( depth_less ) out float gl_FragDepth;
 // position needed is the one the raster already did.
 vec4 DesertGBufferClipFromPixel()
 {
-    const vec2 jitteredNdc = gl_FragCoord.xy * cameraUB.PixelToNdc.xy + cameraUB.PixelToNdc.zw;
+    const vec2 jitteredNdc = DesertPixelToJitteredNdc( gl_FragCoord.xy );
     return vec4( jitteredNdc - cameraUB.JitterNdc, gl_FragCoord.z, 1.0 );
 }
 #endif

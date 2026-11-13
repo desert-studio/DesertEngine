@@ -286,6 +286,17 @@ SurfaceOutput DefaultSurfaceOutput()
 // stage evaluates nothing and declares nothing, so its layout stays the shadow casters' (vertex-only block).
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/CameraUB.glslh>
+// A fragment's pixel position (gl_FragCoord.xy) to its JITTERED NDC (UE SvPositionToScreenPosition) through the
+// view's raster viewport: CameraUB::PixelToNdc (ShaderProtocols::MakePixelToNdc - the rect's origin, its size and the
+// engine's negative-height viewport, +Y up: ndc.y = 1 - 2 (py - y) / h). The one mapping every stage that rebuilds a
+// clip position from its pixel takes - the G-buffer cell's clip (Pass_GBuffer.glslh) and the visibility resolve's
+// rebuilt triangle (Pass_VisibilityResolve.glslh) - so none re-derives the viewport's origin or y sign
+// (GRASS-SPARKLE-4: the resolve's own `xy / extent * 2 - 1` mirrored y and rebuilt the blade at the wrong height).
+// One pixel's NDC step is PixelToNdc.xy (y negative).
+vec2 DesertPixelToJitteredNdc( const vec2 pixel )
+{
+    return pixel * cameraUB.PixelToNdc.xy + cameraUB.PixelToNdc.zw;
+}
 #endif
 
 // THE BINNED CELL (DESERT_SURFACE_BINNED, the generator's `.Binned` permutation, DShaderParser kSurfaceBinnedCellSuffix):

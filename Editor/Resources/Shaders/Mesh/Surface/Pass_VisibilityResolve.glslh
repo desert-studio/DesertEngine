@@ -62,11 +62,21 @@ vec3 VisibilityBarycentrics( const vec4 c0, const vec4 c1, const vec4 c2, const 
     return w / ( w.x + w.y + w.z );
 }
 
+// A guard, not the rebuild: the pixel centre the raster covered lies in the triangle rebuilt through the raster's own
+// projection and viewport (DesertPixelToJitteredNdc) up to float rounding, so its barycentrics are held to the
+// triangle - an interpolant (the blade's height share, the material's root occlusion) never extrapolates past a vertex.
+vec3 VisibilityInside( const vec3 b )
+{
+    const vec3 c = max( b, vec3( 0.0 ) );
+    return c / max( c.x + c.y + c.z, 1.0e-20 );
+}
+
 // The derivative of the perspective-correct barycentrics @p b (VisibilityBarycentrics at this pixel) across one pixel
-// in x (@p dbdx) and y (@p dbdy) of a buffer @p extent pixels wide (UE Nanite CalculateTriangleDerivatives): taken AT
+// in x (@p dbdx) and y (@p dbdy), one pixel being @p pixel in NDC (CameraUB::PixelToNdc.xy, y negative: the
+// flipped viewport) (UE Nanite CalculateTriangleDerivatives): taken AT
 // the pixel, where the triangle is, never as a difference to the neighbour's centre, which on a blade seen edge-on
 // can lie past the vanishing line of the blade's plane, where the perspective division has no value.
-void VisibilityBarycentricDerivatives( const vec4 c0, const vec4 c1, const vec4 c2, const vec3 b, const vec2 extent,
+void VisibilityBarycentricDerivatives( const vec4 c0, const vec4 c1, const vec4 c2, const vec3 b, const vec2 pixel,
                                        out vec3 dbdx, out vec3 dbdy )
 {
     dbdx = vec3( 0.0 );
@@ -76,7 +86,6 @@ void VisibilityBarycentricDerivatives( const vec4 c0, const vec4 c1, const vec4 
     if ( abs( area ) < 1.0e-20 )
         return;
     // The screen-space barycentrics l1, l2 of VisibilityBarycentrics are affine in NDC: their gradients, per pixel.
-    const vec2 pixel = 2.0 / extent;
     const vec2 dl1   = vec2( p2.y - p0.y, p0.x - p2.x ) * pixel / area;
     const vec2 dl2   = vec2( p0.y - p1.y, p1.x - p0.x ) * pixel / area;
     const vec2 dl0   = -( dl1 + dl2 );
@@ -136,13 +145,13 @@ void main()
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
     }
 
-    // The pixel centre and its two neighbours in NDC (the raster's own convention: the view's render extent is the
-    // buffer's), so UV0's gradient across one pixel is analytic.
-    const vec2 extent = vec2( VisibilityHeader.xy );
-    const vec2 ndc    = gl_FragCoord.xy / extent * 2.0 - 1.0;
-    const vec3 b      = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc );
-    const vec3 bx = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 2.0 / extent.x, 0.0 ) );
-    const vec3 by = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, 2.0 / extent.y ) );
+    // The pixel centre and its two neighbours in NDC through the raster's own viewport (DesertPixelToJitteredNdc: its
+    // origin and flipped y, one pixel PixelToNdc.xy), so UV0's gradient across one pixel is analytic.
+    const vec2 ndc   = DesertPixelToJitteredNdc( gl_FragCoord.xy );
+    const vec2 pixel = cameraUB.PixelToNdc.xy;
+    const vec3 b     = VisibilityInside( VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc ) );
+    const vec3 bx    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( pixel.x, 0.0 ) );
+    const vec3 by    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, pixel.y ) );
 
     const vec4 card = BladeCard( Blade, model[0].w );
     vec2       uv[3];
@@ -162,7 +171,7 @@ void main()
     const vec3 along    = normalize( b.x * point[0].Along + b.y * point[1].Along + b.z * point[2].Along );
     // The TBN's turn across one pixel (GBufferOutputs.glslh g_DesertVisibilityTBNdx, the specular AA's footprint).
     vec3 dbdx, dbdy;
-    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, extent, dbdx, dbdy );
+    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
     g_DesertVisibilityTBNdx =
          mat3( VisibilityUnitTurn( point[0].Right, point[1].Right, point[2].Right, b, dbdx ),
                VisibilityUnitTurn( point[0].Along, point[1].Along, point[2].Along, b, dbdx ),
@@ -296,11 +305,11 @@ void main()
     }
 
     // The pixel centre and its two neighbours in NDC, as the blade's resolve: UV0's gradient across one pixel.
-    const vec2 extent = vec2( VisibilityHeader.xy );
-    const vec2 ndc    = gl_FragCoord.xy / extent * 2.0 - 1.0;
-    const vec3 b      = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc );
-    const vec3 bx = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 2.0 / extent.x, 0.0 ) );
-    const vec3 by = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, 2.0 / extent.y ) );
+    const vec2 ndc   = DesertPixelToJitteredNdc( gl_FragCoord.xy );
+    const vec2 pixel = cameraUB.PixelToNdc.xy;
+    const vec3 b     = VisibilityInside( VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc ) );
+    const vec3 bx    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( pixel.x, 0.0 ) );
+    const vec3 by    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, pixel.y ) );
     const vec2 uv0 = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
     g_DesertVisibilityUVdx = ( bx.x * uv[0] + bx.y * uv[1] + bx.z * uv[2] ) - uv0;
     g_DesertVisibilityUVdy = ( by.x * uv[0] + by.y * uv[1] + by.z * uv[2] ) - uv0;
@@ -311,7 +320,7 @@ void main()
     const vec3 bt       = normalize( b.x * bitangent[0] + b.y * bitangent[1] + b.z * bitangent[2] );
     // The TBN's turn across one pixel, as the blade's resolve (GBufferOutputs.glslh g_DesertVisibilityTBNdx).
     vec3 dbdx, dbdy;
-    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, extent, dbdx, dbdy );
+    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
     g_DesertVisibilityTBNdx = mat3( VisibilityUnitTurn( tangent[0], tangent[1], tangent[2], b, dbdx ),
                                     VisibilityUnitTurn( bitangent[0], bitangent[1], bitangent[2], b, dbdx ),
                                     VisibilityUnitTurn( normal[0], normal[1], normal[2], b, dbdx ) );
