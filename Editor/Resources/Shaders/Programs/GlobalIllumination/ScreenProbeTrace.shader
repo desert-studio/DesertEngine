@@ -93,17 +93,11 @@ Shader "ScreenProbeTrace"
         };
         #define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
         #include <Mesh/LightGrid.glslh>
+        // The cache's clipmaps (a CPU upload): every leg's coverage (RadianceCacheCoverageAt). The cache's probes
+        // (Indirection, Probes, the three atlases) only under SP_TRACE_READS_CACHE below.
         ReadBuffer(8) RadianceCacheParamsUB
         {
             RadianceCacheParams radianceCache;
-        };
-        ReadBuffer(9) RadianceCacheIndirectionUB
-        {
-            uint radianceCacheIndirection[];
-        };
-        ReadBuffer(10) RadianceCacheProbesUB
-        {
-            RadianceCacheProbe radianceCacheProbes[];
         };
         Buffer(11) ScreenProbeTraceHitUB
         {
@@ -239,6 +233,25 @@ Shader "ScreenProbeTrace"
         #else
         #define GI_HIT_LIGHTING_NONE 1
         #endif
+        // FPS-QUEUE-WAIT (UE: a pass reads what its permutation declares, and RDG orders it after the writers of
+        // exactly that): the legs that READ the radiance cache's probes - the cache read, and every leg that lights
+        // a hit (GIHitLighting.glslh's bounce, RadianceCacheIrradianceAt). The software near field's march and the
+        // software far field (distance only, its hits deferred) read only the cache's clipmaps (Params, uploaded),
+        // so they declare no Indirection, Probes or atlas, and the graph joins the cache's writers ('RadianceCache:
+        // Mark' .. 'RadianceCache: Filter') at the first leg that reads them, not at the near field: the march and
+        // the far field run beside the cache. The pass binds them under the same rule (ScreenProbeGather.cpp
+        // TraceLegReadsCache).
+        #if defined( SP_TRACE_LIGHTS_HITS ) || defined( SP_TRACE_CACHE_READ )
+        #define SP_TRACE_READS_CACHE 1
+        ReadBuffer(9) RadianceCacheIndirectionUB
+        {
+            uint radianceCacheIndirection[];
+        };
+        ReadBuffer(10) RadianceCacheProbesUB
+        {
+            RadianceCacheProbe radianceCacheProbes[];
+        };
+        #endif
         // FPS-NEAR-FIELD-FIX (UE shared samplers: a permutation declares the samplers its code samples through):
         // everything read through LinearClampSampler - the sky (GIHitLighting.glslh GIMissRadiance) and the radiance
         // cache's three textures (Common/RadianceCache.glslh's read sections) - under one switch,
@@ -251,6 +264,8 @@ Shader "ScreenProbeTrace"
         Uniform sampler LinearClampSampler;
         Uniform(16) textureCube EnvironmentSpecularTexture;
         #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        #endif
+        #if defined( SP_TRACE_READS_CACHE ) // never with SP_TRACE_DEFERS_NEAR_HITS: LinearClampSampler is declared
         Uniform(20) texture2D RadianceCacheIrradianceTexture;
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(21) texture2D RadianceCacheDepthTexture;
@@ -277,7 +292,7 @@ Shader "ScreenProbeTrace"
         #else
         LocalSize(SP_TRACE_LEG_THREADS, 1, 1);
         #endif
-        #if !defined( SP_TRACE_DEFERS_NEAR_HITS ) // the cache's readers sample through LinearClampSampler (above)
+        #if defined( SP_TRACE_READS_CACHE ) // the cache's readers sample through LinearClampSampler (above)
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture

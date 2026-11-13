@@ -286,6 +286,22 @@ namespace Desert::Graphic::GlobalIllumination
             return false; // SP_TRACE_CACHE_READ: the radiance cache only
         }
 
+        // Whether the leg reads the radiance cache's probes (ScreenProbeTrace.shader SP_TRACE_READS_CACHE - the
+        // same rule): the cache read, and every leg that lights a hit (the hit's bounce). Only such a leg declares
+        // the cache's Indirection, Probes and three atlases, so the pass declares them exactly then, and the
+        // graph's edge from the cache's writers lands on the first leg that reads them (FPS-QUEUE-WAIT: the
+        // software near field's march and far field depend on the cache's clipmaps alone, an upload, and run
+        // beside the cache).
+        [[nodiscard]] constexpr bool TraceLegReadsCache( const Tracer tracer, const std::string_view leg )
+        {
+            return leg == kTraceCacheReadDefine || TraceLegLightsHits( tracer, leg );
+        }
+        static_assert( !TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearFieldDefine ) &&
+                            !TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceFarFieldDefine ) &&
+                            TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceCacheReadDefine ) &&
+                            TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ),
+                       "the legs the cache's writers join at (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)" );
+
         // Whether the leg defers its near-field hits (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS - the same
         // rule): the software near field only marches and lists its hits, so it declares no LinearClampSampler, no
         // sky and no radiance cache texture, and the pass binds none of them (UE: a pass binds what its
@@ -1074,6 +1090,8 @@ namespace Desert::Graphic::GlobalIllumination
             // (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS)
             const bool samplesLinear =
                  !TraceLegDefersNearHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
+            // (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)
+            const bool readsCache = TraceLegReadsCache( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             graph.AddPass(
                  name, kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -1093,15 +1111,11 @@ namespace Desert::Graphic::GlobalIllumination
                                     inputs.WorldGridCells, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheParamsUB,
                                     inputs.RadianceCache.Params, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheIndirectionUB,
-                                    inputs.RadianceCache.Indirection, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheProbesUB,
-                                    inputs.RadianceCache.Probes, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTraceHitUB, traceHit, kW )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactAllocatorUB,
                                     in.Allocator, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactTexelsUB,
-                                    in.Texels, kR )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeCompactTexelsUB, in.Texels,
+                                    kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR );
                      // The lists of the legs after it (ScreenProbeTrace.shader SP_TRACE_LISTS_RAYS / _HITS).
                      if ( out )
@@ -1129,13 +1143,21 @@ namespace Desert::Graphic::GlobalIllumination
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
-                     // The software near field defers its hits and samples nothing linear-clamped: no sky, no
-                     // radiance cache texture (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS).
+                     // The software near field defers its hits and samples nothing linear-clamped: no sky
+                     // (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS).
                      if ( samplesLinear )
                          block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
                                         inputs.EnvSpecular, kS, all )
                               .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                        RDG::SamplerDesc::LinearClamp() )
+                                        RDG::SamplerDesc::LinearClamp() );
+                     // The radiance cache's probes, only where the leg reads them (ScreenProbeTrace.shader
+                     // SP_TRACE_READS_CACHE): the graph joins the cache's writers at that leg, so the software
+                     // near field's march and far field overlap the cache (FPS-QUEUE-WAIT).
+                     if ( readsCache )
+                         block.Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheIndirectionUB,
+                                        inputs.RadianceCache.Indirection, kR )
+                              .Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheProbesUB,
+                                        inputs.RadianceCache.Probes, kR )
                               .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheIrradianceTexture,
                                         inputs.RadianceCache.Irradiance, kS, all )
                               .Texture( ScreenProbeGatherTraceShaderParameters::RadianceCacheDepthTexture,
