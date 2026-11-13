@@ -982,6 +982,44 @@ namespace Desert::Graphic::RDG
         DeclareBuffer( buffer, access, true, "Write" );
     }
 
+    void PassBuilder::SkipBarrier( TextureRef texture )
+    {
+        Builder::PassRecord& pass   = m_Builder.m_Passes[m_Pass];
+        bool                 marked = false;
+        for ( Builder::ResourceUse& use : pass.Uses )
+        {
+            if ( use.Resource == texture.Index && use.Usage == Access::StorageWrite && use.Attachment < 0 )
+            {
+                use.SkipBarrier = true;
+                marked          = true;
+            }
+        }
+        if ( !marked )
+            m_Builder.RecordPassError(
+                 m_Pass, fmt::format( "graph '{}' pass '{}': SkipBarrier() of texture {} the pass does not write "
+                                      "as storage (declare the StorageWrite first)",
+                                      m_Builder.m_Name, pass.Name, texture.Index ) );
+    }
+
+    void PassBuilder::SkipBarrier( BufferRef buffer )
+    {
+        Builder::PassRecord& pass   = m_Builder.m_Passes[m_Pass];
+        bool                 marked = false;
+        for ( Builder::ResourceUse& use : pass.Uses )
+        {
+            if ( use.Resource == buffer.Index && use.Usage == Access::StorageWrite && use.Attachment < 0 )
+            {
+                use.SkipBarrier = true;
+                marked          = true;
+            }
+        }
+        if ( !marked )
+            m_Builder.RecordPassError(
+                 m_Pass, fmt::format( "graph '{}' pass '{}': SkipBarrier() of buffer {} the pass does not write "
+                                      "as storage (declare the StorageWrite first)",
+                                      m_Builder.m_Name, pass.Name, buffer.Index ) );
+    }
+
     void PassBuilder::ColorTarget( uint32_t slot, TextureRef texture, const LoadOp& load, uint32_t mip,
                                    uint32_t layer, StoreAction store )
     {

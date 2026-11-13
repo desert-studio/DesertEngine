@@ -1174,6 +1174,17 @@ namespace Desert::Graphic::GlobalIllumination
                               .Texture( ScreenProbeGatherTraceShaderParameters::GBufferEmissiveTexture,
                                         inputs.GBufferEmissive, kS, all );
                      block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW );
+                     // FPS-GI-ASYNC (UE SkipBarrier on the Lumen trace UAVs): a ray is in one leg's list at a time,
+                     // so two legs no list orders (the near field's hit lighting and the far field; the cache read
+                     // and the hit lighting) write disjoint texels of the traced atlas and disjoint slots of the
+                     // hit buffer, and the dev counters only add: no barrier between them, they overlap on the
+                     // async queue. A leg after a leg it reads a list of still waits for it (that list's barrier).
+                     builder.SkipBarrier( traced );
+                     builder.SkipBarrier( traceHit );
+#if DESERT_DEV_INSTRUMENTS
+                     if ( program == TraceFarField || program == TraceHitLighting || program == TraceCacheRead )
+                         builder.SkipBarrier( missReasons );
+#endif
                  },
                  [pipeline, args = in.Args]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -1349,6 +1360,15 @@ namespace Desert::Graphic::GlobalIllumination
                           .Sampler( ScreenProbeGatherIntegrateShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() );
                      gbuf( block );
+                     // FPS-GI-ASYNC (UE SkipBarrier): the classification lists every tile in one integrate
+                     // permutation only, so the simple-diffuse and the full integrate write disjoint pixels and
+                     // disjoint mask words, and the uncovered list grows by atomics: they overlap on the async queue.
+                     builder.SkipBarrier( diffuse );
+                     builder.SkipBarrier( specular );
+                     builder.SkipBarrier( backface );
+                     builder.SkipBarrier( uncoveredArgs );
+                     builder.SkipBarrier( uncoveredTiles );
+                     builder.SkipBarrier( uncoveredMask );
                  },
                  [pipeline, args = integrateArgs, argsOffset]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

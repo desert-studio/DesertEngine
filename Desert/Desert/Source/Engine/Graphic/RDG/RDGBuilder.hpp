@@ -157,6 +157,14 @@ namespace Desert::Graphic::RDG
         void Write( TextureRef texture, Access access, SubresourceRange range = SubresourceRange::All() );
         void Read( BufferRef buffer, Access access );
         void Write( BufferRef buffer, Access access );
+        // FPS-GI-ASYNC (UE ERDGUnorderedAccessViewFlags::SkipBarrier): this pass's StorageWrite of @p texture /
+        // @p buffer touches texels / bytes no other skip-barrier writer of it next to it on the same queue touches
+        // (disjoint rays, disjoint tiles, or commutative atomics), so a write after such a write records no
+        // barrier between the two. Every other edge (a read after either, a write without the flag) is a barrier
+        // as before. Declared after the use (Bindings().Storage / Write); a pass that does not write it as
+        // storage faults.
+        void SkipBarrier( TextureRef texture );
+        void SkipBarrier( BufferRef buffer );
 
         // @p layer = kAllRemaining binds every layer (layered rendering); a single layer renders one
         // cascade of a layered shadow map.
@@ -564,6 +572,7 @@ namespace Desert::Graphic::RDG
             Access           Usage    = Access::None;
             SubresourceRange Range;           // resolved: no kAllRemaining
             int32_t          Attachment = -1; // index into PassRecord::Attachments, -1 for a plain use
+            bool SkipBarrier = false; // PassBuilder::SkipBarrier: a StorageWrite unordered with its neighbours
         };
 
         struct AttachmentRecord
