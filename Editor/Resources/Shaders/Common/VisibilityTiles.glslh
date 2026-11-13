@@ -64,4 +64,16 @@ bool DesertVisibilityTileHolds( const uint smallest, const uint largest, const u
     }
     return false;
 }
+
+// THE MATERIAL DEPTH (FPS-GRASS-RESOLVE; UE 5 Nanite's material depth, EmitMaterialDepth + the material pass's
+// depth EQUAL): "Grass: Visibility Material Depth" (VisibilityMaterialDepth.shader) writes, at every pixel a word
+// won, this value of the first row of the section that owns the word's row into a DEPTH32F target of its own; each
+// section's resolve places its tiles at the value of its own first row (DesertVisibilityTilePosition) and tests
+// EQUAL, so the depth test - not the fragment stage - drops another section's pixels. A normal float of (0, 1)
+// one-to-one with the row (rows are < 2^25: 0x30000000 + 2^25 = 0x32000000, ~7e-9), never 0 (the target's clear),
+// stored exactly by DEPTH32F and kept exactly by a triangle of constant z (its plane has no slope).
+float DesertVisibilityMaterialDepth( const uint firstRow )
+{
+    return uintBitsToFloat( 0x30000000u + firstRow );
+}
 #endif

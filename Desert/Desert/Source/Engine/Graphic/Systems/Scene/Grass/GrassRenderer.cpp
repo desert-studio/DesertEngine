@@ -1246,6 +1246,7 @@ namespace Desert::Graphic::System
             // Past kGrassVisibilityMaxRows the view refuses the path this frame (VisibilityRowsOverflow), so a
             // row cut to 32 bits here is never resolved.
             gpu.VisibilityRow = static_cast<uint32_t>( m_VisibilityRows );
+            m_VisibilitySectionFirstRows.push_back( gpu.VisibilityRow );
             m_VisibilityRows += std::max( capacity, 1u );
             gpu.ShapeData.Visibility =
                  glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ),
@@ -1368,6 +1369,7 @@ namespace Desert::Graphic::System
                          glm::uvec4( submeshes[si].VertexOffset, submeshes[si].VertexCount, drawn, 0u );
                 }
                 gpu.MeshVisibilityTabled[s] = 1u;
+                m_VisibilitySectionFirstRows.push_back( static_cast<uint32_t>( m_VisibilityRows ) );
                 m_VisibilityRows += need;
             }
         }
@@ -2768,6 +2770,7 @@ namespace Desert::Graphic::System
         m_FrameNeutral   = occlusion.Neutral;
         m_FrameTable     = false;
         m_VisibilityRows = 0;
+        m_VisibilitySectionFirstRows.clear();
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Cull )
             return;

@@ -234,6 +234,14 @@ namespace Desert::Graphic::System
             return m_VisibilityRows > kGrassVisibilityMaxRows;
         }
 
+        // FPS-GRASS-RESOLVE: the first raster-stream row of every section (blade variety, mesh section) the last
+        // AddFrame handed rows to, ascending - the sections' table "Grass: Visibility Material Depth" maps a
+        // word's row to its section's material depth with (VirtualGeometry::VisibilityBuffer::AddFrame).
+        [[nodiscard]] std::span<const uint32_t> VisibilitySectionFirstRows() const noexcept
+        {
+            return m_VisibilitySectionFirstRows;
+        }
+
         // This frame's blade BLAS requests and resident BLASes (after AddFrame): the view's TLAS block hands them
         // to the RT scene with the landscape's.
         [[nodiscard]] const GrassBladeRayTracing& GetBladeRayTracing() const
@@ -916,5 +924,8 @@ namespace Desert::Graphic::System
         static constexpr uint64_t kGrassVisibilityMaxRows = uint64_t{ 1 }
                                                             << ( 32u - VirtualGeometry::kVisTriangleBits );
         uint64_t                  m_VisibilityRows = 0;
+        // FPS-GRASS-RESOLVE: the first row of every section handed rows this frame, in the order handed (so
+        // ascending; each section's rows run to the next one's first) - VisibilitySectionFirstRows.
+        std::vector<uint32_t> m_VisibilitySectionFirstRows;
     };
 } // namespace Desert::Graphic::System
