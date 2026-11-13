@@ -53,7 +53,7 @@ float GIMeshObjectVoxel( uint objectIndex )
 }
 
 // ONE OBJECT OF THE NEAR FIELD (UE RayTraceSingleMeshSDF): the ray clipped to the object's volume box, sphere traced
-// in world centimetres through the object's field (its sparse mips, one per step - the march's mip below; volume -> world at the
+// in world centimetres through the object's field (DistanceToMeshSurfaceStandalone, volume -> world at the
 // smallest axis scale: conservative under a non-uniform scale). A hit before @p tEnd lowers @p tEnd to it
 // (GIMeshObjectNormal builds its world normal at that distance).
 //
@@ -97,47 +97,19 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                            uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
 
     const float volumeToWorld = extentScale.w;
-    const uint  finestIndex   = numMips - 1u;
-    const DFAssetMip finest   = LoadDFAssetMip( assetIndex, finestIndex );
+    const DFAssetMip finest   = LoadDFAssetMip( assetIndex, numMips - 1u );
     const float voxelVolume   = 1.0 / ( float( DF_UNIQUE_BRICK_SIZE ) *
                                       max( finest.VolumeToIndirectionScale.x,
                                            max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
     const float expand        = 0.5 * voxelVolume * volumeToWorld;
     const uint  objectSeed    = seed ^ ( objectIndex * 2654435761u );
 
-    // FPS-NEAR-TRACE THE MIP THE MARCH STANDS IN (UE RayTraceSingleMeshSDF's ReversedMipIndex): one mip is kept across
-    // the steps - a sample within a quarter of its band refines in place to the next finer mip (the same rule and
-    // the same distance DistanceToMeshSurfaceStandalone reaches from the coarsest mip), a sample at its band's edge
-    // (or an empty brick) sends the next step one mip coarser. A step near a surface reads the finest mip once
-    // instead of walking every resident mip down to it (three dependent indirection + brick reads a step), and a mip's
-    // record is loaded when the march changes mip, not at every sample. Hits are tested on the same refined
-    // distance, so they land where the coarsest-first walk put them.
-    uint       mipIndex = 0u;
-    DFAssetMip mip      = finestIndex == 0u ? finest : LoadDFAssetMip( assetIndex, 0u );
-
     float t              = tIn;
     bool  previousInBand = false;
     for ( int step = 0; step < GI_MESH_SDF_MAX_STEPS && t < tOut; ++step )
     {
-        const vec3 v          = clamp( vo + vd * t, -extent, extent );
-        float      maxEncoded = mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
-        float      sampled    = SampleSparseMeshSignedDistanceField( v, mip );
-        while ( mipIndex < finestIndex && abs( sampled ) <= 0.25 * maxEncoded )
-        {
-            ++mipIndex;
-            mip        = mipIndex == finestIndex ? finest : LoadDFAssetMip( assetIndex, mipIndex );
-            maxEncoded = mip.DistanceFieldToVolumeScaleBias.x + mip.DistanceFieldToVolumeScaleBias.y;
-            sampled    = SampleSparseMeshSignedDistanceField( v, mip );
-        }
-        // Past this mip's band (or in an empty brick, read as the band's edge): the next step reads the coarser mip,
-        // whose wider band steps the empty space faster (UE: "use a lower resolution mip for next iteration").
-        const bool coarsen = mipIndex > 0u && abs( sampled ) >= 0.99 * maxEncoded;
-        if ( coarsen )
-        {
-            --mipIndex;
-            mip = LoadDFAssetMip( assetIndex, mipIndex );
-        }
-        const float distance = sampled * volumeToWorld;
+        const vec3  v        = clamp( vo + vd * t, -extent, extent );
+        const float distance = DistanceToMeshSurfaceStandalone( v, assetIndex ) * volumeToWorld;
         const float band     = foliage && ditheredTransparency ? max( expand, t * tanConeAngle ) : expand;
         const bool  inBand   = distance < band;
         if ( inBand && ( !foliage || !ditheredTransparency ||
