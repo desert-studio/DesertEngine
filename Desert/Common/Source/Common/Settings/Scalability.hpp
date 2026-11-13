@@ -327,6 +327,10 @@ namespace Common::Scalability
                                           // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
         ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
                                           // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        ScreenProbeSparseStableRays,      // 0/1: a uniform screen probe whose tile's history is settled traces
+                                          // half its texels a frame, a checkerboard alternating per frame, the
+                                          // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
+                                          // probe traces every texel
         SurfaceCacheAsyncRadiosity,       // 0/1: the surface cache's radiosity trace + integration as compute on
                                           // the async compute queue (UE Lumen scene lighting on async); 0 = the
                                           // raster passes on the graphics queue (GPU-GI-CRITPATH A/B)

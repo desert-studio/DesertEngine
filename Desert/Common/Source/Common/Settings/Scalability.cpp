@@ -380,6 +380,11 @@ namespace Common::Scalability
              { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
                CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)", 1,
                Vis::Advanced },
+             { P::ScreenProbeSparseStableRays, G::GlobalIllumination,
+               "GlobalIllumination.ScreenProbeSparseStableRays", 0, 1, CL::None,
+               "SceneRenderer -> GlobalIllumination::ScreenProbeGather (ScreenProbeGatherInputs::SparseStableRays: "
+               "settled uniform probes trace a checkerboard half of their texels)",
+               1, Vis::Advanced },
              { P::SurfaceCacheAsyncRadiosity, G::GlobalIllumination,
                "GlobalIllumination.SurfaceCacheAsyncRadiosity", 0, 1, CL::None,
                "SceneRenderer -> SurfaceCacheRenderer::AddIndirectLightingPass (IndirectLightingInputs::Async)", 1,

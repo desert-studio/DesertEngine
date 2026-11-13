@@ -97,6 +97,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut3AllocatorUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeOut3TexelsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeNearHitUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeDisocclusionUB ); // the screen leg (FPS-SP-NEAR)
 #if DESERT_DEV_INSTRUMENTS
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeMissReasonsUB );
 #endif
@@ -178,6 +179,7 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, ScreenProbeRadiance );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( StorageTexture, FilteredScreenProbeRadiance );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeTraceHitUB ); // SP_SPATIAL_FILTER_FILLS_SKIPPED
     };
     struct ScreenProbeGatherTemporalShaderParameters
     {
@@ -207,15 +209,19 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 18> kScreenProbeShaderNames{
-             "ScreenProbePlace",     "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",   "ScreenProbeTrace",
-             "ScreenProbeTrace",     "ScreenProbeTrace",        "ScreenProbeTrace",         "ScreenProbeTrace",
-             "ScreenProbeTrace",     "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter", "ScreenProbeFilter",
-             "ScreenProbeFilter",    "ScreenProbeIntegrate",    "ScreenProbeIntegrate",     "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate", "ScreenProbeTemporal" };
+        constexpr std::array<std::string_view, 19> kScreenProbeShaderNames{
+             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeDisocclusion",  "ScreenProbeSpatialFilter", "ScreenProbeSpatialFilter",
+             "ScreenProbeFilter",        "ScreenProbeFilter",       "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
+             "ScreenProbeTemporal" };
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
-        // filter with the spatial filter's last pass (ScreenProbeFilter.shader), the integrate's tile
+        // spatial filter's first pass rebuilding the sparse stable probes' skipped texels
+        // (ScreenProbeSpatialFilter.shader), the filter with the spatial filter's last pass
+        // (ScreenProbeFilter.shader), the integrate's tile
         // classification, its simple-diffuse permutation and its uncovered-pixel pass
         // (ScreenProbeIntegrate.shader).
         constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
@@ -230,6 +236,7 @@ namespace Desert::Graphic::GlobalIllumination
              "",
              "",
              "",
+             "SP_SPATIAL_FILTER_FILLS_SKIPPED",
              "",
              "SP_FILTER_SPATIAL",
              "SP_INTEGRATE_CLASSIFY",
@@ -724,9 +731,12 @@ namespace Desert::Graphic::GlobalIllumination
         params.Jitter             = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
         const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex, layout.Downsample );
+        // The sparse stable probes (FPS-SP-NEAR) need the history the disocclusion measures and the temporal
+        // filter accumulates the two checkerboard halves into: historyReadable (the denoiser included).
         const uint32_t   flags    = ( historyReadable ? kScreenProbeHistoryValid : 0u ) |
                                ( inputs.ShortRangeAO ? kScreenProbeShortRangeAO : 0u ) |
-                               ( inputs.SceneColorHistoryReadable ? kScreenProbeScreenTrace : 0u );
+                               ( inputs.SceneColorHistoryReadable ? kScreenProbeScreenTrace : 0u ) |
+                               ( inputs.SparseStableRays && historyReadable ? kScreenProbeSparseStable : 0u );
         params.Atlas =
              glm::uvec4( layout.AtlasProbesRow, m_FrameIndex, flags, jitter.x | ( jitter.y << 16u ) );
 
@@ -921,50 +931,6 @@ namespace Desert::Graphic::GlobalIllumination
                  .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeOut3TexelsUB, list.Texels, kW );
         };
 
-        {
-            ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
-            const TraceScreenPush  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
-            graph.AddPass(
-                 "ScreenProbes: Trace Screen", kGraphicsPass,
-                 [&]( RDG::PassBuilder& builder )
-                 {
-                     auto block = builder.Bindings( m_Layouts[TraceScreen].Get( m_Shaders[TraceScreen] ),
-                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeParamsUB, paramsBuffer, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeIndexUB, index, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbesUB, probes, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheParamsUB,
-                                    inputs.RadianceCache.Params, kR )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTraceHitUB, traceHit, kW )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::HzbTexture, inputs.HZB, kS, all )
-                          .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::SceneColorHistoryTexture,
-                                    inputs.SceneColorHistory, kS, all )
-                          .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR )
-                          .Texture( ScreenProbeGatherTraceShaderParameters::Velocity, inputs.Velocity, kS, all )
-                          .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( TraceScreenPush ) ) );
-                     // The near field's list, the far field's (the screen's misses past the near field) and the
-                     // cache read's (FPS-SP-TRACE-4: the misses it walked to the cache have nothing left to
-                     // march).
-                     bindOut( block, nearList );
-                     bindOut2( block, farList );
-                     bindOut3( block, cacheReadList );
-                 },
-                 [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
-                 } );
-        }
-
         // HISTORY AND INTEGRATION CLASSIFICATION ON THE GRAPHICS QUEUE (FPS-COMPOSITE-WAIT), beside the radiance
         // cache like the placement, the short-range AO and the screen leg (FPS-ASYNC-JOIN / -JOIN2). The async
         // queue is one FIFO and the composite joins the end of radiance cache (~0.9 ms on FIELD_Barn TURN) + near
@@ -1032,6 +998,65 @@ namespace Desert::Graphic::GlobalIllumination
                      } );
             }
         }
+        // FPS-SP-NEAR: the classification runs before the screen leg, which reads the tiles' disoccluded share to
+        // pick the sparse stable probes (ScreenProbeTraceScreen.shader SPTexelSkipped) - the same Graphics queue,
+        // inputs the placement already holds. Without the denoiser no tile is measured and the flag is off: the
+        // leg binds a one-float stand-in it never reads.
+        RDG::BufferRef traceDisocclusion = disocclusion;
+        if ( !traceDisocclusion.IsValid() )
+        {
+            static constexpr float kNoDisocclusion = 1.0f; // outlives the queued upload
+            traceDisocclusion = graph.CreateBuffer( RDG::BufferDesc{ sizeof( kNoDisocclusion ) },
+                                                    "ScreenProbes.Disocclusion (none)" );
+            graph.QueueBufferUpload( traceDisocclusion, std::as_bytes( std::span( &kNoDisocclusion, 1 ) ) );
+        }
+
+        {
+            ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
+            const TraceScreenPush  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
+            graph.AddPass(
+                 "ScreenProbes: Trace Screen", kGraphicsPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block = builder.Bindings( m_Layouts[TraceScreen].Get( m_Shaders[TraceScreen] ),
+                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeParamsUB, paramsBuffer, kR )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeIndexUB, index, kR )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbesUB, probes, kR )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::RadianceCacheParamsUB,
+                                    inputs.RadianceCache.Params, kR )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTraceHitUB, traceHit, kW )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW )
+                          .Texture( ScreenProbeGatherTraceShaderParameters::HzbTexture, inputs.HZB, kS, all )
+                          .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( ScreenProbeGatherTraceShaderParameters::SceneColorHistoryTexture,
+                                    inputs.SceneColorHistory, kS, all )
+                          .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeSpeedUB, speed, kR )
+                          .Texture( ScreenProbeGatherTraceShaderParameters::Velocity, inputs.Velocity, kS, all )
+                          .Sampler( ScreenProbeGatherTraceShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeDisocclusionUB,
+                                    traceDisocclusion, kR )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( TraceScreenPush ) ) );
+                     // The near field's list, the far field's (the screen's misses past the near field) and the
+                     // cache read's (FPS-SP-TRACE-4: the misses it walked to the cache have nothing left to
+                     // march).
+                     bindOut( block, nearList );
+                     bindOut2( block, farList );
+                     bindOut3( block, cacheReadList );
+                 },
+                 [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                 } );
+        }
+
         // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification): every 8x8
         // tile listed simple-diffuse or full (ScreenProbeIntegrate.shader SP_INTEGRATE_CLASSIFY), then the two
         // integrate permutations dispatched indirectly over their own lists.
@@ -1235,18 +1260,25 @@ namespace Desert::Graphic::GlobalIllumination
             const RDG::TextureDesc atlasDesc{
                  .Size   = { .Width = layout.AtlasProbesRow * res, .Height = layout.AtlasRows * res },
                  .Format = Core::Formats::ImageFormat::RGBA16F };
+            // The first pass rebuilds the texels the sparse stable probes skipped (FPS-SP-NEAR,
+            // SP_SPATIAL_FILTER_FILLS_SKIPPED) from the traced atlas, before any other pass reads it.
+            static_assert( kSpatialFilterPasses >= 2u, "the sparse stable probes' fill is the first spatial pass" );
             for ( uint32_t pass = 0; pass + 1u < kSpatialFilterPasses; ++pass )
             {
-                ComputePipeline* const pipeline = m_Pipelines[SpatialFilter].get();
+                const Program          program  = pass == 0u ? SpatialFilterFill : SpatialFilter;
+                ComputePipeline* const pipeline = m_Pipelines[program].get();
                 const RDG::TextureRef  input    = radiance;
                 const RDG::TextureRef  output   = graph.CreateTexture( atlasDesc, "ScreenProbes.SpatialFiltered" );
                 graph.AddPass(
                      "ScreenProbes: Spatial Filter", kAsyncPass,
                      [&]( RDG::PassBuilder& builder )
                      {
-                         builder
-                              .Bindings( m_Layouts[SpatialFilter].Get( m_Shaders[SpatialFilter] ),
-                                         Renderer::GetPipelineRouteFill( *pipeline ) )
+                         auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
+                                                        Renderer::GetPipelineRouteFill( *pipeline ) );
+                         if ( program == SpatialFilterFill )
+                             block.Storage( ScreenProbeGatherSpatialFilterShaderParameters::ScreenProbeTraceHitUB,
+                                            traceHit, kR );
+                         block
                               .Storage( ScreenProbeGatherSpatialFilterShaderParameters::ScreenProbeParamsUB,
                                         paramsBuffer, kR )
                               .Storage( ScreenProbeGatherSpatialFilterShaderParameters::ScreenProbeIndexUB, index,

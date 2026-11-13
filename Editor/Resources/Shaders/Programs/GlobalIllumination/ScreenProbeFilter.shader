@@ -143,7 +143,12 @@ Shader "ScreenProbeFilter"
             s_Radiance[texel]   = radiance;
             s_Direction[texel]  = dir;
             s_SolidAngle[texel] = 0.5 * ( length( cross( c10 - c00, c01 - c00 ) ) + length( cross( c10 - c11, c01 - c11 ) ) );
-            s_Moving[texel]     = SPTraceMoving( screenProbeTraceHit[probe * SP_RES * SP_RES + texel] ) ? 1.0 : 0.0;
+            // A texel the screen leg skipped (Common/ScreenProbes.glslh THE SPARSE STABLE PROBES) takes its row
+            // neighbour's moving bit: the other checkerboard colour, traced this frame.
+            uint traceState = screenProbeTraceHit[probe * SP_RES * SP_RES + texel];
+            if ( SPTraceSkipped( traceState ) )
+                traceState = screenProbeTraceHit[probe * SP_RES * SP_RES + ( t.x > 0 ? texel - 1u : texel + 1u )];
+            s_Moving[texel]     = SPTraceMoving( traceState ) ? 1.0 : 0.0;
 
             // ---- The filtered radiance with its border.
             const ivec2 tileOrigin = SPAtlasOrigin( probe, SP_TILE ) + 1;

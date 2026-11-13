@@ -724,6 +724,7 @@ namespace Desert::Graphic
         gather.Extent             = inputs.Extent;
         gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
+        gather.SparseStableRays     = m_ScreenProbeSparseStableRays;
         gather.Downsample           = m_ScreenProbeDownsample;
         gather.TracedTexels         = m_ScreenProbeTracedTexels;
         gather.PrevViewProjection = frame.PrevViewProjection;
