@@ -277,10 +277,86 @@ float GIFarFieldOccupiedExit( vec3 start, vec3 direction )
     return leave >= enter ? leave : 0.0;
 }
 
+// THE CEILING CUT (FPS-SSR-2; UE Lumen's heightfield bounds, Frostbite's hi-Z walk, over a 2D max mip of the scene's
+// height): GI_TRACE_GDF_CEILING_* is DistanceField::GlobalDistanceFieldCeiling - per XZ column of the occupied box
+// the highest Y any placed record reaches there, grown by the occupied box's margin in X, Z and up, and its max mip.
+// A column whose ceiling a ray stays above over its whole crossing holds no sample in the march's band (the occupied
+// box's proof, per column), so past the last column the ray is not above the march finds nothing: a sky-bound ray
+// stops over the field, not at the top of the box; a ray skimming the field stops past the last tree it passes under.
+const int GI_GDF_CEILING_CELLS = 32; // kGdfCeilingCells
+const int GI_GDF_CEILING_MIP   = 4;  // kGdfCeilingMip
+
+// The columns of one level crossed by start + direction x t, t in [0, tEnd], walked back from tEnd (2D DDA): the far
+// end (t) of the last one whose ceiling the ray is not above over its crossing, 0 when it is above every one.
+float GIFarFieldCeilingWalk( vec3 start, vec3 direction, float tEnd, bool coarse )
+{
+    const vec4  grid  = GI_TRACE_GDF_CEILING_GRID;
+    const int   cells = coarse ? GI_GDF_CEILING_CELLS / GI_GDF_CEILING_MIP : GI_GDF_CEILING_CELLS;
+    const vec2  perCm = coarse ? grid.zw / float( GI_GDF_CEILING_MIP ) : grid.zw;
+    // Grid coordinates at tEnd, and their rate per cm walked back (s = tEnd - t).
+    const vec2  g0    = ( start.xz + direction.xz * tEnd - grid.xy ) * perCm;
+    const vec2  dg    = -direction.xz * perCm;
+    ivec2       cell  = ivec2( floor( g0 ) );
+    const ivec2 walk  = ivec2( dg.x > 0.0 ? 1 : -1, dg.y > 0.0 ? 1 : -1 );
+    vec2        sNext = vec2( 1.0e30 );
+    vec2        sStep = vec2( 1.0e30 );
+    if ( dg.x != 0.0 )
+    {
+        sNext.x = ( float( cell.x + ( walk.x > 0 ? 1 : 0 ) ) - g0.x ) / dg.x;
+        sStep.x = 1.0 / abs( dg.x );
+    }
+    if ( dg.y != 0.0 )
+    {
+        sNext.y = ( float( cell.y + ( walk.y > 0 ? 1 : 0 ) ) - g0.y ) / dg.y;
+        sStep.y = 1.0 / abs( dg.y );
+    }
+    float sEnter = 0.0;
+    for ( int i = 0; i < 2 * cells + 2 && sEnter < tEnd; ++i )
+    {
+        const float sExit = min( min( sNext.x, sNext.y ), tEnd );
+        // The ray's lowest point over the crossing [tEnd - sExit, tEnd - sEnter] (Y is linear in t).
+        const float yLow = start.y + direction.y * ( direction.y > 0.0 ? tEnd - sExit : tEnd - sEnter );
+        if ( all( greaterThanEqual( cell, ivec2( 0 ) ) ) && all( lessThan( cell, ivec2( cells ) ) ) )
+        {
+            const int   index   = cell.y * cells + cell.x;
+            const float ceiling = coarse ? GI_TRACE_GDF_CEILING_COARSE( index ) : GI_TRACE_GDF_CEILING_FINE( index );
+            if ( yLow <= ceiling )
+                return tEnd - sEnter;
+        }
+        if ( sNext.x < sNext.y )
+        {
+            cell.x += walk.x;
+            sNext.x += sStep.x;
+        }
+        else
+        {
+            cell.y += walk.y;
+            sNext.y += sStep.y;
+        }
+        sEnter = sExit;
+    }
+    // Walked out of the bound without reaching t = 0 (cannot happen inside the grid): no cut.
+    return sEnter >= tEnd ? 0.0 : tEnd;
+}
+
+// The march length from @p start along the unit @p direction (@p marchLength, already cut at the occupied box) cut
+// past the last column the ray is not above: the 8x8 max mip finds the last coarse column, the 32x32 grid walks back
+// from its far end. 0: the ray is above every column it crosses - the far field has nothing to march.
+float GIFarFieldCeilingCut( vec3 start, vec3 direction, float marchLength )
+{
+    if ( GI_TRACE_GDF_CEILING_GRID.z <= 0.0 || marchLength <= 0.0 )
+        return marchLength;
+    const float coarseEnd = GIFarFieldCeilingWalk( start, direction, marchLength, true );
+    if ( coarseEnd <= 0.0 )
+        return 0.0;
+    return GIFarFieldCeilingWalk( start, direction, coarseEnd, false );
+}
+
 // THE FAR FIELD'S SPAN of @p ray: @p globalStart = where its march begins along the ray (ray.tMin, never before the
 // far field's own offset ray.farTMin is reached - GIRayBias.farOffset: a ray that left its surface by the near
 // field's few cm would re-enter it in the coarse field), @p marchLength = how far it marches from there (to ray.tMax,
-// cut where the ray leaves the field's occupied box, GIFarFieldOccupiedExit). False: the far field has nothing to
+// cut where the ray leaves the field's occupied box, GIFarFieldOccupiedExit, and past the last column of the field's
+// ceiling it is not above, GIFarFieldCeilingCut). False: the far field has nothing to
 // march - a caller that compacts its far-field rays (SSR.shader's world legs) lists none of those.
 bool GIFarFieldSpan( GITraceInput ray, out float globalStart, out float marchLength )
 {
@@ -289,7 +365,8 @@ bool GIFarFieldSpan( GITraceInput ray, out float globalStart, out float marchLen
     if ( globalStart >= ray.tMax )
         return false;
     const vec3 start = ray.origin + ray.direction * globalStart;
-    marchLength      = min( ray.tMax - globalStart, GIFarFieldOccupiedExit( start, ray.direction ) );
+    const float boxed = min( ray.tMax - globalStart, GIFarFieldOccupiedExit( start, ray.direction ) );
+    marchLength       = GIFarFieldCeilingCut( start, ray.direction, boxed );
     return marchLength > 0.0;
 }
 
