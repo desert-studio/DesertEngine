@@ -59,6 +59,9 @@ namespace
         // The modelling clipmap's conservative density (CloudProceduralClipmap::GetColumnImage), the march's
         // own entry: only its coarse-tier probe reads it, so it is not one of the field's SampledVolumes.
         DESERT_SHADER_PARAMETER( Texture, CloudColumnMaxTexture );
+        // Its max-mip chain (CloudProceduralClipmap::GetColumnMipImage): the km-scale empty-space map the march's
+        // hierarchical DDA trims each ray's stretch on (FPS-CLOUD-3).
+        DESERT_SHADER_PARAMETER( Texture, CloudColumnMipTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudFarWeatherTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutPatternTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutMaskTexture );
@@ -2395,6 +2398,8 @@ namespace Desert::Graphic::System
              // (CloudProceduralClipmap), so it exists exactly when CloudModellingTexture does.
              .Texture( VolumetricCloudShaderParameters::CloudColumnMaxTexture, m_Clipmap.GetColumnImage(),
                        RDG::Access::SampledCompute, "Clouds.ColumnMax" )
+             .Texture( VolumetricCloudShaderParameters::CloudColumnMipTexture, m_Clipmap.GetColumnMipImage(),
+                       RDG::Access::SampledCompute, "Clouds.ColumnMip" )
              .Storage( VolumetricCloudShaderParameters::CloudMarchCountersUB, marchCounters,
                        RDG::Access::StorageWrite );
         // ONE 2x2 LATTICE PHASE PER FRAME (CloudTraceGridPhase): thread (x, y) marches texel
