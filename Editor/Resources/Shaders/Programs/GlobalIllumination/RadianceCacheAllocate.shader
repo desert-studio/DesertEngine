@@ -161,7 +161,16 @@ Shader "RadianceCacheAllocate"
             else if ( hash != frames.z )
                 bucket = RC_PRIORITY_LIGHTS_CHANGED;
             else
-                bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( FrameIndex - frames.y, 1u ) ) ) * 3.0 ) );
+            {
+                // FPS-RC-COST: no event - the probe is re-traced only once it is RefreshMinFrames old (a probe traced
+                // before the last full update holds the old sun: due whatever its age). Otherwise it is read as it
+                // is and takes no share of the budget (RC_PRIORITY_NOT_DUE, skipped by Select).
+                const uint age = FrameIndex - frames.y;
+                if ( age < RefreshMinFrames && frames.y >= LightingFrame )
+                    bucket = RC_PRIORITY_NOT_DUE;
+                else
+                    bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( age, 1u ) ) ) * 3.0 ) );
+            }
             radianceCacheProbes[probe].frames   = uvec4( FrameIndex, frames.y, frames.z, hash );
             radianceCacheProbes[probe].priority = uvec4( bucket, 0u, 0u, 0u );
             return bucket;

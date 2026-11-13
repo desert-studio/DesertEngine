@@ -180,6 +180,13 @@ namespace Desert::Graphic::RadianceCache
     // Frames a probe keeps its slot after the last frame a pixel read it (UE frees a probe the frame it is not
     // marked; a camera turning back would then re-trace what it saw a moment ago).
     inline constexpr uint32_t kProbeUnusedFramesBeforeFree = 8;
+    // FPS-RC-COST: frames between two traces of a probe no event asks for (not new, its lights unchanged, traced
+    // after the last full update). Below this age a read probe is read as it is and takes no share of the budget
+    // (RC_PRIORITY_NOT_DUE, RadianceCacheAllocate): the budget goes to the probes that need it instead of re-tracing
+    // the whole view's converged probes round-robin. Each trace still blends at kHistoryWeight, so a still view
+    // converges to the same radiance; a slow change reaches an event-less probe at most this many frames later.
+    // 1 = the old behaviour (every read probe competes for the budget every frame).
+    inline constexpr uint32_t kProbeRefreshMinFrames = 16;
     // Priority buckets of the update (UE SelectMaxPriorityBucket's histogram; RC_PRIORITY_* of
     // Common/RadianceCacheState.glslh): never traced of the coverage and of the fallback, kMaxClipmaps each,
     // lights changed, and 25 for the age of the last trace.

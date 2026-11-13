@@ -75,6 +75,9 @@ Shader "RadianceCacheSelect"
             if ( radianceCacheProbes[probe].frames.x != FrameIndex )
                 return;
             const uint bucket = radianceCacheProbes[probe].priority.x;
+            // Read this frame but due no trace (RC_PRIORITY_NOT_DUE, RadianceCacheAllocate): not in the histogram.
+            if ( bucket >= RC_PRIORITY_BUCKETS )
+                return;
             bool       traced = bucket > s_Threshold;
             if ( bucket == s_Threshold )
                 traced = atomicAdd( radianceCacheSchedule[RC_SCHEDULE_TAKEN], 1u ) < s_Quota;
