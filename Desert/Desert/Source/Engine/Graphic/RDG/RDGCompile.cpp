@@ -54,6 +54,8 @@ namespace Desert::Graphic::RDG
             bool        Writes      = false;
             // Needs the previous contents: every use except an attachment that clears or discards.
             bool Consumes = true;
+            // PassBuilder::SkipBarrier: a StorageWrite unordered with the skip-barrier write before it.
+            bool SkipBarrier = false;
         };
 
         // A transition on one subresource before one pass, before ranges are merged.
@@ -99,6 +101,8 @@ namespace Desert::Graphic::RDG
             // The current group is HELD ON ASYNC (FindAsyncRuns): AsyncCompute keeps it (GroupPipe, LastTouch: the
             // last async reader) while Graphics reads it too; a graphics reader widens its opening transition.
             bool HeldOnAsync = false;
+            // FPS-GI-ASYNC: the current group is a write every pass of which declared SkipBarrier (TrackUse).
+            bool GroupSkipsBarrier = false;
         };
 
         // A maximal run of consecutive executed passes on Pipe::AsyncCompute, with its fork and join.
@@ -578,7 +582,7 @@ namespace Desert::Graphic::RDG
                     slot[sub] = static_cast<int32_t>( uses.size() );
                     uses.push_back( { sub, use.Resource, state, use.Usage,
                                       1u << static_cast<uint32_t>( use.Usage ), IsWriteAccess( use.Usage ),
-                                      consumes } );
+                                      consumes, use.SkipBarrier } );
                     continue;
                 }
                 RdgSubUse&     existing = uses[static_cast<size_t>( slot[sub] )];
@@ -594,7 +598,11 @@ namespace Desert::Graphic::RDG
                 // several binding blocks of the pass (the particle nodes' one block per emitter over the scene's
                 // pool) is one use. An attachment is one slot of the render pass and is never stated twice.
                 if ( use.Attachment < 0 && existing.FirstAccess == use.Usage && existing.State == state )
+                {
+                    // One write stated twice skips its barrier only when every statement says so.
+                    existing.SkipBarrier = existing.SkipBarrier && use.SkipBarrier;
                     continue;
+                }
                 // Two READS are one read state, except an image's in two layouts. A buffer has no layout (UE: one
                 // ERHIAccess such as SRVGraphics | IndirectArgs), so a storage read and an indirect-argument read
                 // of one buffer in one pass are one use, as the barrier phase already merges them
@@ -2108,6 +2116,27 @@ namespace Desert::Graphic::RDG
             m_Raws[at].push_back( { use.Sub, use.Resource, before, after, discard } );
             return static_cast<int32_t>( m_Raws[at].size() - 1 );
         };
+        // FPS-GI-ASYNC (UE batches a pass's transitions with the earliest ones it can share a barrier with): on
+        // AsyncCompute, the transition into this pass records at the first position of its run after the
+        // subresource's last use that already has a barrier, instead of a barrier of its own here. A pipeline
+        // barrier waits for every earlier dispatch of the queue, so a barrier of its own here would also wait for
+        // the passes between that never touched the subresource - two legs that read lists one producer wrote
+        // (the near field's hit lighting and the far field) ran one after the other only because of that. The
+        // run's fork wait is at its first position, so a hoisted acquire still follows the producer's release; no
+        // pass between the last use and this one touches the subresource, so the earlier state change is unseen.
+        // Graphics keeps the barrier here: a raster pass between may be inside a merged render pass.
+        auto hoistedPosition = [&]( const uint32_t lastUse ) -> uint32_t
+        {
+            if ( pipe != Pipe::AsyncCompute || m_RunAt[position] < 0 )
+                return position;
+            const uint32_t first = std::max( m_Runs[static_cast<size_t>( m_RunAt[position] )].First, lastUse + 1u );
+            for ( uint32_t q = first; q < position; ++q )
+            {
+                if ( !m_Raws[q].empty() )
+                    return q;
+            }
+            return position;
+        };
         // The subresource moves from pipe @p from to this pass's pipe. Contents the pass consumes are
         // transferred (release after the last use on @p from, acquire here); contents it discards
         // are not, and the transition starts from Undefined.
@@ -2119,11 +2148,13 @@ namespace Desert::Graphic::RDG
                 sub.GroupRaw = addRaw( position, kRdgUntouchedState, use.State, true );
                 return;
             }
-            m_Raws[position].push_back( { use.Sub, use.Resource, before, use.State, false,
-                                          BarrierKind::OwnershipAcquire, from, pipe, releasePosition } );
-            sub.GroupRaw = static_cast<int32_t>( m_Raws[position].size() - 1 );
+            const uint32_t at = hoistedPosition( releasePosition );
+            sub.GroupPosition = at;
+            m_Raws[at].push_back( { use.Sub, use.Resource, before, use.State, false, BarrierKind::OwnershipAcquire,
+                                    from, pipe, releasePosition } );
+            sub.GroupRaw = static_cast<int32_t>( m_Raws[at].size() - 1 );
             m_EpilogueRaws[releasePosition].push_back( { use.Sub, use.Resource, before, use.State, false,
-                                                         BarrierKind::OwnershipRelease, from, pipe, position } );
+                                                         BarrierKind::OwnershipRelease, from, pipe, at } );
             sub.ReleaseRaw      = static_cast<int32_t>( m_EpilogueRaws[releasePosition].size() - 1 );
             sub.ReleasePosition = releasePosition;
         };
@@ -2160,6 +2191,7 @@ namespace Desert::Graphic::RDG
             sub.Group              = use.State;
             sub.GroupPosition      = at;
             sub.HeldOnAsync        = false;
+            sub.GroupSkipsBarrier  = false;
             sub.GroupRawInEpilogue = true;
             sub.GroupRaw           = -1;
             sub.ReleaseRaw         = -1;
@@ -2273,6 +2305,13 @@ namespace Desert::Graphic::RDG
             sub.ReleaseRaw         = -1;
             crossPipes( sub.GroupBefore, opener, sub.GroupPipe );
         }
+        else if ( use.Writes && use.SkipBarrier && sub.GroupSkipsBarrier && sub.GroupPipe == pipe &&
+                  !sub.HeldOnAsync && sub.Group == use.State )
+        {
+            // FPS-GI-ASYNC (UE ERDGUnorderedAccessViewFlags::SkipBarrier): a skip-barrier write after a skip-barrier
+            // write on the same queue - the two touch disjoint texels / bytes, so the group goes on with no barrier
+            // and the passes overlap. The barrier that opened the group (its first writer's) stays the group's.
+        }
         else
         {
             // Every other change - read to write (WAR), write to read (RAW), write to write (WAW),
@@ -2319,10 +2358,15 @@ namespace Desert::Graphic::RDG
                 }
             }
             else
-                sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, false );
+            {
+                const uint32_t at = hoistedPosition( sub.LastTouch );
+                sub.GroupPosition = at;
+                sub.GroupRaw      = addRaw( at, sub.GroupBefore, use.State, false );
+            }
         }
-        sub.GroupPipe = pipe;
-        sub.LastTouch = position;
+        sub.GroupPipe         = pipe;
+        sub.LastTouch         = position;
+        sub.GroupSkipsBarrier = use.Writes && use.SkipBarrier;
     }
 
     // The pass's compiled record and its load decisions (UE CompilePassOps). Load: a transient attachment
@@ -2857,7 +2901,8 @@ namespace Desert::Graphic::RDG
         hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
         for ( const ResourceUse& use : pass.Uses )
         {
-            hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) );
+            hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) |
+                      ( use.SkipBarrier ? 0x80000000u : 0u ) );
             hash.AddRange( use.Range );
             hash.Add( static_cast<uint32_t>( use.Attachment ) );
         }
