@@ -437,6 +437,15 @@ Shader "CloudRaymarch"
         // and the walk then visits exactly the points the one-at-a-time search visited.
         #define CLOUD_COARSE_SEARCH_GROUP 4
 
+        // THE COARSE TIER'S PROFILE BEHIND ITS PROBE (FPS-CLOUD-MARCH): 1 = the exact field is evaluated only at the
+        // lattice points the walk can land on given the probes' answers (not cleared, not inside a cleared point's
+        // jump, inside the lane), all of them at once after the group's probes; 0 = every point's field is
+        // fetched beside its probe whatever the probe says, the group as FPS-CLOUDS-MARCH-3 left it, kept for the
+        // A/B. The walk reads the same profiles either way, so the picture is bit-identical; what 1 removes is the
+        // full field (the march's most expensive fetch chain) at every lattice point the probe already proved
+        // empty - on a clear-sky or horizon ray that is most of the search.
+        #define CLOUD_COARSE_PROFILE_AFTER_PROBE 1
+
         // THE FINE TIER'S PAIRING (FPS-CLOUDS-MARCH2): 1 = two fine samples per iteration, both fetched before
         // either is integrated (field, density, shadow ray, sky occlusion, sun LUT - none depends on the ray's
         // transmittance), then integrated in order with the stop tested per sample; 0 = one sample per
@@ -1064,10 +1073,10 @@ Shader "CloudRaymarch"
                 if (!fine)
                 {
                     // THE COARSE TIER, CLOUD_COARSE_SEARCH_GROUP LATTICE POINTS AT A TIME (FPS-CLOUDS-MARCH-3).
-                    // Every fetch first, for all the points at once: the column probe and the exact profile of
-                    // each, neither waiting on another point's answer. The profile is fetched even where the
-                    // probe clears, because a fetch behind the probe's answer is a fetch that waits for it; a
-                    // cleared point's profile is zero by the probe's own bound and the walk never reads it.
+                    // Every probe first, for all the points at once, none waiting on another point's answer; then
+                    // the exact profile of every point the walk can land on, again all at once
+                    // (CLOUD_COARSE_PROFILE_AFTER_PROBE). At 0 the profile is fetched even where the probe clears,
+                    // as FPS-CLOUDS-MARCH-3 had it, kept for the A/B.
                     //
                     // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
                     // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the jump divides
@@ -1082,7 +1091,9 @@ Shader "CloudRaymarch"
                         float pointT   = t + float(j) * coarseStepKm;
                         vec3  pointPos = originKm + rayDir * pointT;
                         bool  cleared  = false;
-                        if (probeColumns)
+                        // A point at or past the lane's end ends the walk before its probe is read, so it is not
+                        // probed (FPS-CLOUD-MARCH); the walk's answer is the same, the fetches past the end are gone.
+                        if (probeColumns && pointT < laneEndKm)
                         {
                             vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, pointT,
                                                                              min(pointT + emptyColumnSkipKm,
@@ -1091,12 +1102,46 @@ Shader "CloudRaymarch"
                                                                   CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
                                                                   skippedHeights.y);
                         }
-                        // The field takes the ALTITUDE above the layer's base, as every fetch below does.
-                        vec3 pointField  = vec3(pointPos.x, length(pointPos) - layer.BottomRadiusKm, pointPos.z);
                         searchT[j]       = pointT;
                         searchCleared[j] = cleared;
-                        searchProfile[j] =
-                            SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
+                        searchProfile[j] = 0.0f;
+                        if (CLOUD_COARSE_PROFILE_AFTER_PROBE == 0)
+                        {
+                            // The field takes the ALTITUDE above the layer's base, as every fetch below does.
+                            vec3 pointField  = vec3(pointPos.x, length(pointPos) - layer.BottomRadiusKm, pointPos.z);
+                            searchProfile[j] =
+                                SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
+                        }
+                    }
+
+                    // THE PROFILES THE WALK CAN READ, AND ONLY THOSE (FPS-CLOUD-MARCH, CLOUD_COARSE_PROFILE_AFTER_PROBE).
+                    // The walk below reads a point's profile only when it lands on it, the point is inside the lane and
+                    // the probe did not clear it; and where it lands depends on the profiles only through the hit that
+                    // ENDS it. So the landing points of a walk that assumes every profile is zero are a superset of the
+                    // points the real walk reads (the real walk is that walk's prefix up to its hit): those are fetched,
+                    // all at once as before, and no other. A cleared point, a point inside a cleared point's jump and a
+                    // point past the lane's end cost their probe only - the full field (level weights, trilinear
+                    // modelling fetches, the weather and its CDF) is no longer paid for a zero the walk never reads.
+                    // The walk, its hit and every sample after it are bit-identical to the fetch-everything group.
+                    if (CLOUD_COARSE_PROFILE_AFTER_PROBE != 0)
+                    {
+                        int reachable = 0;
+                        for (int j = 0; j < CLOUD_COARSE_SEARCH_GROUP; ++j)
+                        {
+                            if (j < reachable || searchT[j] >= laneEndKm)
+                                continue;
+                            if (searchCleared[j])
+                            {
+                                reachable = j + emptyColumnStrides;
+                                continue;
+                            }
+                            reachable = j + 1;
+
+                            vec3 pointPos    = originKm + rayDir * searchT[j];
+                            vec3 pointField  = vec3(pointPos.x, length(pointPos) - layer.BottomRadiusKm, pointPos.z);
+                            searchProfile[j] =
+                                SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
+                        }
                     }
 
                     // THE WALK, which is the one-at-a-time search's own: a point the probe clears jumps
