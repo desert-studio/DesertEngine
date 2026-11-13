@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -28,7 +29,8 @@ namespace Desert::Assets
 
     inline constexpr Common::DDC::Deriver kGrassCoverLookDeriver{
          "GrassCoverLook", ".grasscover", { 0x6A1F3C92D47E0B85ULL, 0x93C5E2170FA84D6BULL } };
-    inline constexpr uint32_t kGrassCoverLookBuilderVersion = 2;
+    // 3: + the cards' hulls (FPS-GRASS-HULL).
+    inline constexpr uint32_t kGrassCoverLookBuilderVersion = 3;
 
     // What the look is derived from: the material's albedo map (its template's first Texture2D of Intent(Colour))
     // and the opacity mask its template cuts with (BlendMode Masked's OpacityMask), both as their texture assets.
@@ -51,10 +53,31 @@ namespace Desert::Assets
     // mean linear albedo of the drawn texels weighted by that world area; Coverage is the share of the cards'
     // world area the mask keeps (sum aspect * kept share / sum aspect): a strip is a blade only where its mask
     // passes.
+    //
+    // THE CARDS' HULLS (FPS-GRASS-HULL; UE Cascade/Niagara SubUV cutout: the bounding geometry of each frame's opaque
+    // texels, cooked from the cutout texture). Per card, per height band (t = 0 root .. 1 tip, kGrassCardHullBands
+    // even bands), the span across the card (side -1 at u0 .. +1 at u1, BladeCardUV) outside which the opacity mask
+    // cannot pass its clip: the side range of every mask texel that reaches the clip, widened by how far a fragment
+    // can read it from - one texel of its own level (a bilinear tap) plus the spread of one pixel's taps (2^(c-1)
+    // level-0 texels in class c; the last class: 8 texels of the level, a 16x anisotropic pixel). Trilinear and
+    // anisotropic filtering average such taps, so a value under the clip at every tap stays under it. Per class c
+    // the union of the mask's levels 0..c (the last class: every level) - the vertex stage picks the class by the coarsest level the blade can
+    // sample on screen (Vertex_GrassBlade.glslh BladeHullSide). A band no texel reaches is empty (lo > hi).
+    inline constexpr uint32_t kGrassCardHullBands   = 8;
+    inline constexpr uint32_t kGrassCardHullClasses = 4;
+    struct GrassCardHull
+    {
+        std::array<std::array<glm::vec2, kGrassCardHullBands>, kGrassCardHullClasses> Bands{}; // [class][band] lo, hi
+    };
+
     struct GrassCoverLook
     {
         glm::vec3 Albedo{ 0.0f };
         float     Coverage = 0.0f;
+        // One per input rect, in its order; empty when the template cuts nothing (every card is its full rect).
+        std::vector<GrassCardHull> Hulls;
+        // The mask's level-0 size in texels (the vertex stage's texel density); 0 = no mask.
+        glm::uvec2 MaskSize{ 0u };
     };
 
     // The input of the section drawn with @p material: nullopt when its template declares no Colour map or the
@@ -78,6 +101,10 @@ namespace Desert::Assets
     [[nodiscard]] GrassCoverLook AverageGrassCoverLook( const GrassCoverLookInput&                input,
                                                         const GrassCoverLookLevel&                albedo,
                                                         const std::optional<GrassCoverLookLevel>& mask );
+
+    // The cards' hulls from the mask's whole decoded chain (level 0 first), as the GPU samples it.
+    [[nodiscard]] std::vector<GrassCardHull> ComputeGrassCardHulls( const GrassCoverLookInput&           input,
+                                                                    std::span<const GrassCoverLookLevel> chain );
 
     [[nodiscard]] std::string                       EncodeGrassCoverLook( const GrassCoverLook& look );
     [[nodiscard]] Common::ResultStr<GrassCoverLook> DecodeGrassCoverLook( std::string_view bytes );

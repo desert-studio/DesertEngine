@@ -22,21 +22,34 @@ namespace Desert::Editor
         const TextureImporter::PlatformMip&                      a = albedo.GetValue().front();
         std::optional<std::vector<TextureImporter::PlatformMip>> maskMips;
         std::optional<Assets::GrassCoverLookLevel>               maskLevel;
+        std::vector<Assets::GrassCoverLookLevel>                 maskChain;
         if ( !input.MaskAsset.empty() )
         {
-            auto mask = TextureImporter::DecodePlatformMips( input.MaskAsset, kGrassCoverLookEdge );
+            // The WHOLE chain (FPS-GRASS-HULL): the cards' hulls must hold at every level the GPU may sample - the
+            // top one near, a coarser one far or while the top streams in. The look reads the first level within
+            // kGrassCoverLookEdge of it.
+            auto mask = TextureImporter::DecodePlatformMips( input.MaskAsset );
             if ( !mask.IsSuccess() )
                 return Common::MakeError<std::string>( mask.GetError() );
-            if ( mask.GetValue().empty() )
+            maskMips = mask.ExtractValue();
+            for ( const TextureImporter::PlatformMip& m : *maskMips )
+            {
+                maskChain.push_back( Assets::GrassCoverLookLevel{ m.Width, m.Height, m.Texels } );
+                if ( !maskLevel && m.Width <= kGrassCoverLookEdge && m.Height <= kGrassCoverLookEdge )
+                    maskLevel = maskChain.back();
+            }
+            if ( !maskLevel )
                 return Common::MakeFormattedError<std::string>( "opacity mask '{}' has no level within {} texels",
                                                                 input.MaskAsset.generic_string(),
                                                                 kGrassCoverLookEdge );
-            maskMips                              = mask.ExtractValue();
-            const TextureImporter::PlatformMip& m = maskMips->front();
-            maskLevel                             = Assets::GrassCoverLookLevel{ m.Width, m.Height, m.Texels };
         }
-        const Assets::GrassCoverLook look =
+        Assets::GrassCoverLook look =
              Assets::AverageGrassCoverLook( input, { a.Width, a.Height, a.Texels }, maskLevel );
+        if ( !maskChain.empty() )
+        {
+            look.Hulls    = Assets::ComputeGrassCardHulls( input, maskChain );
+            look.MaskSize = glm::uvec2( maskChain.front().Width, maskChain.front().Height );
+        }
         if ( look.Coverage <= 0.0f )
             return Common::MakeFormattedError<std::string>(
                  "albedo map '{}': no texel of its {} rect(s) passes the opacity mask '{}' (clip {})",

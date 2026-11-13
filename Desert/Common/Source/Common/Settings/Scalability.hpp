@@ -387,6 +387,10 @@ namespace Common::Scalability
         // the masked depth prepass and every shadow cascade draw. 0 = no far LOD (the variety's own LOD levels
         // only).
         FoliageGrassLodScreenPixels,
+        // 0/1 (FPS-GRASS-HULL): a grass blade's raster strip spans only its card's cooked hull (the opaque part
+        // of the card on the atlas, UE SubUV cutout) instead of the whole card. Read by SceneRenderer::BeginScene
+        // -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (GrassBladeShapeGpu::HullTexels.z).
+        FoliageGrassBladeCardHull,
         // Which meshes the deferred path's early-Z pass draws before the G-buffer (UE r.EarlyZPass):
         // EarlyZPassMode (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate ->
         // MeshRenderer::SetEarlyZPass

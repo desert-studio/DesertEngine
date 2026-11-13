@@ -441,6 +441,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (the far "
                "LOD's screen size of blades and meshes, GrassGenerate GrassFarLodShare)",
                16, Vis::Advanced },
+             { P::FoliageGrassBladeCardHull, G::Foliage, "Foliage.GrassBladeCardHull", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a blade's "
+               "raster strip spans its card's cooked hull, Vertex_GrassBlade BladeHullSide)",
+               1, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL; a frame with a "

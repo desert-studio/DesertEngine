@@ -184,6 +184,10 @@ namespace Desert::ECS
                 float     Coverage = 1.0f; // the share of the cards' world area their mask keeps (a blade's)
             };
             std::optional<CoverLook> Cover;
+            // FPS-GRASS-HULL: a blade variety's cards' hulls, cooked with its look (Assets::GrassCardHull, the
+            // union over its sections) and packed as GrassBladeDraw::CardHulls; empty = full cards.
+            std::vector<glm::vec4> CardHulls;
+            glm::vec2              HullTexels{ 0.0f };
         };
         // GRASS-EMIT (UE: ULandscapeGrassType / ALandscapeProxy::UpdateGrass - the types are resolved on load and
         // the grass data changes only when the landscape, a type or a material does): per root, the varieties as
