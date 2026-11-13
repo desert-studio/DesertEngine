@@ -95,6 +95,18 @@ void DesertWriteVisibility( const ivec2 pixel, const float reversedDepth, const 
     if ( VisibilityWords[index] < word )
         atomicMax( VisibilityWords[index], word );
 }
+
+// FPS-GRASS-COST (UE Nanite / GoT grass: the depth test before the material work): true when the pixel's word
+// already holds a strictly nearer depth than @p reversedDepth, so DesertWriteVisibility would change nothing
+// whatever row and triangle this fragment carries - its masked fetch can be skipped, exactly. The word only grows
+// during a raster, so a stale load reads a farther depth and only lets the fragment run on.
+bool DesertVisibilityHidden( const ivec2 pixel, const float reversedDepth )
+{
+    uint index;
+    if ( !DesertVisibilityPixel( pixel, index ) )
+        return true; // DesertWriteVisibility writes nothing outside the extent either
+    return uint( VisibilityWords[index] >> 32 ) > floatBitsToUint( reversedDepth );
+}
 #endif
 
 // The pixel's word: false where nothing was drawn. @p depth is the reversed-Z depth, @p row / @p triangle the payload.

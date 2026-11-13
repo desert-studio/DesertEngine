@@ -20,7 +20,18 @@ void main()
 #ifdef DESERT_SURFACE_MASKED
     const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN,
                                                v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
-    DESERT_SURFACE_CLIP( i );
+    // FPS-GRASS-COST: the mask fetch only for a fragment that can still win its word. The UV's gradients are taken
+    // here, in uniform control flow (a quad whose neighbour leaves below has no implicit derivative), scaled by the
+    // view's material bias as SurfaceSampleMaterial's bias form scales the level; a fragment behind its pixel's
+    // nearest blade (the field's overdraw) skips the fetch and the atomic - the word is the one it would have been.
+    const vec2  maskUV   = DesertSurfaceOpacityMaskUV( i );
+    const float mipScale = exp2( cameraUB.MaterialMipBias );
+    const vec2  maskDx   = dFdxCoarse( maskUV ) * mipScale;
+    const vec2  maskDy   = dFdyCoarse( maskUV ) * mipScale;
+    if ( DesertVisibilityHidden( ivec2( gl_FragCoord.xy ), gl_FragCoord.z ) )
+        return;
+    if ( DesertSurfaceOpacityMaskGrad( maskUV, maskDx, maskDy ) < DESERT_SURFACE_CLIP_THRESHOLD() )
+        discard;
 #endif
     // A row holds 128 triangles of one instance: a blade strip has fewer (its row is v_VisibilityRow), a mesh
     // instance's draw one row per 128 of its triangles (GRASS-VIS-MESH-1, Mesh/Surface/GrassMeshVisibility.glslh).
