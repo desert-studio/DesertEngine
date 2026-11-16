@@ -111,15 +111,31 @@ namespace Desert::Graphic::System
         bool RoughSpecularFromGI = false;
     };
 
+    // What a diffuse-indirect signal's alpha means - one meaning per producer, stated with its inputs, so the
+    // reconstruction and the convolution treat it the same way end to end (the temporal accumulation is linear in
+    // both).
+    enum class DiffuseIndirectAlpha : uint8_t
+    {
+        // RSM-GI, MegaLights: a = the share of the pixel the producer answered. rgb is weighed by it through the
+        // denoiser (premultiplied: a tap that did not answer adds nothing), the output is straight (rgb, a).
+        AnsweredShare = 0,
+        // SSGI (UE ScreenSpaceDiffuseIndirect's AmbientOcclusion): rgb answers the whole pixel; a = the share of
+        // the traced hemisphere's rays that met no surface (1 = the sky is seen unoccluded), filtered as a signal
+        // of its own beside rgb. The composite occludes the sky light with it (DeferredLighting.shader GI mode 1).
+        SkyVisibility = 1,
+    };
+
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
-    // estimate, rgb = light, a = the share it answered - RSM-GI's bounce light, MegaLights' demodulated local
-    // light.
+    // estimate, rgb = light, a = per Alpha - RSM-GI's bounce light, MegaLights' demodulated local light (the share
+    // they answered), SSGI's screen bounce (the sky's visibility).
     struct DiffuseIndirectDenoiserInputs
     {
         RDG::TextureRef Signal;
         // The reconstruction's kernel, taps per side from the centre (UE r.*.Denoiser.ReconstructionSamples;
         // MegaLights: Scalability Shadows.MegaLightsDenoiserRadius). 2 = 5x5.
         uint32_t ReconstructionRadius = 2;
+        // What Signal's a means.
+        DiffuseIndirectAlpha Alpha = DiffuseIndirectAlpha::AnsweredShare;
     };
 
     // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart
@@ -281,8 +297,8 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::DiffuseIndirect || !m_ReconstructPipeline )
                 return {};
-            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, scene, frame, width, height,
-                                         "Denoise: Diffuse Reconstruction" );
+            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, in.Alpha, scene, frame, width,
+                                         height, "Denoise: Diffuse Reconstruction" );
         }
 
         // As DenoiseDiffuseIndirect, for MegaLights' specular direct light: the reconstruction and the history
@@ -296,26 +312,32 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::DirectSpecular || !m_ReconstructPipeline )
                 return {};
-            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, scene, frame, width, height,
+            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius,
+                                         DiffuseIndirectAlpha::AnsweredShare, scene, frame, width, height,
                                          "Denoise: Direct Specular Reconstruction" );
         }
 
     private:
         // The full-resolution surface signals (diffuse indirect, direct specular): one reconstruction pass of this
-        // signal's program, then the shared temporal accumulation and history convolution.
+        // signal's program, then the shared temporal accumulation and history convolution. @p alpha: what the
+        // input's a means (the direct specular signal's is the answered share).
         RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
-                                              const uint32_t               reconstructionRadius,
-                                              const DenoiserSceneTextures& scene, const ViewFrame& frame,
-                                              const uint32_t width, const uint32_t height,
+                                              const uint32_t             reconstructionRadius,
+                                              const DiffuseIndirectAlpha alpha, const DenoiserSceneTextures& scene,
+                                              const ViewFrame& frame, const uint32_t width, const uint32_t height,
                                               const std::string_view passName )
         {
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
+            const float alphaIsSignal = alpha == DiffuseIndirectAlpha::SkyVisibility ? 1.0f : 0.0f;
             // x = the kernel's taps per side from the centre (SSDReconstructDiffuse /
-            // SSDReconstructDirectSpecular).
-            const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), 0.0f, 0.0f, 0.0f );
+            // SSDReconstructDirectSpecular), y = 1 when a is a signal of its own
+            // (DiffuseIndirectAlpha::SkyVisibility: filtered straight beside rgb), 0 when it is the answered share
+            // (rgb premultiplied by it).
+            const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), alphaIsSignal, 0.0f,
+                                  0.0f );
             graph.AddPass(
                  passName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -345,7 +367,7 @@ namespace Desert::Graphic::System
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
-                                              width, height, 1.0f );
+                                              width, height, 1.0f, 0.0f, alphaIsSignal );
         }
 
     public:
@@ -551,12 +573,16 @@ namespace Desert::Graphic::System
         // estimates the distance to the reflected point (diffuse: the black texture - the surface itself).
         // @p minSampleCount: the fewest frames a reflection's lobe targets (MinSampleCountReflections; 1 for the
         // other signals, which target MaxSampleCount).
+        // @p alphaIsSignal: 1 when the signal's a is a signal of its own carried straight (DiffuseIndirectAlpha::
+        // SkyVisibility) - the convolution then writes the accumulation as it is; 0 when a is the answered share
+        // and the convolution divides the premultiplied rgb by it.
         RDG::TextureRef AddTemporalAndConvolution( RDG::Builder& graph, const RDG::TextureRef signal,
                                                    const RDG::TextureRef trace, const RDG::TextureRef traceRay,
                                                    const DenoiserSceneTextures& scene, const ViewFrame& frame,
                                                    const RDG::BufferRef uniforms, const uint32_t width,
                                                    const uint32_t height, const float minSampleCount,
-                                                   const float signalGate = 0.0f )
+                                                   const float signalGate    = 0.0f,
+                                                   const float alphaIsSignal = 0.0f )
         {
             const std::string prefix   = SignalName( m_Signal ) + ".History";
             HistorySlot& previous = m_Slots[m_Parity];
@@ -628,7 +654,7 @@ namespace Desert::Graphic::System
             const RDG::TextureRef output =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), SignalName( m_Signal ) );
             graph.SetFaultDefault( output, RDG::FaultDefault::Black );
-            const glm::vec4 convolutionPush( signalGate, static_cast<float>( m_Signal ), 0.0f, 0.0f );
+            const glm::vec4 convolutionPush( signalGate, static_cast<float>( m_Signal ), alphaIsSignal, 0.0f );
             graph.AddPass(
                  "Denoise: History Convolution", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )

@@ -331,6 +331,10 @@ namespace Common::Scalability
                                           // half its texels a frame, a checkerboard alternating per frame, the
                                           // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
                                           // probe traces every texel
+        // GI ScreenSpace (System::SSGIRenderer::Settings, read by SceneRenderer::BeginScene; UE r.SSGI.Quality):
+        GlobalIlluminationScreenSpaceRays,           // cosine rays per pixel, 1..32
+        GlobalIlluminationScreenSpaceSteps,          // HZB walk iterations per ray, 8..128
+        GlobalIlluminationScreenSpaceDenoiserRadius, // the diffuse denoiser's reconstruction taps per side, 1..3
         SurfaceCacheAsyncRadiosity,       // 0/1: the surface cache's radiosity trace + integration as compute on
                                           // the async compute queue (UE Lumen scene lighting on async); 0 = the
                                           // raster passes on the graphics queue (GPU-GI-CRITPATH A/B)

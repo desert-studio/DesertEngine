@@ -8,7 +8,9 @@ Shader "SSDReconstructDiffuse"
     // ReconstructionRadius, 2 = 5x5) where each tap is weighed by the BILATERAL weight of its surface
     // against this pixel's: its distance off this pixel's tangent plane (UE BILATERAL_POSITION_BASED(2)) and the
     // agreement of the normals (UE BILATERAL_NORMAL, N.N^4) - bounce light does not cross a crease or a depth
-    // edge. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to ReconstructedSignalTexture.
+    // edge. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to ReconstructedSignalTexture
+    // - except SSGI's signal (rgb = the bounce over the whole pixel, a = the sky's visibility,
+    // DiffuseIndirectAlpha::SkyVisibility), whose rgb and a are filtered straight, side by side (Reconstruction.y).
 
     Compute
     {
@@ -20,7 +22,7 @@ Shader "SSDReconstructDiffuse"
 
         Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
         Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest)
-        Uniform(3) texture2D RawSignalTexture;           // the gather: rgb = bounce light, a = 1 where it gathered
+        Uniform(3) texture2D RawSignalTexture;       // rgb = bounce light, a = answered share (SSGI: sky visibility)
         #define RawSignalTexture sampler2D(RawSignalTexture, PointClampSampler)
         layout(binding = 6, rgba16f) writeonly uniform image2D ReconstructedSignalTexture; // premultiplied (rgb * a, a)
 
@@ -35,7 +37,10 @@ Shader "SSDReconstructDiffuse"
         // DiffuseIndirectDenoiserInputs::ReconstructionRadius.
         PushConstant PushConstants
         {
-        	vec4 Reconstruction; // x = taps per side from the centre
+        	// x = taps per side from the centre, y = 1 when a is a signal of its own (DiffuseIndirectAlpha::
+        	// SkyVisibility, SSGI: the traced hemisphere's miss share) - rgb and a then filter straight, side by
+        	// side; 0 when a is the answered share (RSM-GI, MegaLights) - rgb is weighed by it (premultiplied)
+        	vec4 Reconstruction;
         };
 
         LocalSize(8, 8, 1);
@@ -60,8 +65,9 @@ Shader "SSDReconstructDiffuse"
         	                                              1.0 / size, InverseJitteredViewProjection);
         	const int   radius           = max(int(Reconstruction.x + 0.5), 1);
         	const float maxPlaneDistance = max(pixelRadius * 2.0 * float(radius) * sqrt(2.0), 1e-3);
+        	const bool  alphaIsSignal    = Reconstruction.y >= 0.5;
 
-        	vec4  sum       = vec4(0.0); // premultiplied
+        	vec4  sum       = vec4(0.0); // premultiplied (straight where alphaIsSignal)
         	float weightSum = 0.0;
         	for (int y = -radius; y <= radius; ++y)
         		for (int x = -radius; x <= radius; ++x)
@@ -75,7 +81,7 @@ Shader "SSDReconstructDiffuse"
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal);
         			const vec4 s = texelFetch(RawSignalTexture, p, 0);
-        			sum       += vec4(s.rgb * s.a, s.a) * w;
+        			sum       += (alphaIsSignal ? s : vec4(s.rgb * s.a, s.a)) * w;
         			weightSum += w;
         		}
         	imageStore(ReconstructedSignalTexture, pixel, weightSum > 0.0 ? sum / weightSum : vec4(0.0));

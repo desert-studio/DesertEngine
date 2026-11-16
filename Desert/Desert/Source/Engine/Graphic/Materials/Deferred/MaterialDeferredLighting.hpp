@@ -76,8 +76,9 @@ namespace Desert::Graphic
     // Where the composite's indirect light comes from (DeferredLighting.shader Params.w / CompositeView).
     struct DeferredGIInput
     {
-        // 0 none (the sky's two cubes), 2 the traced final gather in place of them, 3 the same gather occluded by
-        // its own short-range AO. The composite gathers no bounce of its own: GI is the GI method's alone.
+        // 0 none (the sky's two cubes), 1 the screen-space diffuse indirect (GIMethod::ScreenSpace, the SSGI pass
+        // denoised) added over the sky's cubes, 2 the traced final gather in place of them, 3 the same gather
+        // occluded by its own short-range AO. The composite gathers no bounce of its own: GI is the method's.
         int Mode = 0;
         // ViewFrame::PreExposure: the composite writes the scene colour multiplied by it (CompositeView.y).
         float PreExposure = 1.0f;
