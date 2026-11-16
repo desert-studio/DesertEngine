@@ -170,6 +170,11 @@ Shader "GrassCull"
         // Feedback's word past the bucket counts that takes the law's slots handed out (GrassRenderer
         // kFeedbackLawWord: after the written mark, three drawn counts and eight cascade views').
         const uint kFeedbackLawWord = 12u;
+        // FPS-GRASS-VIS, THE RASTER'S CENSUS (UE's GPU-culling stats per LOD): Feedback's words past the law word, one
+        // per bucket - the instances the camera's phase-1 list drew of that bucket (GrassRenderer
+        // kFeedbackCameraWord; a camera without a list of its own: the full list's), so the renderer prices the
+        // raster in triangles by the bucket's strip level or LOD.
+        const uint kFeedbackCameraWord = 13u;
         const uint kCullGroupsX    = 65535u; // Vulkan's guaranteed maxComputeWorkGroupCount[0]
         const uint kDispatchHeader = 2u;     // CullDispatchData's two commands before the rows
         // A chunk's reach is grown by this share: the tile cull and this pass compute the same largest axis scale,
@@ -1242,6 +1247,8 @@ Shader "GrassCull"
             {
                 drawn += min( args.Words[table + b * 4u], args.Words[table + b * 4u + 2u] );
                 feedback.Words[b] = args.Words[table + b * 4u];
+                feedback.Words[buckets + kFeedbackCameraWord + b] =
+                     min( args.Words[table + b * 4u], args.Words[table + b * 4u + 2u] );
             }
             feedback.Words[buckets]      = VarietyRows[r].FeedbackMark;
             feedback.Words[buckets + 1u] = drawn;
@@ -1269,6 +1276,8 @@ Shader "GrassCull"
                 camera.Words[phases + b * 4u + 3u] = 0u;
             }
             GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            for ( uint b = 0u; b < buckets; ++b )
+                feedback.Words[buckets + kFeedbackCameraWord + b] = camera.Words[phases + b * 4u + 2u];
             feedback.Words[buckets + 2u] = camera.Words[3];
             feedback.Words[buckets + 3u] = 0u;
             feedback.Words[buckets + kFeedbackLawWord] =
@@ -1314,6 +1323,8 @@ Shader "GrassCull"
             }
             camera.Words[3] = drawn;
             GrassWords feedback = GrassWords( VarietyRows[r].Feedback );
+            for ( uint b = 0u; b < buckets; ++b )
+                feedback.Words[buckets + kFeedbackCameraWord + b] = camera.Words[phases + b * 4u + 2u];
             feedback.Words[buckets + 2u] = drawn;
             feedback.Words[buckets + 3u] = 0u;
             // The law's slots handed out this law generation, uncapped: the renderer sizes the rows by them.

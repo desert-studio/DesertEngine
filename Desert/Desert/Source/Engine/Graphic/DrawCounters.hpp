@@ -56,6 +56,12 @@ namespace Desert::Graphic
         uint64_t                            Camera = 0;
         uint64_t                            Post   = 0;
         std::array<uint64_t, kCascadeViews> Cascades{};
+        // FPS-GRASS-VIS, the visibility raster's census: the camera's phase-1 instances and the triangles they
+        // draw (each bucket's count x its strip level's / LOD's triangles), blades and mesh grass apart.
+        uint64_t BladeCamera    = 0;
+        uint64_t BladeTriangles = 0;
+        uint64_t MeshCamera     = 0;
+        uint64_t MeshTriangles  = 0;
         uint32_t                            Varieties = 0; ///< the varieties whose counts had come back
         /// GRASS-VIS-24: the varieties whose generation ran this frame (inputs changed; 0 on a still camera once
         /// every frame in flight holds the counts) - the camera cull runs without it.
@@ -103,7 +109,7 @@ namespace Desert::Graphic
         [[nodiscard]] static MeshPassDrawCounters LastFrameMeshPass( uint32_t pass );
         /// One grass variety's read-back drawn counts (GrassRenderer::AddFrame; GrassDrawCounters).
         static void RecordGrass( uint32_t full, uint32_t camera, uint32_t post,
-                                 std::span<const uint32_t> cascades );
+                                 std::span<const uint32_t> cascades, bool blade, uint64_t cameraTriangles );
         /// The varieties one GrassRenderer::AddFrame generated (GrassDrawCounters::Generated).
         static void RecordGrassGenerated( uint32_t varieties );
         /// The finished frame's grass counts.
@@ -135,7 +141,7 @@ namespace Desert::Graphic
         {
             return {};
         }
-        static void RecordGrass( uint32_t, uint32_t, uint32_t, std::span<const uint32_t> )
+        static void RecordGrass( uint32_t, uint32_t, uint32_t, std::span<const uint32_t>, bool, uint64_t )
         {
         }
         static void RecordGrassGenerated( uint32_t )

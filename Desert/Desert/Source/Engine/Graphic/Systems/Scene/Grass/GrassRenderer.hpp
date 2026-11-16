@@ -474,6 +474,9 @@ namespace Desert::Graphic::System
             std::optional<glm::uvec3>                       Drawn;
             // GPU-COST-21: the same copy's drawn count of each cascade view's list (0: the view had none).
             std::array<uint32_t, kGrassCascadeLists>        DrawnCascades{};
+            // FPS-GRASS-VIS: the camera's phase-1 triangles of the same copy (its per-bucket drawn instances x the
+            // bucket's triangles, GrassRenderer.cpp BucketTriangles); 0 before its first write.
+            uint64_t                                        DrawnCameraTriangles = 0u;
             GpuInstanceRefs                                 Refs;
             // GRASS-VIS, the camera's list (List not None: CameraIds / CameraArgs sized like FullIds / Args;
             // PlanesAndHzb: Candidates / PostArgs too; otherwise one-word stand-ins the passes bind and never

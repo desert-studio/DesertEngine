@@ -86,7 +86,8 @@ namespace Desert::Graphic
     }
 
     void DrawCounter::RecordGrass( const uint32_t full, const uint32_t camera, const uint32_t post,
-                                   const std::span<const uint32_t> cascades )
+                                   const std::span<const uint32_t> cascades, const bool blade,
+                                   const uint64_t cameraTriangles )
     {
         const std::lock_guard<std::recursive_mutex> counted( g_Lock );
         g_GrassRecording.Full += full;
@@ -94,6 +95,8 @@ namespace Desert::Graphic
         g_GrassRecording.Post += post;
         for ( std::size_t v = 0; v < std::min( cascades.size(), g_GrassRecording.Cascades.size() ); ++v )
             g_GrassRecording.Cascades[v] += cascades[v];
+        ( blade ? g_GrassRecording.BladeCamera : g_GrassRecording.MeshCamera ) += camera;
+        ( blade ? g_GrassRecording.BladeTriangles : g_GrassRecording.MeshTriangles ) += cameraTriangles;
         ++g_GrassRecording.Varieties;
     }
 
