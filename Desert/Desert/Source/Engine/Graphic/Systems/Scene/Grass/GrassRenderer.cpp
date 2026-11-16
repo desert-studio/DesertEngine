@@ -16,6 +16,8 @@
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -30,6 +32,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <format>
@@ -207,14 +210,18 @@ namespace Desert::Graphic::System
             // CPU-GRASS-POOL-7: the mark FinalizeFull writes into Feedback (VarietyGpu::FeedbackMark).
             uint32_t   FeedbackMark = 0u;
             uint32_t   Pad[3]       = {};
+            // LOD-DITHER-GRASS-SIDE: the law's two LOD eyes (VarietyGpu::LodEyes; GrassCull.shader GrassViewLaw).
+            glm::vec4 LodEyes[2]{ glm::vec4( 0.0f ), glm::vec4( 0.0f ) };
         };
         static_assert(
-             sizeof( GrassVarietyRowGpu ) == 256,
+             sizeof( GrassVarietyRowGpu ) == 288,
              "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
              "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
              "Params at 184, Field at 192, TilePool at 200, FullIds at 208, uint LawGeneration at 216, uint "
              "LawCapacity at 220, uint InstancesBase at 224, FullIdsBase at 228, CameraIdsBase at 232, "
-             "CascadeIdsBase at 236, FeedbackMark at 240, std430's 12 bytes of padding at 244" );
+             "CascadeIdsBase at 236, FeedbackMark at 240, std430's 12 bytes of padding at 244, vec4 LodEyes[2] at "
+             "256" );
+        static_assert( offsetof( GrassVarietyRowGpu, LodEyes ) == 256u );
         struct GrassVarietyTableGpu
         {
             glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
@@ -448,6 +455,27 @@ namespace Desert::Graphic::System
         glm::vec3 FieldEye( const glm::vec3& camera, const float side )
         {
             return ( glm::floor( camera / side ) + 0.5f ) * side;
+        }
+
+        // LOD-DITHER-GRASS-SIDE: whether every section of a mesh variety clips per pixel (Masked) - the cells that
+        // clip the dithered LOD transition (Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_LOD_CLIPPED; the mesh
+        // renderer's clipsDitheredLod rule). Only then may the law draw a fading instance at both levels; an opaque
+        // section would draw both whole, so its variety switches at once (UE: an opaque mesh without
+        // DitheredLODTransition pops).
+        bool SectionsClipDitheredLod( const GrassVarietyDraw& variety ) noexcept
+        {
+            if ( variety.Sections.empty() )
+                return false;
+            for ( const GrassSectionDraw& section : variety.Sections )
+            {
+                const auto* const material =
+                     section.Material
+                          ? dynamic_cast<const DataDrivenMaterial*>( section.Material->GetParentMaterial() )
+                          : nullptr;
+                if ( material == nullptr || material->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Masked )
+                    return false;
+            }
+            return true;
         }
 
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -730,6 +758,8 @@ namespace Desert::Graphic::System
         std::vector<uint32_t> TilePlacement;
         std::vector<uint32_t> TileThin;
         glm::vec3             Eye{ 0.0f };
+        // LOD-DITHER-GRASS-SIDE: the law's two LOD eyes (VarietyGpu::LodEyes).
+        glm::vec4             LodEyes[2]{ glm::vec4( 0.0f ), glm::vec4( 0.0f ) };
         float                 Stray = 0.0f;
         // FPS-GRASS-PLAN: ReadVarietyFeedback's, render thread, before PrepareVariety: the entry's feedback words
         // (its Buckets at the read, then the tail) and whether they were read; the field (an index of m_Queue)
@@ -1671,6 +1701,17 @@ namespace Desert::Graphic::System
         }
         else
             params.Lod = glm::vec4( 0.0f, 0.0f, farLodDistance, plan.SmallDistance ); // w: the small bucket
+        // LOD-DITHER-GRASS-SIDE, THE LAW'S TWO LOD EYES (UE FTemporalLODState over the grass HISM's instances:
+        // every instance selects its level at the view's two temporal samples and cross-fades where they differ):
+        // the samples snapped to the field eye's grid, so the law (GrassCull.shader GrassViewLaw, LawChunk's fade
+        // twins) stays a per-generation statement - its key changes when a snapped sample does. A blade (its strip
+        // levels are the thinning's, Vertex_GrassBlade.glslh draws no fade), a one-level mesh, a mesh with a section
+        // that does not clip (SectionsClipDitheredLod) and a view without samples select from the field eye alone,
+        // so their law generations are what they were.
+        const bool fades =
+             !variety.Blade && buckets > 1u && frame.TemporalLOD.Active && SectionsClipDitheredLod( variety );
+        for ( int k = 0; k < 2; ++k )
+            plan.LodEyes[k] = glm::vec4( fades ? FieldEye( frame.TemporalLOD.Origins[k], tileSide ) : eye, 0.0f );
         // GRASS-TILE-1, THE VARIETY'S TILES AROUND THE EYE (UpdateTiles). The build reads the placement's params
         // alone - the grid and its jitter, the layer and its seed, the density range and the scales, a blade's
         // clump, scatter, patchiness and lean, the patches - and the field (its revision); the share its tiles
@@ -1745,6 +1786,13 @@ namespace Desert::Graphic::System
                            gpu.FrameKey.begin() +
                                 static_cast<std::ptrdiff_t>( sizeof( GrassParamsGpu ) / sizeof( uint32_t ) ) );
         gpu.LawKey.push_back( gpu.PoolGeneration );
+        // LOD-DITHER-GRASS-SIDE: the law's two LOD eyes (a mesh's levels and its fade twins are selected at them).
+        for ( int k = 0; k < 2; ++k )
+        {
+            gpu.LodEyes[k] = plan.LodEyes[k];
+            for ( int i = 0; i < 3; ++i )
+                gpu.LawKey.push_back( std::bit_cast<uint32_t>( gpu.LodEyes[k][i] ) );
+        }
         // The rows' room too: a range handed out anew may land on the freed one's offset, and every new range
         // changes the room. CPU-GRASS-POOL-1: and its offset in the pool; a remade pool, which moves every range
         // after this key is taken, is a new generation by the pool's Epoch (WriteVarietyTable).
@@ -3468,6 +3516,8 @@ namespace Desert::Graphic::System
                 // Never 0 (a chunk the build wrote carries 0), and consecutive generations differ.
                 row.LawGeneration = static_cast<uint32_t>( gpu->LawGeneration % 0xFFFFFFFFull ) + 1u;
                 row.LawCapacity   = gpu->LawCapacity;
+                row.LodEyes[0]    = gpu->LodEyes[0];
+                row.LodEyes[1]    = gpu->LodEyes[1];
                 row.Bounds = gpu->CullBounds;
                 row.CascadeWords = glm::uvec2( gpu->CascadeArgWords, gpu->CascadeArgWords - gpu->Buckets );
                 for ( uint32_t k = 0; k < kGrassCascadeLists; k += 2u )
