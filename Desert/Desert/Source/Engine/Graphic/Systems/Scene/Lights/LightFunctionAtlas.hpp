@@ -70,8 +70,8 @@ namespace Desert::Graphic::System
      * draw, into the atlas, a colour attachment with a bindless slot (Core::Formats::GraphDeclaredBindless): every
      * lit pass samples it through the payload's LightFunctionAtlasTexture / LightFunctionTile
      * (Mesh/LightFunctionAtlas.glslh). Each reader declares the atlas in its own pass (ViewLightBuffers::
-     * LightFunctionAtlas -> BindlessRead, UE: the atlas in each consumer's pass parameters); AddPasses follows the
-     * writer with one declaration-only compute read for the screen probes' trace, the one reader that does not yet.
+     * LightFunctionAtlas -> BindlessRead, UE: the atlas in each consumer's pass parameters); AddPasses adds
+     * only the writer.
      *
      * Not a RenderSystem. Every container is reserved once and cleared per frame; programs are keyed by the
      * material handle. A frame with no light function adds no node.
@@ -101,7 +101,7 @@ namespace Desert::Graphic::System
             return m_Atlas;
         }
 
-        // The writer pass and its declaration-only compute reader, onto @p atlas (the atlas imported into @p graph).
+        // The writer pass, onto @p atlas (the atlas imported into @p graph).
         void AddPasses( RDG::Builder& graph, RDG::TextureRef atlas ) const;
 
     private:

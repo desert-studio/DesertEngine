@@ -1131,6 +1131,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::PointLightsUB, inputs.PointLights, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
+                          .BindlessRead( inputs.LightFunctionAtlas, kS )
                           .Storage( ScreenProbeGatherTraceShaderParameters::LightGridParamsUB,
                                     inputs.WorldGridParams, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::LightGridWorldCellsUB,

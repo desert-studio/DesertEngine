@@ -719,6 +719,7 @@ namespace Desert::Graphic
         gather.SurfaceCache       = inputs.SurfaceCache;
         gather.PointLights        = inputs.PointLights;
         gather.SpotLights         = inputs.SpotLights;
+        gather.LightFunctionAtlas = inputs.LightFunctionAtlas;
         gather.WorldGridParams    = inputs.WorldGridParams;
         gather.WorldGridCells     = inputs.WorldGridCells;
         gather.GIFrame            = inputs.GIFrame;

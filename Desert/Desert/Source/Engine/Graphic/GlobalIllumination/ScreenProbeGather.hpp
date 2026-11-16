@@ -257,6 +257,7 @@ namespace Desert::Graphic::GlobalIllumination
         SurfaceCacheFrame  SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
         RDG::BufferRef     PointLights;
         RDG::BufferRef     SpotLights;
+        RDG::TextureRef    LightFunctionAtlas; // ViewLightBuffers::LightFunctionAtlas (BindlessRead)
         RDG::BufferRef     WorldGridParams;
         RDG::BufferRef     WorldGridCells;
         RDG::BufferRef     GIFrame; // GIFramePayload, "GIFrameUB"

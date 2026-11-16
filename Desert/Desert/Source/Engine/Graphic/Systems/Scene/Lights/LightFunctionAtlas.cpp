@@ -393,11 +393,6 @@ namespace Desert::Graphic::System
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr { return Render( context ); } );
         // Every reader samples the atlas bindless (Mesh/LightFunctionAtlas.glslh) and declares it in its own pass
         // (ViewLightBuffers::LightFunctionAtlas -> BindlessRead: the lit raster passes, MegaLights, fog, radiance
-        // cache, surface cache, SSR, path tracer), so the graph orders each after this writer. The screen probes'
-        // trace does not yet: this one declaration-only compute read orders them until it does.
-        graph.AddPass(
-             "Lights: Light Function Atlas Read (compute)", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
-             [atlas]( RDG::PassBuilder& pass ) { pass.Read( atlas, RDG::Access::SampledCompute ); },
-             []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+        // cache, surface cache, screen probes, SSR, path tracer), so the graph orders each after this writer.
     }
 } // namespace Desert::Graphic::System
