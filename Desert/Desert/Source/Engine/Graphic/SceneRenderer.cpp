@@ -5210,6 +5210,11 @@ namespace Desert::Graphic
         if ( m_PointLight.PointLights.back().IesProfileRow >= 0 )
             m_PointLight.PointLights.back().IesAtlasTexture =
                  Runtime::ResourceRegistry::GetIesProfileService()->AtlasTexture();
+        // A rect source integrates its specular against the GGX LTC tables (Mesh/RectLight.glslh), made on the
+        // first rect light, here on the main thread (Runtime::RectLightLtcService).
+        if ( m_PointLight.PointLights.back().RectHalfWidth > 0.0f )
+            m_PointLight.PointLights.back().RectLtcTexture =
+                 Runtime::ResourceRegistry::GetRectLightLtcService()->LtcTexture();
         m_PointLightShadows.push_back( shadow );
     }
 

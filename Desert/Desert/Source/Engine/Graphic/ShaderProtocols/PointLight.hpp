@@ -15,7 +15,7 @@
 // kPointLightPayloadFields, from which the includer GENERATES `struct PointLight` (Mesh/LightSourceLayouts.glslh,
 // included by the binding-free Mesh/LightSources.glslh) and the PointLightsUB storage buffer
 // (Mesh/PointLightsUB.glslh, binding 6, included by Mesh/PointLight.glslh); neither is a file on disk. std430:
-// each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (128
+// each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (144
 // bytes); the static_asserts below make any other layout a build error.
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -75,7 +75,13 @@
     /* UE ULocalLightComponent::IESTexture as Runtime::IesProfileService packs it: the atlas image's bindless */  \
     /* slot (stamped by SceneRenderer::AddPointLight) and the profile's first atlas row, or -1 for none. */       \
     FIELD( int32_t, IesAtlasTexture, iesAtlasTexture, { 0 } ) /* 120 */                                           \
-    FIELD( int32_t, IesProfileRow, iesProfileRow, { -1 } )    /* 124 -> 128 */
+    FIELD( int32_t, IesProfileRow, iesProfileRow, { -1 } )    /* 124 */                                           \
+    /* A rect source's GGX LTC tables (UE LTCMat / LTCAmp, Runtime::RectLightLtcService): their bindless   */ \
+    /* slot, stamped by SceneRenderer::AddPointLight for a rect; 0 for a point (Mesh/RectLight.glslh).      */ \
+    FIELD( int32_t, RectLtcTexture, rectLtcTexture, { 0 } )   /* 128 */                                           \
+    FIELD( float, Pad5, pad5, { 0.0f } )                      /* 132 */                                           \
+    FIELD( float, Pad6, pad6, { 0.0f } )                      /* 136 */                                           \
+    FIELD( float, Pad7, pad7, { 0.0f } )                      /* 140 -> 144 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -85,7 +91,7 @@ namespace Desert::Graphic::ShaderProtocols
          Std430StructLayoutMatches( kPointLightPayloadFields, sizeof( PointLightPayload ) ),
          "PointLightPayload is not laid out (or strided) as std430 places the generated struct PointLight: "
          "reorder or pad DESERT_POINT_LIGHT_FIELDS" );
-    static_assert( sizeof( PointLightPayload ) == 128 );
+    static_assert( sizeof( PointLightPayload ) == 144 );
 
     struct PointLight
     {

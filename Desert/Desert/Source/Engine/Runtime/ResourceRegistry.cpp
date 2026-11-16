@@ -181,6 +181,12 @@ namespace Desert::Runtime
         return &iesProfileService;
     }
 
+    RectLightLtcService* ResourceRegistry::GetRectLightLtcService()
+    {
+        static RectLightLtcService rectLightLtcService;
+        return &rectLightLtcService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -213,6 +219,7 @@ namespace Desert::Runtime
         GetWeatherPresetService()->Clear();
         GetSubsurfaceProfileService()->Clear();
         GetIesProfileService()->Clear();
+        GetRectLightLtcService()->Clear();
         GetMeshService()->Clear();
         GetSkyboxService()->Clear();
         GetTextureService()->Clear();

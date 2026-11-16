@@ -10,7 +10,7 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// `struct PointLight` / `struct SpotLight` (std430, 128 / 128 bytes) are GENERATED from
+// `struct PointLight` / `struct SpotLight` (std430, 144 / 128 bytes) are GENERATED from
 // ShaderProtocols::PointLight / SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp)
 // by the shader includer.
 #include <Mesh/LightSourceLayouts.glslh>
@@ -57,6 +57,8 @@ DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float
     light.RectCenter         = vec3( 0.0 );
     light.RectExtentX        = vec3( 0.0 );
     light.RectExtentY        = vec3( 0.0 );
+    light.RectLuminance      = vec3( 0.0 );
+    light.RectLtcTexture     = 0;
     return light;
 }
 
@@ -94,7 +96,7 @@ float RectLightBarnDoorLimit( float halfExtent, float lateral, float depth, floa
 }
 
 // The rect at a surface: its vector irradiance V (the integral of the unit direction over the visible rect,
-// half the LTC edge sum) gives L = V / |V| and Radiance = luminance * |V| * the range window, so
+// pi times the LTC edge sum) gives L = V / |V| and Radiance = luminance * |V| * the range window, so
 // Radiance * dot( N, L ) is the rect's exact Lambert irradiance on a surface it lies wholly above (UE
 // RectIrradianceLambert). `intensity` is the emitted luminance (RectLightSystem: candelas over the rect's area),
 // `radius` the attenuation radius. One-sided: nothing behind the emitting face.
@@ -122,11 +124,14 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     light.RectCenter         = vec3( 0.0 );
     light.RectExtentX        = vec3( 0.0 );
     light.RectExtentY        = vec3( 0.0 );
+    light.RectLuminance      = vec3( 0.0 );
+    light.RectLtcTexture     = 0;
     const float distance     = length( fromLight );
     if ( depth <= 0.0 || x1 <= x0 || y1 <= y0 || distance >= source.radius )
         return light;
 
     const float halfScale = 0.5;
+    const float PI_RECT   = 3.14159265;
     const vec3  extentX = source.axisX * ( ( x1 - x0 ) * halfScale );
     const vec3  extentY = source.axisY * ( ( y1 - y0 ) * halfScale );
     const vec3  center  = source.position + source.axisX * ( ( x0 + x1 ) * halfScale ) +
@@ -135,8 +140,11 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     const vec3  c1      = normalize( center + extentX - extentY );
     const vec3  c2      = normalize( center + extentX + extentY );
     const vec3  c3      = normalize( center - extentX + extentY );
+    // The edge sum is the rect's vector FORM FACTOR (RectLightEdge's fit carries Heitz's 1 / (2 pi)), so the
+    // vector irradiance - the integral of the unit direction over the rect, |V| -> its solid angle far away - is
+    // pi times it.
     vec3 irradiance = ( RectLightEdge( c0, c1 ) + RectLightEdge( c1, c2 ) + RectLightEdge( c2, c3 ) +
-                        RectLightEdge( c3, c0 ) ) * halfScale;
+                        RectLightEdge( c3, c0 ) ) * PI_RECT;
     // Every direction toward the face runs against its normal, so V does: the winding's sign, fixed once.
     if ( dot( irradiance, normal ) > 0.0 )
         irradiance = -irradiance;
@@ -150,10 +158,12 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     // UE samples a rect's profile by the direction from the rect's centre, in the rect's own frame.
     const float ies    = DesertIesProfileFactor( source.iesAtlasTexture, source.iesProfileRow, fromLight / distance,
                                                  normal, source.axisX );
-    light.Radiance     = source.color * ( source.intensity * solidAngle * window * ies );
-    light.RectCenter   = center;
-    light.RectExtentX  = extentX;
-    light.RectExtentY  = extentY;
+    light.RectLuminance  = source.color * ( source.intensity * window * ies );
+    light.Radiance       = light.RectLuminance * solidAngle;
+    light.RectCenter     = center;
+    light.RectExtentX    = extentX;
+    light.RectExtentY    = extentY;
+    light.RectLtcTexture = source.rectLtcTexture;
     return light;
 }
 
@@ -174,6 +184,8 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     light.RectCenter         = vec3( 0.0 );
     light.RectExtentX        = vec3( 0.0 );
     light.RectExtentY        = vec3( 0.0 );
+    light.RectLuminance      = vec3( 0.0 );
+    light.RectLtcTexture     = 0;
     return light;
 }
 
@@ -192,6 +204,8 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     light.RectCenter         = vec3( 0.0 );
     light.RectExtentX        = vec3( 0.0 );
     light.RectExtentY        = vec3( 0.0 );
+    light.RectLuminance      = vec3( 0.0 );
+    light.RectLtcTexture     = 0;
     return light;
 }
 

@@ -248,6 +248,11 @@ struct DesertLight
     vec3 RectCenter;
     vec3 RectExtentX;
     vec3 RectExtentY;
+    // A rect's emitted radiance at the surface (colour * luminance * range window * IES): what its specular lobe
+    // integrates over the rect, as Radiance is that times the rect's solid angle. And the bindless slot of the
+    // GGX LTC tables that lobe is integrated with (Runtime::RectLightLtcService; 0 = none). Zero for a punctual.
+    vec3 RectLuminance;
+    int  RectLtcTexture;
 };
 
 // Whether the light is a rect source (DesertLight::RectCenter).

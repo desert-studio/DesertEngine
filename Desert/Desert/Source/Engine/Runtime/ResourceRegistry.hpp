@@ -27,6 +27,7 @@
 #include "Services/Weather/WeatherPresetService.hpp"
 #include "Services/Subsurface/SubsurfaceProfileService.hpp"
 #include "Services/Lights/IesProfileService.hpp"
+#include "Services/Lights/RectLightLtcService.hpp"
 #include "Services/Physics/PhysicsAssetService.hpp"
 #include "Services/VFX/VFXSystemService.hpp"
 
@@ -88,6 +89,8 @@ namespace Desert::Runtime
         static SubsurfaceProfileService* GetSubsurfaceProfileService();
         // The .ies profiles the local lights name and their atlas rows (LIGHTS-RECT-IES, UE FIESAtlas).
         static IesProfileService* GetIesProfileService();
+        // The rect lights' GGX LTC tables (UE LTCMat / LTCAmp), one constant image made on first use.
+        static RectLightLtcService* GetRectLightLtcService();
         // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
         // against the mesh's skeleton by GUID.
         static PhysicsAssetService* GetPhysicsAssetService();
