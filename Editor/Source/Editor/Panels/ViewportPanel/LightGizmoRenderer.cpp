@@ -28,6 +28,7 @@
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <ImGuizmo.h>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
+#include <Engine/ECS/RectLightGeometry.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -217,6 +218,10 @@ namespace Desert::Editor
         {
             DESERT_PROFILE_SCOPE( "Editor icons: Spot lights" );
             RenderSpotLights( camera, width, height, xpos, ypos );
+        }
+        {
+            DESERT_PROFILE_SCOPE( "Editor icons: Rect lights" );
+            RenderRectLights( camera, width, height );
         }
         {
             DESERT_PROFILE_SCOPE( "Editor icons: Direction lights" );
@@ -936,6 +941,139 @@ namespace Desert::Editor
         }
     }
 
+    void LightGizmoRenderer::RenderRectLights( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
+                                               float height )
+    {
+        auto         entities  = m_Scene->GetAllEntities();
+        const ImVec2 windowPos = ImGui::GetWindowPos();
+        const auto   mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+        ImDrawList*  drawList  = ImGui::GetWindowDrawList();
+
+        for ( auto entity : entities )
+        {
+            if ( !entity.HasComponent<ECS::RectLightComponent>() )
+                continue;
+
+            auto&      light    = entity.GetComponent<ECS::RectLightComponent>().Data;
+            const bool selected = IsSelected( entity );
+            // THE RECT THE RENDERER LIGHTS BY (ECS::RectLightGeometryOf, RectLightSystem's own call), so the
+            // outline cannot face one way while the light faces another.
+            const ECS::RectLightGeometry rect =
+                 ECS::RectLightGeometryOf( entity.GetWorldTransform(), light.SourceWidth, light.SourceHeight,
+                                           light.BarnDoorAngle, light.BarnDoorLength );
+
+            // In the light's own colour, lifted so a dark light still has a visible outline (the spot's rule).
+            const glm::vec3 lifted( std::max( light.Color.r, 0.25f ), std::max( light.Color.g, 0.25f ),
+                                    std::max( light.Color.b, 0.25f ) );
+            const float     bodyAlpha = selected ? 0.95f : 0.60f;
+            const ImU32     bodyCol   = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, bodyAlpha ) );
+            const ImU32     doorCol   = ImColor( ImVec4( lifted.r, lifted.g, lifted.b, 0.55f ) );
+            const float     thickness = selected ? 2.0f : 1.25f;
+            const auto      line      = [&]( const glm::vec3& a, const glm::vec3& b, ImU32 col )
+            { DrawWorldLine( drawList, a, b, mvp, width, height, windowPos.x, windowPos.y, col, thickness ); };
+
+            // ── THE EMITTING RECT, ALWAYS (UE draws every rect light's source shape) ──────────────────────
+            const glm::vec3 halfX      = rect.AxisX * rect.HalfWidth;
+            const glm::vec3 halfY      = rect.AxisY * rect.HalfHeight;
+            const glm::vec3 corners[4] = { rect.Centre - halfX - halfY, rect.Centre + halfX - halfY,
+                                           rect.Centre + halfX + halfY, rect.Centre - halfX + halfY };
+            for ( int i = 0; i < 4; ++i )
+                line( corners[i], corners[( i + 1 ) % 4], bodyCol );
+
+            if ( selected )
+            {
+                // UE FRectLightSceneProxy's barn doors: each hinged on an edge, its free edge Reach outward in
+                // the plane and Depth along the face's normal - the numbers the shader clips the light by.
+                if ( rect.BarnReach > 0.0f || rect.BarnDepth > 0.0f )
+                {
+                    const glm::vec3 lift = rect.Forward * rect.BarnDepth;
+                    for ( int i = 0; i < 4; ++i )
+                    {
+                        const glm::vec3& a       = corners[i];
+                        const glm::vec3& b       = corners[( i + 1 ) % 4];
+                        const glm::vec3  mid     = ( a + b ) * 0.5f - rect.Centre;
+                        const float      midLen  = glm::length( mid );
+                        const glm::vec3  outward = midLen > 0.0f ? mid / midLen : glm::vec3( 0.0f );
+                        const glm::vec3  shift   = outward * rect.BarnReach + lift;
+                        line( a, a + shift, doorCol );
+                        line( a + shift, b + shift, doorCol );
+                    }
+                }
+
+                // The face's direction: from the centre along the emitting side.
+                const float reach = std::max( std::max( rect.HalfWidth, rect.HalfHeight ), 10.0f );
+                line( rect.Centre, rect.Centre + rect.Forward * reach, bodyCol );
+
+                // The attenuation shell, as the point light's (a rect light is culled as a local light).
+                DrawLightRadiusSphere( camera, rect.Centre, light.Range, light.Color, width, height, windowPos.x,
+                                       windowPos.y );
+            }
+
+            glm::vec2 screenPos;
+            if ( !ProjectToScreen( rect.Centre, mvp, width, height, screenPos ) )
+                continue;
+            const ImVec2 centre( windowPos.x + screenPos.x, windowPos.y + screenPos.y );
+
+            const ImVec4 tint( light.Color.r, light.Color.g, light.Color.b, 1.0f );
+            const bool   hovered =
+                 DrawBillboardIcon( drawList, centre, GizmoIcon::LightRect, tint, selected, m_UIHelper );
+
+            // Width / height / range handles on the SELECTED rect light. Each sits where its value is measured
+            // from the centre (an edge's midpoint at half the size, the shell along the camera's right at the
+            // radius), so the proportional drag scales the field exactly.
+            if ( selected )
+            {
+                const Common::UUID owner    = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                const auto         handleAt = [&]( const glm::vec3& world, ImVec2& out )
+                {
+                    glm::vec2 projected;
+                    if ( !ProjectToScreen( world, mvp, width, height, projected ) )
+                        return false;
+                    out = ImVec2( windowPos.x + projected.x, windowPos.y + projected.y );
+                    return true;
+                };
+
+                ImVec2 handle;
+                if ( rect.HalfWidth > 0.0f && handleAt( rect.Centre + halfX, handle ) )
+                {
+                    (void)DragValueHandle( HandleKind::RectWidth, owner, centre, handle, light.SourceWidth, 1.0f,
+                                           10000.0f, "Source Width", &light.SourceWidth );
+                }
+                if ( rect.HalfHeight > 0.0f && handleAt( rect.Centre + halfY, handle ) )
+                {
+                    (void)DragValueHandle( HandleKind::RectHeight, owner, centre, handle, light.SourceHeight, 1.0f,
+                                           10000.0f, "Source Height", &light.SourceHeight );
+                }
+
+                const glm::mat4 view  = camera->GetViewMatrix();
+                const glm::vec3 right = glm::normalize( glm::vec3( view[0][0], view[1][0], view[2][0] ) );
+                if ( handleAt( rect.Centre + right * light.Range, handle ) )
+                {
+                    (void)DragValueHandle( HandleKind::RectRange, owner, centre, handle, light.Range, 1.0f,
+                                           10000.0f, "Attenuation Radius", &light.Range );
+                }
+            }
+
+            if ( hovered )
+            {
+                m_LightIconHovered = true;
+                if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+                    Core::SelectionManager::SetSelected( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
+                ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
+                Utils::ImGuiUtilities::Tooltip(
+                     std::format( "Rect Light\nIntensity: {} {}\nSource: {} x {}\nAttenuation Radius: {}\n"
+                                  "Position: ({}, {}, {})",
+                                  light.Intensity,
+                                  ::Desert::ECS::LightPhotometry::UnitsLabel( light.IntensityUnits ),
+                                  light.SourceWidth, light.SourceHeight, light.Range, rect.Centre.x,
+                                  rect.Centre.y, rect.Centre.z )
+                          .c_str() );
+                ImGui::PopStyleColor( 2 );
+            }
+        }
+    }
+
     void LightGizmoRenderer::RenderCameras( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
                                             float height, float /*xpos*/, float /*ypos*/ )
     {
@@ -1337,6 +1475,7 @@ namespace Desert::Editor
                  entity.HasComponent<ECS::LandscapeTileComponent>() ||
                  entity.HasComponent<ECS::FoliageComponent>() || entity.HasComponent<ECS::PointLightComponent>() ||
                  entity.HasComponent<ECS::SpotLightComponent>() ||
+                 entity.HasComponent<ECS::RectLightComponent>() ||
                  entity.HasComponent<ECS::DirectionLightComponent>() ||
                  entity.HasComponent<ECS::CameraComponent>() || entity.HasComponent<ECS::SkyboxComponent>() ||
                  entity.HasComponent<ECS::TextComponent>() || // Text has its own big billboard (RenderTextIcons)

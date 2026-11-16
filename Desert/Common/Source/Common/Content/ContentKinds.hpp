@@ -92,6 +92,7 @@ namespace Common::Content
         StateTree,
         SubsurfaceProfile,
         VFXModule,
+        IesProfile,
         COUNT,
     };
 
@@ -220,6 +221,9 @@ namespace Common::Content
              // library (Editor/Resources/Engine/VFX/Modules) and a project's own modules are one list, as UE's
              // /Niagara and /Game mounts are.
              /* VFXModule            */ { "VFXModule", ".dfxmod", &P::VFX_PATH },
+             // UE UTextureLightProfile: one IES photometric profile a local light names (Engine/Assets/
+             // Serialization/IesProfile.hpp), imported from a `.ies` beside it (Editor/Import/IesProfileImporter).
+             /* IesProfile           */ { "IesProfile", ".dies", &P::ASSETS_PATH },
         } };
     }
 
