@@ -87,6 +87,11 @@ namespace Desert::Graphic::GlobalIllumination
         // budget's probes fill the GPU instead of leaving one group per probe to walk its res^2 rays in series,
         // and a warp's rays are neighbours in direction (FPS-RC-TRACE).
         constexpr uint32_t kTraceTileSide = 8;
+        // RadianceCacheFilter.shader sizes its thread layout for at most RC_FILTER_DEPTH_OUTPUTS (64) depth and
+        // RC_FILTER_IRRADIANCE_OUTPUTS (36) irradiance texels a probe (FPS-RC-DIRTY s2).
+        static_assert( RadianceCache::kDepthProbeResolution * RadianceCache::kDepthProbeResolution <= 64u );
+        static_assert( RadianceCache::kIrradianceProbeResolution * RadianceCache::kIrradianceProbeResolution <=
+                       36u );
         // FPS-RC-COST: RadianceCache.DispatchArgs, written by RadianceCachePlace.shader: Trace's three words, then
         // Filter's.
         constexpr uint64_t kTraceArgsOffset  = 0;
