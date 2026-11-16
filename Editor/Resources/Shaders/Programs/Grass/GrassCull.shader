@@ -275,7 +275,8 @@ Shader "GrassCull"
 
         // A mesh's level seen from @p eye (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
         // SelectLODFromBounds): the coarsest whose screen size the instance's bounding sphere (@p centre, the law's
-        // @p scale) is still below.
+        // @p scale) is still below - at the distance x the Foliage quality's MeshLodDistanceScale (UE
+        // foliage.LODDistanceScale; p.Lod.y carries its square, GrassRenderer::PlanVariety).
         uint GrassMeshLevel( GrassParams p, GrassWords args, vec3 centre, vec3 scale, vec3 eye )
         {
             float r        = p.Lod.x * max( scale.x, max( scale.y, scale.z ) );
