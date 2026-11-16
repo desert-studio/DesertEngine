@@ -139,7 +139,7 @@ namespace Desert::Graphic
         virtual ~BindlessTextureTable() = default;
 
         // A slot for @p image, written into the table. Refused (error naming the image) for an image with storage
-        // or attachment usage, a multisampled one, or one without a sampling view; and when the table is at its
+        // or attachment usage (an attachment marked Core::Formats::GraphDeclaredBindless excepted), a multisampled one, or one without a sampling view; and when the table is at its
         // device ceiling (error with live count and ceiling).
         [[nodiscard]] virtual Common::ResultStr<BindlessTextureSlot> Register( const Image2D& image ) = 0;
         // Gives @p slot back; it is reused only after the frames in flight have retired (BindlessSlotAllocator).

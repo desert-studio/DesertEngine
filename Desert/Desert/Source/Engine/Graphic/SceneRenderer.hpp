@@ -2040,6 +2040,9 @@ namespace Desert::Graphic
         // "Deferred: Decals" (DECALS-DBUFFER): this frame's decals, faded and sorted per view; a typed member, its
         // lists reserved once and cleared each frame beside the lights.
         System::DecalRenderer m_Decals;
+        // The lights' light function tiles (UE FLightFunctionAtlas): filled by AddPointLight / AddSpotLight, drawn
+        // before the G-buffer by "Lights: Light Function Atlas".
+        System::LightFunctionAtlas m_LightFunctions;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
