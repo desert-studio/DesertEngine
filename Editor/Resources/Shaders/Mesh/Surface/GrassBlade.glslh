@@ -23,6 +23,9 @@ struct GrassBladeShapeData
     uvec4 Visibility;
     uvec4 BucketFirst[2]; // the first instance of bucket b < 8, [b / 4][b % 4] (GrassRenderer's bucket table)
     uvec4 Lists;          // x = the camera list's first slot in the shared ids pool (CPU-GRASS-POOL-5)
+    // FPS-GRASS-HULL: GrassBladeShapeGpu goes on with HullTexels and Hull[128] (the cards' cooked hulls). They are
+    // NOT members here - a function takes this struct by value, and the hull is read only where the raster's
+    // strip is placed: the raster's buffer blocks declare them after it (Mesh/Surface/GrassBladeHull.glslh).
 };
 
 // The strip level instance @p instance was drawn with (GrassGenerate's bucket = GrassRenderer::BladeStrip's
@@ -63,16 +66,29 @@ void BladeTriangleCorners( uint segments, uint triangle, out vec2 c0, out vec2 c
 }
 
 // The card a blade draws: its colour draw (instance column 0's w) picks one of the variety's cards, uniformly.
-vec4 BladeCard( GrassBladeShapeData shape, float draw )
+uint BladeCardIndex( GrassBladeShapeData shape, float draw )
 {
     const uint count = max( uint( shape.Size.w ), 1u );
-    return shape.Cards[min( uint( draw * float( count ) ), count - 1u )];
+    return min( uint( draw * float( count ) ), count - 1u );
+}
+vec4 BladeCard( GrassBladeShapeData shape, float draw )
+{
+    return shape.Cards[BladeCardIndex( shape, draw )];
 }
 
 // The card's texture coordinate at @p side across (-1..1) and height share @p t (0 root, 1 tip).
 vec2 BladeCardUV( vec4 card, float side, float t )
 {
     return vec2( mix( card.x, card.z, 0.5 + 0.5 * side ), mix( card.w, card.y, t ) );
+}
+
+// The strip's width (cm) for the instance matrix @p model: as wide as its card is, at the blade's height - the scan
+// keeps its proportions, and the card's opacity cuts the blade's outline (its taper, its ragged edge) out of the
+// strip (or the card's cooked hull narrows it first, Mesh/Surface/GrassBladeHull.glslh).
+float BladeWidth( GrassBladeShapeData shape, mat4 model )
+{
+    const vec4 card = BladeCard( shape, model[0].w );
+    return shape.Size.x * ( card.z - card.x ) / max( card.w - card.y, 1e-4 ) * length( model[0].xyz );
 }
 
 struct BladePoint
@@ -97,10 +113,7 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
     const vec3  right   = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
     const vec3  forward = model[2].xyz / max( length( model[2].xyz ), 1e-6 );
     const float height  = shape.Size.x * heightK;
-    // The strip is as wide as its card is, at the blade's height: the scan keeps its proportions, and the
-    // card's opacity cuts the blade's outline (its taper, its ragged edge) out of the strip.
-    const vec4  card    = BladeCard( shape, model[0].w );
-    const float width   = shape.Size.x * ( card.z - card.x ) / max( card.w - card.y, 1e-4 ) * length( model[0].xyz );
+    const float width   = BladeWidth( shape, model );
 
     // The rest lean: the variety's curvature, varied per blade by CurvatureSpread either way. The bend's power
     // draws from the curvature draw's low 16 bits (it is a 24-bit fraction, so they are independent of the

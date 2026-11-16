@@ -34,7 +34,11 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
+    vec4                BladeHullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
+    vec4                BladeHull[128];  // GrassBladeShapeGpu::Hull
 };
+// The raster narrowed each strip row to its card's hull: the corners are rebuilt through the same expressions.
+#include <Mesh/Surface/GrassBladeHull.glslh>
 #else
 // The Instanced path (GRASS-VIS-MESH-1): the mesh grass section's rows and its mesh's buffers.
 #include <Mesh/Surface/GrassMeshVisibility.glslh>
@@ -138,13 +142,22 @@ void main()
     vec2       corner[3];
     BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );
     const vec4 windPrev = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
-    BladePoint point[3];
-    vec3       previous[3];
-    vec4       jittered[3];
+    // FPS-GRASS-HULL: the raster's rows stood on the card's hull (Vertex_GrassBlade.glslh, mesh z = 1 / segments).
+    const float rowSpan = 1.0 / float( max( segments, 1u ) );
+    BladePoint  point[3];
+    vec3        previous[3];
+    vec4        jittered[3];
+    float       hullSide[3];
     for ( int k = 0; k < 3; ++k )
     {
-        point[k]    = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, m_PushConstants.WindB );
-        previous[k] = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev ).Position;
+        const BladePoint full =
+             BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, m_PushConstants.WindB );
+        hullSide[k] = BladeHullSide( model, full, corner[k].x, corner[k].y, rowSpan );
+        point[k]    = BladeHullPoint( model, full, corner[k].x, hullSide[k] );
+        previous[k] = BladeHullPoint( model,
+                                      BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev ),
+                                      corner[k].x, hullSide[k] )
+                           .Position;
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
     }
 
@@ -161,8 +174,8 @@ void main()
     vec3       normal[3];
     for ( int k = 0; k < 3; ++k )
     {
-        uv[k]     = BladeCardUV( card, corner[k].x, corner[k].y );
-        normal[k] = BladeNormal( point[k], corner[k].x );
+        uv[k]     = BladeCardUV( card, hullSide[k], corner[k].y );
+        normal[k] = BladeHullNormal( point[k], corner[k].x, hullSide[k] );
     }
     const vec2 uv0 = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
     g_DesertVisibilityUVdx = ( bx.x * uv[0] + bx.y * uv[1] + bx.z * uv[2] ) - uv0;

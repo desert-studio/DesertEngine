@@ -1,6 +1,7 @@
 // Surface cell vertex path: a procedural grass blade per instance (GRASS-BLADE; Ghost of Tsushima, GDC 2021
 // "Procedural Grass in Ghost of Tsushima": the blade is a curve built in the vertex stage from a few numbers, no
-// mesh). The drawn mesh is GrassRenderer's blade strip, whose position is (side -1/+1, height share t 0..1, 0); the
+// mesh). The drawn mesh is GrassRenderer's blade strip, whose position is (side -1/+1, height share t 0..1, the
+// level's segment share 1 / segments - FPS-GRASS-HULL's row span); the
 // instance's matrix (InstanceTransforms, written by Programs/Grass/GrassGenerate.shader) carries the blade's root,
 // its width axis (column 0, scaled by the width multiplier), its up and forward axes (columns 1 and 2, scaled by
 // the height multiplier) and three per-blade draws in the columns' w: the card draw, the curvature (and bend) draw
@@ -77,13 +78,19 @@ GpuInstanceDrawRow g_GrassDrawRow; // set first thing in main()
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
+    vec4                BladeHullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
+    vec4                BladeHull[128];  // GrassBladeShapeGpu::Hull
 };
 #else
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassDrawRowBlade
 {
     GrassBladeShapeData Shape;
+    vec4                HullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
+    vec4                Hull[128];  // GrassBladeShapeGpu::Hull
 };
-#define Blade GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Shape
+#define Blade           GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Shape
+#define BladeHullTexels GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).HullTexels
+#define BladeHull       GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Hull
 #endif
 
 #include <Common/MaterialTransport.glslh>
@@ -133,6 +140,8 @@ DESERT_SURFACE_VARYINGS( out )
 // The blade's raster-stream row (Common/VisibilityBuffer.glslh): the variety's first row + the instance index.
 layout( location = 15 ) flat out uint v_VisibilityRow;
 #endif
+// The card's cooked hull narrows the strip (FPS-GRASS-HULL).
+#include <Mesh/Surface/GrassBladeHull.glslh>
 
 void main()
 {
@@ -195,7 +204,17 @@ void main()
         }
     }
 #endif
-    const BladePoint blade = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B );
+    const BladePoint full = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B );
+    // FPS-GRASS-HULL: the row narrowed to its card's cooked hull (Mesh/Surface/GrassBladeHull.glslh) - the same plane,
+    // position and UV map as the full strip, without the card's transparent part. Every view cell narrows it through
+    // the same expressions, so the depth prepass and the G-buffer stay EQUAL; a cascade's caster keeps the full card
+    // (its slope bias reads the corner's own normal, ShadowCasterSlopeBias).
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    const float      hullSide = side;
+#else
+    const float      hullSide = BladeHullSide( model, full, side, t, a_Position.z );
+#endif
+    const BladePoint blade = BladeHullPoint( model, full, side, hullSide );
 // The visibility raster (Pass_Visibility.glslh) is a depth cell too, as Vertex_Instanced.glslh's: its fragment
 // stage reads the opacity mask's UV and nothing else; the resolve rebuilds the frame and the previous wind step.
 #if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth ) ||                          \
@@ -213,7 +232,7 @@ void main()
     // the blade drawn. (A `.Parallax` depth cell evaluates the surface, so it takes the full set below.)
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
-    v_Surface.UV0           = BladeCardUV( BladeCard( Blade, model[0].w ), side, t );
+    v_Surface.UV0           = BladeCardUV( BladeCard( Blade, model[0].w ), hullSide, t );
     v_Surface.UV1           = vec2( model[2].w, t );
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.Along         = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
@@ -223,11 +242,11 @@ void main()
     v_Surface.ObjectMoved   = 0.0;
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     // The caster's slope bias reads the blade's normal - the vertex stage's own use, not a varying.
-    const vec3 normal = BladeNormal( blade, side );
+    const vec3 normal = BladeHullNormal( blade, side, hullSide );
 #endif
 #else
     const vec3 along  = normalize( blade.Along );
-    const vec3 normal = BladeNormal( blade, side );
+    const vec3 normal = BladeHullNormal( blade, side, hullSide );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     // The blade's look is its material's: UV0 is the card's place on the scanned atlas (texture space, set
     // directly, not a stored mesh UV), UV1 carries the clump's draw and the height share for the material's clump
@@ -235,7 +254,7 @@ void main()
     const vec4 card = BladeCard( Blade, model[0].w );
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = normal;
-    v_Surface.UV0           = BladeCardUV( card, side, t );
+    v_Surface.UV0           = BladeCardUV( card, hullSide, t );
     v_Surface.UV1           = vec2( model[2].w, t );
     v_Surface.ObjectScaleUp = 1.0;
     // The shading frame (Right, Along, Normal) without its third axis - Normal is it - and with the blade's one
@@ -246,8 +265,9 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
-    const BladePoint previous = BladeAt( Blade, model, side, t, windA,
-                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ) );
+    const BladePoint previous = BladeHullPoint(
+         model, BladeAt( Blade, model, side, t, windA,
+                                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ) ), side, hullSide );
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
 #endif

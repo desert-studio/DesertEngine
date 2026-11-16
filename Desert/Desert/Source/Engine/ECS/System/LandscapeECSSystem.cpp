@@ -737,6 +737,8 @@ namespace Desert::ECS
                     }
                     // The cover's look, from the same section materials the blades or meshes draw with.
                     sections.Cover.reset();
+                    sections.CardHulls.clear();
+                    sections.HullTexels = glm::vec2( 0.0f );
                     if ( const auto manager = materials->LockAssetManager() )
                     {
                         std::vector<glm::vec4> rects;
@@ -746,6 +748,11 @@ namespace Desert::ECS
                         GrassSections::CoverLook sum;
                         sum.Coverage = 0.0f;
                         float count  = 0.0f;
+                        // FPS-GRASS-HULL: the union of the sections' card hulls; one section without them (no
+                        // mask, no look) leaves every card full.
+                        std::vector<Assets::GrassCardHull> hulls;
+                        glm::uvec2                         hullTexels( 0u );
+                        bool                               hullsHold = blade && !rects.empty();
                         for ( size_t si = 0; si < sections.Sections.size(); ++si )
                         {
                             const std::optional<Common::Content::AssetGuid> material =
@@ -754,10 +761,31 @@ namespace Desert::ECS
                                 continue;
                             auto input = Assets::ResolveGrassCoverLookInput( *manager, *material, rects );
                             if ( input.IsSuccess() && !input.GetValue() )
+                            {
+                                hullsHold = false;
                                 continue; // no albedo map: the section has no texture look to carry on
+                            }
                             auto look = input.IsSuccess()
                                              ? Assets::LoadGrassCoverLook( *input.GetValue() )
                                              : Common::MakeError<Assets::GrassCoverLook>( input.GetError() );
+                            if ( !look.IsSuccess() || look.GetValue().Hulls.size() != rects.size() )
+                                hullsHold = false;
+                            else if ( hullsHold )
+                            {
+                                const Assets::GrassCoverLook& l = look.GetValue();
+                                if ( hulls.empty() )
+                                    hulls = l.Hulls;
+                                else
+                                    for ( size_t k = 0; k < hulls.size(); ++k )
+                                        for ( uint32_t c = 0; c < Assets::kGrassCardHullClasses; ++c )
+                                            for ( uint32_t b = 0; b < Assets::kGrassCardHullBands; ++b )
+                                            {
+                                                glm::vec2&       u = hulls[k].Bands[c][b];
+                                                const glm::vec2& o = l.Hulls[k].Bands[c][b];
+                                                u = glm::vec2( std::min( u.x, o.x ), std::max( u.y, o.y ) );
+                                            }
+                                hullTexels = glm::max( hullTexels, l.MaskSize );
+                            }
                             if ( !look.IsSuccess() )
                             {
                                 if ( m_WarnedGrass.insert( ref.Path + "#cover" ).second )
@@ -777,6 +805,28 @@ namespace Desert::ECS
                             sum.Opacity += m.GetFloat( "SubsurfaceOpacity", 1.0f );
                             sum.Coverage += look.GetValue().Coverage;
                             count += 1.0f;
+                        }
+                        static_assert( Assets::kGrassCardHullClasses == Graphic::System::kGrassBladeHullClasses &&
+                                       Assets::kGrassCardHullBands == Graphic::System::kGrassBladeHullBands );
+                        if ( hullsHold && !hulls.empty() && hullTexels.x > 0u && hullTexels.y > 0u )
+                        {
+                            // Packed as the shape buffer reads them (GrassBladeDraw::CardHulls).
+                            const size_t cards = std::min( hulls.size(), Graphic::System::kGrassBladeMaxCards );
+                            sections.CardHulls.assign(
+                                 cards * Assets::kGrassCardHullClasses * Assets::kGrassCardHullBands / 2u,
+                                 glm::vec4( 0.0f ) );
+                            for ( size_t k = 0; k < cards; ++k )
+                                for ( uint32_t c = 0; c < Assets::kGrassCardHullClasses; ++c )
+                                    for ( uint32_t b = 0; b < Assets::kGrassCardHullBands; ++b )
+                                    {
+                                        glm::vec4& v =
+                                             sections.CardHulls[( k * Assets::kGrassCardHullClasses + c ) *
+                                                                     Assets::kGrassCardHullBands / 2u +
+                                                                b / 2u];
+                                        v[( b % 2u ) * 2u]      = hulls[k].Bands[c][b].x;
+                                        v[( b % 2u ) * 2u + 1u] = hulls[k].Bands[c][b].y;
+                                    }
+                            sections.HullTexels = glm::vec2( hullTexels );
                         }
                         if ( count > 0.0f )
                             sections.Cover = GrassSections::CoverLook{
@@ -817,7 +867,9 @@ namespace Desert::ECS
                                                                      .PatchSize       = b.PatchSize,
                                                                      .Segments        = b.Segments,
                                                                      .LodDistance     = b.LodDistance,
-                                                                     .MinScreenWidth  = b.MinScreenWidth };
+                                                                     .MinScreenWidth  = b.MinScreenWidth,
+                                                                     .CardHulls       = sections.CardHulls,
+                                                                     .HullTexels      = sections.HullTexels };
                 }
                 auto& p                     = variety.Placement;
                 p.Density                   = v.Density;

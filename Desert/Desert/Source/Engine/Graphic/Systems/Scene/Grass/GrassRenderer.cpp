@@ -1241,6 +1241,16 @@ namespace Desert::Graphic::System
                  GrassBladeShapeGpu{ glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
                                      glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
             std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
+            // FPS-GRASS-HULL: the cards' cooked hulls (UE SubUV cutout), when the Foliage quality draws them.
+            static_assert( std::tuple_size_v<decltype( GrassBladeShapeGpu::Hull )> ==
+                           kGrassBladeMaxCards * kGrassBladeHullClasses * kGrassBladeHullBands / 2u );
+            const size_t hullVec4s = cards * kGrassBladeHullClasses * kGrassBladeHullBands / 2u;
+            if ( m_Quality.BladeCardHull && b.CardHulls.size() >= hullVec4s && b.HullTexels.x > 0.0f &&
+                 b.HullTexels.y > 0.0f )
+            {
+                std::copy_n( b.CardHulls.begin(), hullVec4s, gpu.ShapeData.Hull.begin() );
+                gpu.ShapeData.HullTexels = glm::vec4( b.HullTexels, 1.0f, 0.0f );
+            }
             // The variety's rows of this frame's raster stream (GRASS-VIS): instance i is row VisibilityRow + i
             // of the view's visibility buffer, the bucket table tells the resolve which strip level drew it.
             // Past kGrassVisibilityMaxRows the view refuses the path this frame (VisibilityRowsOverflow), so a

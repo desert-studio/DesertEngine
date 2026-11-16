@@ -41,7 +41,8 @@ namespace Desert::Graphic::System
         {
             const float t = static_cast<float>( row ) / static_cast<float>( segments );
             for ( const float side : { -1.0f, 1.0f } )
-                level.Vertices.push_back( { .Position  = glm::vec3( side, t, 0.0f ),
+                // z: the level's segment share, the raster's hull row span (Vertex_GrassBlade.glslh, FPS-GRASS-HULL).
+                level.Vertices.push_back( { .Position  = glm::vec3( side, t, 1.0f / static_cast<float>( segments ) ),
                                             .Normal    = glm::vec3( 0.0f, 0.0f, 1.0f ),
                                             .Tangent   = glm::vec3( 1.0f, 0.0f, 0.0f ),
                                             .Bitangent = glm::vec3( 0.0f, 1.0f, 0.0f ),

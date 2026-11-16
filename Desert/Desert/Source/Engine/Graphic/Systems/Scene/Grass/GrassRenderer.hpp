@@ -94,7 +94,15 @@ namespace Desert::Graphic::System
         uint32_t Segments       = 6;
         float    LodDistance    = 700.0f;
         float    MinScreenWidth = 1.5f; // render pixels; 0 = no floor (Assets::Serialization::GrassBlade)
+        // FPS-GRASS-HULL: the cards' cooked hulls (Assets::GrassCardHull, UE SubUV cutout), packed as the shape
+        // buffer holds them - card k, class c, bands 2j and 2j + 1 in vec4 (k x classes + c) x bands / 2 + j as
+        // (lo, hi, lo, hi) - and the opacity mask's level-0 texels; empty = the strip spans the full card.
+        std::vector<glm::vec4> CardHulls;
+        glm::vec2              HullTexels{ 0.0f };
     };
+    // The hull's classes and bands per card (Assets::kGrassCardHullClasses / kGrassCardHullBands; GrassBlade.glslh).
+    inline constexpr uint32_t kGrassBladeHullClasses = 4u;
+    inline constexpr uint32_t kGrassBladeHullBands   = 8u;
 
     // The generator reads at most this many of a blade's cards (GrassParamsGpu::CardWidths, two vec4s).
     inline constexpr size_t kGrassBladeMaxCards = 8u;

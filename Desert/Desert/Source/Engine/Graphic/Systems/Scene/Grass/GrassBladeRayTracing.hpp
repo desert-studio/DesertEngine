@@ -50,8 +50,12 @@ namespace Desert::Graphic::System
         // CPU-GRASS-POOL-5: x = the camera list's first slot in the shared ids pool (its CameraIds range), so
         // the raster's gl_InstanceIndex - x is the variety's own slot; y, z, w = 0.
         glm::uvec4 Lists{ 0u };
+        // FPS-GRASS-HULL: x, y = the opacity mask's level-0 texels, z = 1 when the raster's strip spans only its
+        // card's hull (GrassQuality::BladeCardHull and a cooked hull), w = 0; Hull = GrassBladeDraw::CardHulls.
+        glm::vec4                  HullTexels{ 0.0f };
+        std::array<glm::vec4, 128> Hull{}; // 8 cards x 4 classes x 8 bands, (lo, hi) pairs (GrassBlade.glslh)
     };
-    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 4 );
+    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 4 + 16 + 16 * 128 );
     // The strip levels BucketFirst holds (a blade's buckets are its strip's levels: Segments halved down to one).
     inline constexpr uint32_t kGrassBladeVisibilityMaxBuckets = 8u;
 
@@ -73,7 +77,7 @@ namespace Desert::Graphic::System
     static_assert( sizeof( GrassMeshVisibilityGpu ) == 16 * ( 1 + 1 + 2 + 2 + 8 + 32 ) );
 
     // ONE level of the blade strip in blade space: (level + 1) rows of two vertices, position (side -1/+1, height
-    // share t 0..1, 0), uv (side / 2 + 1/2, t), and two triangles per segment. GrassRenderer::BladeStrip draws it,
+    // share t 0..1, 1 / segments - the raster's hull row span, FPS-GRASS-HULL), uv (side / 2 + 1/2, t), and two triangles per segment. GrassRenderer::BladeStrip draws it,
     // GrassBladeRayTracing shapes it into the level's BLAS.
     struct GrassBladeStripLevel
     {
