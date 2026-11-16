@@ -252,6 +252,14 @@ namespace Desert::Graphic
                 Block().PushConstantBytes = bytes;
                 return *this;
             }
+            // A texture the block's shader samples through the bindless table, declared to the graph alone (see
+            // RDG::BindingBlockBuilder::BindlessRead); an invalid ref declares nothing.
+            BlockDeclaration& BindlessRead( RDG::TextureRef texture, RDG::Access access )
+            {
+                if ( texture.IsValid() )
+                    m_Declaration.Read( texture, access, RDG::SubresourceRange::All() );
+                return *this;
+            }
             // The index the exec passes to PassContext::GetBindingBlock.
             [[nodiscard]] uint32_t GetIndex() const
             {
