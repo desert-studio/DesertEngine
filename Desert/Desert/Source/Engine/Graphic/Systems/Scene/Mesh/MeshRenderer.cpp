@@ -2911,13 +2911,22 @@ namespace Desert::Graphic::System
         auto& skinned = m_ScratchSkinnedRecords;
         skinned.clear();
         skinned.reserve( m_SkinnedQueue.size() );
+        // A morphed twin that keeps its own last-frame positions (no skin cache, MeshRendererMorph) says so in its
+        // row: the vertex stage reads them at binding 3 instead of its current bind positions.
+        const auto previousPositions = []( const Desert::SkinnedMesh* mesh ) -> uint32_t
+        {
+            if ( mesh == nullptr || mesh->GetGeometry().PreviousVertices == nullptr )
+                return 0u;
+            return Flags::kPreviousPositions;
+        };
         for ( const auto& data : m_SkinnedQueue )
             skinned.push_back(
                  { .Entity  = data.Entity,
                    .World   = data.Transform,
                    .Bones   = data.BoneMatrices,
                    .Mesh    = data.Mesh,
-                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ),
+                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ) |
+                             previousPositions( data.Mesh ),
                    .Content = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
         if ( skinnedClaimed < m_SkinnedContentProxies.size() )

@@ -28,6 +28,10 @@ struct ParticleDrawLayout
     uvec4 Columns2;   // x = the Ribbon row's RibbonIdBinding (an Int column), y = Scale, z = MeshOrientation, w = Velocity
     vec4  Ribbon;     // the emitter's Ribbon row: x = Width (cm), y = UV mode (0 Stretch, 1 TileByDistance),
                       // z = UVTileDistance (cm); zero when the emitter has no Ribbon row
+    mat4  PrevLocalToWorld; // the entity's transform of the tick before (cm), a Local emitter's previous
+                            // positions are drawn through it (UE PrevLocalToWorld); a first tick's = LocalToWorld
+    uvec4 Columns3;   // x = the engine's PreviousPosition column (UE Particles.Previous.Position: the Position
+                      // of the tick before, ParticleCompact / ParticleSimulate), yzw = PARTICLE_ATTR_NONE
 };
 
 #endif // PARTICLE_DRAW_LAYOUT_GLSLH

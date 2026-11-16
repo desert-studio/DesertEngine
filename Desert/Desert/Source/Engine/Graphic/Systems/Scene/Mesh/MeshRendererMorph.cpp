@@ -3,7 +3,15 @@
 // its own morphed twin of the mesh (SkinnedMesh::MakeMorphedTwin): the same index buffer, streams and skeleton,
 // its own vertices, which the "Mesh: Morph" compute node blends from the base vertices and the mesh's morph
 // deltas. The blend runs only when the component's revision moved (UE FMorphVertexBufferPool revision number) - a
-// still face costs nothing.
+// still face costs nothing - and once more the frame after, so the previous positions catch up with the shape.
+//
+// VELOCITY (UE FMorphVertexBufferPool double buffer, PreviousMorph): with the skin cache off, the twin's
+// PreviousVertices (MeshGeometry, the skinned format's binding 3, float3 a vertex; its row's PrimitiveFlags::
+// kPreviousPositions) hold the positions it was drawn with last frame; the blend moves the output's
+// positions there before overwriting them (header w = 1) when the output IS last frame's shape - the twin was
+// drawn last frame and holds a completed blend - and writes the new shape into both otherwise (the first-frame /
+// teleport rule of the motion rows). The vertex stage that skins without a skin-cache entry reads them; with one,
+// the cache rotates its own previous positions from the same output (RayTracingSkinCache.hpp).
 #include "MeshRenderer.hpp"
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -31,6 +39,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, MorphDeltas );
         DESERT_SHADER_PARAMETER( StorageBuffer, MorphWeights );
         DESERT_SHADER_PARAMETER( StorageBuffer, MorphOutput );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphPrevious );
     };
 } // namespace
 
@@ -41,11 +50,26 @@ namespace Desert::Graphic::System
         constexpr const char* kMorphShader    = "MorphTargets";
         constexpr uint32_t    kMorphGroupSize = 64; // LocalSize of Programs/Compute/MorphTargets.shader
 
-        // The MorphWeights buffer of the shader: a uvec4 header, then (target, weight bits) per active target.
-        std::vector<uint32_t> PackActiveWeights( const std::vector<float>& weights, uint32_t targetCount,
-                                                 uint32_t vertexCount )
+        // Header w of Programs/Compute/MorphTargets.shader: what MorphPrevious receives.
+        constexpr uint32_t kMorphFreshPrevious  = 0u; // the new shape (no history: new, or not drawn last frame)
+        constexpr uint32_t kMorphRotatePrevious = 1u; // the output's old position (it IS last frame's shape)
+        constexpr uint32_t kMorphNoPrevious     = 2u; // nothing: the skin cache keeps the history
+
+        [[nodiscard]] uint32_t HistoryMode( const bool ownsPrevious, const bool history )
         {
-            std::vector<uint32_t> packed = { vertexCount, 0u, targetCount, 0u };
+            if ( !ownsPrevious )
+                return kMorphNoPrevious;
+            if ( history )
+                return kMorphRotatePrevious;
+            return kMorphFreshPrevious;
+        }
+
+        // The MorphWeights buffer of the shader: a uvec4 header (w = HistoryMode), then (target, weight bits) per
+        // active target.
+        std::vector<uint32_t> PackActiveWeights( const std::vector<float>& weights, uint32_t targetCount,
+                                                 uint32_t vertexCount, const uint32_t historyMode )
+        {
+            std::vector<uint32_t> packed = { vertexCount, 0u, targetCount, historyMode };
             const auto            count  = std::min<size_t>( weights.size(), targetCount );
             for ( size_t k = 0; k < count; ++k )
             {
@@ -74,36 +98,68 @@ namespace Desert::Graphic::System
             return base;
 
         MorphTwin& twin = m_MorphTwins[data.Entity];
+        // Last frame's positions are the twin's own only where no skin cache keeps them: with the cache on, its
+        // entry skins from the twin's output and rotates its own previous positions (RayTracingSkinCache.hpp).
+        const bool ownsHistory = !IsSkinCacheEnabled();
         // The base's content revision and geometry span are the twin's identity (the pool's buffers are shared
-        // by every mesh, so the buffer alone says nothing).
+        // by every mesh, so the buffer alone says nothing); so is who keeps the history (Effects.SkinCache).
         if ( !twin.Twin || twin.BaseRevision != base->GetRenderRevision() ||
-             twin.BaseGeometry.MeshBinding() != base->GetGeometry().MeshBinding() )
+             twin.BaseGeometry.MeshBinding() != base->GetGeometry().MeshBinding() ||
+             ownsHistory != ( twin.Previous != nullptr ) )
         {
-            const auto bytes = static_cast<uint32_t>( base->GetVertexCount() * sizeof( SkinnedVertex ) );
+            const auto vertexCount = static_cast<uint32_t>( base->GetVertexCount() );
+            const auto bytes       = static_cast<uint32_t>( vertexCount * sizeof( SkinnedVertex ) );
+            // The output (the full skinned vertex) and, without a skin cache, last frame's positions: float3 per
+            // vertex (ShaderProtocols::kMeshPreviousPositionStride, binding 3; UE's previous position stream).
             std::shared_ptr<VertexBuffer> vertices = VertexBuffer::Create( bytes, BufferUsage::GpuWritten );
-            if ( const auto built = vertices->RT_Invalidate(); !built.IsSuccess() )
+            std::shared_ptr<VertexBuffer> previous;
+            if ( ownsHistory )
+                previous = VertexBuffer::Create( vertexCount * ShaderProtocols::kMeshPreviousPositionStride,
+                                                 BufferUsage::GpuWritten );
+            for ( const std::shared_ptr<VertexBuffer>* buffer : { &vertices, &previous } )
             {
-                LOG_ERROR( "[MeshRenderer] entity {}: its morphed vertices could not be allocated, it draws "
-                           "unmorphed: {}",
-                           data.Entity, built.GetError() );
-                m_MorphTwins.erase( data.Entity );
-                return base;
+                if ( *buffer == nullptr )
+                    continue;
+                if ( const auto built = ( *buffer )->RT_Invalidate(); !built.IsSuccess() )
+                {
+                    LOG_ERROR( "[MeshRenderer] entity {}: its morphed vertices could not be allocated, it draws "
+                               "unmorphed: {}",
+                               data.Entity, built.GetError() );
+                    m_MorphTwins.erase( data.Entity );
+                    return base;
+                }
             }
             twin              = MorphTwin{};
             twin.Base         = base;
             twin.BaseRevision = base->GetRenderRevision();
             twin.BaseGeometry = base->GetGeometry();
             twin.Vertices     = vertices;
-            twin.Twin         = SkinnedMesh::MakeMorphedTwin( *base, std::move( vertices ) );
+            twin.Previous     = previous;
+            twin.Twin = SkinnedMesh::MakeMorphedTwin( *base, std::move( vertices ), std::move( previous ) );
+            // New: no frame drew it before this one.
+            twin.LastDrawn = m_MorphFrame;
         }
 
-        twin.Base      = base; // this frame's draw of it: valid until the frame's passes have run
-        twin.LastDrawn = m_MorphFrame;
-        if ( !twin.Blended || twin.Revision != data.MorphRevision )
+        twin.Base = base; // this frame's draw of it: valid until the frame's passes have run
+        // The first draw of the frame decides whether last frame drew it (a second record of the entity this
+        // frame finds LastDrawn already moved and keeps that answer).
+        if ( twin.LastDrawn != m_MorphFrame )
+        {
+            twin.DrawnLastFrame = twin.LastDrawn + 1u == m_MorphFrame;
+            twin.LastDrawn      = m_MorphFrame;
+        }
+        const bool changed = !twin.Blended || twin.Revision != data.MorphRevision;
+        // A blend is owed when the shape changed, and once more the frame after a blend that moved it: the
+        // previous positions still hold the shape before that blend and must catch up, or a still face would
+        // keep the last change's velocity.
+        if ( changed || twin.PreviousBehind )
         {
             twin.Pending         = true;
             twin.PendingWeights  = data.MorphWeights;
             twin.PendingRevision = data.MorphRevision;
+            twin.PendingHistory  = twin.Blended && twin.DrawnLastFrame;
+            // Only the twin's own previous positions lag a blend; a skin-cache entry rotates every frame.
+            twin.PendingMoves = changed && twin.PendingHistory && twin.Previous != nullptr;
         }
         return twin.Twin.get();
     }
@@ -126,7 +182,11 @@ namespace Desert::Graphic::System
             for ( SkinnedMeshRenderData& draw : m_SkinnedQueue )
                 if ( draw.Mesh == twin.Twin.get() )
                     draw.Mesh = twin.Base;
-            twin.Pending = false;
+            // The entity draws its base this frame: neither buffer is the shape it was drawn with, so the next
+            // blend starts the history over.
+            twin.Blended        = false;
+            twin.PreviousBehind = false;
+            twin.Pending        = false;
         };
 
         std::vector<MorphTwin*> pending;
@@ -186,12 +246,30 @@ namespace Desert::Graphic::System
                         unmorph( *twin, in.GetError() );
                         continue;
                     }
+                    if ( twin->Previous != nullptr )
+                    {
+                        if ( const auto in = Renderer::ImportVertexBuffer( twin->Previous, twin->PreviousImport );
+                             !in )
+                        {
+                            unmorph( *twin, in.GetError() );
+                            continue;
+                        }
+                    }
 
-                    const std::vector<uint32_t> weights = PackActiveWeights(
-                         twin->PendingWeights, base.GetMorphTargetCount(), base.GetVertexCount() );
+                    const std::vector<uint32_t> weights =
+                         PackActiveWeights( twin->PendingWeights, base.GetMorphTargetCount(),
+                                            base.GetVertexCount(),
+                                            HistoryMode( twin->Previous != nullptr, twin->PendingHistory ) );
                     const RDG::BufferRef baseRef    = graph.RegisterExternal( twin->BaseImport, "Morph.Base" );
                     const RDG::BufferRef deltasRef  = graph.RegisterExternal( twin->DeltasImport, "Morph.Deltas" );
                     const RDG::BufferRef outRef     = graph.RegisterExternal( twin->OutputImport, "Morph.Output" );
+                    // Without the twin's own previous positions (the skin cache keeps them) the shader writes
+                    // none (header w = kMorphNoPrevious): its Buffer(4) gets one float3 of transient scratch.
+                    const RDG::BufferDesc scratch{ ShaderProtocols::kMeshPreviousPositionStride };
+                    const RDG::BufferRef  prevRef =
+                         twin->Previous != nullptr
+                              ? graph.RegisterExternal( twin->PreviousImport, "Morph.Previous" )
+                              : graph.CreateBuffer( scratch, "Morph.NoPrevious" );
                     const RDG::BufferRef weightsRef = graph.CreateBuffer(
                          RDG::BufferDesc{ weights.size() * sizeof( uint32_t ) }, "Morph.Weights" );
                     graph.QueueBufferUpload( weightsRef, std::as_bytes( std::span( weights ) ) );
@@ -209,6 +287,8 @@ namespace Desert::Graphic::System
                                   .Storage( MeshMorphShaderParameters::MorphWeights, weightsRef,
                                             RDG::Access::StorageRead )
                                   .Storage( MeshMorphShaderParameters::MorphOutput, outRef,
+                                            RDG::Access::StorageWrite )
+                                  .Storage( MeshMorphShaderParameters::MorphPrevious, prevRef,
                                             RDG::Access::StorageWrite );
                          },
                          [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -219,6 +299,9 @@ namespace Desert::Graphic::System
                     // Handed to vertex input at the graph's end: the view graph's passes bind the twin's vertices
                     // as their vertex stream without declaring them.
                     graph.Extract( outRef, twin->OutputImport, RDG::Access::VertexIndex );
+                    // ...and so is the previous-position binding the skinned view cells read (binding 3).
+                    if ( twin->Previous != nullptr )
+                        graph.Extract( prevRef, twin->PreviousImport, RDG::Access::VertexIndex );
                     declared.push_back( twin );
                 }
 
@@ -227,18 +310,16 @@ namespace Desert::Graphic::System
                     if ( const auto executed = Renderer::ExecuteGraph( graph ); !executed )
                     {
                         for ( MorphTwin* twin : declared )
-                        {
-                            twin->Blended = false;
                             unmorph( *twin, executed.GetError() );
-                        }
                     }
                     else
                     {
                         for ( MorphTwin* twin : declared )
                         {
-                            twin->Blended  = true;
-                            twin->Revision = twin->PendingRevision;
-                            twin->Pending  = false;
+                            twin->Blended        = true;
+                            twin->Revision       = twin->PendingRevision;
+                            twin->PreviousBehind = twin->PendingMoves;
+                            twin->Pending        = false;
                             twin->PendingWeights.clear();
                         }
                     }

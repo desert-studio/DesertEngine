@@ -119,7 +119,10 @@ void main()
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
 #endif
-    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    // The particle's own motion (UE Particles.Previous.Position): this end moved back by its particle's
+    // displacement since the tick drawn last frame; the side vector is this frame's.
+    const vec3 prevWorldPos = worldPos + ( ParticlePreviousWorldPosition( at ) - position );
+    v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( prevWorldPos, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
     v_Surface.ObjectMoved = 1.0;
 

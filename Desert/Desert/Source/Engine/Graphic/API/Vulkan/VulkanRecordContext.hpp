@@ -24,6 +24,8 @@ namespace Desert::Graphic::API::Vulkan
         VkDeviceSize    StreamOffset  = 0;
         VkBuffer        Indices       = VK_NULL_HANDLE;
         VkDeviceSize    IndexOffset   = 0;
+        VkBuffer        Previous       = VK_NULL_HANDLE; // binding 3, the previous positions (none: not read)
+        VkDeviceSize    PreviousOffset = 0;
 
         [[nodiscard]] bool operator==( const VulkanBoundGeometry& ) const = default;
     };
