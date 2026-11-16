@@ -33,7 +33,7 @@ namespace Common::Scalability
     {
         Off = 0,     // sky light and ambient occlusion only
         Lightmaps,   // baked by the path tracer (LIGHTMAPS)                          — not implemented
-        ScreenSpace, // HZB trace of last frame's lit scene + own AO on the sky (UE SSGI, System::SSGIRenderer)
+        ScreenSpace, // HZB trace of last frame's lit scene over the GTAO-occluded sky (UE SSGI, SSGIRenderer)
         // The world radiance cache read per pixel, no screen probes (GI-PROBE-SW; UE Lumen's irradiance field
         // gather): the cheap traced path, every light and the sky bounced off screen too. It took the number of
         // the reflective shadow maps it replaced (3); every method above moved down one, and scene v64

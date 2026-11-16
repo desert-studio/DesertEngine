@@ -91,8 +91,8 @@ namespace Desert::Core
         //  Off                  — the sky light and ambient occlusion only; the default. GI comes from a method's
         //                         own passes, never from a bounce the lighting composite adds.
         //  ScreenSpace          — UE ScreenSpaceGI (System::SSGIRenderer): cosine rays over the HZB return last
-        //                         frame's lit scene where they hit; the rays that miss see the sky, occluded by
-        //                         the trace's own hit share (its AO). Deferred only; the off-screen world is not
+        //                         frame's lit scene where they hit, added over the sky's ambient along GTAO's
+        //                         bent normal, occluded by GTAO. Deferred only; the off-screen world is not
         //                         bounced (ProbeVolume and Traced are).
         //  ProbeVolume          — the world radiance cache (probes on the global distance field, every light and
         //                         the sky, off screen too) read per pixel: the cheap traced path.

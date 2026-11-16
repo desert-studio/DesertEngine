@@ -119,7 +119,8 @@ namespace Desert::Core
     // (Common::Scalability::GIRequest / ReflectionRequest) - SoftwareTraced and HardwareTraced are one Traced, the
     // tracer the machine's and the device's (Tools/SceneMigrator, MigrateTracedRequestV71ToV72).
     // v73 (GTX-TIER-LADDER): GI comes from the method alone - the lighting composite's screen-space gather is
-    // gone and GIRequest ScreenSpace is declared, not implemented; a volume that asked for it asks for Off, and
+    // gone and GIRequest ScreenSpace was then declared, not implemented (SSGIRenderer implements it since
+    // SSGI2-GTAO, no scene version); a volume that asked for it asks for Off, and
     // GIIntensity (read by that gather only) is dropped (Tools/SceneMigrator, MigrateComposedGIV72ToV73).
     //
     // A SUBSYSTEM THAT OWNS PART OF THE FORMAT COUNTS ITS OWN CHANGES (MIGRATE-SUBSYS, owner 2026-10-22; UE

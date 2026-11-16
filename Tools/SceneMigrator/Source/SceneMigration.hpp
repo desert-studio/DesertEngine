@@ -438,7 +438,8 @@ namespace Desert::Migration
 
     //  73 - GI COMES FROM THE METHOD ALONE (GTX-TIER-LADDER). The deferred composite's screen-space gather (a
     //       sun-only bounce of the on-screen G-buffer neighbours, scaled by PostProcessSettings.GIIntensity) is
-    //       gone, and GIRequest ScreenSpace (2) is declared but not implemented. A volume that stated it asks for
+    //       gone, and GIRequest ScreenSpace (2) was then declared but not implemented (SSGIRenderer, the HZB
+    //       screen trace, implements it since SSGI2-GTAO, no scene version). A volume that stated it asks for
     //       Off (0) - the GI it rendered in effect: the gather measured mean 0.11/255 on CornellDemo - and
     //       GIIntensity, read by nothing now, is dropped (MigrateComposedGIV72ToV73). Scenes and prefabs alike,
     //       the record and every prefab override.
