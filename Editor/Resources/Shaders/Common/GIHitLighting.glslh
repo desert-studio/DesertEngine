@@ -18,7 +18,8 @@
 //              the full Cook-Torrance term (diffuse + specular, GIHitLightResponse) for a closest-hit material;
 //     global   a global-field hit (GIHit.globalField: the software far field's coarse surface) only by the sun and
 //              the moon, one global-field visibility test each (GIHitRadianceGlobalField) - no local light, no
-//              per-light ray from a far hit, as UE's TraceVoxels fires no shadow ray from a global-SDF hit;
+//              per-light ray from a far hit, as UE's TraceVoxels fires no shadow ray from a global-SDF hit; a
+//              software mesh-field hit no card holds the same way (GIHitRadianceMeshField, FPS-NEAR-HIT);
 //     bounce   the radiance cache's irradiance at the hit from the previous update (RadianceCacheIrradianceAt):
 //              every frame adds a bounce, as UE's radiance cache feedback does;
 //     material the hit's albedo and emissive from the G-buffer when the hit is the surface the view sees at its
@@ -147,6 +148,25 @@ vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
         return radiance;
     return GIHitRadianceGlobalFieldInPlace( hit, rayDirection );
 }
+
+// A SOFTWARE MESH-FIELD HIT (the near field's: ScreenProbeTrace.shader SP_TRACE_NEAR_HIT_LIGHTING), lit as UE lights
+// a mesh SDF hit (LumenScreenProbeTracing.usf TraceMeshSDFs -> ConeTraceMeshSDFsAndInterpolateFromCards): from the
+// hit object's cards, whose FinalLighting already holds every light's shadow - no ray leaves the hit. A hit no card
+// holds is lit as a global-field hit no card holds (GIHitRadianceGlobalField): the directional lights through ONE
+// global-field visibility test each, the radiance cache's bounce (which carries the local lights), the emissive.
+// FPS-NEAR-HIT: GIHitRadiance lit such a hit with GIHitRadianceLit - per light (sun, moon, every local light of the
+// hit's light-grid cell) a full near + far visibility march, a per-hit secondary trace UE's software hit lighting
+// never fires and the leg's largest cost (divergent: one lane's foliage hit walked the object lists of every light
+// ray while its subgroup waited).
+#if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+vec3 GIHitRadianceMeshField( GIHit hit, vec3 rayDirection )
+{
+    vec3 radiance;
+    if ( SurfaceCacheHitLighting( hit, GIHitSurfaceCacheBias( hit ), radiance ) != SURFACE_CACHE_HIT_UNCOVERED )
+        return radiance; // lit by the cards, or the black back of one-sided geometry (GIHitRadianceNeedsGlobalFieldInPlace)
+    return GIHitRadianceGlobalFieldInPlace( hit, rayDirection );
+}
+#endif
 
 // The response of the directional light of travel @p travel (w > 0.5: on) and radiance @p radiance (w > 0.5: casts
 // shadows) at a hit, the shadow from ONE visibility test through the global field (GITraceVisibilityGlobalField).

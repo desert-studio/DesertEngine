@@ -291,12 +291,20 @@ uint SurfaceCacheHitLighting( GIHit hit, float bias, out vec3 lighting )
     // The rows whose cards can hold the hit (SurfaceCacheRowHolds), kept from the sampling walk for the back-face
     // walk: it read the same instance and bounds again, and a hit near no carded instance (most global-field hits:
     // terrain, far meshes without cards) now skips that walk outright. A row that does not hold the hit added 0.
-    const uvec4 rows      = GIHitInstanceRows( hit );
-    uint        held      = 0u;
-    uvec4       heldCards = uvec4( GI_NO_MESH_CARDS );
-    vec4        heldBias  = vec4( 0.0 );
+    // FPS-NEAR-HIT: a hit that knows its object (a mesh-field or a hardware hit) reads that object's cards first and
+    // the tracer's other rows (the object grid's cell: a clipmap search and four fetches) only when they did not
+    // hold it well enough (UE ConeTraceMeshSDFsAndInterpolateFromCards reads the hit object's cards alone). Every
+    // GIHitInstanceRows lists a known hit's own row first, so the rows walked - and the result - are the same.
+    const bool knowsObject = hit.instance != GI_NO_INSTANCE;
+    uvec4      rows        = knowsObject ? uvec4( hit.instance, GI_NO_INSTANCE, GI_NO_INSTANCE, GI_NO_INSTANCE )
+                                         : GIHitInstanceRows( hit );
+    uint       held        = 0u;
+    uvec4      heldCards   = uvec4( GI_NO_MESH_CARDS );
+    vec4       heldBias    = vec4( 0.0 );
     for ( int i = 0; i < 4; ++i )
     {
+        if ( i == 1 && knowsObject )
+            rows = GIHitInstanceRows( hit );
         if ( rows[i] == GI_NO_INSTANCE )
             break;
         uint  meshCards;
