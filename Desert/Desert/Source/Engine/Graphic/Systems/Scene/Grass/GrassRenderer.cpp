@@ -377,9 +377,10 @@ namespace Desert::Graphic::System
             // floor's width per unit of distance (MinScreenWidth / pixels per unit; 0: none)
             glm::vec4  Lean;
             // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
-            // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic). The far
-            // LOD of a blade (GPU-FRAME-4) or a mesh (GPU-FRAME-6): z = the distance at which its bounding radius
-            // at scale 1 stands at the Foliage quality's LodScreenPixels (0: none; GrassFieldShare.glslh
+            // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic) x the
+            // Foliage quality's MeshLodDistanceScale squared (FPS-GRASS-MESH-RASTER, UE foliage.LODDistanceScale).
+            // The far LOD of a blade (GPU-FRAME-4) or a mesh (GPU-FRAME-6): z = the distance at which its bounding
+            // radius at scale 1 stands at the Foliage quality's LodScreenPixels (0: none; GrassFieldShare.glslh
             // GrassBladeLodAt, GrassMeshFarLod). w, a blade: the distance its coarsest level's instances draw
             // from as the small bucket (BladeStrip's BladeSmall; 0: none); a mesh: 0.
             glm::vec4 Lod;
@@ -893,8 +894,10 @@ namespace Desert::Graphic::System
             // THE SMALL BUCKETS (UE r.MinScreenRadiusForDepthPrepass; GpuInstancedRenderData::PrepassBuckets): the
             // first bucket whose every instance stands below kMinScreenRadiusForDepthPrepass of the screen through
             // this lens, in GrassGenerate's measure (radius x max(P00, P11) / 2 over the distance): a mesh's level
-            // b >= 1 holds the instances below its half screen size, a blade's bucket b >= 1 the ones at least
-            // b x LodDistance away. Bucket 0 reaches the camera, so it is never small.
+            // b >= 1 holds the instances below its half screen size - times the Foliage quality's
+            // MeshLodDistanceScale, which selects the level as if the instance stood that much farther
+            // (GrassCull GrassMeshLevel) - a blade's bucket b >= 1 the ones at least b x LodDistance away. Bucket 0
+            // reaches the camera, so it is never small.
             gpu.PrepassBuckets = buckets;
             const float screenMultiple =
                  std::max( 0.5f * std::abs( frame.Projection[0][0] ), 0.5f * std::abs( frame.Projection[1][1] ) );
@@ -914,7 +917,7 @@ namespace Desert::Graphic::System
                 if ( variety.Blade && lodDistance > 0.0f )
                     largest = screenMultiple * boundsRadius * maxScale / ( static_cast<float>( b ) * lodDistance );
                 else if ( !variety.Blade && b < screenSizes.size() )
-                    largest = 0.5f * screenSizes[b];
+                    largest = 0.5f * screenSizes[b] * m_Quality.MeshLodDistanceScale;
                 if ( largest < kMinScreenRadiusForDepthPrepass )
                 {
                     gpu.PrepassBuckets = b;
@@ -1696,8 +1699,13 @@ namespace Desert::Graphic::System
             const Common::Math::AABB bounds   = Geometry::LocalBounds( submeshes );
             const float              multiple = std::max( 0.5f * std::abs( frame.Projection[0][0] ),
                                                           0.5f * std::abs( frame.Projection[1][1] ) );
-            params.Lod = glm::vec4( multiple * 0.5f * glm::length( bounds.Max - bounds.Min ),
-                                    std::abs( frame.Projection[2][3] ), farLodDistance, 0.0f );
+            // FPS-GRASS-MESH-RASTER (UE foliage.LODDistanceScale): the level is selected at the true distance x
+            // the Foliage quality's MeshLodDistanceScale k - GrassMeshLevel's d^2 x Lod.y, so Lod.y carries k^2.
+            // Only the level: the cull, the far LOD (z) and the thinning read the true distance.
+            const float lodScale = m_Quality.MeshLodDistanceScale;
+            params.Lod           = glm::vec4( multiple * 0.5f * glm::length( bounds.Max - bounds.Min ),
+                                              std::abs( frame.Projection[2][3] ) * lodScale * lodScale,
+                                              farLodDistance, 0.0f );
         }
         else
             params.Lod = glm::vec4( 0.0f, 0.0f, farLodDistance, plan.SmallDistance ); // w: the small bucket
