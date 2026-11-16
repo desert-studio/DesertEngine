@@ -607,6 +607,103 @@ ivec2 CloudColumnBands( float heightLow, float heightHigh )
     return ivec2( firstRead / rowsPerBand, lastRead / rowsPerBand );
 }
 
+#if defined( CLOUD_SAMPLE_FAR_BOUND )
+// THE FAR PATH'S CONSERVATIVE DENSITY (FPS-CLOUD-RECON). Past the coarsest level's window nothing is baked, so the
+// column probe and the cell test said "might" for every far column and a ray entering the layer more than ~24 km
+// out (below ~3.5 degrees at the default region) searched its whole chord with the exact field - Unreal strides
+// that air on the material's ConservativeDensity like any other. The far path (CloudSampleProceduralFar) is a
+// closed function of the world weather W at two reads and of two height tables, so its bound is exact interval
+// arithmetic on those inputs:
+//   * W over the region: Graphic's min/max pyramid of the weather map (CLOUD_SAMPLE_FAR_BOUND( mip, texel ), .x the
+//     minimum, .y the maximum), mip 0 texel k bounding every bilinear read whose texel coordinate lies in
+//     [k, k + 1) (the texels k - 1 .. k + 1), mip m the union of its four children, packed along x at
+//     2 side - 2 (side >> m). Widened by CLOUD_FAR_BOUND_W_MARGIN for the map's half-float storage;
+//   * the share and the mean profile: their maxima over the height interval (CloudFarBandMax);
+//   * depth = 1 - u / share falls with u and rises with share, so 1 - Phi(min v) / max share bounds it, and the
+//     field min(2 profile depth, 1) is bounded by the same maxima; the species' blend v = cos a W1 + sin a W2 is
+//     bounded below by the interval of each read.
+// TRUE ONLY WHEN NO COLUMN WITHIN @p radiusKm OF @p windPosXz, AT ANY HEIGHT FRACTION BETWEEN THE TWO, CAN HAVE A FAR
+// PROFILE ABOVE ITS CUT (CloudColumnCut, the cut the level texels are judged by).
+#define CLOUD_FAR_BOUND_W_MARGIN 0.02f
+
+vec4 CloudFarBandMax( vec4 table[CLOUD_FAR_BANDS], float heightLow, float heightHigh )
+{
+    float low    = min( heightLow, heightHigh );
+    float high   = max( heightLow, heightHigh );
+    vec4  result = max( CloudFarBand( table, low ), CloudFarBand( table, high ) );
+    // CloudFarBand is linear between band centres and flat past the outer two: its maximum over the interval is at
+    // an end or at a centre inside it.
+    for ( int band = 0; band < CLOUD_FAR_BANDS; ++band )
+    {
+        float centre = ( float( band ) + 0.5f ) / float( CLOUD_FAR_BANDS );
+        if ( centre > low && centre < high )
+            result = max( result, table[band] );
+    }
+    return result;
+}
+
+// The range of W read anywhere within @p radiusTexels of texel coordinate @p p (uv * side) of the weather map,
+// whose side is @p side. The mip whose texel spans the disk's diameter holds the disk in at most 2 x 2 texels.
+vec2 CloudFarWeatherRange( vec2 p, float radiusTexels, int side )
+{
+    int topMip = 0;
+    while ( ( side >> ( topMip + 1 ) ) > 0 )
+        ++topMip;
+    int   mip     = clamp( int( ceil( log2( max( 2.0f * radiusTexels, 1.0f ) ) ) ), 0, topMip );
+    float cell    = float( 1 << mip );
+    float mipSide = float( side >> mip );
+    vec2  first   = floor( ( p - vec2( radiusTexels ) ) / cell );
+    vec2  last    = floor( ( p + vec2( radiusTexels ) ) / cell );
+    vec2  range   = vec2( 1.0e30f, -1.0e30f );
+    for ( int dy = 0; dy < 2; ++dy )
+    {
+        for ( int dx = 0; dx < 2; ++dx )
+        {
+            vec2 texel = min( first + vec2( float( dx ), float( dy ) ), last );
+            // The torus' modulo in float: GLSL leaves % of a negative int undefined.
+            texel      = texel - mipSide * floor( texel / mipSide );
+            vec2 bound = CLOUD_SAMPLE_FAR_BOUND( mip, ivec2( texel ) ).xy;
+            range      = vec2( min( range.x, bound.x ), max( range.y, bound.y ) );
+        }
+    }
+    return range + vec2( -CLOUD_FAR_BOUND_W_MARGIN, CLOUD_FAR_BOUND_W_MARGIN );
+}
+
+bool CloudFarColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm, float heightLow,
+                           float heightHigh )
+{
+    if ( params.FarScale <= 0.0f )
+        return true;
+
+    int   side    = CLOUD_FAR_BOUND_SIDE;
+    vec2  a       = windPosXz * ( params.FarScale * float( side ) );
+    vec2  b       = vec2( CLOUD_FAR_READ_TURN_COS * a.x - CLOUD_FAR_READ_TURN_SIN * a.y,
+                          CLOUD_FAR_READ_TURN_SIN * a.x + CLOUD_FAR_READ_TURN_COS * a.y ) *
+             CLOUD_FAR_READ_SCALE;
+    float radiusA = radiusKm * params.FarScale * float( side );
+    vec2  first   = CloudFarWeatherRange( a, radiusA, side );
+    vec2  second  = CloudFarWeatherRange( b, radiusA * CLOUD_FAR_READ_SCALE, side );
+
+    vec4 presence = CloudFarBandMax( params.FarPresence, heightLow, heightHigh );
+    vec4 profile  = CloudFarBandMax( params.FarProfile, heightLow, heightHigh );
+    vec4 cut      = CloudColumnCut( params );
+    for ( int slot = 0; slot < CLOUD_SPECIES_SLOTS; ++slot )
+    {
+        float share = presence[slot];
+        if ( share <= 0.0f )
+            continue;
+        float angle    = float( slot ) * 0.7853981634f;
+        float c        = cos( angle );
+        float s        = sin( angle );
+        float lowestV  = ( c >= 0.0f ? c * first.x : c * first.y ) + ( s >= 0.0f ? s * second.x : s * second.y );
+        float depthMax = clamp( 1.0f - CloudNormalCdf( lowestV ) / share, 0.0f, 1.0f );
+        if ( depthMax > 0.0f && min( 2.0f * profile[slot] * depthMax, 1.0f ) >= cut[slot] )
+            return false;
+    }
+    return true;
+}
+#endif
+
 bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm, float heightLow,
                                   float heightHigh )
 {
@@ -619,8 +716,17 @@ bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float
         lowest[level]  = CloudProceduralEdgeWeight( edge - r );
         highest[level] = CloudProceduralEdgeWeight( edge + r );
     }
+    // Where the disk reaches the far path, its own bound answers (CloudFarColumnsEmpty) and the levels below still
+    // answer for the rest: the far path and the coarsest level are mixed in its band, and a mix of two values under
+    // the cut is under it.
+#if defined( CLOUD_SAMPLE_FAR_BOUND )
+    if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f &&
+         !CloudFarColumnsEmpty( params, windPosXz, radiusKm, heightLow, heightHigh ) )
+        return false;
+#else
     if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f )
         return false;
+#endif
 
     vec4  cut       = CloudColumnCut( params );
     ivec2 bands     = CloudColumnBands( heightLow, heightHigh );
@@ -686,8 +792,14 @@ bool CloudProceduralCellEmpty( CloudFieldParams params, int side, ivec2 cell, in
         lowest[level]  = CloudProceduralEdgeWeight( edge - r );
         highest[level] = CloudProceduralEdgeWeight( edge + r );
     }
+    // The far path's own bound over the same disk (CloudFarColumnsEmpty), as the column probe asks it.
+#if defined( CLOUD_SAMPLE_FAR_BOUND )
+    if ( lowest[last] < 1.0f && !CloudFarColumnsEmpty( params, center, radius, heightLow, heightHigh ) )
+        return false;
+#else
     if ( lowest[last] < 1.0f )
         return false;
+#endif
 
     vec4  cut   = CloudColumnCut( params );
     ivec2 bands = CloudColumnBands( heightLow, heightHigh );
