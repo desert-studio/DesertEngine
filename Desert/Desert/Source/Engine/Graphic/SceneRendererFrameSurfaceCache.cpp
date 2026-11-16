@@ -97,7 +97,10 @@ namespace Desert::Graphic
             const GlobalIllumination::TracerSoftwarePayload payload{
                  .GlobalDistanceFieldLevels      = t.GlobalDistanceFieldLevels,
                  .MeshSDFGrid                    = t.MeshDistanceFields.NearFieldGridPlacement,
-                 .GlobalDistanceFieldOccupiedBox = t.GlobalDistanceFieldOccupiedBox };
+                 .GlobalDistanceFieldOccupiedBox = t.GlobalDistanceFieldOccupiedBox,
+                 .GlobalDistanceFieldCeiling     = t.GlobalDistanceFieldCeiling != nullptr
+                                                       ? *t.GlobalDistanceFieldCeiling
+                                                       : DistanceField::GlobalDistanceFieldCeiling{} };
             tracer.GlobalDistanceFieldLevels =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( payload ) }, "GI.Tracer.GlobalDistanceFieldLevels" );
             graph.QueueBufferUpload( tracer.GlobalDistanceFieldLevels, std::as_bytes( std::span( &payload, 1 ) ) );

@@ -21,6 +21,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceFieldCeiling.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -221,6 +222,8 @@ namespace Desert::Graphic::DistanceField
             // band, so a far-field march ends where its ray leaves it (Common/GITraceDistanceField.glslh
             // GIFarFieldOccupiedExit). Min > Max: nothing is placed, no ray can hit.
             std::array<glm::vec4, 2>                                  OccupiedBox{};
+            // THE CEILING (above) of the same placement; null when nothing was placed yet.
+            std::shared_ptr<const GlobalDistanceFieldCeiling>         Ceiling;
             RDG::TextureRef                                           ObjectGrid; // the object grid (above)
             MeshDistanceFieldReads                                    MeshFields;
         };
@@ -290,6 +293,7 @@ namespace Desert::Graphic::DistanceField
             uint64_t                        Lookups       = 0;
             std::vector<Common::Math::AABB> PlacedBounds;
             std::array<glm::vec4, 2>        OccupiedBox{}; // FrameField::OccupiedBox, made from PlacedBounds
+            std::shared_ptr<const GlobalDistanceFieldCeiling> Ceiling; // FrameField::Ceiling, the same
             std::vector<glm::vec4>          ObjectData;
             // The placed mesh objects, which lead PlacedBounds and ObjectData; the landscape tiles follow them
             // (the global field's only - MeshDistanceFieldReads::NumMeshObjects).
@@ -320,6 +324,7 @@ namespace Desert::Graphic::DistanceField
             uint64_t                                            Objects = 0;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps> Levels{};
             std::array<glm::vec4, 2>                            OccupiedBox{};
+            std::shared_ptr<const GlobalDistanceFieldCeiling>   Ceiling;
             uint32_t                                            NumMeshObjects = 0;
             uint32_t                                            NumObjects     = 0;
         };

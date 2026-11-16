@@ -211,8 +211,11 @@ Shader "SSR"
         void TraceWorldNearField()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
-        	bool  toFar = false;
-        	uvec4 far   = uvec4(0u);
+        	bool           toFar = false;
+        	SSRWorldFarRay far;
+        	far.Listed = uvec4(0u);
+        	far.Start  = vec4(0.0);
+        	far.Dir    = vec4(0.0);
         	ivec2        q;
         	SSRTexel     t;
         	SSRTraceSums s;
@@ -231,9 +234,11 @@ Shader "SSR"
         			ray.tMin = farStart;
         			float globalStart;
         			float marchLength;
-        			toFar = GIFarFieldSpan(ray, globalStart, marchLength);
-        			far   = uvec4(index, floatBitsToUint(farStart), floatBitsToUint(bias.nearOffset),
-        			              floatBitsToUint(farTMin));
+        			toFar      = GIFarFieldSpan(ray, globalStart, marchLength);
+        			far.Listed = uvec4(index, floatBitsToUint(bias.nearOffset), floatBitsToUint(globalStart),
+        			                   GITraceSeed(ray));
+        			far.Start  = vec4(ray.origin + ray.direction * globalStart, marchLength);
+        			far.Dir    = vec4(ray.direction, 0.0);
         		}
         	}
         	const uint place = SSRLegPlace(toFar);
@@ -248,30 +253,21 @@ Shader "SSR"
         }
 
         // --- FAR FIELD (SsrParams3.w = 3, "SSR: World far field"): one thread per far list entry - the global
-        // field's march from where the near field ended; a hit listed for the hit lighting. ---
+        // field's march the near field listed (SSRWorldFarRay: its start, direction, length and dither seed), nothing
+        // rebuilt; a hit listed for the hit lighting. ---
         void TraceWorldFarField()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
         	bool  toHit = false;
         	uvec4 hit   = uvec4(0u);
-        	ivec2        q;
-        	SSRTexel     t;
-        	SSRTraceSums s;
         	if (index < ssrWorldFarArgs.w)
         	{
-        		const uvec4 far        = ssrWorldFar[index];
-        		const float nearOffset = uintBitsToFloat(far.z);
-        		if (SSRWorldListedTexel(far.x, q, t, s))
-        		{
-        			GITraceInput ray = SSRWorldRayInput(t.worldPos, t.N, s.worldL, s.worldStart, nearOffset,
-        			                                    uintBitsToFloat(far.w));
-        			ray.tMin = uintBitsToFloat(far.y);
-        			float                  globalStart;
-        			GlobalDistanceFieldHit march;
-        			toHit = GITraceFarFieldMarch(ray, globalStart, march);
-        			hit   = uvec4(far.x | (uint(clamp(march.Level + 1, 0, 15)) << 28u), far.z,
-        			              floatBitsToUint(globalStart), floatBitsToUint(march.T));
-        		}
+        		const SSRWorldFarRay         far   = ssrWorldFar[index];
+        		const GlobalDistanceFieldHit march = GITraceFarFieldMarchFrom(far.Start.xyz, far.Dir.xyz, far.Start.w,
+        		                                                              far.Listed.w, 0u);
+        		toHit = march.Hit;
+        		hit   = uvec4(far.Listed.x | (uint(clamp(march.Level + 1, 0, 15)) << 28u), far.Listed.y, far.Listed.z,
+        		              floatBitsToUint(march.T));
         	}
         	const uint place = SSRLegPlace(toHit);
         	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)

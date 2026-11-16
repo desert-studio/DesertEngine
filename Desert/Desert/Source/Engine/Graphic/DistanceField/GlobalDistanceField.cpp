@@ -106,6 +106,54 @@ namespace Desert::Graphic::DistanceField
         // band's half voxel plus the trilinear undershoot's sqrt(3)/2 (1.37), rounded up.
         constexpr float kGdfOccupiedMarginVoxels = 2.0f;
 
+        // THE CEILING (GlobalDistanceFieldCeiling) of @p placed over the occupied box [@p occupiedMin,
+        // @p occupiedMax] (already grown by @p margin): each column the highest box top over it, a box grown by
+        // @p margin in X, Z and up - the occupied box's margin, per column - then the coarse grid's max of each
+        // block. Null when nothing is placed: the march is not cut.
+        std::shared_ptr<const GlobalDistanceFieldCeiling>
+        MakeGdfCeiling( const std::vector<Common::Math::AABB>& placed, const glm::vec3 occupiedMin,
+                        const glm::vec3 occupiedMax, const float margin ) noexcept
+        {
+            if ( placed.empty() )
+                return nullptr;
+            constexpr int   kCells = kGdfCeilingCells;
+            constexpr float kEmpty = -1.0e30f;
+            const glm::vec2 lo( occupiedMin.x, occupiedMin.z );
+            const glm::vec2 extent = glm::max( glm::vec2( occupiedMax.x, occupiedMax.z ) - lo, glm::vec2( 1.0f ) );
+            const glm::vec2 perCm  = glm::vec2( static_cast<float>( kCells ) ) / extent;
+            std::array<float, kCells * kCells> fine;
+            fine.fill( kEmpty );
+            const auto cellOf = [&]( const float v, const float origin, const float scale ) noexcept
+            { return std::clamp( static_cast<int>( std::floor( ( v - origin ) * scale ) ), 0, kCells - 1 ); };
+            for ( const Common::Math::AABB& box : placed )
+            {
+                const float top = box.Max.y + margin;
+                const int   x0  = cellOf( box.Min.x - margin, lo.x, perCm.x );
+                const int   x1  = cellOf( box.Max.x + margin, lo.x, perCm.x );
+                const int   z0  = cellOf( box.Min.z - margin, lo.y, perCm.y );
+                const int   z1  = cellOf( box.Max.z + margin, lo.y, perCm.y );
+                for ( int z = z0; z <= z1; ++z )
+                    for ( int x = x0; x <= x1; ++x )
+                        fine[z * kCells + x] = std::max( fine[z * kCells + x], top );
+            }
+            auto ceiling  = std::make_shared<GlobalDistanceFieldCeiling>();
+            ceiling->Grid = glm::vec4( lo.x, lo.y, perCm.x, perCm.y );
+            for ( int i = 0; i < kCells * kCells; ++i )
+                ceiling->Fine[i / 4][i % 4] = fine[i];
+            constexpr int kCoarse = kGdfCeilingCoarseCells;
+            for ( int cz = 0; cz < kCoarse; ++cz )
+                for ( int cx = 0; cx < kCoarse; ++cx )
+                {
+                    float top = kEmpty;
+                    for ( int z = cz * kGdfCeilingMip; z < ( cz + 1 ) * kGdfCeilingMip; ++z )
+                        for ( int x = cx * kGdfCeilingMip; x < ( cx + 1 ) * kGdfCeilingMip; ++x )
+                            top = std::max( top, fine[z * kCells + x] );
+                    const int i                   = cz * kCoarse + cx;
+                    ceiling->Coarse[i / 4][i % 4] = top;
+                }
+            return ceiling;
+        }
+
         float GdfInfluenceRadius( const float voxelSize )
         {
             return DFShared::GDF_INFLUENCE_RANGE_IN_VOXELS * voxelSize;
@@ -453,6 +501,7 @@ namespace Desert::Graphic::DistanceField
             again.ObjectGrid                = import( m_ObjectGrid, "GlobalDistanceField.ObjectGrid" );
             again.Levels                    = m_FrameUpdate->Levels;
             again.OccupiedBox               = m_FrameUpdate->OccupiedBox;
+            again.Ceiling                   = m_FrameUpdate->Ceiling;
             again.MeshFields.NumMeshObjects = m_FrameUpdate->NumMeshObjects;
             again.MeshFields.NumObjects     = m_FrameUpdate->NumObjects;
             again.MeshFields.BrickAtlas     = import( scene.GetBrickAtlas(), "DistanceField.BrickAtlas" );
@@ -574,14 +623,15 @@ namespace Desert::Graphic::DistanceField
                 occupiedMin = glm::min( occupiedMin, box.Min );
                 occupiedMax = glm::max( occupiedMax, box.Max );
             }
+            const float occupiedMargin =
+                 kGdfOccupiedMarginVoxels * ClipmapVoxelSize( kGlobalDistanceFieldClipmaps - 1 );
             if ( !placement.PlacedBounds.empty() )
             {
-                const float margin =
-                     kGdfOccupiedMarginVoxels * ClipmapVoxelSize( kGlobalDistanceFieldClipmaps - 1 );
-                occupiedMin -= margin;
-                occupiedMax += margin;
+                occupiedMin -= occupiedMargin;
+                occupiedMax += occupiedMargin;
             }
             placement.OccupiedBox = { glm::vec4( occupiedMin, 0.0f ), glm::vec4( occupiedMax, 0.0f ) };
+            placement.Ceiling = MakeGdfCeiling( placement.PlacedBounds, occupiedMin, occupiedMax, occupiedMargin );
             for ( const auto& [key, tracked] : current )
                 if ( const auto it = m_Tracked.find( key );
                      it == m_Tracked.end() || it->second.Count != tracked.Count )
@@ -665,6 +715,7 @@ namespace Desert::Graphic::DistanceField
         // The near field culls the mesh objects only; every placed record, the tiles too, composites the clipmaps.
         frame.MeshFields.NumMeshObjects = m_Placement->MeshObjects;
         frame.OccupiedBox               = m_Placement->OccupiedBox;
+        frame.Ceiling                   = m_Placement->Ceiling;
         // Every placed record (the meshes, then the tiles): what the shadow tile cull walks.
         frame.MeshFields.NumObjects = static_cast<uint32_t>( m_Placement->ObjectData.size() / kGdfObjectStride );
 
@@ -746,6 +797,7 @@ namespace Desert::Graphic::DistanceField
                                      .Objects        = inputs,
                                      .Levels         = frame.Levels,
                                      .OccupiedBox    = frame.OccupiedBox,
+                                     .Ceiling        = frame.Ceiling,
                                      .NumMeshObjects = frame.MeshFields.NumMeshObjects,
                                      .NumObjects     = frame.MeshFields.NumObjects };
         if ( updateBricks.empty() )

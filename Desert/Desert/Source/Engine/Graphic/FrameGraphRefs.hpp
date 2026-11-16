@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/DistanceField/GlobalDistanceFieldCeiling.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -193,6 +195,8 @@ namespace Desert::Graphic
         std::array<RDG::TextureRef, 4> GlobalDistanceField;
         std::array<glm::vec4, 4>       GlobalDistanceFieldLevels{};
         std::array<glm::vec4, 2> GlobalDistanceFieldOccupiedBox{};    // FrameField::OccupiedBox -> the GI tracer
+        // FrameField::Ceiling -> the GI tracer (null: nothing placed)
+        std::shared_ptr<const DistanceField::GlobalDistanceFieldCeiling> GlobalDistanceFieldCeiling;
         RDG::TextureRef                GlobalDistanceFieldObjectGrid; // its object grid (GlobalDistanceField.hpp)
         // The mesh fields it is composited from and the near-field object grid (the same update) -> the GI
         // tracer's near field

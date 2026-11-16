@@ -462,7 +462,8 @@ namespace Desert::Graphic::System
         // Legs (the software tracer, Common/SSRTrace.glslh THE SOFTWARE TRACER'S WORLD LEGS): Far = the rays the
         // near field (TraceStage::World) missed, Hits = the far field's hits (TraceStage::WorldFarField's), each a
         // uvec4 header - the next leg's indirect dispatch + w = entries, reset by the graph's upload - then one
-        // uvec4 entry per trace texel at most. Null without legs (the hardware tracer's one ray query).
+        // entry per trace texel at most: Far one SSRWorldFarRay (the march itself, so the far field rebuilds no
+        // texel), Hits one uvec4. Null without legs (the hardware tracer's one ray query).
         struct WorldList
         {
             RDG::BufferRef Args;
@@ -473,8 +474,10 @@ namespace Desert::Graphic::System
         };
         // sizeof SSRWorldRay under std430: two vec4, three floats and a uint.
         static constexpr uint64_t kWorldRayBytes = 48u;
-        // A leg list's header and entry (SsrWorldFarListUB / SsrWorldHitListUB): one uvec4 each.
+        // A leg list's header (SsrWorldFarListUB / SsrWorldHitListUB) and a hit list entry: one uvec4 each.
         static constexpr uint64_t kWorldLegEntryBytes = 16u;
+        // sizeof SSRWorldFarRay under std430: a uvec4 and two vec4 (the march's start, length, direction, seed).
+        static constexpr uint64_t kWorldFarRayBytes = 48u;
 
         // GRAPH BUILD: this frame's world list for @p targets, its arguments reset by the graph's upload pass.
         // @p legs: the software tracer's (the traced frame's tracer is
@@ -490,9 +493,10 @@ namespace Desert::Graphic::System
             graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             if ( !legs )
                 return list;
-            const uint64_t legBytes = kWorldLegEntryBytes + texels * kWorldLegEntryBytes;
-            list.Far                = graph.CreateBuffer( RDG::BufferDesc{ legBytes }, "SSR.WorldFarList" );
-            list.Hits               = graph.CreateBuffer( RDG::BufferDesc{ legBytes }, "SSR.WorldHitList" );
+            list.Far  = graph.CreateBuffer( RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldFarRayBytes },
+                                            "SSR.WorldFarList" );
+            list.Hits = graph.CreateBuffer( RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldLegEntryBytes },
+                                            "SSR.WorldHitList" );
             list.Legs               = true;
             static_assert( sizeof( kTraceListArgsReset ) == kWorldLegEntryBytes );
             graph.QueueStaticBufferUpload( list.Far, std::as_bytes( std::span( kTraceListArgsReset ) ) );

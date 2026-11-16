@@ -362,17 +362,27 @@ layout(std430, binding = 45) buffer SsrWorldListUB
 // not on the gradient, card search and shadow marches of the few that hit.
 //   near field (SsrParams3.w = 2) over the world list: the mesh SDFs (GITraceNearField); a hit is lit and written
 //       there, a miss whose far field has a span (GIFarFieldSpan) is listed in the far list;
-//   far field (SsrParams3.w = 3) over the far list: the global field's march (GITraceFarFieldMarch); a hit is
+//   far field (SsrParams3.w = 3) over the far list: the global field's march (GITraceFarFieldMarchFrom); a hit is
 //       listed in the hit list, a miss leaves the texel as the screen leg wrote it;
 //   hit lighting (SsrParams3.w = 4) over the hit list: the hit's surface (GIFarFieldSurface of the march's position
 //       and clipmap) lit by GIHitRadiance, the texel written.
-// The same ray (SSRWorldRayInput from the offsets each list keeps), the same sums in the same order: the texels of
-// the one-kernel world trace. Both lists: x = the next leg's workgroups (atomicMax), y = z = 1, w = entries; reset
-// by the graph's upload (SSRRenderer::kTraceListArgsReset); entries sized for every texel of the trace.
+// The same ray, the same sums in the same order: the texels of the one-kernel world trace. The far list carries the
+// march the near field measured (UE CompactReflectionTraces keeps the ray, not the texel): the far field marches it
+// as listed and rebuilds no texel - no G-buffer fetch, no lobe draw, no world list read per lane; the hit lighting
+// rebuilds the ray from the texel and the offsets the hit list keeps (SSRWorldRayInput). Both lists: x = the next
+// leg's workgroups (atomicMax), y = z = 1, w = entries; reset by the graph's upload (SSRRenderer::
+// kTraceListArgsReset); entries sized for every texel of the trace.
+struct SSRWorldFarRay
+{
+	uvec4 Listed; // x = the world list index, y = nearOffset, z = globalStart (float bits), w = the dither seed
+	              // (GITraceSeed of the ray)
+	vec4  Start;  // xyz = where the march begins (the ray's origin + direction x globalStart), w = its length
+	vec4  Dir;    // xyz = the ray's unit direction, w unused (SSRRenderer::kWorldFarRayBytes = 48)
+};
 layout(std430, binding = 46) buffer SsrWorldFarListUB
 {
-	uvec4 ssrWorldFarArgs;
-	uvec4 ssrWorldFar[]; // x = the world list index, y = farStart, z = nearOffset, w = farTMin (float bits)
+	uvec4          ssrWorldFarArgs;
+	SSRWorldFarRay ssrWorldFar[];
 };
 layout(std430, binding = 47) buffer SsrWorldHitListUB
 {
