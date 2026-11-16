@@ -629,13 +629,15 @@ Shader "ScreenProbeTrace"
             SPListRay3( hit, slot );
 #elif defined( SP_TRACE_NEAR_HIT_LIGHTING )
             // A software near-field hit (FPS-NEAR-FIELD): the surface GITraceNearField would have built - the same
-            // ray, object and exact distance - lit as it would have lit it (GIHitRadiance). The software tracer only
-            // (ScreenProbeGather.cpp TraceLegExists): no other near field defers its hits.
+            // ray, object and exact distance - lit as UE lights a mesh SDF hit (GIHitRadianceMeshField, FPS-NEAR-HIT):
+            // the hit object's cards, else the global-field in-place lighting - no per-light visibility ray from the
+            // hit. The software tracer only (ScreenProbeGather.cpp TraceLegExists): no other near field defers its
+            // hits.
 #if defined( DESERT_GI_TRACER_SOFTWARE )
             const uvec2 nearHit  = screenProbeNearHit[slot];
             const float distance = uintBitsToFloat( nearHit.y );
             const GIHit surface  = GINearFieldSurface( origin, dir, nearHit.x, distance, true );
-            SPStoreTraced( at, GIHitRadiance( surface, dir ), distance );
+            SPStoreTraced( at, GIHitRadianceMeshField( surface, dir ), distance );
             screenProbeTraceHit[slot] =
                  SPEncodeTraceHit( distance, true, SPTraceHitMoving( probe, texel, surface ), false );
 #endif
