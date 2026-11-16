@@ -402,7 +402,8 @@ namespace Common::Scalability
         // (Geometry::kAutoLODPixelsPerTriangle) ends a level at. Only the level: the instance's distance cull,
         // far LOD and thinning read the true distance. Read by SceneRenderer::BeginScene ->
         // GrassRenderer::SetQuality -> PlanVariety (GrassParamsGpu::Lod.y) -> GrassCull.shader GrassMeshLevel,
-        // and the small buckets' screen bound (PrepareVariety: VarietyGpu::PrepassBuckets). 25..400; 100 = the chain as cooked.
+        // and the small buckets' screen bound (PrepareVariety: VarietyGpu::PrepassBuckets). 25..400; 100 = the
+        // chain as cooked.
         FoliageGrassMeshLodDistanceScalePercent,
         // 0/1 (FPS-GRASS-HULL): a grass blade's raster strip spans only its card's cooked hull (the opaque part
         // of the card on the atlas, UE SubUV cutout) instead of the whole card. Read by SceneRenderer::BeginScene
