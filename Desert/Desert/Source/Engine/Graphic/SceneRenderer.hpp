@@ -2325,6 +2325,10 @@ namespace Desert::Graphic
         // diffuse and rough specular and the composite applies no SSAO to it; off, SSAO does — one AO source
         // either way.
         bool m_ScreenProbeShortRangeAO = true;
+        // Settled uniform screen probes trace a checkerboard half of their texels a frame (Scalability
+        // GlobalIllumination.ScreenProbeSparseStableRays, ScreenProbeGatherInputs::SparseStableRays), refreshed
+        // each BeginScene.
+        bool m_ScreenProbeSparseStableRays = true;
         // The surface cache's radiosity on the async compute queue (Scalability
         // GlobalIllumination.SurfaceCacheAsyncRadiosity, SurfaceCacheRenderer::IndirectLightingInputs::Async),
         // refreshed each BeginScene.

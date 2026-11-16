@@ -119,6 +119,9 @@ namespace Desert::Graphic::GlobalIllumination
     inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the temporal history is the view's previous frame
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
     inline constexpr uint32_t kScreenProbeScreenTrace  = 4u; // last frame's scene colour is readable: screen leg
+    // ScreenProbeGatherInputs::SparseStableRays with the denoiser and the view's history: settled uniform probes
+    // trace a checkerboard half of their texels (Common/ScreenProbeTracing.glslh SPTexelSkipped).
+    inline constexpr uint32_t kScreenProbeSparseStable = 8u;
 
     // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
     struct ScreenProbePayload
@@ -263,6 +266,12 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t Downsample   = 16; // Scalability GlobalIllumination.ScreenProbeDownsample (ScreenProbeLayout)
         uint32_t TracedTexels = 8;  // Scalability GlobalIllumination.ScreenProbeTracedTexels (ScreenProbeLayout)
         bool     ShortRangeAO = true; // Scalability GlobalIllumination.ShortRangeAO: the ShortRangeAO pass runs
+        // Scalability GlobalIllumination.ScreenProbeSparseStableRays (FPS-SP-NEAR): a uniform probe whose tile's
+        // history is settled (ScreenProbes.Disocclusion 0: every pixel holds SP_DISOCCLUSION_MAX_FRAMES frames)
+        // traces a checkerboard half of its texels, alternating per frame; the spatial filter's first pass
+        // rebuilds the other half from their traced neighbours. Only with the denoiser (Denoise): it is what
+        // measures the history and accumulates the two halves.
+        bool SparseStableRays = true;
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
         // ViewFrame::PrevPreExposure: the scale the scene colour history (the screen trace's hit radiance) is
@@ -406,6 +415,8 @@ namespace Desert::Graphic::GlobalIllumination
             TraceNearHitLighting, // the same program's leg lighting the software near field's hits (FPS-NEAR-FIELD)
             Disocclusion,
             SpatialFilter,
+            SpatialFilterFill,      // ScreenProbeSpatialFilter SP_SPATIAL_FILTER_FILLS_SKIPPED: the first pass,
+                                    // rebuilding the texels the sparse stable probes skipped (FPS-SP-NEAR)
             Filter,
             FilterSpatial,          // ScreenProbeFilter SP_FILTER_SPATIAL: the spatial filter's last pass first
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists

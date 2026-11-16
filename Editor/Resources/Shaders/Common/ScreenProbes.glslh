@@ -99,6 +99,23 @@ vec3 SPPreviousWorldPosition( ScreenProbeParams params, vec3 previousNdc )
 #define SP_FLAG_HISTORY_VALID  1u // the temporal filter's history set is this view's previous frame
 #define SP_FLAG_SHORT_RANGE_AO 2u // the ShortRangeAO pass ran this frame: the integrate reads its bent normal + AO
 #define SP_FLAG_SCREEN_TRACE   4u // the scene colour history holds the previous frame: the screen trace runs
+#define SP_FLAG_SPARSE_STABLE  8u // settled uniform probes trace a checkerboard half of their texels (FPS-SP-NEAR)
+
+// THE SPARSE STABLE PROBES (FPS-SP-NEAR; UE spends a probe's rays by importance, here by the history's need): a
+// uniform probe whose tile's history is settled (ScreenProbes.Disocclusion 0: every surface pixel of the tile holds
+// SP_DISOCCLUSION_MAX_FRAMES frames) traces the texels of one checkerboard colour a frame, the colour alternating
+// per frame and per tile, so the temporal filter accumulates every direction over two frames and neighbouring
+// probes cover each other's skipped directions in the spatial filter. The screen leg (ScreenProbeTraceScreen.shader
+// SPTexelSkipped, the one decision) marks a skipped texel's trace state with SP_TRACE_SKIPPED_STATE and lists it for
+// no leg; the spatial filter's first pass (SP_SPATIAL_FILTER_FILLS_SKIPPED) rebuilds it from its traced neighbours
+// before anything else reads the atlas, and the filter takes a skipped texel's moving bit from its row neighbour.
+// The state is the moving bit alone (Common/ScreenProbeTracing.glslh SP_TRACE_MOVING_BIT): no leg writes it without
+// the hit bit, so it names nothing a traced ray can leave.
+#define SP_TRACE_SKIPPED_STATE 0x00000002u
+bool SPTraceSkipped( uint encoded )
+{
+    return encoded == SP_TRACE_SKIPPED_STATE;
+}
 
 // std430 — must match GlobalIllumination::ScreenProbePayload (32 bytes).
 struct ScreenProbe {

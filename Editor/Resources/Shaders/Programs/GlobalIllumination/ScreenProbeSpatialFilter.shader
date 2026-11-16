@@ -41,6 +41,14 @@ Shader "ScreenProbeSpatialFilter"
         Uniform(4) texture2D ScreenProbeRadiance; // rgb = radiance, a = hit distance (cm), SP_RES² per probe
         #define ScreenProbeRadiance sampler2D(ScreenProbeRadiance, PointClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D FilteredScreenProbeRadiance;
+#if defined( SP_SPATIAL_FILTER_FILLS_SKIPPED )
+        // The first pass (FPS-SP-NEAR): the traced texels' states, to rebuild the skipped ones
+        // (Common/ScreenProbes.glslh THE SPARSE STABLE PROBES).
+        ReadBuffer(6) ScreenProbeTraceHitUB
+        {
+            uint screenProbeTraceHit[];
+        };
+#endif
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #include <Common/ScreenProbeTemporal.glslh>

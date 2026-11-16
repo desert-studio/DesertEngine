@@ -100,6 +100,13 @@ Shader "ScreenProbeTraceScreen"
             uint screenProbeOut3Texels[];
         };
 
+        // The uniform tiles' disoccluded share (ScreenProbeDisocclusion.shader; a one-float stand-in, never read,
+        // without the denoiser - SP_FLAG_SPARSE_STABLE is off then).
+        ReadBuffer(20) ScreenProbeDisocclusionUB
+        {
+            float screenProbeDisocclusion[];
+        };
+
         PushConstant ScreenProbeTraceScreenPush
         {
             float NearFieldEnd; // a ray the screen took this far has nothing left in the near field (cm)
@@ -250,7 +257,8 @@ Shader "ScreenProbeTraceScreen"
         // order (UE ScreenProbeCompactTracesCS's GroupShared compaction): one atomic per list and probe.
         void SPListOpenRays( const uint texel, const uint slot, const uint encoded )
         {
-            const bool hit       = ( encoded & SP_TRACE_HIT_BIT ) != 0u;
+            // A skipped texel (SPTexelSkipped) is open for no leg: the spatial filter rebuilds it.
+            const bool hit       = ( encoded & SP_TRACE_HIT_BIT ) != 0u || SPTraceSkipped( encoded );
             const bool reached   = ( encoded & SP_TRACE_REACHED_BIT ) != 0u;
             const bool nearOpen  = !hit && !reached && SPTraceHitDistance( encoded ) < NearFieldEnd;
             // A ray at the cache has walked to its tMax: no distance left to march, the cache read answers it.
@@ -309,6 +317,21 @@ Shader "ScreenProbeTraceScreen"
                 screenProbeOut3Texels[s_CacheStart + ( offset >> ( 2u * SP_LIST_BITS ) )] = slot;
         }
 
+        // THE SPARSE STABLE PROBES (Common/ScreenProbes.glslh): whether @p texel of traced @p probe waits this frame
+        // - a uniform probe of a settled tile, the checkerboard colour of the frame and the tile. Adaptive probes
+        // (placed where the uniform ones miss geometry) and every probe of a tile with any disoccluded pixel trace
+        // every texel.
+        bool SPTexelSkipped( const uint probe, const uint texel )
+        {
+            if ( ( screenProbeParams.atlas.z & SP_FLAG_SPARSE_STABLE ) == 0u || probe >= screenProbeParams.grid.z )
+                return false;
+            const ivec2 tile = SPUniformTileOf( SPProbePixelOf( screenProbes[probe] ) );
+            if ( !SPUniformTileInside( tile ) || screenProbeDisocclusion[SPUniformTileIndex( tile )] > 0.0 )
+                return false;
+            const uint parity = texel % SP_RES + texel / SP_RES + screenProbeParams.atlas.y + uint( tile.x + tile.y );
+            return ( parity & 1u ) != 0u;
+        }
+
         void main()
         {
             const uint probe = gl_WorkGroupID.x;
@@ -321,10 +344,13 @@ Shader "ScreenProbeTraceScreen"
 
             // The world legs go on from where the screen left off along the same ray (UE VoxelTraceStartDistance);
             // a ray the screen walked all the way has reached the radiance cache.
-            float distance  = 0.0;
-            bool  screenHit = false;
-            uint  encoded   = 0u;
-            if ( ( screenProbeParams.atlas.z & SP_FLAG_SCREEN_TRACE ) != 0u )
+            float      distance  = 0.0;
+            bool       screenHit = false;
+            uint       encoded   = 0u;
+            const bool skipped   = SPTexelSkipped( probe, texel );
+            if ( skipped )
+                encoded = SP_TRACE_SKIPPED_STATE; // traced by no leg, rebuilt by the spatial filter
+            else if ( ( screenProbeParams.atlas.z & SP_FLAG_SCREEN_TRACE ) != 0u )
             {
                 const SPScreenTrace screen =
                      SPTraceScreen( ray.position + ray.normal * SP_SCREEN_BIAS, ray.direction, ray.tMax, ray.noise.z );
@@ -341,7 +367,7 @@ Shader "ScreenProbeTraceScreen"
                 else
                     distance = min( screen.distance, ray.tMax );
             }
-            if ( !screenHit )
+            if ( !screenHit && !skipped )
                 encoded = SPEncodeTraceHit( distance, false, false, ray.coverage.valid && distance >= ray.tMax );
             screenProbeTraceHit[slot] = encoded;
             SPListOpenRays( texel, slot, encoded );

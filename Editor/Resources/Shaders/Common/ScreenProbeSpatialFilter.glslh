@@ -20,14 +20,44 @@
 #define SP_SPATIAL_FILTER_POSITION_WEIGHT_SCALE 1000.0
 #define SP_SPATIAL_FILTER_MAX_RADIANCE_HIT_ANGLE 0.17453293
 
+// Texel @p t of @p probe's traced radiance. The first pass (SP_SPATIAL_FILTER_FILLS_SKIPPED, whose includer declares
+// screenProbeTraceHit) reads a texel the screen leg skipped (Common/ScreenProbes.glslh THE SPARSE STABLE PROBES) as
+// the mean of its traced row and column neighbours - the other checkerboard colour, so every one of them was traced
+// - with the nearest of their hit distances (the angle test keeps contact shadows). Every later pass reads the
+// rebuilt atlas.
+vec4 SPSpatialFilterFetch( uint probe, ivec2 t )
+{
+    const ivec2 origin = SPAtlasOrigin( probe, SP_RES );
+#if defined( SP_SPATIAL_FILTER_FILLS_SKIPPED )
+    if ( SPTraceSkipped( screenProbeTraceHit[probe * SP_RES * SP_RES + uint( t.y ) * SP_RES + uint( t.x )] ) )
+    {
+        const ivec2 offsets[4] = ivec2[4]( ivec2( -1, 0 ), ivec2( 1, 0 ), ivec2( 0, -1 ), ivec2( 0, 1 ) );
+        vec3        sum        = vec3( 0.0 );
+        float       count      = 0.0;
+        float       distance   = 3.0e38;
+        for ( int i = 0; i < 4; ++i )
+        {
+            const ivec2 n = t + offsets[i];
+            if ( any( lessThan( n, ivec2( 0 ) ) ) || any( greaterThanEqual( n, ivec2( SP_RES ) ) ) )
+                continue;
+            const vec4 traced = texelFetch( ScreenProbeRadiance, origin + n, 0 );
+            sum += traced.rgb;
+            count += 1.0;
+            distance = min( distance, traced.a );
+        }
+        return vec4( sum / count, distance ); // a corner texel still has two neighbours
+    }
+#endif
+    return texelFetch( ScreenProbeRadiance, origin + t, 0 );
+}
+
 // Texel @p t of traced @p probe (whose record is @p state): the filtered radiance in rgb, the texel's own hit distance
 // carried through in a for the next pass.
 vec4 SPSpatialFilterTexel( uint probe, ScreenProbe state, ivec2 t )
 {
-    const ivec2 at          = SPAtlasOrigin( probe, SP_RES ) + t;
     const mat3  frame       = SPProbeFrame( state.normal.xyz );
     const vec3  dir         = frame * SPHemiOctDecode( ( vec2( t ) + 0.5 ) / float( SP_RES ) * 2.0 - 1.0 );
-    const vec4  own         = texelFetch( ScreenProbeRadiance, at, 0 );
+    const vec4  own         = SPSpatialFilterFetch( probe, t );
     const float hitDistance = own.a;
     const vec3  p           = state.position.xyz;
     const ivec2 tile        = SPUniformTileOf( SPProbePixelOf( state ) );
@@ -49,10 +79,7 @@ vec4 SPSpatialFilterTexel( uint probe, ScreenProbe state, ivec2 t )
             continue;
         const float plane          = abs( dot( neighbour.position.xyz - p, state.normal.xyz ) ) / state.position.w;
         const float positionWeight = exp2( -SP_SPATIAL_FILTER_POSITION_WEIGHT_SCALE * plane * plane );
-        const vec4  ray            = texelFetch( ScreenProbeRadiance,
-                                                 SPAtlasOrigin( other, SP_RES ) +
-                                                      SPProbeTexel( SPProbeFrame( neighbour.normal.xyz ), dir ),
-                                                 0 );
+        const vec4  ray = SPSpatialFilterFetch( other, SPProbeTexel( SPProbeFrame( neighbour.normal.xyz ), dir ) );
         float angleWeight = 1.0;
         if ( !relaxAngle )
         {
