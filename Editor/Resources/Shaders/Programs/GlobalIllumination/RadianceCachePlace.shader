@@ -23,9 +23,27 @@ Shader "RadianceCachePlace"
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
 
+        // FPS-RC-COST: Trace's and Filter's indirect dispatches, sized by this frame's trace list (Select is done):
+        // [0..2] Trace (the 8x8 trace tiles of a full-resolution probe, the listed probes, 1), [3..5] Filter (the
+        // listed probes, 1, 1). A frame that lists fewer probes than the budget launches no group past them.
+        Buffer(6) RadianceCacheDispatchArgsUB
+        {
+            uint radianceCacheDispatchArgs[];
+        };
+
         void main()
         {
             const uint count = min( radianceCacheSchedule[RC_SCHEDULE_COUNT], radianceCache.atlas.z );
+            if ( gl_GlobalInvocationID.x == 0u )
+            {
+                const uint tilesPerSide = ( radianceCache.shape.z + 7u ) / 8u; // WorldRadianceCache kTraceTileSide
+                radianceCacheDispatchArgs[0] = tilesPerSide * tilesPerSide;
+                radianceCacheDispatchArgs[1] = count;
+                radianceCacheDispatchArgs[2] = 1u;
+                radianceCacheDispatchArgs[3] = count;
+                radianceCacheDispatchArgs[4] = 1u;
+                radianceCacheDispatchArgs[5] = 1u;
+            }
             if ( gl_GlobalInvocationID.x >= count )
                 return;
             const uint               probe   = radianceCacheSchedule[RC_SCHEDULE_LIST + gl_GlobalInvocationID.x];
