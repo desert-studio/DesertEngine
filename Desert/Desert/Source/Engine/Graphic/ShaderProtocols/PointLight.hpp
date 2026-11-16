@@ -79,8 +79,12 @@
     /* A rect source's GGX LTC tables (UE LTCMat / LTCAmp, Runtime::RectLightLtcService): their bindless   */ \
     /* slot, stamped by SceneRenderer::AddPointLight for a rect; 0 for a point (Mesh/RectLight.glslh).      */ \
     FIELD( int32_t, RectLtcTexture, rectLtcTexture, { 0 } )   /* 128 */                                           \
-    FIELD( float, Pad5, pad5, { 0.0f } )                      /* 132 */                                           \
-    FIELD( float, Pad6, pad6, { 0.0f } )                      /* 136 */                                           \
+    /* UE light function (LIGHT-FUNCTIONS): the view's light function atlas (System::LightFunctionAtlas) as its */ \
+    /* bindless slot and this light's tile in it, or -1 for none; stamped by SceneRenderer::AddPointLight. The */    \
+    /* tile holds the function over the octahedral map of the direction in the light's frame */                     \
+    /* (Mesh/LightFunctionAtlas.glslh DesertOmniLightFunction). */                                                   \
+    FIELD( int32_t, LightFunctionAtlasTexture, lightFunctionAtlasTexture, { 0 } ) /* 132 */                       \
+    FIELD( int32_t, LightFunctionTile, lightFunctionTile, { -1 } )                /* 136 */                       \
     FIELD( float, Pad7, pad7, { 0.0f } )                      /* 140 -> 144 */
 
 namespace Desert::Graphic::ShaderProtocols

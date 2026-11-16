@@ -54,11 +54,13 @@
     /* The IES profile (PointLight.hpp says how): atlas slot, stamped by SceneRenderer::AddSpotLight, and row. */ \
     FIELD( int32_t, IesAtlasTexture, iesAtlasTexture, { 0 } ) /* 100 */                                           \
     FIELD( int32_t, IesProfileRow, iesProfileRow, { -1 } )    /* 104 */                                           \
-    FIELD( float, Pad4, pad4, { 0.0f } )                      /* 108 */                                           \
+    /* UE light function (LIGHT-FUNCTIONS): the view's atlas slot, stamped by SceneRenderer::AddSpotLight; the */ \
+    /* tile (LightFunctionTile below) holds the function over the cone's perspective footprint. */                 \
+    FIELD( int32_t, LightFunctionAtlasTexture, lightFunctionAtlasTexture, { 0 } ) /* 108 */                                           \
     /* The light's tangent (unit, world; the entity's X): with Direction, the frame IES horizontal angles */      \
     /* are measured in (IesProfile.glslh). */                                                                     \
     FIELD( glm::vec3, Tangent, tangent, {} ) /* 112 */                                                            \
-    FIELD( float, Pad5, pad5, { 0.0f } )     /* 124 -> 128 */
+    FIELD( int32_t, LightFunctionTile, lightFunctionTile, { -1 } ) /* 124 -> 128, -1 = no light function */
 
 namespace Desert::Graphic::ShaderProtocols
 {

@@ -111,6 +111,8 @@ namespace Desert::Editor
                     return "Deform Stamp";
                 case D::DeferredDecal:
                     return "Deferred Decal";
+                case D::LightFunction:
+                    return "Light Function";
             }
             return "engine-internal";
         }
@@ -149,6 +151,10 @@ namespace Desert::Editor
                     return "projects onto the scene's surfaces from a Decal component's box, not an object "
                            "this pane could place. Assign it to a Decal component and look at the surfaces "
                            "the box covers in the viewport.";
+                case D::LightFunction:
+                    return "filters a light by direction, rendered into the light's tile of the light function "
+                           "atlas, not an object this pane could place. Assign it to a point, spot or rect "
+                           "light's Light Function Material and look at what the light falls on in the viewport.";
                 case D::Unspecified:
                 case D::Surface:
                 case D::Skybox: // no longer a refusal: the pane wraps its cubemap onto a ball (see
