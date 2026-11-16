@@ -621,6 +621,7 @@ namespace Desert::Graphic
             inputs.SurfaceCache = m_SurfaceCacheFrame->Hits;
         inputs.PointLights     = t.Lights.Point;
         inputs.SpotLights      = t.Lights.Spot;
+        inputs.LightFunctionAtlas = t.Lights.LightFunctionAtlas;
         inputs.WorldGridParams = t.Lights.WorldGridParams;
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
@@ -669,6 +670,7 @@ namespace Desert::Graphic
                         .GIFrame         = inputs.GIFrame,
                         .PointLights     = inputs.PointLights,
                         .SpotLights      = inputs.SpotLights,
+                        .LightFunctionAtlas = inputs.LightFunctionAtlas,
                         .WorldGridParams = inputs.WorldGridParams,
                         .WorldGridCells  = inputs.WorldGridCells,
                         .EnvSpecular     = inputs.EnvSpecular,
@@ -1886,6 +1888,7 @@ namespace Desert::Graphic
         inputs.GIFrame         = giRecord;
         inputs.PointLights     = textures.Transients.Lights.Point;
         inputs.SpotLights      = textures.Transients.Lights.Spot;
+        inputs.LightFunctionAtlas = textures.Transients.Lights.LightFunctionAtlas;
         inputs.PointLightCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         inputs.SpotLightCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
         inputs.EnvSpecular     = SceneViewInputsOf( textures.GraphRefs() ).EnvSpecular;
@@ -2143,6 +2146,7 @@ namespace Desert::Graphic
         }
         reads.PointLights     = t.Lights.Point;
         reads.SpotLights      = t.Lights.Spot;
+        reads.LightFunctionAtlas = t.Lights.LightFunctionAtlas;
         reads.WorldGridParams = t.Lights.WorldGridParams;
         reads.WorldGridCells  = t.Lights.WorldGridCells;
         reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;

@@ -391,16 +391,10 @@ namespace Desert::Graphic::System
                  Declare( pass, rows );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr { return Render( context ); } );
-        // The readers are bindless (Mesh/LightFunctionAtlas.glslh in every lit pass), invisible to the graph: two
-        // declaration-only reads, one per pipeline stage family, order them all after the writer.
-        graph.AddPass(
-             "Lights: Light Function Atlas Read (graphics)", RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
-             [atlas]( RDG::PassBuilder& pass )
-             {
-                 pass.RenderArea( 1u, 1u );
-                 pass.Read( atlas, RDG::Access::SampledGraphics );
-             },
-             []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+        // Every reader samples the atlas bindless (Mesh/LightFunctionAtlas.glslh) and declares it in its own pass
+        // (ViewLightBuffers::LightFunctionAtlas -> BindlessRead: the lit raster passes, MegaLights, fog, radiance
+        // cache, surface cache, SSR, path tracer), so the graph orders each after this writer. The screen probes'
+        // trace does not yet: this one declaration-only compute read orders them until it does.
         graph.AddPass(
              "Lights: Light Function Atlas Read (compute)", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
              [atlas]( RDG::PassBuilder& pass ) { pass.Read( atlas, RDG::Access::SampledCompute ); },

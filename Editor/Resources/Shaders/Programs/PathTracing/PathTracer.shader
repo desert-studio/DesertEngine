@@ -690,8 +690,13 @@ Shader "PathTracer"
                 const float window = 1.0 - centreDist / source.radius;
                 const float ies    = DesertIesProfileFactor(source.iesAtlasTexture, source.iesProfileRow,
                                                             fromLight / centreDist, normal, source.axisX);
+                // UE light function: the rect's tile, by the same direction from its centre as the profile (the
+                // raster's DesertRectLightAt, Mesh/LightSources.glslh); 1 without a tile.
+                const vec3 lightFunction = DesertOmniLightFunction(source.lightFunctionAtlasTexture,
+                                                                   source.lightFunctionTile, fromLight / centreDist,
+                                                                   normal, source.axisX);
                 // radiance / pdf: luminance x (area x cos at the emitter / dist^2), the sample's solid angle.
-                const vec3 radiance = source.color * (source.intensity * window * ies);
+                const vec3 radiance = source.color * (source.intensity * window * ies) * lightFunction;
                 return PathTracingBsdfCos(m, N, V, L) * radiance * transmittance * (area * cosEmit / (dist * dist));
             }
 

@@ -414,6 +414,10 @@ namespace Desert::Graphic::GlobalIllumination
                                         inputs.WorldGridParams, kR )
                               .Storage( WorldRadianceCacheShaderParameters::LightGridWorldCellsUB,
                                         inputs.WorldGridCells, kR );
+                     // A probe ray's hit is lit through Mesh/LightSources.glslh: the lights' function tiles are
+                     // sampled bindless from the atlas (UE: LightFunctionAtlas in the pass's parameters).
+                     if ( pass == Trace )
+                         block.BindlessRead( inputs.LightFunctionAtlas, kS );
                      // Place lights no hit (GI_HIT_LIGHTING_NONE): the tracer's reads without the point-clamped
                      // state, which it does not declare.
                      if ( pass == Place )
