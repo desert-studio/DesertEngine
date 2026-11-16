@@ -360,6 +360,21 @@ Shader "CloudRaymarch"
         }
         #define CLOUD_SAMPLE_COLUMN_MIP(row, mip, texel) CloudFetchColumnMip((row), (mip), (texel))
 
+        // THE FAR PATH'S CONSERVATIVE DENSITY (FPS-CLOUD-RECON): the world weather map's min/max pyramid
+        // (VolumetricCloudRenderer::EnsureFarWeatherMap), 2 side x side RGBA16F, .r the minimum and .g the maximum
+        // of W, mip m packed along x at 2 side - 2 (side >> m). texelFetched by CloudFarColumnsEmpty (through the
+        // probe and the cell test) and nothing else; the march's own binding, so the far sky's air is strided like
+        // the near sky's. Removing CLOUD_SAMPLE_FAR_BOUND is the A/B (far columns "might" again).
+        Uniform(23) texture2D CloudFarWeatherBoundTexture;
+        #define CloudFarWeatherBoundTexture sampler2D(CloudFarWeatherBoundTexture, LinearRepeatSampler)
+        vec4 CloudFetchFarBound(int mip, ivec2 texel)
+        {
+            int side = textureSize(CloudFarWeatherBoundTexture, 0).y;
+            return texelFetch(CloudFarWeatherBoundTexture, ivec2(2 * side - 2 * (side >> mip) + texel.x, texel.y), 0);
+        }
+        #define CLOUD_SAMPLE_FAR_BOUND(mip, texel) CloudFetchFarBound((mip), (texel))
+        #define CLOUD_FAR_BOUND_SIDE textureSize(CloudFarWeatherBoundTexture, 0).y
+
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
         #define CLOUD_AUTHORED_BUFFER_BINDING 8
