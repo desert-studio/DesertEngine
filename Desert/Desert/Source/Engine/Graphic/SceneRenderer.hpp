@@ -1887,10 +1887,28 @@ namespace Desert::Graphic
         };
         FrameScreenTrace AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures,
                                               const ViewFrame& frame );
-        void             AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
-                                           const ViewFrame& frame );
+        // The traced GI in two declarations (FPS-PROBE-WAIT-2, UE Lumen: the radiance cache update forks right
+        // after the depth): the update - the radiance cache's Mark .. Trace - before the screen trace's HZB, so its
+        // async run forks at the depth's last writer; the gather after it - the cache's Filter declared by the
+        // screen probes right before their first cache reader (ScreenProbeGatherInputs::FinishRadianceCache), so
+        // the far field overlaps the filter. Empty: no traced GI this frame (said once by the update).
+        struct TracedGIUpdate
+        {
+            GlobalIllumination::RadianceCacheUpdateInputs Inputs;
+            GlobalIllumination::RadianceCacheFrame        Cache;
+        };
+        std::optional<TracedGIUpdate> AddFrameTracedGIUpdate( RDG::Builder& graph, FrameTextures& textures,
+                                                              const std::vector<RDG::TextureRef>& gbuffer,
+                                                              const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                                              const ViewFrame& frame );
+        void AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
+                                     const std::vector<RDG::TextureRef>& gbuffer,
+                                     const std::optional<TracedGIUpdate>& update, const FrameScreenTrace& screenTrace,
+                                     const ViewFrame& frame );
+        // The cache's Filter (WorldRadianceCache::AddFilterPass) and what reads the filtered cache first: the
+        // cards' radiosity of the view that updated the cache.
+        [[nodiscard]] Common::BoolResultStr AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures,
+                                                                         const TracedGIUpdate& update );
         // GIMethod::ScreenSpace's diffuse indirect of this frame (System::SSGIRenderer: the HZB trace over the
         // scene colour history, then the diffuse-indirect denoiser) into FrameTransients::GIDiffuse, which the
         // composite reads as GI mode 1 - only when the frame's GI is ScreenSpace and @p screenTrace is valid.

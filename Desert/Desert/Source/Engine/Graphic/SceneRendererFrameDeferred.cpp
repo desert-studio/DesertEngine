@@ -514,13 +514,13 @@ namespace Desert::Graphic
         return RadianceCacheRuns() && m_GIPipeline.ScreenProbes && m_ScreenProbeShortRangeAO;
     }
 
-    void SceneRenderer::AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
-                                          const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                          const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
-                                          const ViewFrame& frame )
+    std::optional<SceneRenderer::TracedGIUpdate>
+    SceneRenderer::AddFrameTracedGIUpdate( RDG::Builder& graph, FrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
+                                           const glm::vec4& lightColor, const ViewFrame& frame )
     {
         if ( !RadianceCacheRuns() )
-            return;
+            return std::nullopt;
         // A frame whose GI could not be recorded (an input missing, a pass refused) says so once per distinct
         // reason, not every frame; a frame that records it again forgets the reason, so a later failure is said.
         const auto refuse = [this]( std::string message )
@@ -535,7 +535,7 @@ namespace Desert::Graphic
                                              : !m_GBuffer       ? "the view has no G-buffer"
                                                                 : "the world light grid was not built";
             refuse( std::format( "RadianceCache: not updated: {}", missing ) );
-            return;
+            return std::nullopt;
         }
         if ( !m_RadianceCache )
         {
@@ -544,7 +544,7 @@ namespace Desert::Graphic
             {
                 RefuseProgramMethods( GlobalIllumination::kCacheGIMethods, "RadianceCache",
                                       initialized.GetError() );
-                return;
+                return std::nullopt;
             }
             m_RadianceCache = std::move( cache );
         }
@@ -555,7 +555,7 @@ namespace Desert::Graphic
             {
                 RefuseProgramMethods( GlobalIllumination::kScreenProbeGIMethods, "ScreenProbes",
                                       initialized.GetError() );
-                return;
+                return std::nullopt;
             }
             m_ScreenProbeGather = std::move( gather );
         }
@@ -566,7 +566,7 @@ namespace Desert::Graphic
             {
                 RefuseProgramMethods( GlobalIllumination::kIrradianceFieldGIMethods, "IrradianceField",
                                       initialized.GetError() );
-                return;
+                return std::nullopt;
             }
             m_IrradianceFieldGather = std::move( gather );
         }
@@ -576,7 +576,7 @@ namespace Desert::Graphic
         {
             RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( m_GIPipeline, false ),
                                   TraceProgramName( m_GIPipeline, false ), traced.GetError() );
-            return;
+            return std::nullopt;
         }
         // THE SCREEN-PROBE LAYOUT, validated here - where the method is chosen and before the trace legs compile
         // under it - and not per frame in the gather: a layout the shaders do not compile, or a layout program the
@@ -591,21 +591,21 @@ namespace Desert::Graphic
                 if ( m_ScreenProbeGather->ClaimLayoutRefusalReport() )
                     LOG_ERROR( "[SceneRenderer] ScreenProbes: not gathered while its layout is refused: {}",
                                layout.GetError() );
-                return;
+                return std::nullopt;
             }
         if ( m_GIPipeline.ScreenProbes )
             if ( const auto traced = m_ScreenProbeGather->EnsureTraceProgram( m_GIPipeline ); !traced )
             {
                 RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( m_GIPipeline, true ),
                                       TraceProgramName( m_GIPipeline, true ), traced.GetError() );
-                return;
+                return std::nullopt;
             }
         const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
         const auto            desc  = graph.GetTextureDesc( depth );
         if ( !desc )
         {
             refuse( std::format( "RadianceCache: {}", desc.GetError() ) );
-            return;
+            return std::nullopt;
         }
         const FrameGraphRefs                          refs = textures.GraphRefs();
         GlobalIllumination::RadianceCacheUpdateInputs inputs;
@@ -638,26 +638,38 @@ namespace Desert::Graphic
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
+        // Mark .. Trace: declared before the screen trace's HZB (FPS-PROBE-WAIT-2), so the cache's run forks
+        // after the depth's last writer; its Filter is the gather's (AddFrameTracedGIGather).
         const auto cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs );
         if ( !cache )
         {
             refuse( std::format( "RadianceCache: {}", cache.GetError() ) );
-            return;
+            return std::nullopt;
         }
         m_TracedFrameShared.RadianceCache = cache.GetValue();
-        // Every lit pass after this one reads this frame's cache (the forward meshes and the glass).
+        // Every lit pass after the gather reads this frame's cache (the forward meshes and the glass).
         textures.Transients.RadianceCacheParams      = cache.GetValue().Params;
         textures.Transients.RadianceCacheIndirection = cache.GetValue().Indirection;
         textures.Transients.RadianceCacheProbes      = cache.GetValue().Probes;
         textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
         textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
+        return TracedGIUpdate{ .Inputs = inputs, .Cache = cache.GetValue() };
+    }
 
+    Common::BoolResultStr SceneRenderer::AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures,
+                                                                      const TracedGIUpdate& update )
+    {
+        if ( const auto filtered = m_RadianceCache->AddFilterPass( graph ); !filtered )
+            return filtered;
+        const GlobalIllumination::RadianceCacheUpdateInputs& inputs = update.Inputs;
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
         // The cards' radiosity (UE LumenRadiosity, this frame's tracer): the frame's relit pages - by the view
         // that updated the cache this frame (a lent cache already updated this frame is read, not relit).
         SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
         if ( surfaceCache != nullptr && m_SurfaceCacheFrame && m_SurfaceCacheFrame->Updated )
         {
-            const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();
+            const GlobalIllumination::RadianceCacheFrame& rc = update.Cache;
             if ( const auto lit = surfaceCache->AddIndirectLightingPass(
                       graph, import, m_SurfaceCacheFrame->Scene, m_SurfaceCacheFrame->Buffers,
                       { .Params          = rc.Params,
@@ -686,14 +698,39 @@ namespace Desert::Graphic
             else
                 m_TracedGICardLightingRefusal.Clear();
         }
+        return BOOLSUCCESS;
+    }
+
+    void SceneRenderer::AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
+                                                const std::vector<RDG::TextureRef>& gbuffer,
+                                                const std::optional<TracedGIUpdate>& update,
+                                                const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+    {
+        if ( !update )
+            return;
+        const auto refuse = [this]( std::string message )
+        {
+            if ( m_TracedGIRefusal.Claim( std::move( message ) ) )
+                LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
+        };
+        FrameTransients&                                     t      = textures.Transients;
+        const FrameGraphRefs                                 refs   = textures.GraphRefs();
+        const GlobalIllumination::RadianceCacheUpdateInputs& inputs = update->Inputs;
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
 
         // ProbeVolume (UE Lumen's irradiance field gather): the cache IS the final gather, read per pixel.
         if ( !m_GIPipeline.ScreenProbes )
         {
+            if ( const auto finished = AddFrameRadianceCacheFinish( graph, textures, *update ); !finished )
+            {
+                refuse( std::format( "RadianceCache: {}", finished.GetError() ) );
+                return;
+            }
             GlobalIllumination::IrradianceFieldGatherInputs field{ .GBufferDepth  = inputs.GBufferDepth,
                                                                    .GBufferB      = inputs.GBufferB,
                                                                    .GIFrame       = inputs.GIFrame,
-                                                                   .RadianceCache = cache.GetValue(),
+                                                                   .RadianceCache = update->Cache,
                                                                    .Extent        = inputs.Extent };
             const auto gathered = m_IrradianceFieldGather->AddPasses( graph, import, field );
             if ( !gathered )
@@ -723,7 +760,15 @@ namespace Desert::Graphic
         gather.WorldGridParams    = inputs.WorldGridParams;
         gather.WorldGridCells     = inputs.WorldGridCells;
         gather.GIFrame            = inputs.GIFrame;
-        gather.RadianceCache      = cache.GetValue();
+        gather.RadianceCache      = update->Cache;
+        // The cache's Filter (and the cards' radiosity) declared by the gather right before its first cache reader
+        // (FPS-PROBE-WAIT-2): the far field ahead of it on the async queue overlaps it.
+        bool cacheFinished          = false;
+        gather.FinishRadianceCache  = [&]() -> Common::BoolResultStr
+        {
+            cacheFinished = true;
+            return AddFrameRadianceCacheFinish( graph, textures, *update );
+        };
         gather.Extent             = inputs.Extent;
         gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
@@ -754,6 +799,14 @@ namespace Desert::Graphic
         gather.Denoise = true;
         const auto gathered =
              m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
+        // A gather refused before its first cache reader still finishes the cache this graph traced: the forward
+        // meshes, the glass and the next frame read it.
+        if ( !cacheFinished )
+            if ( const auto finished = AddFrameRadianceCacheFinish( graph, textures, *update ); !finished )
+            {
+                refuse( std::format( "RadianceCache: {}", finished.GetError() ) );
+                return;
+            }
         if ( !gathered )
         {
             refuse( std::format( "ScreenProbes: {}", gathered.GetError() ) );

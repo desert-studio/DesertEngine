@@ -2744,6 +2744,10 @@ namespace Desert::Graphic
                                            ? m_Systems.SSR.get()
                                            : nullptr;
                 const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
+                // The radiance cache's update (Mark .. Trace) ahead of the screen trace's HZB (FPS-PROBE-WAIT-2): it
+                // reads the depth and the normals, no HZB, so its async run forks at the depth's last writer.
+                const std::optional<TracedGIUpdate> tracedGI =
+                     AddFrameTracedGIUpdate( graph, textures, gbuffer, lightDir, lightColor, frame );
                 const FrameScreenTrace screenTrace =
                      ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) ||
                        ( m_RenderMethods.GlobalIllumination.Effective ==
@@ -2751,13 +2755,13 @@ namespace Desert::Graphic
                          EnsureSSGIResources() ) )
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
-                AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                AddFrameTracedGIGather( graph, textures, gbuffer, tracedGI, screenTrace, frame );
                 AddFrameSSGI( graph, textures, gbuffer, screenTrace, frame );
                 // THE GRAPHICS QUEUE'S WORK WHILE THE GI GATHERS (UE FDeferredShadingSceneRenderer::Render:
                 // Lumen's gather on the async pipe while the graphics pipe renders what reads none of it - the
-                // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache and the
-                // screen probes above fork after the screen trace (the surface cache's run forked before the
-                // G-buffer, surfaceCacheBeforeGBuffer) and join at their first readers (the
+                // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache above forks
+                // after the depth and the screen probes after the screen trace (the surface cache's run forked
+                // before the G-buffer, surfaceCacheBeforeGBuffer) and join at their first readers (the
                 // reflections, the composite: RDGCompile CutRunsAtConsumers), so every node declared between the
                 // two that reads nothing the runs write - and writes nothing they read - fills the graphics
                 // queue's wait instead of sitting after the join. The volumetric fog's froxels: the light grid,
