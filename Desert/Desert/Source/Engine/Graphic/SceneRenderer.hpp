@@ -31,6 +31,7 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/Systems/Scene/Decals/DecalRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Lights/LightFunctionAtlas.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
@@ -1012,7 +1013,8 @@ namespace Desert::Graphic
         // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
         // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
         void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                            const LocalLightShadowSettings&           shadow );
+                            const LocalLightShadowSettings&           shadow,
+                           const System::LightFunctionProxy& function );
 
         const auto& GetPointLights() const
         {
@@ -1024,7 +1026,8 @@ namespace Desert::Graphic
         void AddDecal( const System::DecalProxy& decal );
 
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                           const LocalLightShadowSettings&          shadow );
+                           const LocalLightShadowSettings&          shadow,
+                           const System::LightFunctionProxy& function );
 
         // One local fog volume of this frame (LocalFogVolumeCommand, replayed per view: by const reference).
         // The list is reserved once at kVolumetricFogMaxLocalVolumes and emptied with the lights at frame end.
@@ -2048,6 +2051,9 @@ namespace Desert::Graphic
         // "Deferred: Decals" (DECALS-DBUFFER): this frame's decals, faded and sorted per view; a typed member, its
         // lists reserved once and cleared each frame beside the lights.
         System::DecalRenderer m_Decals;
+        // The lights' light function tiles (UE FLightFunctionAtlas): filled by AddPointLight / AddSpotLight, drawn
+        // before the G-buffer by "Lights: Light Function Atlas".
+        System::LightFunctionAtlas m_LightFunctions;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume

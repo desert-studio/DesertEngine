@@ -2175,6 +2175,20 @@ namespace Desert::ECS
                   Units( "x" ), Advanced, EditCondition( "UseIesBrightness" ),
                   Tooltip( "Scales the profile's peak candela when Use IES Brightness is on." ) )
         float IesBrightnessScale = 1.0f;
+
+        // UE ULightComponent::LightFunctionMaterial / LightFunctionScale (LIGHT-FUNCTIONS, UE 5.3+ light function
+        // atlas): a `Domain LightFunction` material rendered each frame into the light's tile of the view's atlas
+        // (System::LightFunctionAtlas) and multiplied into the light's radiance (Mesh/LightFunctionAtlas.glslh).
+        PROPERTY( DisplayName( "Light Function Material" ), Category( "Light Function" ), Asset<MaterialAsset>,
+                  Tooltip( "UE Light Function Material: a material in the Light Function domain that filters "
+                           "the light's colour by direction. None = no light function." ) )
+        Assets::AssetHandle LightFunctionMaterial;
+
+        PROPERTY( DisplayName( "Light Function Scale" ), Category( "Light Function" ), Length,
+                  Range( 1.0f, 1.0e6f ),
+                  Tooltip( "UE Light Function Scale: the size of the function's pattern in light space (cm); "
+                           "the material's LightVector is the light-space position divided by it." ) )
+        glm::vec3 LightFunctionScale = { 1024.0f, 1024.0f, 1024.0f };
     };
 
     struct PointLightComponent
@@ -2324,6 +2338,20 @@ namespace Desert::ECS
                   Units( "x" ), Advanced, EditCondition( "UseIesBrightness" ),
                   Tooltip( "Scales the profile's peak candela when Use IES Brightness is on." ) )
         float IesBrightnessScale = 1.0f;
+
+        // UE ULightComponent::LightFunctionMaterial / LightFunctionScale (LIGHT-FUNCTIONS, UE 5.3+ light function
+        // atlas): a `Domain LightFunction` material rendered each frame into the light's tile of the view's atlas
+        // (System::LightFunctionAtlas) and multiplied into the light's radiance (Mesh/LightFunctionAtlas.glslh).
+        PROPERTY( DisplayName( "Light Function Material" ), Category( "Light Function" ), Asset<MaterialAsset>,
+                  Tooltip( "UE Light Function Material: a material in the Light Function domain that filters "
+                           "the light's colour by direction. None = no light function." ) )
+        Assets::AssetHandle LightFunctionMaterial;
+
+        PROPERTY( DisplayName( "Light Function Scale" ), Category( "Light Function" ), Length,
+                  Range( 1.0f, 1.0e6f ),
+                  Tooltip( "UE Light Function Scale: the size of the function's pattern in light space (cm); "
+                           "the material's LightVector is the light-space position divided by it." ) )
+        glm::vec3 LightFunctionScale = { 1024.0f, 1024.0f, 1024.0f };
     };
 
     struct SpotLightComponent
@@ -2457,6 +2485,20 @@ namespace Desert::ECS
                   Units( "x" ), Advanced, EditCondition( "UseIesBrightness" ),
                   Tooltip( "Scales the profile's peak candela when Use IES Brightness is on." ) )
         float IesBrightnessScale = 1.0f;
+
+        // UE ULightComponent::LightFunctionMaterial / LightFunctionScale (LIGHT-FUNCTIONS, UE 5.3+ light function
+        // atlas): a `Domain LightFunction` material rendered each frame into the light's tile of the view's atlas
+        // (System::LightFunctionAtlas) and multiplied into the light's radiance (Mesh/LightFunctionAtlas.glslh).
+        PROPERTY( DisplayName( "Light Function Material" ), Category( "Light Function" ), Asset<MaterialAsset>,
+                  Tooltip( "UE Light Function Material: a material in the Light Function domain that filters "
+                           "the light's colour by direction. None = no light function." ) )
+        Assets::AssetHandle LightFunctionMaterial;
+
+        PROPERTY( DisplayName( "Light Function Scale" ), Category( "Light Function" ), Length,
+                  Range( 1.0f, 1.0e6f ),
+                  Tooltip( "UE Light Function Scale: the size of the function's pattern in light space (cm); "
+                           "the material's LightVector is the light-space position divided by it." ) )
+        glm::vec3 LightFunctionScale = { 1024.0f, 1024.0f, 1024.0f };
     };
 
     struct RectLightComponent

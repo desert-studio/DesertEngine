@@ -1419,7 +1419,7 @@ namespace Desert::Graphic
             // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
             for ( const ShaderProtocols::PointLightPayload& light :
                   System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
-                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false } );
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false }, System::LightFunctionProxy{} );
         }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
@@ -2614,6 +2614,23 @@ namespace Desert::Graphic
             // no mesh renderer there is no full prepass and AddFrameGBuffer adds no decal node.
             m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
                                    GetPipelineCache() );
+            // THE LIGHT FUNCTION ATLAS (UE FLightFunctionAtlas): the tiles AddPointLight / AddSpotLight handed out,
+            // drawn before any lit pass, the atlas slot stamped on every light with a tile (the light lists are
+            // uploaded by the lighting passes below). A frame with no light function adds no node and stamps
+            // nothing: its lights keep tile -1 and shade exactly as before.
+            if ( const int32_t atlasSlot =
+                      m_LightFunctions.PrepareFrame( static_cast<float>( m_SceneTimeSeconds ), GetPipelineCache() );
+                 atlasSlot > 0 && m_LightFunctions.HasDraws() )
+            {
+                for ( auto& point : m_PointLight.PointLights )
+                    if ( point.LightFunctionTile >= 0 )
+                        point.LightFunctionAtlasTexture = atlasSlot;
+                for ( auto& spot : m_SpotLight.SpotLights )
+                    if ( spot.LightFunctionTile >= 0 )
+                        spot.LightFunctionAtlasTexture = atlasSlot;
+                m_LightFunctions.AddPasses( graph, textures.Import( m_LightFunctions.GetAtlas(), "LightFunctionAtlas",
+                                                                    RDG::Access::SampledGraphics ) );
+            }
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
             // A view with decals or a prepassed ground rasters the grass's phase 1 inside AddFrameGBuffer, before
             // "Deferred: Decals" and the base pass, so "TerrainGBuffer" rejects the ground under the blades
@@ -3185,6 +3202,7 @@ namespace Desert::Graphic
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
         m_Decals.ClearQueue();
+        m_LightFunctions.ClearQueue();
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_LocalFogVolumes.clear(); // keeps the capacity reserved by AddLocalFogVolume
@@ -5241,9 +5259,14 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                                       const LocalLightShadowSettings&           shadow )
+                                       const LocalLightShadowSettings&           shadow,
+                                       const System::LightFunctionProxy& function )
     {
         m_PointLight.PointLights.push_back( pointLight );
+        // The light's tile in this frame's light function atlas (-1 = none); the atlas slot is stamped before the
+        // G-buffer, once the atlas has its size.
+        m_PointLight.PointLights.back().LightFunctionTile =
+             m_LightFunctions.Add( function, m_PointLight.PointLights.back() );
         // The IES profile's atlas: the collector named the row on its thread, the image is (re)built here, on
         // the main thread, so a profile added this frame shows this frame (Runtime::IesProfileService).
         if ( m_PointLight.PointLights.back().IesProfileRow >= 0 )
@@ -5263,9 +5286,12 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                                      const LocalLightShadowSettings&          shadow )
+                                      const LocalLightShadowSettings&          shadow,
+                                       const System::LightFunctionProxy& function )
     {
         m_SpotLight.SpotLights.push_back( spotLight );
+        m_SpotLight.SpotLights.back().LightFunctionTile =
+             m_LightFunctions.Add( function, m_SpotLight.SpotLights.back() );
         // The IES profile's atlas: the collector named the row on its thread, the image is (re)built here, on
         // the main thread, so a profile added this frame shows this frame (Runtime::IesProfileService).
         if ( m_SpotLight.SpotLights.back().IesProfileRow >= 0 )

@@ -109,7 +109,11 @@ namespace Desert::ECS
                           .ShadowMethod    = spotlight.Data.ShadowMethod,
                           .SourceId        = static_cast<uint32_t>( entity ) + 1u };
 
-                     renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light, shadow );
+                     // UE light function: the material and scale; SceneRenderer::Add*Light allocates its atlas tile.
+                     const Graphic::System::LightFunctionProxy function{ .Material = spotlight.Data.LightFunctionMaterial,
+                                                                         .Scale    = spotlight.Data.LightFunctionScale };
+
+                     renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light, shadow, function );
                  } );
         }
     };

@@ -12,9 +12,11 @@ namespace Desert::Graphic::Render
     {
         ShaderProtocols::SpotLightPayload Light;
         LocalLightShadowSettings          Shadow;
+        System::LightFunctionProxy        Function;
 
-        SpotLightCommand( const ShaderProtocols::SpotLightPayload& light, const LocalLightShadowSettings& shadow )
-             : Light( light ), Shadow( shadow )
+        SpotLightCommand( const ShaderProtocols::SpotLightPayload& light, const LocalLightShadowSettings& shadow,
+                          const System::LightFunctionProxy& function )
+             : Light( light ), Shadow( shadow ), Function( function )
         {
         }
 
@@ -25,7 +27,7 @@ namespace Desert::Graphic::Render
             // so a command that hands its payload away serves the first view and gives the second one a
             // moved-from value. For a light that is a light which exists in one viewport and not in the
             // other, with nothing in the log.
-            renderer.AddSpotLight( Light, Shadow );
+            renderer.AddSpotLight( Light, Shadow, Function );
         }
     };
 } // namespace Desert::Graphic::Render
