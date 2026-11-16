@@ -135,12 +135,22 @@ namespace Desert::Graphic::RayTracing
         return *entry.StorageRef;
     }
 
-    void RayTracingSkinCache::PrepareRows( const System::MeshRenderer& meshes, GpuDriven::GpuScene& scene,
+    void RayTracingSkinCache::PrepareRows( System::MeshRenderer& meshes, GpuDriven::GpuScene& scene,
                                            const uint64_t frame )
     {
         const std::span<const System::MeshRenderer::SkinnedMeshRenderData> records = meshes.GetSkinnedQueue();
-        if ( !m_Enabled || records.empty() || !EnsurePipeline( records.size() ) )
+        // The source a record skins from (a displaced record's base, else its mesh): a morphed twin's identity.
+        const auto skinSource = []( const System::MeshRenderer::SkinnedMeshRenderData& record ) -> const SkinnedMesh*
+        { return record.SkinSource != nullptr ? record.SkinSource : record.Mesh; };
+        if ( !m_Enabled || records.empty() )
             return; // the primitives keep no address: the raster skins in the vertex stage
+        if ( !EnsurePipeline( records.size() ) )
+        {
+            // Refused at write for every record: each morphed twin keeps its own history (logged once above).
+            for ( const System::MeshRenderer::SkinnedMeshRenderData& record : records )
+                meshes.NoteSkinCacheService( record.Entity, skinSource( record ), false );
+            return;
+        }
 
         KeyRecords( meshes );
         for ( std::size_t i = 0; i < records.size(); ++i )
@@ -209,6 +219,9 @@ namespace Desert::Graphic::RayTracing
                 entry.RefusalLogged = false;
                 entry.StreamsReady  = true;
             }
+            // The cache's answer for this record's morphed twin (refused: the twin keeps its own previous
+            // positions from its next draw on, MeshRenderer::MorphedMeshFor).
+            meshes.NoteSkinCacheService( record.Entity, skinSource( record ), entry.StreamsReady );
             if ( !entry.StreamsReady )
                 continue;
             scene.SetSkinCache( record.GpuPrimitive, DrawnStreams( entry ).GetDeviceAddress(),
@@ -322,6 +335,7 @@ namespace Desert::Graphic::RayTracing
                     entry.RefusalLogged      = true;
                     entry.StreamsReady       = false;
                     scene.SetSkinCache( record.GpuPrimitive, 0u, 0u );
+                    meshes.NoteSkinCacheService( record.Entity, entry.Source, false );
                     continue;
                 }
             }

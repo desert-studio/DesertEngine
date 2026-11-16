@@ -1297,6 +1297,10 @@ namespace Desert::Graphic::System
         {
             return m_SkinCacheEnabled;
         }
+        // The skin cache's answer for a skinned record skinning from @p mesh (RayTracingSkinCache::PrepareRows /
+        // SkinFrame): when @p mesh is the entity's morphed twin, a refusal makes the twin keep its own previous
+        // positions from its next draw on (MorphedMeshFor), an address gives them back to the cache.
+        void NoteSkinCacheService( uint32_t entity, const SkinnedMesh* mesh, bool served );
         // This view's graph refs of the skin-cache streams its skinned rows address (RayTracingSkinCache::
         // DeclareReads fills them, SceneRenderer clears them per frame): every pass that draws skinned primitives
         // declares them StorageRead (the G-buffer / forward geometry pass, the cascade and local shadow passes,
@@ -3756,6 +3760,10 @@ namespace Desert::Graphic::System
             bool                          PendingHistory  = false; // the output holds last frame's shape
             bool                          PendingMoves    = false; // the pending blend changes the shape
             bool                          PreviousBehind  = false; // Previous lags the output: one more blend
+            // The skin cache refused this twin's record (NoteSkinCacheService): with the cache on, the twin
+            // keeps its own previous positions all the same (UE: a skin-cache miss falls back to the vertex
+            // factory's own previous morph stream). Carried across a rebuild of the twin.
+            bool                          SkinCacheRefused = false;
             RDG::ExternalBuffer           PreviousImport;
             RDG::ExternalBuffer           BaseImport;
             RDG::ExternalBuffer           DeltasImport;

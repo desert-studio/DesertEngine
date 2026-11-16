@@ -100,7 +100,8 @@ namespace Desert::Graphic::System
         MorphTwin& twin = m_MorphTwins[data.Entity];
         // Last frame's positions are the twin's own only where no skin cache keeps them: with the cache on, its
         // entry skins from the twin's output and rotates its own previous positions (RayTracingSkinCache.hpp).
-        const bool ownsHistory = !IsSkinCacheEnabled();
+        // A record the cache refused (NoteSkinCacheService) skins in the vertex stage: the twin keeps them.
+        const bool ownsHistory = !IsSkinCacheEnabled() || twin.SkinCacheRefused;
         // The base's content revision and geometry span are the twin's identity (the pool's buffers are shared
         // by every mesh, so the buffer alone says nothing); so is who keeps the history (Effects.SkinCache).
         if ( !twin.Twin || twin.BaseRevision != base->GetRenderRevision() ||
@@ -129,8 +130,10 @@ namespace Desert::Graphic::System
                     return base;
                 }
             }
-            twin              = MorphTwin{};
-            twin.Base         = base;
+            const bool refused    = twin.SkinCacheRefused;
+            twin                  = MorphTwin{};
+            twin.SkinCacheRefused = refused;
+            twin.Base             = base;
             twin.BaseRevision = base->GetRenderRevision();
             twin.BaseGeometry = base->GetGeometry();
             twin.Vertices     = vertices;
@@ -162,6 +165,14 @@ namespace Desert::Graphic::System
             twin.PendingMoves = changed && twin.PendingHistory && twin.Previous != nullptr;
         }
         return twin.Twin.get();
+    }
+
+    void MeshRenderer::NoteSkinCacheService( const uint32_t entity, const SkinnedMesh* const mesh, const bool served )
+    {
+        const auto found = m_MorphTwins.find( entity );
+        if ( found == m_MorphTwins.end() || found->second.Twin.get() != mesh )
+            return;
+        found->second.SkinCacheRefused = !served;
     }
 
     RDG::ExternalBuffer* MeshRenderer::FindMorphOutput( const uint32_t entity, const SkinnedMesh* const mesh )

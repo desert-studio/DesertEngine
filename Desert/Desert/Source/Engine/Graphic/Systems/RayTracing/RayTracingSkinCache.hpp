@@ -100,8 +100,10 @@ namespace Desert::Graphic::RayTracing
         // record of @p meshes and writes its streams' address and vertex count into the record's GpuScene
         // primitive (GpuScene::SetSkinCache), so the view passes fetch instead of skinning. A record whose entry
         // cannot be made keeps a primitive without an address (the raster skins it in the vertex stage), logged
-        // once per entry. Off: the primitives keep the frame's sync value, no address.
-        void PrepareRows( const System::MeshRenderer& meshes, GpuDriven::GpuScene& scene, uint64_t frame );
+        // once per entry. Off: the primitives keep the frame's sync value, no address. Every record's answer
+        // (addressed or refused) goes back to @p meshes (MeshRenderer::NoteSkinCacheService): a morphed twin the
+        // cache refuses keeps its own previous positions, as without a cache.
+        void PrepareRows( System::MeshRenderer& meshes, GpuDriven::GpuScene& scene, uint64_t frame );
 
         // RASTER, step 2 (MeshRenderer::SyncGpuScene, after the scene's ObjectBones upload is declared into the
         // view graph @p graph and before any view pass): the scene's skin step (UE FGPUSkinCache::
