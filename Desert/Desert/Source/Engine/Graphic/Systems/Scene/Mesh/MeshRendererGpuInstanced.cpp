@@ -889,7 +889,8 @@ namespace Desert::Graphic::System
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
                                          .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                         .PrimitiveFlags( 0u ) } );
+                                         .PrimitiveFlags( 0u )
+                                         .LodFadeSide( 0.0f ) } );
                 continue;
             }
 
@@ -991,7 +992,8 @@ namespace Desert::Graphic::System
                                 .Push               = DrawPushFields{}
                                              .MaterialIndex( row )
                                              .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                             .PrimitiveFlags( 0u ) } );
+                                             .PrimitiveFlags( 0u )
+                                             .LodFadeSide( 0.0f ) } );
                 };
                 if ( first >= end )
                     return;
@@ -1087,7 +1089,10 @@ namespace Desert::Graphic::System
                         .IndirectCountOffset = static_cast<uint64_t>( bin.Index ) * kGpuDrawBinCountBytes,
                         .IndirectMaxDraws    = bin.Slots,
                         .AddressedReads      = std::span<const RDG::BufferRef>( reads.data(), reads.size() ),
-                        .Push                = DrawPushFields{}.DrawRows( rowSlots ).PrimitiveFlags( 0u ) } );
+                        .Push                = DrawPushFields{}
+                                                    .DrawRows( rowSlots )
+                                                    .PrimitiveFlags( 0u )
+                                                    .LodFadeSide( 0.0f ) } );
         }
     }
 
@@ -1496,8 +1501,11 @@ namespace Desert::Graphic::System
                        // own list is its copy of the records, its rest part their twins.
                        .IndirectArgsOffset = refs.ArgsOffset + setup.ArgsOffset + shift,
                        .IndirectLevels     = LevelsOf( gpu ),
-                       .Push =
-                            DrawPushFields{}.Transform( glm::mat4( 1.0f ) ).MaterialIndex( row ).Wind( push ) } );
+                       .Push = DrawPushFields{}
+                                    .Transform( glm::mat4( 1.0f ) )
+                                    .MaterialIndex( row )
+                                    .Wind( push )
+                                    .LodFadeSide( 0.0f ) } );
             };
             if ( drawsRecords )
                 addPart( 0u, setup.Wind );
@@ -1549,7 +1557,10 @@ namespace Desert::Graphic::System
                         .IndirectCountOffset = static_cast<uint64_t>( bin.Index ) * kGpuDrawBinCountBytes,
                         .IndirectMaxDraws    = bin.Slots,
                         .AddressedReads      = std::span<const RDG::BufferRef>( reads.data(), reads.size() ),
-                        .Push                = DrawPushFields{}.DrawRows( rowSlots ).PrimitiveFlags( 0u ) } );
+                        .Push                = DrawPushFields{}
+                                                    .DrawRows( rowSlots )
+                                                    .PrimitiveFlags( 0u )
+                                                    .LodFadeSide( 0.0f ) } );
             ++binDraws;
         }
         // The count line (said when a list's draws change): the lead greps "[Shadows] grass casters".
