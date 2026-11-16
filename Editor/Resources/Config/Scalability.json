@@ -254,6 +254,7 @@
         "GlobalIllumination": {
             "Low": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 64,
+                "GlobalIllumination.ScreenSpaceRays": 4,
                 "GlobalIllumination.Method": "ProbeVolume",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
@@ -271,6 +272,7 @@
             },
             "Medium": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
+                "GlobalIllumination.ScreenSpaceRays": 4,
                 "GlobalIllumination.Method": "ProbeVolume",
                 "GlobalIllumination.SurfaceCacheAtlasSize": 2048,
                 "GlobalIllumination.CardTexelDensityScale": 50,
@@ -299,8 +301,11 @@
                 "GlobalIllumination.IrradianceFieldProbesPerFrame": 66,
                 "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
             },
-            "Epic": {},
+            "Epic": {
+                "GlobalIllumination.ScreenSpaceRays": 16
+            },
             "Cinematic": {
+                "GlobalIllumination.ScreenSpaceRays": 32,
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 350,
                 "GlobalIllumination.ScreenProbeDownsample": 8,

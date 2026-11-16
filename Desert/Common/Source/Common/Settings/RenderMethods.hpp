@@ -33,7 +33,7 @@ namespace Common::Scalability
     {
         Off = 0,     // sky light and ambient occlusion only
         Lightmaps,   // baked by the path tracer (LIGHTMAPS)                          — not implemented
-        ScreenSpace, // a screen trace of the lit scene (UE ScreenSpaceGI)        — not implemented
+        ScreenSpace, // HZB trace of last frame's lit scene + own AO on the sky (UE SSGI, System::SSGIRenderer)
         // The world radiance cache read per pixel, no screen probes (GI-PROBE-SW; UE Lumen's irradiance field
         // gather): the cheap traced path, every light and the sky bounced off screen too. It took the number of
         // the reflective shadow maps it replaced (3); every method above moved down one, and scene v64
@@ -276,9 +276,9 @@ namespace Common::Scalability
     // says so).
     [[nodiscard]] constexpr bool IsImplemented( GIMethod method )
     {
-        // ScreenSpace is not here (GTX-TIER-LADDER): the composite's sun-only gather of on-screen neighbours
-        // was a bounce no GI method owned, measured at mean 0.11/255; it is gone, and GI is the method's alone.
-        return method == GIMethod::Off || method == GIMethod::ProbeVolume ||
+        // ScreenSpace: the HZB screen trace over the scene colour history through the diffuse-indirect denoiser
+        // (System::SSGIRenderer, SceneRenderer::AddFrameSSGI; UE ScreenSpaceDiffuseIndirect).
+        return method == GIMethod::Off || method == GIMethod::ScreenSpace || method == GIMethod::ProbeVolume ||
                method == GIMethod::SoftwareTraced || method == GIMethod::HardwareTraced ||
                method == GIMethod::PathTraced;
     }
