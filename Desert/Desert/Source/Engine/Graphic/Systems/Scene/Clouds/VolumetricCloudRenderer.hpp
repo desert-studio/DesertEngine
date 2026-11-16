@@ -785,10 +785,6 @@ namespace Desert::Graphic::System
         // The world weather over one kCloudFarWeatherPeriodKm torus (Assets::BakeCloudFarWeatherMap), rebuilt
         // only when its seed or its shortest wave moves — see EnsureFarWeatherMap.
         std::shared_ptr<Image2D> m_FarWeatherMap;
-        // Its min/max pyramid (2 side x side RGBA16F, .r min, .g max, mip m packed along x at 2 side - 2 (side >>
-        // m)): the far path's conservative density the march strides empty far air on. Built and uploaded with the
-        // map.
-        std::shared_ptr<Image2D> m_FarWeatherBoundMap;
         uint32_t                 m_FarWeatherSeed   = 0u;
         float                    m_FarWeatherTileKm = 0.0f;
         std::shared_ptr<Image2D> m_LayoutPatternTexture;

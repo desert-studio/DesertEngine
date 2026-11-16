@@ -26,7 +26,6 @@
 #include <chrono>
 #include <array>
 #include <cstring>
-#include <limits>
 #include <span>
 
 namespace
@@ -64,9 +63,6 @@ namespace
         // hierarchical DDA trims each ray's stretch on (FPS-CLOUD-3).
         DESERT_SHADER_PARAMETER( Texture, CloudColumnMipTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudFarWeatherTexture );
-        // The weather map's min/max pyramid (EnsureFarWeatherMap), the march's own entry: the far path's
-        // conservative density, read by its probe and cell test only (FPS-CLOUD-RECON).
-        DESERT_SHADER_PARAMETER( Texture, CloudFarWeatherBoundTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutPatternTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutMaskTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudAuthoredAtlasTexture );
@@ -898,8 +894,7 @@ namespace Desert::Graphic::System
         const uint32_t seed   = Assets::CloudFarWeatherSeed( m_ModellingParams );
         const float    tileKm = m_ModellingParams.PatchTileKm;
 
-        if ( m_FarWeatherMap && m_FarWeatherBoundMap && !m_FarWeatherStale && m_FarWeatherSeed == seed &&
-             m_FarWeatherTileKm == tileKm )
+        if ( m_FarWeatherMap && !m_FarWeatherStale && m_FarWeatherSeed == seed && m_FarWeatherTileKm == tileKm )
             return true;
 
         const std::vector<float> weather = Assets::BakeCloudFarWeatherMap( seed, tileKm );
@@ -937,108 +932,13 @@ namespace Desert::Graphic::System
             return false;
         }
 
-        // THE FAR PATH'S CONSERVATIVE DENSITY (FPS-CLOUD-RECON), a pure function of the same texels and therefore
-        // built in the same call, on the same key: a min/max pyramid of W the march's probe and cell test bound
-        // the far path with (Common/CloudField.glslh CloudFarColumnsEmpty). Mip 0 texel k holds the range of
-        // texels k - 1 .. k + 1 (toroidal), every texel a bilinear read at a texel coordinate in [k, k + 1) can
-        // touch; mip m the range of its four children; mip m packed along x at 2 side - 2 (side >> m), so the
-        // whole chain fits in 2 side x side. CPU work only on a seed or wave change, never per frame.
-        constexpr uint32_t     side       = Assets::kCloudFarWeatherMapSide;
-        constexpr uint32_t     boundWidth = 2u * side;
-        std::vector<glm::vec2> level( static_cast<size_t>( side ) * side );
-        {
-            std::vector<glm::vec2> rows( level.size() );
-            for ( uint32_t z = 0; z < side; ++z )
-                for ( uint32_t x = 0; x < side; ++x )
-                {
-                    glm::vec2 range( weather[static_cast<size_t>( z ) * side + x] );
-                    for ( const uint32_t nx : { ( x + side - 1u ) % side, ( x + 1u ) % side } )
-                    {
-                        const float w = weather[static_cast<size_t>( z ) * side + nx];
-                        range         = glm::vec2( std::min( range.x, w ), std::max( range.y, w ) );
-                    }
-                    rows[static_cast<size_t>( z ) * side + x] = range;
-                }
-            for ( uint32_t z = 0; z < side; ++z )
-                for ( uint32_t x = 0; x < side; ++x )
-                {
-                    glm::vec2 range = rows[static_cast<size_t>( z ) * side + x];
-                    for ( const uint32_t nz : { ( z + side - 1u ) % side, ( z + 1u ) % side } )
-                    {
-                        const glm::vec2 other = rows[static_cast<size_t>( nz ) * side + x];
-                        range = glm::vec2( std::min( range.x, other.x ), std::max( range.y, other.y ) );
-                    }
-                    level[static_cast<size_t>( z ) * side + x] = range;
-                }
-        }
-        std::vector<std::byte> boundTexels( static_cast<size_t>( boundWidth ) * side * 4u * sizeof( uint16_t ),
-                                            std::byte{ 0 } );
-        const auto             storeLevel =
-             [&boundTexels]( const std::vector<glm::vec2>& ranges, uint32_t levelSide, uint32_t offset )
-        {
-            for ( uint32_t z = 0; z < levelSide; ++z )
-                for ( uint32_t x = 0; x < levelSide; ++x )
-                {
-                    const glm::vec2 range     = ranges[static_cast<size_t>( z ) * levelSide + x];
-                    const uint16_t  halves[2] = { static_cast<uint16_t>( glm::packHalf1x16( range.x ) ),
-                                                  static_cast<uint16_t>( glm::packHalf1x16( range.y ) ) };
-                    const size_t    at =
-                         ( static_cast<size_t>( z ) * boundWidth + offset + x ) * 4u * sizeof( uint16_t );
-                    std::memcpy( boundTexels.data() + at, halves, sizeof( halves ) );
-                }
-        };
-        storeLevel( level, side, 0u );
-        for ( uint32_t levelSide = side / 2u; levelSide > 0u; levelSide /= 2u )
-        {
-            std::vector<glm::vec2> next( static_cast<size_t>( levelSide ) * levelSide );
-            const uint32_t         childSide = levelSide * 2u;
-            for ( uint32_t z = 0; z < levelSide; ++z )
-                for ( uint32_t x = 0; x < levelSide; ++x )
-                {
-                    glm::vec2 range( std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest() );
-                    for ( uint32_t dz = 0; dz < 2u; ++dz )
-                        for ( uint32_t dx = 0; dx < 2u; ++dx )
-                        {
-                            const glm::vec2 child =
-                                 level[static_cast<size_t>( 2u * z + dz ) * childSide + 2u * x + dx];
-                            range = glm::vec2( std::min( range.x, child.x ), std::max( range.y, child.y ) );
-                        }
-                    next[static_cast<size_t>( z ) * levelSide + x] = range;
-                }
-            storeLevel( next, levelSide, boundWidth - 2u * levelSide );
-            level = std::move( next );
-        }
-
-        const Core::Formats::Image2DSpecification boundSpec{
-             .Tag        = "CloudFarWeatherBoundMap",
-             .Width      = boundWidth,
-             .Height     = side,
-             .Format     = Core::Formats::ImageFormat::RGBA16F,
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Sample,
-        };
-        m_FarWeatherBoundMap = Image2D::Create( boundSpec );
-        if ( !m_FarWeatherBoundMap )
-        {
-            LOG_ERROR( "[Clouds] The {}x{} far weather bound map could not be created on the device; the clouds "
-                       "will not render for this view.",
-                       boundWidth, side );
-            return false;
-        }
-
         m_FarWeatherSeed   = seed;
         m_FarWeatherTileKm = tileKm;
         m_FarWeatherStale  = false;
-        std::erase_if( m_PendingUploads,
-                       []( const PendingUpload& upload )
-                       {
-                           return std::string_view( upload.Name ) == "Clouds.FarWeather" ||
-                                  std::string_view( upload.Name ) == "Clouds.FarWeatherBound";
-                       } );
+        std::erase_if( m_PendingUploads, []( const PendingUpload& upload )
+                       { return std::string_view( upload.Name ) == "Clouds.FarWeather"; } );
         m_PendingUploads.push_back(
              PendingUpload{ m_FarWeatherMap, std::move( texels ), "Clouds.FarWeather", &m_FarWeatherStale } );
-        m_PendingUploads.push_back( PendingUpload{ m_FarWeatherBoundMap, std::move( boundTexels ),
-                                                   "Clouds.FarWeatherBound", &m_FarWeatherStale } );
         return true;
     }
 
@@ -2500,10 +2400,6 @@ namespace Desert::Graphic::System
                        RDG::Access::SampledCompute, "Clouds.ColumnMax" )
              .Texture( VolumetricCloudShaderParameters::CloudColumnMipTexture, m_Clipmap.GetColumnMipImage(),
                        RDG::Access::SampledCompute, "Clouds.ColumnMip" )
-             // The far path's conservative density, built beside the weather map it bounds (EnsureFarWeatherMap),
-             // so it exists exactly when CloudFarWeatherTexture does.
-             .Texture( VolumetricCloudShaderParameters::CloudFarWeatherBoundTexture, m_FarWeatherBoundMap,
-                       RDG::Access::SampledCompute, "Clouds.FarWeatherBound" )
              .Storage( VolumetricCloudShaderParameters::CloudMarchCountersUB, marchCounters,
                        RDG::Access::StorageWrite );
         // ONE 2x2 LATTICE PHASE PER FRAME (CloudTraceGridPhase): thread (x, y) marches texel
