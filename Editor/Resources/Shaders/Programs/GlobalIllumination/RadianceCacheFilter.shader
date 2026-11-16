@@ -23,19 +23,18 @@ Shader "RadianceCacheFilter"
         // Traced resolution up to 32 (Scalability GlobalIllumination.RadianceCacheProbeResolution's range is 8..64:
         // a larger probe loads in slices below).
         #define RC_FILTER_MAX_TEXELS 1024u
-        // DDGI's depth sharpness: the lobe the distance moments are averaged over.
-        #define RC_DISTANCE_LOBE_EXPONENT 50.0
+        // DDGI's depth sharpness: the distance moments are averaged over a cos^50 lobe (the multiply chain in main).
 
         // The workgroup's threads: 64 outputs x RC_FILTER_SPLIT parts of the texel sums.
         #define RC_FILTER_SPLIT 4u
         #define RC_FILTER_THREADS ( 64u * RC_FILTER_SPLIT )
 
+        // FPS-RC-DIRTY: after the last slice the parts' sums take the slice arrays' first RC_FILTER_THREADS entries
+        // (s_Radiance: rgb = irradiance sum, a = cosine sum; s_Direction: xy = moment sum, z = lobe sum) instead of
+        // two arrays of their own: 29 KB of shared memory a group, not 36, so three groups share an SM, not two.
         shared vec4 s_Radiance[RC_FILTER_MAX_TEXELS];
         // Each loaded texel's direction, decoded once by its loader (not once per output thread).
         shared vec3 s_Direction[RC_FILTER_MAX_TEXELS];
-        // The parts' sums: rgb = irradiance sum, a = cosine sum; xy = moment sum, z = lobe sum.
-        shared vec4 s_IrradiancePart[RC_FILTER_THREADS];
-        shared vec3 s_MomentPart[RC_FILTER_THREADS];
         shared vec3 s_Irradiance[64];
         shared vec2 s_Distance[64];
 
@@ -92,7 +91,13 @@ Shader "RadianceCacheFilter"
                     const float l = dot( depDirection, direction );
                     if ( l > 0.0 )
                     {
-                        const float w = pow( l, RC_DISTANCE_LOBE_EXPONENT );
+                        // l^50 (the lobe's exponent) as l^32 * l^16 * l^2: seven multiplies, not pow's
+                        // log2 + exp2 on the special-function units, per texel and output (FPS-RC-DIRTY).
+                        const float l2  = l * l;
+                        const float l4  = l2 * l2;
+                        const float l8  = l4 * l4;
+                        const float l16 = l8 * l8;
+                        const float w   = l16 * l16 * l16 * l2;
                         const float d = min( sample_.a / maxDistance, 1.0 );
                         momentSum += w * vec2( d, d * d );
                         lobeSum   += w;
@@ -100,17 +105,18 @@ Shader "RadianceCacheFilter"
                 }
                 barrier();
             }
-            s_IrradiancePart[thread] = vec4( irradianceSum, cosineSum );
-            s_MomentPart[thread]     = vec3( momentSum, lobeSum );
+            // The slice loop's last barrier ended every read of the slice arrays: they now hold the parts' sums.
+            s_Radiance[thread]  = vec4( irradianceSum, cosineSum );
+            s_Direction[thread] = vec3( momentSum, lobeSum );
             barrier();
             if ( part == 0u )
             {
-                vec4 irr = s_IrradiancePart[local];
-                vec3 mom = s_MomentPart[local];
+                vec4 irr = s_Radiance[local];
+                vec3 mom = s_Direction[local];
                 for ( uint p = 1u; p < RC_FILTER_SPLIT; ++p )
                 {
-                    irr += s_IrradiancePart[local + 64u * p];
-                    mom += s_MomentPart[local + 64u * p];
+                    irr += s_Radiance[local + 64u * p];
+                    mom += s_Direction[local + 64u * p];
                 }
                 // (1/pi) * integral of L cos over the hemisphere = sum(L cos) / sum(cos) for evenly spread
                 // directions.
