@@ -314,6 +314,13 @@ vec2 DesertPixelToJitteredNdc( const vec2 pixel )
 #else
 #define DESERT_SURFACE_BINNED_VARYINGS
 #endif
+// A binned draw's side of a dithered LOD transition (DesertMeshDraw::LodFadeSide,
+// Mesh/Surface/LODTransition.glslh).
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_SURFACE_LOD_FADE_VARYINGS flat float LodFadeSide;
+#else
+#define DESERT_SURFACE_LOD_FADE_VARYINGS
+#endif
 
 // THE CURRENT CLIP POSITION OF A G-BUFFER CELL IS THE PIXEL'S (FPS-GBUFFER2; UE's base pass: SvPosition ->
 // SvPositionToScreenPosition, no clip-position interpolant). The fragment's own gl_FragCoord is the jittered raster
@@ -377,6 +384,7 @@ vec2 DesertPixelToJitteredNdc( const vec2 pixel )
         flat float ObjectMoved; \
         flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
+        DESERT_SURFACE_LOD_FADE_VARYINGS \
     } v_Surface;
 #define DESERT_SURFACE_VARYING_TBN          v_Surface.TBN
 #define DESERT_SURFACE_VARYING_VERTEX_COLOR v_Surface.VertexColor
@@ -499,6 +507,18 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 }
 
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
+// A Masked cell also clips the other level of a dithered LOD transition (Mesh/Surface/LODTransition.glslh), first:
+// a pixel the transition takes away samples no mask. The side is the binned draw's (its vertex stage forwards
+// DesertMeshDraw::LodFadeSide) or the CPU-recorded draw's push field (MaterialTransport.glslh LodFadeSide, the
+// block the fragment stage reads MaterialIndex from).
+#include <Mesh/Surface/LODTransition.glslh>
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, v_Surface.LodFadeSide, cameraUB.LodTransition.x )
+#else
+#define DESERT_SURFACE_LOD_CLIPPED() \
+    DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
+#endif
 #if defined( DESERT_SURFACE_OPACITY_DITHER )
 // A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
 // probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
@@ -510,10 +530,11 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 #else
 #define DESERT_SURFACE_CLIP_THRESHOLD() Material.OpacityMaskClipValue
 #endif
-// The cut every masked cell makes: the mask below the threshold above discards the fragment. The visibility raster
-// (Pass_Visibility.glslh) cuts by the same threshold through DesertSurfaceOpacityMaskGrad.
+// The cut every masked cell makes: the other level's pixels of a dithered LOD transition, then the mask below the
+// threshold above, discard the fragment. The visibility raster (Pass_Visibility.glslh) makes the same two cuts,
+// the mask through DesertSurfaceOpacityMaskGrad.
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < DESERT_SURFACE_CLIP_THRESHOLD() ) \
+    if ( DESERT_SURFACE_LOD_CLIPPED() || DesertSurfaceOpacityMask( i ) < DESERT_SURFACE_CLIP_THRESHOLD() ) \
         discard
 #else
 #define DESERT_SURFACE_CLIP( i )
