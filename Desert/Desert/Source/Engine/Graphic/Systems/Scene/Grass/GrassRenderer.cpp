@@ -127,6 +127,25 @@ namespace Desert::Graphic::System
         // kFeedbackLawWord; Instances is sized from it).
         constexpr uint32_t kFeedbackLawWord   = 4u + kGrassCascadeLists;
         constexpr uint32_t kFeedbackTailWords = kFeedbackLawWord + 1u;
+        // FPS-GRASS-VIS, THE RASTER'S CENSUS (UE's GPU-culling stats per LOD): past the tail, one word per bucket -
+        // the camera's phase-1 drawn instances of it (GrassCull.shader kFeedbackCameraWord), priced in triangles
+        // by the bucket's strip level or LOD (BucketTriangles). A variety's feedback is 2 x buckets + the tail.
+        constexpr uint32_t kFeedbackCameraWord = kFeedbackLawWord + 1u;
+
+        // The triangles one instance of bucket @p bucket draws: a blade's strip level (submesh b = bucket b), a
+        // mesh's LOD level over every submesh (its base range where it has no chain).
+        [[nodiscard]] uint64_t BucketTriangles( const std::vector<Submesh>& submeshes, const uint32_t bucket,
+                                                const bool blade ) noexcept
+        {
+            if ( blade )
+                return bucket < submeshes.size() ? submeshes[bucket].IndexCount / 3u : 0u;
+            uint64_t triangles = 0u;
+            for ( const Submesh& sm : submeshes )
+                triangles += ( sm.LODs.empty() ? sm.IndexCount
+                                               : sm.LODs[std::min<std::size_t>( bucket, sm.LODs.size() - 1u )].IndexCount ) /
+                             3u;
+            return triangles;
+        }
         static_assert(
              kGrassCascadeLists == MeshRenderer::kCascadeViews &&
                   kGrassCascadeLists == GrassDrawCounters::kCascadeViews && kGrassCascadeLists == 8u,
@@ -715,7 +734,7 @@ namespace Desert::Graphic::System
         // FPS-GRASS-PLAN: ReadVarietyFeedback's, render thread, before PrepareVariety: the entry's feedback words
         // (its Buckets at the read, then the tail) and whether they were read; the field (an index of m_Queue)
         // and whether PrepareVariety kept the variety (PlanFrame plans and CommitFrame applies only those).
-        std::array<uint32_t, kLawBuckets + kFeedbackTailWords> Counted{};
+        std::array<uint32_t, 2u * kLawBuckets + kFeedbackTailWords> Counted{};
         uint32_t                                               CountedBuckets = 0u;
         bool                                                   CountedRead    = false;
         bool                                                   Prepared       = false;
@@ -893,10 +912,11 @@ namespace Desert::Graphic::System
         // kLawBuckets + kFeedbackTailWords words (buckets <= kLawBuckets above): the plan's array, no heap.
         // FPS-GRASS-PLAN: read by ReadVarietyFeedback on the render thread before this ran (the entry's Buckets
         // then are its Buckets now: only this function changes them).
-        const std::array<uint32_t, kLawBuckets + kFeedbackTailWords>& counted = plan.Counted;
+        const std::array<uint32_t, 2u * kLawBuckets + kFeedbackTailWords>& counted = plan.Counted;
         bool                                                          fedBack = false;
         gpu.Drawn                                                             = std::nullopt;
         gpu.DrawnCascades                                                     = {};
+        gpu.DrawnCameraTriangles                                              = 0u;
         // CPU-GRASS-POOL-7: the variety's range of the shared readback pool, its own counts only where they carry
         // its mark (a range handed out anew, or a remade pool, holds none of its writes yet).
         if ( plan.CountedRead && plan.CountedBuckets == buckets )
@@ -907,6 +927,9 @@ namespace Desert::Graphic::System
                 gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
                 for ( uint32_t v = 0; v < kGrassCascadeLists; ++v )
                     gpu.DrawnCascades[v] = counted[buckets + 4u + v];
+                for ( uint32_t b = 0; b < buckets; ++b )
+                    gpu.DrawnCameraTriangles += static_cast<uint64_t>( counted[buckets + kFeedbackCameraWord + b] ) *
+                                                BucketTriangles( submeshes, b, variety.Blade.has_value() );
             }
         }
         if ( gpu.LowFrames.size() != buckets )
@@ -1219,7 +1242,7 @@ namespace Desert::Graphic::System
                            variety.Key );
                 return refuse();
             }
-            if ( const uint64_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
+            if ( const uint64_t feedbackBytes = ( 2u * buckets + kFeedbackTailWords ) * 4u;
                  ( gpu.Feedback.Bytes < feedbackBytes || gpu.Feedback.Bytes >= feedbackBytes + 16u ) &&
                  !m_FeedbackPool.Allocate( gpu.Feedback, feedbackBytes ) )
             {
@@ -1424,7 +1447,7 @@ namespace Desert::Graphic::System
         const std::shared_ptr<ShaderResources::StorageBuffer>& feedback = m_FeedbackPool.Buffer();
         if ( !feedback || gpu.Feedback.Bytes == 0u || gpu.Buckets > kLawBuckets )
             return;
-        if ( const auto read = feedback->ReadBack( plan.Counted.data(), ( gpu.Buckets + kFeedbackTailWords ) * 4u,
+        if ( const auto read = feedback->ReadBack( plan.Counted.data(), ( 2u * gpu.Buckets + kFeedbackTailWords ) * 4u,
                                                    static_cast<uint32_t>( gpu.Feedback.Offset ) );
              !read.IsSuccess() )
         {
@@ -2651,7 +2674,8 @@ namespace Desert::Graphic::System
         DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Keys + tile table" );
         m_Frame.push_back( gpu );
         if ( gpu->Drawn )
-            DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades );
+            DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades,
+                                      variety.Blade.has_value(), gpu->DrawnCameraTriangles );
         const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
         gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
         gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );

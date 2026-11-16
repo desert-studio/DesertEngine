@@ -384,6 +384,11 @@ namespace Desert::Editor
              "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
              "frames in flight late) generated {} (varieties generated this frame)",
              grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties, grass.Generated );
+        // FPS-GRASS-VIS: what "Grass: Visibility Raster" rasterises - the camera's phase-1 instances and triangles,
+        // blades (by strip level) and mesh grass (by LOD) apart.
+        LOG_INFO( "[Profiler] Grass raster blades {} instances {} triangles | meshes {} instances {} triangles "
+                  "(camera phase 1, frames in flight late)",
+                  grass.BladeCamera, grass.BladeTriangles, grass.MeshCamera, grass.MeshTriangles );
         // GPU-CULL: the binned meshes' two-phase occlusion read as numbers (SceneRenderer::GetDrawBinPhaseCounts,
         // frames in flight late), per culled view: drawn = phase 1 (in view, not held back by last frame's HZB) +
         // phase 2 (found visible in this frame's), against the frustum-only count (drawn + occluded).
