@@ -646,9 +646,8 @@ vec4 CloudFarBandMax( vec4 table[CLOUD_FAR_BANDS], float heightLow, float height
 // whose side is @p side. The mip whose texel spans the disk's diameter holds the disk in at most 2 x 2 texels.
 vec2 CloudFarWeatherRange( vec2 p, float radiusTexels, int side )
 {
-    int topMip = 0;
-    while ( ( side >> ( topMip + 1 ) ) > 0 )
-        ++topMip;
+    // The coarsest mip (side >> topMip == 1): side is a power of two (Assets::kCloudFarWeatherMapSide).
+    int topMip = findMSB( side );
     int   mip     = clamp( int( ceil( log2( max( 2.0f * radiusTexels, 1.0f ) ) ) ), 0, topMip );
     float cell    = float( 1 << mip );
     float mipSide = float( side >> mip );
@@ -704,8 +703,15 @@ bool CloudFarColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radius
 }
 #endif
 
+// @p boundFar says whether the far path's own bound (CloudFarColumnsEmpty) may answer where the disk reaches it, or
+// the disk there is "might" outright. A compile-time constant at every call site, so the compiler keeps one branch.
+// WHERE IT PAYS (FPS-CLOUD-RECON-2): the far bound is ~8 fetches of the bound pyramid, two band-table scans and a
+// normal CDF per species - more than the one exact search sample a coarse-tier lattice point saves, so the march's
+// per-step probe asks with boundFar false and only the ray-entry trim (the share probes and the km-scale walk's
+// cell test), where one clear answer removes a whole stretch, asks with it true - Unreal's empty-space skipping is
+// likewise a per-ray entry pass, not a per-step test.
 bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float radiusKm, float heightLow,
-                                  float heightHigh )
+                                  float heightHigh, bool boundFar )
 {
     float lowest[CLOUD_PROCEDURAL_CLIP_LEVELS];
     float highest[CLOUD_PROCEDURAL_CLIP_LEVELS];
@@ -721,7 +727,7 @@ bool CloudProceduralColumnsEmpty( CloudFieldParams params, vec2 windPosXz, float
     // the cut is under it.
 #if defined( CLOUD_SAMPLE_FAR_BOUND )
     if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f &&
-         !CloudFarColumnsEmpty( params, windPosXz, radiusKm, heightLow, heightHigh ) )
+         ( !boundFar || !CloudFarColumnsEmpty( params, windPosXz, radiusKm, heightLow, heightHigh ) ) )
         return false;
 #else
     if ( lowest[CLOUD_PROCEDURAL_CLIP_LEVELS - 1] < 1.0f )

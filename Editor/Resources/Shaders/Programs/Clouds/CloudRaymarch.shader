@@ -362,9 +362,10 @@ Shader "CloudRaymarch"
 
         // THE FAR PATH'S CONSERVATIVE DENSITY (FPS-CLOUD-RECON): the world weather map's min/max pyramid
         // (VolumetricCloudRenderer::EnsureFarWeatherMap), 2 side x side RGBA16F, .r the minimum and .g the maximum
-        // of W, mip m packed along x at 2 side - 2 (side >> m). texelFetched by CloudFarColumnsEmpty (through the
-        // probe and the cell test) and nothing else; the march's own binding, so the far sky's air is strided like
-        // the near sky's. Removing CLOUD_SAMPLE_FAR_BOUND is the A/B (far columns "might" again).
+        // of W, mip m packed along x at 2 side - 2 (side >> m). texelFetched by CloudFarColumnsEmpty through the
+        // ray-entry trim only (the share probes and CloudSkipStep's cell test), never the per-step coarse probe
+        // (FPS-CLOUD-RECON-2); the march's own binding, so the far sky's empty stretches are trimmed like the near
+        // sky's. Removing CLOUD_SAMPLE_FAR_BOUND is the A/B (far columns "might" again).
         Uniform(23) texture2D CloudFarWeatherBoundTexture;
         #define CloudFarWeatherBoundTexture sampler2D(CloudFarWeatherBoundTexture, LinearRepeatSampler)
         vec4 CloudFetchFarBound(int mip, ivec2 texel)
@@ -1103,7 +1104,7 @@ Shader "CloudRaymarch"
                         pieceFrom[j]   = from;
                         pieceClear[j]  = CloudProceduralColumnsEmpty(params, probePos.xz - params.WindOffsetKm.xz,
                                                                      CLOUD_COLUMN_PROBE_RADIUS_KM, heights.x,
-                                                                     heights.y);
+                                                                     heights.y, true);
                     }
 
                     for (int j = CLOUD_RAY_TRIM_PROBES - 1; j >= 0; --j)
@@ -1325,9 +1326,12 @@ Shader "CloudRaymarch"
                             vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, pointT,
                                                                              min(pointT + emptyColumnSkipKm,
                                                                                  segment.y));
+                            // Near levels only (boundFar false): past the coarsest window the far bound costs more
+                            // than the one search sample a point's jump saves; the far chord's empty air is trimmed
+                            // once at the ray's entry (the share probes / CloudSkipStep) instead (FPS-CLOUD-RECON-2).
                             cleared = CloudProceduralColumnsEmpty(params, pointPos.xz - params.WindOffsetKm.xz,
                                                                   CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
-                                                                  skippedHeights.y);
+                                                                  skippedHeights.y, false);
                         }
                         searchT[j]       = pointT;
                         searchCleared[j] = cleared;

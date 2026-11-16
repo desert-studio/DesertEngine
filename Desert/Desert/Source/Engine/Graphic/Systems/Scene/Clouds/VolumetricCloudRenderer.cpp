@@ -944,6 +944,8 @@ namespace Desert::Graphic::System
         // touch; mip m the range of its four children; mip m packed along x at 2 side - 2 (side >> m), so the
         // whole chain fits in 2 side x side. CPU work only on a seed or wave change, never per frame.
         constexpr uint32_t     side       = Assets::kCloudFarWeatherMapSide;
+        // The pyramid halves to 1 x 1 and the march finds its top mip as findMSB( side ) (CloudFarWeatherRange).
+        static_assert( side > 0u && ( side & ( side - 1u ) ) == 0u, "the far weather map side must be a power of two" );
         constexpr uint32_t     boundWidth = 2u * side;
         std::vector<glm::vec2> level( static_cast<size_t>( side ) * side );
         {
