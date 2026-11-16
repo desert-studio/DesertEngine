@@ -14,14 +14,18 @@ Shader "SSGI"
     // Cosine-distributed rays make the estimator a plain mean: sum(L_i) / N is the incident radiance averaged
     // over the cosine lobe, E / pi - what the ambient multiplies by the albedo (Mesh/AmbientIBL.glslh
     // ComposeAmbient's `indirect`, DeferredLighting.shader GI mode 1). A ray that misses contributes nothing
-    // here: the sky it would see is the ambient environment's, occluded by the GTAO term in the composite.
+    // here: the sky it would see is the ambient environment's. A ray that HITS blocks that sky, so the trace also
+    // measures the sky's visibility - the share of its rays that met no surface (UE SSGI's ambient occlusion) -
+    // and the composite occludes the sky light with it: a hit adds the wall's bounce and takes away the sky
+    // behind the wall, never both (a room is not lit twice).
     // UE's Karis weighting (CONFIG_KARIS_WEIGHTING): each sample is weighed by 1 / (1 + luma), the mean un-weighed by 1 / (1 - luma),
     // so one ray onto a sun patch is not a firefly the denoiser averages away over many frames.
     //
     // Output (full resolution, ScreenSpaceDenoiser's diffuse-indirect signal, SceneRenderer::AddFrameSSGI):
-    // rgb = the estimate in linear radiance (the history's pre-exposure divided out), a = 1 on every traced pixel
-    // (0 on sky and where no previous frame exists). Compute has no derivatives, so every filtered read is
-    // textureLod(..., 0).
+    // rgb = the estimate in linear radiance (the history's pre-exposure divided out) over the whole pixel,
+    // a = the sky's visibility in [0, 1] (ScreenSpaceDenoiser DiffuseIndirectAlpha::SkyVisibility: filtered beside
+    // rgb, not a coverage); 1 where nothing was traced (no previous frame), 0 on sky texels (never composed).
+    // Compute has no derivatives, so every filtered read is textureLod(..., 0).
     Compute
     {
         #include <Common/ReconstructPosition.glslh>
@@ -134,9 +138,16 @@ Shader "SSGI"
         	if (pixel.x >= size.x || pixel.y >= size.y)
         		return;
         	const vec4 gb = texelFetch(GBufferNormalTexture, pixel, 0);
-        	if (dot(gb.rgb, gb.rgb) <= 0.001 || History.x < 0.5)
+        	if (dot(gb.rgb, gb.rgb) <= 0.001)
         	{
-        		imageStore(SsgiSignalTexture, pixel, vec4(0.0)); // sky, or no previous frame to bounce
+        		imageStore(SsgiSignalTexture, pixel, vec4(0.0)); // sky: no surface, never composed
+        		return;
+        	}
+        	if (History.x < 0.5)
+        	{
+        		// No previous frame to bounce: no light and no measured occlusion - the sky stays as GTAO leaves it
+        		// (a = 1), never a black frame.
+        		imageStore(SsgiSignalTexture, pixel, vec4(0.0, 0.0, 0.0, 1.0));
         		return;
         	}
 
@@ -154,7 +165,7 @@ Shader "SSGI"
         	vec3       originScreen;
         	if (!SSGIProjectToScreen(origin, originScreen))
         	{
-        		imageStore(SsgiSignalTexture, pixel, vec4(0.0));
+        		imageStore(SsgiSignalTexture, pixel, vec4(0.0, 0.0, 0.0, 1.0)); // nothing traced: the sky unoccluded
         		return;
         	}
         	const float originW = (JitteredViewProjection * vec4(origin, 1.0)).w;
@@ -166,7 +177,8 @@ Shader "SSGI"
         	const vec2  rotation   = vec2(hash12(vec2(pixel)), hash12(vec2(pixel) + 17.17));
         	const ivec2 vSize      = textureSize(VelocityTexture, 0);
 
-        	vec3 sum = vec3(0.0); // sum of confidence * karis * L over all rays
+        	vec3  sum      = vec3(0.0); // sum of confidence * karis * L over all rays
+        	float occluded = 0.0;       // sum of the rays' hit confidences: how much of the hemisphere met a surface
         	for (int r = 0; r < rays; ++r)
         	{
         		const vec3 Lt = CosineSampleHemisphereConcentric(RayRandom(rotation, seed * uint(rays) + uint(r)));
@@ -188,6 +200,9 @@ Shader "SSGI"
         		const float confidence = SSGIHitConfidence(walk.Position, L, thickness);
         		if (confidence <= 0.0)
         			continue;
+        		// The surface blocks the sky along L whether or not its light can be read back below (UE SSRTDiffuse-
+        		// Indirect: the hit's AO counts apart from the colour fetch).
+        		occluded += confidence;
 
         		// Where the surface point was on LAST frame's screen: the hit pixel minus its velocity (uv = ndc *
         		// (0.5, -0.5) under the engine's flipped viewport). A moving object is read where it was: no trail.
@@ -200,7 +215,9 @@ Shader "SSGI"
         	}
         	vec3 mean = sum / float(rays);
         	mean /= max(1.0 - Luma(mean), 1e-3); // undo the Karis weighting on the mean (UE: rcp(1 - Luminance))
-        	imageStore(SsgiSignalTexture, pixel, vec4(mean, 1.0));
+        	// a = the sky's visibility: the share of the cosine lobe whose rays met no surface (cosine-distributed,
+        	// so the plain mean is the cosine-weighted visibility the sky's irradiance is occluded by).
+        	imageStore(SsgiSignalTexture, pixel, vec4(mean, clamp(1.0 - occluded / float(rays), 0.0, 1.0)));
         }
     }
 }

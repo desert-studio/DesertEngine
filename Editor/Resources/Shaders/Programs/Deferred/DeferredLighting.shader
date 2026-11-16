@@ -734,7 +734,8 @@ Shader "DeferredLighting"
         	// GI modes 0 and 1: the sky's irradiance along GTAO's BENT NORMAL - the mean unoccluded direction - not
         	// the surface normal (Jimenez et al. 2016 §5, UE GTAO bent normals): a crease is lit by the sky it sees,
         	// not by the sky its normal points at. Mode 1 adds the screen-space bounce as the ambient's `indirect`
-        	// (Mesh/AmbientIBL.glslh ComposeAmbient: albedo * ao * indirect), occluded by the same AO.
+        	// (Mesh/AmbientIBL.glslh ComposeAmbient: albedo * ao * indirect), occluded by the same AO, and occludes
+        	// the sky's irradiance by the trace's own visibility (below).
         	vec3 skyIrradianceDirection = surface.N;
         	if (gtao)
         	{
@@ -742,14 +743,23 @@ Shader "DeferredLighting"
         		if (dot(bentNormal, bentNormal) > 1e-4)
         			skyIrradianceDirection = normalize(bentNormal);
         	}
-        	const vec3 screenIndirect =
-        	     giMode == 1 ? texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb : vec3(0.0);
+        	// Mode 1: the denoised SSGI signal, rgb = the screen bounce, a = the sky's visibility through the trace
+        	// (the share of its rays that met no surface, ScreenSpaceDenoiser DiffuseIndirectAlpha::SkyVisibility).
+        	// UE DiffuseIndirectComposite: the sky light is occluded by SSGI's AO - a ray that hit a wall brings
+        	// the wall's bounce and does NOT also see the sky behind it. The sky's occlusion is min(GTAO, SSGI): GTAO
+        	// keeps the fine creases the trace's few rays miss, SSGI the room-scale occluders past GTAO's radius.
+        	// `ao` (material x GTAO) is applied by the ambient below, so the irradiance carries the remaining
+        	// factor min(GTAO, SSGI) / GTAO = min(1, SSGI / GTAO). The bounce itself stays under `ao` as before.
+        	const vec4  screenGI       = giMode == 1 ? texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0)
+        	                                         : vec4(0.0, 0.0, 0.0, 1.0);
+        	const vec3  screenIndirect = screenGI.rgb;
+        	const float skyVisibility  = clamp(screenGI.a / max(ssao, 1e-4), 0.0, 1.0);
         	DesertAmbient sampled = giMode >= 2
         	                             ? DesertSampleAmbient(surface, texelFetch(GiDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   texelFetch(GiSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb,
         	                                                   vec3(0.0), ao)
         	                             : DesertSampleAmbient(surface,
-        	                                                   DesertAmbientIrradiance(skyIrradianceDirection),
+        	                                                   DesertAmbientIrradiance(skyIrradianceDirection) * skyVisibility,
         	                                                   DesertAmbientSpecular(reflect(-surface.V, surface.N),
         	                                                                         surface.Roughness),
         	                                                   screenIndirect, ao);

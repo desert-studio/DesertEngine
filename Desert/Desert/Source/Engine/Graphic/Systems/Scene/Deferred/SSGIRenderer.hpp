@@ -37,7 +37,8 @@ namespace Desert::Graphic::System
     // diffuse indirect of a deferred view. Two stages per frame:
     //  1) "SSGI: Trace" (SSGI.shader) - per pixel, cosine-distributed rays walked over this frame's closest-depth
     //     HZB, each hit returning LAST frame's lit scene (the view's scene colour history) where the hit was on
-    //     that frame's screen; rgb = the cosine-lobe mean radiance, a = coverage.
+    //     that frame's screen; rgb = the cosine-lobe mean radiance, a = the sky's visibility (the share of the
+    //     rays that met no surface, UE SSGI's ambient occlusion).
     //  2) the screen-space denoiser's diffuse-indirect signal (ScreenSpaceDenoiser::DenoiseDiffuseIndirect, UE
     //     IScreenSpaceDenoiser::DenoiseDiffuseIndirect): reconstruction, temporal accumulation, history
     //     convolution - its history is this object's, per view.
@@ -161,7 +162,8 @@ namespace Desert::Graphic::System
             const RDG::TextureRef       denoised = m_Denoiser.DenoiseDiffuseIndirect(
                  graph,
                  DiffuseIndirectDenoiserInputs{ .Signal               = signal,
-                                                      .ReconstructionRadius = settings.DenoiserRadius },
+                                                      .ReconstructionRadius = settings.DenoiserRadius,
+                                                      .Alpha = DiffuseIndirectAlpha::SkyVisibility },
                  scene, frame, width, height );
             if ( !denoised.IsValid() )
                 return Common::MakeError<RDG::TextureRef>(
