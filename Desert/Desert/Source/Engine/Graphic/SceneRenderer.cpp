@@ -1415,7 +1415,7 @@ namespace Desert::Graphic
             // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
             for ( const ShaderProtocols::PointLightPayload& light :
                   System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
-                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false } );
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false }, System::LightFunctionProxy{} );
         }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
@@ -5202,8 +5202,11 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                                       const LocalLightShadowSettings&           shadow )
+                                       const LocalLightShadowSettings&           shadow,
+                                       const System::LightFunctionProxy& function )
     {
+        // LIGHT-FUNCTIONS-2 part 2 (REMAINDER-LIGHT-FUNCTIONS-2.md step B): m_LightFunctions allocates the tile.
+        static_cast<void>( function );
         m_PointLight.PointLights.push_back( pointLight );
         // The IES profile's atlas: the collector named the row on its thread, the image is (re)built here, on
         // the main thread, so a profile added this frame shows this frame (Runtime::IesProfileService).
@@ -5224,8 +5227,11 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                                      const LocalLightShadowSettings&          shadow )
+                                      const LocalLightShadowSettings&          shadow,
+                                       const System::LightFunctionProxy& function )
     {
+        // LIGHT-FUNCTIONS-2 part 2 (REMAINDER-LIGHT-FUNCTIONS-2.md step B): m_LightFunctions allocates the tile.
+        static_cast<void>( function );
         m_SpotLight.SpotLights.push_back( spotLight );
         // The IES profile's atlas: the collector named the row on its thread, the image is (re)built here, on
         // the main thread, so a profile added this frame shows this frame (Runtime::IesProfileService).

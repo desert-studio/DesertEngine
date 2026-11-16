@@ -31,6 +31,7 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/Systems/Scene/Decals/DecalRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Lights/LightFunctionAtlas.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
@@ -1011,7 +1012,8 @@ namespace Desert::Graphic
         // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
         // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
         void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                            const LocalLightShadowSettings&           shadow );
+                            const LocalLightShadowSettings&           shadow,
+                           const System::LightFunctionProxy& function );
 
         const auto& GetPointLights() const
         {
@@ -1023,7 +1025,8 @@ namespace Desert::Graphic
         void AddDecal( const System::DecalProxy& decal );
 
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                           const LocalLightShadowSettings&          shadow );
+                           const LocalLightShadowSettings&          shadow,
+                           const System::LightFunctionProxy& function );
 
         // One local fog volume of this frame (LocalFogVolumeCommand, replayed per view: by const reference).
         // The list is reserved once at kVolumetricFogMaxLocalVolumes and emptied with the lights at frame end.

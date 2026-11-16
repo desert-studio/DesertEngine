@@ -109,7 +109,11 @@ namespace Desert::ECS
                           .ShadowMethod    = data.ShadowMethod,
                           .SourceId        = static_cast<uint32_t>( entity ) + 1u };
 
-                     renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light, shadow );
+                     // UE light function: the material and scale; SceneRenderer::Add*Light allocates its atlas tile.
+                     const Graphic::System::LightFunctionProxy function{ .Material = data.LightFunctionMaterial,
+                                                                         .Scale    = data.LightFunctionScale };
+
+                     renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light, shadow, function );
                  } );
         }
     };
