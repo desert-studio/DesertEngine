@@ -2472,7 +2472,29 @@ namespace Desert::Graphic
         // RENDER-CPU-COST-1: a row of its own per step (the phase had none: 0.35 ms self on the turn).
         DESERT_PROFILE_PHASES( lightGridPhases );
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: Grid" );
+        // THE LIGHT FUNCTION ATLAS (UE FLightFunctionAtlas): the tiles AddPointLight / AddSpotLight handed out,
+        // drawn before any lit pass on EITHER path, the atlas slot stamped on every light with a tile BEFORE
+        // AddFrameLightGrid copies the rows into "Upload: Lights.Point/Spot" (QueueBufferUpload copies at the call:
+        // a stamp after it never reached the GPU). The imported atlas rides with the rows (ViewLightBuffers::
+        // LightFunctionAtlas): every pass that binds them declares it. A frame with no light function adds no node
+        // and stamps nothing: its lights keep tile -1 and shade exactly as before.
+        RDG::TextureRef lightFunctionAtlas;
+        if ( const int32_t atlasSlot =
+                  m_LightFunctions.PrepareFrame( static_cast<float>( m_SceneTimeSeconds ), GetPipelineCache() );
+             atlasSlot > 0 && m_LightFunctions.HasDraws() )
+        {
+            for ( auto& point : m_PointLight.PointLights )
+                if ( point.LightFunctionTile >= 0 )
+                    point.LightFunctionAtlasTexture = atlasSlot;
+            for ( auto& spot : m_SpotLight.SpotLights )
+                if ( spot.LightFunctionTile >= 0 )
+                    spot.LightFunctionAtlasTexture = atlasSlot;
+            lightFunctionAtlas =
+                 textures.Import( m_LightFunctions.GetAtlas(), "LightFunctionAtlas", RDG::Access::SampledGraphics );
+            m_LightFunctions.AddPasses( graph, lightFunctionAtlas );
+        }
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
+        textures.Transients.Lights.LightFunctionAtlas = lightFunctionAtlas;
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: World grid + distance field" );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
@@ -2616,23 +2638,6 @@ namespace Desert::Graphic
             // no mesh renderer there is no full prepass and AddFrameGBuffer adds no decal node.
             m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
                                    GetPipelineCache() );
-            // THE LIGHT FUNCTION ATLAS (UE FLightFunctionAtlas): the tiles AddPointLight / AddSpotLight handed out,
-            // drawn before any lit pass, the atlas slot stamped on every light with a tile (the light lists are
-            // uploaded by the lighting passes below). A frame with no light function adds no node and stamps
-            // nothing: its lights keep tile -1 and shade exactly as before.
-            if ( const int32_t atlasSlot =
-                      m_LightFunctions.PrepareFrame( static_cast<float>( m_SceneTimeSeconds ), GetPipelineCache() );
-                 atlasSlot > 0 && m_LightFunctions.HasDraws() )
-            {
-                for ( auto& point : m_PointLight.PointLights )
-                    if ( point.LightFunctionTile >= 0 )
-                        point.LightFunctionAtlasTexture = atlasSlot;
-                for ( auto& spot : m_SpotLight.SpotLights )
-                    if ( spot.LightFunctionTile >= 0 )
-                        spot.LightFunctionAtlasTexture = atlasSlot;
-                m_LightFunctions.AddPasses( graph, textures.Import( m_LightFunctions.GetAtlas(), "LightFunctionAtlas",
-                                                                    RDG::Access::SampledGraphics ) );
-            }
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
             // A view with decals or a prepassed ground rasters the grass's phase 1 inside AddFrameGBuffer, before
             // "Deferred: Decals" and the base pass, so "TerrainGBuffer" rejects the ground under the blades

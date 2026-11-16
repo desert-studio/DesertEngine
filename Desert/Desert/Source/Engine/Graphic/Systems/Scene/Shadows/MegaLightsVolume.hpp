@@ -240,7 +240,8 @@ namespace Desert::Graphic::System
                           .Storage( ShaderProtocols::SpotLight::Parameter, in.Lights.Spot,
                                     RDG::Access::StorageRead )
                           .Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
-                          .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead );
+                          .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
+                          .BindlessRead( in.Lights.LightFunctionAtlas, RDG::Access::SampledCompute );
                      if ( in.Sources.RayQuery )
                          block.AccelerationStructure( MegaLightsVolumeShaderParameters::SceneTlas, in.Tlas )
                               .Storage( MegaLightsVolumeShaderParameters::RayTracingGeometryRecords,
