@@ -175,6 +175,12 @@ namespace Desert::Runtime
         return &subsurfaceProfileService;
     }
 
+    IesProfileService* ResourceRegistry::GetIesProfileService()
+    {
+        static IesProfileService iesProfileService;
+        return &iesProfileService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -206,6 +212,7 @@ namespace Desert::Runtime
         GetWorldParametersService()->Clear();
         GetWeatherPresetService()->Clear();
         GetSubsurfaceProfileService()->Clear();
+        GetIesProfileService()->Clear();
         GetMeshService()->Clear();
         GetSkyboxService()->Clear();
         GetTextureService()->Clear();

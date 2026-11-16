@@ -26,6 +26,7 @@
 #include "Services/WorldParameters/WorldParametersService.hpp"
 #include "Services/Weather/WeatherPresetService.hpp"
 #include "Services/Subsurface/SubsurfaceProfileService.hpp"
+#include "Services/Lights/IesProfileService.hpp"
 #include "Services/Physics/PhysicsAssetService.hpp"
 #include "Services/VFX/VFXSystemService.hpp"
 
@@ -85,6 +86,8 @@ namespace Desert::Runtime
         static WeatherPresetService* GetWeatherPresetService();
         // The `.dsssprofile` profiles materials name and their atlas rows (SSS-PROFILE).
         static SubsurfaceProfileService* GetSubsurfaceProfileService();
+        // The .ies profiles the local lights name and their atlas rows (LIGHTS-RECT-IES, UE FIESAtlas).
+        static IesProfileService* GetIesProfileService();
         // The `.dephysasset` physics assets ragdolls name (RAG1b): read on demand, held as the assets, matched
         // against the mesh's skeleton by GUID.
         static PhysicsAssetService* GetPhysicsAssetService();

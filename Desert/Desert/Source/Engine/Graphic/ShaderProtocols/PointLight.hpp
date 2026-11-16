@@ -15,7 +15,7 @@
 // kPointLightPayloadFields, from which the includer GENERATES `struct PointLight` (Mesh/LightSourceLayouts.glslh,
 // included by the binding-free Mesh/LightSources.glslh) and the PointLightsUB storage buffer
 // (Mesh/PointLightsUB.glslh, binding 6, included by Mesh/PointLight.glslh); neither is a file on disk. std430:
-// each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (80
+// each vec3 is completed by a scalar, and the explicit pads round the struct to its 16-byte array stride (128
 // bytes); the static_asserts below make any other layout a build error.
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -60,7 +60,22 @@
     FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 72 */                                          \
     /* UE ULightComponent::VolumetricScatteringIntensity: the light's share in the froxel fog's in-scattering */  \
     /* (VolumetricFogLightScattering); 1 = as bright as on surfaces, 0 = the fog does not see the light. */       \
-    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 76 -> 80 */
+    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 76 */               \
+    /* THE LIGHT'S FRAME (unit, world): AxisX and AxisY, their cross the light's forward - a rect's emitting */   \
+    /* face normal, a point light's IES forward (the entity's -Z, AxisX its X; IesProfile.glslh). */              \
+    /* A RECT source (ECS::RectLightComponent) when RectHalfWidth > 0, else a point: the rect's half-extents */   \
+    /* along AxisX / AxisY (cm), and its barn doors' free edge from the rect's border - RectBarnReach outward */  \
+    /* in its plane, RectBarnDepth along its normal (cm). Intensity is then the emitted luminance. */             \
+    FIELD( glm::vec3, AxisX, axisX, {} )                     /* 80 */                                             \
+    FIELD( float, RectHalfWidth, rectHalfWidth, { 0.0f } )   /* 92 */                                             \
+    FIELD( glm::vec3, AxisY, axisY, {} )                     /* 96 */                                             \
+    FIELD( float, RectHalfHeight, rectHalfHeight, { 0.0f } ) /* 108 */                                            \
+    FIELD( float, RectBarnReach, rectBarnReach, { 0.0f } )   /* 112 */                                            \
+    FIELD( float, RectBarnDepth, rectBarnDepth, { 0.0f } )   /* 116 */                                            \
+    /* UE ULocalLightComponent::IESTexture as Runtime::IesProfileService packs it: the atlas image's bindless */  \
+    /* slot (stamped by SceneRenderer::AddPointLight) and the profile's first atlas row, or -1 for none. */       \
+    FIELD( int32_t, IesAtlasTexture, iesAtlasTexture, { 0 } ) /* 120 */                                           \
+    FIELD( int32_t, IesProfileRow, iesProfileRow, { -1 } )    /* 124 -> 128 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -70,7 +85,7 @@ namespace Desert::Graphic::ShaderProtocols
          Std430StructLayoutMatches( kPointLightPayloadFields, sizeof( PointLightPayload ) ),
          "PointLightPayload is not laid out (or strided) as std430 places the generated struct PointLight: "
          "reorder or pad DESERT_POINT_LIGHT_FIELDS" );
-    static_assert( sizeof( PointLightPayload ) == 80 );
+    static_assert( sizeof( PointLightPayload ) == 128 );
 
     struct PointLight
     {
