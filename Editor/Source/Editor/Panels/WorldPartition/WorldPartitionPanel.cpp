@@ -29,6 +29,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
+#include <Projects/WorldPartitionSettings.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -1150,8 +1151,11 @@ namespace Desert::Editor
         {
             const ImVec2 at     = ToScreen( m_View, size, origin, { source.Position.x, source.Position.z } );
             const double loadCm = ::Desert::Core::Rules::SourceRadius( source, grid );
-            const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
-                                                      : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
+            // Outside Play the band is the project's (Config/Engine.json + this platform's layer), the value the
+            // next Play streams with, not the engine's default.
+            const float  margin = streamer != nullptr
+                                       ? streamer->Settings().UnloadMargin
+                                       : ::Desert::Project::CurrentWorldPartitionSettings().UnloadMargin;
             for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, grid ) )
             {
                 PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );

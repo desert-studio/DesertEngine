@@ -295,6 +295,8 @@ namespace Desert::Core
 
         TickReport m_LastTick;
         std::uint32_t m_FramesWaiting = 0;
+        // True while the last Tick was Critical with blocking disabled (logged once per such stretch).
+        bool m_SaidCriticalUnblocked = false;
 
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;

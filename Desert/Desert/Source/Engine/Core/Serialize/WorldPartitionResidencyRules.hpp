@@ -73,6 +73,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
+#include <Projects/WorldPartitionSettings.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -112,10 +113,11 @@ namespace Desert::Core::Rules
         std::uint64_t              NextTicket = 1;
     };
 
-    struct ResidencySettings
+    // The project's streaming settings (Projects/WorldPartitionSettings.hpp: the WorldPartition section of
+    // Config/Engine.json with the platform layer over it, read by the WorldStreamer as Play or the game begins)
+    // and what the engine MEASURED rather than a project chooses.
+    struct ResidencySettings : Project::WorldPartitionSettings
     {
-        // Main-thread time one frame may spend activating, milliseconds.
-        double ActivationBudgetMs = 2.0;
         // Activation cost of one record, MEASURED (WP5b, 2026-09-24): WorldStreamer times every
         // SceneSerializer::InstantiateRecords it makes and logs the total at the end of Play. Release editor,
         // World_Grid8km with a 128 m grid (StaticMesh cubes, ~9 records a unit), headless --play flights across
@@ -123,15 +125,6 @@ namespace Desert::Core::Rules
         // worse run, so a frame is not promised more than it gets; a world of heavier records (prefab
         // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
         double MsPerRecord = 0.02;
-        // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin),
-        // and a sector's angle and a look-ahead's sweep length are widened by the same factor.
-        float UnloadMargin = 0.25f;
-        // Loads in flight at once.
-        std::uint32_t MaxConcurrentLoads = 4;
-        // The wait before retrying a failed load, growing by RetryBackoff per consecutive failure.
-        double RetryDelaySeconds    = 1.0;
-        double RetryBackoff         = 2.0;
-        double MaxRetryDelaySeconds = 30.0;
     };
 
     // What the loader reports about one StartLoad.
@@ -380,15 +373,18 @@ namespace Desert::Core::Rules
                  !finiteAtLeast( s.UnloadMargin, 0.0 ) || s.MaxConcurrentLoads == 0 ||
                  !std::isfinite( s.RetryDelaySeconds ) || s.RetryDelaySeconds <= 0.0 ||
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
-                 !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) )
+                 !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) ||
+                 !finiteAtLeast( s.SlowStreamingRatio, 0.0 ) || !finiteAtLeast( s.SlowStreamingWarningFactor, 1.0 ) )
             {
                 return Common::MakeError<bool>( std::format(
                      "StepResidency: settings ActivationBudgetMs {:f}, MsPerRecord {:f}, UnloadMargin {:f}, "
                      "MaxConcurrentLoads {}, RetryDelaySeconds {:f}, RetryBackoff {:f}, MaxRetryDelaySeconds "
-                     "{:f}; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the "
-                     "backoff >= 1 and the longest delay >= the first",
+                     "{:f}, SlowStreamingRatio {:f}, SlowStreamingWarningFactor {:f}; budget, cost, margin and "
+                     "ratio must be finite and >= 0, loads >= 1, the delay > 0, the backoff and the warning "
+                     "factor >= 1 and the longest delay >= the first",
                      s.ActivationBudgetMs, s.MsPerRecord, s.UnloadMargin, s.MaxConcurrentLoads,
-                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds ) );
+                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds, s.SlowStreamingRatio,
+                     s.SlowStreamingWarningFactor ) );
             }
             return Common::MakeSuccess( true );
         }

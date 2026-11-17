@@ -50,13 +50,16 @@ namespace Desert::Project
         TextureEncodingSettings TextureEncoding;
     };
 
-    // The open project's Config/Engine.json, read once per project directory. A project without the file gets
-    // the defaults above (UE's DefaultEngine.ini without the key); a file that does not parse is logged with the
-    // parser's words and also reads as the defaults.
+    // What this host renders with: the open project's Config/Engine.json with this platform's layer over it
+    // (EngineConfig.hpp). A project without the file gets the defaults above (UE's DefaultEngine.ini without the
+    // key); a file that does not parse is logged with the parser's words and also reads as the defaults.
     const RendererSettings& CurrentRendererSettings();
 
-    // The one writer of `<project>/Config/Engine.json` (the editor's Project Settings panel, ▸ Rendering).
-    // Atomic, canonical layout; on success CurrentRendererSettings() answers @p toSave. Refuses with the reason
-    // (no project open, the write failed) and leaves the file and the cache as they were.
+    // The project layer alone (Config/Engine.json): what Project Settings > Engine > Rendering edits.
+    const RendererSettings& ProjectRendererSettings();
+
+    // Writes @p toSave as the project layer's renderer keys (the editor's Project Settings panel, Rendering); the
+    // file's other sections are kept (EngineConfig.hpp, SaveEngineConfig). Refuses with the reason (no project
+    // open, the write failed) and leaves the file and the cache as they were.
     Common::BoolResultStr SaveRendererSettings( const RendererSettings& toSave );
 } // namespace Desert::Project
