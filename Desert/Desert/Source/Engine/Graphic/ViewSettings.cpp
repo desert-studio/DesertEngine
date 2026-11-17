@@ -141,6 +141,16 @@ namespace Desert::Graphic
         target.MotionBlurAmount    = Lerp( target.MotionBlurAmount, volume.MotionBlurAmount, weight );
         target.MotionBlurMax       = Lerp( target.MotionBlurMax, volume.MotionBlurMax, weight );
         target.MotionBlurTargetFPS = Lerp( target.MotionBlurTargetFPS, volume.MotionBlurTargetFPS, weight );
+        // The lens (LENS-POST): every value blends by the volume's weight, as UE's.
+        target.FilmGrainIntensity = Lerp( target.FilmGrainIntensity, volume.FilmGrainIntensity, weight );
+        target.FilmGrainTexelSize = Lerp( target.FilmGrainTexelSize, volume.FilmGrainTexelSize, weight );
+        target.ChromaticAberrationIntensity =
+             Lerp( target.ChromaticAberrationIntensity, volume.ChromaticAberrationIntensity, weight );
+        target.ChromaticAberrationStartOffset =
+             Lerp( target.ChromaticAberrationStartOffset, volume.ChromaticAberrationStartOffset, weight );
+        target.VignetteIntensity = Lerp( target.VignetteIntensity, volume.VignetteIntensity, weight );
+        target.PaniniD           = Lerp( target.PaniniD, volume.PaniniD, weight );
+        target.PaniniS           = Lerp( target.PaniniS, volume.PaniniS, weight );
 
         target.LensFlareIntensity    = Lerp( target.LensFlareIntensity, volume.LensFlareIntensity, weight );
         target.LensFlareTint         = Lerp( target.LensFlareTint, volume.LensFlareTint, weight );

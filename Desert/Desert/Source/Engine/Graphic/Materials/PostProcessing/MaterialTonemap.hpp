@@ -36,6 +36,10 @@ namespace Desert::Graphic
             // A display-referred buffer view (Graphic::IsDisplayReferredView): the scene colour, un-pre-exposed,
             // is the picture - SceneComposite's operator 2 skips exposure, the effects and the curve.
             bool VisualizeBuffer = false;
+            // The lens stage (LENS-POST, TonemapRenderer::FillMaterial); all zero = off, the picture untouched.
+            glm::vec4 LensFringeVignette{ 0.0f }; // aberration scale R, scale G, start offset; vignette intensity
+            glm::vec4 LensGrain{ 0.0f };          // grain intensity, grain texel size (pixels), frame seed, 0
+            glm::vec4 LensPanini{ 0.0f };         // Panini D, Panini S, tan(half FOV x), tan(half FOV y)
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
@@ -63,5 +67,8 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, LocalExposureUV, "LocalExposureUV", ( glm::vec4( 1.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureSlice, "LocalExposureSlice", ( glm::vec4( 0.0f ) ) )
         MPROPERTY( float, LocalExposureMethod, "LocalExposureMethod", 0.0f )
+        MPROPERTY( glm::vec4, LensFringeVignette, "LensFringeVignette", ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::vec4, LensGrain, "LensGrain", ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::vec4, LensPanini, "LensPanini", ( glm::vec4( 0.0f ) ) )
     };
 } // namespace Desert::Graphic
