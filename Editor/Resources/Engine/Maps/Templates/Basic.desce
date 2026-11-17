@@ -3,9 +3,11 @@
         "Kind": "Scene",
         "Guid": "77166daa2c87b188257f427076c3d9d0",
         "Versions": {
-            "SCNE": 70,
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 75,
             "UNIT": 1,
-            "WPAR": 1
+            "WPAR": 2
         },
         "Dependencies": []
     },
@@ -15,8 +17,8 @@
             "id": 636758187238421050,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-0.4000000059604645, -1.0, -0.5],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-1.1071487665176392, 0.34358084201812744, -0.2136421501636505],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 0.9700000286102295, 0.8999999761581421],
@@ -39,7 +41,8 @@
                 "ContactShadowLength": 0.0,
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
             }
         },
         {
