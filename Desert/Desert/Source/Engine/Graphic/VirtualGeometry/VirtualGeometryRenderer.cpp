@@ -556,8 +556,10 @@ namespace Desert::Graphic::VirtualGeometry
         std::string message;
         const auto  fail = [&message]( std::string what )
         { message += std::format( "{}{}", message.empty() ? "" : "; ", what ); };
-        for ( const Entry& entry : std::span<const Entry>( slot.Entries ).first( slot.Used ) )
+        for ( size_t e = 0; e < slot.Used; ++e )
         {
+            const Entry& entry = slot.Entries[e];
+
             const char* const kind = entry.Kind == ClusterCutKind::Main            ? "main"
                                      : entry.Kind == ClusterCutKind::PostOcclusion ? "post-occlusion"
                                      : entry.Kind == ClusterCutKind::ShadowCascade ? "shadow cascade"
