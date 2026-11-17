@@ -1245,6 +1245,9 @@ namespace Desert::Core::Rules
         // grid. Read here so the plan names a grid the world does not have
         // (Entities[i].StreamingSource.TargetGrids).
         std::vector<std::string> TargetGrids;
+        // The StreamingSource block's Target HLOD Layers (UE FWorldPartitionStreamingSource::TargetHLODLayers),
+        // read so the plan names a layer the world does not have (Entities[i].StreamingSource.TargetHLODLayers).
+        std::vector<std::string> TargetHLODLayers;
         // The DataLayers block's layer names (WP-DATA-LAYERS, UE AActor::DataLayerAssets); empty = no layer.
         std::vector<std::string> DataLayers;
 
@@ -1325,7 +1328,10 @@ namespace Desert::Core::Rules
             out.RuntimeGrid = std::move( name );
         }
         if ( const auto source = Detail::BlockOf( record, kStreamingSourceComponent, issues ); source.has_value() )
+        {
             source->ReadInto( "TargetGrids", out.TargetGrids, issues );
+            source->ReadInto( "TargetHLODLayers", out.TargetHLODLayers, issues );
+        }
         if ( const auto layers = Detail::BlockOf( record, kDataLayersComponent, issues ); layers.has_value() )
             layers->ReadInto( "Layers", out.DataLayers, issues );
 
@@ -2119,6 +2125,16 @@ namespace Desert::Core::Rules
                     plan.Issues.push_back(
                          { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ), "grid",
                            name, Common::Json::IssueKind::MissingReference } );
+        // Its Target HLOD Layers the same way: a name no HLOD layer of the world carries streams nothing
+        // (Rules::TargetsHLODLayer).
+        for ( std::size_t record = 0; record < records.size(); ++record )
+            for ( const std::string& name : records[record].TargetHLODLayers )
+                if ( !settings.HLODLayers.has_value() ||
+                     std::none_of( settings.HLODLayers->begin(), settings.HLODLayers->end(),
+                                   [&]( const HLODLayerSerialized& layer ) { return layer.Name == name; } ) )
+                    plan.Issues.push_back(
+                         { std::format( "Entities[{}].{}.TargetHLODLayers", record, kStreamingSourceComponent ),
+                           "HLOD layer", name, Common::Json::IssueKind::MissingReference } );
 
         // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
         //

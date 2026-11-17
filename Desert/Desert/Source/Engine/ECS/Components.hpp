@@ -49,6 +49,7 @@ namespace Desert::Assets::Serialization
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/LocalFogVolumeComponent.hpp>
 #include <Engine/ECS/LightUnits.hpp>
+#include <Engine/Core/Serialize/StreamingSourceTargetBehavior.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
@@ -3283,6 +3284,23 @@ namespace Desert::ECS
                   Tooltip( "The World Partition grids this source streams, by name; empty = every grid." ),
                   Hidden )
         std::vector<std::string> TargetGrids;
+
+        // UE's FWorldPartitionStreamingSource::TargetHLODLayers: the HLOD layers this source streams, by
+        // HLODLayerSerialized::Name, read under Target Behavior like Target Grids (Rules::TargetsHLODLayer). An
+        // HLOD layer standing for a world grid the source streams is streamed whatever this says (Rules::
+        // HLODSources). A name the world has no layer of is an Issue of the world's plan (Entities[i].
+        // StreamingSource.TargetHLODLayers). Details draws it as a pick of the world's HLOD layer names
+        // (ComponentEditorRegistrations.cpp, MakeStreamingSourceEntry).
+        PROPERTY( DisplayName( "Target HLOD Layers" ), Category( "Streaming Source" ),
+                  Tooltip( "The HLOD layers this source streams, by name, read with Target Behavior." ), Hidden )
+        std::vector<std::string> TargetHLODLayers;
+
+        // UE's FWorldPartitionStreamingSource::TargetBehavior (Rules::TargetsGridNamed).
+        PROPERTY( DisplayName( "Target Behavior" ), Category( "Streaming Source" ),
+                  Tooltip( "Include = only the Target Grids and Target HLOD Layers stream; Exclude = every grid "
+                           "but those. With both lists empty every grid streams either way." ) )
+        Core::Rules::StreamingSourceTargetBehavior TargetBehavior =
+             Core::Rules::StreamingSourceTargetBehavior::Include;
 
         // THE LOOK-AHEAD (Rules::StreamingSource): a plane or a car streams the cells it is about to reach, not
         // only those around it. UE has no such setting; there a game adds a predicted source by hand.

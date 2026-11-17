@@ -309,6 +309,9 @@ namespace Desert::Core::Rules
         // layer stands in for - every grid whose HLODLayer chain passes through it. A source's TargetGrids names
         // world grids; HLODSources reads it through this.
         std::vector<std::vector<std::string>> StandsForGrids;
+        // Per grid of Partition: the HLOD layer it is (HLODLayerSerialized::Name) - what a source's
+        // TargetHLODLayers names (HLODSources).
+        std::vector<std::string> LayerOfGrid;
     };
 
     // @p recordsOfNode: per node of @p hierarchy, how many records its saved HLOD holds (0 for one that has none:
@@ -338,6 +341,7 @@ namespace Desert::Core::Rules
                 grid.Name         = "HLOD " + layer.Name;
                 grid.CellSize     = *layer.CellSize;
                 grid.LoadingRange = *layer.LoadingRange;
+                out.LayerOfGrid.push_back( layer.Name );
                 out.Partition.Grids.push_back( std::move( grid ) );
                 std::vector<std::string> standsFor;
                 for ( const WorldPartitionGridSerialized& world : partition.Grids )
@@ -400,13 +404,14 @@ namespace Desert::Core::Rules
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    // THE SOURCES THE HLOD CELLS STREAM FOR. A source's TargetGrids names WORLD grids; the HLOD cells of a layer
-    // stand in for the cells of the world grids beneath it, so a source streams an HLOD grid exactly when it
-    // streams one of those. In UE the source carries a second list, TargetHLODLayers, set apart from TargetGrids;
-    // here it is derived, because the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell
-    // above it, so a source naming "Main" read literally (never "HLOD <layer>") would hold its Main cells forever.
-    // A source naming none streams every grid, HLOD grids included; one targeting no HLOD grid is left out (an
-    // emptied list would read as "every grid").
+    // THE SOURCES THE HLOD CELLS STREAM FOR. A source streams an HLOD grid when its own lists target that HLOD
+    // layer (UE's TargetHLODLayers under TargetBehavior, TargetsHLODLayer) OR when it streams a world grid beneath
+    // that layer (StandsForGrids): the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell
+    // above it, so a source streaming "Main" must stream Main's HLOD too or it would hold its Main cells forever -
+    // which is why an HLOD layer standing for a streamed world grid cannot be excluded. So a source excluding Main
+    // shows Main's HLOD around it (UE: the HLOD grid is not in its exclusion), and one including only Main streams
+    // Main's HLOD and nothing else. A source naming nothing streams every grid, HLOD grids included; one targeting
+    // no HLOD grid is left out (an emptied list would read as "every grid").
     [[nodiscard]] inline std::vector<StreamingSource> HLODSources( const HLODResidency&             residency,
                                                                    std::span<const StreamingSource> sources )
     {
@@ -414,21 +419,23 @@ namespace Desert::Core::Rules
         out.reserve( sources.size() );
         for ( const StreamingSource& source : sources )
         {
-            if ( source.TargetGrids.empty() )
+            if ( source.TargetGrids.empty() && source.TargetHLODLayers.empty() )
             {
                 out.push_back( source );
                 continue;
             }
             StreamingSource mapped = source;
             mapped.TargetGrids.clear();
+            mapped.TargetHLODLayers.clear();
+            mapped.TargetBehavior = StreamingSourceTargetBehavior::Include;
             for ( std::size_t g = 0; g < residency.Partition.Grids.size(); ++g )
+            {
+                bool streams = TargetsHLODLayer( source, residency.LayerOfGrid.at( g ) );
                 for ( const std::string& world : residency.StandsForGrids.at( g ) )
-                    if ( std::find( source.TargetGrids.begin(), source.TargetGrids.end(), world ) !=
-                         source.TargetGrids.end() )
-                    {
-                        mapped.TargetGrids.push_back( residency.Partition.Grids[g].Name );
-                        break;
-                    }
+                    streams = streams || TargetsGridNamed( source, world );
+                if ( streams )
+                    mapped.TargetGrids.push_back( residency.Partition.Grids[g].Name );
+            }
             if ( !mapped.TargetGrids.empty() )
                 out.push_back( std::move( mapped ) );
         }

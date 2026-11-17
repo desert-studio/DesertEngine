@@ -1018,6 +1018,7 @@ namespace
          { "UseVelocityForSorting", kWorldStreamer },
          { "LookAheadTime", kWorldStreamer },
          { "MaxLookAhead", kWorldStreamer },
+         { "TargetBehavior", kWorldStreamer },
     };
 
     constexpr Row kRetargetRows[] = {

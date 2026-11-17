@@ -86,6 +86,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/StreamingSourceTargetBehavior.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <glm/vec2.hpp>
@@ -158,18 +159,47 @@ namespace Desert::Core::Rules
         // Empty = one circle of SourceRadius at Position (UE: no shapes, a sphere of the grid's range).
         std::vector<StreamingSourceShape> Shapes;
         // The grids this source streams, by WorldPartitionGridSerialized::Name (UE's
-        // FWorldPartitionStreamingSource::TargetGrids); empty = every grid. A grid not named here is not
-        // queried for this source at all - see TargetsGrid. A name no grid of the world carries targets nothing;
-        // the streamer names it (WorldStreamer::Tick), it is never matched by a guess.
+        // FWorldPartitionStreamingSource::TargetGrids), read under TargetBehavior; this and TargetHLODLayers both
+        // empty = every grid. A grid the source does not target is not queried for it at all - see TargetsGrid. A
+        // name no grid of the world carries targets nothing; the world's plan names it as an Issue
+        // (PlanWorldPartition, Entities[i].StreamingSource.TargetGrids), it is never matched by a guess.
         std::vector<std::string> TargetGrids;
+        // The HLOD layers this source streams, by HLODLayerSerialized::Name (UE's
+        // FWorldPartitionStreamingSource::TargetHLODLayers); read with TargetBehavior like TargetGrids. An HLOD
+        // layer standing for a world grid the source streams is streamed whatever this says (HLODSources).
+        std::vector<std::string> TargetHLODLayers;
+        // Include: only what the two lists name; Exclude: all but it (UE's TargetBehavior).
+        StreamingSourceTargetBehavior TargetBehavior = StreamingSourceTargetBehavior::Include;
     };
 
-    // Whether @p source streams @p grid: it names no grid (all of them), or names this one.
+    // Whether @p source streams the world grid named @p grid (UE's FWorldPartitionStreamingSource targeting):
+    // every grid when it names neither a grid nor an HLOD layer; otherwise Include streams the grids it names and
+    // Exclude every grid it does not. A source naming only HLOD layers under Include streams no world grid.
+    [[nodiscard]] inline bool TargetsGridNamed( const StreamingSource& source, const std::string& grid )
+    {
+        if ( source.TargetGrids.empty() && source.TargetHLODLayers.empty() )
+            return true;
+        const bool named =
+             std::find( source.TargetGrids.begin(), source.TargetGrids.end(), grid ) != source.TargetGrids.end();
+        return source.TargetBehavior == StreamingSourceTargetBehavior::Include ? named : !named;
+    }
+
+    // Whether @p source streams @p grid (TargetsGridNamed by the grid's name).
     [[nodiscard]] inline bool TargetsGrid( const StreamingSource&              source,
                                            const WorldPartitionGridSerialized& grid )
     {
-        return source.TargetGrids.empty() || std::find( source.TargetGrids.begin(), source.TargetGrids.end(),
-                                                        grid.Name ) != source.TargetGrids.end();
+        return TargetsGridNamed( source, grid.Name );
+    }
+
+    // Whether @p source streams the HLOD layer named @p layer by its own lists: every layer when it names nothing;
+    // otherwise Include streams the layers it names and Exclude every layer it does not.
+    [[nodiscard]] inline bool TargetsHLODLayer( const StreamingSource& source, const std::string& layer )
+    {
+        if ( source.TargetGrids.empty() && source.TargetHLODLayers.empty() )
+            return true;
+        const bool named = std::find( source.TargetHLODLayers.begin(), source.TargetHLODLayers.end(), layer ) !=
+                           source.TargetHLODLayers.end();
+        return source.TargetBehavior == StreamingSourceTargetBehavior::Include ? named : !named;
     }
 
     // The radius a source with no Shapes loads within on @p grid, cm.
