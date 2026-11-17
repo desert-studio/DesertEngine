@@ -86,6 +86,10 @@ namespace Desert::Editor
             return Common::MakeError<bool>( Common::Json::Describe( grids.Issues.front() ) );
         if ( auto layers = ::Desert::Core::Rules::ValidateHLODLayers( after ); !layers )
             return layers;
+        // Refused by the planner's own rule (Rules::CheckDataLayers): a layer unnamed, or named twice.
+        if ( const Common::Json::Issues dataLayers = ::Desert::Core::Rules::CheckDataLayers( after );
+             !dataLayers.empty() )
+            return Common::MakeError<bool>( Common::Json::Describe( dataLayers.front() ) );
         scene->SetWorldPartition( after );
         CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
              std::move( label ), scene, std::move( before ), std::move( after ) ) );
