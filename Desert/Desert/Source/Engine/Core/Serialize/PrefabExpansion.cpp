@@ -1,11 +1,19 @@
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
+#include <Engine/Assets/Prefab/PackedPrefab.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
+
+#include <array>
+#include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include <charconv>
 #include <cstdint>
@@ -204,6 +212,8 @@ namespace Desert::Core::WorldCells
         for ( const Assets::EntityData& record : scene.Entities )
             if ( record.id.has_value() )
                 taken.insert( static_cast<std::uint64_t>( *record.id ) );
+        // Every source record's world matrix, composed once when the first packed instance needs its root's.
+        std::optional<std::vector<glm::mat4>> sourceWorld;
 
         for ( std::size_t source = 0; source < scene.Entities.size(); ++source )
         {
@@ -227,6 +237,76 @@ namespace Desert::Core::WorldCells
             const auto stated = Assets::StatedInstanceTransform( instance );
             if ( !stated )
                 return Common::MakeFormattedError<Result>( "{}: {}", what, stated.GetError() );
+
+            // A PACKED INSTANCE (EntityData::PrefabPacked) streams as what the editor draws: its root and one
+            // InstancedStaticMesh record per group of the prefab's packed form (UE: a Packed Level Actor in a
+            // World Partition cell is one actor of ISM components, not the level it was packed from). The form is
+            // the asset's own rule - the file's stated form while its checksum is the body's, otherwise the body
+            // packed (PrefabAsset::AdoptOrRepack) - and a record the loader would place UNPACKED (overrides, a
+            // prefab that no longer packs) is expanded unpacked below, so the cooked world is the edited one.
+            if ( instance.PrefabPacked.value_or( false ) &&
+                 !( instance.PrefabOverrides.has_value() && !instance.PrefabOverrides->empty() ) )
+            {
+                auto file = reader( *instance.PrefabPath );
+                if ( !file )
+                    return Common::MakeFormattedError<Result>( "{}: {}", what, file.GetError() );
+                const Assets::PrefabData&     prefab = file.GetValue();
+                const Assets::PackedPrefabSer form =
+                     prefab.Packed.has_value() &&
+                               prefab.Packed->SourceHash == Assets::PrefabSourceHash( prefab.Entities )
+                          ? *prefab.Packed
+                          : Assets::PackPrefab( prefab.Entities );
+                if ( !form.Refused.has_value() && !prefab.Entities.empty() )
+                {
+                    if ( !sourceWorld.has_value() )
+                    {
+                        std::unordered_map<Common::UUID, std::size_t> byId;
+                        for ( std::size_t record = 0; record < scene.Entities.size(); ++record )
+                            if ( scene.Entities[record].id.has_value() && !scene.Entities[record].id->IsNull() )
+                                byId.emplace( *scene.Entities[record].id, record );
+                        sourceWorld = Rules::Detail::ComposeWorld( scene.Entities, byId );
+                    }
+
+                    // The root: the instance's own record (id, parent, sibling place, the transform it states),
+                    // named as the prefab's root and carrying nothing else - what InstantiatePacked builds.
+                    Assets::EntityData root = instance;
+                    root.PrefabPath.reset();
+                    root.PrefabOverrides.reset();
+                    root.PrefabPacked.reset();
+                    root.Components.clear();
+                    root.Tag = prefab.Entities.front().Tag;
+
+                    // THE SPLIT, as below: each group hangs off the instance's own parent. Its instances are WORLD
+                    // matrices (InstancedStaticMeshComponent), the form's root-frame ones composed with the
+                    // root's.
+                    const glm::mat4     rootWorld = ( *sourceWorld )[source];
+                    const std::uint64_t seed      = static_cast<std::uint64_t>( *instance.id );
+                    expanded.Slots.push_back( ExpandedSlot{ out.size(), 1 + form.Groups.size(), true } );
+                    ++expanded.Instances;
+                    out.push_back( std::move( root ) );
+                    for ( std::size_t group = 0; group < form.Groups.size(); ++group )
+                    {
+                        Assets::InstancedStaticMeshComponentSer block = form.Groups[group].Block;
+                        if ( block.InstanceTransforms.has_value() )
+                            for ( std::array<float, 16>& flat : *block.InstanceTransforms )
+                                flat = Rules::Detail::Flatten( rootWorld * glm::make_mat4( flat.data() ) );
+
+                        Assets::EntityData record;
+                        record.id = ExpandedId( seed, std::format( "packed/{}", group ) );
+                        if ( record.id->IsNull() ||
+                             !taken.insert( static_cast<std::uint64_t>( *record.id ) ).second )
+                            return Common::MakeFormattedError<Result>( "{}: the expanded id of packed group {} of "
+                                                                       "prefab '{}' is null or another record's",
+                                                                       what, group, *instance.PrefabPath );
+                        record.parent = instance.parent;
+                        record.Tag    = form.Groups[group].Name;
+                        record.Components[std::string( Rules::kInstancePointsComponent )] =
+                             Common::Json::FromStruct( block );
+                        out.push_back( std::move( record ) );
+                    }
+                    continue;
+                }
+            }
 
             Expander expander{ reader, {}, 0 };
             auto     read = expander.Body( *instance.PrefabPath, {} );

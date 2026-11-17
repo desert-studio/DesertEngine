@@ -23,12 +23,12 @@ namespace Desert::Runtime::Factory
     // root's world moves, and rebuilt whenever the prefab's form changes (RefreshPackedInstances).
     struct PackedPrefabComponent
     {
-        Assets::Asset<Assets::PrefabAsset>             Prefab;  // the source whose packed form is drawn
-        std::shared_ptr<const Assets::PackedPrefabSer> Form;    // the form the groups below were built from
+        Assets::Asset<Assets::PrefabAsset>             Prefab; // the source whose packed form is drawn
+        std::shared_ptr<const Assets::PackedPrefabSer> Form;   // the form the groups below were built from
         const Assets::AssetManager*                    Manager = nullptr;
-        std::vector<ECS::Entity>                       Groups;  // the ISM children, one per Form group, in order
-        glm::mat4                                      PlacedAt{ 0.0f }; // root world the instances were composed with
-        std::string                                    ReportedRefusal;  // the source checksum already refused on the log
+        std::vector<ECS::Entity>                       Groups; // the ISM children, one per Form group, in order
+        glm::mat4   PlacedAt{ 0.0f };                          // root world the instances were composed with
+        std::string ReportedRefusal;                           // the source checksum already refused on the log
     };
 
     class PrefabFactory

@@ -345,16 +345,16 @@ namespace Desert::Runtime::Factory
 
     namespace
     {
-        // The ISM children of the packed instance @p root, built from @p form: each group becomes a record with one
-        // InstancedStaticMesh block, read by the same ComponentRegistry code as any authored ISM, so its mesh and
-        // materials resolve and load exactly as they would there. The children it had are destroyed first. The
+        // The ISM children of the packed instance @p root, built from @p form: each group becomes a record with
+        // one InstancedStaticMesh block, read by the same ComponentRegistry code as any authored ISM, so its mesh
+        // and materials resolve and load exactly as they would there. The children it had are destroyed first. The
         // instances arrive in the root's frame; the next refresh composes them with the root's world.
         void BuildPackedGroups( Core::Scene& scene, const ECS::Entity root,
                                 std::shared_ptr<const Assets::PackedPrefabSer> form )
         {
             auto& registry = scene.GetRegistry();
             {
-                const auto& packed = registry.get<PackedPrefabComponent>( root.GetHandle() );
+                const auto&                    packed   = registry.get<PackedPrefabComponent>( root.GetHandle() );
                 const std::vector<ECS::Entity> previous = packed.Groups;
                 for ( const ECS::Entity& group : previous )
                     if ( group && registry.valid( group.GetHandle() ) )
@@ -366,17 +366,12 @@ namespace Desert::Runtime::Factory
             groups.reserve( form->Groups.size() );
             for ( const Assets::PackedPrefabGroupSer& group : form->Groups )
             {
-                auto block = Common::Json::Read<Common::Json::Value>( Common::Json::Write( group.Block ) );
-                if ( !block )
-                {
-                    LOG_ERROR( "[PrefabFactory] packed group '{0}' did not read back: {1}. It is NOT drawn.",
-                               group.Name, block.GetError() );
-                    groups.emplace_back();
-                    continue;
-                }
+                // The block as a component payload, the way the HLOD builder hands its batches to the same
+                // registry (WorldPartitionHLODRules.hpp, Common::Json::FromStruct).
                 Assets::EntityData record;
                 record.Tag = group.Name;
-                record.Components[std::string( Core::Rules::kInstancePointsComponent )] = std::move( block.GetValue() );
+                record.Components[std::string( Core::Rules::kInstancePointsComponent )] =
+                     Common::Json::FromStruct( group.Block );
 
                 const ECS::Entity entity = scene.CreateEntityWithUUID( Common::UUID::Generate(), group.Name );
                 Core::Serialize::EntitySerializer::DeserializeEntity( record, entity, *manager );
@@ -391,7 +386,8 @@ namespace Desert::Runtime::Factory
         }
 
         // Every group's instances composed with @p rootWorld: world = root * (the instance in the root's frame).
-        void PlacePackedGroups( entt::registry& registry, PackedPrefabComponent& packed, const glm::mat4& rootWorld )
+        void PlacePackedGroups( entt::registry& registry, PackedPrefabComponent& packed,
+                                const glm::mat4& rootWorld )
         {
             const std::size_t count = std::min( packed.Groups.size(), packed.Form->Groups.size() );
             for ( std::size_t index = 0; index < count; ++index )
@@ -414,10 +410,10 @@ namespace Desert::Runtime::Factory
         }
     } // namespace
 
-    Common::ResultStr<ECS::Entity> PrefabFactory::InstantiatePacked( const Assets::Asset<Assets::PrefabAsset>& prefab,
-                                                                     Core::Scene&                              scene,
-                                                                     const Assets::AssetManager& assetManager,
-                                                                     std::optional<Common::UUID> rootId )
+    Common::ResultStr<ECS::Entity>
+    PrefabFactory::InstantiatePacked( const Assets::Asset<Assets::PrefabAsset>& prefab, Core::Scene& scene,
+                                      const Assets::AssetManager& assetManager,
+                                      std::optional<Common::UUID> rootId )
     {
         if ( !prefab || !prefab->IsReadyForUse() || prefab->GetEntities().empty() )
             return Common::MakeError<ECS::Entity>( "the prefab is not loaded, or holds no entity" );
@@ -425,8 +421,8 @@ namespace Desert::Runtime::Factory
         if ( !form )
             return Common::MakeError<ECS::Entity>( "the prefab holds no packed form" );
         if ( form->Refused.has_value() )
-            return Common::MakeFormattedError<ECS::Entity>( "'{}' cannot be packed: {}",
-                                                            prefab->GetMetadata().Filepath.string(), *form->Refused );
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "'{}' cannot be packed: {}", prefab->GetMetadata().Filepath.string(), *form->Refused );
 
         // The root as the unpacked instance's root stands before the scene places it: the first record's tag and
         // transform (PrefabFactory::Instantiate's rule), so the loader's PlaceInstanceRoot treats both alike.
@@ -442,9 +438,9 @@ namespace Desert::Runtime::Factory
         ECS::SetLocalTransform( *root.GetRegistry(), root.GetHandle(), local );
 
         root.AddComponent<ECS::PrefabComponent>().Prefab = prefab->GetMetadata().Handle;
-        auto& packed   = root.AddComponent<PackedPrefabComponent>();
-        packed.Prefab  = prefab;
-        packed.Manager = &assetManager;
+        auto& packed                                     = root.AddComponent<PackedPrefabComponent>();
+        packed.Prefab                                    = prefab;
+        packed.Manager                                   = &assetManager;
 
         BuildPackedGroups( scene, root, std::move( form ) );
         return Common::MakeSuccess( ECS::Entity( root ) );
@@ -462,9 +458,9 @@ namespace Desert::Runtime::Factory
         {
             const ECS::Entity root( handle, registry );
             {
-                auto&      packed  = registry.get<PackedPrefabComponent>( handle );
-                const auto current = packed.Prefab ? packed.Prefab->GetPacked()
-                                                   : std::shared_ptr<const Assets::PackedPrefabSer>();
+                auto&      packed = registry.get<PackedPrefabComponent>( handle );
+                const auto current =
+                     packed.Prefab ? packed.Prefab->GetPacked() : std::shared_ptr<const Assets::PackedPrefabSer>();
                 if ( current && packed.Form && current->SourceHash != packed.Form->SourceHash )
                 {
                     if ( !current->Refused.has_value() )

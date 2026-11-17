@@ -1,33 +1,38 @@
 # WP-PACKED-PREFAB: a packed prefab instance (UE 5.5 APackedLevelActor) draws its prefab's packed form - one
-# InstancedStaticMesh per (mesh, material slots, shadow flags) - and follows its source when the source is committed.
+# InstancedStaticMesh per (mesh, material slots, primitive, shadow flags) - and follows its source when the source is
+# applied from an instance unpacked to edit.
 #
-# Content (authored once, before the first run; not code): Content/Prefabs/Fence_Run.deprefab = 200 fence sections,
-# each a post mesh + a board mesh, under one empty root (2 mesh groups); Content/Scenes/WP_PackedPrefab.desce holds
-# 10 instances of it in a row, saved unpacked, the camera looking along the row. The second section model for the
-# Commit step is Content/Meshes/FenceBoard_Broken.stmesh.
+# Content (authored once, before the first run; content, not code): Content/Prefabs/Fence_Run.deprefab = an empty
+# root "Fence_Run" with 20 posts (Post_01..Post_20, one post mesh) and 20 boards (Board_01..Board_20, one board mesh)
+# as its direct children: 2 mesh groups, 40 instances. Content/Scenes/WP_PackedPrefab.desce holds 10 instances of it
+# in a row, saved unpacked, the camera looking along the row. Every name is unique INSIDE the prefab, so once one
+# instance is unpacked "Board_10" names exactly one entity (the packed ones draw it as an instance of "Board_01 x20").
 #
-# What is proven: [packed_draws] the picture is unchanged by packing and the frame's draw statistics fall from one
-# draw per section to one per mesh group (scene stats: static draws); Details of an instance read "Packed: 2 ISM".
-# [packed_repacked] after Unpack to edit -> section replaced -> Commit (WP-PREFAB-EDIT-IN-PLACE), the 9 instances that
-# stayed packed draw the new model too (log: "[PrefabFactory] '...Fence_Run...' changed (source <hash>): a packed
-# instance is rebuilt from 2 group(s)." once per packed instance).
+# What is proven: [packed_draws] packing leaves the picture as it was and the frame's static draws fall from one per
+# post/board to one per mesh group; Details of the selected instance read "Packed: 2 ISM". [packed_redo] a redone Pack
+# is packed again (rebuilt from the prefab, not from a snapshot). [packed_reload] the mode survives a save and a
+# reopen ("PrefabPacked": true on each record). [packed_repacked] Unpack to edit one instance -> delete its Board_10
+# -> Apply to Prefab: the 9 instances that stayed packed are rebuilt from the new form and lose board 10 too.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_PackedPrefab.desce
 Дано run View "View mode: Lit"
-Дано run Action "Select All"
-Тогда packed_before десять экземпляров Fence_Run стоят рядом, раскрытые: в статистике кадра ~4000 статических draw (по одному на секцию и меш)
+Дано run Entity "Fence_Run"
+Дано run Entity "Select all instances of the same prefab"
+Тогда packed_before десять экземпляров Fence_Run стоят в ряд раскрытыми: 400 статических мешей (по одному на столб и доску), выделены все десять корней
 Когда run Entity "Pack Prefab Instances"
 Дано run Panel "Details"
-Тогда packed_draws забор выглядит как раньше (та же геометрия, те же материалы и тени); статистика рисования — по одному instanced draw на меш (2 ISM на экземпляр) вместо 200 секций; Details выбранного экземпляра «Packed: 2 ISM»; в логе «[Prefab] 10 instance(s) packed.»
+Тогда packed_draws забор выглядит как на packed_before (та же геометрия, те же материалы и тени); статических draw — по одному на группу (2 ISM на экземпляр) вместо 40; Details выбранного экземпляра «Packed: 2 ISM»; в логе «[Prefab] 10 instance(s) packed.»
 Когда run Action "Undo"
-Тогда packed_undo одна отмена: экземпляры снова раскрыты, картинка та же
+Тогда packed_undo одна отмена: экземпляры снова раскрыты (40 сущностей под каждым корнем), картинка как на packed_before
 Когда run Action "Redo"
+Тогда packed_redo повтор: экземпляры снова упакованы, Details «Packed: 2 ISM», картинка как на packed_draws, в логе нет «[Prefab] ... failed»
 Когда run Action "Save Scene"
-Когда run Scene "Reload"
-Тогда packed_reload после перезагрузки сцены экземпляры остаются Packed (в .desce у записи "PrefabPacked": true), картинка та же
-# Unpack one instance to edit, replace one section's board by FenceBoard_Broken in the source, Commit
-# (WP-PREFAB-EDIT-IN-PLACE's commands), then deselect.
+Когда run Scene "Open Scene Starter.desce"
+Когда run Scene "Open Scene WP_PackedPrefab.desce"
+Дано run Entity "Fence_Run"
+Дано run Panel "Details"
+Тогда packed_reload после повторного открытия экземпляры упакованы (Details «Packed: 2 ISM»; у записей в .desce "PrefabPacked": true и нет PrefabOverrides), картинка как на packed_draws
 Когда run Entity "Unpack Prefab Instances to Edit"
-Когда run Entity "Edit Prefab In Place"
-Когда lua Scene.SetStaticMesh("Fence_Run/Section_100/Board", "Content/Meshes/FenceBoard_Broken.stmesh")
-Когда run Entity "Commit Prefab Edit"
-Тогда packed_repacked все 10 экземпляров показывают новую модель секции 100 (9 упакованных пересобраны из новой формы, 3 ISM у каждого: «Packed: 3 ISM»); в логе по строке «changed (source …): a packed instance is rebuilt» на каждый упакованный экземпляр
+Когда run Entity "Delete Board_10"
+Дано run Entity "Post_10"
+Когда run Entity "Apply to Prefab"
+Тогда packed_repacked у всех 10 экземпляров нет доски 10 (у 9 упакованных — пересобраны из новой формы: в логе 9 строк «changed (source …): a packed instance is rebuilt from 2 group(s)»); Details упакованного экземпляра «Packed: 2 ISM», 39 экземпляров в его группах

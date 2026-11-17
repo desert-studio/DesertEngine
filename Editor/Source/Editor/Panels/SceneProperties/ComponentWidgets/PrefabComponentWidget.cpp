@@ -89,7 +89,8 @@ namespace Desert::Editor
 
         // ── Packed (UE Packed Level Actor): the mode, and the switch ─────
         const auto* packedInstance =
-             entity.GetRegistry()->try_get<::Desert::Runtime::Factory::PackedPrefabComponent>( entity.GetHandle() );
+             entity.GetRegistry()->try_get<::Desert::Runtime::Factory::PackedPrefabComponent>(
+                  entity.GetHandle() );
         const Common::UUID instanceId = entity.HasComponent<ECS::UUIDComponent>()
                                              ? entity.GetComponent<ECS::UUIDComponent>().UUID
                                              : Common::UUID::Null();
@@ -103,7 +104,8 @@ namespace Desert::Editor
                                   packedInstance->Groups.size(), packedInstance->Form->SourceHash )
                           .c_str() );
             if ( valid && asset->GetPacked() && asset->GetPacked()->Refused.has_value() )
-                ImGui::TextWrapped( "The prefab changed and no longer packs: %s", asset->GetPacked()->Refused->c_str() );
+                ImGui::TextWrapped( "The prefab changed and no longer packs: %s",
+                                    asset->GetPacked()->Refused->c_str() );
             if ( ImGui::Button( "Unpack to edit" ) )
             {
                 if ( const auto switched = Commands::SetPrefabInstancesPacked( { instanceId }, false ); !switched )
@@ -111,8 +113,9 @@ namespace Desert::Editor
                 Utils::ImGuiUtilities::PopID();
                 return; // the instance was rebuilt; this entity handle is gone
             }
-            Utils::ImGuiUtilities::Tooltip( "Every entity of the prefab again, to edit the source in place; commit it "
-                                            "and every packed instance is rebuilt" );
+            Utils::ImGuiUtilities::Tooltip(
+                 "Every entity of the prefab again, to edit the source in place; commit it "
+                 "and every packed instance is rebuilt" );
         }
         else if ( valid )
         {

@@ -106,7 +106,7 @@ namespace Desert::Assets
         bool m_CapturedInMemory = false;
 
         // The stated form when its checksum is the body's, otherwise the body packed afresh (said on the log).
-        void AdoptOrRepack( std::optional<PackedPrefabSer> stated );
+        void                                   AdoptOrRepack( std::optional<PackedPrefabSer> stated );
         std::shared_ptr<const PackedPrefabSer> m_Packed;
     };
 } // namespace Desert::Assets

@@ -379,9 +379,9 @@ namespace Desert::Core
             // out of the root's override, so it is still in one place — and that place is THIS file, which
             // the World Partition planner (a pure function of one scene) can read. Before v37 it lived only
             // in an override addressed by ids the `.deprefab` resolves, and every instance was unplaceable.
-            // A PACKED INSTANCE draws its source as it is and holds no override (Unpack Prefab Instances to Edit is
-            // how one is made): its record is the link, its placement and the mode. Its ISM children are skipped
-            // with every other entity under a prefab root (isPrefabChild).
+            // A PACKED INSTANCE draws its source as it is and holds no override (Unpack Prefab Instances to Edit
+            // is how one is made): its record is the link, its placement and the mode. Its ISM children are
+            // skipped with every other entity under a prefab root (isPrefabChild).
             if ( entity.HasComponent<Runtime::Factory::PackedPrefabComponent>() && data.PrefabPath.has_value() )
             {
                 Assets::ReduceInstanceRecord( data, {}, nullptr );
@@ -763,9 +763,10 @@ namespace Desert::Core
             if ( entityData->PrefabPacked.value_or( false ) )
             {
                 if ( entityData->PrefabOverrides.has_value() && !entityData->PrefabOverrides->empty() )
-                    LOG_ERROR( "SceneSerializer: the instance of '{0}' is saved packed AND with {1} override(s); a "
-                               "packed instance draws its source as it is, so it is placed unpacked to keep them.",
-                               *entityData->PrefabPath, entityData->PrefabOverrides->size() );
+                    LOG_ERROR(
+                         "SceneSerializer: the instance of '{0}' is saved packed AND with {1} override(s); a "
+                         "packed instance draws its source as it is, so it is placed unpacked to keep them.",
+                         *entityData->PrefabPath, entityData->PrefabOverrides->size() );
                 else if ( auto packed = Runtime::Factory::PrefabFactory::InstantiatePacked(
                                prefabAsset, *m_Scene, *m_AssetManager, entityData->id );
                           packed )
