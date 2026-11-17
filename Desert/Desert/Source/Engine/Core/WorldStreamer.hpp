@@ -55,6 +55,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -161,6 +162,21 @@ namespace Desert::Core
         {
             return m_LastTick;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // DEV ONLY - what one unit's last read and activation took (the gameplay debugger's World Partition
+        // category; UE wp.Runtime.ToggleDrawRuntimeCellsDetails). Wall milliseconds; negative = not measured yet.
+        struct UnitTiming
+        {
+            double LoadMs       = -1.0; // StartLoad to the Tick that collected the read: queue and worker
+            double ActivationMs = -1.0; // its last InstantiateRecords on the main thread
+        };
+        // nullptr for a unit never read by this streamer.
+        [[nodiscard]] const UnitTiming* TimingOf( std::size_t unit ) const
+        {
+            return unit < m_UnitTimings.size() ? &m_UnitTimings[unit] : nullptr;
+        }
+#endif
 
         // Whether @p scene is the one this streams: the editor updates several scenes a frame.
         [[nodiscard]] bool Streams( const Scene& scene ) const
@@ -292,6 +308,11 @@ namespace Desert::Core
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;
+#if DESERT_DEV_INSTRUMENTS
+        // Per unit (index = unit, grown as units are read): TimingOf's answers, and when each read started.
+        std::vector<UnitTiming>                            m_UnitTimings;
+        std::vector<std::chrono::steady_clock::time_point> m_LoadStarted;
+#endif
         std::uint32_t m_FramesWaiting = 0;
 
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.

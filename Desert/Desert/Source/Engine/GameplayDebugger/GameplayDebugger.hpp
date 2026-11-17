@@ -35,9 +35,9 @@
 #include <string_view>
 #include <vector>
 
-namespace Desert::Input
+namespace Desert::Core
 {
-    class LocalPlayerInput;
+    class WorldStreamer;
 }
 
 namespace Desert::Debug
@@ -55,7 +55,7 @@ namespace Desert::Debug
             GameplayDebuggerCategoryData               Data;
         };
 
-        /// With the engine's categories registered: Basic, Physics, Script (digits 1-3).
+        /// With the engine's categories registered: Basic, Physics, Script, Rendering, World Partition (digits 1-5).
         GameplayDebugger();
 
         /// UE IGameplayDebugger::RegisterCategory: appended, so its digit is its place in the list.
@@ -66,6 +66,10 @@ namespace Desert::Debug
         {
             return m_Active;
         }
+
+        /// The category of that name, nullptr when none has it (what a host's command reaches a category's own
+        /// switches by, UE IGameplayDebugger's category lookup).
+        [[nodiscard]] IGameplayDebuggerCategory* FindCategory( std::string_view name );
 
         /// false when no category has that name.
         bool SetCategoryEnabled( std::string_view name, bool enabled );
@@ -82,6 +86,18 @@ namespace Desert::Debug
         {
             m_Selected = entity;
         }
+        /// The World Partition streamer of this debugger's world (UE: the world's UWorldPartitionSubsystem), set
+        /// by the streamer for its own lifetime (WorldStreamer's constructor and destructor); nullptr while the
+        /// world is not streamed - Edit, or a world with no WorldPartition block.
+        void SetWorldStreamer( const Core::WorldStreamer* streamer )
+        {
+            m_WorldStreamer = streamer;
+        }
+        [[nodiscard]] const Core::WorldStreamer* GetWorldStreamer() const
+        {
+            return m_WorldStreamer;
+        }
+
         /// The entity shown now (std::nullopt when nothing was ever targeted or the target is gone).
         [[nodiscard]] std::optional<Common::UUID> GetTarget() const
         {
@@ -104,6 +120,7 @@ namespace Desert::Debug
         std::optional<Common::UUID> m_Selected;
         std::optional<Common::UUID> m_Target;
         std::optional<Common::UUID> m_CollectedTarget; // the target the slots' Data describe
+        const Core::WorldStreamer*  m_WorldStreamer = nullptr;
     };
 } // namespace Desert::Debug
 #endif // DESERT_DEV_INSTRUMENTS

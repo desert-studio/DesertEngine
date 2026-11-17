@@ -9,6 +9,10 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
+#include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -151,7 +155,11 @@ namespace Desert::Core
     // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
     // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v4 (WP-DEBUG-DRAW): a grid and a data layer state their `DebugColor` (UE FSpatialHashRuntimeGrid::DebugColor,
+    // UDataLayerAsset::DebugColor) - the gameplay debugger's World Partition category colours cells by them. The
+    // step (Tools/SceneMigrator, kWorldPartitionVersionDebugColors) states SeededDebugColor of each grid's and
+    // layer's name; nothing else changes.
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -231,6 +239,12 @@ namespace Desert::Core
         // ABSENT = this grid's cells have no HLOD and a far cell draws nothing; optional so a grid with no
         // HLOD writes no key and an empty string is not a second spelling of "none".
         std::optional<std::string> HLODLayer;
+
+        // UE FSpatialHashRuntimeGrid::DebugColor (WP v4, WP-DEBUG-DRAW): the colour the gameplay debugger's World
+        // Partition category paints this grid's cells in when it colours by grid - an on-screen RGB, 0..1. A new
+        // grid gets SeededDebugColor of its name (the panel's Add grid, the v3 -> v4 step), as UE seeds a new
+        // layer's colour; after that it is the author's.
+        glm::vec3 DebugColor = glm::vec3( 0.5f );
 
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without
@@ -345,8 +359,48 @@ namespace Desert::Core
         // like a setting.
         std::optional<DataLayerRuntimeState> InitialRuntimeState;
 
+        // UE UDataLayerAsset::DebugColor (WP v4, WP-DEBUG-DRAW): the colour the gameplay debugger paints this layer's
+        // cells in when it colours by data layer - an on-screen RGB, 0..1. A new layer gets SeededDebugColor of its
+        // name (the panel's New Data Layer, the v3 -> v4 step), as UE seeds it (FColor::MakeRandomSeededColor);
+        // after that it is the author's.
+        glm::vec3 DebugColor = glm::vec3( 0.5f );
+
         bool operator==( const DataLayerSerialized& ) const = default;
     };
+
+    // THE COLOUR A NEW GRID OR DATA LAYER IS GIVEN (UE FColor::MakeRandomSeededColor, which seeds a new data layer's
+    // DebugColor): a hue from the FNV-1a hash of @p name - FNV and not std::hash, whose value is the standard
+    // library's choice and would give one world two colours on two platforms - at full value and 0.75 saturation,
+    // so two names read apart on the debugger's dark map.
+    [[nodiscard]] inline glm::vec3 SeededDebugColor( std::string_view name )
+    {
+        std::uint32_t hash = 2166136261u;
+        for ( const char c : name )
+        {
+            hash ^= static_cast<std::uint8_t>( c );
+            hash *= 16777619u;
+        }
+        const float hue        = static_cast<float>( hash % 360u ) / 60.0f; // sextant 0..6
+        const float saturation = 0.75f;
+        const float x          = 1.0f - std::abs( std::fmod( hue, 2.0f ) - 1.0f );
+        const float low        = 1.0f - saturation;
+        const float mid        = low + saturation * x;
+        switch ( static_cast<int>( hue ) )
+        {
+            case 0:
+                return { 1.0f, mid, low };
+            case 1:
+                return { mid, 1.0f, low };
+            case 2:
+                return { low, 1.0f, mid };
+            case 3:
+                return { low, mid, 1.0f };
+            case 4:
+                return { mid, low, 1.0f };
+            default:
+                return { 1.0f, low, mid };
+        }
+    }
 
     struct WorldPartitionSerialized
     {

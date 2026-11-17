@@ -493,6 +493,13 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
+    //   4 - DEBUG COLOURS (WP-DEBUG-DRAW; UE FSpatialHashRuntimeGrid::DebugColor, UDataLayerAsset::DebugColor). A grid
+    //       and a data layer state their `DebugColor`, which the gameplay debugger's World Partition category paints
+    //       their cells in. The step states Core::SeededDebugColor of each grid's and layer's name - the colour the
+    //       panel gives a new grid or layer - so a migrated world and a new one colour alike. Scenes only (a prefab
+    //       states no World Partition block).
+    inline constexpr int kWorldPartitionVersionDebugColors = 4;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -540,7 +547,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionDebugColors == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1316,6 +1323,8 @@ namespace Desert::Migration
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        DebugColorsRaised       = false; // below kWorldPartitionVersionDebugColors
+        std::size_t DebugColorsStated       = 0;     // grids and data layers given SeededDebugColor
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected

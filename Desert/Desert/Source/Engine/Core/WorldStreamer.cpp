@@ -188,6 +188,11 @@ namespace Desert::Core
     WorldStreamer::WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName )
          : m_Scene( &scene ), m_Assets( &assets ), m_SceneName( std::move( sceneName ) )
     {
+#if DESERT_DEV_INSTRUMENTS
+        // The world's debugger reads its streaming through this streamer while it lives (UE: the gameplay
+        // debugger reaches the world's UWorldPartitionSubsystem); the destructor takes it back.
+        scene.GetGameplayDebugger().SetWorldStreamer( this );
+#endif
     }
 
     Common::ResultStr<std::unique_ptr<WorldStreamer>>
@@ -827,6 +832,14 @@ namespace Desert::Core
 
     void WorldStreamer::StartLoad( std::size_t unit, std::uint64_t ticket )
     {
+#if DESERT_DEV_INSTRUMENTS
+        if ( unit >= m_LoadStarted.size() )
+        {
+            m_LoadStarted.resize( unit + 1 );
+            m_UnitTimings.resize( unit + 1 );
+        }
+        m_LoadStarted[unit] = std::chrono::steady_clock::now();
+#endif
         m_Loader->Start( unit, ticket );
     }
 
@@ -843,6 +856,11 @@ namespace Desert::Core
     std::vector<Rules::LoadOutcome> WorldStreamer::TakeLoadOutcomes()
     {
         std::vector<Rules::LoadOutcome> finished = m_Loader->TakeFinished();
+#if DESERT_DEV_INSTRUMENTS
+        for ( const Rules::LoadOutcome& outcome : finished )
+            if ( outcome.Ok && outcome.Unit < m_LoadStarted.size() )
+                m_UnitTimings[outcome.Unit].LoadMs = MsSince( m_LoadStarted[outcome.Unit] );
+#endif
         for ( const Rules::LoadOutcome& outcome : finished )
             if ( !outcome.Ok )
                 LOG_ERROR( "[WorldPartition] '{0}': reading {1} failed, it is retried: {2}", m_SceneName,
@@ -872,6 +890,10 @@ namespace Desert::Core
         m_RecordsActivated += records.size();
         m_ActivationMs += ms;
         m_WorstUnitMs = std::max( m_WorstUnitMs, ms );
+#if DESERT_DEV_INSTRUMENTS
+        if ( unit < m_UnitTimings.size() )
+            m_UnitTimings[unit].ActivationMs = ms;
+#endif
         m_LastTick.ActivationMs += ms;
         m_LastTick.ActivatedUnits += ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) +
                                      Rules::DescribeResidencyUnit( Executor().Plan(), unit );
@@ -1096,6 +1118,10 @@ namespace Desert::Core
         // streamer said about it must not outlive the streamer.
         if ( m_Scene != nullptr )
             m_Scene->GetRegistry().unset<WorldStreamingWait>();
+#if DESERT_DEV_INSTRUMENTS
+        if ( m_Scene != nullptr && m_Scene->GetGameplayDebugger().GetWorldStreamer() == this )
+            m_Scene->GetGameplayDebugger().SetWorldStreamer( nullptr );
+#endif
         if ( !m_Executor.has_value() )
             return;
         LOG_INFO( "[WorldPartition] '{0}': streamed {1} activation(s), {2} record(s) in {3:.2f} ms on the main "

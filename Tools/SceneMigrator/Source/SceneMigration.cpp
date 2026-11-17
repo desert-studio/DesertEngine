@@ -5436,6 +5436,28 @@ namespace Desert::Migration
             // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
                 report.RuntimeDataLayersRaised = true;
+            // v3 -> v4 restates the colours (StateWorldPartitionDebugColorsV3ToV4, on a scene's block).
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDebugColors )
+                report.DebugColorsRaised = true;
+        }
+
+        // v3 -> v4 (WP-DEBUG-DRAW): every grid and data layer states Core::SeededDebugColor of its name - what the
+        // panel's Add grid / New Data Layer give a new one. Returns how many were stated.
+        std::size_t StateWorldPartitionDebugColorsV3ToV4( WorldPartitionSerialized& partition )
+        {
+            std::size_t stated = 0;
+            for ( Core::WorldPartitionGridSerialized& grid : partition.Grids )
+            {
+                grid.DebugColor = Core::SeededDebugColor( grid.Name );
+                ++stated;
+            }
+            if ( partition.DataLayers.has_value() )
+                for ( Core::DataLayerSerialized& layer : *partition.DataLayers )
+                {
+                    layer.DebugColor = Core::SeededDebugColor( layer.Name );
+                    ++stated;
+                }
+            return stated;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5780,6 +5802,8 @@ namespace Desert::Migration
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
         RunWorldPartitionSteps( scene.Header, report );
+        if ( report.DebugColorsRaised && scene.WorldPartition.has_value() )
+            report.DebugColorsStated = StateWorldPartitionDebugColorsV3ToV4( *scene.WorldPartition );
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )

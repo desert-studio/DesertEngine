@@ -441,13 +441,14 @@ namespace Desert::Editor
         const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
         std::optional<::Desert::Core::WorldPartitionSerialized> after;
         std::string                                             label;
-        if ( ImGui::BeginTable( "##runtimegrids", 5,
+        if ( ImGui::BeginTable( "##runtimegrids", 6,
                                 ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
         {
             ImGui::TableSetupColumn( "Name" );
             ImGui::TableSetupColumn( "Cell size (cm)" );
             ImGui::TableSetupColumn( "Loading range (cm)" );
             ImGui::TableSetupColumn( "Priority" );
+            ImGui::TableSetupColumn( "Debug colour" );
             ImGui::TableSetupColumn( "" );
             ImGui::TableHeadersRow();
             constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
@@ -495,6 +496,16 @@ namespace Desert::Editor
                     label                    = std::format( "Set priority of grid {}", grid.Name );
                 }
                 ImGui::TableNextColumn();
+                // UE FSpatialHashRuntimeGrid::DebugColor: what the gameplay debugger paints this grid's cells in.
+                glm::vec3 debugColor = grid.DebugColor;
+                if ( ImGui::ColorEdit3( "##debugcolor", &debugColor.x, ImGuiColorEditFlags_NoInputs ) &&
+                     debugColor != grid.DebugColor )
+                {
+                    after                      = current;
+                    after->Grids[g].DebugColor = debugColor;
+                    label                      = std::format( "Set debug colour of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
                 if ( ImGui::SmallButton( "Remove" ) )
                 {
                     after = current;
@@ -514,6 +525,7 @@ namespace Desert::Editor
             do
                 grid.Name = std::format( "Grid{}", n++ );
             while ( ::Desert::Core::Rules::GridIndexOf( *after, grid.Name ).has_value() );
+            grid.DebugColor = ::Desert::Core::SeededDebugColor( grid.Name ); // UE seeds a new layer's colour
             label = std::format( "Add grid {}", grid.Name );
             after->Grids.push_back( std::move( grid ) );
         }
@@ -702,7 +714,9 @@ namespace Desert::Editor
             if ( !after.DataLayers )
                 after.DataLayers.emplace();
             const std::string name( m_NewDataLayer.data() );
-            after.DataLayers->push_back( ::Desert::Core::DataLayerSerialized{ name, true } );
+            ::Desert::Core::DataLayerSerialized layer{ name, true };
+            layer.DebugColor = ::Desert::Core::SeededDebugColor( name ); // UE FColor::MakeRandomSeededColor
+            after.DataLayers->push_back( std::move( layer ) );
             commit( std::format( "New data layer '{}'", name ), std::move( after ) );
             if ( m_DataLayerStatus.empty() )
                 m_NewDataLayer.fill( '\0' );

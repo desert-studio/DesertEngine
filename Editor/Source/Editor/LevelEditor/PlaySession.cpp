@@ -1,5 +1,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 
+#include <Engine/GameplayDebugger/GameplayDebuggerCategoryWorldPartition.hpp>
+
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/PlayKeptChanges.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
@@ -562,6 +564,58 @@ namespace Desert::Editor
                                return streamer->SetDataLayerRuntimeState( name, state );
                            } } );
             }
+#if DESERT_DEV_INSTRUMENTS
+        // THE WORLD PARTITION DEBUG VIEW (WP-DEBUG-DRAW; UE wp.Runtime.ToggleDrawRuntimeHash2D / 3D,
+        // ToggleDrawStreamingSources, ToggleDrawRuntimeCellsDetails, ShowRuntimeSpatialHashGridLevel): the gameplay
+        // debugger's World Partition category shown and switched - what Shift+M/B/S/D/G/C do in a packaged game.
+        {
+            using WorldPartitionView = ::Desert::Debug::GameplayDebuggerCategoryWorldPartition;
+            const auto viewCommand = [this]( std::string label, std::function<void( WorldPartitionView& )> change )
+            {
+                return PaletteCommand{
+                     "Scene", std::move( label ),
+                     [this, change = std::move( change )]() -> Common::BoolResultStr
+                     {
+                         ::Desert::Debug::GameplayDebugger& debugger = m_Workspace.ActiveScene()->GetGameplayDebugger();
+                         auto* category = dynamic_cast<WorldPartitionView*>( debugger.FindCategory( "World Partition" ) );
+                         if ( category == nullptr )
+                             return Common::MakeError<bool>(
+                                  std::string( "the gameplay debugger has no World Partition category" ) );
+                         debugger.SetActive( true );
+                         (void)debugger.SetCategoryEnabled( "World Partition", true );
+                         change( *category );
+                         return BOOLSUCCESS;
+                     } };
+            };
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition 3D",
+                                             []( WorldPartitionView& c )
+                                             {
+                                                 c.GetView().Hash3D = true;
+                                                 c.GetView().Hash2D = false;
+                                             } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition 2D",
+                                             []( WorldPartitionView& c )
+                                             {
+                                                 c.GetView().Hash2D = true;
+                                                 c.GetView().Hash3D = false;
+                                             } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition 2D + 3D",
+                                             []( WorldPartitionView& c )
+                                             {
+                                                 c.GetView().Hash2D = true;
+                                                 c.GetView().Hash3D = true;
+                                             } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition toggle streaming sources",
+                                             []( WorldPartitionView& c ) { c.GetView().Sources = !c.GetView().Sources; } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition toggle cell details",
+                                             []( WorldPartitionView& c )
+                                             { c.GetView().CellDetails = !c.GetView().CellDetails; } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition next grid level",
+                                             []( WorldPartitionView& c ) { c.NextGridLevel(); } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition next colour mode",
+                                             []( WorldPartitionView& c ) { c.NextColorMode(); } ) );
+        }
+#endif
         // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`.
         auto& registry = m_Workspace.ActiveScene()->GetRegistry();
         for ( const auto entity : registry.view<ECS::PlayerStartComponent>() )

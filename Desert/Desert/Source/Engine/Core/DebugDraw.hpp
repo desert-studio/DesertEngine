@@ -133,6 +133,59 @@ namespace Desert::Core
         bool                             Persistent;
     };
 
+    /// The corner of the view a screen canvas is placed from (UE's canvas items are placed from the top-left;
+    /// a map that must not cover the gameplay debugger's panel is placed from the top-right).
+    enum class DebugDrawScreenCorner : uint8_t
+    {
+        TopLeft,
+        TopRight
+    };
+
+    /// One 2D item of a screen canvas, in pixels from the canvas' own top-left (UE FCanvasTileItem,
+    /// FCanvasBoxItem, FCanvasLineItem, FCanvasTriangleItem, FCanvasTextItem).
+    struct DebugDrawCanvasShape
+    {
+        enum class Kind : uint8_t
+        {
+            FilledRect,     // A = min, B = max
+            Rect,           // A = min, B = max, outline Thickness pixels wide
+            Line,           // A -> B, Thickness pixels wide
+            FilledTriangle, // A, B, C
+            Text            // Text with its top-left at A, Scale times the engine font size
+        };
+
+        Kind        Type = Kind::FilledRect;
+        glm::vec2   A{ 0.0f };
+        glm::vec2   B{ 0.0f };
+        glm::vec2   C{ 0.0f };
+        glm::vec4   Color     = glm::vec4( 1.0f );
+        float       Thickness = 1.0f;
+        float       Scale     = 1.0f;
+        std::string Text;
+    };
+
+    /// A rectangle of the view drawn in pixels (UE's debug canvas drawing - the 2D runtime hash of
+    /// UWorldPartitionSubsystem::Draw): Size pixels wide and high, its top-left Origin pixels in from @p Corner
+    /// (for TopRight, Origin.x is measured from the right edge to the canvas' right edge). Every shape is clipped
+    /// to the rectangle, drawn over Background, under the screen panels' text.
+    struct DebugDrawCanvas
+    {
+        glm::vec2                         Origin{ 0.0f };
+        DebugDrawScreenCorner             Corner = DebugDrawScreenCorner::TopLeft;
+        glm::vec2                         Size{ 0.0f };
+        glm::vec4                         Background = glm::vec4( 0.0f, 0.0f, 0.0f, 0.5f ); // alpha 0 = none
+        std::vector<DebugDrawCanvasShape> Shapes;
+    };
+
+    /// A canvas in the scene's store, with the lifetime rule of DebugDrawStyle.
+    struct DebugDrawScreenCanvas
+    {
+        DebugDrawCanvas Canvas;
+        float           RemainingSeconds;
+        bool            OneFrame;
+        bool            Persistent;
+    };
+
     /// The scene's debug items. Written on the game thread (scripts, systems), read by the scene's views
     /// while they build their frames.
     class DebugDrawWorld
@@ -143,6 +196,8 @@ namespace Desert::Core
         void AddString( const glm::vec3& position, std::string text, float scale, const DebugDrawStyle& style );
         void AddScreenPanel( const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
                              const DebugDrawPanelStyle& style );
+        /// @p style's Duration and Persistent only (the canvas states its own colours).
+        void AddScreenCanvas( DebugDrawCanvas canvas, const DebugDrawStyle& style );
 
         /// The start of a scene update. @p advancesFrame false (a pause) keeps the one-frame items of the last
         /// frame; @p deltaSeconds ages the timed ones and drops those whose time ran out.
@@ -150,7 +205,7 @@ namespace Desert::Core
 
         /// UE FlushPersistentDebugLines: every persistent and timed line and point goes; one-frame ones stay.
         void FlushPersistentLines();
-        /// UE FlushDebugStrings: every string goes, the screen panels with them.
+        /// UE FlushDebugStrings: every string goes, the screen panels and canvases with them.
         void FlushStrings();
 
         [[nodiscard]] const std::vector<DebugDrawLine>& GetLines() const
@@ -169,16 +224,22 @@ namespace Desert::Core
         {
             return m_Panels;
         }
+        [[nodiscard]] const std::vector<DebugDrawScreenCanvas>& GetScreenCanvases() const
+        {
+            return m_Canvases;
+        }
         [[nodiscard]] bool IsEmpty() const
         {
-            return m_Lines.empty() && m_Points.empty() && m_Strings.empty() && m_Panels.empty();
+            return m_Lines.empty() && m_Points.empty() && m_Strings.empty() && m_Panels.empty() &&
+                   m_Canvases.empty();
         }
 
     private:
         std::vector<DebugDrawLine>        m_Lines;
         std::vector<DebugDrawPoint>       m_Points;
         std::vector<DebugDrawString>      m_Strings;
-        std::vector<DebugDrawScreenPanel> m_Panels;
+        std::vector<DebugDrawScreenPanel>  m_Panels;
+        std::vector<DebugDrawScreenCanvas> m_Canvases;
     };
 
     /// The calls. Each turns its shape into line segments in @p scene's DebugDrawWorld. Rotations are world
@@ -207,6 +268,8 @@ namespace Desert::Core
         /// Lines of text at a fixed place of every view of @p scene (UE's debug canvas).
         void ScreenPanel( Scene& scene, const glm::vec2& origin, std::vector<DebugDrawCanvasLine> lines,
                           const DebugDrawPanelStyle& style = {} );
+        /// Shapes in pixels at a fixed place of every view of @p scene (UE's debug canvas drawing).
+        void ScreenCanvas( Scene& scene, DebugDrawCanvas canvas, const DebugDrawStyle& style = {} );
         void FlushPersistent( Scene& scene );
         void FlushStrings( Scene& scene );
 #else
@@ -235,6 +298,9 @@ namespace Desert::Core
         }
         inline void ScreenPanel( Scene&, const glm::vec2&, std::vector<DebugDrawCanvasLine>,
                                  const DebugDrawPanelStyle& = {} )
+        {
+        }
+        inline void ScreenCanvas( Scene&, DebugDrawCanvas, const DebugDrawStyle& = {} )
         {
         }
         inline void FlushPersistent( Scene& )
