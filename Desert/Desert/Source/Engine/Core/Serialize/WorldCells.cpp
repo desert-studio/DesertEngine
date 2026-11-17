@@ -674,7 +674,7 @@ namespace Desert::Core::WorldCells
         std::set<std::uint64_t> hlodIds;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); anyHLODLayer && unit < unitCount; ++unit )
         {
-            const BuiltHLODCell& built = *builtRows.at( index.Units[unit].Name );
+            const BuiltHLODCell& built = *builtRows.at( Rules::HLODRowName( *scene.WorldPartition, plan, unit ) );
             if ( !built.File.has_value() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;
@@ -1208,7 +1208,7 @@ namespace Desert::Core::WorldCells
             for ( std::size_t unit = 0; unit < unitCount; ++unit )
             {
                 out.Members.push_back( Rules::ResidencyUnitMembers( out.Plan, unit ) );
-                out.Names.push_back( Rules::DescribeResidencyUnit( out.Plan, unit ) );
+                out.Names.push_back( Rules::HLODRowName( *scene.WorldPartition, out.Plan, unit ) );
             }
             return Common::MakeSuccess( std::move( out ) );
         }
@@ -1221,12 +1221,14 @@ namespace Desert::Core::WorldCells
                    std::string( kBuiltHLODExtension );
         }
 
-        // A parent HLOD's file stem, by the HLOD cell it stands in for: `HLOD_H<layer grid>_<X>_<Z>`.
-        std::string ParentHLODFileStem( const Rules::HLODHierarchy& hierarchy, const Rules::HLODNode& node )
+        // A parent HLOD's file stem, by the HLOD cell it stands in for: `HLOD_H<layer grid>_<X>_<Z>`, and for a
+        // cell of runtime data layers their suffix (`..._DL<hash>`, Rules::DataLayersCellSuffix), as a cell's file.
+        std::string ParentHLODFileStem( const WorldPartitionSerialized& partition, const Rules::HLODHierarchy& hierarchy,
+                                        const Rules::HLODNode& node )
         {
             const Rules::HLODCell& child = hierarchy.Cells.at( node.StandsFor );
-            return std::format( "HLOD_H{}_{}_{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
-                                child.Coord.Z );
+            return std::format( "HLOD_H{}_{}_{}{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
+                                child.Coord.Z, Rules::DataLayersCellSuffix( partition, child.DataLayers ) );
         }
     } // namespace
 
@@ -1420,7 +1422,7 @@ namespace Desert::Core::WorldCells
                 members.insert( members.end(), hp.Members.at( unit ).begin(), hp.Members.at( unit ).end() );
             std::sort( members.begin(), members.end() );
             const Rules::HLODCell& child = hierarchy.GetValue().Cells.at( node.StandsFor );
-            const std::string      stem  = ParentHLODFileStem( hierarchy.GetValue(), node );
+            const std::string      stem  = ParentHLODFileStem( *scene.WorldPartition, hierarchy.GetValue(), node );
             BuiltHLODCell          row;
             row.Unit      = node.Name;
             row.BuiltFrom = HLODBuildChecksum( records, members, *scene.WorldPartition );

@@ -352,7 +352,7 @@ namespace Desert::Core
                     for ( std::size_t unit = plan.AlwaysLoaded.size();
                           !streamed && unit < Rules::ResidencyUnitCount( plan ); ++unit )
                     {
-                        const std::string name = Rules::DescribeResidencyUnit( plan, unit );
+                        const std::string name = Rules::HLODRowName( *partition, plan, unit );
                         const auto        row  = rows.find( name );
                         if ( staleUnits.contains( name ) || row == rows.end() )
                         {
@@ -1026,9 +1026,16 @@ namespace Desert::Core
                                " failed: " + instantiated.GetError() );
             return BOOLSUCCESS;
         };
+        // Only the tops of no runtime data layer (WP-HLOD-DATA-LAYERS): one of runtime layers streams by their
+        // state from the first Tick, as the world's always-loaded composites of runtime layers do
+        // (ResidencyExecutor::BeginFromAlwaysLoaded marks activated exactly the units made here).
         for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
+        {
+            if ( !Rules::UnitRuntimeDataLayers( r.Plan, r.Partition, a ).empty() )
+                continue;
             if ( auto ok = makeUnit( a ); !ok )
                 return ok;
+        }
         for ( const std::size_t unit : atBegin )
         {
             if ( auto ok = makeUnit( unit ); !ok )

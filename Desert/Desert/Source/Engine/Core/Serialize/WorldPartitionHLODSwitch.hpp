@@ -191,7 +191,8 @@ namespace Desert::Core::Rules
         // no entities: nothing is told, and it is told again the frame its cell activates.
         [[nodiscard]] Common::ResultStr<std::size_t>
         Sync( const ResidencyState& state, const ResidencyState* hlodState, HLODVisibilityWorld& world,
-              std::span<const DataLayerRuntimeState> unitLayerStates = {} )
+              std::span<const DataLayerRuntimeState> unitLayerStates     = {},
+              std::span<const DataLayerRuntimeState> hlodUnitLayerStates = {} )
         {
             if ( state.Units.size() != m_HLODOfUnit.size() )
                 return Common::MakeError<std::size_t>(
@@ -213,9 +214,13 @@ namespace Desert::Core::Rules
                 const ResidencyState& of      = streamed && m_ForHLODUnit[hlod] == 1 ? *hlodState : state;
                 // WP-DATA-LAYERS-RUNTIME: the HLOD of a cell whose runtime data layers are not Activated stands in
                 // for nothing (UE: an HLOD actor carries the data layers of what it was built from).
-                const bool layersOff = !( streamed && m_ForHLODUnit[hlod] == 1 ) &&
-                                       m_UnitOfHLOD[hlod] < unitLayerStates.size() &&
-                                       unitLayerStates[m_UnitOfHLOD[hlod]] != DataLayerRuntimeState::Activated;
+                // A parent (WP-HLOD-DATA-LAYERS) reads the HLOD cell it stands in for in the HLOD residency, whose units
+                // carry the same runtime layers (MakeHLODResidency): it must not be shown over a layer turned off
+                // while its HLOD cell is still on its way out.
+                const std::span<const DataLayerRuntimeState> layerStates =
+                     streamed && m_ForHLODUnit[hlod] == 1 ? hlodUnitLayerStates : unitLayerStates;
+                const bool layersOff = m_UnitOfHLOD[hlod] < layerStates.size() &&
+                                       layerStates[m_UnitOfHLOD[hlod]] != DataLayerRuntimeState::Activated;
                 const std::uint8_t visible = IsCellVisible( of.Units[m_UnitOfHLOD[hlod]].State ) || layersOff ? 0 : 1;
                 if ( m_Applied[hlod] == visible )
                     continue;
@@ -382,12 +387,21 @@ namespace Desert::Core::Rules
         auto hlodGate = hlods.HLODGate( executor.State(), hlodExecutor.State() );
         if ( !hlodGate.IsSuccess() )
             return Common::MakeError<ResidencyTick>( hlodGate.GetError() );
+        // THE HLOD CELLS' DATA LAYERS ARE THE WORLD'S (WP-HLOD-DATA-LAYERS): one truth, the world executor's states
+        // (WorldStreamer::SetDataLayerRuntimeState), mirrored before the HLOD cells step - an HLOD cell of a layer
+        // turned Unloaded is released, of one turned Loaded is deactivated, as the world's cells of that layer are.
+        const std::vector<DataLayerRuntimeState>& layerStates = executor.DataLayerStates();
+        for ( std::size_t layer = 0; layer < layerStates.size(); ++layer )
+            if ( layer < hlodExecutor.DataLayerStates().size() &&
+                 hlodExecutor.DataLayerStates()[layer] != layerStates[layer] )
+                if ( auto set = hlodExecutor.SetDataLayerState( layer, layerStates[layer] ); !set.IsSuccess() )
+                    return Common::MakeError<ResidencyTick>( "the HLOD cells: " + set.GetError() );
         const std::vector<StreamingSource> hlodSources = HLODSources( residency, sources );
         if ( auto hlodTick = hlodExecutor.Tick( hlodSources, nowSeconds, hlodCells, &hlodGate.GetValue() );
              !hlodTick.IsSuccess() )
             return Common::MakeError<ResidencyTick>( "the HLOD cells: " + hlodTick.GetError() );
         if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld,
-                                       executor.UnitDataLayerStates() );
+                                       executor.UnitDataLayerStates(), hlodExecutor.UnitDataLayerStates() );
              !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
         return tick;
