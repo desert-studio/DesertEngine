@@ -97,15 +97,15 @@ namespace Desert::Core
             };
         }
 
-        // A cooked world's cells, holding each loaded cell's region chunk while the cell is loaded (WP23): the
-        // chunk unmounts when the last loaded cell of its region goes.
+        // A cooked world's cells - its world cells or its HLOD cells (WP-FAR-8) - holding each loaded cell's region
+        // chunk while the cell is loaded (WP23): the chunk unmounts when the last loaded cell of its region goes.
         class RegionChunkCellSource final : public Rules::WorldCellSource
         {
         public:
             RegionChunkCellSource( std::shared_ptr<const WorldCells::WorldIndex> index, std::string directory,
-                                   RegionChunks regions )
-                 : m_Index( std::move( index ) ), m_Regions( regions ),
-                   m_Cooked( *m_Index, VfsReader( std::move( directory ), std::move( regions ) ) )
+                                   RegionChunks regions, WorldCells::UnitSet set )
+                 : m_Index( std::move( index ) ), m_Regions( regions ), m_Set( set ),
+                   m_Cooked( *m_Index, VfsReader( std::move( directory ), std::move( regions ) ), set )
             {
             }
 
@@ -130,14 +130,16 @@ namespace Desert::Core
         private:
             const std::string* ChunkOf( std::size_t unit ) const
             {
-                if ( !m_Regions || unit >= m_Index->Units.size() )
+                const std::vector<WorldCells::IndexUnit>& units = WorldCells::UnitsOf( *m_Index, m_Set );
+                if ( !m_Regions || unit >= units.size() )
                     return nullptr;
-                const auto chunk = m_Regions->find( m_Index->Units[unit].File );
+                const auto chunk = m_Regions->find( units[unit].File );
                 return chunk != m_Regions->end() ? &chunk->second : nullptr;
             }
 
             std::shared_ptr<const WorldCells::WorldIndex> m_Index;
             RegionChunks                                  m_Regions;
+            WorldCells::UnitSet                           m_Set; // the world's cells, or the HLOD cells (WP-FAR-8)
             WorldCells::CookedCellSource                  m_Cooked;
         };
     } // namespace
@@ -343,8 +345,37 @@ namespace Desert::Core
                              "{4} stale",
                              snapshot->SceneName, nodeRows.size(), hierarchy.GetValue().Cells.size(),
                              WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
-                        if ( auto begun = streamer->BeginHLODCells( hierarchy.ExtractValue(), held,
-                                                                    std::move( nodeRows ), holes );
+                        // The HLOD residency over the saved rows' record counts, and per unit its nodes' rows in
+                        // composite order (ResidencyUnitMembers' order) for the source.
+                        std::vector<std::size_t>               counts;
+                        std::vector<std::vector<Common::UUID>> nodeIds;
+                        for ( const WorldCells::BuiltHLODCell* row : nodeRows )
+                        {
+                            counts.push_back( row == nullptr ? 0 : row->Ids.size() );
+                            std::vector<Common::UUID>& ids = nodeIds.emplace_back();
+                            if ( row != nullptr )
+                                for ( const std::uint64_t id : row->Ids )
+                                    ids.emplace_back( id );
+                        }
+                        auto residency = Rules::MakeHLODResidency( *partition, hierarchy.GetValue(), counts );
+                        if ( !residency )
+                            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                              "': " + residency.GetError() );
+                        const Rules::HLODResidency& r = residency.GetValue();
+                        std::vector<std::vector<const WorldCells::BuiltHLODCell*>> unitRows(
+                             Rules::ResidencyUnitCount( r.Plan ) );
+                        for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
+                            unitRows[a].push_back( nodeRows[r.Plan.AlwaysLoaded[a]] );
+                        for ( std::size_t c = 0; c < r.Plan.Cells.size(); ++c )
+                            for ( const std::size_t n : r.Plan.Cells[c].Composites )
+                                unitRows[r.Plan.AlwaysLoaded.size() + c].push_back( nodeRows[n] );
+                        std::shared_ptr<const Rules::WorldCellSource> source =
+                             std::make_shared<StoredHLODCellSource>( held, std::move( unitRows ) );
+                        Rules::HLODHierarchy streamedHierarchy = hierarchy.ExtractValue();
+                        Rules::HLODResidency streamedResidency = residency.ExtractValue();
+                        if ( auto begun = streamer->BeginHLODCells( std::move( streamedHierarchy ),
+                                                                    std::move( streamedResidency ),
+                                                                    std::move( nodeIds ), std::move( source ), holes );
                              !begun )
                             return Common::MakeError<Result>( begun.GetError() );
                         streamed = true;
@@ -443,10 +474,45 @@ namespace Desert::Core
         streamer->m_Partition = partition;
         streamer->m_Index     = world.Index;
         streamer->m_Loader    = std::make_unique<WorldCellLoader>(
-             std::make_shared<RegionChunkCellSource>( world.Index, world.Directory, world.RegionChunkOfFile ) );
+             std::make_shared<RegionChunkCellSource>( world.Index, world.Directory, world.RegionChunkOfFile,
+                                                      WorldCells::UnitSet::World ) );
+        auto streamedHLODs = WorldCells::PlanHLODsFromIndex( *world.Index, streamer->Executor().Plan() );
+        if ( !streamedHLODs )
+            return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
+                                              "': " + streamedHLODs.GetError() );
+        std::optional<WorldCells::IndexedHLODs> plannedHLODs = streamedHLODs.ExtractValue();
+        if ( plannedHLODs.has_value() )
         {
-            // Every HLOD file is read now, on this thread: HLODs stand in for the whole world from the first
-            // frame (their own streaming, UE's HLOD grid, is not this round's).
+            // THE HLOD CELLS (WP-FAR-8): the cooked HLOD units stream as the world's cells do - read on workers
+            // through the same region chunks, under the second residency and its gate (TickWithHLODs); only the
+            // tops of the chains are made now.
+            std::vector<std::vector<Common::UUID>> nodeIds;
+            std::vector<Rules::HLODExclusion>      holes;
+            for ( std::size_t n = 0; n < plannedHLODs->Hierarchy.Nodes.size(); ++n )
+            {
+                const WorldCells::IndexHLODNode& node = world.Index->HLODNodes.at( n );
+                if ( !plannedHLODs->Hierarchy.Nodes[n].ForHLODCell )
+                    for ( const WorldCells::IndexNotInstanced& missing : node.NotInstanced )
+                        holes.push_back( missing.Reason );
+                std::vector<Common::UUID>& ids = nodeIds.emplace_back();
+                for ( const std::uint64_t id : node.Ids )
+                    ids.emplace_back( id );
+            }
+            LOG_INFO( "[WorldPartition] '{0}': {1} cooked HLOD(s) in {2} HLOD unit(s) ({3} HLOD cell(s)) from '{4}'",
+                      streamer->m_SceneName, nodeIds.size(), world.Index->HLODUnits.size(),
+                      plannedHLODs->Residency.Plan.Cells.size(), world.Directory );
+            std::shared_ptr<const Rules::WorldCellSource> source = std::make_shared<RegionChunkCellSource>(
+                 world.Index, world.Directory, world.RegionChunkOfFile, WorldCells::UnitSet::HLOD );
+            if ( auto begun = streamer->BeginHLODCells( std::move( plannedHLODs->Hierarchy ),
+                                                        std::move( plannedHLODs->Residency ), std::move( nodeIds ),
+                                                        std::move( source ), holes );
+                 !begun )
+                return Common::MakeError<Result>( begun.GetError() );
+        }
+        else
+        {
+            // Every HLOD file is read now, on this thread: no layer is spatially loaded, so every HLOD stands in
+            // for its cell from the first frame to the last.
             const WorldCells::FileReader      reader = VfsReader( world.Directory, world.RegionChunkOfFile );
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
@@ -892,46 +958,35 @@ namespace Desert::Core
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr WorldStreamer::BeginHLODCells( Rules::HLODHierarchy                           hierarchy,
-                                                         std::shared_ptr<const WorldCells::StoredHLODs> held,
-                                                         std::vector<const WorldCells::BuiltHLODCell*>  rows,
-                                                         std::span<const Rules::HLODExclusion>          holes )
+    Common::BoolResultStr WorldStreamer::BeginHLODCells( Rules::HLODHierarchy                          hierarchy,
+                                                         Rules::HLODResidency                          residency,
+                                                         std::vector<std::vector<Common::UUID>>        nodeIds,
+                                                         std::shared_ptr<const Rules::WorldCellSource> source,
+                                                         std::span<const Rules::HLODExclusion>         holes )
     {
         const auto failed = [this]( const std::string& why )
         { return Common::MakeError( "world streaming of '" + m_SceneName + "': " + why ); };
-        if ( rows.size() != hierarchy.Nodes.size() )
-            return failed( std::format( "{} HLOD row(s) for {} HLOD(s)", rows.size(), hierarchy.Nodes.size() ) );
-        std::vector<std::size_t> counts;
-        for ( const WorldCells::BuiltHLODCell* row : rows )
-            counts.push_back( row == nullptr ? 0 : row->Ids.size() );
-        auto residency = Rules::MakeHLODResidency( m_Partition, hierarchy, counts );
-        if ( !residency )
-            return failed( residency.GetError() );
+        if ( nodeIds.size() != hierarchy.Nodes.size() || residency.FirstRecord.size() != hierarchy.Nodes.size() )
+            return failed( std::format( "{} HLOD id list(s) and {} residency node(s) for {} HLOD(s)", nodeIds.size(),
+                                        residency.FirstRecord.size(), hierarchy.Nodes.size() ) );
+        // The HLOD record space in node order: node n's records are [FirstRecord[n], FirstRecord[n] + its ids).
+        std::vector<Common::UUID> recordIds( residency.Records );
+        for ( std::size_t n = 0; n < nodeIds.size(); ++n )
+        {
+            const std::size_t first = residency.FirstRecord[n];
+            const std::size_t end   = n + 1 < nodeIds.size() ? residency.FirstRecord[n + 1] : residency.Records;
+            if ( end - first != nodeIds[n].size() )
+                return failed( std::format( "the HLOD {} has {} record id(s) and its residency {} record(s)",
+                                            hierarchy.Nodes[n].Name, nodeIds[n].size(), end - first ) );
+            std::copy( nodeIds[n].begin(), nodeIds[n].end(),
+                       recordIds.begin() + static_cast<std::ptrdiff_t>( first ) );
+        }
         m_HLODHierarchy               = std::move( hierarchy );
-        m_HLODResidency               = residency.ExtractValue();
+        m_HLODResidency               = std::move( residency );
+        m_HLODIds                     = std::move( nodeIds ); // per HLOD: its entities' ids
         const Rules::HLODHierarchy& h = *m_HLODHierarchy;
         const Rules::HLODResidency& r = *m_HLODResidency;
-
-        // Per HLOD: its entities' ids (the row's), and the HLOD record space in node order.
-        m_HLODIds.assign( h.Nodes.size(), {} );
-        std::vector<Common::UUID> recordIds( r.Records );
-        for ( std::size_t n = 0; n < h.Nodes.size(); ++n )
-            if ( rows[n] != nullptr )
-                for ( std::size_t i = 0; i < rows[n]->Ids.size(); ++i )
-                {
-                    m_HLODIds[n].emplace_back( rows[n]->Ids[i] );
-                    recordIds[r.FirstRecord[n] + i] = Common::UUID( rows[n]->Ids[i] );
-                }
-        // Per HLOD residency unit, its nodes' rows in composite order (ResidencyUnitMembers' order).
-        std::vector<std::vector<const WorldCells::BuiltHLODCell*>> unitRows( Rules::ResidencyUnitCount( r.Plan ) );
-        for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
-            unitRows[a].push_back( rows[r.Plan.AlwaysLoaded[a]] );
-        for ( std::size_t c = 0; c < r.Plan.Cells.size(); ++c )
-            for ( const std::size_t n : r.Plan.Cells[c].Composites )
-                unitRows[r.Plan.AlwaysLoaded.size() + c].push_back( rows[n] );
-        m_HLODCells = std::make_unique<HLODCellWorld>(
-             *this, std::make_shared<StoredHLODCellSource>( std::move( held ), std::move( unitRows ) ),
-             std::move( recordIds ) );
+        m_HLODCells                   = std::make_unique<HLODCellWorld>( *this, std::move( source ), std::move( recordIds ) );
 
         auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), h, r );
         if ( !runtime )

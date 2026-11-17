@@ -254,6 +254,12 @@ namespace Desert::WorldCook
             hlodInstances += hlod.Instances;
             notInstanced += hlod.NotInstanced.size();
         }
+        hlodFiles += index.HLODUnits.size(); // one file per HLOD unit of a streamed hierarchy (WP-FAR-8)
+        for ( const auto& node : index.HLODNodes )
+        {
+            hlodInstances += node.Instances;
+            notInstanced += node.NotInstanced.size();
+        }
         out << "WorldCook: '" << index.SceneName << "' -> " << options.Out.string() << "\n"
             << "  records      : " << index.Records << "\n"
             << "  units        : " << index.Units.size() << " (" << index.Units.size() - alwaysUnit << " cells, "
@@ -262,7 +268,9 @@ namespace Desert::WorldCook
             << hlodFiles << " HLOD files + index), " << totalBytes << " bytes\n"
             << "  index        : " << files.back().Bytes.size() << " bytes\n"
             << "  largest cell : " << largestName << ", " << largest << " bytes\n"
-            << "  HLOD         : " << index.HLODs.size() << " cells, " << hlodInstances << " instances, "
+            << "  HLOD         : " << ( index.HLODUnits.empty() ? index.HLODs.size() : index.HLODNodes.size() )
+            << " HLOD(s), " << index.HLODUnits.size() << " HLOD unit(s) streamed by the HLOD grids, " << hlodInstances
+            << " instances, "
             << notInstanced << " drawing record(s) without a stand-in\n"
             << "  references   : " << index.References.size() << " crossing a unit\n"
             << "  assets       : "
@@ -320,6 +328,59 @@ namespace Desert::WorldCook
                    "records\n";
             return 7;
         }
+        // THE HLODs, FROM DISK (WP-FAR-8): every HLOD file read back through the readers the runtime uses - the
+        // session-resident ones (HLODRecords), and the HLOD cells after the runtime's own check that the index is
+        // the hierarchy's (PlanHLODsFromIndex), each unit through the cooked cell source.
+        const Core::WorldCells::WorldIndex& indexBack       = readIndex.GetValue();
+        std::size_t                         hlodRecordsBack = 0;
+        for ( std::size_t hlod = 0; hlod < indexBack.HLODs.size(); ++hlod )
+        {
+            auto records = Core::WorldCells::HLODRecords( indexBack, reader, hlod );
+            if ( !records )
+            {
+                err << "WorldCook: verify: " << records.GetError() << "\n";
+                return 8;
+            }
+            hlodRecordsBack += records.GetValue().size();
+        }
+        auto planBack = Core::WorldCells::PlanFromIndex( indexBack );
+        if ( !planBack )
+        {
+            err << "WorldCook: verify: " << planBack.GetError() << "\n";
+            return 8;
+        }
+        auto hlodPlan = Core::WorldCells::PlanHLODsFromIndex( indexBack, planBack.GetValue().Plan );
+        if ( !hlodPlan )
+        {
+            err << "WorldCook: verify: " << hlodPlan.GetError() << "\n";
+            return 8;
+        }
+        if ( hlodPlan.GetValue().has_value() )
+        {
+            const Core::WorldCells::CookedCellSource hlodCells( indexBack, reader, Core::WorldCells::UnitSet::HLOD );
+            for ( std::size_t unit = 0; unit < indexBack.HLODUnits.size(); ++unit )
+            {
+                auto records = hlodCells.UnitRecords( unit );
+                if ( !records )
+                {
+                    err << "WorldCook: verify: " << records.GetError() << "\n";
+                    return 8;
+                }
+                const std::size_t planned =
+                     Core::Rules::ResidencyUnitRecords( hlodPlan.GetValue()->Residency.Plan, unit );
+                if ( records.GetValue().size() != planned )
+                {
+                    err << "WorldCook: verify: HLOD unit " << indexBack.HLODUnits[unit].Name << " reads back "
+                        << records.GetValue().size() << " record(s) and its residency plans " << planned << "\n";
+                    return 8;
+                }
+                hlodRecordsBack += records.GetValue().size();
+            }
+        }
+        out << "  verify HLODs : " << hlodRecordsBack << " HLOD record(s) back from "
+            << ( indexBack.HLODUnits.empty() ? indexBack.HLODs.size() : indexBack.HLODUnits.size() )
+            << ( indexBack.HLODUnits.empty() ? " session-resident HLOD(s)\n"
+                                             : " HLOD unit(s) of the hierarchy the index states\n" );
         out << "  verify       : " << back.GetValue().Entities.size() << " records back from the cells, equal to "
             << "the expanded source (" << expanded.GetValue().Instances << " prefab instances) ("
             << MsSince( verifyStart ) << " ms)\n";

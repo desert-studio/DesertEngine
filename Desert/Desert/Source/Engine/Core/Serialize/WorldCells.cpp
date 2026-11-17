@@ -137,6 +137,32 @@ namespace Desert::Core::WorldCells
             return std::format( "G{}_L{}_{}_{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z, kCellExtension );
         }
 
+        // A parent HLOD's file stem, by the HLOD cell it stands in for: `HLOD_H<layer grid>_<X>_<Z>`.
+        std::string ParentHLODFileStem( const Rules::HLODHierarchy& hierarchy, const Rules::HLODNode& node )
+        {
+            const Rules::HLODCell& child = hierarchy.Cells.at( node.StandsFor );
+            return std::format( "HLOD_H{}_{}_{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
+                                child.Coord.Z );
+        }
+
+        // THE COOKED NAME OF ONE HLOD NODE (WP-FAR-8): the name its records' ids were made from at Build HLODs
+        // (HLODRecordId), and the file of a node resident the whole session - `HLOD_<cell file>` for one standing
+        // in for a world cell (HLODFileName), `HLOD_H<grid>_<X>_<Z>.dwcell` for a parent.
+        std::string HLODNodeFileName( const Rules::HLODHierarchy& hierarchy, const Rules::WorldPartitionPlan& plan,
+                                      const Rules::HLODNode& node )
+        {
+            if ( node.ForHLODCell )
+                return ParentHLODFileStem( hierarchy, node ) + std::string( kCellExtension );
+            return HLODFileName( CellFileName( plan.Cells.at( node.StandsFor - plan.AlwaysLoaded.size() ) ) );
+        }
+
+        // An HLOD cell's file (WP-FAR-8), named as a world cell's is, by its HLOD grid and coordinate:
+        // `H<grid>_<X>_<Z>.dwcell` (every HLOD cell is level 0).
+        std::string HLODCellFileName( const Rules::PlannedCell& cell )
+        {
+            return std::format( "H{}_{}_{}{}", cell.Grid, cell.Cell.X, cell.Cell.Z, kCellExtension );
+        }
+
         // WHAT A UNIT NEEDS FROM THE CONTENT: every value in its records that the registry recognises as an
         // asset — a number that is a row's handle, a string that is a row's path (or a handle spelled in
         // decimal, the way ids travel in component blocks) — and then every row those rows depend on.
@@ -482,17 +508,6 @@ namespace Desert::Core::WorldCells
         if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
             return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
         const bool anyHLODLayer = Rules::AnyGridHLODLayer( *scene.WorldPartition );
-        // A SPATIALLY LOADED HLOD LAYER IS PLAY'S ONLY (WP-FAR-8): the cooked index (IndexHLOD) holds one HLOD per
-        // cell, resident the whole session, and has no rows for HLOD cells or their parents; packing such a world
-        // would ship its parents nowhere and keep every child resident. Refused by name until the cooked world
-        // streams HLOD cells too.
-        if ( scene.WorldPartition->HLODLayers.has_value() )
-            for ( const HLODLayerSerialized& layer : *scene.WorldPartition->HLODLayers )
-                if ( layer.CellSize.has_value() )
-                    return Common::MakeError<Result>(
-                         "'" + scene.SceneName + "': HLOD layer '" + layer.Name +
-                         "' is spatially loaded (CellSize, LoadingRange), and a cooked world does not stream HLOD "
-                         "cells yet; cook it with an always-loaded layer" );
 
         const auto&                                   records = scene.Entities;
         std::unordered_map<Common::UUID, std::size_t> byId;
@@ -662,7 +677,18 @@ namespace Desert::Core::WorldCells
             }
         }
         std::set<std::uint64_t> hlodIds;
-        for ( std::size_t unit = plan.AlwaysLoaded.size(); anyHLODLayer && unit < unitCount; ++unit )
+        // THE HIERARCHY (WP-FAR-8): when a layer is spatially loaded its HLODs are packed into HLOD cells (below)
+        // and no HLOD is resident per world cell.
+        Rules::HLODHierarchy hierarchy;
+        if ( anyHLODLayer )
+        {
+            auto planned = Rules::PlanHLODHierarchy( *scene.WorldPartition, plan );
+            if ( !planned )
+                return Common::MakeError<Result>( "'" + scene.SceneName + "': " + planned.GetError() );
+            hierarchy = planned.ExtractValue();
+        }
+        for ( std::size_t unit = plan.AlwaysLoaded.size(); anyHLODLayer && !hierarchy.Streams() && unit < unitCount;
+              ++unit )
         {
             const BuiltHLODCell& built = *builtRows.at( index.Units[unit].Name );
             if ( !built.File.has_value() && built.NotInstanced.empty() )
@@ -709,6 +735,102 @@ namespace Desert::Core::WorldCells
                 row.File = name;
             }
             index.HLODs.push_back( std::move( row ) );
+        }
+        // THE HLOD CELLS (WP-FAR-8; UE UHLODLayer::bIsSpatiallyLoaded: a layer's HLOD actors are cooked into the
+        // runtime cells of its own grid). Every HLOD residency unit gets a file holding its nodes' saved records in
+        // node order and a row as a world cell gets one; every node a row naming its unit.
+        if ( hierarchy.Streams() )
+        {
+            std::vector<const BuiltHLODCell*> nodeRows;
+            std::vector<std::size_t>          counts;
+            for ( const Rules::HLODNode& node : hierarchy.Nodes )
+            {
+                const auto row = builtRows.find( node.Name );
+                if ( row == builtRows.end() )
+                    return Common::MakeError<Result>( std::format(
+                         "'{}': the HLOD {} has no saved row; run Build > Build HLODs", scene.SceneName, node.Name ) );
+                nodeRows.push_back( row->second );
+                counts.push_back( row->second->File.has_value() ? row->second->Ids.size() : 0 );
+            }
+            auto residency = Rules::MakeHLODResidency( *scene.WorldPartition, hierarchy, counts );
+            if ( !residency )
+                return Common::MakeError<Result>( "'" + scene.SceneName + "': " + residency.GetError() );
+            const Rules::HLODResidency& hlodResidency = residency.GetValue();
+            index.HLODNodes.resize( hierarchy.Nodes.size() );
+            const std::size_t hlodUnits = Rules::ResidencyUnitCount( hlodResidency.Plan );
+            for ( std::size_t unit = 0; unit < hlodUnits; ++unit )
+            {
+                IndexUnit                row;
+                std::vector<std::size_t> unitNodes;
+                row.Name = Rules::DescribeHLODUnit( hierarchy, hlodResidency, unit );
+                if ( unit < hlodResidency.Plan.AlwaysLoaded.size() )
+                {
+                    const std::size_t top = hlodResidency.Plan.AlwaysLoaded[unit];
+                    unitNodes.push_back( top );
+                    row.File   = HLODNodeFileName( hierarchy, plan, hierarchy.Nodes[top] );
+                    row.Reason = std::string( kHLODResidentReason );
+                }
+                else
+                {
+                    // Composite n of the HLOD residency is node n (MakeHLODResidency).
+                    const Rules::PlannedCell& cell =
+                         hlodResidency.Plan.Cells.at( unit - hlodResidency.Plan.AlwaysLoaded.size() );
+                    unitNodes  = cell.Composites;
+                    row.File   = HLODCellFileName( cell );
+                    row.Grid   = cell.Grid;
+                    row.Level  = cell.Level;
+                    row.X      = cell.Cell.X;
+                    row.Z      = cell.Cell.Z;
+                    row.Square = cell.Square;
+                    row.Bounds = cell.Bounds;
+                    row.Height = cell.Height;
+                }
+                CellPayload payload;
+                payload.World = scene.SceneName;
+                payload.Units.push_back( row.Name );
+                std::set<std::string> keys;
+                for ( const std::size_t n : unitNodes )
+                {
+                    const BuiltHLODCell& built = *nodeRows.at( n );
+                    IndexHLODNode&       node  = index.HLODNodes.at( n );
+                    node.Name                  = hierarchy.Nodes[n].Name;
+                    node.Unit                  = static_cast<std::uint32_t>( unit );
+                    node.Instances             = built.Instances;
+                    node.NotInstanced          = built.NotInstanced;
+                    if ( !built.File.has_value() )
+                        continue;
+                    auto stored = StoredCellRecords( *hlods, built );
+                    if ( !stored )
+                        return Common::MakeError<Result>( "'" + scene.SceneName + "', " + node.Name + ": " +
+                                                          stored.GetError() );
+                    std::vector<Assets::EntityData> hlodRecords = stored.ExtractValue();
+                    for ( Assets::EntityData& hlodRecord : hlodRecords )
+                    {
+                        const Common::UUID id = *hlodRecord.id; // StoredCellRecords checked it against the row
+                        if ( id.IsNull() || byId.contains( id ) ||
+                             !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
+                            return Common::MakeError<Result>(
+                                 std::format( "the HLOD id {} in '{}' is null or already taken; rename the world",
+                                              static_cast<std::uint64_t>( id ), row.File ) );
+                        closure.Record( hlodRecord, keys );
+                        row.Ids.push_back( static_cast<std::uint64_t>( id ) );
+                        node.Ids.push_back( static_cast<std::uint64_t>( id ) );
+                        payload.Records.push_back( std::move( hlodRecord ) );
+                    }
+                    node.Sources = built.Sources;
+                }
+                closure.Expand( keys );
+                row.Assets.assign( keys.begin(), keys.end() );
+                auto wrapped =
+                     Wrap( CC::ContentKind::WorldCell, scene.SceneName, row.File, Common::Json::Write( payload ) );
+                if ( !wrapped )
+                    return Common::MakeError<Result>( wrapped.GetError() );
+                CookedFile file{ row.File, wrapped.ExtractValue() };
+                index.Files.push_back(
+                     { row.File, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
+                cooked.Files.push_back( std::move( file ) );
+                index.HLODUnits.push_back( std::move( row ) );
+            }
         }
         Common::Json::ReportIssues( issues, scene.SceneName );
 
@@ -770,6 +892,32 @@ namespace Desert::Core::WorldCells
                 return Common::MakeError<WorldIndex>( "'" + name + "': the HLOD of " + unitName + " names file '" +
                                                       *hlod.File + "', which the index does not list" );
         }
+        // The HLOD cells (WP-FAR-8): never beside session-resident HLODs; every node in a unit; every unit's file
+        // listed and its ids as many as its nodes'.
+        if ( !index.HLODUnits.empty() && !index.HLODs.empty() )
+            return Common::MakeError<WorldIndex>( "'" + name +
+                                                  "' states both session-resident HLODs and HLOD cells" );
+        std::vector<std::size_t> nodeRecords( index.HLODUnits.size(), 0 );
+        for ( const IndexHLODNode& node : index.HLODNodes )
+        {
+            if ( node.Unit >= index.HLODUnits.size() )
+                return Common::MakeError<WorldIndex>( std::format( "'{}': the HLOD {} is in unit {} of {}", name,
+                                                                   node.Name, node.Unit, index.HLODUnits.size() ) );
+            nodeRecords[node.Unit] += node.Ids.size();
+        }
+        for ( std::size_t unit = 0; unit < index.HLODUnits.size(); ++unit )
+        {
+            const IndexUnit& row    = index.HLODUnits[unit];
+            const bool       listed = std::any_of( index.Files.begin(), index.Files.end(),
+                                                   [&]( const IndexFile& file ) { return file.Name == row.File; } );
+            if ( !listed )
+                return Common::MakeError<WorldIndex>( std::format(
+                     "'{}': HLOD unit {} names file '{}', which the index does not list", name, row.Name, row.File ) );
+            if ( nodeRecords[unit] != row.Ids.size() )
+                return Common::MakeError<WorldIndex>(
+                     std::format( "'{}': HLOD unit {} lists {} record(s) and its HLODs hold {}", name, row.Name,
+                                  row.Ids.size(), nodeRecords[unit] ) );
+        }
         return Common::MakeSuccess( std::move( index ) );
     }
 
@@ -823,6 +971,12 @@ namespace Desert::Core::WorldCells
                 units.push_back( "HLOD " + index.Units.at( hlod.Unit ).Name );
                 ids.insert( ids.end(), hlod.Ids.begin(), hlod.Ids.end() );
             }
+        for ( const IndexUnit& unit : index.HLODUnits )
+            if ( unit.File == name )
+            {
+                units.push_back( unit.Name );
+                ids.insert( ids.end(), unit.Ids.begin(), unit.Ids.end() );
+            }
         if ( cell.Units != units )
             return Common::MakeError<CellPayload>( "'" + name + "' holds " + std::to_string( cell.Units.size() ) +
                                                    " unit(s) and the index gives it " +
@@ -842,23 +996,28 @@ namespace Desert::Core::WorldCells
         return Common::MakeSuccess( std::move( cell ) );
     }
 
-    CookedCellSource::CookedCellSource( const WorldIndex& index, FileReader reader )
-         : m_Index( &index ), m_Reader( std::move( reader ) )
+    CookedCellSource::CookedCellSource( const WorldIndex& index, FileReader reader, const UnitSet set )
+         : m_Index( &index ), m_Reader( std::move( reader ) ), m_Set( set )
     {
+    }
+
+    const std::vector<IndexUnit>& UnitsOf( const WorldIndex& index, const UnitSet set )
+    {
+        return set == UnitSet::HLOD ? index.HLODUnits : index.Units;
     }
 
     namespace
     {
-        // Unit @p unit's records out of its file's payload: a run of them, after the units the file lists
-        // before it.
-        std::vector<Assets::EntityData> UnitSlice( const WorldIndex& index, std::size_t unit,
+        // Unit @p unit of @p units' records out of its file's payload: a run of them, after the units the file
+        // lists before it (a file holds units of one set only).
+        std::vector<Assets::EntityData> UnitSlice( const std::vector<IndexUnit>& units, std::size_t unit,
                                                    const CellPayload& cell )
         {
-            const IndexUnit& wanted = index.Units[unit];
+            const IndexUnit& wanted = units[unit];
             std::size_t      offset = 0;
             for ( std::size_t other = 0; other < unit; ++other )
-                if ( index.Units[other].File == wanted.File )
-                    offset += index.Units[other].Ids.size();
+                if ( units[other].File == wanted.File )
+                    offset += units[other].Ids.size();
             return { cell.Records.begin() + static_cast<std::ptrdiff_t>( offset ),
                      cell.Records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) };
         }
@@ -894,7 +1053,7 @@ namespace Desert::Core::WorldCells
                         return Common::MakeError<SceneSerialized>( cell.GetError() );
                     held = read.emplace( file, cell.ExtractValue() ).first;
                 }
-                for ( auto& record : UnitSlice( index, unit, held->second ) )
+                for ( auto& record : UnitSlice( index.Units, unit, held->second ) )
                     scene.Entities.push_back( std::move( record ) );
             }
             return Common::MakeSuccess( std::move( scene ) );
@@ -912,15 +1071,16 @@ namespace Desert::Core::WorldCells
 
     Common::ResultStr<std::vector<Assets::EntityData>> CookedCellSource::UnitRecords( std::size_t unit ) const
     {
-        using Result = std::vector<Assets::EntityData>;
-        if ( unit >= m_Index->Units.size() )
-            return Common::MakeError<Result>( "world '" + m_Index->SceneName + "' has no unit " +
-                                              std::to_string( unit ) + " (it has " +
-                                              std::to_string( m_Index->Units.size() ) + ")" );
-        auto cell = ReadUnitFile( *m_Index, m_Reader, m_Index->Units[unit].File );
+        using Result                        = std::vector<Assets::EntityData>;
+        const std::vector<IndexUnit>& units = UnitsOf( *m_Index, m_Set );
+        if ( unit >= units.size() )
+            return Common::MakeError<Result>(
+                 std::format( "world '{}' has no {}unit {} (it has {})", m_Index->SceneName,
+                              m_Set == UnitSet::HLOD ? "HLOD " : "", unit, units.size() ) );
+        auto cell = ReadUnitFile( *m_Index, m_Reader, units[unit].File );
         if ( !cell )
             return Common::MakeError<Result>( cell.GetError() );
-        return Common::MakeSuccess( UnitSlice( *m_Index, unit, cell.GetValue() ) );
+        return Common::MakeSuccess( UnitSlice( units, unit, cell.GetValue() ) );
     }
 
     Common::ResultStr<SceneSerialized> AssembleWorld( const WorldIndex& index, const FileReader& reader )
@@ -1047,6 +1207,69 @@ namespace Desert::Core::WorldCells
         return Common::MakeSuccess( std::move( world ) );
     }
 
+    Common::ResultStr<std::optional<IndexedHLODs>> PlanHLODsFromIndex( const WorldIndex&                index,
+                                                                       const Rules::WorldPartitionPlan& plan )
+    {
+        using Result = std::optional<IndexedHLODs>;
+        if ( index.HLODUnits.empty() && index.HLODNodes.empty() )
+            return Common::MakeSuccess( Result{} );
+        const auto refused = [&index]( const std::string& why )
+        { return Common::MakeError<Result>( "world '" + index.SceneName + "': " + why + "; re-cook it" ); };
+        auto hierarchy = Rules::PlanHLODHierarchy( index.WorldPartition, plan );
+        if ( !hierarchy )
+            return refused( hierarchy.GetError() );
+        IndexedHLODs out;
+        out.Hierarchy                             = hierarchy.ExtractValue();
+        const std::vector<Rules::HLODNode>& nodes = out.Hierarchy.Nodes;
+        if ( !out.Hierarchy.Streams() )
+            return refused( std::format( "the index states {} HLOD unit(s) and no HLOD layer of the world is "
+                                         "spatially loaded",
+                                         index.HLODUnits.size() ) );
+        if ( nodes.size() != index.HLODNodes.size() )
+            return refused( std::format( "the index states {} HLOD(s) and the world's hierarchy has {}",
+                                         index.HLODNodes.size(), nodes.size() ) );
+        std::vector<std::size_t> counts;
+        for ( std::size_t n = 0; n < nodes.size(); ++n )
+        {
+            if ( nodes[n].Name != index.HLODNodes[n].Name )
+                return refused( std::format( "HLOD {} of the index is {} and the world's hierarchy has {} there", n,
+                                             index.HLODNodes[n].Name, nodes[n].Name ) );
+            counts.push_back( index.HLODNodes[n].Ids.size() );
+        }
+        auto residency = Rules::MakeHLODResidency( index.WorldPartition, out.Hierarchy, counts );
+        if ( !residency )
+            return refused( residency.GetError() );
+        out.Residency                             = residency.ExtractValue();
+        const Rules::WorldPartitionPlan& hlodPlan = out.Residency.Plan;
+        const std::size_t                units    = Rules::ResidencyUnitCount( hlodPlan );
+        if ( units != index.HLODUnits.size() )
+            return refused( std::format( "the index states {} HLOD unit(s) and the hierarchy streams {}",
+                                         index.HLODUnits.size(), units ) );
+        for ( std::size_t unit = 0; unit < units; ++unit )
+        {
+            const IndexUnit&  row  = index.HLODUnits[unit];
+            const std::string name = Rules::DescribeHLODUnit( out.Hierarchy, out.Residency, unit );
+            if ( row.Name != name )
+                return refused(
+                     std::format( "HLOD unit {} of the index is {} and the hierarchy has {} there", unit, row.Name, name ) );
+            const std::vector<std::size_t> unitNodes =
+                 unit < hlodPlan.AlwaysLoaded.size()
+                      ? std::vector<std::size_t>{ hlodPlan.AlwaysLoaded[unit] }
+                      : hlodPlan.Cells.at( unit - hlodPlan.AlwaysLoaded.size() ).Composites;
+            std::vector<std::uint64_t> ids;
+            for ( const std::size_t n : unitNodes )
+            {
+                if ( index.HLODNodes[n].Unit != unit )
+                    return refused( std::format( "the HLOD {} is in unit {} of the index and in {} of the hierarchy",
+                                                 nodes[n].Name, index.HLODNodes[n].Unit, name ) );
+                ids.insert( ids.end(), index.HLODNodes[n].Ids.begin(), index.HLODNodes[n].Ids.end() );
+            }
+            if ( ids != row.Ids )
+                return refused( std::format( "HLOD unit {} does not list its HLODs' record ids in their order", name ) );
+        }
+        return Common::MakeSuccess( Result( std::move( out ) ) );
+    }
+
     std::string CookedWorldDirectory( std::string_view scenePath )
     {
         const std::size_t slash = scenePath.find_last_of( "/\\" );
@@ -1090,24 +1313,27 @@ namespace Desert::Core::WorldCells
         };
 
         layout.FileChunk.emplace( std::string( kIndexFileName ), layout.Shared );
-        for ( const IndexUnit& unit : index.Units )
-        {
-            std::string chunk = layout.Shared;
-            if ( !unit.Reason.has_value() )
+        // A unit resident from the start ships Shared; a cell - a world cell or an HLOD cell (WP-FAR-8) - in the
+        // region holding the centre of its square.
+        for ( const std::vector<IndexUnit>* units : { &index.Units, &index.HLODUnits } )
+            for ( const IndexUnit& unit : *units )
             {
-                if ( !unit.Square.has_value() )
-                    return Common::MakeError<Result>(
-                         std::format( "world '{}': cell unit '{}' states no square", index.SceneName, unit.Name ) );
-                const double cx = 0.5 * ( double( unit.Square->MinX ) + double( unit.Square->MaxX ) );
-                const double cz = 0.5 * ( double( unit.Square->MinZ ) + double( unit.Square->MaxZ ) );
-                const auto   rx = static_cast<std::int64_t>( std::floor( cx / double( *size ) ) );
-                const auto   rz = static_cast<std::int64_t>( std::floor( cz / double( *size ) ) );
-                chunk           = std::format( "{}_R{}_{}", prefix, rx, rz );
-                regions.insert( chunk );
+                std::string chunk = layout.Shared;
+                if ( !unit.Reason.has_value() )
+                {
+                    if ( !unit.Square.has_value() )
+                        return Common::MakeError<Result>( std::format( "world '{}': cell unit '{}' states no square",
+                                                                       index.SceneName, unit.Name ) );
+                    const double cx = 0.5 * ( double( unit.Square->MinX ) + double( unit.Square->MaxX ) );
+                    const double cz = 0.5 * ( double( unit.Square->MinZ ) + double( unit.Square->MaxZ ) );
+                    const auto   rx = static_cast<std::int64_t>( std::floor( cx / double( *size ) ) );
+                    const auto   rz = static_cast<std::int64_t>( std::floor( cz / double( *size ) ) );
+                    chunk           = std::format( "{}_R{}_{}", prefix, rx, rz );
+                    regions.insert( chunk );
+                }
+                if ( auto clash = place( unit.File, chunk ) )
+                    return Common::MakeError<Result>( std::move( *clash ) );
             }
-            if ( auto clash = place( unit.File, chunk ) )
-                return Common::MakeError<Result>( std::move( *clash ) );
-        }
         for ( const IndexHLOD& hlod : index.HLODs )
             if ( hlod.File.has_value() )
                 if ( auto clash = place( *hlod.File, layout.Shared ) )
@@ -1195,14 +1421,6 @@ namespace Desert::Core::WorldCells
             const std::string cellFile = CellFileName( cell );
             return "HLOD_" + cellFile.substr( 0, cellFile.size() - kCellExtension.size() ) +
                    std::string( kBuiltHLODExtension );
-        }
-
-        // A parent HLOD's file stem, by the HLOD cell it stands in for: `HLOD_H<layer grid>_<X>_<Z>`.
-        std::string ParentHLODFileStem( const Rules::HLODHierarchy& hierarchy, const Rules::HLODNode& node )
-        {
-            const Rules::HLODCell& child = hierarchy.Cells.at( node.StandsFor );
-            return std::format( "HLOD_H{}_{}_{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
-                                child.Coord.Z );
         }
     } // namespace
 
