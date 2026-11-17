@@ -2,6 +2,7 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -48,22 +49,7 @@ namespace Desert::Graphic::System
         uint32_t  SourceId = 0; // LocalLightShadowSettings::SourceId: the denoiser's history follows it
     };
 
-    // The push block of RayTracedLocalShadow.shader (112 B).
-    struct RayTracedLocalShadowPush
-    {
-        glm::mat4 InvJitteredViewProjection;
-        glm::vec4 Light;       // xyz position cm, w attenuation radius cm
-        glm::vec4 TraceParams; // source radius cm, normal bias cm, samples, frame
-        glm::vec4 Spot;        // xyz direction out of the apex, w cos outer (kRayTracedLocalShadowNoCone = point)
-    };
-    static_assert( sizeof( RayTracedLocalShadowPush ) == 112 );
 
-    // The push block of RayTracedLocalShadowPack.shader (16 B).
-    struct RayTracedLocalShadowPackPush
-    {
-        glm::ivec4 Layer; // x = the slot's layer (informational: the bound view is that layer alone)
-    };
-    static_assert( sizeof( RayTracedLocalShadowPackPush ) == 16 );
 
     // RayTracedLocalShadow.shader's parameters: bound through these members, checked against the shader's reflected layout
     // when the pipeline is created (Initialize).
@@ -155,12 +141,12 @@ namespace Desert::Graphic::System
             graph.SetFaultDefault( out.ClosestOccluder, RDG::FaultDefault::Black );
             // A point emitter casts a hard shadow: one ray says all (as the sun of angle 0).
             const uint32_t samples = light.SourceRadius > 0.0f && samplesPerPixel > 0 ? samplesPerPixel : 1u;
-            const RayTracedLocalShadowPush push{
-                 .InvJitteredViewProjection = in.InvJitteredViewProjection,
-                 .Light                     = glm::vec4( light.Position, light.AttenuationRadius ),
-                 .TraceParams               = glm::vec4( light.SourceRadius, kRayTracedShadowNormalBias,
+            const ShaderPush::RayTracedLocalShadow push{
+                 .InverseJitteredViewProjection = in.InvJitteredViewProjection,
+                 .LightSphere                   = glm::vec4( light.Position, light.AttenuationRadius ),
+                 .TraceParams                   = glm::vec4( light.SourceRadius, kRayTracedShadowNormalBias,
                                                          static_cast<float>( samples ), static_cast<float>( frameIndex ) ),
-                 .Spot                      = glm::vec4( light.SpotDirection, light.CosOuter ) };
+                 .SpotCone                      = glm::vec4( light.SpotDirection, light.CosOuter ) };
             const uint32_t width  = in.Width;
             const uint32_t height = in.Height;
             graph.AddPass(
@@ -179,13 +165,13 @@ namespace Desert::Graphic::System
                           .Storage( RayTracedLocalShadowShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials, RDG::Access::StorageRead )
                           .Storage( RayTracedLocalShadowShaderParameters::ShadowMaskTexture, out.Mask, RDG::Access::StorageWrite )
                           .Storage( RayTracedLocalShadowShaderParameters::ShadowOccluderTexture, out.ClosestOccluder, RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedLocalShadowPush ) ) );
+                          .PushConstants<ShaderPush::RayTracedLocalShadow>();
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Shadows: Ray Traced Local" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute(
                           bindings, *m_TracePipeline, ( width + 7u ) / 8u, ( height + 7u ) / 8u, 1 );
                  } );
@@ -202,7 +188,7 @@ namespace Desert::Graphic::System
         {
             if ( !m_PackPipeline )
                 return Common::MakeError( "Shadows: Ray Traced Local Pack: the pipeline is not initialised" );
-            const RayTracedLocalShadowPackPush push{ .Layer =
+            const ShaderPush::RayTracedLocalShadowPack push{ .GatheredLayerTexture =
                                                           glm::ivec4( static_cast<int32_t>( layer ), 0, 0, 0 ) };
             graph.AddPass(
                  kRayTracedLocalShadowPackName, RDG::PassFlags::Compute,
@@ -214,13 +200,13 @@ namespace Desert::Graphic::System
                           .Texture( RayTracedLocalShadowPackShaderParameters::VisibilityTexture, visibility, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
                           .StorageLayer( RayTracedLocalShadowPackShaderParameters::LocalShadowMasksTexture, masks, RDG::Access::StorageWrite, 0, layer )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedLocalShadowPackPush ) ) );
+                          .PushConstants<ShaderPush::RayTracedLocalShadowPack>();
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Shadows: Ray Traced Local Pack" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute(
                           bindings, *m_PackPipeline, ( width + 7u ) / 8u, ( height + 7u ) / 8u, 1 );
                  } );

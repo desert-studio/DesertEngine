@@ -2,6 +2,7 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -90,14 +91,6 @@ namespace Desert::Graphic::System
         RDG::TextureRef ClosestOccluder; // r = hit distance cm, -1 = none
     };
 
-    // The push block of RayTracedSunShadow.shader (96 B).
-    struct RayTracedSunShadowPush
-    {
-        glm::mat4 InvJitteredViewProjection;
-        glm::vec4 DirectionToSun; // xyz, w = SourceAngle radians
-        glm::vec4 TraceParams;    // normal bias, samples, max distance, frame
-    };
-    static_assert( sizeof( RayTracedSunShadowPush ) == 96 );
 
     class RayTracedSunShadowRenderer
     {
@@ -132,8 +125,8 @@ namespace Desert::Graphic::System
             out.ClosestOccluder = graph.CreateTexture( desc, kShadowMaskSunOccluderName );
             graph.SetFaultDefault( out.Mask, RDG::FaultDefault::White );
             graph.SetFaultDefault( out.ClosestOccluder, RDG::FaultDefault::Black );
-            const RayTracedSunShadowPush push{
-                 .InvJitteredViewProjection = in.InvJitteredViewProjection,
+            const ShaderPush::RayTracedSunShadow push{
+                 .InverseJitteredViewProjection = in.InvJitteredViewProjection,
                  .DirectionToSun            = glm::vec4( params.DirectionToSun, params.SourceAngleRadians ),
                  .TraceParams = glm::vec4( params.NormalBias, static_cast<float>( params.SamplesPerPixel ),
                                            params.MaxDistance, static_cast<float>( params.FrameIndex ) ) };
@@ -159,13 +152,13 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageWrite )
                           .Storage( RayTracedSunShadowShaderParameters::ShadowOccluderTexture, out.ClosestOccluder,
                                     RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedSunShadowPush ) ) );
+                          .PushConstants<ShaderPush::RayTracedSunShadow>();
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Shadows: Ray Traced Sun" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_Pipeline, ( width + 7u ) / 8u,
                                                                      ( height + 7u ) / 8u, 1 );
                  } );

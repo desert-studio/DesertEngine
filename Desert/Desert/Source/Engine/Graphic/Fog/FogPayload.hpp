@@ -88,20 +88,9 @@ namespace Desert::Graphic
     // layout that declares it - the fog compute at FOG_PARAMS_BINDING 1, a surface cell at
     // Core::kSceneFogParamsBinding - so no binding number is spelled on this side.
 
-    /**
-     * Per-dispatch data: everything that changes with the CAMERA rather than with the fog settings.
-     * Rides in the push constant because ComputePipeline has no SetUniformBuffer, and a second storage
-     * buffer for one matrix would be a second per-frame upload.
-     */
-    struct FogPush
-    {
-        glm::mat4 InverseViewProjection;
-        // The camera position, the aerial-perspective extent, the two gates and the pre-exposure are in
-        // FogGpuPayload (Camera, View, Gates): the translucent surfaces read them too, and they have the block, not
-        // this push constant.
-    };
-
-    static_assert( sizeof( FogPush ) == 64 );
+    // The per-dispatch push (the camera's InverseViewProjection) is HeightFog.shader's block,
+    // ShaderPush::HeightFog: the camera position, the aerial-perspective extent, the two gates and the pre-exposure
+    // are in FogGpuPayload (Camera, View, Gates), which the translucent surfaces read too.
 
     // The camera's forward axis from a world -> view matrix (the camera looks down -z of its view space): the axis
     // a froxel slice is measured along, by the volumetric fog that fills the grid and by every reader of it.

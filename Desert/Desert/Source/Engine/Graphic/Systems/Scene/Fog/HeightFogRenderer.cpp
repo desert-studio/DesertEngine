@@ -1,4 +1,5 @@
 #include "HeightFogRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
@@ -218,7 +219,7 @@ namespace Desert::Graphic::System
         payload.Camera              = glm::vec4( camera->GetPosition(), 0.0f );
         const RDG::BufferRef params = publishParams();
 
-        FogPush push{};
+        ShaderPush::HeightFog push{};
         push.InverseViewProjection = glm::inverse( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
 
         // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
@@ -255,7 +256,7 @@ namespace Desert::Graphic::System
                         : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
         auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
-        block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
+        block.PushConstants<ShaderPush::HeightFog>();
         block.Storage( HeightFogFogShaderParameters::FogApplyTexture, fogImage, RDG::Access::StorageWrite )
              .Storage( HeightFogFogShaderParameters::FogParamsBuffer, params, RDG::Access::StorageRead )
              .Texture( HeightFogFogShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
@@ -274,7 +275,7 @@ namespace Desert::Graphic::System
         {
             DESERT_PROFILE_PASS( "HeightFog: ExecuteInFrame" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            bindings.PushConstants( push );
             return Renderer::DispatchCompute( bindings, *m_FogPipeline, GroupCount( fogWidth ),
                                               GroupCount( fogHeight ), 1 );
         };

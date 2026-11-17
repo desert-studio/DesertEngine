@@ -8,6 +8,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Neural/NeuralRadianceCache.hpp>
 #include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -989,33 +990,9 @@ namespace Desert::Graphic::System
         }
 
     private:
-        // PathTracerResolve.shader "ResolvePush".
-        struct ResolvePush
-        {
-            float PreExposure;
-        };
-
-        struct TracePush
-        {
-            glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
-            glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
-            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle, sin of half atmosphere light 1's angle,
-                               // the path intensity clamp in radiance (MaxPathIntensity / m_ClampPreExposure; 0: none)
-            glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
-            glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
-            glm::uvec4 Camera; // 1: camera rays through the pixel centre (FrameInputs::RawToUpscaler), unused x3
-            glm::vec4  LightGrid;     // LightGridTargets::Grid
-            glm::uvec4 LightGridSize; // LightGridTargets::Size
-        };
-        static_assert( sizeof( TracePush ) <= 128u,
-                       "the trace's push constants exceed Vulkan's guaranteed 128 bytes" );
-        // PathTracerLightGrid.shader "PushConstants".
-        struct LightGridPush
-        {
-            glm::vec4  Grid;   // the min corner (cm), the cell side (cm)
-            glm::uvec4 Size;   // cells along x, y, z, slots per cell
-            glm::uvec4 Counts; // point lights, spot lights, candidates per slot, the frame's seed
-        };
+        // The passes' push blocks are the shaders' own (Engine/Generated/ShaderPushConstants.gen.hpp):
+        // ShaderPush::PathTracer, PathTracerLightGrid, PathTracerSky, PathTracerDenoise_Snapshot / _Combine /
+        // _Filter, PathTracerResolve.
         // This frame's light grid as the trace reads it: Size.x = 0 is no grid (Buffer then one empty slot).
         struct LightGridTargets
         {
@@ -1023,22 +1000,12 @@ namespace Desert::Graphic::System
             glm::vec4      Grid{ 0.0f };
             glm::uvec4     Size{ 0u };
         };
-        struct SkyPush
-        {
-            glm::uvec4 Sky; // side S; Reduce: the level written
-        };
         struct SkyTargets
         {
             RDG::TextureRef Radiance;
             RDG::BufferRef  Pdf;
             uint32_t        Side   = 0;
             uint32_t        Levels = 0;
-        };
-        // PathTracerDenoise.shader "Snapshot" / "Combine" (x = 1: the history holds one) and "Filter" (x = the tap
-        // spacing in pixels).
-        struct DenoisePush
-        {
-            glm::uvec4 Value;
         };
         // One pass of PathTracerDenoise.shader: its program, pipeline and block layout.
         struct DenoiseProgram
@@ -1370,7 +1337,7 @@ namespace Desert::Graphic::System
                  [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: OIDN Pack" );
-                     return DispatchDenoise( context, m_DenoiseOidnPack, nullptr, width, height );
+                     return DispatchDenoise( context, m_DenoiseOidnPack, width, height );
                  } );
 
             const RDG::ExternalQueueSync sync = m_Oidn.Timeline->NextPair();
@@ -1432,7 +1399,7 @@ namespace Desert::Graphic::System
                  [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: OIDN Unpack" );
-                     return DispatchDenoise( context, m_DenoiseOidnUnpack, nullptr, width, height );
+                     return DispatchDenoise( context, m_DenoiseOidnUnpack, width, height );
                  } );
             return result;
         }
@@ -1549,7 +1516,7 @@ namespace Desert::Graphic::System
                                       "PathTracing.SkyRadiance" );
             sky.Pdf = graph.CreateBuffer( RDG::BufferDesc{ pdfFloats * sizeof( float ) }, "PathTracing.SkyPdf" );
 
-            const SkyPush prepare{ glm::uvec4( sky.Side, 0u, 0u, 0u ) };
+            const ShaderPush::PathTracerSky prepare{ .SkyParams = glm::uvec4( sky.Side, 0u, 0u, 0u ) };
             graph.AddPass(
                  "PathTracing: Sky Prepare", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -1566,20 +1533,20 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageWrite )
                           .Storage( PathTracingSkyPrepareShaderParameters::GIFrameUB, inputs.GIFrame,
                                     RDG::Access::StorageRead )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( SkyPush ) ) );
+                          .PushConstants<ShaderPush::PathTracerSky>();
                  },
                  [this, prepare]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Sky Prepare" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &prepare, static_cast<uint32_t>( sizeof( prepare ) ) );
+                     bindings.PushConstants( prepare );
                      return Renderer::GetInstance().DispatchCompute(
-                          bindings, *m_SkyPreparePipeline, Groups( prepare.Sky.x ), Groups( prepare.Sky.x ), 1 );
+                          bindings, *m_SkyPreparePipeline, Groups( prepare.SkyParams.x ), Groups( prepare.SkyParams.x ), 1 );
                  } );
             // Each level reads the one below it, so each is its own pass (the graph orders the buffer's writes).
             for ( uint32_t level = 1; level < sky.Levels; ++level )
             {
-                const SkyPush reduce{ glm::uvec4( sky.Side, level, 0u, 0u ) };
+                const ShaderPush::PathTracerSky reduce{ .SkyParams = glm::uvec4( sky.Side, level, 0u, 0u ) };
                 graph.AddPass(
                      "PathTracing: Sky Reduce", RDG::PassFlags::Compute,
                      [&]( RDG::PassBuilder& pass )
@@ -1588,14 +1555,14 @@ namespace Desert::Graphic::System
                                         Renderer::GetPipelineRouteFill( *m_SkyReducePipeline ) )
                               .Storage( PathTracingSkyReduceShaderParameters::PathTracingSkyPdfUB, sky.Pdf,
                                         RDG::Access::StorageWrite )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( SkyPush ) ) );
+                              .PushConstants<ShaderPush::PathTracerSky>();
                      },
                      [this, reduce]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS( "PathTracing: Sky Reduce" );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &reduce, static_cast<uint32_t>( sizeof( reduce ) ) );
-                         const uint32_t side = reduce.Sky.x >> reduce.Sky.y;
+                         bindings.PushConstants( reduce );
+                         const uint32_t side = reduce.SkyParams.x >> reduce.SkyParams.y;
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_SkyReducePipeline,
                                                                          Groups( side ), Groups( side ), 1 );
                      } );
@@ -1632,9 +1599,11 @@ namespace Desert::Graphic::System
             grid.Buffer =
                  graph.CreateBuffer( RDG::BufferDesc{ slots * sizeof( glm::uvec2 ) }, "PathTracing.LightGrid" );
 
-            const LightGridPush push{ grid.Grid, grid.Size,
-                                      glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount,
-                                                  kLightGridCandidates, m_Restarts * 0x9E3779B9u + m_Summed ) };
+            const ShaderPush::PathTracerLightGrid push{
+                 .LightGrid     = grid.Grid,
+                 .LightGridSize = grid.Size,
+                 .LightCounts   = glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, kLightGridCandidates,
+                                              m_Restarts * 0x9E3779B9u + m_Summed ) };
             graph.AddPass(
                  "PathTracing: Light Grid", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -1647,13 +1616,13 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageRead )
                           .Storage( PathTracingLightGridShaderParameters::PathTracingLightGridUB, grid.Buffer,
                                     RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( LightGridPush ) ) );
+                          .PushConstants<ShaderPush::PathTracerLightGrid>();
                  },
                  [this, push, slots]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Light Grid" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute(
                           bindings, *m_LightGridPipeline,
                           static_cast<uint32_t>( ( slots + kLightGridGroupSize - 1u ) / kLightGridGroupSize ), 1,
@@ -1671,16 +1640,24 @@ namespace Desert::Graphic::System
             const std::shared_ptr<Shader>&             shader   = nrc ? m_TraceShaderNrc : m_TraceShader;
             const std::shared_ptr<RayTracingPipeline>& pipeline = nrc ? m_TracePipelineNrc : m_TracePipeline;
             ShaderBindingLayoutCache&                  layout   = nrc ? m_TraceLayoutNrc : m_TraceLayout;
-            const TracePush push{
-                 glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
-                 glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
-                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, inputs.Light1SinHalfAngle,
-                            m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure : 0.0f ),
-                 inputs.Emissive.StaticParams(),
-                 inputs.Emissive.DynamicParams(),
-                 glm::uvec4( inputs.RawToUpscaler ? 1u : 0u, 0u, 0u, 0u ),
-                 grid.Grid,
-                 grid.Size };
+            // Counts: point lights, spot lights, paths already summed (0: overwrite), max bounces. SkyParams: sky
+            // side S, its levels, frame seed, paths this frame. SunParams: sin of half the sun's angle, pixel spread
+            // angle, sin of half atmosphere light 1's angle, the path intensity clamp in radiance
+            // (MaxPathIntensity / m_ClampPreExposure; 0: none). CameraParams.x = 1: camera rays through the pixel
+            // centre (FrameInputs::RawToUpscaler).
+            const ShaderPush::PathTracer push{
+                 .Counts                = glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed,
+                                                      m_MaxBounces ),
+                 .SkyParams             = glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
+                 .SunParams             = glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread,
+                                                     inputs.Light1SinHalfAngle,
+                                                     m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure
+                                                                               : 0.0f ),
+                 .EmissiveCounts        = inputs.Emissive.StaticParams(),
+                 .EmissiveDynamicCounts = inputs.Emissive.DynamicParams(),
+                 .CameraParams          = glm::uvec4( inputs.RawToUpscaler ? 1u : 0u, 0u, 0u, 0u ),
+                 .LightGrid             = grid.Grid,
+                 .LightGridSize         = grid.Size };
             graph.AddPass(
                  // NeverParallel with "PathTracing: Resolve": the exec sets m_TraceFailed, which the resolve's exec
                  // reads in the same frame; both record on the calling thread, in pass order.
@@ -1746,14 +1723,14 @@ namespace Desert::Graphic::System
                           .Sampler( PathTracingTraceShaderParameters::LinearRepeatSampler,
                                     RDG::SamplerDesc::LinearRepeat() )
                           .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+                          .PushConstants<ShaderPush::PathTracer>();
                  },
                  [this, push, pipeline, hits = inputs.HitGroups, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Trace" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      Common::BoolResultStr traced =
                           Renderer::TraceRays( bindings, *pipeline, *hits, width, height );
                      // The sum no longer holds what m_Summed counts: the resolve does not stamp it, so the next
@@ -1764,15 +1741,21 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        // The exec of one PathTracerDenoise.shader pass: its push (when the pass has one) and one dispatch over the
-        // view.
+        // The exec of one PathTracerDenoise.shader pass without a push block: one dispatch over the view.
         Common::BoolResultStr DispatchDenoise( RDG::PassContext& context, const DenoiseProgram& program,
-                                               const DenoisePush* push, const uint32_t width,
-                                               const uint32_t height ) const
+                                               const uint32_t width, const uint32_t height ) const
         {
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            if ( push != nullptr )
-                bindings.PushConstants( push, static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+            return Renderer::GetInstance().DispatchCompute( bindings, *program.PassPipeline, Groups( width ),
+                                                            Groups( height ), 1 );
+        }
+        // The same for a pass with one: its entry point's block (ShaderPush::PathTracerDenoise_*).
+        template <ShaderPush::Block Push>
+        Common::BoolResultStr DispatchDenoise( RDG::PassContext& context, const DenoiseProgram& program,
+                                               const Push& push, const uint32_t width, const uint32_t height ) const
+        {
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( push );
             return Renderer::GetInstance().DispatchCompute( bindings, *program.PassPipeline, Groups( width ),
                                                             Groups( height ), 1 );
         }
@@ -1792,7 +1775,7 @@ namespace Desert::Graphic::System
                      .Specular = graph.CreateTexture( desc, "PathTracing.SnapshotSpecular" ),
                      .Moments  = graph.CreateTexture( desc, "PathTracing.SnapshotMoments" ),
                      .Guide    = graph.CreateTexture( desc, "PathTracing.SnapshotGuide" ) };
-            const DenoisePush push{ glm::uvec4( m_HistoryValid ? 1u : 0u, 0u, 0u, 0u ) };
+            const ShaderPush::PathTracerDenoise_Snapshot push{ .History = glm::uvec4( m_HistoryValid ? 1u : 0u, 0u, 0u, 0u ) };
             graph.AddPass(
                  "PathTracing: Denoise Snapshot", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -1813,12 +1796,12 @@ namespace Desert::Graphic::System
                           .Storage( P::SnapshotSpecularTexture, snapshot.Specular, kW )
                           .Storage( P::SnapshotMomentsTexture, snapshot.Moments, kW )
                           .Storage( P::SnapshotGuideTexture, snapshot.Guide, kW )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+                          .PushConstants<ShaderPush::PathTracerDenoise_Snapshot>();
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Denoise Snapshot" );
-                     return DispatchDenoise( context, m_DenoiseSnapshot, &push, width, height );
+                     return DispatchDenoise( context, m_DenoiseSnapshot, push, width, height );
                  } );
             return snapshot;
         }
@@ -1855,7 +1838,7 @@ namespace Desert::Graphic::System
                  [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Denoise Temporal" );
-                     return DispatchDenoise( context, m_DenoiseTemporal, nullptr, width, height );
+                     return DispatchDenoise( context, m_DenoiseTemporal, width, height );
                  } );
         }
 
@@ -1873,7 +1856,8 @@ namespace Desert::Graphic::System
             RDG::TextureRef diffuse  = graph.CreateTexture( desc, "PathTracing.DenoiseDiffuse" );
             RDG::TextureRef specular = graph.CreateTexture( desc, "PathTracing.DenoiseSpecular" );
             const RDG::TextureRef lengths = graph.CreateTexture( desc, "PathTracing.DenoiseHistoryLength" );
-            const DenoisePush     combinePush{ glm::uvec4( m_HistoryValid ? 1u : 0u, 0u, 0u, 0u ) };
+            const ShaderPush::PathTracerDenoise_Combine combinePush{
+                 .History = glm::uvec4( m_HistoryValid ? 1u : 0u, 0u, 0u, 0u ) };
             graph.AddPass(
                  "PathTracing: Denoise Combine", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -1891,12 +1875,12 @@ namespace Desert::Graphic::System
                           .Storage( P::IlluminationDiffuseTexture, diffuse, kW )
                           .Storage( P::IlluminationSpecularTexture, specular, kW )
                           .Storage( P::HistoryLengthTexture, lengths, kW )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+                          .PushConstants<ShaderPush::PathTracerDenoise_Combine>();
                  },
                  [this, combinePush, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Denoise Combine" );
-                     return DispatchDenoise( context, m_DenoiseCombine, &combinePush, width, height );
+                     return DispatchDenoise( context, m_DenoiseCombine, combinePush, width, height );
                  } );
             // An empty history is cleared by the combine: from here on it is a defined one (of no paths).
             m_HistoryValid = true;
@@ -1922,7 +1906,7 @@ namespace Desert::Graphic::System
                      [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS( "PathTracing: Denoise AntiFirefly" );
-                         return DispatchDenoise( context, m_DenoiseAntiFirefly, nullptr, width, height );
+                         return DispatchDenoise( context, m_DenoiseAntiFirefly, width, height );
                      } );
                 diffuse  = diffuseTarget;
                 specular = specularTarget;
@@ -1930,7 +1914,7 @@ namespace Desert::Graphic::System
 
             for ( uint32_t iteration = 0; iteration < kDenoiseIterations; ++iteration )
             {
-                const DenoisePush     push{ glm::uvec4( 1u << iteration, 0u, 0u, 0u ) };
+                const ShaderPush::PathTracerDenoise_Filter push{ .Filter = glm::uvec4( 1u << iteration, 0u, 0u, 0u ) };
                 const RDG::TextureRef diffuseTarget  = graph.CreateTexture( desc, "PathTracing.DenoiseDiffuse" );
                 const RDG::TextureRef specularTarget = graph.CreateTexture( desc, "PathTracing.DenoiseSpecular" );
                 graph.AddPass(
@@ -1948,12 +1932,12 @@ namespace Desert::Graphic::System
                               .Storage( P::IlluminationSpecularTexture, specular, kR )
                               .Storage( P::FilteredDiffuseTexture, diffuseTarget, kW )
                               .Storage( P::FilteredSpecularTexture, specularTarget, kW )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+                              .PushConstants<ShaderPush::PathTracerDenoise_Filter>();
                      },
                      [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS( "PathTracing: Denoise Filter" );
-                         return DispatchDenoise( context, m_DenoiseFilter, &push, width, height );
+                         return DispatchDenoise( context, m_DenoiseFilter, push, width, height );
                      } );
                 diffuse  = diffuseTarget;
                 specular = specularTarget;
@@ -1979,7 +1963,7 @@ namespace Desert::Graphic::System
                  [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Denoise Remodulate" );
-                     return DispatchDenoise( context, m_DenoiseRemodulate, nullptr, width, height );
+                     return DispatchDenoise( context, m_DenoiseRemodulate, width, height );
                  } );
             return denoised;
         }
@@ -1991,7 +1975,7 @@ namespace Desert::Graphic::System
         void AddResolvePass( RDG::Builder& graph, const RDG::TextureRef image, const RDG::TextureRef sceneColor,
                              const uint64_t frameIndex, const float preExposure )
         {
-            const ResolvePush push { preExposure };
+            const ShaderPush::PathTracerResolve push{ .PreExposure = preExposure };
             graph.AddPass(
                  // NeverParallel: reads m_TraceFailed, set by "PathTracing: Trace"'s exec this frame.
                  "PathTracing: Resolve", RDG::PassFlags::Raster | RDG::PassFlags::NeverParallel,
@@ -2002,7 +1986,7 @@ namespace Desert::Graphic::System
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingResolveShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( ResolvePush ) ) );
+                          .PushConstants<ShaderPush::PathTracerResolve>();
                      // Every pixel is written: what the scene colour held is not loaded.
                      pass.ColorTarget( 0, sceneColor, RDG::LoadOp::DontCare() );
                  },
@@ -2010,7 +1994,7 @@ namespace Desert::Graphic::System
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Resolve" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      const Common::BoolResultStr drawn =
                           Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline, nullptr );
                      if ( drawn.IsSuccess() && !m_TraceFailed )

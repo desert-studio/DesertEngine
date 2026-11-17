@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
@@ -192,26 +193,8 @@ namespace Desert::Graphic::System
              RDG::Erase( PointClampSampler ) };
     };
 
-    // The push block of DistanceFieldShadowCull.shader.
-    struct DistanceFieldShadowCullPush
-    {
-        uint32_t CullPass = 0; // 0 = count into the headers, 1 = scatter into the lists
-    };
-    static_assert( sizeof( DistanceFieldShadowCullPush ) == 4 );
 
-    struct DistanceFieldShadowOffsetsPush
-    {
-        uint32_t Stamp = 0; // this cull's stamp, written into the feedback beside what the lists needed
-    };
-    static_assert( sizeof( DistanceFieldShadowOffsetsPush ) == 4 );
 
-    // The push block of DistanceFieldShadowUpsample.shader.
-    struct DistanceFieldShadowUpsamplePush
-    {
-        uint32_t Channel = 0; // the directional slot written: 0 = r, 1 = g
-        uint32_t Merge   = 0; // 1 = an earlier slot wrote the mask this frame: its channels are kept
-    };
-    static_assert( sizeof( DistanceFieldShadowUpsamplePush ) == 8 );
 
     // This frame's view and fields, gathered by SceneRenderer::AddFrameDistanceFieldShadow.
     struct DistanceFieldShadowInputs
@@ -402,7 +385,7 @@ namespace Desert::Graphic::System
             const auto addCull = [&]( const char* const name, const uint32_t cullPass )
             {
                 ComputePipeline* const            pipeline = m_Cull.Pipeline.get();
-                const DistanceFieldShadowCullPush push{ cullPass };
+                const ShaderPush::DistanceFieldShadowCull push{ cullPass };
                 graph.AddPass(
                      name, RDG::PassFlags::Compute,
                      [&]( RDG::PassBuilder& pass )
@@ -414,13 +397,13 @@ namespace Desert::Graphic::System
                               .Storage( DistanceFieldShadowCullShaderParameters::DFObjects, fields.Objects, kR )
                               .Storage( DistanceFieldShadowCullShaderParameters::DistanceFieldShadowTilesUB, tiles,
                                         kW )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( DistanceFieldShadowCullPush ) ) );
+                              .PushConstants<ShaderPush::DistanceFieldShadowCull>();
                      },
                      [pipeline, push, name]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS_DYNAMIC( name );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute(
                               bindings, *pipeline, ( kDistanceFieldShadowTiles + 63u ) / 64u, 1u, 1u );
                      } );
@@ -430,7 +413,7 @@ namespace Desert::Graphic::System
             // 2: the counts' prefix sum into the lists' first indices (one workgroup), and the feedback.
             {
                 ComputePipeline* const               pipeline = m_Offsets.Pipeline.get();
-                const DistanceFieldShadowOffsetsPush push{ state.Stamp };
+                const ShaderPush::DistanceFieldShadowCullOffsets push{ state.Stamp };
                 graph.AddPass(
                      cullOffsets, RDG::PassFlags::Compute,
                      [&]( RDG::PassBuilder& pass )
@@ -445,14 +428,13 @@ namespace Desert::Graphic::System
                               .Storage(
                                    DistanceFieldShadowCullOffsetsShaderParameters::DistanceFieldShadowFeedbackUB,
                                    feedback, kW )
-                              .PushConstantBytes(
-                                   static_cast<uint32_t>( sizeof( DistanceFieldShadowOffsetsPush ) ) );
+                              .PushConstants<ShaderPush::DistanceFieldShadowCullOffsets>();
                      },
                      [pipeline, push, cullOffsets]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS_DYNAMIC( cullOffsets );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
                      } );
             }
@@ -502,7 +484,7 @@ namespace Desert::Graphic::System
                 ComputePipeline* const pipeline = m_Upsample.Pipeline.get();
                 const uint32_t         width    = in.Width;
                 const uint32_t         height   = in.Height;
-                const DistanceFieldShadowUpsamplePush push{ .Channel = light, .Merge = merge ? 1u : 0u };
+                const ShaderPush::DistanceFieldShadowUpsample push{ .Channel = light, .Merge = merge ? 1u : 0u };
                 graph.AddPass(
                      upsampleName, RDG::PassFlags::Compute,
                      [&]( RDG::PassBuilder& pass )
@@ -514,15 +496,14 @@ namespace Desert::Graphic::System
                               .Texture( P::DistanceFieldShadowHalfTexture, half, kS, RDG::SubresourceRange::All() )
                               .Storage( P::DistanceFieldShadowTexture, out, kW )
                               .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-                              .PushConstantBytes(
-                                   static_cast<uint32_t>( sizeof( DistanceFieldShadowUpsamplePush ) ) );
+                              .PushConstants<ShaderPush::DistanceFieldShadowUpsample>();
                      },
                      [pipeline, width, height, push,
                       upsampleName]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS_DYNAMIC( upsampleName );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, ( width + 7u ) / 8u,
                                                                          ( height + 7u ) / 8u, 1u );
                      } );
