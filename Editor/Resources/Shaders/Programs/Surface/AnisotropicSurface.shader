@@ -27,6 +27,7 @@ Shader "AnisotropicSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // The Anisotropic model's payload (ShadingModels/Anisotropic.shadingmodel): -1..1, > 0 stretches the
         // highlight along the tangent, < 0 across it, 0 is DefaultLit's lobe.
         Float       Anisotropy ("Anisotropy", Range(-1,1), Category("Anisotropy")) = 0.5
@@ -72,6 +73,7 @@ Shader "AnisotropicSurface"
                                                    Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             // The stretch direction in tangent space: the map's XY where one is bound, else the mesh tangent (+X).
             vec2 direction = vec2( 1.0, 0.0 );
             const ivec2 directionSize = BindlessTextureSize( Material.AnisotropyDirection, 0 );

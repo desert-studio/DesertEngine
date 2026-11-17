@@ -26,6 +26,7 @@ Shader "ClearCoatSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // The ClearCoat model's payload (ShadingModels/ClearCoat.shadingmodel): the coat's strength and roughness.
         Float       ClearCoat ("Clear Coat", Range(0,1), Category("Clear Coat")) = 1
         Float       ClearCoatRoughness ("Clear Coat Roughness", Range(0,1), Category("Clear Coat")) = 0.1
@@ -70,6 +71,7 @@ Shader "ClearCoatSurface"
                                                    Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             s.CustomData0       = Material.ClearCoat * SurfaceSampleMaterial( Material.ClearCoatMask, uv ).r;
             s.CustomData1       = Material.ClearCoatRoughness;
             s.SampledTextureCount = float( int( BindlessTextureSize( Material.AlbedoTexture, 0 ).x > 1 ) +

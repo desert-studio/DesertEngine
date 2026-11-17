@@ -92,6 +92,7 @@ Shader "FoliageSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // The light a leaf lets through, as a tint of its own albedo: SubsurfaceColor = albedo * this (white = the
         // leaf transmits the colour it reflects). UE's SubsurfaceColor pin; the model reads it from the payload.
         Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (1, 1, 1, 1)
@@ -143,6 +144,7 @@ Shader "FoliageSurface"
                                                Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             // TwoSidedFoliage's payload: SubsurfaceColor stored as its square root (UE EncodeSubsurfaceColor; the
             // model squares it back), clamped to the payload's [0, 1].
             const vec3 subsurface = sqrt( clamp( s.BaseColor * Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
