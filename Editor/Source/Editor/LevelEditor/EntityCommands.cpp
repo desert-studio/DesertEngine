@@ -410,6 +410,23 @@ namespace Desert::Editor
                                       return Common::MakeError<bool>( folded.GetError() );
                                   return Common::MakeSuccess( true );
                               } } );
+        // UE: Level Instance > Create Packed Level Actor, and Edit on one (WP-PACKED-PREFAB).
+        commands.push_back( { "Entity", "Pack Prefab Instances", []
+                              {
+                                  const auto switched = Commands::SetPrefabInstancesPacked(
+                                       Core::SelectionManager::GetSelection(), true );
+                                  if ( !switched.IsSuccess() )
+                                      return Common::MakeError<bool>( switched.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
+        commands.push_back( { "Entity", "Unpack Prefab Instances to Edit", []
+                              {
+                                  const auto switched = Commands::SetPrefabInstancesPacked(
+                                       Core::SelectionManager::GetSelection(), false );
+                                  if ( !switched.IsSuccess() )
+                                      return Common::MakeError<bool>( switched.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
     }
 
     Common::BoolResultStr EntityCommands::RotateSelectedControl( int axis, float degrees )

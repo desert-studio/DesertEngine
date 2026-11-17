@@ -4,6 +4,13 @@
 
 #include "InstanceFold.hpp"
 
+#include <Engine/Assets/Prefab/PackedPrefab.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
+
+#include <unordered_set>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Editor/Core/StaticMeshOutput.hpp>
 
@@ -1806,25 +1813,18 @@ namespace Desert::Editor::Commands
             candidate.World    = entity.GetWorldTransform();
             candidate.Identity = *identity;
 
-            // The static component's own fields that an ISM has no room for. Each one is a knob somebody
-            // deliberately moved, so losing it silently is losing an authoring decision.
-            if ( mesh.GetOutlineDraw() )
-                candidate.Blockers.emplace_back( "a persistent outline" );
-            if ( mesh.GetForcedLOD() >= 0 )
-                candidate.Blockers.emplace_back( "a forced LOD" );
-            if ( mesh.GetLODBias() != 0 )
-                candidate.Blockers.emplace_back( "a LOD bias" );
-            if ( !mesh.GetReceiveShadows() )
-                candidate.Blockers.emplace_back( "receive-shadows off" );
-            if ( mesh.GetTranslucencySortPriority() != 0 )
-                candidate.Blockers.emplace_back( "a translucency sort priority" );
-            if ( mesh.GetHiddenSubmeshes() != 0 )
-                candidate.Blockers.emplace_back( "hidden submeshes" );
-            if ( mesh.GetMaxDrawDistance() > 0.0f )
-                candidate.Blockers.emplace_back( "a max draw distance" );
-            if ( mesh.GetEditableMesh() )
-                candidate.Blockers.emplace_back( "a mesh built in the editor (an instanced mesh names an asset or "
-                                                 "a primitive)" );
+            // The static component's own fields that an ISM has no room for - THE ONE LIST the prefab packer asks
+            // too (Assets::StaticMeshPackBlockers), so what Collapse refuses and what does not pack agree.
+            ::Desert::Assets::StaticMeshPackFacts facts;
+            facts.OutlineDraw              = mesh.GetOutlineDraw();
+            facts.ForcedLOD                = mesh.GetForcedLOD();
+            facts.LODBias                  = mesh.GetLODBias();
+            facts.ReceiveShadows           = mesh.GetReceiveShadows();
+            facts.TranslucencySortPriority = mesh.GetTranslucencySortPriority();
+            facts.HiddenSubmeshes          = mesh.GetHiddenSubmeshes();
+            facts.MaxDrawDistance          = mesh.GetMaxDrawDistance();
+            facts.EditMesh                 = static_cast<bool>( mesh.GetEditableMesh() );
+            candidate.Blockers             = ::Desert::Assets::StaticMeshPackBlockers( facts );
 
             if ( entity.HasComponent<ECS::RelationshipComponent>() &&
                  !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() )
@@ -1903,6 +1903,110 @@ namespace Desert::Editor::Commands
         LOG_INFO( "[Collapse] {0} entities -> 1 instanced mesh with {1} instances.", plan.Sources.size(),
                   ism.GetInstanceTransforms().size() );
         return Common::MakeSuccess( Common::UUID( folded ) );
+    }
+
+    Common::ResultStr<std::size_t> SetPrefabInstancesPacked( const std::vector<Common::UUID>& uuids, const bool packed )
+    {
+        if ( !Ready() )
+            return Common::MakeError<std::size_t>( "No scene is open." );
+
+        auto                     composite = std::make_unique<CompositeCommand>();
+        std::size_t              switched  = 0;
+        std::vector<std::string> refusals;
+        for ( const Common::UUID& uuid : uuids )
+        {
+            const auto found = FindEntity( uuid );
+            if ( !found || !found->HasComponent<ECS::PrefabComponent>() )
+                continue;
+            const ECS::Entity instance = *found;
+            if ( instance.HasComponent<::Desert::Runtime::Factory::PackedPrefabComponent>() == packed )
+                continue;
+
+            const std::string name = instance.HasComponent<ECS::TagComponent>()
+                                          ? instance.GetComponent<ECS::TagComponent>().Tag
+                                          : std::string( "Entity" );
+            const auto asset       = s_AssetManager->FindByHandle<::Desert::Assets::PrefabAsset>(
+                 instance.GetComponent<ECS::PrefabComponent>().Prefab );
+            if ( !asset || !asset->IsReadyForUse() )
+            {
+                refusals.push_back( std::format( "{}: its prefab is not loaded", name ) );
+                continue;
+            }
+
+            // EVERY REFUSAL BEFORE ANYTHING IS DESTROYED: the instance stays as it is when it cannot change mode.
+            if ( packed )
+            {
+                const auto form = asset->GetPacked();
+                if ( !form || form->Refused.has_value() )
+                {
+                    refusals.push_back( std::format( "{}: {}", name,
+                                                     form ? *form->Refused : std::string( "no packed form" ) ) );
+                    continue;
+                }
+                // Where the instance stands is its own (scene v37), not a difference from the prefab: taken out
+                // of the root's override exactly as the saver takes it (Assets::ReduceInstanceRecord).
+                auto capture = ::Desert::Core::Serialize::CapturePrefabInstance( instance, *s_AssetManager );
+                if ( capture.RootPath.has_value() )
+                    (void)::Desert::Assets::TakeRootTransformOverride( capture.Overrides, *capture.RootPath );
+                if ( !capture.Overrides.empty() || capture.AddedEntities > 0 || capture.RemovedComponents > 0 )
+                {
+                    refusals.push_back( std::format(
+                         "{}: it differs from its prefab ({} override(s), {} added entit(ies), {} removed "
+                         "component(s)); apply them to the prefab or revert them, then pack",
+                         name, capture.Overrides.size(), capture.AddedEntities, capture.RemovedComponents ) );
+                    continue;
+                }
+            }
+
+            const ECS::LocalTransform local  = instance.GetComponent<ECS::TransformComponent>().GetLocal();
+            const Common::UUID        parent = ParentUUIDOf( instance );
+            auto                      snapshot = CaptureSubtree( instance );
+            DestroyByUUID( uuid );
+            composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+
+            ECS::Entity rebuilt;
+            if ( packed )
+            {
+                auto made =
+                     ::Desert::Runtime::Factory::PrefabFactory::InstantiatePacked( asset, *s_Scene, *s_AssetManager, uuid );
+                if ( made )
+                    rebuilt = made.GetValue();
+                else
+                    refusals.push_back( std::format( "{}: {}", name, made.GetError() ) );
+            }
+            else
+            {
+                std::unordered_set<Common::UUID> stack;
+                rebuilt = ::Desert::Runtime::Factory::PrefabFactory::Instantiate( *asset, *s_Scene, *s_AssetManager,
+                                                                                  stack, {}, uuid );
+            }
+            if ( !rebuilt )
+                continue; // the delete above is in the step: one undo brings the instance back
+
+            ECS::SetLocalTransform( *rebuilt.GetRegistry(), rebuilt.GetHandle(), local );
+            if ( !parent.IsNull() )
+                if ( const auto above = FindEntity( parent ) )
+                    s_Scene->Attach( *above, rebuilt );
+            composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ uuid } ) );
+            ++switched;
+        }
+
+        std::string refused;
+        for ( std::size_t i = 0; i < refusals.size(); ++i )
+            refused += std::format( "{}{}", i > 0 ? "; " : "", refusals[i] );
+        if ( switched == 0 )
+            return Common::MakeError<std::size_t>(
+                 refusals.empty() ? std::format( "the selection holds no prefab instance that is not already {}",
+                                                 packed ? "packed" : "unpacked" )
+                                  : refused );
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        if ( !refusals.empty() )
+            LOG_WARN( "[Prefab] {} instance(s) {}; not changed: {}", switched, packed ? "packed" : "unpacked", refused );
+        else
+            LOG_INFO( "[Prefab] {} instance(s) {}.", switched, packed ? "packed" : "unpacked" );
+        return Common::MakeSuccess( std::size_t( switched ) );
     }
 
     Common::ResultStr<Common::UUID> ReplaceWithNewEntity( const Common::UUID& source, const std::string& name,

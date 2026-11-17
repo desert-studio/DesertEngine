@@ -1,6 +1,7 @@
 #include "PrefabAsset.hpp"
 #include "PrefabFormat.hpp"
 #include "PrefabPlacement.hpp"
+#include "PackedPrefab.hpp"
 #include <optional>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -56,6 +57,7 @@ namespace Desert::Assets
         // The identity the file states, which Serialize writes back.
         m_Guid       = PrefabStatedGuid( loadable.GetValue() );
         m_EntityData = std::move( loadable.GetValue().Entities );
+        AdoptOrRepack( std::move( loadable.GetValue().Packed ) );
         m_IsLoaded   = true;
         // The file IS the payload now, whatever this asset held before.
         m_CapturedInMemory = false;
@@ -82,6 +84,7 @@ namespace Desert::Assets
         // entities keeps every byte of its capacity. Every other clearing implementation in this directory
         // shrinks; this one did not.
         m_EntityData.shrink_to_fit();
+        m_Packed.reset();
         m_IsLoaded = false;
         return BOOLSUCCESS;
     }
@@ -114,6 +117,10 @@ namespace Desert::Assets
             data.Bounds = PrefabBoundsSer{ box->Min, box->Max };
         if ( !boundsIssues.empty() )
             Common::Json::ReportIssues( boundsIssues, "prefab bounds of '" + m_Metadata.Filepath.string() + "'" );
+
+        // THE PACKED FORM, derived from exactly the body written here (PackedPrefab.hpp), so the file never states
+        // a form of another body.
+        data.Packed = PackPrefab( data.Entities );
 
         // The one writer: stamps both generation integers, so every file this engine saves is one its
         // own gate accepts. Writing rfl::json directly here would be a prefab the loader refuses.
@@ -251,9 +258,27 @@ namespace Desert::Assets
         if ( !m_EntityData.empty() )
             m_EntityData[0].PrefabPath = std::nullopt;
 
+        // A new body is a new source: every packed instance of this prefab follows the form packed from it.
+        AdoptOrRepack( std::nullopt );
         m_IsLoaded = true;
         // Nothing on disk holds this yet — see IsReloadableFromFile and Unload's refusal.
         m_CapturedInMemory = true;
+    }
+
+    void PrefabAsset::AdoptOrRepack( std::optional<PackedPrefabSer> stated )
+    {
+        const std::string checksum = PrefabSourceHash( m_EntityData );
+        if ( stated.has_value() && stated->SourceHash == checksum )
+        {
+            m_Packed = std::make_shared<const PackedPrefabSer>( std::move( *stated ) );
+            return;
+        }
+        // A stated form of another body: the file was edited outside the editor, or by a build whose writer
+        // spelled the body differently. Derived data, so it is rebuilt rather than refused - and said.
+        if ( stated.has_value() )
+            LOG_INFO( "[Prefab] '{}': the packed form states source checksum {} and the body is {}; repacked.",
+                      m_Metadata.Filepath.string(), stated->SourceHash, checksum );
+        m_Packed = std::make_shared<const PackedPrefabSer>( PackPrefab( m_EntityData ) );
     }
 
     // Placing an instance in the world. The BUILDING of the instance is not here and must not be: it is

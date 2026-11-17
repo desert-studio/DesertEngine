@@ -1,5 +1,6 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
@@ -688,6 +689,14 @@ namespace Desert::Core
             m_RenderStateDirty.Clear();
         }
         m_RenderStateDelta.FrameBoundary();
+
+        // PACKED PREFAB INSTANCES follow their root's world and their prefab's packed form (UE: a packed level
+        // actor's ISMs move with the actor and are rebuilt with the source level). Before anything reads the
+        // instances, after the boundary, so the re-placed ISMs are this frame's render-state changes.
+        {
+            DESERT_PROFILE_SCOPE( "Scene: Packed prefab instances" );
+            ::Desert::Runtime::Factory::PrefabFactory::RefreshPackedInstances( *this );
+        }
 
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a

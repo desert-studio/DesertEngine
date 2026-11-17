@@ -4,6 +4,9 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 
+#include <glm/glm.hpp>
+
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -12,6 +15,21 @@
 
 namespace Desert::Runtime::Factory
 {
+
+    // A PACKED PREFAB INSTANCE (UE APackedLevelActor): its root carries this, and one InstancedStaticMesh child
+    // per group of the prefab's packed form (Assets::PackedPrefabSer). RUNTIME ONLY, like PrefabInstanceComponent:
+    // the scene states the mode (EntityData::PrefabPacked) and the prefab file states the form, so nothing here is
+    // written. The ISM instances are WORLD matrices (MeshECSSystem), so the groups are re-placed whenever the
+    // root's world moves, and rebuilt whenever the prefab's form changes (RefreshPackedInstances).
+    struct PackedPrefabComponent
+    {
+        Assets::Asset<Assets::PrefabAsset>             Prefab;  // the source whose packed form is drawn
+        std::shared_ptr<const Assets::PackedPrefabSer> Form;    // the form the groups below were built from
+        const Assets::AssetManager*                    Manager = nullptr;
+        std::vector<ECS::Entity>                       Groups;  // the ISM children, one per Form group, in order
+        glm::mat4                                      PlacedAt{ 0.0f }; // root world the instances were composed with
+        std::string                                    ReportedRefusal;  // the source checksum already refused on the log
+    };
 
     class PrefabFactory
     {
@@ -61,5 +79,19 @@ namespace Desert::Runtime::Factory
                                            const std::unordered_map<std::string, ECS::Entity>& indexed,
                                            std::span<const Common::UUID>                       prefix,
                                            const Assets::AssetManager&                         assetManager );
+
+        // ONE PACKED INSTANCE of @p prefab: its root (the root record's tag and transform, a PrefabComponent and a
+        // PackedPrefabComponent) and one InstancedStaticMesh child per group of the prefab's packed form, loaded
+        // by ComponentRegistry exactly as an authored ISM is. @p rootId as Instantiate's. Refuses, with the
+        // packer's reason, a prefab whose form is Refused - the caller places it unpacked and says so.
+        [[nodiscard]] static Common::ResultStr<ECS::Entity>
+        InstantiatePacked( const Assets::Asset<Assets::PrefabAsset>& prefab, Core::Scene& scene,
+                           const Assets::AssetManager& assetManager, std::optional<Common::UUID> rootId = {} );
+
+        // Once per frame, at the top of Scene::OnUpdate: every packed instance whose prefab's form changed (the
+        // source was committed, reloaded or re-captured: a new checksum) is rebuilt from the new form, and every
+        // one whose root's world moved has its instances composed again. A form that can no longer be packed is
+        // named on the log once per checksum and the instance keeps the groups it has.
+        static void RefreshPackedInstances( Core::Scene& scene );
     };
 } // namespace Desert::Runtime::Factory
