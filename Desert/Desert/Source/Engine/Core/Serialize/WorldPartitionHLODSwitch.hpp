@@ -216,7 +216,7 @@ namespace Desert::Core::Rules
                 const bool layersOff = !( streamed && m_ForHLODUnit[hlod] == 1 ) &&
                                        m_UnitOfHLOD[hlod] < unitLayerStates.size() &&
                                        unitLayerStates[m_UnitOfHLOD[hlod]] != DataLayerRuntimeState::Activated;
-                const std::uint8_t visible = IsCellVisible( of.Units[m_UnitOfHLOD[hlod]].State ) || layersOff ? 0 : 1;
+                const std::uint8_t visible = ( IsCellVisible( of.Units[m_UnitOfHLOD[hlod]].State ) || layersOff ) ? 0 : 1;
                 if ( m_Applied[hlod] == visible )
                     continue;
                 world.SetHLODVisible( hlod, visible == 1 );

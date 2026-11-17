@@ -798,11 +798,20 @@ namespace Desert::Core
             std::uint8_t                say    = 0;
             std::string_view            what;
             if ( wanted == DataLayerRuntimeState::Unloaded )
-                say = 1, what = "not loaded: its data layers are Unloaded";
+            {
+                say  = 1;
+                what = "not loaded: its data layers are Unloaded";
+            }
             else if ( wanted == DataLayerRuntimeState::Loaded && now == Rules::Residency::Loaded )
-                say = 2, what = "loaded, not activated: its data layers are Loaded";
+            {
+                say  = 2;
+                what = "loaded, not activated: its data layers are Loaded";
+            }
             else if ( now == Rules::Residency::Activated )
-                say = 3, what = "activated";
+            {
+                say  = 3;
+                what = "activated";
+            }
             if ( say == 0 || m_SaidLayerUnit[unit] == say )
                 continue;
             m_SaidLayerUnit[unit] = say;
@@ -934,7 +943,7 @@ namespace Desert::Core
                   m_SceneName, hlods.size(), recordCount, before.Describe(),
                   Common::Utils::ReadProcessFootprint().Describe() );
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
-        if ( auto synced = m_HLODs->Sync( Executor().State(), *this ); !synced )
+        if ( auto synced = m_HLODs->Sync( Executor().State(), nullptr, *this, Executor().UnitDataLayerStates() ); !synced )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
         // From here on every switch is an event a flight reads (WP22c): the first Sync above set them all.
         m_HLODSwitchesSaid = true;
@@ -1042,7 +1051,9 @@ namespace Desert::Core
             return failed( "the HLOD cells: " + executor.GetError() );
         m_HLODExecutor = executor.ExtractValue();
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
-        if ( auto synced = m_HLODs->Sync( Executor().State(), &m_HLODExecutor->State(), *this ); !synced )
+        if ( auto synced = m_HLODs->Sync( Executor().State(), &m_HLODExecutor->State(), *this,
+                                             Executor().UnitDataLayerStates() );
+             !synced )
             return failed( synced.GetError() );
         m_HLODSwitchesSaid = true;
         // The census the Play start is judged by: only the tops are entities now.

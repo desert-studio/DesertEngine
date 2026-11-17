@@ -635,13 +635,15 @@ namespace Desert::Editor
 
         if ( layers.empty() )
             ImGui::TextDisabled( "This world has no data layers." );
-        else if ( ImGui::BeginTable( "##datalayers", 4,
+        else if ( ImGui::BeginTable( "##datalayers", 6,
                                      ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                                           ImGuiTableFlags_SizingStretchProp ) )
         {
             ImGui::TableSetupColumn( "Data Layer" );
             ImGui::TableSetupColumn( "Loaded" );
             ImGui::TableSetupColumn( "Initially Loaded" );
+            ImGui::TableSetupColumn( "Type" );
+            ImGui::TableSetupColumn( "Initial Runtime State" );
             ImGui::TableSetupColumn( "Entities" );
             ImGui::TableHeadersRow();
             for ( std::size_t index = 0; index < layers.size(); ++index )
@@ -666,6 +668,44 @@ namespace Desert::Editor
                     ( *after.DataLayers )[index].InitiallyLoadedInEditor = initially;
                     commit( std::format( "Data layer '{}': Initially Loaded {}", layer.Name, initially ), after );
                 }
+                // UE UDataLayerAsset::DataLayerType (WP v3): a Runtime layer splits the cook and streams in Play and
+                // a packaged game by its runtime state (WorldStreamer::SetDataLayerRuntimeState).
+                using DataLayerType         = ::Desert::Core::DataLayerType;
+                using DataLayerRuntimeState = ::Desert::Core::DataLayerRuntimeState;
+                ImGui::TableNextColumn();
+                static constexpr const char* kTypes[] = { "Editor", "Runtime" };
+                int type = layer.Type == DataLayerType::Runtime ? 1 : 0;
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::Combo( "##type", &type, kTypes, 2 ) )
+                {
+                    ::Desert::Core::WorldPartitionSerialized after  = current;
+                    ::Desert::Core::DataLayerSerialized&     edited = ( *after.DataLayers )[index];
+                    edited.Type = type == 1 ? DataLayerType::Runtime : DataLayerType::Editor;
+                    // A Runtime layer states the state it starts Play in and an Editor one none (Rules::
+                    // CheckDataLayers): a layer made Runtime starts Unloaded, UE's InitialRuntimeState default.
+                    if ( edited.Type == DataLayerType::Runtime )
+                        edited.InitialRuntimeState = DataLayerRuntimeState::Unloaded;
+                    else
+                        edited.InitialRuntimeState.reset();
+                    commit( std::format( "Data layer '{}': Type {}", layer.Name, kTypes[type] ), std::move( after ) );
+                }
+                // UE UDataLayerInstance::InitialRuntimeState: what Play and a packaged game start the layer in.
+                ImGui::TableNextColumn();
+                if ( layer.Type == DataLayerType::Runtime && layer.InitialRuntimeState.has_value() )
+                {
+                    static constexpr const char* kStates[] = { "Unloaded", "Loaded", "Activated" };
+                    int state = static_cast<int>( *layer.InitialRuntimeState );
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::Combo( "##initialstate", &state, kStates, 3 ) )
+                    {
+                        ::Desert::Core::WorldPartitionSerialized after = current;
+                        ( *after.DataLayers )[index].InitialRuntimeState = static_cast<DataLayerRuntimeState>( state );
+                        commit( std::format( "Data layer '{}': Initial Runtime State {}", layer.Name, kStates[state] ),
+                                std::move( after ) );
+                    }
+                }
+                else
+                    ImGui::TextDisabled( "%s", layer.Type == DataLayerType::Runtime ? "none stated" : "Editor layer" );
                 ImGui::TableNextColumn();
                 ImGui::Text( "%zu", members[index] );
                 ImGui::SameLine();
