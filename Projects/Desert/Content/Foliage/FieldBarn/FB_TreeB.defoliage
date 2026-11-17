@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "4179fa72563a1de20aa8d5c9ed952532",
         "Versions": {
-            "FOLT": 9
+            "FOLT": 10
         },
         "Dependencies": ["544896472e3f0608af9d146f1c8cdf2b"]
     },
@@ -17,7 +17,16 @@
         "Path": ""
     },
     "Density": 100.0,
+    "Scaling": "Uniform",
     "ScaleX": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ScaleY": {
+        "Min": 1.0,
+        "Max": 1.0
+    },
+    "ScaleZ": {
         "Min": 1.0,
         "Max": 1.0
     },

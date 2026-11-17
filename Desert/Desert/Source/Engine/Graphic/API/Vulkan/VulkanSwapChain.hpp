@@ -46,11 +46,14 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // The engine format the back buffer is drawn as (composite framebuffer, ImportBackBuffer): RGBA16F on the
-        // scRGB output (HDR-OUTPUT), BGRA8 otherwise.
+        // scRGB output (HDR-OUTPUT), RGB10A2 on the 10-bit SDR surface (SDR-10BIT-DITHER), BGRA8 otherwise.
         [[nodiscard]] Core::Formats::ImageFormat BackBufferFormat() const
         {
-            return m_ColorFormat == VK_FORMAT_R16G16B16A16_SFLOAT ? Core::Formats::ImageFormat::RGBA16F
-                                                                  : Core::Formats::ImageFormat::BGRA8F;
+            if ( m_ColorFormat == VK_FORMAT_R16G16B16A16_SFLOAT )
+                return Core::Formats::ImageFormat::RGBA16F;
+            if ( m_ColorFormat == VK_FORMAT_A2B10G10R10_UNORM_PACK32 )
+                return Core::Formats::ImageFormat::RGB10A2_UNORM;
+            return Core::Formats::ImageFormat::BGRA8F;
         }
 
         VkFormat GetColorFormat() const
@@ -117,8 +120,9 @@ namespace Desert::Graphic::API::Vulkan
          * when the copy has actually run.
          */
 
-        /// Record the copy into the frame's command buffer. Call after the last render pass of the frame
-        /// and before PresentFinalImage. Fails, naming the reason, if the surface cannot be read at all.
+        /// Record the copy into the frame's command buffer. Call after the frame's present graph (whose
+        /// back-buffer import is the late acquire), on the thread that executed it, and before PresentFinalImage
+        /// (see SwapChain::RecordFrameCapture). Fails, naming the reason, if the surface cannot be read at all.
         [[nodiscard]] Common::BoolResultStr RecordFrameCapture() override;
 
         [[nodiscard]] bool HasPendingCapture() const noexcept

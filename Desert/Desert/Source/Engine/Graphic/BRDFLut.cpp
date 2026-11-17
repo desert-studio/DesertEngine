@@ -55,6 +55,9 @@ namespace Desert::Graphic
             // reflected 44 % more than it received and doubled every grazing reflection (FOLIAGE-LOOK-3: the pale
             // sheen of Bistro's bush leaves).
             const float a = roughness * roughness;
+            // Mesh/BRDF.glslh kGGXSpecularAlbedo is this integrand's scale + bias at F0 = 1 on a 16 x 16 grid (the
+            // multiple-scattering compensation of the lobes that bind no LUT);
+            // scripts/Dev/ggx_specular_albedo_table.py regenerates it - change both together.
             const float k = a / 2.0f;
 
             float scale = 0.0f, bias = 0.0f;

@@ -1,0 +1,25 @@
+# AUD-CORE (UE FActiveSound + USoundWave loading): every voice opens its clip through miniaudio's resource manager
+# over the engine FileSystem (job thread, not the game thread), plays in the class and with the loading its
+# `.desound` states (SNDW v1: Class, Loading), and a spatial emitter sounds from its WORLD position.
+# Before the run: scripts/Dev/migrate.sh --write over Mirage (every SNDW v0 `.desound` -> v1, Class Effects,
+# Loading Resident) - the editor refuses a v0 sound by name ("SNDW v0 states no Class and no Loading").
+# Sound is not a picture: the proof is the editor log the player keeps beside the frames (scn-latest/editor.log).
+Проект ../Mirage/Mirage.deproj
+Дано run Scene "Open Scene MainMenu.desce"
+Дано run Action "Play from Here"
+Дано advance 1
+# Тогда [7a_audio_play]: the menu in Play; the log holds "[Audio] miniaudio engine initialized (<rate> Hz)" once and
+# NO "[Audio] Clip not found", "could not be loaded", "SNDW v0" or "Failed to create a voice" line - every sound the
+# menu starts (AudioSource AutoPlay, UI clip Audio tracks) resolved its `.desound` and loaded on the job thread.
+Тогда-вид 7a_audio_play the Mirage main menu running in Play, no error toast or log overlay about audio
+# A UI click plays a one-shot (Lua Audio.play, Effects, Resident): the pointer onto Credits and a click.
+Когда input move - 574,481
+Когда input click - left
+Когда advance 1
+# Тогда [7b_audio_oneshot]: the log still has no "[Audio]" warning or error; a click's one-shot was reclaimed when it
+# ended (no growth of voices between two clicks - AUD-DEBUG will show the count; until then the log is the proof).
+Тогда-вид 7b_audio_oneshot Credits pressed or its panel open; the editor did not stall on the click (no hitch frame)
+# Stop: every voice is released (StopAll moves every slot's generation), Edit mode is silent.
+Когда run Action "Stop"
+Когда advance 0.5
+Тогда-вид 7c_audio_stop the editor back in Edit mode; the log has no "[Audio]" error after Stop

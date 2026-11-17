@@ -523,6 +523,12 @@ namespace Desert::Graphic
                                                                m_TargetFramebuffer );
                 if ( const auto volumeInit = m_Systems.VolumetricFog->Initialize(); !volumeInit )
                     LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
+                // The translucency lighting volume the lit particles read; non-fatal like the fog.
+                RegisterSystem<System::TranslucencyLightingVolumeRenderer>( m_Systems.TranslucencyLightingVolume,
+                                                                            this, m_TargetFramebuffer );
+                if ( const auto tlvInit = m_Systems.TranslucencyLightingVolume->Initialize(); !tlvInit )
+                    LOG_WARN( "[SceneRenderer] Translucency lighting volume unavailable: {}",
+                              tlvInit.GetError() );
                 return "HeightFog";
             }
             case 17:
@@ -1039,6 +1045,8 @@ namespace Desert::Graphic
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
         skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
+        // ...and the scene's atmosphere LUTs, recorded by that same first view, read by this one and the capture.
+        skyboxSystem->SetSceneAtmosphere( scene.GetAtmosphere() );
 
         // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
         // Editor keeps the editor's viewport and its overlays).
@@ -1378,6 +1386,10 @@ namespace Desert::Graphic
                  VolumetricFogQuality{ .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
                                        .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
                                        .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
+        // The translucency lighting volume's cells per cascade edge (Effects.TranslucencyLightingVolumeDim).
+        if ( const auto& it = m_Systems.TranslucencyLightingVolume )
+            it->SetQuality( TranslucencyLightingVolumeQuality{
+                 .Dim = quality.As<uint32_t>( Parameter::TranslucencyLightingVolumeDim ) } );
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
@@ -1429,6 +1441,23 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         m_Systems.Mesh->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
         m_Systems.Mesh->SetParallaxQuality( m_ParallaxQuality );
+        // THE LOCAL WIND SOURCES this frame's views and light cameras carry: the step's point sources nearest the
+        // main camera (Graphic::SelectLocalWind), each matched by its entity to the previous frame's pick for its
+        // previous position. No camera: none (a light camera has nothing to measure from).
+        {
+            const LocalWindSelection previous = m_LocalWindSelection;
+            if ( const auto* cam = GetMainCamera() )
+                SelectLocalWind( m_LocalWindCandidates, cam->GetPosition(),
+                                 glm::length( m_DirectionalWindVelocityXZ ),
+                                 previous, m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
+            else
+            {
+                m_LocalWindSelection = LocalWindSelection{};
+                m_LocalWind          = LocalWindSources{};
+                m_PrevLocalWind      = LocalWindSources{};
+            }
+        }
+        m_Systems.Mesh->SetSceneWind( SceneWind{ m_WindGust, m_LocalWind } );
         m_Systems.AutoExposure->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
@@ -1883,6 +1912,14 @@ namespace Desert::Graphic
         ViewFrame viewFrame = begun.GetValue();
         viewFrame.GrassLens =
              System::PackGrassFieldLens( System::MakeGrassFieldLens( m_GrassQuality, viewFrame ) );
+        // The gust fronts the foliage sways by (ViewFrame::WindGust), the ECS's this step and the step before.
+        viewFrame.WindGust     = m_WindGust;
+        viewFrame.PrevWindGust = m_PrevWindGust;
+        viewFrame.LocalWind     = m_LocalWind;
+        viewFrame.PrevLocalWind = m_PrevLocalWind;
+        // The directional air and the local sources' reference speed (cm/s): the particle wind (VFX_SceneWind).
+        viewFrame.WindVelocityXZ          = m_DirectionalWindVelocityXZ;
+        viewFrame.LocalWindReferenceSpeed = m_LocalWindSelection.ReferenceSpeed;
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.
@@ -2708,8 +2745,10 @@ namespace Desert::Graphic
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Virtual shadows + volume" );
                 m_FrameVsmPages.reset();
                 std::optional<FrontLayerSurface> frontLayerSurface;
-                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws() )
-                    frontLayerSurface = AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr )
+                    if ( const FrontLayerWriters writers = BuildFrontLayerWriters( meshRenderer ); writers.Any() )
+                        frontLayerSurface =
+                             AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer, writers );
                 const RDG::TextureRef receivers[] = { frontLayerSurface ? frontLayerSurface->Depth
                                                                         : RDG::TextureRef{} };
                 const FrameVirtualShadows virtualShadows =
@@ -2897,7 +2936,7 @@ namespace Desert::Graphic
 
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
-                AddFrameWater( graph, textures, sceneCopy );
+                AddFrameWater( graph, textures, sceneCopy, frontLayer );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
@@ -2983,7 +3022,7 @@ namespace Desert::Graphic
         if ( pathTraced )
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
         else
-            AddFrameTranslucency( graph, textures );
+            AddFrameTranslucency( graph, textures, frame );
 
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )

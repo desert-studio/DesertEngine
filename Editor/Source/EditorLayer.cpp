@@ -698,11 +698,11 @@ namespace Desert::Editor
     // `quit` whose reply has gone out comes back as the status to close with.
     void EditorLayer::SampleControlQuiescence()
     {
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
-                                         m_Startup.ReflectionCapturesFilling(),
-                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
-                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
-                                         ViewportPanel::AnyMeshDropLoading() );
+        m_Control.SampleFrameQuiescence(
+             m_Startup.StartupLoading() || m_Startup.ContentSettling(), m_Startup.ReflectionCapturesFilling(),
+             Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
+             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
+             ViewportPanel::AnyMeshDropLoading(), ViewportPanel::ModelingPreviewOutstanding() );
     }
 
     bool EditorLayer::AdmitShotFrame()
@@ -892,9 +892,10 @@ namespace Desert::Editor
         DESERT_PROFILE_PHASE( phases, "ImGui: EndFrame (render + draw data)" );
         m_ImGuiHost.EndFrame();
 
-        // AFTER the interface has been recorded into the swapchain pass and BEFORE the frame is submitted:
-        // the only window in which the presented image is legally ours to copy out of. A no-op unless a
-        // `shot.window` is waiting on exactly this frame. See RecordWindowCaptureIfDue.
+        // AFTER the interface's draw has been enqueued (EndFrame above) and BEFORE the frame's submit and present
+        // are (Application::Run step 6): the copy is enqueued between them on the render task, the only window in
+        // which the late-acquired back buffer is legally ours to copy out of. A no-op unless a `shot.window` is
+        // waiting on exactly this frame. See RecordWindowCaptureIfDue.
         DESERT_PROFILE_PHASE( phases, "Editor: Window capture" );
         m_Control.RecordWindowCaptureIfDue();
 

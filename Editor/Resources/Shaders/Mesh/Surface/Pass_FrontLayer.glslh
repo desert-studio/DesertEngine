@@ -6,8 +6,16 @@
 // DESERT_REFLECTIONS_FRONT_LAYER) and the glass reads the result back where its own depth is this one
 // (Pass_Forward_Translucent.glslh). Same surface function, same normal and roughness as the glass shades with: one
 // statement of the surface, never a second guess of it.
+// THE WATER'S FRONT LAYER (UE: single layer water writes its own G-buffer, which SSR and Lumen reflections trace
+// from): the `WaterMesh.FrontLayer` cell of a `Usage WaterMesh` template (DShaderParser kSurfaceWaterMeshFrontLayerCell)
+// is this header over the water mesh vertex path, drawn by WaterRenderer into the same targets after the glass's
+// objects. Its normal is the one the water mirrors with (Mesh/Surface/WaterInterface.glslh), so the trace and the
+// water's reflection environment reflect one direction.
 #include <Common/MaterialTransport.glslh>
 #include <ShadingModels/ShadingModelContract.glslh> // kDesertMinRoughness, the normal slot's roughness floor
+#ifdef DESERT_SURFACE_PATH_WaterMesh
+#include <Mesh/Surface/WaterInterface.glslh>
+#endif
 
 DESERT_SURFACE_VARYINGS( in )
 
@@ -29,6 +37,11 @@ void main()
     // UE clips a zero-opacity texel out of the front layer: nothing is seen there to reflect from.
     if ( s.Opacity <= 0.0 )
         discard;
-    oFrontLayerNormal   = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, kDesertMinRoughness ) );
+    vec3 N = DesertSurfaceWorldNormal( i, s );
+#ifdef DESERT_SURFACE_PATH_WaterMesh
+    const vec3 V = normalize( i.CameraPosition - i.WorldPosition );
+    N            = WaterMirrorNormal( WaterFacingNormal( N, V ), V );
+#endif
+    oFrontLayerNormal   = vec4( N, max( s.Roughness, kDesertMinRoughness ) );
     oFrontLayerVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
 }

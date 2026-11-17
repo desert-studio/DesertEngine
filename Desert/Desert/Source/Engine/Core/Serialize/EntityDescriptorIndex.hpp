@@ -48,7 +48,9 @@ namespace Desert::Core::DescriptorIndex
     {
         std::vector<DescriptorRow> Entities; // the header's list order
     };
-    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 2 )
+    // 3 (WP-DATA-LAYERS): a descriptor states its DataLayers; 4 (WP-SRC-ALTITUDE): 3D instance points.
+    // An older index is rebuilt, never read without them.
+    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 4 )
 
     // Where the index of the scene at `scenePath` lives.
     [[nodiscard]] std::filesystem::path PathOf( const std::filesystem::path& scenePath );

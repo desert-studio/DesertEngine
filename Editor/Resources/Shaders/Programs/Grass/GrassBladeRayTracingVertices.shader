@@ -66,7 +66,8 @@ Shader "GrassBladeRayTracingVertices"
             const mat4  model =
                  mat4( vec4( 1.0, 0.0, 0.0, kMedianCardDraw ), vec4( 0.0, 1.0, 0.0, kMedianCurvatureDraw ),
                        vec4( 0.0, 0.0, 1.0, 0.0 ), vec4( 0.0, 0.0, 0.0, 1.0 ) );
-            const BladePoint blade  = BladeAt( Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ) );
+            const BladePoint blade  =
+                 BladeAt( Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec2( 0.0 ) );
             const vec3       normal = BladeNormal( blade, side );
             const vec3       along  = normalize( blade.Along );
             const float      words[12] = float[12]( blade.Position.x, blade.Position.y, blade.Position.z, normal.x,

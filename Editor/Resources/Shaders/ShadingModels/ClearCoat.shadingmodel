@@ -1,0 +1,120 @@
+// ClearCoat — UE's MSM_ClearCoat (ShadingModels.ush ClearCoatBxDF): a thin clear dielectric layer (IOR 1.5, F0 = 4
+// %) over DefaultLit - car paint, varnished wood, lacquer, wet plastic. The coat has a GGX lobe of its own
+// roughness; what its Fresnel reflects does not reach the base, which is lit as DefaultLit times (1 - Fc) (the
+// layering of Filament's clear coat, the form UE's ClearCoatBxDF reduces to without CLEAR_COAT_BOTTOM_NORMAL and
+// refraction).
+//
+// The payload is UE's: CustomData0 = ClearCoat (the coat's strength, 0 = DefaultLit exactly), CustomData1 =
+// ClearCoatRoughness (UE GBuffer.CustomData.x / .y). The coat shares the shading normal: UE's bottom normal (a
+// second normal for the base under a smooth coat) has no room in a 4 x 8-bit payload and is not modelled.
+//
+// The environment: the coat reflects its own lobe - the sky cube at the coat's roughness under the sky light;
+// where the reflection is a TRACED gather (A.Traced) the trace's lobe, which is the one occluded answer the pass
+// has (a cube lookup there would mirror the open sky inside a garage, TwoSidedFoliage's rule). Its directional
+// albedo is UE's EnvBRDFApprox (BRDF.ush, Karis 2014) at the coat's roughness: the split-sum table is sampled
+// once, at the base's roughness, by the pass.
+Guid 7672409219929898576;
+Payload
+{
+    CustomData0 ClearCoat;          // 0..1 the coat's strength
+    CustomData1 ClearCoatRoughness; // 0..1 the coat's perceptual roughness
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+}
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+// The pure half of the ambient text when the pass has not included the whole file (DefaultLit.shadingmodel says
+// why).
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+// The coat's dielectric reflectance at normal incidence: IOR 1.5 (UE ClearCoatBxDF's F0 = 0.04).
+const float kClearCoatF0 = 0.04;
+
+float ClearCoatStrength( DesertPayload P )
+{
+    return clamp( P.CustomData0, 0.0, 1.0 );
+}
+
+float ClearCoatRoughness( DesertPayload P )
+{
+    return max( P.CustomData1, kDesertMinRoughness );
+}
+
+// UE EnvBRDFApprox (BRDF.ush, Karis "Physically Based Shading on Mobile" 2014): the split sum's scale and bias at
+// (roughness, NoV), fitted - the coat's directional albedo is F0 * x + y.
+vec2 ClearCoatEnvBRDFApprox( float roughness, float NoV )
+{
+    const vec4  c0   = vec4( -1.0, -0.0275, -0.572, 0.022 );
+    const vec4  c1   = vec4( 1.0, 0.0425, 1.04, -0.04 );
+    const vec4  r    = roughness * c0 + c1;
+    const float a004 = min( r.x * r.x, exp2( -9.28 * NoV ) ) * r.x + r.y;
+    return vec2( -1.04, 1.04 ) * a004 + r.zw;
+}
+
+// The coat's Fresnel toward the light (scalar: the coat is colourless), times its strength - the share of the
+// light the coat reflects, and so the share the base never receives.
+float ClearCoatDirectFresnel( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const vec3 H = normalize( S.V + L.L );
+    return fresnelSchlick( vec3( kClearCoatF0 ), max( dot( H, S.V ), 0.0 ) ).x * ClearCoatStrength( P );
+}
+
+// The coat's GGX lobe for one light, Fresnel and strength included.
+vec3 ClearCoatDirectLobe( DesertLight L, DesertSurface S, DesertPayload P, float coatFresnel )
+{
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    const vec3  H         = normalize( S.V + L.L );
+    const float cosLh     = max( dot( S.N, H ), 0.0 );
+    const float cosLo     = max( dot( S.N, S.V ), 0.0 );
+    const float roughness = ClearCoatRoughness( P );
+    return DistributionGGX( cosLh, roughness ) * VisibilitySmith( cosLi, cosLo, roughness ) * coatFresnel *
+           L.Radiance * cosLi;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const float coatFresnel = ClearCoatDirectFresnel( L, S, P );
+    const vec3  base = EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Metallic,
+                                            S.Roughness, S.BaseColor );
+    return ( base * ( 1.0 - coatFresnel ) + ClearCoatDirectLobe( L, S, P, coatFresnel ) ) * L.Shadow;
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const float coatFresnel = ClearCoatDirectFresnel( L, S, P );
+    const vec3  base =
+         EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness );
+    return ( base * ( 1.0 - coatFresnel ) + ClearCoatDirectLobe( L, S, P, coatFresnel ) ) * L.Shadow;
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3  F0       = DesertSpecularF0( S );
+    const float NoV      = DesertAmbientNoV( S.N, S.V );
+    const vec3  diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
+    const float specularOcclusion = DesertSpecularOcclusion( NoV, S.Roughness, A.Occlusion );
+    const vec3  base =
+         ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+
+    const float coatRoughness = ClearCoatRoughness( P );
+    const vec2  coatBRDF      = ClearCoatEnvBRDFApprox( coatRoughness, NoV );
+    const float coatAlbedo    = ( kClearCoatF0 * coatBRDF.x + coatBRDF.y ) * ClearCoatStrength( P );
+    vec3        coatRadiance  = A.Prefiltered;
+    if ( A.Traced < 0.5 )
+        coatRadiance = DesertAmbientSpecular( reflect( -S.V, S.N ), coatRoughness );
+    const float coatOcclusion = DesertSpecularOcclusion( NoV, coatRoughness, A.Occlusion );
+    return base * ( 1.0 - coatAlbedo ) + coatRadiance * coatAlbedo * coatOcclusion;
+}

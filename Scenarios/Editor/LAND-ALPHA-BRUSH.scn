@@ -1,0 +1,30 @@
+# LAND-ALPHA-BRUSH: UE Landscape Mode's Alpha and Pattern brush sets (FLandscapeBrushAlpha / AlphaPattern).
+# The brush is weighed by one channel of a texture asset's SOURCE image, chosen from the palette.
+# NEEDS an alpha image at Assets/Landscape/Alphas/Stamp_Ridge.png (a greyscale ridge/crater stamp, e.g. a UE-style
+# landscape alpha); the palette row imports it into its .detex on the first choice.
+Дано run Landscape "Manage mode"
+Дано run Landscape "New Landscape: Create"
+Дано run Landscape "Sculpt mode"
+Дано --subject viewport set Camera.Direction 0.6,-0.6,0.6
+Дано run Landscape "Alpha texture: Landscape/Alphas/Stamp_Ridge.png"
+Дано run Landscape "Brush type: Alpha"
+Дано run Landscape "Auto-rotate: off"
+Тогда-вид 0_flat the new landscape is flat; the Tool Settings show Brush Type Alpha, Auto-Rotate off, Texture Rotation 0
+Когда run Landscape "Stroke at the viewport centre"
+Тогда-вид 1_alpha the stamp's own shape (the ridge of Stamp_Ridge.png) rises at the centre, fitted inside the brush circle: not a round dome
+Когда run Landscape "Texture rotation: +45"
+Когда run Landscape "Stroke at the viewport centre"
+Тогда-вид 2_rotated a second copy of the same stamp on top of the first, turned 45 degrees against it
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Landscape "Brush type: Pattern"
+Когда run Landscape "Texture scale: smaller"
+Когда run Landscape "Stroke at the viewport centre"
+Тогда-вид 3_pattern a round patch whose surface repeats the stamp as a tiled relief, fading to nothing at the brush edge (Smooth falloff)
+Когда run Landscape "Pattern world-space: on"
+Когда run Landscape "Stroke at the viewport centre"
+Тогда-вид 4_world the patch now carries the pattern at its world-space repeat (3200 cm tiles): larger cells than in 3_pattern
+Когда run Landscape "Brush type: Circle"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда-вид 5_undo the landscape is flat again, as in 0_flat

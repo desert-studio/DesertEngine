@@ -109,8 +109,10 @@ namespace Desert::Graphic
      *           definition (the descriptors hold the engine's black cube) — the defined answer, not a gap.
      *  - Ready: there is a sky, and its irradiance and prefiltered cubes are what the ambient reads. There is
      *           no state between the two: a procedural sky's first capture is recorded whole in its view's
-     *           first frame graph, ahead of every reader (SkyCapture), and an HDR skybox reaches the renderer
-     *           only once its cubes exist (SkyboxService). A Ready sky whose cubes do not resolve is a fault.
+     *           first frame graph, ahead of every reader (SkyCapture), and an HDR skybox the cache did not hold
+     *           is converted in the graph of the frame it arrives, ahead of every reader, the skybox it replaced
+     *           lighting until then (SkyboxRenderer::GetEnvironment). A Ready sky whose cubes do not resolve is
+     *           a fault.
      */
     enum class SkyLightState : uint8_t
     {

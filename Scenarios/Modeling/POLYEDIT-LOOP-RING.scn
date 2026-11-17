@@ -1,0 +1,60 @@
+# POLYEDIT-LOOP-RING: UE PolyEdit Select Edge Loops / Select Edge Rings (Geometry::ExpandEdges, a port of
+# FGroupTopologySelector::ExpandSelectionByEdgeLoops / ExpandSelectionByEdgeRings) - the two selection actions and
+# the two pick settings (UE's bSelectEdgeLoops / bSelectEdgeRings). A 100 cm Box, 4 x 4 x 4 subdivisions, one
+# polygroup PER QUAD (so every grid crossing on a face, and every mid-point of the box's own edges, is a corner where
+# four faces meet), centred 60 cm above the origin: x and z in [-50, 50], y in [10, 110]. PolyEdit level, Edge mode.
+# Picks come from fixed cameras aimed straight at one edge's midpoint (as POLYEDIT-2's Extrude Edge pick).
+# editor.log proof: "[Mesh Selection] Select Edge Loops: 1 -> 16 edge(s) at the Group level" and the same for Rings
+# (16 = 4 sides x 4 quad edges; each PerQuad group edge is one mesh edge).
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано --subject modeling set CreateShape.Box.WidthSubdivisions 4
+Дано --subject modeling set CreateShape.Box.DepthSubdivisions 4
+Дано --subject modeling set CreateShape.Box.HeightSubdivisions 4
+Дано run Modeling "Create shape polygroups: Per Quad"
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,60,0
+Дано run Entity Box
+Дано run Modeling "Select Elements tool"
+Дано run Modeling "Mesh selection level: PolyEdit"
+Дано run Modeling "Mesh selection mode: Edge"
+Дано run Modeling "Mesh selection: pick edge loops: off"
+Дано run Modeling "Mesh selection: pick edge rings: off"
+# The front (+Z) face's horizontal edge at mid height, x 0..25: midpoint (12.5, 60, 50), camera 200 cm in front.
+Дано --subject viewport set Camera.Position 12.5,60,250
+Дано --subject viewport set Camera.Direction 0,0,-1
+Дано run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh selection: Select Edge Loops"
+Когда --subject viewport set Camera.Position 190,190,210
+Когда --subject viewport set Camera.Direction -0.6,-0.5,-0.62
+Тогда-вид 1_loop a closed belt of highlighted edges runs all the way round the box at half height (y 60): across the front face and on round the right face and beyond, four quad edges per side; no vertical edge and no other row is highlighted
+Когда run Modeling "Mesh selection: Clear Selection"
+Когда --subject viewport set Camera.Position 12.5,60,250
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh selection: Select Edge Rings"
+Когда --subject viewport set Camera.Position 190,190,210
+Когда --subject viewport set Camera.Direction -0.6,-0.5,-0.62
+Тогда-вид 2_ring a ring of parallel, separate horizontal edges (each running along X, between x 0 and 25) climbs the front face (five of them, one on every grid row), runs back across the top face (along every row there) and down the back; it is a column of rungs one quad wide, not a connected line, and the neighbouring columns carry nothing
+# The pick setting: one click takes the whole loop. The front face's vertical edge at x 0, y 60..85: midpoint
+# (0, 72.5, 50).
+Когда run Modeling "Mesh selection: Clear Selection"
+Когда run Modeling "Mesh selection: pick edge loops: on"
+Когда --subject viewport set Camera.Position 0,72.5,250
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда --subject viewport set Camera.Position 190,190,210
+Когда --subject viewport set Camera.Direction -0.6,-0.5,-0.62
+Тогда-вид 3_pick_loop one click selected a whole vertical loop in the plane x = 0: up the middle of the front face, over the top face front to back, down the back and under the bottom; the half-height belt of 1_loop is gone (the pick replaced the selection)
+Когда run Modeling "Mesh selection: pick edge loops: off"
+Когда run Action Undo
+Когда run Action Undo
+Когда --subject viewport set Camera.Position 190,190,210
+Когда --subject viewport set Camera.Direction -0.6,-0.5,-0.62
+Тогда-вид 4_undo two Undo steps back: the Clear and then the loop pick are undone, so the ring of 2_ring is highlighted again (the pick settings are not undo steps)

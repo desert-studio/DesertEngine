@@ -13,8 +13,13 @@
 //     water), surf where the wave height outgrows the depth (H / d past the breaker index); the foam stays on the
 //     water particle that broke and decays (WaterFoamAmount). Its look and thresholds are the material's;
 //   - the interface through the SHADING MODEL (ShadingModels/SingleLayerWater.shadingmodel): the sun's specular and
-//     the environment's reflection, the volume weighted by what the split-sum Fresnel lets through; the point and
-//     spot lights of the froxel through the same model, each under its shadow; the sun under its shadow maps.
+//     the reflection, the volume weighted by what the split-sum Fresnel lets through; the point and spot lights of
+//     the froxel through the same model, each under its shadow; the sun under its shadow maps;
+//   - the REFLECTION through the view's chain (UE single layer water: SSR / Lumen reflections traced from the water's
+//     own G-buffer, then the reflection captures, then the sky): the front layer's trace where the water is the
+//     front layer (WaterRenderer draws its `WaterMesh.FrontLayer` cell into "Translucency: Front Layer G-buffer"),
+//     the view's reflection environment - the captures over the radiance cache or the sky - for the rest of the
+//     lobe, both along the one mirror direction of Mesh/Surface/WaterInterface.glslh.
 #include <Common/Velocity.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
@@ -94,6 +99,11 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 // refracts is already fogged and the surface's own light is fogged here (as Pass_Forward_Translucent.glslh).
 #include <Mesh/Surface/SceneFog.glslh>
 
+// The view's reflection environment as every forward pass reads it (the captures, the radiance cache where the view
+// traces GI), declared before Mesh/AmbientIBL.glslh, which samples it; then the front layer's traced reflection.
+#include <Mesh/Surface/ViewIndirect.glslh>
+#include <Mesh/Surface/FrontLayerReflection.glslh>
+#include <Mesh/Surface/WaterInterface.glslh>
 #include <Mesh/BRDF.glslh>
 #include <Mesh/AmbientIBL.glslh>
 #include <Generated/ShadingModels.glslh>
@@ -104,8 +114,26 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 #include <Common/ThinGeometryCoverage.glslh>
 // The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
 #include <Mesh/Surface/WaterMeshTiles.glslh>
+// The scene's air (WIND-FIELD-GPU): the gust fronts and the local sources the foliage sways by roughen the
+// ripples.
+#include <Common/WindGust.glslh>
+#include <Common/LocalWind.glslh>
 
 const float kWaterPi = 3.14159265;
+
+// THE WIND ON THE RIPPLES (WIND-FIELD-GPU; Ghost of Tsushima's gust fronts seen as cat's paws on water): the
+// factor the material's ripple tilt is scaled by at a world point - the scene's ONE wind field, the one the
+// foliage sways by. The gust fronts (WindGustScale, in [1 - Gustiness, 1]) calm the water in a lull as they still
+// a plant; a local source (LocalWindXZ, in units of the frame's reference speed) roughens it by its air, up to the
+// material's WindRippleMaxGain times its tilt at the reference speed and above. No wind (Gustiness 0, no local
+// source): exactly
+// 1, the material's look.
+float WaterWindRippleScale( vec3 worldPosition, float maxGain )
+{
+    const float gust  = WindGustScale( worldPosition.x, worldPosition.z, cameraUB.WindGust );
+    const float local = min( length( LocalWindXZ( worldPosition, false ) ), 1.0 );
+    return gust * ( 1.0 + ( maxGain - 1.0 ) * local );
+}
 
 vec3 WaterWorldAt( vec2 uv, float deviceDepth )
 {
@@ -163,13 +191,14 @@ void main()
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
-    const SurfaceOutput          s = EvaluateSurface( i );
+    SurfaceOutput                s = EvaluateSurface( i );
     const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
+    const float                  windRipple = WaterWindRippleScale( i.WorldPosition, w.WindRippleMaxGain );
+    if ( windRipple != 1.0 )
+        s.Normal = SurfaceScaleTangentNormal( s.Normal, windRipple );
 
     const vec3 V = normalize( i.CameraPosition - i.WorldPosition );
-    vec3       N = DesertSurfaceWorldNormal( i, s );
-    if ( dot( N, V ) < 0.0 )
-        N = normalize( N + V * ( 0.01 - dot( N, V ) ) ); // a ripple never faces away from the eye
+    const vec3 N = WaterFacingNormal( DesertSurfaceWorldNormal( i, s ), V );
 
     const float exposure = cameraUB.PreExposure;
     const vec3  L        = normalize( -directionLights.directionLights.Direction.xyz );
@@ -231,22 +260,21 @@ void main()
                                                   /*not a subsurface receiver*/ -1.0, S, P )
                              .Light;
 
-    vec3        R   = reflect( -V, N );
-    R.y             = abs( R.y );
-    const float NoV = max( dot( N, V ), 1e-4 );
-    DesertAmbient A;
-    A.Irradiance     = DesertAmbientIrradiance( N );
-    A.Prefiltered    = DesertAmbientSpecular( R, S.Roughness );
-    A.SpecularBRDF   = texture( BrdfLutTexture, vec2( NoV, S.Roughness ) ).rg;
-    A.Indirect       = vec3( 0.0 );
-    A.Occlusion      = 1.0;
-    A.Traced         = 0.0;
-    A.BackIrradiance = vec3( 0.0 );
-    const vec3 reflected = DesertEvaluateShadingModelAmbient( DESERT_SHADING_MODEL_INDEX, A, S, P );
+    // The reflection, along the mirror normal (the ray off a near wave face folded above the horizon): the view's
+    // reflection environment answers the lobe, the front layer's trace - where this fragment is the front layer -
+    // its own share over it (Mesh/AmbientIBL.glslh DesertComposeTracedReflection), and the split sum's Fresnel of
+    // the view angle weighs the result, as it weighs what the interface lets through below.
+    const DesertSurface SR =
+         DesertMakeSurface( i.WorldPosition, WaterMirrorNormal( N, V ), V, vec3( 0.0 ), 0.0, s.Roughness, s.Specular );
+    DesertAmbient A = DesertSampleViewAmbient( SR, vec3( 0.0 ), 1.0, gl_FragCoord.xy );
+    A.Prefiltered   = DesertComposeTracedReflection(
+         DesertFrontLayerTracedReflection( gl_FragCoord.xy, gl_FragCoord.z ), A.Prefiltered );
+    const vec3 reflected = DesertEvaluateShadingModelAmbient( DESERT_SHADING_MODEL_INDEX, A, SR, P );
 
-    // What the interface does not reflect enters the eye from the volume (UE: 1 - EnvBRDF).
-    const vec3 F0      = DesertSpecularF0( S );
-    const vec3 through = vec3( 1.0 ) - ( F0 * A.SpecularBRDF.x + A.SpecularBRDF.y );
+    // What the interface does not reflect enters the eye from the volume (UE: 1 - EnvBRDF), the reflection being the
+    // multiply-scattered lobe the model's ambient specular draws (Mesh/AmbientIBL.glslh DesertAmbientSpecularAlbedo).
+    const vec3 F0      = DesertSpecularF0( SR );
+    const vec3 through = vec3( 1.0 ) - DesertAmbientSpecularAlbedo( F0, A.SpecularBRDF );
 
     // The fog in front of the surface (pre-exposed inscattering, transmittance): the refracted scene behind is the
     // fogged copy, so only the light the water itself sends (its inscattering, the interface) is attenuated, and the

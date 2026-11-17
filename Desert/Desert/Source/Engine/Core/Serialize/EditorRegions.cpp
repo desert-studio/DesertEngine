@@ -8,6 +8,8 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
+#include <memory>
 #include <optional>
 #include <unordered_set>
 
@@ -27,10 +29,12 @@ namespace Desert::Core::EditorRegions
         };
 
         // What `regions` select of the world at `path`, decided over its descriptor index (refreshed first, so an
-        // index older than its files is rebuilt rather than used). `regions` null: the whole world.
+        // index older than its files is rebuilt rather than used). `regions` null: the whole world. Composites
+        // whose data layers are all unloaded in the editor under `layers` are not selected either way.
         Common::ResultStr<IndexSelection> SelectOverIndex( const std::filesystem::path&              path,
                                                            const WorldPartitionSerialized&           settings,
-                                                           const std::span<const Rules::CellBounds>* regions )
+                                                           const std::span<const Rules::CellBounds>* regions,
+                                                           const DataLayerOverrides&                 layers )
         {
             auto index = DescriptorIndex::Refresh( path );
             if ( !index )
@@ -40,23 +44,34 @@ namespace Desert::Core::EditorRegions
             selected.RowIds.reserve( rows.Entities.size() );
             for ( const DescriptorIndex::DescriptorRow& row : rows.Entities )
                 selected.RowIds.push_back( row.Id );
-            if ( regions == nullptr )
+            // The fast whole world: no layer is unloaded, so every record is held and nothing is planned.
+            const std::vector<bool> layerLoaded = DataLayersLoadedInEditor( settings, layers );
+            const bool everyLayerLoaded = std::all_of( layerLoaded.begin(), layerLoaded.end(),
+                                                       []( const bool loaded ) { return loaded; } );
+            if ( regions == nullptr && everyLayerLoaded )
             {
                 selected.Selection.Records = selected.RowIds;
                 return Common::MakeSuccess( std::move( selected ) );
             }
+            // std::vector<bool> is not contiguous: the selection reads one flag per layer from a plain array.
+            const std::unique_ptr<bool[]> loadedFlags = std::make_unique<bool[]>( layerLoaded.size() );
+            for ( std::size_t layer = 0; layer < layerLoaded.size(); ++layer )
+                loadedFlags[layer] = layerLoaded[layer];
+            const std::span<const bool> loaded( loadedFlags.get(), layerLoaded.size() );
             const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
             const Rules::WorldPartitionPlan            plan        = Rules::PlanWorldPartition(
                  std::span<const Rules::EntityDescriptor>( descriptors ), settings, RegistryMeshBounds() );
             // A region load names what the planner refused exactly as the cook and Play do (ReportPlanIssues).
             Rules::ReportPlanIssues( plan, path.string() );
-            selected.Selection = SelectRecords( plan, selected.RowIds, *regions );
+            selected.Selection = regions == nullptr ? SelectWholeWorld( plan, selected.RowIds, loaded )
+                                                    : SelectRecords( plan, selected.RowIds, *regions, loaded );
             return Common::MakeSuccess( std::move( selected ) );
         }
 
         // `regions` null: the whole world.
         Common::ResultStr<RegionOutcome> Hold( Scene& scene, Assets::AssetManager* assets,
-                                               const std::span<const Rules::CellBounds>* regions )
+                                               const std::span<const Rules::CellBounds>* regions,
+                                               const DataLayerOverrides&                 layers )
         {
             using Result         = RegionOutcome;
             const auto& baseline = scene.Packages()->BaselinePath();
@@ -70,7 +85,7 @@ namespace Desert::Core::EditorRegions
                      fmt::format( "'{}' is not a partitioned world: it has no regions.", path.string() ) );
 
             // The world as its files describe it - nothing of an entity outside the regions is read.
-            auto selected = SelectOverIndex( path, *scene.GetWorldPartition(), regions );
+            auto selected = SelectOverIndex( path, *scene.GetWorldPartition(), regions, layers );
             if ( !selected )
                 return Common::MakeError<Result>( selected.GetError() );
             const std::vector<std::uint64_t>& rowIds = selected.GetValue().RowIds;
@@ -158,54 +173,138 @@ namespace Desert::Core::EditorRegions
         }
     } // namespace
 
-    RegionSelection SelectRecords( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
-                                   std::span<const Rules::CellBounds> regions )
+    std::vector<bool> DataLayersLoadedInEditor( const WorldPartitionSerialized& settings,
+                                                const DataLayerOverrides&       overrides )
     {
-        RegionSelection                       selection;
-        std::vector<bool>                     take( rowIds.size(), false );
-        std::unordered_set<std::size_t> const always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
-        for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
+        std::vector<bool> loaded;
+        if ( !settings.DataLayers.has_value() )
+            return loaded;
+        const auto names = []( const std::vector<std::string>& list, const std::string& name )
+        { return std::find( list.begin(), list.end(), name ) != list.end(); };
+        for ( const DataLayerSerialized& layer : *settings.DataLayers )
         {
-            const Rules::PlannedComposite& composite = plan.Composites[c];
-            bool                           hold      = false;
-            if ( always.contains( c ) )
-            {
-                hold = true;
-                ++selection.AlwaysLoaded;
-            }
-            else if ( !composite.Footprint.has_value() )
-                ++selection.Unplaced;
-            else
-            {
-                const Rules::CellBounds& footprint = *composite.Footprint;
-                for ( const Rules::CellBounds& region : regions )
-                    if ( Meets( footprint, region ) )
-                    {
-                        hold = true;
-                        ++selection.InRegions;
-                        break;
-                    }
-            }
-            if ( hold )
-                for ( const std::size_t member : composite.Members )
-                    if ( member < take.size() )
-                        take[member] = true;
+            bool state = layer.InitiallyLoadedInEditor;
+            if ( names( overrides.NotLoaded, layer.Name ) )
+                state = false;
+            if ( names( overrides.Loaded, layer.Name ) )
+                state = true;
+            loaded.push_back( state );
         }
-        for ( std::size_t r = 0; r < rowIds.size(); ++r )
-            if ( take[r] )
-                selection.Records.push_back( rowIds[r] );
-        return selection;
+        return loaded;
+    }
+
+    DataLayerOverrides WithDataLayerLoaded( const WorldPartitionSerialized& settings, DataLayerOverrides overrides,
+                                            const std::string& name, const bool loaded )
+    {
+        std::erase( overrides.Loaded, name );
+        std::erase( overrides.NotLoaded, name );
+        const std::optional<std::size_t> layer = Rules::DataLayerIndexOf( settings, name );
+        const bool initially = layer.has_value() && ( *settings.DataLayers )[*layer].InitiallyLoadedInEditor;
+        if ( loaded && !initially )
+            overrides.Loaded.push_back( name );
+        if ( !loaded && initially )
+            overrides.NotLoaded.push_back( name );
+        return overrides;
+    }
+
+    namespace
+    {
+        // Whether a composite's data layers let the editor hold it: no layer, or ANY of its layers loaded (UE
+        // UDataLayerManager::ResolveIsLoadedInEditor). A layer index past `layerLoaded` reaches no layer the
+        // caller knows of and does not hold the composite back.
+        bool LayersHold( const Rules::PlannedComposite& composite, std::span<const bool> layerLoaded )
+        {
+            if ( composite.DataLayers.empty() )
+                return true;
+            return std::any_of( composite.DataLayers.begin(), composite.DataLayers.end(),
+                                [&]( const std::size_t layer )
+                                { return layer >= layerLoaded.size() || layerLoaded[layer]; } );
+        }
+
+        // SelectRecords and SelectWholeWorld: `regions` null = the whole world (every composite, placed or not).
+        RegionSelection Select( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
+                                const std::span<const Rules::CellBounds>* regions, std::span<const bool> layerLoaded )
+        {
+            RegionSelection selection;
+            // The whole world starts from every record (a record no composite lists is still the world's);
+            // regions start from none.
+            std::vector<bool>                     take( rowIds.size(), regions == nullptr );
+            std::unordered_set<std::size_t> const always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
+            for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
+            {
+                const Rules::PlannedComposite& composite = plan.Composites[c];
+                if ( !LayersHold( composite, layerLoaded ) )
+                {
+                    ++selection.UnloadedByDataLayers;
+                    for ( const std::size_t member : composite.Members )
+                        if ( member < take.size() )
+                            take[member] = false;
+                    continue;
+                }
+                if ( regions == nullptr )
+                {
+                    if ( always.contains( c ) )
+                        ++selection.AlwaysLoaded;
+                    else if ( !composite.Footprint.has_value() )
+                        ++selection.Unplaced;
+                    else
+                        ++selection.InRegions;
+                    continue;
+                }
+                bool hold = false;
+                if ( always.contains( c ) )
+                {
+                    hold = true;
+                    ++selection.AlwaysLoaded;
+                }
+                else if ( !composite.Footprint.has_value() )
+                    ++selection.Unplaced;
+                else
+                {
+                    const Rules::CellBounds& footprint = *composite.Footprint;
+                    for ( const Rules::CellBounds& region : *regions )
+                        if ( Meets( footprint, region ) )
+                        {
+                            hold = true;
+                            ++selection.InRegions;
+                            break;
+                        }
+                }
+                if ( hold )
+                    for ( const std::size_t member : composite.Members )
+                        if ( member < take.size() )
+                            take[member] = true;
+            }
+            for ( std::size_t r = 0; r < rowIds.size(); ++r )
+                if ( take[r] )
+                    selection.Records.push_back( rowIds[r] );
+            return selection;
+        }
+    } // namespace
+
+    RegionSelection SelectWholeWorld( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
+                                      std::span<const bool> layerLoaded )
+    {
+        return Select( plan, rowIds, nullptr, layerLoaded );
+    }
+
+    RegionSelection SelectRecords( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
+                                   std::span<const Rules::CellBounds> regions, std::span<const bool> layerLoaded )
+    {
+        return Select( plan, rowIds, &regions, layerLoaded );
     }
 
     Common::ResultStr<RegionOutcome> LoadRegions( Scene& scene, Assets::AssetManager* assets,
-                                                  std::span<const Rules::CellBounds> regions )
+                                                  std::span<const Rules::CellBounds> regions,
+                                                  const DataLayerOverrides&          layers )
     {
-        return Hold( scene, assets, &regions );
+        return Hold( scene, assets, &regions, layers );
     }
 
-    Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets )
+    Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets,
+                                                     const DataLayerOverrides& layers )
     {
-        return Hold( scene, assets, nullptr );
+        return Hold( scene, assets, nullptr, layers );
     }
 
     Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path, const HeldRegions& held )
@@ -235,10 +334,10 @@ namespace Desert::Core::EditorRegions
             return Common::MakeError<Result>( fmt::format(
                  "'{}' lists its entities in files but states no WorldPartition block.", path.string() ) );
 
-        // What a load of `held` holds (LoadRegions( scene, held.Regions ) or LoadWholeWorld).
+        // What a load of `held` holds (LoadRegions( scene, held.Regions, held.DataLayers ) or LoadWholeWorld).
         const std::span<const Rules::CellBounds> regions( held.Regions );
-        auto                                     selected =
-             SelectOverIndex( path, *header.GetValue().Scene.WorldPartition, held.Whole ? nullptr : &regions );
+        auto selected = SelectOverIndex( path, *header.GetValue().Scene.WorldPartition,
+                                         held.Whole ? nullptr : &regions, held.DataLayers );
         if ( !selected )
             return Common::MakeError<Result>( selected.GetError() );
         read.Selection = selected.GetValue().Selection;

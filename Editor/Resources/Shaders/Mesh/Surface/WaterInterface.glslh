@@ -1,0 +1,39 @@
+#ifndef DESERT_WATER_INTERFACE_GLSLH
+#define DESERT_WATER_INTERFACE_GLSLH
+
+// THE WATER INTERFACE'S TWO NORMALS, stated once for the water's shading (Pass_SingleLayerWater.glslh) and its front
+// layer (Pass_FrontLayer.glslh under DESERT_SURFACE_PATH_WaterMesh), so the reflection trace starts from exactly the
+// normal the surface reflects the environment with. No bindings: a fragment stage of either cell includes it.
+
+// The shading normal: a ripple never faces away from the eye. A normal tilted past the silhouette would light and
+// reflect the side of the wave the eye cannot see; it is bent back just past grazing.
+vec3 WaterFacingNormal( vec3 N, vec3 V )
+{
+    const float NoV = dot( N, V );
+    if ( NoV >= 0.0 )
+        return N;
+    return normalize( N + V * ( 0.01 - NoV ) );
+}
+
+// The normal the water MIRRORS with. On a face of a wave turned toward the eye (the near side of a crest, any ripple
+// at a low view) reflect(-V, N) dips below the horizon: that ray runs into the next wave of the same surface, which
+// sends it up again - the reflection off the still plane, R with its height mirrored (UE's water: the environment
+// of a surface seen from above is of the upper hemisphere). Read the lower hemisphere instead and the near faces
+// reflect the ground under the sky cube (black) or, traced, the bed under the water itself, smeared along the ray.
+// Returned as the half vector between V and that folded ray, so reflect(-V, result) IS the folded ray: the trace
+// (which reflects the front layer's normal) and the reflection environment (which reflects the shading surface's)
+// take one direction with no second statement of the fold. Where the ray already leaves upward it is N itself.
+vec3 WaterMirrorNormal( vec3 N, vec3 V )
+{
+    vec3 R = reflect( -V, N );
+    if ( R.y >= 0.0 )
+        return N;
+    R.y          = -R.y;
+    const vec3 H = V + R;
+    // V + R = 0 only for a ray straight back at the eye, which a front face never reflects.
+    if ( dot( H, H ) <= 1e-8 )
+        return N;
+    return normalize( H );
+}
+
+#endif // DESERT_WATER_INTERFACE_GLSLH

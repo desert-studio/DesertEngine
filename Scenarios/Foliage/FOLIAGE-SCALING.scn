@@ -1,0 +1,55 @@
+# FOLIAGE-SCALING: a foliage type scales per axis by UE EFoliageScaling (Uniform/Free/LockXY/LockXZ/LockYZ) through
+# Assets::Serialization::FoliageScaleFromDraws, the rule the grass varieties share. GameplayProof.desce (flat ground at
+# y = 0); one type, Foliage/Proof/FS_Cube (Meshes/Modeling/Box, Density 20 per 10x10 m, no yaw, upright). Paint spots are
+# aimed with the camera at 45 deg: Position (X, 1500, Z+1500) + Direction 0,-1,-1 puts the brush at (X, ground, Z).
+# The left strip is x = -700, the right x = +700, both along z = -600..-1100. Type edits are the Details panel's
+# (written to the .defoliage and read back), so they are not undo steps; the Undo undoes the Reapply stroke only.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/GameplayProof.desce
+Дано run View "View mode: Lit"
+Дано run Foliage "Add type to the palette: FS_Cube"
+Дано run Foliage "Edited type scaling: Uniform"
+Дано run Foliage "Edited type Scale X: 1"
+Дано run Foliage "Edited type Scale Y: 1"
+Дано run Foliage "Edited type Scale Z: 1"
+Дано run Foliage "Tool: Paint"
+# 1: Uniform, ScaleX 1: the left strip of 100 cm cubes.
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда --subject viewport set Camera.Position -700,1500,900
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position -700,1500,400
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 0,900,700
+Когда --subject viewport set Camera.Direction 0,-0.55,-1
+Тогда-вид 1_uniform a strip of equal 100 cm cubes on the left (x = -700), nothing on the right
+# 2: Free, ScaleX 0.3, ScaleY 0.3, ScaleZ 3: the right strip of thin tall pillars.
+Когда run Foliage "Edited type scaling: Free"
+Когда run Foliage "Edited type Scale X: 0.3"
+Когда run Foliage "Edited type Scale Y: 0.3"
+Когда run Foliage "Edited type Scale Z: 3"
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда --subject viewport set Camera.Position 700,1500,900
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 700,1500,400
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 0,900,700
+Когда --subject viewport set Camera.Direction 0,-0.55,-1
+Тогда-вид 2_free right strip: thin tall pillars (30 x 30 x 300 cm); the left cubes unchanged
+# 3: LockXY, ScaleX 2, ScaleZ 0.5; Reapply (Scale switch on) over the right strip: wide flat slabs.
+Когда run Foliage "Edited type scaling: Lock XY"
+Когда run Foliage "Edited type Scale X: 2"
+Когда run Foliage "Edited type Scale Z: 0.5"
+Когда run Foliage "Tool: Reapply"
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда --subject viewport set Camera.Position 700,1500,900
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 700,1500,400
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 0,900,700
+Когда --subject viewport set Camera.Direction 0,-0.55,-1
+Тогда-вид 3_reapply_lockxy right strip: wide flat slabs (200 x 200 x 50 cm) at the pillars' spots; the left cubes unchanged
+# 4: Undo the second Reapply stroke, then the first: the pillars again.
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда-вид 4_undo right strip: thin tall pillars again, as in 2_free
+# 5: the type's Details in the Foliage panel under Lock XY: Scaling, Scale X and Scale Z rows, no Scale Y.
+Тогда 5_details the Foliage panel's type settings: Scaling "Lock XY", a Scale X row and a Scale Z row, no Scale Y row

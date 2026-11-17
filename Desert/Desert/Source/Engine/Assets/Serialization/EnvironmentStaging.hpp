@@ -64,7 +64,7 @@ namespace Desert::Assets
                         kSkyEnvIrradianceSourceFace <= kSkyEnvCubeFaceSize &&
                         kSkyEnvIrradianceSourceMip < kSkyEnvRadianceMips,
                    "the irradiance's source mip must be a mip the radiance cube has" );
-    /// The format every one of the three cubes is COMPUTED at (`ComputeImages::ProccessForImageCube`).
+    /// The format every one of the three cubes is COMPUTED at (`System::SkyCapture::AllocateCubes`).
     /// Written down HERE as well as there because the container records it and the load has to refuse
     /// a file whose pixels are a different size from the image it is about to fill.
     inline constexpr Core::Formats::ImageFormat kEnvironmentComputeFormat = Core::Formats::ImageFormat::RGBA32F;

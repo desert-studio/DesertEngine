@@ -39,6 +39,15 @@ namespace Desert::Graphic
     // implemented on this platform): the caller then refuses the HDR output, it does not invent a headroom.
     [[nodiscard]] Common::ResultStr<DisplayLuminance> QueryDisplayLuminance( void* nativeWindow );
 
+    // One code of a UNORM target of @p bits per channel, 1 / (2^bits - 1); 0 when there is nothing to quantise
+    // (0 bits: a float target). The one formula for every dithered display encode (back buffer, movie frame).
+    [[nodiscard]] constexpr float QuantizationStepForBits( const uint32_t bits ) noexcept
+    {
+        if ( bits == 0u || bits >= 32u )
+            return 0.0f;
+        return 1.0f / static_cast<float>( ( 1u << bits ) - 1u );
+    }
+
     // What the swapchain presents with this frame.
     struct DisplayOutputState
     {
@@ -47,12 +56,33 @@ namespace Desert::Graphic
         float Headroom       = 1.0f;
         float PaperWhiteNits = 0.0f;
         float PeakNits       = 0.0f;
+        // The bits per colour channel the back buffer's final write quantises to (SDR-10BIT-DITHER): 8 on BGRA8,
+        // 10 on the 10-bit SDR surface, 0 on the half-float scRGB surface (nothing to quantise). The display
+        // encode (SwapchainBlit.shader, the pass that writes the back buffer) sizes its dither to one code of this
+        // depth.
+        uint32_t QuantizationBits = 8;
 
         [[nodiscard]] bool IsHDR() const
         {
             return Output != Common::Scalability::DisplayOutput::SDR_sRGB;
         }
+
+        // One code of the back buffer, 1 / (2^bits - 1); 0 when there is nothing to quantise (a float surface).
+        [[nodiscard]] float QuantizationStep() const noexcept
+        {
+            return QuantizationStepForBits( QuantizationBits );
+        }
     };
+
+    // SwapchainBlit.shader's push constants: the display encode's dither width (DisplayOutputState::
+    // QuantizationStep), pushed by each writer of the back buffer through it (RuntimeLayer RuntimePresent, the
+    // editor's VulkanImGui DisplayEncode). The scRGB encode (DisplayEncodeScRGB.shader) writes floats and has
+    // none.
+    struct DisplayEncodePush
+    {
+        float OutputQuantizationStep = 0.0f;
+    };
+    static_assert( sizeof( DisplayEncodePush ) == 4 );
 
     // Render thread. The swapchain's last (re)build; SDR until one published.
     [[nodiscard]] const DisplayOutputState& CurrentDisplayOutput();

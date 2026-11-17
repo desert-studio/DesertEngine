@@ -5,6 +5,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -189,7 +190,7 @@ namespace Desert::Editor
             m_Undo.push_back( std::move( command ) );
             if ( m_Undo.size() > kMaxEntries )
                 m_Undo.erase( m_Undo.begin() );
-            ++m_Revision;
+            Bump();
         }
 
     public:
@@ -216,7 +217,7 @@ namespace Desert::Editor
             joined->m_Stamps.insert( joined->m_Stamps.end(), joined->Second().m_Stamps.begin(),
                                      joined->Second().m_Stamps.end() );
             m_Undo.push_back( std::move( joined ) );
-            ++m_Revision;
+            Bump();
             return true;
         }
 
@@ -250,7 +251,7 @@ namespace Desert::Editor
                     LOG_INFO( "[History] undo '{0}' ({1} left)", cmd->GetLabel(), m_Undo.size() );
                     ApplyStamps( *cmd, true );
                     m_Redo.push_back( std::move( cmd ) );
-                    ++m_Revision;
+                    Bump();
                     return true;
                 }
                 LOG_WARN( "[History] '{0}' could not be undone (its target is gone) - dropped", cmd->GetLabel() );
@@ -269,7 +270,7 @@ namespace Desert::Editor
                     LOG_INFO( "[History] redo '{0}' ({1} left)", cmd->GetLabel(), m_Redo.size() );
                     ApplyStamps( *cmd, false );
                     m_Undo.push_back( std::move( cmd ) );
-                    ++m_Revision;
+                    Bump();
                     return true;
                 }
             }
@@ -283,6 +284,15 @@ namespace Desert::Editor
             return m_Revision;
         }
 
+        // THE DOCUMENT'S REVISION (PIE-UNDO-KEEP): Revision() less every bump a Play session made - its records, its
+        // undo/redo, the barrier itself. The played world is not the document (UE: PIE never dirties the level's
+        // package), so "unsaved changes" (SceneFiles) compares THIS one: a Play/Stop round trip leaves a saved scene
+        // clean and a dirty one dirty. Never decreases; Revision() stays the counter for "did the history change".
+        uint64_t DocumentRevision() const
+        {
+            return m_Revision - m_SessionRevisions;
+        }
+
         // Drops only the pointer-based (volatile) entries; UUID-addressed structural commands survive.
         void DropVolatile()
         {
@@ -292,6 +302,11 @@ namespace Desert::Editor
             };
             drop( m_Undo );
             drop( m_Redo );
+            for ( Barrier& barrier : m_Barriers )
+            {
+                drop( barrier.Undo );
+                drop( barrier.Redo );
+            }
         }
 
         // Forgets every record (undo and redo) that writes into @p object. An asset editor calls it when it
@@ -308,6 +323,11 @@ namespace Desert::Editor
             };
             drop( m_Undo );
             drop( m_Redo );
+            for ( Barrier& barrier : m_Barriers )
+            {
+                drop( barrier.Undo );
+                drop( barrier.Redo );
+            }
         }
 
         // DropFor by a question other than "which object": the records `drops` answers true for, from both
@@ -316,16 +336,95 @@ namespace Desert::Editor
         template <typename Predicate>
         size_t DropIf( Predicate drops )
         {
-            const size_t before = m_Undo.size() + m_Redo.size();
-            std::erase_if( m_Undo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
-            std::erase_if( m_Redo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
-            return before - ( m_Undo.size() + m_Redo.size() );
+            size_t     dropped = 0;
+            const auto drop    = [&]( std::vector<std::unique_ptr<ICommand>>& stack )
+            { dropped += std::erase_if( stack, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } ); };
+            drop( m_Undo );
+            drop( m_Redo );
+            for ( Barrier& barrier : m_Barriers )
+            {
+                drop( barrier.Undo );
+                drop( barrier.Redo );
+            }
+            return dropped;
         }
 
+        // A PLAY SESSION FENCES THE HISTORY, IT DOES NOT ERASE IT (PIE-UNDO-KEEP). UE sets an undo barrier when PIE
+        // starts ("so that transactions prior to PIE can't be undone", UEditorEngine, PlayLevel.cpp:2972) and removes
+        // it in EndPlayMap (:677): after Stop, Ctrl+Z walks the editor's history again. Here the played world IS the
+        // edit world (the Scene runs; Stop clears it and loads the snapshot back into it), so the fence is stricter
+        // than UE's index into one buffer: SetUndoBarrier PARKS both stacks - neither an undo nor a redo of an
+        // edit-world record may write into the played world - and the session records onto empty ones.
+        // Volatile records must be gone before (DropVolatile): Play relocates every component pool they point into.
+        void SetUndoBarrier()
+        {
+            Barrier barrier;
+            barrier.Undo = std::move( m_Undo );
+            barrier.Redo = std::move( m_Redo );
+            m_Undo.clear();
+            m_Redo.clear();
+            m_Barriers.push_back( std::move( barrier ) );
+            Bump();
+            LOG_INFO( "[History] undo barrier set: {0} undo / {1} redo step(s) parked until Stop",
+                      m_Barriers.back().Undo.size(), m_Barriers.back().Redo.size() );
+        }
+
+        // Ends the innermost session: what it recorded against the played world goes (Stop rebuilds that world from
+        // the snapshot, so those records name state the document never had; UE instead resets the WHOLE buffer when
+        // a PIE object got into it, PlayLevel.cpp:496), its asset edits stay on top (UE keeps a transaction on a
+        // material edited during PIE), and the parked stacks come back under them - the parked redo branch only
+        // when the session kept nothing, since a kept edit is newer than every record in it. False when no barrier
+        // is up (nothing changes).
+        bool RemoveUndoBarrier()
+        {
+            if ( m_Barriers.empty() )
+                return false;
+            Bump(); // the session's own bump: the document did not change
+            Barrier parked = std::move( m_Barriers.back() );
+            m_Barriers.pop_back();
+            std::vector<std::unique_ptr<ICommand>> kept;
+            std::size_t                            dropped = m_Redo.size();
+            for ( std::unique_ptr<ICommand>& command : m_Undo )
+            {
+                if ( OutlivesPlayedWorld( *command ) )
+                    kept.push_back( std::move( command ) );
+                else
+                    ++dropped;
+            }
+            const std::size_t keptCount = kept.size();
+            m_Undo                      = std::move( parked.Undo );
+            m_Redo.clear();
+            if ( kept.empty() )
+                m_Redo = std::move( parked.Redo );
+            for ( std::unique_ptr<ICommand>& command : kept )
+                m_Undo.push_back( std::move( command ) );
+            if ( m_Undo.size() > kMaxEntries )
+                m_Undo.erase( m_Undo.begin(),
+                              m_Undo.begin() + static_cast<std::ptrdiff_t>( m_Undo.size() - kMaxEntries ) );
+            LOG_INFO( "[History] undo barrier removed: {0} step(s) of the session dropped, {1} kept; "
+                      "{2} undo / {3} redo step(s) back",
+                      dropped, keptCount, m_Undo.size(), m_Redo.size() );
+            return true;
+        }
+
+        // How many sessions fence the history (0 outside Play). Undo/Redo stop at the innermost barrier: the live
+        // stacks are the session's (UE: "Hit Undo Barrier; can't undo any further", UTransBuffer::CanUndo).
+        [[nodiscard]] std::size_t UndoBarrierDepth() const
+        {
+            return m_Barriers.size();
+        }
+
+        // A new document: nothing of the old one can be undone, during a Play session or after it. The barriers
+        // themselves stay, so the session that set one still removes it.
         void Clear()
         {
             m_Undo.clear();
             m_Redo.clear();
+            for ( Barrier& barrier : m_Barriers )
+            {
+                barrier.Undo.clear();
+                barrier.Redo.clear();
+            }
         }
 
         // Read-only views for the History panel (bottom = oldest, back = the next Undo target).
@@ -472,5 +571,28 @@ namespace Desert::Editor
         std::weak_ptr<::Desert::Core::IEditStamps> m_Packages;
         std::vector<Common::UUID>                  m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
+
+        // One Play session's fence: the stacks it parked (SetUndoBarrier), innermost last.
+        struct Barrier
+        {
+            std::vector<std::unique_ptr<ICommand>> Undo;
+            std::vector<std::unique_ptr<ICommand>> Redo;
+        };
+        std::vector<Barrier> m_Barriers;
+        uint64_t             m_SessionRevisions = 0; // bumps made while a barrier was up (DocumentRevision)
+
+        void Bump()
+        {
+            ++m_Revision;
+            if ( !m_Barriers.empty() )
+                ++m_SessionRevisions;
+        }
+
+        // A record the end of a Play session keeps: an asset edit (it names no scene file) that holds no address
+        // inside the world Stop rebuilds. Everything else a session recorded edits the played world.
+        static bool OutlivesPlayedWorld( const ICommand& command )
+        {
+            return command.EditedObject() != nullptr && !command.IsVolatile();
+        }
     };
 } // namespace Desert::Editor

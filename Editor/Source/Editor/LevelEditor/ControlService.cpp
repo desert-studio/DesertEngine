@@ -178,6 +178,20 @@ namespace Desert::Editor
                 if ( !current )
                     return Common::MakeError<bool>( std::string(
                          "the world is not partitioned; set 'WorldPartition' to the whole block first" ) );
+                // `set world WorldPartition.DataLayers <json list>`: the world's data layers as a whole (UE's Data
+                // Layer Outliner New / Delete / Initially Loaded in one edit); `[]` states none, so no key is written.
+                if ( property == "WorldPartition.DataLayers" )
+                {
+                    auto parsed = Common::Json::Read<std::vector<::Desert::Core::DataLayerSerialized>>( text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( "WorldPartition.DataLayers: " + parsed.GetError() );
+                    after            = *current;
+                    after.DataLayers = parsed.GetValue().empty()
+                                            ? std::nullopt
+                                            : std::optional<std::vector<::Desert::Core::DataLayerSerialized>>(
+                                                   std::move( parsed.GetValue() ) );
+                    return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+                }
                 if ( property == "WorldPartition.ChunkRegionSize" )
                 {
                     // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
@@ -194,7 +208,8 @@ namespace Desert::Editor
                 const std::size_t dot = property.rfind( '.' );
                 if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
                     return Common::MakeError<bool>( std::format(
-                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize or WorldPartition.Grids.<Name>.<Field>", property ) );
+                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, WorldPartition.DataLayers or "
+                         "WorldPartition.Grids.<Name>.<Field>", property ) );
                 const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
                 const std::string field = property.substr( dot + 1 );
                 after                   = *current;
@@ -308,8 +323,8 @@ namespace Desert::Editor
     //   OnUpdate      ServiceControlChannel()   read a request, run it, arm the gate
     //   OnUpdate      ...deferred queues drain, the scene renders...
     //   OnUpdate      SampleFrameQuiescence()   what was still outstanding while this frame was made
-    //   OnUIRender ...the interface is recorded into the swapchain...
-    //   present
+    //   OnUIRender    RecordWindowCaptureIfDue()  the interface's draw, then (when due) the copy, are enqueued
+    //   render task   interface graph (acquires the back buffer), the copy, submit, present
     //   OnFramePresented                        judge the frame; take the shot; release the reply
     // =============================================================================================
 
@@ -550,7 +565,8 @@ namespace Desert::Editor
 
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
                                                 const bool texturesStreaming, const bool hlodBuildRunning,
-                                                const bool meshDropsLoading )
+                                                const bool meshDropsLoading,
+                                                const bool modelingPreviewOutstanding )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -565,6 +581,9 @@ namespace Desert::Editor
             quiescence.Set( Control::PendingWork::ModelingAccept,
                             modeling.ReqAccept && modeling.ActiveTool != Core::ModelingState::Tool::None );
         }
+        // UE UMeshOpPreviewWithBackgroundCompute: the preview is valid only once its compute has landed. Sampled
+        // before the viewport pass, so a tool opened or a setting changed by this frame's command already counts.
+        quiescence.Set( Control::PendingWork::ModelingPreview, modelingPreviewOutstanding );
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneFiles.HasPendingLoad() );
         quiescence.Set( Control::PendingWork::NewScene, m_SceneFiles.HasPendingNew() );
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
@@ -2067,6 +2086,11 @@ namespace Desert::Editor
         //
         // So the editor asks the gate, before the submit, whether THIS frame is the one the reply waits
         // for — the same question, on the same inputs, that OnFramePresented will answer afterwards.
+        //
+        // The answer is given here, on the game thread; the copy is recorded on the render task. The swapchain
+        // image is acquired late, by the interface graph's back-buffer import (PRESENT-COST-2), so the copy
+        // goes into a job of this frame queued behind the interface's draw and ahead of its submit and present
+        // (ViewportCapture::RecordWindowCapture).
         if ( !m_ControlInFlight || m_ControlInFlight->Operation != Control::Op::ShotWindow )
             return;
         // THE EFFECT WAIT AND NOT THE READINESS ONE. A shot parked behind the readiness gate has not been

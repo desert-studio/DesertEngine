@@ -208,7 +208,7 @@ TEST( CanvasOverScene, TheUIPointIsAddedAfterEverythingThatDrawsTheScene )
     };
     const std::size_t ui = at( "AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );" );
     EXPECT_GT( ui, at( "AddFrameBasePass( graph, textures );" ) );
-    EXPECT_GT( ui, at( "AddFrameTranslucency( graph, textures );" ) );
+    EXPECT_GT( ui, at( "AddFrameTranslucency( graph, textures, frame );" ) );
     EXPECT_GT( ui, at( "AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );" ) );
     // ...and the negative side: the post chain starts after it.
     EXPECT_LT( ui, at( "AddFrameJumpFlood( graph, textures );" ) );

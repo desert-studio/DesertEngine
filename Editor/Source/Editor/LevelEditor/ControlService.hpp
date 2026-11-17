@@ -13,8 +13,8 @@
 //   OnUpdate      ServiceChannel()            read a request, run it, arm the gate
 //   OnUpdate      ...deferred queues drain, the scene renders...
 //   OnUpdate      SampleFrameQuiescence()     what was still outstanding while this frame was made
-//   OnUIRender    RecordWindowCaptureIfDue()  ...the interface is recorded into the swapchain...
-//   present
+//   OnUIRender    RecordWindowCaptureIfDue()  the interface's draw is enqueued, then (when due) the copy behind it
+//   render task                               interface graph (acquires the back buffer), copy, submit, present
 //   OnFramePresented                          judge the frame; take the shot; release the reply
 
 #include "Editor/Core/CommandPalette.hpp"
@@ -82,8 +82,11 @@ namespace Desert::Editor
         // @p hlodBuildRunning: a Build HLODs started by a command is still baking
         // (WorldPartitionPanel::TickBuild).
         // @p meshDropsLoading: a viewport's AsyncMeshLoader still imports or has not spawned a dropped mesh.
+        // @p modelingPreviewOutstanding: the active viewport's modeling tool preview has not landed
+        // (ViewportPanel::ModelingPreviewOutstanding).
         void SampleFrameQuiescence( bool startupLoading, bool reflectionCapturesFilling, bool texturesStreaming,
-                                    bool hlodBuildRunning, bool meshDropsLoading );
+                                    bool hlodBuildRunning, bool meshDropsLoading,
+                                    bool modelingPreviewOutstanding );
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
         // between its acquire and its present.
         //

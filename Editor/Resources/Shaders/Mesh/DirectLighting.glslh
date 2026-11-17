@@ -30,7 +30,8 @@
 // it compile as C++, so Desert/Tests/Engine/DirectLighting asserts these properties on the shipped text
 // rather than on a paraphrase of it.
 //
-// Requires Mesh/BRDF.glslh (PI, DistributionGGX, VisibilitySmith, fresnelSchlick) first.
+// Requires Mesh/BRDF.glslh (PI, DistributionGGX, VisibilitySmith, fresnelSchlick, GGXSpecularAlbedo,
+// GGXEnergyCompensation, GGXMultipleScatteringShare) first.
 
 // The Cook-Torrance response of a surface to ONE analytic light.
 //
@@ -59,8 +60,10 @@ vec3 EvaluateDirectLightSpecular(vec3 L, vec3 radiance, vec3 view, vec3 N, vec3 
 	vec3  H     = normalize(view + L);
 	float cosLh = max(dot(N, H), 0.0);
 	float cosLo = max(dot(N, view), 0.0);
+	// The same lobe, multiple scattering included, as EvaluateDirectLight's specular below.
+	vec3 compensation = GGXEnergyCompensation(F0, GGXSpecularAlbedo(cosLo, roughness));
 	return DistributionGGX(cosLh, roughness) * VisibilitySmith(cosLi, cosLo, roughness) *
-	       fresnelSchlick(F0, max(dot(H, view), 0.0)) * radiance * cosLi;
+	       fresnelSchlick(F0, max(dot(H, view), 0.0)) * compensation * radiance * cosLi;
 }
 
 vec3 EvaluateDirectLight(vec3 L, vec3 radiance, vec3 view, vec3 N, vec3 F0, float metalness,
@@ -80,11 +83,15 @@ vec3 EvaluateDirectLight(vec3 L, vec3 radiance, vec3 view, vec3 N, vec3 F0, floa
 	float Vis = VisibilitySmith(cosLi, cosLo, roughness);
 	vec3  F   = fresnelSchlick(F0, max(dot(H, view), 0.0));
 
-	vec3 specular = D * Vis * F;
+	// Multiple scattering (Mesh/BRDF.glslh GGXEnergyCompensation): the single-scattering lobe times
+	// W = 1 + F0 * (1 / E - 1), E its preintegrated albedo at this N.V and roughness, so a rough metal reflects
+	// what it receives instead of darkening with roughness.
+	float specularAlbedo = GGXSpecularAlbedo(cosLo, roughness);
+	vec3  specular       = D * Vis * F * GGXEnergyCompensation(F0, specularAlbedo);
 
-	// Energy split: what Fresnel does not reflect is available to the diffuse lobe, and a conductor has
-	// no diffuse lobe at all.
-	vec3 kd      = (1.0 - F) * (1.0 - metalness);
+	// Energy split: what Fresnel does not reflect is available to the diffuse lobe, less what the
+	// multiply-scattered specular took, F0 * (1 - E); and a conductor has no diffuse lobe at all.
+	vec3 kd      = (1.0 - F) * (1.0 - metalness) * (vec3(1.0) - GGXMultipleScatteringShare(F0, specularAlbedo));
 	vec3 diffuse = kd * albedo / PI; // Lambert BRDF = albedo/PI. NOT albedo.
 
 	return (diffuse + specular) * radiance * cosLi;

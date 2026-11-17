@@ -28,7 +28,7 @@ function(_desert_engine_module_library name)
     # Platform split by path: a Windows/ or MacOS/ directory compiles on that platform only.
     macro(_desert_add rel abs)
         if("${rel}" MATCHES "^Platform/Windows/" OR "${rel}" MATCHES "^Engine/Graphic/Upscalers/"
-           OR "${rel}" MATCHES "/Streamline/" OR "${rel}" MATCHES "/FidelityFX/")
+           OR "${rel}" MATCHES "/Streamline/" OR "${rel}" MATCHES "/FidelityFX/" OR "${rel}" MATCHES "/D3D12/")
             list(APPEND _windows "${abs}")
         elseif("${rel}" MATCHES "^Platform/MacOS/" OR "${rel}" MATCHES "\\.mm$")
             list(APPEND _mac "${abs}")

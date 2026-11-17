@@ -43,6 +43,9 @@ namespace Desert::Editor
         // The two halves of a window capture: recorded into the frame being built (the swapchain image is
         // ours only between acquire and present), collected once that present went out. A refusal while
         // recording is carried to the collect half so it names the real reason.
+        // RecordWindowCapture: GAME THREAD, after the interface's draw was enqueued (VulkanImGui::End) and before
+        // the frame's submit. It enqueues the copy as a render-task job behind that draw, where the late-acquired
+        // back buffer exists and is ready to present (UE: FSlateRHIRenderer::PrepareToTakeScreenshot).
         void               RecordWindowCapture();
         [[nodiscard]] bool WriteWindowPng( const std::string& path, std::string& outError );
         // HDR-OUTPUT p3: after a window shot of an HDR output, the peak of the tonemap's HDR rendition of the same
@@ -55,6 +58,8 @@ namespace Desert::Editor
                                                                uint32_t& outHeight );
 
         SceneWorkspace& m_Workspace;
-        std::string     m_CaptureError;
+        // Written by RecordWindowCapture or by the render-task job it enqueued; read by WriteWindowPng only behind
+        // the fence that finished that frame's jobs (Application::Run step 4b or 7).
+        std::string m_CaptureError;
     };
 } // namespace Desert::Editor

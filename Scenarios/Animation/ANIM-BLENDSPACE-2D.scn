@@ -1,0 +1,30 @@
+# ANIM-BLENDSPACE-2D: a Blend Space 2D (UE UBlendSpace) node drives the engine Humanoid from two Float parameters.
+# The scene (to be authored, REMAINDER): Content/Scenes/ANIM_BlendSpace2D.desce = one entity "BS2D_Humanoid"
+# (SkinnedMesh engine:Engine/Meshes/Skinned/Humanoid.skmesh, Animation UpdateAnimationInEditor true, GraphAsset =
+# Content/Animation/BS2D_Proof.danimgraph) and a camera framing it from the side at 400 cm.
+# The graph: Parameters Speed (Float, cm/s) and Lift (Float); one BlendSpace2D node at Output Pose, X pin <- Speed,
+# Y pin <- Lift, WeightSpeed 0 (no smoothing, so every frame shows its target weights), samples
+#   Idle (0, 0)   Walk (300, 0)   Run (600, 0)   Jump (300, 100).
+# Normalized: Idle (0, 0), Walk (0.5, 0), Run (1, 0), Jump (0.5, 1); Delaunay = triangles (Idle, Walk, Jump) and
+# (Walk, Run, Jump); hull = Idle-Walk, Walk-Run, Run-Jump, Jump-Idle.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/ANIM_BlendSpace2D.desce
+Дано run View "View mode: Lit"
+# [1_idle] (0, 0) sits on the Idle sample: Idle 1.
+Когда lua "local h = World.find('BS2D_Humanoid'); h:setAnimParam('Speed', 0.0); h:setAnimParam('Lift', 0.0)"
+Когда advance 0.5
+Тогда-вид 1_idle the humanoid stands in the Idle pose (feet together, arms down), no stride and no jump crouch
+# [2_walk_run] (450, 0) on the shared edge Walk-Run: Walk 0.5, Run 0.5 (the two cycles synced at one phase).
+Когда lua "local h = World.find('BS2D_Humanoid'); h:setAnimParam('Speed', 450.0); h:setAnimParam('Lift', 0.0)"
+Когда advance 0.5
+Тогда-вид 2_walk_run the humanoid strides wider than a walk and narrower than a run, arms swinging; feet planted on one shared phase (no double step)
+# [3_inside] (150, 50) inside triangle (Idle, Walk, Jump): barycentric Idle 0.5, Walk 0, Jump 0.5.
+Когда lua "local h = World.find('BS2D_Humanoid'); h:setAnimParam('Speed', 150.0); h:setAnimParam('Lift', 50.0)"
+Когда advance 0.5
+Тогда-вид 3_inside the humanoid is half way between standing idle and the jump pose (knees bent about half as deep as in the jump), no stride
+# [4_outside] (900, -50) lies outside the hull: projected onto its nearest boundary point, the Run sample: Run 1.
+Когда lua "local h = World.find('BS2D_Humanoid'); h:setAnimParam('Speed', 900.0); h:setAnimParam('Lift', -50.0)"
+Когда advance 0.5
+Тогда-вид 4_outside the humanoid plays the full Run cycle (longest stride of the four frames), exactly as at (600, 0); no T-pose, no explosion of bones
+# [5_refused] a graph whose samples all lie on one line is refused where it is read: editor.log carries
+# "every sample lies on one line, which spans no area: that is a Blend Space 1D" for BS2D_Collinear.danimgraph.
+Тогда 5_refused the Output Log names BS2D_Collinear.danimgraph with the one-line refusal; 0 VUID in editor.log

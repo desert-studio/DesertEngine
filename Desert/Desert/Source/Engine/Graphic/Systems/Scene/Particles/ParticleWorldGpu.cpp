@@ -555,6 +555,7 @@ namespace Desert::Graphic::System
         gpu.Pipeline  = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
         gpu.TickStage = compiled.GetValue().TickStage;
         gpu.ReadsSceneDepth = gpu.TickStage == VFX::VFXTickStage::PostOpaque; // before UnifyEventTickStages
+        gpu.ReadsSceneWind  = compiled.GetValue().ReadsSceneWind;
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );

@@ -1377,7 +1377,7 @@ namespace Desert::Graphic::System
                     // ring and the thinning's origin are each draw's (its row's Caster).
                     WriteLightCamera( *cell, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                                       m_CascadeCasterBias[shadowView], m_ParallaxQuality,
-                                      m_ViewTemporalLOD, viewWind,
+                                      m_ViewTemporalLOD, m_SceneWind, viewWind,
                                       glm::vec4( 0.0f ) );
                     if ( !LendMaterialTable( *cell ) )
                         return false;
@@ -1476,7 +1476,7 @@ namespace Desert::Graphic::System
             // (sectionCasterOf).
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality,
-                              m_ViewTemporalLOD, setup.ThinOrigin,
+                              m_ViewTemporalLOD, m_SceneWind, setup.ThinOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
             BindGpuInstancedBuffers( *caster, gpu, listIds );
             const GpuInstanceRefs& refs = *setup.Refs;

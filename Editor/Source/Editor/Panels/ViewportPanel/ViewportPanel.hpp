@@ -220,6 +220,11 @@ namespace Desert::Editor
         // Any live viewport's dropped mesh still importing on its worker, or cooked and not yet spawned (the
         // "Loading meshes" overlay). The control channel's reply gate waits for it (PendingWork::MeshDrops).
         static bool AnyMeshDropLoading();
+        // The active viewport's modeling tool preview is not yet on screen
+        // (MeshProcessingTool::PreviewOutstanding). The control channel's reply gate waits for it
+        // (PendingWork::ModelingPreview), so a shot after opening a tool or changing its setting shows the
+        // preview, not the input.
+        static bool ModelingPreviewOutstanding();
         // The palette's door to DropPrefabAsset (below), into the ACTIVE viewport, as DropMeshIntoActiveViewport.
         static Common::BoolResultStr DropPrefabIntoActiveViewport( const std::string&              path,
                                                                    const std::optional<glm::vec3>& surface );

@@ -5,6 +5,9 @@
 #include <cmath>
 #include <cstdint>
 #include <numbers>
+#include <span>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Desert::Geometry
@@ -364,6 +367,207 @@ namespace Desert::Geometry
                                       const ElementSelection& selection )
     {
         return InvertSelectionT( DynamicMeshElements( mesh, &topology ), selection );
+    }
+
+    // Ported from UE 5.8 Engine/Plugins/Runtime/MeshModelingToolset/Source/ModelingComponents/Private/Selection/
+    // GroupTopologySelector.cpp (ExpandSelectionByEdgeLoops / ExpandSelectionByEdgeRings and their helpers
+    // GetNextEdgeLoopEdge, AddNewEdgeLoopEdgesFromCorner, GetQuadOppositeEdge, AddNewEdgeRingEdges), adapted:
+    //   * the selection is mesh edge IDs (ElementSelection), so the Group level maps them to group edges
+    //     (FindGroupEdgeID) and back (GetGroupEdgeEdges);
+    //   * a loop step through a valence-4 corner also requires that no border passes the corner (UE's "edge
+    //     with neither neighbouring group" test could otherwise step onto a border edge of a fifth face), and a
+    //     border edge continues along the border through any corner where exactly two border edges meet - the
+    //     whole boundary of a hole, as UE's property tooltip describes;
+    //   * a ring crosses a face only when the face is a plain quad: ONE boundary of four group edges (UE takes
+    //     the boundary holding the edge, so a quad with a hole in it counted);
+    //   * the Triangle level walks the mesh directly instead of building a TriangleGroupTopology: every triangle
+    //     is a face and every vertex a corner there, so the same rules read the mesh's own edges and triangles.
+    namespace
+    {
+        constexpr int kNoTopologyId = IndexConstants::InvalidID;
+
+        // GetNextEdgeLoopEdge on group edges: the group edge after @p incoming through corner @p corner.
+        int NextGroupLoopEdge( const GroupTopology& topology, int incoming, int corner )
+        {
+            std::vector<int> around;
+            topology.FindCornerNbrEdges( corner, around );
+            int borders    = 0;
+            int nextBorder = kNoTopologyId;
+            for ( const int edge : around )
+            {
+                if ( !topology.IsBoundaryEdge( edge ) )
+                    continue;
+                ++borders;
+                if ( edge != incoming )
+                    nextBorder = edge;
+            }
+            if ( topology.IsBoundaryEdge( incoming ) )
+                return borders == 2 ? nextBorder : kNoTopologyId;
+            // A valence-4 corner inside the mesh: four faces, four group edges, no border through it.
+            if ( borders != 0 || around.size() != 4 || topology.m_Corners[corner].NeighbourGroupIDs.size() != 4 )
+                return kNoTopologyId;
+            const Index2i in = topology.m_Edges[incoming].Groups;
+            for ( const int edge : around )
+            {
+                const Index2i groups = topology.m_Edges[edge].Groups;
+                if ( !groups.Contains( in.A ) && !groups.Contains( in.B ) )
+                    return edge;
+            }
+            return kNoTopologyId;
+        }
+
+        // AddNewEdgeLoopEdgesFromCorner: walk on from @p start through @p corner until the loop stops or meets
+        // an edge already in @p edges (it closed, or another selected edge continues it).
+        void WalkGroupLoop( const GroupTopology& topology, int start, int corner, std::unordered_set<int>& edges )
+        {
+            int edge = start;
+            while ( true )
+            {
+                const int next = NextGroupLoopEdge( topology, edge, corner );
+                if ( next == kNoTopologyId || !edges.insert( next ).second )
+                    return;
+                const Index2i ends = topology.m_Edges[next].EndpointCorners;
+                corner             = ends.A == corner ? ends.B : ends.A;
+                edge               = next;
+            }
+        }
+
+        // GetQuadOppositeEdge: the group edge across face @p group from @p edge, when the face is a quad.
+        int QuadOppositeEdge( const GroupTopology& topology, int edge, int group )
+        {
+            const GroupTopology::Group* face = topology.FindGroupByID( group );
+            if ( face == nullptr || face->Boundaries.size() != 1 )
+                return kNoTopologyId;
+            const std::vector<int>& sides = face->Boundaries.front().GroupEdges;
+            if ( sides.size() != 4 )
+                return kNoTopologyId;
+            const auto at = std::find( sides.begin(), sides.end(), edge );
+            if ( at == sides.end() )
+                return kNoTopologyId;
+            return sides[( static_cast<size_t>( at - sides.begin() ) + 2 ) % 4];
+        }
+
+        // AddNewEdgeRingEdges: step across face @p group from @p start, and on through each next face.
+        void WalkGroupRing( const GroupTopology& topology, int start, int group, std::unordered_set<int>& edges )
+        {
+            int edge = start;
+            while ( group != kNoTopologyId )
+            {
+                const int next = QuadOppositeEdge( topology, edge, group );
+                if ( next == kNoTopologyId || !edges.insert( next ).second )
+                    return;
+                const Index2i groups = topology.m_Edges[next].Groups;
+                group                = groups.A == group ? groups.B : groups.A;
+                edge                 = next;
+            }
+        }
+
+        // NextGroupLoopEdge at the Triangle level: faces are triangles, corners are vertices.
+        int NextMeshLoopEdge( const DynamicMesh3& mesh, int incoming, int vertex )
+        {
+            int borders    = 0;
+            int nextBorder = kNoTopologyId;
+            for ( const int edge : mesh.VtxEdgesItr( vertex ) )
+            {
+                if ( !mesh.IsBoundaryEdge( edge ) )
+                    continue;
+                ++borders;
+                if ( edge != incoming )
+                    nextBorder = edge;
+            }
+            if ( mesh.IsBoundaryEdge( incoming ) )
+                return borders == 2 ? nextBorder : kNoTopologyId;
+            if ( borders != 0 || mesh.GetVtxEdgeCount( vertex ) != 4 )
+                return kNoTopologyId;
+            const Index2i in = mesh.GetEdgeT( incoming );
+            for ( const int edge : mesh.VtxEdgesItr( vertex ) )
+            {
+                const Index2i triangles = mesh.GetEdgeT( edge );
+                if ( !triangles.Contains( in.A ) && !triangles.Contains( in.B ) )
+                    return edge;
+            }
+            return kNoTopologyId;
+        }
+
+        void WalkMeshLoop( const DynamicMesh3& mesh, int start, int vertex, std::unordered_set<int>& edges )
+        {
+            int edge = start;
+            while ( true )
+            {
+                const int next = NextMeshLoopEdge( mesh, edge, vertex );
+                if ( next == kNoTopologyId || !edges.insert( next ).second )
+                    return;
+                vertex = mesh.GetEdgeV( next ).OtherElement( vertex );
+                edge   = next;
+            }
+        }
+    } // namespace
+
+    const char* ToString( EdgeExpansion expansion )
+    {
+        switch ( expansion )
+        {
+            case EdgeExpansion::Loops:
+                return "Edge Loops";
+            case EdgeExpansion::Rings:
+                return "Edge Rings";
+        }
+        return "?";
+    }
+
+    Common::ResultStr<std::vector<int>> ExpandEdges( const DynamicMesh3& mesh, const GroupTopology& topology,
+                                                     TopologyLevel level, EdgeExpansion expansion,
+                                                     std::span<const int> edges )
+    {
+        for ( const int edge : edges )
+            if ( !mesh.IsEdge( edge ) )
+                return Common::MakeFormattedError<std::vector<int>>(
+                     "Select {}: edge {} is not an edge of the mesh", ToString( expansion ), edge );
+
+        std::unordered_set<int> out( edges.begin(), edges.end() );
+        if ( level == TopologyLevel::Triangle )
+        {
+            // No triangle has an opposite edge: a TriEdit ring is the edges themselves (UE's GetQuadOppositeEdge
+            // fails on every TriangleGroupTopology face).
+            if ( expansion == EdgeExpansion::Loops )
+                for ( const int edge : edges )
+                {
+                    const Index2i ends = mesh.GetEdgeV( edge );
+                    WalkMeshLoop( mesh, edge, ends.A, out );
+                    WalkMeshLoop( mesh, edge, ends.B, out );
+                }
+        }
+        else
+        {
+            std::unordered_set<int> groupEdges;
+            for ( const int edge : edges )
+                if ( const int groupEdge = topology.FindGroupEdgeID( edge ); groupEdge != kNoTopologyId )
+                    groupEdges.insert( groupEdge );
+            std::unordered_set<int> grown = groupEdges;
+            for ( const int groupEdge : groupEdges )
+            {
+                const GroupTopology::GroupEdge& from = topology.m_Edges[groupEdge];
+                if ( expansion == EdgeExpansion::Loops )
+                {
+                    // A closed group edge with no corner is a loop by itself.
+                    if ( from.EndpointCorners.A == kNoTopologyId )
+                        continue;
+                    WalkGroupLoop( topology, groupEdge, from.EndpointCorners.A, grown );
+                    WalkGroupLoop( topology, groupEdge, from.EndpointCorners.B, grown );
+                }
+                else
+                {
+                    WalkGroupRing( topology, groupEdge, from.Groups.A, grown );
+                    WalkGroupRing( topology, groupEdge, from.Groups.B, grown );
+                }
+            }
+            for ( const int groupEdge : grown )
+                for ( const int edge : topology.GetGroupEdgeEdges( groupEdge ) )
+                    out.insert( edge );
+        }
+        std::vector<int> sorted( out.begin(), out.end() );
+        std::sort( sorted.begin(), sorted.end() );
+        return Common::MakeSuccess( std::move( sorted ) );
     }
 
     Common::BoolResultStr ElementSelection::Add( const DynamicMesh3& mesh, int id )

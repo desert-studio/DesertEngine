@@ -7,7 +7,9 @@
 // 1550-1568 (AddSingleInstanceForBrush), 1718-1760 (SelectInstanceAtLocation, SelectInstancesForBrush),
 // 1980-2120 (TransformSelectedInstances, RemoveSelectedInstances), 2292-2560 (ReapplyInstancesForBrush) and
 // 261-285 (FFoliagePaintingGeometryFilter), adapted: no UWorld / IFA / FHitResult — the world is two
-// callbacks (a segment trace and a layer weight at a point) so the brush is a pure function of its inputs;
+// callbacks (a segment trace and a layer weight at a point) so the brush is a pure function of its inputs; the
+// editor's trace is complex as UE FoliageTrace's (bTraceComplex: a static mesh is met on its triangles,
+// Scene::RaycastComplex, never on its bounding boxes);
 // instances are the field's InstancedStaticMesh transforms; Y is up and units are centimetres; FMath::FRand
 // is a seeded PCG32 stream (one per stroke) so a stroke replays to the same instances on every platform;
 // the geometry filter keeps Landscape and StaticMesh and is applied by the trace (no BSP in this engine;
@@ -284,7 +286,7 @@ namespace Desert::Editor::Tools
     /// re-rolls or re-checks that property from the type's CURRENT numbers; a clear one keeps the instance's.
     struct FoliageReapplySettings
     {
-        bool Scale           = true;  ///< UE ReapplyScaling: a new uniform scale from ScaleX
+        bool Scale           = true;  ///< UE ReapplyScaling: a new scale by the type's Scaling mode and ranges
         bool ZOffset         = false; ///< UE ReapplyZOffset: a new offset from ZOffset
         bool AlignToNormal   = true;  ///< UE ReapplyAlignToNormal: align to the ground, or stand upright
         bool RandomYaw       = false; ///< UE ReapplyRandomYaw: a new yaw, or yaw 0 when the type has none

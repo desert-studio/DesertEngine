@@ -1,0 +1,137 @@
+// Anisotropic — UE's DefaultLit with Anisotropy (ShadingModels.ush DefaultLitBxDF's anisotropic branch, the
+// GBufferF tangent): DefaultLit with the GGX lobe stretched along a tangent - brushed metal, satin, fibrous
+// finishes, a vinyl record's grooves. Anisotropy > 0 widens the lobe along the tangent and narrows it across
+// (UE GetAnisotropicRoughness: ax = alpha (1 + a), ay = alpha (1 - a)); 0 is DefaultLit's lobe.
+//
+// The payload: CustomData0 = Anisotropy * 0.5 + 0.5 (UE's -1..1 pin), CustomData1 = the tangent's angle about the
+// shading normal (Common/AnisotropicTangent.glslh: the angle in a basis made from N alone, so the deferred
+// composite rebuilds the tangent from the G-buffer's normal without the tangent target UE adds for it). The
+// template (Programs/Surface/AnisotropicSurface.shader) writes both from the mesh tangent, its direction map and
+// rotation.
+//
+// The environment: UE's / Filament's anisotropic bent normal (GetAnisotropicBentNormal) - the reflection vector of
+// a normal bent toward the stretch, so a brushed cylinder's sky reflection smears along the brushing. Under the
+// sky light the bent reflection reads the sky cube; where the reflection is a TRACED gather (A.Traced) the trace's
+// isotropic lobe is the occluded answer and is kept (a cube lookup would mirror the open sky indoors).
+Guid 9037529050474975538;
+Payload
+{
+    CustomData0 Anisotropy;        // anisotropy * 0.5 + 0.5 (0.5 = isotropic)
+    CustomData1 AnisotropyTangent; // the tangent's angle about N / pi (Common/AnisotropicTangent.glslh)
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+}
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+#include <Common/AnisotropicTangent.glslh>
+// The pure half of the ambient text when the pass has not included the whole file (DefaultLit.shadingmodel says
+// why).
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+float AnisotropicAmount( DesertPayload P )
+{
+    return clamp( P.CustomData0 * 2.0 - 1.0, -1.0, 1.0 );
+}
+
+// UE GetAnisotropicRoughness: the GGX alphas along the tangent (.x) and the bitangent (.y).
+vec2 AnisotropicAlphas( DesertSurface S, DesertPayload P )
+{
+    const float alpha      = S.Roughness * S.Roughness;
+    const float anisotropy = AnisotropicAmount( P );
+    return max( vec2( alpha * ( 1.0 + anisotropy ), alpha * ( 1.0 - anisotropy ) ), vec2( 0.001 ) );
+}
+
+// UE D_GGXaniso (BRDF.ush; Burley 2012).
+float AnisotropicDistribution( vec2 alphas, float NoH, float XoH, float YoH )
+{
+    const float a2 = alphas.x * alphas.y;
+    const vec3  v  = vec3( alphas.y * XoH, alphas.x * YoH, a2 * NoH );
+    const float s  = dot( v, v );
+    const float w  = a2 / max( s, 1e-12 );
+    return a2 * w * w / PI;
+}
+
+// UE Vis_SmithJointAniso (BRDF.ush; Heitz 2014): G / (4 NoL NoV) for the anisotropic lobe.
+float AnisotropicVisibility( vec2 alphas, float NoV, float NoL, float XoV, float XoL, float YoV, float YoL )
+{
+    const float smithV = NoL * length( vec3( alphas.x * XoV, alphas.y * YoV, NoV ) );
+    const float smithL = NoV * length( vec3( alphas.x * XoL, alphas.y * YoL, NoL ) );
+    return 0.5 / max( smithV + smithL, 1e-6 );
+}
+
+// The anisotropic GGX lobe for one light, Fresnel @p F applied (the caller's, so Evaluate's diffuse shares it).
+vec3 AnisotropicSpecularLobe( DesertLight L, DesertSurface S, DesertPayload P, vec3 F, float cosLi )
+{
+    const vec3  X      = DesertDecodeAnisotropyTangent( S.N, P.CustomData1 );
+    const vec3  Y      = cross( S.N, X );
+    const vec3  H      = normalize( S.V + L.L );
+    const float cosLo  = max( dot( S.N, S.V ), 1e-5 );
+    const vec2  alphas = AnisotropicAlphas( S, P );
+    const float D = AnisotropicDistribution( alphas, max( dot( S.N, H ), 0.0 ), dot( X, H ), dot( Y, H ) );
+    const float Vis = AnisotropicVisibility( alphas, cosLo, cosLi, dot( X, S.V ), dot( X, L.L ), dot( Y, S.V ),
+                                             dot( Y, L.L ) );
+    return D * Vis * F * L.Radiance * cosLi;
+}
+
+vec3 AnisotropicFresnel( DesertLight L, DesertSurface S )
+{
+    const vec3 H = normalize( S.V + L.L );
+    return fresnelSchlick( DesertSpecularF0( S ), max( dot( H, S.V ), 0.0 ) );
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    const vec3 F       = AnisotropicFresnel( L, S );
+    // DirectLighting.glslh's energy split: what Fresnel does not reflect is the diffuse's, none of it for a metal.
+    const vec3 diffuse = ( 1.0 - F ) * ( 1.0 - S.Metallic ) * S.BaseColor / PI * L.Radiance * cosLi;
+    return ( diffuse + AnisotropicSpecularLobe( L, S, P, F, cosLi ) ) * L.Shadow;
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    return AnisotropicSpecularLobe( L, S, P, AnisotropicFresnel( L, S ), cosLi ) * L.Shadow;
+}
+
+// Filament / UE GetAnisotropicBentNormal: the normal bent toward the stretch, by |anisotropy| and more for rougher
+// lobes (a mirror has nothing to smear).
+vec3 AnisotropicBentReflection( DesertSurface S, DesertPayload P )
+{
+    const float anisotropy = AnisotropicAmount( P );
+    const vec3  X          = DesertDecodeAnisotropyTangent( S.N, P.CustomData1 );
+    const vec3  Y          = cross( S.N, X );
+    const vec3  direction  = anisotropy >= 0.0 ? Y : X;
+    const vec3  tangent    = cross( direction, S.V );
+    const vec3  bent       = cross( tangent, direction );
+    const float bend       = abs( anisotropy ) * clamp( 5.0 * S.Roughness, 0.0, 1.0 );
+    const vec3  N          = normalize( mix( S.N, bent, bend ) );
+    return reflect( -S.V, N );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3 F0      = DesertSpecularF0( S );
+    const vec3 diffuse = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    vec3       radiance = A.Prefiltered;
+    if ( A.Traced < 0.5 )
+        radiance = DesertAmbientSpecular( AnisotropicBentReflection( S, P ), S.Roughness );
+    const vec3  specular = EvaluateAmbientIBLSpecular( radiance, A.SpecularBRDF, F0 );
+    const float specularOcclusion =
+         DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
+    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+}

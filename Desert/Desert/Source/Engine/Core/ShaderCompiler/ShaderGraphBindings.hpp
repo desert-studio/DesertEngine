@@ -151,7 +151,12 @@ namespace Desert::Core
     // (Mesh/Surface/Pass_Forward.glslh) as the deferred composite reads it; bound
     // by name (BindSceneViewInputs, SceneViewSlot::SunDistanceFieldShadow).
     inline constexpr uint32_t kSunDistanceFieldShadowBinding = kSceneReadBindingFirst + 31u;
-    inline constexpr uint32_t kSceneReadBindingCount         = 32u;
+    // THE TRANSLUCENCY LIGHTING VOLUME (PARTICLES-LIT-TLV; UE TranslucencyLightingVolume): the view's two
+    // camera-centred cascades of mean incident radiance (Common/TranslucencyLightingVolume.glslh), read by the lit
+    // particle cells (Mesh/Surface/Pass_ParticleSprite.glslh); bound by name (BindSceneViewInputs,
+    // SceneViewSlot::TranslucencyLightingVolume), System.Black3D on a frame no lit particle draws.
+    inline constexpr uint32_t kTranslucencyLightingVolumeBinding = kSceneReadBindingFirst + 32u;
+    inline constexpr uint32_t kSceneReadBindingCount             = 33u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -220,8 +225,9 @@ namespace Desert::Core
     inline constexpr uint32_t kGraphOwnedBindingFirst =
          kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
     // Then from 63: the DBuffer's three slots joined the scene-read range (DECALS-DBUFFER). Then from 66: the
-    // distance-field sun's mask joined it (DF-SHADOWS).
-    static_assert( kGraphOwnedBindingFirst == 67u,
+    // distance-field sun's mask joined it (DF-SHADOWS). Then from 67: the translucency lighting volume joined it
+    // (PARTICLES-LIT-TLV).
+    static_assert( kGraphOwnedBindingFirst == 68u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -231,7 +237,7 @@ namespace Desert::Core
      *
      * SET 1, because set 0 has no slot for them outside every shared range: the traced permutation they ride on
      * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI
-     * tracer at 23..33 and the surface cache at 34..40), 25..61 are the scene-read and raster ranges, and 62 up is
+     * tracer at 23..33 and the surface cache at 34..40), 25..62 are the scene-read and raster ranges, and 63 up is
      * the graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at
      * 50/51, inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header
      * SSR.shader includes declares into it; the deferred composite parks its own extra reads there the same way
@@ -293,6 +299,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kDBufferBBinding ),
          DESERT_SCENE_BINDING_ROW( kDBufferCBinding ),
          DESERT_SCENE_BINDING_ROW( kSunDistanceFieldShadowBinding ),
+         DESERT_SCENE_BINDING_ROW( kTranslucencyLightingVolumeBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),

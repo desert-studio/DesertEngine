@@ -28,6 +28,7 @@ Shader "WaterSurface"
         Float       RippleAngleB ("Ripple Direction B (deg)", Range(-180,180), Category("Ripples")) = -70
         Float       RippleSpeed ("Ripple Speed (cm/s)", Range(0,500), Category("Ripples")) = 20
         Float       RippleStrength ("Ripple Strength", Range(0,4), Category("Ripples")) = 1
+        Float       WindRippleMaxGain ("Wind Ripple Max Gain", Range(1,4), Category("Ripples")) = 2
         Texture2D   FoamTexture ("Foam Colour", Category("Foam"), Intent(Colour)) = "white"
         Texture2D   FoamStructure ("Foam Structure", Category("Foam"), Intent(Mask)) = "white"
         Color       FoamTint ("Foam Tint", Category("Foam")) = (1, 1, 1, 1)
@@ -91,6 +92,7 @@ Shader "WaterSurface"
             w.FoamBreakerIndex       = Material.FoamBreakerIndex;
             w.ShoreFadeCm            = Material.ShoreFadeCm;
             w.DebugFoamMask          = Material.DebugFoamMask;
+            w.WindRippleMaxGain      = Material.WindRippleMaxGain;
             return w;
         }
     }

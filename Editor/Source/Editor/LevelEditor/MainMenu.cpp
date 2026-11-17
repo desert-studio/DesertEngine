@@ -120,8 +120,14 @@ namespace Desert::Editor
         // Nothing to undo is not a failure of the editor, but it IS the difference between a script that
         // walked the history back one step and a script that believes it did.
         commands.push_back( { "Action", "Undo", [] {
-                                 return PaletteCommandOutcome( CommandHistory::Get().Undo(),
-                                                               "there was nothing left to undo." );
+                                 auto&      history = CommandHistory::Get();
+                                 const bool undone  = history.Undo();
+                                 // UE: "Hit Undo Barrier; can't undo any further." (UTransBuffer::CanUndo)
+                                 return PaletteCommandOutcome(
+                                      undone, history.UndoBarrierDepth() > 0
+                                                   ? "Play holds an undo barrier: the edits made before Play are "
+                                                     "undone after Stop."
+                                                   : "there was nothing left to undo." );
                              } } );
         commands.push_back( { "Action", "Redo", [] {
                                  return PaletteCommandOutcome( CommandHistory::Get().Redo(),

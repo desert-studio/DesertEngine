@@ -9,6 +9,7 @@
 #include <Engine/Graphic/DisplayOutput.hpp>
 
 #include <format>
+#include <span>
 #include <utility>
 #include <rflcpp/rfl/enums.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -314,6 +315,23 @@ namespace Desert::Graphic::API::Vulkan
                                  : std::format( "VkColorSpace {}", static_cast<int>( space ) );
             return { f, c };
         }
+
+        // The bits per colour channel the final write into a back buffer of @p format quantises to: 0 for the
+        // half-float scRGB surface (no quantisation the tonemap's dither has to hide), 10 for the 10:10:10:2
+        // packings, 8 for every byte-per-channel surface.
+        [[nodiscard]] uint32_t SurfaceQuantizationBits( VkFormat format )
+        {
+            switch ( format )
+            {
+                case VK_FORMAT_R16G16B16A16_SFLOAT:
+                    return 0u;
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+                case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+                    return 10u;
+                default:
+                    return 8u;
+            }
+        }
     } // namespace
 
     Common::ResultStr<bool>
@@ -372,22 +390,33 @@ namespace Desert::Graphic::API::Vulkan
                               os.GetValue().ReferenceHeadroom );
                 }
             }
-            const VkFormat        wantFormat = state.Output == DisplayOutput::scRGB_Linear
-                                                    ? VK_FORMAT_R16G16B16A16_SFLOAT
-                                                    : VK_FORMAT_B8G8R8A8_UNORM;
-            const VkColorSpaceKHR wantSpace  = state.Output == DisplayOutput::scRGB_Linear
-                                                    ? VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT
-                                                    : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+            const bool            scRGB = state.Output == DisplayOutput::scRGB_Linear;
+            const VkColorSpaceKHR wantSpace =
+                 scRGB ? VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+            // THE SDR BACK BUFFER IS 10-BIT WHEN THE SURFACE OFFERS IT (SDR-10BIT-DITHER; UE PF_A2B10G10R10,
+            // r.HDR.Display.OutputDevice 0 on a 10-bit swapchain): the final write then quantises to 1/1023, four
+            // times finer than BGRA8, so the sky's gradients and the shade under the grass stop stepping. The
+            // tonemap's dither is sized to the chosen depth (DisplayOutputState::QuantizationBits). BGRA8 is the
+            // fallback every surface offers; scRGB has its one half-float pair.
+            const VkFormat sdrPreference[] = { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_FORMAT_B8G8R8A8_UNORM };
+            const VkFormat hdrPreference[] = { VK_FORMAT_R16G16B16A16_SFLOAT };
+            const std::span<const VkFormat> preference =
+                 scRGB ? std::span<const VkFormat>( hdrPreference ) : std::span<const VkFormat>( sdrPreference );
             bool found = false;
-            for ( auto&& surfaceFormat : surfaceFormats )
+            for ( const VkFormat wantFormat : preference )
             {
-                if ( surfaceFormat.format == wantFormat && surfaceFormat.colorSpace == wantSpace )
+                for ( auto&& surfaceFormat : surfaceFormats )
                 {
-                    m_ColorFormat = surfaceFormat.format;
-                    m_ColorSpace  = surfaceFormat.colorSpace;
-                    found = true;
-                    break;
+                    if ( surfaceFormat.format == wantFormat && surfaceFormat.colorSpace == wantSpace )
+                    {
+                        m_ColorFormat = surfaceFormat.format;
+                        m_ColorSpace  = surfaceFormat.colorSpace;
+                        found         = true;
+                        break;
+                    }
                 }
+                if ( found )
+                    break;
             }
             if ( !found )
             {
@@ -398,12 +427,14 @@ namespace Desert::Graphic::API::Vulkan
                 m_ColorFormat = surfaceFormats[0].format;
                 m_ColorSpace  = surfaceFormats[0].colorSpace;
             }
+            state.QuantizationBits = SurfaceQuantizationBits( m_ColorFormat );
             Graphic::PublishDisplayOutput( state );
             LOG_INFO( "[Display] output {}: format {} colour space {}; paper white {:.0f} nits, peak {:.0f} nits, "
-                      "headroom {:.3f}",
-                      Common::Scalability::DisplayOutputName( state.Output ), SurfacePairName( m_ColorFormat, m_ColorSpace ).first,
+                      "headroom {:.3f}; quantisation {} bit",
+                      Common::Scalability::DisplayOutputName( state.Output ),
+                      SurfacePairName( m_ColorFormat, m_ColorSpace ).first,
                       SurfacePairName( m_ColorFormat, m_ColorSpace ).second, state.PaperWhiteNits, state.PeakNits,
-                      state.Headroom );
+                      state.Headroom, state.QuantizationBits );
         }
         return BOOLSUCCESS;
     }
@@ -633,6 +664,9 @@ namespace Desert::Graphic::API::Vulkan
                 case VK_FORMAT_R16G16B16A16_SFLOAT: // scRGB (HDR-OUTPUT): packed to its SDR rendition
                     out = Graphic::PackedPixelSource::RGBA16F_ScRGB;
                     return true;
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32: // the 10-bit SDR back buffer (SDR-10BIT-DITHER)
+                    out = Graphic::PackedPixelSource::A2B10G10R10;
+                    return true;
                 default:
                     return false;
             }
@@ -688,12 +722,15 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<int>( m_ColorFormat ) );
         }
 
-        // The acquire is late (at the back-buffer import), so a frame whose present graph did not run holds no
-        // image, and the index left over names the previous frame's, already given back by its present.
+        // The acquire is late (at the back-buffer import), so a frame whose present graph has not run yet - the
+        // editor's interface graph is a render-task job, and its capture is a job queued behind it
+        // (ViewportCapture::RecordWindowCapture) - holds no image, and the index left over names the previous
+        // frame's, already given back by its present.
         if ( !m_Output->HasAcquiredImage() )
             return Common::MakeError<bool>(
-                 "this frame holds no acquired swapchain image (its present graph did not import the back "
-                 "buffer, or the acquire was out of date); there is nothing to copy." );
+                 "this frame holds no acquired swapchain image (its present graph has not imported the back "
+                 "buffer yet - the copy must be recorded behind that graph, in the frame's job order - did not "
+                 "import it, or the acquire was out of date); there is nothing to copy." );
         const uint32_t imageIndex = m_Output->GetImageIndex();
         if ( imageIndex >= m_SwapChainImages.Images.size() )
         {
@@ -706,6 +743,17 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t h = m_Height;
         if ( w == 0u || h == 0u )
             return Common::MakeError<bool>( "the window is zero-sized; there is no frame to capture." );
+
+        // The frame's CURRENT command buffer (its tail): the frame is split at every graph, and the present graph
+        // re-armed it. None when the frame's begin failed or the graph could not re-arm it (the back buffer is
+        // imported, and so acquired, before the graph records): refused by name rather than recorded into nothing.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) - this file is the Vulkan backend.
+        VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
+                                   .GetCurrentCommandBuffer();
+        if ( cmd == VK_NULL_HANDLE )
+            return Common::MakeError<bool>(
+                 "the frame has no open command buffer to record the copy into (its begin failed, or its present "
+                 "graph could not re-arm one; see the [Renderer] line above); there is nothing to copy with." );
 
         auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                                ->GetVulkanAllocator()
@@ -728,11 +776,7 @@ namespace Desert::Graphic::API::Vulkan
         // that MoltenVK tolerates silently — the picture comes out correct and only the validation layer
         // ever mentions it. ("vkQueueSubmit(): performs a layout transition on presentable VkImage, but the
         // image has not been acquired from VkSwapchainKHR." Measured, on the first capture this took.)
-        // The frame's CURRENT command buffer (its tail): the frame is split at every graph.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) - this file is the Vulkan backend.
-        VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
-                                   .GetCurrentCommandBuffer();
-        VkImage         image = m_SwapChainImages.Images[imageIndex];
+        VkImage image = m_SwapChainImages.Images[imageIndex];
 
         // The render pass left the image in PRESENT_SRC, and it must be put back: the present that follows
         // this submit expects to find it there.

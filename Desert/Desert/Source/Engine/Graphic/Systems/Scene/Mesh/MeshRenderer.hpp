@@ -930,6 +930,13 @@ namespace Desert::Graphic::System
         {
             m_ViewTemporalLOD = temporalLod;
         }
+        // The scene view's air (SceneRenderer::SetWindGust and BeginScene's SelectLocalWind, ViewFrame::WindGust /
+        // LocalWind): the light cameras of the casters carry it (WriteLightCamera), so a swaying caster's shadow
+        // sways with it.
+        void SetSceneWind( const SceneWind& wind )
+        {
+            m_SceneWind = wind;
+        }
 
         // MESH DISPLACEMENT (DisplacementCache.hpp), after the queues are built and before SyncGpuScene: asks
         // @p cache for the levels of every static record whose mesh carries a displacement topology (per submesh, the
@@ -5159,8 +5166,9 @@ namespace Desert::Graphic::System
         // THE LOCAL VIEWS' ISM PART (CPU-LOCAL-SHADOW, F9b): the hash LocalCasterSignature takes of the instanced
         // casters in a sphere, kept per sphere while the ISM gather (IsmRevision: camera, wind, cull distance,
         // fields, meshes, transforms snapshots by owner) and the fields' keys it does not hold (IsmSideKey: mesh,
-        // hidden submeshes) are the ones it was made from. Sways: a swaying instance is in reach (no key: the
-        // views redraw every frame). Swept as the static part, by kLocalStaticPartGathers.
+        // hidden submeshes) are the ones it was made from. Sways: a swaying instance, or a masked one in a dithered
+        // LOD transition (FadeLod), is in reach (no key: the views redraw every frame). Swept as the static part,
+        // by kLocalStaticPartGathers.
         struct LocalIsmPart
         {
             uint64_t Revision = 0;
@@ -5337,6 +5345,7 @@ namespace Desert::Graphic::System
         float                                                     m_WorldTimeSeconds = 0.0f;
         ParallaxQuality                                           m_ParallaxQuality;
         Geometry::LODTemporalSamples                              m_ViewTemporalLOD; // SetViewTemporalLOD
+        SceneWind                                                 m_SceneWind;
         // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
         std::vector<MotionRecord>          m_ScratchRigidRecords;
         std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;

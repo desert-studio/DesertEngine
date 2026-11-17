@@ -133,11 +133,29 @@ namespace Desert::Editor
         }
         using SelectionOp = Core::MeshElementSelection::Op;
         for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
-                                       SelectionOp::Shrink, SelectionOp::Invert, SelectionOp::Clear } )
+                                       SelectionOp::Shrink, SelectionOp::Invert, SelectionOp::Clear,
+                                       SelectionOp::SelectEdgeLoops, SelectionOp::SelectEdgeRings } )
         {
             commands.push_back( { "Modeling",
                                   std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
                                   [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
+        }
+        // UE's Select Edge Loops / Select Edge Rings pick settings (UPolygonSelectionMechanicProperties): the
+        // panel's two checkboxes. Tool settings like the level, not undo steps.
+        for ( const bool on : { true, false } )
+        {
+            commands.push_back( { "Modeling", std::string( "Mesh selection: pick edge loops" ) + ( on ? ": on" : ": off" ),
+                                  [on]
+                                  {
+                                      Core::MeshElementSelection::Get().SetPickEdgeLoops( on );
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Mesh selection: pick edge rings" ) + ( on ? ": on" : ": off" ),
+                                  [on]
+                                  {
+                                      Core::MeshElementSelection::Get().SetPickEdgeRings( on );
+                                      return PaletteCommandDone();
+                                  } } );
         }
         // The plain pick replaces the selection (a click); "add" keeps it and adds (a Shift-click).
         for ( const auto& [name, add] : { std::pair{ "Mesh selection: pick at the viewport centre", false },
@@ -219,8 +237,7 @@ namespace Desert::Editor
         }
         // XForm (UE's XForm tab) on the scene selection's entities, at the panel's values.
         for ( const Core::XformOperation op :
-              { Core::XformOperation::EditPivot, Core::XformOperation::BakeTransform, Core::XformOperation::Merge,
-                Core::XformOperation::Split } )
+              { Core::XformOperation::EditPivot, Core::XformOperation::BakeTransform } )
         {
             commands.push_back( { "Modeling", std::string( "XForm: " ) + Core::ToString( op ), [&scene, op]
                                   {
@@ -230,17 +247,21 @@ namespace Desert::Editor
                                                                         Core::XformArgsFromModelingState() );
                                   } } );
         }
-        // Pattern (UE's Pattern tool): opens the tool session on the selected entity (MeshProcessingTool previews
-        // the copies at the panel's values; the tool bar's Accept writes them).
-        commands.push_back( { "Modeling",
-                              std::string( "XForm: " ) + Core::ToString( Core::XformOperation::Pattern ), [&scene]
-                              {
-                                  if ( !scene )
-                                      return PaletteCommandOutcome( false, "no scene is open" );
-                                  Core::ModelingState::Get().ActiveTool = Core::ModelingState::Tool::Pattern;
-                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
-                                  return PaletteCommandDone();
-                              } } );
+        // Pattern, Merge, Split (UE's Pattern / Combine Meshes / Split Meshes tools): open the tool session on the
+        // scene selection (MeshProcessingTool previews at the panel's values; the tool bar's Accept writes it).
+        for ( const auto& [op, tool] :
+              std::initializer_list<std::pair<Core::XformOperation, Core::ModelingState::Tool>>{
+                   { Core::XformOperation::Pattern, Core::ModelingState::Tool::Pattern },
+                   { Core::XformOperation::Merge, Core::ModelingState::Tool::Merge },
+                   { Core::XformOperation::Split, Core::ModelingState::Tool::Split } } )
+            commands.push_back( { "Modeling", std::string( "XForm: " ) + Core::ToString( op ), [&scene, tool]
+                                  {
+                                      if ( !scene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      Core::ModelingState::Get().ActiveTool = tool;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
         // Boolean and Trim (UE's Boolean / Trim tools): opens the tool session on the scene selection's two
         // entities (MeshProcessingTool previews at the panel's values; the tool bar's Accept writes the result).
         for ( const Core::BooleanTool tool : { Core::BooleanTool::Boolean, Core::BooleanTool::Trim } )

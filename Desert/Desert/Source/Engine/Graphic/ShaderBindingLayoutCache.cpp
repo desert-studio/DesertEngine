@@ -35,6 +35,7 @@ namespace Desert::Graphic
              { SceneViewSlot::SceneDepth, kSceneViewSceneDepthName, kTex },
              { SceneViewSlot::SunShadowMask, kSceneViewSunShadowMaskName, kTex },
              { SceneViewSlot::SunDistanceFieldShadow, kSceneViewSunDistanceFieldShadowName, kTex },
+             { SceneViewSlot::TranslucencyLightingVolume, kTranslucencyLightingVolumeName, kTex },
              { SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasksName, kTex },
              { SceneViewSlot::SceneShadingWord, kSceneViewSceneShadingWordName, kTex },
              { SceneViewSlot::MegaLightsVolumeR, kMegaLightsVolumeNames[0], kTex },

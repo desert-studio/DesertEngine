@@ -796,3 +796,233 @@ namespace Desert::Animation::Graph
         }
     } // namespace
 } // namespace Desert::Animation::Graph
+
+// Blend Space 2D (BlendSpace2D.hpp): its refusal, the Delaunay triangulation of its samples and the weights at a
+// point. Beside the 1D row's functions, for the reason those are here: the loader refuses an unplayable node and
+// links no runtime.
+namespace Desert::Animation::Graph
+{
+    namespace
+    {
+        using BlendPoint2 = std::array<double, 2>;
+
+        /// Below this a normalized triangle has no area and a point is on a circumcircle rather than inside it.
+        constexpr double kBlendPlaneEpsilon = 1e-9;
+
+        /// Twice the signed area of (o, a, b): positive when counter-clockwise.
+        double BlendCross2D( const BlendPoint2& o, const BlendPoint2& a, const BlendPoint2& b )
+        {
+            return ( a[0] - o[0] ) * ( b[1] - o[1] ) - ( a[1] - o[1] ) * ( b[0] - o[0] );
+        }
+
+        /// Whether `p` lies strictly inside the circumcircle of the counter-clockwise triangle (a, b, c).
+        bool InBlendCircumcircle( const BlendPoint2& a, const BlendPoint2& b, const BlendPoint2& c,
+                                  const BlendPoint2& p )
+        {
+            const double ax = a[0] - p[0];
+            const double ay = a[1] - p[1];
+            const double bx = b[0] - p[0];
+            const double by = b[1] - p[1];
+            const double cx = c[0] - p[0];
+            const double cy = c[1] - p[1];
+            const double det = ( ax * ax + ay * ay ) * ( bx * cy - cx * by ) -
+                               ( bx * bx + by * by ) * ( ax * cy - cx * ay ) +
+                               ( cx * cx + cy * cy ) * ( ax * by - bx * ay );
+            return det > kBlendPlaneEpsilon;
+        }
+
+        BlendPoint2 BlendPointOf( const std::array<float, 2>& point )
+        {
+            return BlendPoint2{ static_cast<double>( point[0] ), static_cast<double>( point[1] ) };
+        }
+    } // namespace
+
+    std::string BlendSpace2DError( const BlendSpace2DNode& node )
+    {
+        if ( node.Samples.size() < 3 )
+            return std::format( "a Blend Space 2D needs at least three samples spanning an area; it has {}",
+                                node.Samples.size() );
+        for ( size_t i = 0; i < node.Samples.size(); ++i )
+        {
+            const BlendSample2D& sample = node.Samples[i];
+            if ( sample.Clip.empty() )
+                return std::format( "sample {} names no clip", i );
+            if ( !std::isfinite( sample.X ) || !std::isfinite( sample.Y ) )
+                return std::format( "sample {} ('{}') is at a non-finite point", i, sample.Clip );
+            for ( size_t j = 0; j < i; ++j )
+                if ( node.Samples[j].X == sample.X && node.Samples[j].Y == sample.Y )
+                    return std::format( "samples {} ('{}') and {} ('{}') are both at ({}, {}): one point plays one "
+                                        "sample",
+                                        j, node.Samples[j].Clip, i, sample.Clip, sample.X, sample.Y );
+        }
+        if ( !std::isfinite( node.WeightSpeed ) || node.WeightSpeed < 0.0F )
+            return std::format( "WeightSpeed {} is not a finite value >= 0", node.WeightSpeed );
+        if ( TriangulateBlendSpace2D( node ).Triangles.empty() )
+            return "every sample lies on one line, which spans no area: that is a Blend Space 1D";
+        return {};
+    }
+
+    BlendSpace2DTriangulation TriangulateBlendSpace2D( const BlendSpace2DNode& node )
+    {
+        BlendSpace2DTriangulation out;
+        if ( node.Samples.empty() )
+            return out;
+
+        // Each axis over the samples' own range, mapped to [0, 1] (an axis with no range keeps scale 1).
+        float minX = node.Samples.front().X;
+        float maxX = minX;
+        float minY = node.Samples.front().Y;
+        float maxY = minY;
+        for ( const BlendSample2D& sample : node.Samples )
+        {
+            minX = std::min( minX, sample.X );
+            maxX = std::max( maxX, sample.X );
+            minY = std::min( minY, sample.Y );
+            maxY = std::max( maxY, sample.Y );
+        }
+        out.Origin = { minX, minY };
+        out.Scale  = { maxX > minX ? 1.0F / ( maxX - minX ) : 1.0F, maxY > minY ? 1.0F / ( maxY - minY ) : 1.0F };
+        out.Points.reserve( node.Samples.size() );
+        for ( const BlendSample2D& sample : node.Samples )
+            out.Points.push_back(
+                 { ( sample.X - out.Origin[0] ) * out.Scale[0], ( sample.Y - out.Origin[1] ) * out.Scale[1] } );
+
+        // Bowyer-Watson: start from one counter-clockwise triangle far around [0, 1]^2, insert each sample by
+        // re-triangulating the cavity of the triangles whose circumcircle holds it, then drop every triangle that
+        // still touches the outer one.
+        const auto            count = static_cast<uint32_t>( out.Points.size() );
+        std::vector<BlendPoint2> points;
+        points.reserve( out.Points.size() + 3 );
+        for ( const std::array<float, 2>& point : out.Points )
+            points.push_back( BlendPointOf( point ) );
+        points.push_back( BlendPoint2{ -1000.0, -1000.0 } );
+        points.push_back( BlendPoint2{ 1000.0, -1000.0 } );
+        points.push_back( BlendPoint2{ 0.0, 1000.0 } );
+
+        std::vector<std::array<uint32_t, 3>> triangles{ { count, count + 1, count + 2 } };
+        std::vector<std::array<uint32_t, 3>> kept;
+        std::vector<std::array<uint32_t, 2>> cavity;
+        for ( uint32_t i = 0; i < count; ++i )
+        {
+            kept.clear();
+            cavity.clear();
+            for ( const std::array<uint32_t, 3>& t : triangles )
+            {
+                if ( InBlendCircumcircle( points[t[0]], points[t[1]], points[t[2]], points[i] ) )
+                {
+                    cavity.push_back( { t[0], t[1] } );
+                    cavity.push_back( { t[1], t[2] } );
+                    cavity.push_back( { t[2], t[0] } );
+                }
+                else
+                    kept.push_back( t );
+            }
+            // The cavity's boundary is every edge exactly one removed triangle has; each, closed by the new
+            // sample, keeps its triangle's counter-clockwise winding.
+            for ( const std::array<uint32_t, 2>& edge : cavity )
+            {
+                const auto shared = std::count_if( cavity.begin(), cavity.end(),
+                                                   [&edge]( const std::array<uint32_t, 2>& other )
+                                                   {
+                                                       return ( other[0] == edge[0] && other[1] == edge[1] ) ||
+                                                              ( other[0] == edge[1] && other[1] == edge[0] );
+                                                   } );
+                if ( shared == 1 )
+                    kept.push_back( { edge[0], edge[1], i } );
+            }
+            std::swap( triangles, kept );
+        }
+
+        for ( const std::array<uint32_t, 3>& t : triangles )
+            if ( t[0] < count && t[1] < count && t[2] < count &&
+                 BlendCross2D( points[t[0]], points[t[1]], points[t[2]] ) > kBlendPlaneEpsilon )
+                out.Triangles.push_back( t );
+
+        for ( const std::array<uint32_t, 3>& t : out.Triangles )
+            for ( size_t e = 0; e < 3; ++e )
+            {
+                const uint32_t a     = t[e];
+                const uint32_t b     = t[( e + 1 ) % 3];
+                const bool     inner = std::any_of( out.Triangles.begin(), out.Triangles.end(),
+                                                    [a, b]( const std::array<uint32_t, 3>& other )
+                                                    {
+                                                        for ( size_t f = 0; f < 3; ++f )
+                                                            if ( other[f] == b && other[( f + 1 ) % 3] == a )
+                                                                return true;
+                                                        return false;
+                                                    } );
+                if ( !inner )
+                    out.Hull.push_back( { a, b } );
+            }
+        return out;
+    }
+
+    void BlendSpace2DTargetWeights( const BlendSpace2DTriangulation& triangulation, const float x, const float y,
+                                    const std::span<float> out )
+    {
+        std::fill( out.begin(), out.end(), 0.0F );
+        const size_t count = std::min( out.size(), triangulation.Points.size() );
+        const auto   valid = [count]( const uint32_t index ) { return static_cast<size_t>( index ) < count; };
+        const BlendPoint2 p{ ( static_cast<double>( x ) - triangulation.Origin[0] ) * triangulation.Scale[0],
+                             ( static_cast<double>( y ) - triangulation.Origin[1] ) * triangulation.Scale[1] };
+
+        // Inside a triangle: its three samples by barycentric coordinates (UE FBlendSpaceData::GetSamples2D).
+        for ( const std::array<uint32_t, 3>& t : triangulation.Triangles )
+        {
+            if ( !valid( t[0] ) || !valid( t[1] ) || !valid( t[2] ) )
+                continue;
+            const BlendPoint2 a    = BlendPointOf( triangulation.Points[t[0]] );
+            const BlendPoint2 b    = BlendPointOf( triangulation.Points[t[1]] );
+            const BlendPoint2 c    = BlendPointOf( triangulation.Points[t[2]] );
+            const double      area = BlendCross2D( a, b, c );
+            if ( area <= kBlendPlaneEpsilon )
+                continue;
+            const double wa = BlendCross2D( p, b, c ) / area;
+            const double wb = BlendCross2D( a, p, c ) / area;
+            const double wc = 1.0 - wa - wb;
+            if ( wa < -kBlendPlaneEpsilon || wb < -kBlendPlaneEpsilon || wc < -kBlendPlaneEpsilon )
+                continue;
+            const double ca  = std::max( wa, 0.0 );
+            const double cb  = std::max( wb, 0.0 );
+            const double cc  = std::max( wc, 0.0 );
+            const double sum = ca + cb + cc;
+            out[t[0]]        = static_cast<float>( ca / sum );
+            out[t[1]]        = static_cast<float>( cb / sum );
+            out[t[2]]        = static_cast<float>( cc / sum );
+            return;
+        }
+
+        // Outside the hull: the nearest point of the boundary, between its edge's two samples.
+        double   best      = -1.0;
+        uint32_t bestA     = 0;
+        uint32_t bestB     = 0;
+        double   bestAlong = 0.0;
+        for ( const std::array<uint32_t, 2>& edge : triangulation.Hull )
+        {
+            if ( !valid( edge[0] ) || !valid( edge[1] ) )
+                continue;
+            const BlendPoint2 a       = BlendPointOf( triangulation.Points[edge[0]] );
+            const BlendPoint2 b       = BlendPointOf( triangulation.Points[edge[1]] );
+            const double      dx      = b[0] - a[0];
+            const double      dy      = b[1] - a[1];
+            const double      length2 = dx * dx + dy * dy;
+            const double      along =
+                 length2 > 0.0 ? std::clamp( ( ( p[0] - a[0] ) * dx + ( p[1] - a[1] ) * dy ) / length2, 0.0, 1.0 )
+                                : 0.0;
+            const double ex       = a[0] + dx * along - p[0];
+            const double ey       = a[1] + dy * along - p[1];
+            const double distance = ex * ex + ey * ey;
+            if ( best < 0.0 || distance < best )
+            {
+                best      = distance;
+                bestA     = edge[0];
+                bestB     = edge[1];
+                bestAlong = along;
+            }
+        }
+        if ( best < 0.0 )
+            return;
+        out[bestA] += static_cast<float>( 1.0 - bestAlong );
+        out[bestB] += static_cast<float>( bestAlong );
+    }
+} // namespace Desert::Animation::Graph
