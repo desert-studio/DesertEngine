@@ -18,6 +18,7 @@
 #include <Projects/WorldPartitionSettings.hpp>
 
 #include <Common/Content/ContentChunks.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/ProcessMemory.hpp>
 
@@ -347,6 +348,7 @@ namespace Desert::Core
         streamer->m_Snapshot   = snapshot;
         streamer->m_Loader     = std::make_unique<WorldCellLoader>(
              std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
+        std::vector<Rules::GenerationIssue> hlodIssues; // the saved HLODs' findings, for the generation log
         {
             // THE SAVED HLODs (WP-FAR-6B D1; UE: PIE shows what Build HLODs saved): Play reads them and never
             // builds them. Missing or stale is a logged error naming the scene and the step; Play goes on without
@@ -371,6 +373,7 @@ namespace Desert::Core
                 {
                     LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
                                snapshot->SceneName, stored.GetError() );
+                    hlodIssues.push_back( WorldCells::MissingHLODsIssue( stored.GetError() ) );
                 }
                 else
                 {
@@ -384,6 +387,7 @@ namespace Desert::Core
                         return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                           "': " + stale.GetError() );
                     const std::set<std::string> staleUnits( stale.GetValue().begin(), stale.GetValue().end() );
+                    hlodIssues = WorldCells::StaleHLODIssues( stale.GetValue() );
                     std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
                     for ( const WorldCells::BuiltHLODCell& row : held->Index.Cells )
                         rows.emplace( row.Unit, &row );
@@ -508,6 +512,21 @@ namespace Desert::Core
             if ( !streamed )
                 if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
                     return Common::MakeError<Result>( begun.GetError() );
+        }
+        // THE STREAMING GENERATION LOG OF THIS PLAY (WP-MAP-CHECK; UE writes StreamingGeneration-*.log for PIE): the
+        // plan Play streams, its findings (logged above by ReportPlanIssues) and the saved HLODs' state.
+        if ( Common::Constants::Path::HasProject() )
+        {
+            const std::vector<Rules::EntityDescriptor> described = Rules::DescribeEntities( snapshot->Entities );
+            std::vector<Rules::GenerationIssue> issues = Rules::PlanIssues( streamer->Executor().Plan(), described );
+            issues.insert( issues.end(), hlodIssues.begin(), hlodIssues.end() );
+            auto log = WorldCells::WriteStreamingGenerationLog( Common::Constants::Path::ProjectDir(), snapshot->SceneName,
+                                                                *partition, streamer->Executor().Plan(), described, issues );
+            if ( !log )
+                LOG_ERROR( "[WorldPartition] Play of '{0}': {1}", snapshot->SceneName, log.GetError() );
+            if ( log )
+                LOG_INFO( "[WorldPartition] Play of '{0}': streaming generation log {1}", snapshot->SceneName,
+                          log.GetValue().string() );
         }
         streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around {3} "

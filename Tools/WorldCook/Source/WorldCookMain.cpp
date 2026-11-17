@@ -8,6 +8,7 @@
 
 #include <ToolProject.hpp>
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -27,7 +28,10 @@ namespace Desert::WorldCook
         std::string Usage()
         {
             return "usage: WorldCook <source.desce> --out <directory> (--project <file.deproj> | --no-project) "
-                   "(--registry <file.dreg>... | --no-registry) [--verify]\n"
+                   "(--registry <file.dreg>... | --no-registry) [--verify] [--check]\n"
+                   "  --check        check the world's partition (WP-MAP-CHECK) and cook nothing: every finding is\n"
+                   "                 printed, the StreamingGeneration log written; exit 0 = none, 8 = findings; --out\n"
+                   "                 is not needed\n"
                    "  --project      open this project first, as GamePackager does: the source's content paths\n"
                    "                 (landscape tiles, meshes) resolve under its folder, and the cook's log goes "
                    "to\n"
@@ -44,6 +48,7 @@ namespace Desert::WorldCook
             std::vector<fs::path> Registries;
             bool                  NoRegistry = false;
             bool                  Verify     = false;
+            bool                  Check      = false;
         };
 
         Common::ResultStr<Options> Parse( const std::vector<std::string>& args )
@@ -80,6 +85,8 @@ namespace Desert::WorldCook
                     options.NoProject = true;
                 else if ( arg == "--verify" )
                     options.Verify = true;
+                else if ( arg == "--check" )
+                    options.Check = true;
                 else if ( !arg.empty() && arg[0] == '-' )
                     return Common::MakeError<Options>( "unknown option '" + arg + "'" );
                 else if ( options.Source.empty() )
@@ -94,8 +101,8 @@ namespace Desert::WorldCook
             options.Out = options.Out.empty() ? options.Out : fs::absolute( options.Out ).lexically_normal();
             for ( fs::path& registry : options.Registries )
                 registry = fs::absolute( registry ).lexically_normal();
-            if ( options.Source.empty() || options.Out.empty() )
-                return Common::MakeError<Options>( "a source and --out are required" );
+            if ( options.Source.empty() || ( options.Out.empty() && !options.Check ) )
+                return Common::MakeError<Options>( "a source and --out (or --check) are required" );
             // Without a registry mesh assets are placed by position alone and no unit's assets are known.
             // That is a legitimate cook (a world of primitives needs none), but it is CHOSEN, never defaulted.
             if ( options.Registries.empty() == !options.NoRegistry )
@@ -176,6 +183,42 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
+        // MAP CHECK (WP-MAP-CHECK; UE's check for errors without the editor): the one list of findings
+        // (WorldCells::CheckWorldPartition) printed, and the StreamingGeneration log of the plan this cook cuts.
+        if ( scene.GetValue().Scene.WorldPartition.has_value() )
+        {
+            auto check = Core::WorldCells::CheckWorldPartition( scene.GetValue().Scene, planned, registries, options.Source );
+            if ( !check )
+            {
+                err << "WorldCook: check: " << check.GetError() << "\n";
+                return 4;
+            }
+            const Core::WorldCells::WorldPartitionCheck& checked = check.GetValue();
+            for ( const Core::Rules::GenerationIssue& issue : checked.Issues )
+                out << "WorldCook: " << Core::Rules::GenerationIssueKindName( issue.Kind ) << ": " << issue.Text << "\n";
+            out << "WorldCook: " << checked.Issues.size() << " World Partition issue(s)\n";
+            if ( Common::Constants::Path::HasProject() )
+            {
+                auto log = Core::WorldCells::WriteStreamingGenerationLog( Common::Constants::Path::ProjectDir(),
+                                                                          checked.World, checked.Partition, checked.Plan,
+                                                                          checked.Descriptors, checked.Issues );
+                if ( !log )
+                {
+                    err << "WorldCook: " << log.GetError() << "\n";
+                    return 5;
+                }
+                out << "WorldCook: streaming generation log " << log.GetValue().string() << "\n";
+            }
+            else
+                out << "WorldCook: no streaming generation log (--no-project: no <project>/Saved/Logs)\n";
+            if ( options.Check )
+                return checked.Issues.empty() ? 0 : 8;
+        }
+        else if ( options.Check )
+        {
+            err << "WorldCook: check: '" << options.Source.string() << "' states no WorldPartition block\n";
+            return 4;
+        }
         const auto prefabs = Core::WorldCells::PrefabFileReader();
         // The HLODs are the ones Build HLODs saved beside the scene (WP-FAR-6B D1): packed here, never built.
         auto hlods = Core::WorldCells::ReadBuiltHLODs( options.Source );

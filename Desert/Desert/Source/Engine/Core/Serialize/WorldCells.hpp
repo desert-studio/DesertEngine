@@ -514,4 +514,60 @@ namespace Desert::Core::WorldCells
     StaleHLODCells( const BuiltHLODIndex& index, const SceneSerialized& scene,
                     std::span<const Rules::EntityDescriptor>      descriptors,
                     std::span<const Common::Utils::AssetRegistry> registries );
+
+    // ── MAP CHECK AND THE STREAMING GENERATION LOG (WP-MAP-CHECK) ────────────────────────────────────────────
+    // UE UWorldPartition::CheckForErrors (Map Check, the check commandlet) and StreamingGeneration-*.log: ONE list of
+    // what is wrong with a partitioned world - Rules::PlanIssues (the planner's and the streaming generation's
+    // findings) and the saved HLODs that are missing or stale - read by Tools > Check World Partition, the warning
+    // after a save and `WorldCook --check`; and one dump of the plan per cell, written at the cook, at the start of
+    // Play and after a save.
+    struct WorldPartitionCheck
+    {
+        std::string                          World;
+        WorldPartitionSerialized             Partition;
+        Rules::WorldPartitionPlan            Plan;
+        std::vector<Rules::EntityDescriptor> Descriptors; // the records the plan was made from
+        std::vector<Rules::GenerationIssue>  Issues;      // Rules::PlanIssues, then the saved HLODs'
+    };
+
+    // A finding per cell whose saved HLOD is missing or stale (StaleHLODCells), and the one for HLODs not built.
+    [[nodiscard]] std::vector<Rules::GenerationIssue> StaleHLODIssues( std::span<const std::string> units );
+    [[nodiscard]] Rules::GenerationIssue              MissingHLODsIssue( std::string_view why );
+
+    // THE CHECK of @p scene planned from @p descriptors (its records', one for one), its saved HLODs read beside
+    // @p scenePath (empty: not saved - when a grid states an HLOD layer, that is a finding). Refused, by name, when the
+    // scene states no WorldPartition block or the HLOD plan cannot be made.
+    [[nodiscard]] Common::ResultStr<WorldPartitionCheck>
+    CheckWorldPartition( const SceneSerialized& scene, std::vector<Rules::EntityDescriptor> descriptors,
+                         std::span<const Common::Utils::AssetRegistry> registries,
+                         const std::filesystem::path&                  scenePath );
+
+    // The check of the world saved at @p scenePath, read as the cook reads it (ReadSceneFileText, the descriptor
+    // index brought up to date). nullopt: the file is not a partitioned world.
+    [[nodiscard]] Common::ResultStr<std::optional<WorldPartitionCheck>>
+    CheckSavedWorldPartition( const std::filesystem::path&                  scenePath,
+                              std::span<const Common::Utils::AssetRegistry> registries );
+
+    // Logs @p check: Rules::ReportPlanIssues of its plan, then its HLOD findings. Returns the logged text.
+    std::string ReportWorldPartitionCheck( const WorldPartitionCheck& check );
+
+    // `<project>/Saved/Logs/WorldPartition/<world>-StreamingGeneration.log`.
+    [[nodiscard]] std::filesystem::path StreamingGenerationLogPath( const std::filesystem::path& projectDir,
+                                                                    std::string_view             world );
+
+    // THE DUMP (UE FStreamingGenerationLogErrorHandler + the generation's per-cell dump): the plan's summary, every
+    // always-loaded composite with its reason, every cell with its grid, level, square, streaming bounds, height span,
+    // data layers, composites and records and the references that leave it, then every finding.
+    [[nodiscard]] std::string StreamingGenerationLogText( std::string_view                         world,
+                                                          const WorldPartitionSerialized&          partition,
+                                                          const Rules::WorldPartitionPlan&         plan,
+                                                          std::span<const Rules::EntityDescriptor> descriptors,
+                                                          std::span<const Rules::GenerationIssue>  issues );
+
+    // Writes the dump to StreamingGenerationLogPath atomically (its directory made); returns the file.
+    [[nodiscard]] Common::ResultStr<std::filesystem::path>
+    WriteStreamingGenerationLog( const std::filesystem::path& projectDir, std::string_view world,
+                                 const WorldPartitionSerialized& partition, const Rules::WorldPartitionPlan& plan,
+                                 std::span<const Rules::EntityDescriptor> descriptors,
+                                 std::span<const Rules::GenerationIssue>  issues );
 } // namespace Desert::Core::WorldCells

@@ -1,0 +1,31 @@
+# WP-MAP-CHECK (UE 5.5 UWorldPartition::CheckForErrors + IStreamingGenerationErrorHandler, Map Check, StreamingGeneration log).
+# One list (WorldCells::CheckWorldPartition = Rules::PlanIssues + stale HLODs), three consumers: Scene Validation >
+# Check World Partition (click selects), the warning after a save, `WorldCook --check` (exit 8 on findings).
+# The case: an AlwaysLoaded cube 9300002 at the origin, socket-attached (SocketAttachment.Target = CONTAINMENT) to a
+# "house" cube 9300001 600 m away. The planner keeps the composite whole, so the house is pulled into the always-loaded
+# set; the check names it (UE OnInvalidReferenceGridPlacement) with the cell the house would have had on Main (2500 cm).
+# LEAD: the `set` forms below follow WP-DATA-LAYERS.scn (a component added by `set`); if AlwaysLoaded / SocketAttachment /
+# Tag do not add that way on this build, use Details > Add Component on the selected cube. The palette entry
+# "Tools > Check World Partition" runs the Scene Validation window's button (LevelEditorCommands).
+# The count N in the toasts is every finding of WP_Protocol (stale HLODs included); this row is among them.
+# Expected panel row (G0_L0_24_24 = Main grid, level 0 of 2500 cm cells, the cell of the house at 60000,60000):
+#   "InvalidReferenceGridPlacement: AlwaysLoaded MapCheckProbe (9300002) references spatially loaded MapCheckHouse (9300001)
+#    (cell G0_L0_24_24) through SocketAttachment.Target: the whole composite is always loaded"
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано drop-mesh Content/Meshes/Cube.desmesh 60000,0,60000 --id 9300001
+Дано drop-mesh Content/Meshes/Cube.desmesh 0,0,0 --id 9300002
+Дано set 9300001 Tag.Tag "MapCheckHouse"
+Дано set 9300002 Tag.Tag "MapCheckProbe"
+Дано set 9300002 AlwaysLoaded {}
+Дано set 9300002 SocketAttachment.Target 9300001
+Когда run Panel "Open Scene Validation"
+Когда run Tools "Check World Partition"
+Тогда mapcheck_issue окно Scene Validation: строка "InvalidReferenceGridPlacement: AlwaysLoaded MapCheckProbe (9300002) references spatially loaded MapCheckHouse (9300001) (cell G0_L0_24_24) through SocketAttachment.Target: the whole composite is always loaded"; тост "Check World Partition: N World Partition issue(s)" (N >= 1); клик по строке выделяет 9300002 во вьюпорте и Outliner
+Когда run Scene "Save"
+Тогда mapcheck_on_save тост "N World Partition issue(s) - Tools > Check World Partition lists them"; лог editor.log: "[WorldPartition] 'WP_Protocol': InvalidReferenceGridPlacement: AlwaysLoaded MapCheckProbe ..."; файл Projects/Desert/Saved/Logs/WorldPartition/WP_Protocol-StreamingGeneration.log есть, в нём раздел "Always-loaded" с "composite of MapCheckHouse (9300001)" (или Probe) и строка Issues
+# Restore: delete 9300001 and 9300002 and save again (the frozen world must not keep them).
+Когда run Scene "Delete" 9300001
+Когда run Scene "Delete" 9300002
+Когда run Scene "Save"

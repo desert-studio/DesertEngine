@@ -580,43 +580,70 @@ namespace Desert::Core::EditorRegions
         return Common::MakeSuccess( std::move( read ) );
     }
 
+    namespace
+    {
+        // The records the scene's packages leave on disk, read from their files (MakeNotLoadedForPlay, HeldWorld).
+        Common::ResultStr<std::vector<Assets::EntityData>> ReadNotLoadedRecords( Scene& scene )
+        {
+            using Result               = std::vector<Assets::EntityData>;
+            const EntityPackages& held = *scene.Packages();
+            if ( held.NotLoadedCount() == 0 )
+                return Common::MakeSuccess( Result() );
+            const auto& baseline = held.BaselinePath();
+            if ( !baseline )
+                return Common::MakeError<Result>( std::format(
+                     "'{}' holds part of a world but names no files to read the rest from.", scene.GetSceneName() ) );
+            const std::filesystem::path path = *baseline;
+            auto                        index = DescriptorIndex::Refresh( path );
+            if ( !index )
+                return Common::MakeError<Result>( index.GetError() );
+            std::unordered_set<std::uint64_t> missing;
+            for ( const DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
+                if ( !held.IsLoaded( Common::UUID( row.Id ) ) )
+                    missing.insert( row.Id );
+            if ( missing.empty() )
+                return Common::MakeSuccess( Result() );
+            auto text = ExternalEntities::ReadSceneRegionText( path, missing );
+            if ( !text )
+                return Common::MakeError<Result>( text.GetError() );
+            auto loadable = ParseLoadableScene( path.string(), text.GetValue() );
+            if ( !loadable )
+                return Common::MakeError<Result>( loadable.GetError() );
+            LoadableScene parsed = loadable.ExtractValue();
+            Result        arriving;
+            for ( Assets::EntityData& record : parsed.Scene.Entities )
+                if ( record.id.has_value() && missing.contains( static_cast<std::uint64_t>( *record.id ) ) )
+                    arriving.push_back( std::move( record ) );
+            return Common::MakeSuccess( std::move( arriving ) );
+        }
+    } // namespace
+
+    Common::ResultStr<SceneSerialized> HeldWorld( Scene& scene, Assets::AssetManager* assets )
+    {
+        auto parsed = ParseLoadableScene( "<held world>", SceneSerializer( &scene, assets ).SerializeToJson() );
+        if ( !parsed )
+            return Common::MakeError<SceneSerialized>( parsed.GetError() );
+        SceneSerialized world = std::move( parsed.ExtractValue().Scene );
+        auto            rest  = ReadNotLoadedRecords( scene );
+        if ( !rest )
+            return Common::MakeError<SceneSerialized>( rest.GetError() );
+        std::vector<Assets::EntityData> arriving = rest.ExtractValue();
+        for ( Assets::EntityData& record : arriving )
+            world.Entities.push_back( std::move( record ) );
+        return Common::MakeSuccess( std::move( world ) );
+    }
+
     Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene& scene, Assets::AssetManager* assets )
     {
-        using Result               = std::size_t;
-        const EntityPackages& held = *scene.Packages();
-        if ( held.NotLoadedCount() == 0 )
-            return Common::MakeSuccess<Result>( 0 );
-        const auto& baseline = held.BaselinePath();
-        if ( !baseline )
-            return Common::MakeError<Result>( fmt::format(
-                 "'{}' holds part of a world but names no files to read the rest from.", scene.GetSceneName() ) );
-        const std::filesystem::path path = *baseline;
-
-        // Which records are on disk only: the index lists the world, the packages say what is not held.
-        auto index = DescriptorIndex::Refresh( path );
-        if ( !index )
-            return Common::MakeError<Result>( index.GetError() );
-        std::unordered_set<std::uint64_t> missing;
-        for ( const DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
-            if ( !held.IsLoaded( Common::UUID( row.Id ) ) )
-                missing.insert( row.Id );
-        if ( missing.empty() )
-            return Common::MakeSuccess<Result>( 0 );
-
+        using Result = std::size_t;
         // Read and parsed before the scene is touched: a file that cannot be read changes nothing.
-        auto text = ExternalEntities::ReadSceneRegionText( path, missing );
-        if ( !text )
-            return Common::MakeError<Result>( text.GetError() );
-        auto loadable = ParseLoadableScene( path.string(), text.GetValue() );
-        if ( !loadable )
-            return Common::MakeError<Result>( loadable.GetError() );
-        LoadableScene                   parsed = loadable.ExtractValue();
-        std::vector<Assets::EntityData> arriving;
-        for ( Assets::EntityData& record : parsed.Scene.Entities )
-            if ( record.id.has_value() && missing.contains( static_cast<std::uint64_t>( *record.id ) ) )
-                arriving.push_back( std::move( record ) );
+        auto read = ReadNotLoadedRecords( scene );
+        if ( !read )
+            return Common::MakeError<Result>( read.GetError() );
+        const std::vector<Assets::EntityData>& arriving = read.GetValue();
         if ( arriving.empty() )
             return Common::MakeSuccess<Result>( 0 );
+        const std::filesystem::path path = scene.Packages()->BaselinePath().value_or( std::filesystem::path() );
 
         SceneSerializer serializer( &scene, assets );
         auto            made = serializer.InstantiateRecords( arriving, scene.GetSceneName(), nullptr );

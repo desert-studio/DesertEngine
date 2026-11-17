@@ -11,7 +11,7 @@
 # smallest it takes); the override is saved to machine.json, so the last line clears it again.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
-Дано set world WorldPartition '{"Grids":[{"Name":"Main","CellSize":2500,"LoadingRange":20000,"Priority":0,"HLODLayer":"HLOD_Main"},{"Name":"Foliage","CellSize":1280,"LoadingRange":6400,"Priority":0,"HLODLayer":"HLOD_Foliage"},{"Name":"LandscapeTiles","CellSize":5000,"LoadingRange":51000,"Priority":0,"HLODLayer":"HLOD_Landscape"}],"HLODLayers":[{"Name":"HLOD_Main","Type":"MeshSimplify"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Дано set world WorldPartition '{"RuntimePartitions":[{"Name":"Main","Type":"LHGrid","LHGrid":{"CellSize":2500,"LoadingRange":20000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Main","HLODLayer":"HLOD_Main"}]},{"Name":"Foliage","Type":"LHGrid","LHGrid":{"CellSize":1280,"LoadingRange":6400,"Priority":0},"HLODSetups":[{"Name":"HLOD_Foliage","HLODLayer":"HLOD_Foliage"}]},{"Name":"LandscapeTiles","Type":"LHGrid","LHGrid":{"CellSize":5000,"LoadingRange":51000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Landscape","HLODLayer":"HLOD_Landscape"}]}],"HLODLayers":[{"Name":"HLOD_Main","Type":"MeshSimplify"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
 Дано run Scene "Build HLODs"
 Дано run Quality "Quality: Textures.StreamingPoolMiB 256"
 Дано set 9000001 StreamingSourceData.Enabled false

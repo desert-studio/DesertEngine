@@ -254,4 +254,10 @@ namespace Desert::Core::EditorRegions
     // holds the whole world, nothing is read). Refused, changing nothing, when the index or a file cannot be read.
     [[nodiscard]] Common::ResultStr<std::size_t> MakeNotLoadedForPlay( Scene&                scene,
                                                                        Assets::AssetManager* assets );
+
+    // THE WORLD AS THE EDITOR HOLDS IT, AS RECORDS (WP-MAP-CHECK; UE's Check For Errors reads a loaded actor as it is
+    // in memory and every other one from its descriptor): the scene's records as a save writes them (unsaved edits
+    // included) and every record it leaves on disk read from its file - MakeNotLoadedForPlay's read, without
+    // making an entity. Refused when the index or a file cannot be read.
+    [[nodiscard]] Common::ResultStr<SceneSerialized> HeldWorld( Scene& scene, Assets::AssetManager* assets );
 } // namespace Desert::Core::EditorRegions
