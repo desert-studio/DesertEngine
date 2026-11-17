@@ -17,6 +17,11 @@ namespace Desert::Editor::AssetFileOps
     bool Rename( const std::string& src, const std::string& newFileName, std::string& outNewPath,
                  std::string& error );
 
+    // A SCENE IS COPIED AND DELETED WITH ITS COMPANION FOLDERS (WP-ASSET-OPS, UE's duplicate / delete of a World
+    // Partition map with its external actor packages): Common::Content::SceneCompanionDirectoriesOf - the entity
+    // folder `__ExternalEntities__/<stem>/` with its descriptor index, and the built HLODs `<stem>_HLOD/` - under
+    // the copy's name. A copy is all or nothing, and its name is unique for the file AND its folders.
+
     // Copy `src` next to itself under a unique "<stem> N" name.
     bool Duplicate( const std::string& src, std::string& outNewPath, std::string& error );
 
@@ -25,7 +30,8 @@ namespace Desert::Editor::AssetFileOps
     bool CopyInto( const std::string& src, const std::string& destDir, std::string& outNewPath,
                    std::string& error );
 
-    // Delete a file or a directory (recursively).
+    // Delete a file or a directory (recursively) - permanently: the editor's Delete goes to the project's trash
+    // (Common::Content::MoveToTrash, which carries the same companion folders); this empties it.
     bool Delete( const std::string& path, std::string& error );
 
     // Pure: a "<stem><ext>" name that does not collide, trying "<stem><ext>", "<stem> 2<ext>", ... The

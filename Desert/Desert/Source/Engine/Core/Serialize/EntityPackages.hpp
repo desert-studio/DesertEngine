@@ -70,8 +70,13 @@ namespace Desert::Core
         // WP19: records of the world the scene does not hold (an editor region left them on disk), ascending.
         // Listed names them, the header keeps them, and no file of theirs is written, removed or checked.
         std::vector<Common::UUID> NotLoaded;
-        // Not empty: the save cannot be made without losing the not-loaded records (a save to another file);
-        // nothing is written and this is the reason.
+        // SAVE AS OF A WORLD HELD IN PART (WP-ASSET-OPS; UE's SaveMapAs, which duplicates the external packages of
+        // the actors that are not loaded): the baseline's scene file when the save goes to another file. The
+        // NotLoaded records' files, and the descriptor index, are copied from its entity folder into the new
+        // one before the delta write lists them; the loaded records are all Changed.
+        std::optional<std::filesystem::path> CarryFrom;
+        // Not empty: the save cannot be made without losing the not-loaded records (a world that is not
+        // partitioned, or one with no files of its own); nothing is written and this is the reason.
         std::string Refusal;
     };
 
