@@ -11,6 +11,7 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
@@ -49,6 +50,17 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
         DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVertexPool );
         DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCells );
+    };
+
+    // LANDSCAPE-RVT: what TerrainGBuffer.shader reads the landscape's runtime virtual texture through.
+    struct VirtualTextureShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVirtualPageTable );
+        DESERT_SHADER_PARAMETER( Texture, LandscapeVirtualColorAtlas );
+        DESERT_SHADER_PARAMETER( Texture, LandscapeVirtualNormalAtlas );
+        DESERT_SHADER_PARAMETER( Texture, LandscapeVirtualOcclusionAtlas );
+        DESERT_SHADER_PARAMETER( Sampler, LandscapeVirtualSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVirtualFeedback );
     };
 
     // "Landscape: Dice Pool" (LandscapeDicePool.shader).
@@ -2551,7 +2563,8 @@ namespace Desert::Graphic::System
         uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
                                      ShaderBindingLayoutCache& layoutCache, const Executors& executors,
                                      const SceneViewInputs* view, const RDG::BufferRef dicePool,
-                                     const RDG::BufferRef diceCells, const RDG::BufferRef diceCull )
+                                     const RDG::BufferRef diceCells, const RDG::BufferRef diceCull,
+                                     const LandscapeVirtualTextureBindings* virtualTexture = nullptr )
         {
             // TERRAIN-DICE-CULL: the camera's rasters draw their rings from the cull's records.
             if ( diceCull.IsValid() )
@@ -2564,6 +2577,23 @@ namespace Desert::Graphic::System
                 // Every terrain vertex stage reads the frame's dice pool (TerrainVertex.glslh).
                 block.Storage( TerrainShaderParameters::LandscapeVertexPool, dicePool, RDG::Access::StorageRead );
                 block.Storage( TerrainShaderParameters::LandscapeDiceCells, diceCells, RDG::Access::StorageRead );
+                // LANDSCAPE-RVT (TerrainGBuffer.shader only): the page table, the atlases and the feedback.
+                if ( virtualTexture != nullptr && virtualTexture->PageTable.IsValid() )
+                {
+                    block.Storage( VirtualTextureShaderParameters::LandscapeVirtualPageTable, virtualTexture->PageTable,
+                                   RDG::Access::StorageRead )
+                         .Texture( VirtualTextureShaderParameters::LandscapeVirtualColorAtlas, virtualTexture->Color,
+                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                         .Texture( VirtualTextureShaderParameters::LandscapeVirtualNormalAtlas, virtualTexture->Normal,
+                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                         .Texture( VirtualTextureShaderParameters::LandscapeVirtualOcclusionAtlas,
+                                   virtualTexture->Occlusion, RDG::Access::SampledGraphics,
+                                   RDG::SubresourceRange::All() )
+                         .Sampler( VirtualTextureShaderParameters::LandscapeVirtualSampler,
+                                   RDG::SamplerDesc::LinearClamp() )
+                         .Storage( VirtualTextureShaderParameters::LandscapeVirtualFeedback, virtualTexture->Feedback,
+                                   RDG::Access::StorageWrite );
+                }
                 if ( view != nullptr && SamplesSceneViewInputs( slotted.Slots ) )
                 {
                     BindSceneViewInputs( block, *view, slotted.Slots );
@@ -2835,7 +2865,52 @@ namespace Desert::Graphic::System
         const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::GBuffer );
         PrepareGroupExecutors( pass, executors );
         (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, &view, m_DicePool, m_DiceCells,
-                                  CameraDiceCullArgs() );
+                                  CameraDiceCullArgs(), &m_VirtualTexture.GetBindings() );
+    }
+
+    Common::BoolResultStr TerrainRenderer::AddVirtualTexturePasses( RDG::Builder& graph, FrameTextures& textures,
+                                                                    const ViewFrame& frame, const bool enabled )
+    {
+        std::vector<LandscapeVirtualTextureTile> tiles;
+        if ( enabled && m_FrameInstances.size() == m_Queue.size() && m_FrameMaterials.size() == m_Queue.size() )
+        {
+            tiles.reserve( m_Queue.size() );
+            for ( std::size_t i = 0; i < m_Queue.size(); ++i )
+            {
+                // The row with this frame's view fields zeroed: only what the layer blend reads keys the pages.
+                TerrainInstance row = m_FrameInstances[i];
+                row.Params.y         = 0.0f;
+                row.Params.w         = 0.0f;
+                row.Params2.x        = 0.0f;
+                row.Params2.w        = 0.0f;
+                row.Sections         = glm::vec4( 0.0f );
+                row.SectionLods      = {};
+                row.DisplacementView = glm::vec4( 0.0f );
+                row.DiceWindow       = glm::vec4( 0.0f );
+                row.DiceRings        = glm::vec4( 0.0f );
+                row.DicePool         = glm::vec4( 0.0f );
+                row.DiceClip         = glm::vec4( 0.0f );
+                const RayTracing::LandscapeRayTracingMaterial material{ .GpuSceneRow = 0u,
+                                                                        .Instance    = row,
+                                                                        .Weights     = m_Queue[i].Weights,
+                                                                        .Material    = m_FrameMaterials[i] };
+                LandscapeVirtualTextureTile tile;
+                tile.Origin = glm::vec2( row.LandscapeFrame.x + row.LandscapeTile.x * row.LandscapeFrame.w,
+                                         row.LandscapeFrame.z + row.LandscapeTile.y * row.LandscapeFrame.w );
+                tile.Side   = row.LandscapeTile.z * row.LandscapeFrame.w;
+                tile.Row    = RayTracing::LandscapeRayHitRow( material );
+                // FNV-1a of the row (material values, layer maps, weightmap slot), then the paint revision.
+                uint64_t    key   = 0xcbf29ce484222325ull;
+                const auto* bytes = reinterpret_cast<const unsigned char*>( tile.Row.data() );
+                for ( std::size_t b = 0; b < tile.Row.size() * sizeof( glm::vec4 ); ++b )
+                    key = ( key ^ bytes[b] ) * 0x100000001b3ull;
+                key ^= m_Queue[i].Weights.Revision * 0x9E3779B97F4A7C15ull;
+                key ^= static_cast<uint64_t>( reinterpret_cast<uintptr_t>( m_Queue[i].Weights.Weightmap.get() ) );
+                tile.Key = key;
+                tiles.push_back( std::move( tile ) );
+            }
+        }
+        return m_VirtualTexture.AddPasses( graph, textures, frame, tiles, enabled && !tiles.empty() );
     }
 
     bool TerrainRenderer::PrepassesGBuffer() const

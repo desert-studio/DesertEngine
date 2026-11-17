@@ -1794,6 +1794,12 @@ namespace Desert::Graphic
         {
             const int diceCache = m_Quality.As<int>( Common::Scalability::Parameter::LandscapeDicePoolCache );
             m_Systems.Terrain->SetDicePoolCache( diceCache != 0 );
+            // Textures.LandscapeVirtualTexture* (LANDSCAPE-RVT; UE r.VT.* under sg.TextureQuality).
+            using Common::Scalability::Parameter;
+            m_Systems.Terrain->SetVirtualTextureQuality( System::LandscapeVirtualTextureQuality{
+                 .SizeLog2        = m_Quality.As<uint32_t>( Parameter::LandscapeVirtualTextureSizeLog2 ),
+                 .PoolPages       = m_Quality.As<uint32_t>( Parameter::LandscapeVirtualTexturePoolPages ),
+                 .UpdatesPerFrame = m_Quality.As<uint32_t>( Parameter::LandscapeVirtualTextureUpdatesPerFrame ) } );
         }
         // RenderPipeline.ParallelSetup (RENDER-PARALLEL-SETUP): the view's pure setup on Common::TaskGroup tasks;
         // the Editor's --parallel-setup overrides it for the session (RenderConfig::ParallelSetupOverride).
@@ -2147,6 +2153,12 @@ namespace Desert::Graphic
                       terrain->AddDiceCullPass( graph, textures, frame, occlusion );
                  !culled )
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), culled.GetError() );
+            // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer pass reads them.
+            if ( const Common::BoolResultStr virtualTexture = terrain->AddVirtualTexturePasses(
+                      graph, textures, frame,
+                      m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture );
+                 !virtualTexture )
+                LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), virtualTexture.GetError() );
         }
 
         // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
