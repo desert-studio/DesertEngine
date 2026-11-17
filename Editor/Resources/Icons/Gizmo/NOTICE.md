@@ -4,6 +4,8 @@ Ten SVGs under `Editor/Resources/Icons/Gizmo/` are taken from
 [phosphor-icons/core](https://github.com/phosphor-icons/core), **MIT © Phosphor Icons**
 (full text beside this file). The eleventh, `player-start.svg` (UE's S_Player: a standing figure over
 a faint ground pad), is drawn in-house on Phosphor's 256 grid and duotone convention (`opacity="0.2"` backing).
+The twelfth, `light-rect.svg` (UE's S_RectLight: a framed emitting panel with three rays below it), is drawn
+in-house the same way.
 
 ## Why this set, measured rather than preferred
 

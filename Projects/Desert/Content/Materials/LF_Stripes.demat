@@ -1,0 +1,42 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "6ec870f7957f49ebac792583ac1dc84b",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["3929ff33c4ed4add85b611e12c6a5812"]
+    },
+    "Shader": {
+        "Guid": "3929ff33c4ed4add85b611e12c6a5812",
+        "Path": "engine:Shaders/Programs/LightFunctions/DefaultLightFunction.shader"
+    },
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [1.0, 0.9200000166893005, 0.800000011920929, 1.0]
+        },
+        {
+            "Name": "StripeCount",
+            "Value": [6.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "StripeDuty",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Softness",
+            "Value": [0.03999999910593033, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DarkLevel",
+            "Value": [0.05000000074505806, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Drift",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}

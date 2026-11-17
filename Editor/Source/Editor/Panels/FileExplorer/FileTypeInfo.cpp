@@ -92,6 +92,8 @@ namespace Desert::Editor
              FileTypeInfo{
                   FileType::StateTree, "State Tree", { 0.30f, 0.65f, 0.95f, 1.00f }, ICON_MDI_STATE_MACHINE },
              FileTypeInfo{ FileType::VFXModule, "VFX Module", { 0.95f, 0.55f, 0.20f, 1.00f }, ICON_MDI_PUZZLE },
+             // The light family's amber (the outliner's light colour), so a profile reads as part of lighting.
+             FileTypeInfo{ FileType::IesProfile, "IES Profile", { 1.00f, 0.80f, 0.43f, 1.00f }, ICON_MDI_LAMP },
         };
 
         constexpr bool RowsAreInEnumOrder()

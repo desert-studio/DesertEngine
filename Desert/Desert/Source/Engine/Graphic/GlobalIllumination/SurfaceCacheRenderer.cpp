@@ -1013,6 +1013,7 @@ namespace Desert::Graphic::SurfaceCache
                           .Storage( P::SurfaceLightingPages, relit, kR )
                           .Storage( ShaderProtocols::PointLight::Parameter, inputs.Lights.Point, kR )
                           .Storage( ShaderProtocols::SpotLight::Parameter, inputs.Lights.Spot, kR )
+                          .BindlessRead( inputs.Lights.LightFunctionAtlas, kS )
                           .Storage( P::SurfaceCacheShadowUB, shadow, kR )
                           .Storage( P::SurfaceCacheCloudShadowUB, cloud, kR )
                           .Storage( kLightGridParamsBlock, inputs.Lights.WorldGridParams, kR )
@@ -1078,6 +1079,7 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .Storage( ShaderProtocols::SpotLight::Parameter, inputs.Lights.Spot,
                                 RDG::Access::StorageRead )
+                      .BindlessRead( inputs.Lights.LightFunctionAtlas, RDG::Access::SampledGraphics )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheShadowUB, shadow,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheCloudShadowUB, cloud,
@@ -1203,6 +1205,7 @@ namespace Desert::Graphic::SurfaceCache
                           .Storage( P::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( P::PointLightsUB, inputs.PointLights, kR )
                           .Storage( P::SpotLightsUB, inputs.SpotLights, kR )
+                          .BindlessRead( inputs.LightFunctionAtlas, kS )
                           .Storage( P::LightGridParamsUB, inputs.WorldGridParams, kR )
                           .Storage( P::LightGridWorldCellsUB, inputs.WorldGridCells, kR )
                           .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )
@@ -1283,6 +1286,7 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( P::GIFrameUB, inputs.GIFrame, kR )
                       .Storage( P::PointLightsUB, inputs.PointLights, kR )
                       .Storage( P::SpotLightsUB, inputs.SpotLights, kR )
+                      .BindlessRead( inputs.LightFunctionAtlas, kS )
                       .Storage( P::LightGridParamsUB, inputs.WorldGridParams, kR )
                       .Storage( P::LightGridWorldCellsUB, inputs.WorldGridCells, kR )
                       .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )

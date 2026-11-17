@@ -243,6 +243,14 @@ namespace Desert::Graphic::GlobalIllumination
                                          const RadianceCache::RadianceCacheInputs& shape,
                                          const RadianceCacheUpdateInputs&          inputs )
     {
+        // The last update's Filter never declared: that graph traced probes it did not filter (the caller's
+        // contract, AddFilterPass). Said, and dropped, so the next update starts clean.
+        if ( m_PendingFilter )
+        {
+            m_PendingFilter.reset();
+            return Common::MakeError<RadianceCacheFrame>(
+                 "radiance cache: the last update's filter was never declared (AddFilterPass)" );
+        }
         if ( shape.ProbeResolution == 0 || shape.ProbesPerFrame == 0 )
             return Common::MakeError<RadianceCacheFrame>(
                  "radiance cache: the quality gives no probe resolution or budget" );
@@ -346,7 +354,8 @@ namespace Desert::Graphic::GlobalIllumination
         // Trace: x the probe's 8x8 trace tile, y its place in the schedule (past its traced count a group ends).
         const uint32_t   traceTilesPerSide = DivideRoundUp( shape.ProbeResolution, kTraceTileSide );
         const uint32_t   traceTiles        = traceTilesPerSide * traceTilesPerSide;
-        const glm::uvec3 groups[PassCount] = {
+        UpdateDeclaration update;
+        update.Groups = {
              // At least one group: Mark's first thread clears the schedule header Update and Allocate count into.
              glm::uvec3( std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) ),
                          std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) ), 1u ),
@@ -355,6 +364,60 @@ namespace Desert::Graphic::GlobalIllumination
              // ends). Trace and Filter dispatch indirect from Place's arguments; these are their budget's bound.
              glm::uvec3( DivideRoundUp( traced, 64u ), 1u, 1u ), glm::uvec3( traceTiles, traced, 1u ),
              glm::uvec3( traced, 1u, 1u ) };
+        update.Frame        = RadianceCacheFrame{ .Params      = params,
+                                                  .Indirection = indirection,
+                                                  .Probes      = probes,
+                                                  .Irradiance  = irradiance,
+                                                  .Depth       = depth,
+                                                  .Radiance    = radiance };
+        update.LastUsed     = lastUsed;
+        update.FreeList     = freeList;
+        update.Schedule     = schedule;
+        update.UpdateCounts = updateCounts;
+        update.DispatchArgs = dispatchArgs;
+        update.MarkPoints   = markPointsBuffer;
+        update.GIFrame      = frame;
+        static_assert( sizeof( RadianceCachePush ) == kPushBytes );
+        std::memcpy( update.Push.data(), &push, sizeof( push ) );
+        update.FrameIndex = push.FrameIndex;
+        update.FullUpdate = fullUpdate;
+        // Mark .. Trace now; Filter by AddFilterPass, after the async work the view declares beside it.
+        for ( uint32_t pass = Mark; pass < Filter; ++pass )
+            DeclarePass( graph, static_cast<Pass>( pass ), update, &inputs );
+        m_PendingFilter = update;
+        return Common::MakeSuccess( update.Frame );
+    }
+
+    Common::BoolResultStr WorldRadianceCache::AddFilterPass( RDG::Builder& graph )
+    {
+        if ( !m_PendingFilter )
+            return Common::MakeError<bool>( "radiance cache: no update is waiting for its filter in this graph" );
+        const UpdateDeclaration update = *m_PendingFilter;
+        m_PendingFilter.reset();
+        DeclarePass( graph, Filter, update, nullptr );
+
+        m_UpdateCounts.AddFrame( graph, update.FrameIndex, update.UpdateCounts );
+        // GPU-TURN-4: does the budget hold on a camera turn - the newest read-back frame's traced / budget, and
+        // how many of the last kCountsLogFrames updates were full updates (each traces every used probe).
+        if ( update.FullUpdate )
+            ++m_FullUpdatesInWindow;
+        if ( update.FrameIndex % kCountsLogFrames == 0u )
+        {
+            const RadianceCacheUpdateCounts& counts   = m_UpdateCounts.Last();
+            const char* const                readBack = counts.Valid ? "" : ", none read back yet";
+            LOG_INFO(
+                 "[RadianceCache] traced {} of budget {}, full update {} (full updates of the last {} updates; "
+                 "traced / budget of the newest frame read back{})",
+                 counts.Traced, counts.Budget, m_FullUpdatesInWindow, kCountsLogFrames, readBack );
+            m_FullUpdatesInWindow = 0;
+        }
+
+        return BOOLSUCCESS;
+    }
+
+    void WorldRadianceCache::DeclarePass( RDG::Builder& graph, const Pass pass, const UpdateDeclaration& update,
+                                          const RadianceCacheUpdateInputs* const inputs )
+    {
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",  "RadianceCache: Update", "RadianceCache: Allocate", "RadianceCache: Select",
              "RadianceCache: Place", "RadianceCache: Trace",  "RadianceCache: Filter" };
@@ -368,10 +431,26 @@ namespace Desert::Graphic::GlobalIllumination
         // of the cache.
         const RDG::PassFlags  kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const auto            all = RDG::SubresourceRange::All();
-        for ( uint32_t pass = 0; pass < PassCount; ++pass )
+        // A hit reads the cards first (GIHitRadiance) unless the hardware tracer lights every hit in place.
+        const bool readsCards = inputs != nullptr && inputs->Tracer.Pipeline.Hits == HitLighting::SurfaceCache;
+        const RDG::BufferRef  params       = update.Frame.Params;
+        const RDG::BufferRef  indirection  = update.Frame.Indirection;
+        const RDG::BufferRef  probes       = update.Frame.Probes;
+        const RDG::TextureRef irradiance   = update.Frame.Irradiance;
+        const RDG::TextureRef depth        = update.Frame.Depth;
+        const RDG::TextureRef radiance     = update.Frame.Radiance;
+        const RDG::BufferRef  lastUsed     = update.LastUsed;
+        const RDG::BufferRef  freeList     = update.FreeList;
+        const RDG::BufferRef  schedule     = update.Schedule;
+        const RDG::BufferRef  updateCounts = update.UpdateCounts;
+        const RDG::BufferRef  dispatchArgs = update.DispatchArgs;
+        const RDG::BufferRef  markPoints   = update.MarkPoints;
+        const RDG::BufferRef  frame        = update.GIFrame;
+        RadianceCachePush     push;
+        std::memcpy( &push, update.Push.data(), sizeof( push ) );
         {
             ComputePipeline* const pipeline = m_Pipelines[pass].get();
-            const glm::uvec3       count    = groups[pass];
+            const glm::uvec3       count    = update.Groups[pass];
             graph.AddPass(
                  kPassNames[pass], kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -398,43 +477,47 @@ namespace Desert::Graphic::GlobalIllumination
                          builder.Read( dispatchArgs, RDG::Access::IndirectArgs );
                      if ( pass == Mark )
                          block.Texture( WorldRadianceCacheShaderParameters::GBufferDepthTexture,
-                                        inputs.GBufferDepth, kS, all )
+                                        inputs->GBufferDepth, kS, all )
                               .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
                                         RDG::SamplerDesc::PointClamp() )
-                              .Texture( WorldRadianceCacheShaderParameters::GBufferBTexture, inputs.GBufferB, kS,
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferBTexture, inputs->GBufferB, kS,
                                         all )
                               .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
                                         RDG::SamplerDesc::PointClamp() )
                               .Storage( WorldRadianceCacheShaderParameters::RadianceCacheMarkPointsUB,
-                                        markPointsBuffer, kR );
+                                        markPoints, kR );
                      if ( pass == Allocate || pass == Trace )
-                         block.Storage( WorldRadianceCacheShaderParameters::PointLightsUB, inputs.PointLights, kR )
-                              .Storage( WorldRadianceCacheShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
+                         block.Storage( WorldRadianceCacheShaderParameters::PointLightsUB, inputs->PointLights, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::SpotLightsUB, inputs->SpotLights, kR )
                               .Storage( WorldRadianceCacheShaderParameters::LightGridParamsUB,
-                                        inputs.WorldGridParams, kR )
+                                        inputs->WorldGridParams, kR )
                               .Storage( WorldRadianceCacheShaderParameters::LightGridWorldCellsUB,
-                                        inputs.WorldGridCells, kR );
+                                        inputs->WorldGridCells, kR );
+                     // A probe ray's hit is lit through Mesh/LightSources.glslh: the lights' function tiles are
+                     // sampled bindless from the atlas (UE: LightFunctionAtlas in the pass's parameters).
+                     if ( pass == Trace )
+                         block.BindlessRead( inputs->LightFunctionAtlas, kS );
                      // Place lights no hit (GI_HIT_LIGHTING_NONE): the tracer's reads without the point-clamped
                      // state, which it does not declare.
                      if ( pass == Place )
-                         DeclareTracerReads( block, inputs.Tracer, kS, TracerPointClamp::Skip );
+                         DeclareTracerReads( block, inputs->Tracer, kS, TracerPointClamp::Skip );
                      if ( pass == Trace )
                      {
-                         DeclareTracerReads( block, inputs.Tracer );
+                         DeclareTracerReads( block, inputs->Tracer );
                          if ( readsCards )
-                             DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
+                             DeclareSurfaceCacheReads( block, inputs->SurfaceCache );
                          block.Texture( WorldRadianceCacheShaderParameters::EnvironmentSpecularTexture,
-                                        inputs.EnvSpecular, kS, all )
+                                        inputs->EnvSpecular, kS, all )
                               .Sampler( WorldRadianceCacheShaderParameters::LinearClampSampler,
                                         RDG::SamplerDesc::LinearClamp() )
                               .Texture( WorldRadianceCacheShaderParameters::GBufferDepthTexture,
-                                        inputs.GBufferDepth, kS, all )
+                                        inputs->GBufferDepth, kS, all )
                               .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
                                         RDG::SamplerDesc::PointClamp() )
-                              .Texture( WorldRadianceCacheShaderParameters::GBufferATexture, inputs.GBufferA, kS,
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferATexture, inputs->GBufferA, kS,
                                         all )
                               .Texture( WorldRadianceCacheShaderParameters::GBufferEmissiveTexture,
-                                        inputs.GBufferEmissive, kS, all )
+                                        inputs->GBufferEmissive, kS, all )
                               .Texture( WorldRadianceCacheShaderParameters::RadianceCacheIrradianceTexture,
                                         irradiance, kS, all )
                               .Texture( WorldRadianceCacheShaderParameters::RadianceCacheDepthTexture, depth, kS,
@@ -464,29 +547,8 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         }
 
-        m_UpdateCounts.AddFrame( graph, push.FrameIndex, updateCounts );
-        // GPU-TURN-4: does the budget hold on a camera turn - the newest read-back frame's traced / budget, and
-        // how many of the last kCountsLogFrames updates were full updates (each traces every used probe).
-        if ( fullUpdate )
-            ++m_FullUpdatesInWindow;
-        if ( push.FrameIndex % kCountsLogFrames == 0u )
-        {
-            const RadianceCacheUpdateCounts& counts   = m_UpdateCounts.Last();
-            const char* const                readBack = counts.Valid ? "" : ", none read back yet";
-            LOG_INFO(
-                 "[RadianceCache] traced {} of budget {}, full update {} (full updates of the last {} updates; "
-                 "traced / budget of the newest frame read back{})",
-                 counts.Traced, counts.Budget, m_FullUpdatesInWindow, kCountsLogFrames, readBack );
-            m_FullUpdatesInWindow = 0;
-        }
-
-        return Common::MakeSuccess( RadianceCacheFrame{ .Params      = params,
-                                                        .Indirection = indirection,
-                                                        .Probes      = probes,
-                                                        .Irradiance  = irradiance,
-                                                        .Depth       = depth,
-                                                        .Radiance    = radiance } );
     }
+
 
     void RadianceCacheUpdateCountsReadback::AddFrame( RDG::Builder& graph, const uint64_t frameIndex,
                                                       const RDG::BufferRef counts )
