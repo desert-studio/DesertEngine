@@ -373,7 +373,7 @@ namespace Desert::Core::WorldCells
     // when it was built: a different checksum now is a stale HLOD.
     struct BuiltHLODCell
     {
-        std::string                    Unit; // Rules::DescribeResidencyUnit
+        std::string                    Unit; // Rules::HLODRowName (a parent: its Rules::HLODNode::Name)
         std::uint32_t                  BuiltFrom = 0;
         std::optional<std::string>     File; // absent when nothing in the cell could be batched
         std::vector<std::uint64_t>     Ids;  // the HLOD's own records, one per batch, in batch order
@@ -397,7 +397,8 @@ namespace Desert::Core::WorldCells
 
     // What an HLOD is built from: the cell's records (Json::Write of each member without its outliner sort key
     // `siblingIndex`, in member order; the one form Build, Cook and Play hash) and the
-    // world's partition block (grids and HLOD layers). Crc32c.
+    // world's partition block (grids, HLOD layers, data layers by Name and Type - not their editor default or
+    // runtime state, which change when an HLOD is drawn and not what it holds). Crc32c.
     [[nodiscard]] std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
                                                    std::span<const std::size_t>        members,
                                                    const WorldPartitionSerialized&     partition );

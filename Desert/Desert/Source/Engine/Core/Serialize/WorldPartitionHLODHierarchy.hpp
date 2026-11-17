@@ -70,15 +70,15 @@ namespace Desert::Core::Rules
         CellBounds Bounds;
         // The union of the height spans of what it stands in for (PlannedCell::Height, WP-SRC-ALTITUDE).
         HeightSpan Height;
-        // The RUNTIME data layers it belongs to (indices into WorldPartitionSerialized::DataLayers, ascending; empty =
-        // none) - UE's AWorldPartitionHLOD carries the DataLayerInstances of the runtime cell it was built from
-        // (WP-HLOD-DATA-LAYERS). A depth-1 node: its cell's (PlannedCell::DataLayers); a parent: those of the HLOD
-        // cell it stands in for. It is shown only while their effective state is Activated (HLODRuntime::Sync) and
-        // its HLOD cell streams by them (MakeHLODResidency).
+        // The RUNTIME data layers it belongs to (indices into WorldPartitionSerialized::DataLayers, ascending;
+        // empty = none) - UE's AWorldPartitionHLOD carries the DataLayerInstances of the runtime cell it was built
+        // from (WP-HLOD-DATA-LAYERS). A depth-1 node: its cell's (PlannedCell::DataLayers); a parent: those of the
+        // HLOD cell it stands in for. It is shown only while their effective state is Activated
+        // (HLODRuntime::Sync) and its HLOD cell streams by them (MakeHLODResidency).
         std::vector<std::size_t> DataLayers;
-        // Its key in the saved HLOD index: a depth-1 node is HLODRowName of its cell unit (the WP-FAR-6B row; a cell
-        // of runtime layers adds their suffix); a parent is "<child layer>(X,Z)" of the HLOD cell it stands in for,
-        // with the same suffix (DataLayersCellSuffix) for a cell of runtime layers.
+        // Its key in the saved HLOD index: a depth-1 node is HLODRowName of its cell unit (the WP-FAR-6B row; a
+        // cell of runtime layers adds their suffix); a parent is "<child layer>(X,Z)" of the HLOD cell it stands
+        // in for, with the same suffix (DataLayersCellSuffix) for a cell of runtime layers.
         std::string Name;
     };
 
@@ -102,10 +102,14 @@ namespace Desert::Core::Rules
         // Per layer: its residency grid (MakeHLODResidency) when spatially loaded, else kNoRecord.
         std::vector<std::size_t> GridOfLayer;
 
-        // Whether any HLOD is spatially loaded, i.e. whether a second residency streams HLOD cells.
+        // Whether a second residency streams the HLODs: any HLOD is spatially loaded (it lives in an HLOD cell),
+        // or any belongs to runtime data layers (WP-HLOD-DATA-LAYERS) - such an HLOD is read and made only while
+        // its layers want it, also one of an always-loaded HLOD layer (UE streams an AWorldPartitionHLOD by the
+        // data layers it carries, wherever it lives), so it is never made at the start of Play only to be hidden.
         [[nodiscard]] bool Streams() const
         {
-            return !Cells.empty();
+            return !Cells.empty() || std::any_of( Nodes.begin(), Nodes.end(), []( const HLODNode& node )
+                                                  { return !node.DataLayers.empty(); } );
         }
     };
 
@@ -128,9 +132,9 @@ namespace Desert::Core::Rules
     } // namespace Detail
 
     // THE KEY OF A CELL UNIT'S SAVED HLOD (BuiltHLODCell::Unit, HLODNode::Name; WP-HLOD-DATA-LAYERS): its
-    // DescribeResidencyUnit, and for a cell of runtime data layers their suffix (DataLayersCellSuffix, as its file's
-    // name carries it) - two cells of one square in different sets of layers are different cells with different
-    // HLODs, so the key Build HLODs writes, the cook packs by and Play reads by must tell them apart.
+    // DescribeResidencyUnit, and for a cell of runtime data layers their suffix (DataLayersCellSuffix, as its
+    // file's name carries it) - two cells of one square in different sets of layers are different cells with
+    // different HLODs, so the key Build HLODs writes, the cook packs by and Play reads by must tell them apart.
     [[nodiscard]] inline std::string HLODRowName( const WorldPartitionSerialized& partition,
                                                   const WorldPartitionPlan& plan, std::size_t unit )
     {
@@ -201,9 +205,10 @@ namespace Desert::Core::Rules
                 continue;
             const double size = *layers[layer].CellSize;
             // An HLOD cell is (grid, X, Z, runtime data layers): the HLODs of one square in different sets of
-            // runtime layers are different cells, as the world's own cells are (PlannedCell::DataLayers; UE builds an
-            // AWorldPartitionHLOD per runtime cell and data layer set and streams it by those layers).
-            std::map<std::tuple<std::int32_t, std::int32_t, std::vector<std::size_t>>, std::vector<std::size_t>> mine;
+            // runtime layers are different cells, as the world's own cells are (PlannedCell::DataLayers; UE builds
+            // an AWorldPartitionHLOD per runtime cell and data layer set and streams it by those layers).
+            std::map<std::tuple<std::int32_t, std::int32_t, std::vector<std::size_t>>, std::vector<std::size_t>>
+                 mine;
             for ( std::size_t n = 0; n < out.Nodes.size(); ++n )
             {
                 if ( out.Nodes[n].Layer != layer )
@@ -212,7 +217,8 @@ namespace Desert::Core::Rules
                 const double      cx = 0.5 * ( static_cast<double>( b.MinX ) + b.MaxX );
                 const double      cz = 0.5 * ( static_cast<double>( b.MinZ ) + b.MaxZ );
                 mine[std::make_tuple( static_cast<std::int32_t>( std::floor( cx / size ) ),
-                                      static_cast<std::int32_t>( std::floor( cz / size ) ), out.Nodes[n].DataLayers )]
+                                      static_cast<std::int32_t>( std::floor( cz / size ) ),
+                                      out.Nodes[n].DataLayers )]
                      .push_back( n );
             }
             const std::size_t parent = Detail::HLODLayerIndex( layers, *layers[layer].ParentLayer );
@@ -436,8 +442,10 @@ namespace Desert::Core::Rules
     {
         if ( unit < residency.Plan.AlwaysLoaded.size() )
             return "HLOD " + hierarchy.Nodes.at( residency.Plan.AlwaysLoaded[unit] ).Name;
+        // An HLOD cell of runtime data layers carries their suffix (WP-HLOD-DATA-LAYERS): two cells of one square
+        // in different sets of layers are two cells, and a log line must say which one loaded.
         const PlannedCell& cell = residency.Plan.Cells.at( unit - residency.Plan.AlwaysLoaded.size() );
-        return std::format( "{}({},{})", residency.Partition.Grids.at( cell.Grid ).Name, cell.Cell.X,
-                            cell.Cell.Z );
+        return std::format( "{}({},{}){}", residency.Partition.Grids.at( cell.Grid ).Name, cell.Cell.X,
+                            cell.Cell.Z, DataLayersCellSuffix( residency.Partition, cell.DataLayers ) );
     }
 } // namespace Desert::Core::Rules

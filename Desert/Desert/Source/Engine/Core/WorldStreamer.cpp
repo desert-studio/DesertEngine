@@ -933,8 +933,11 @@ namespace Desert::Core
                   "{3}; after: {4}",
                   m_SceneName, hlods.size(), recordCount, before.Describe(),
                   Common::Utils::ReadProcessFootprint().Describe() );
+        // The layers' states from the first Sync on (WP-HLOD-DATA-LAYERS): an HLOD of a cell whose runtime data
+        // layers start Unloaded or Loaded is never shown, not even for the frame before the first Tick.
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
-        if ( auto synced = m_HLODs->Sync( Executor().State(), *this ); !synced )
+        if ( auto synced = m_HLODs->Sync( Executor().State(), nullptr, *this, Executor().UnitDataLayerStates() );
+             !synced )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
         // From here on every switch is an event a flight reads (WP22c): the first Sync above set them all.
         m_HLODSwitchesSaid = true;
@@ -1048,8 +1051,14 @@ namespace Desert::Core
         if ( !executor )
             return failed( "the HLOD cells: " + executor.GetError() );
         m_HLODExecutor = executor.ExtractValue();
+        // With both residencies' data layer states, as every TickWithHLODs Sync after it (WP-HLOD-DATA-LAYERS).
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
-        if ( auto synced = m_HLODs->Sync( Executor().State(), &m_HLODExecutor->State(), *this ); !synced )
+        const Rules::ResidencyExecutor& hlodCells = *m_HLODExecutor;
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
+        Rules::HLODRuntime& hlodSwitch = *m_HLODs;
+        if ( auto synced = hlodSwitch.Sync( Executor().State(), &hlodCells.State(), *this,
+                                            Executor().UnitDataLayerStates(), hlodCells.UnitDataLayerStates() );
+             !synced )
             return failed( synced.GetError() );
         m_HLODSwitchesSaid = true;
         // The census the Play start is judged by: only the tops are entities now.

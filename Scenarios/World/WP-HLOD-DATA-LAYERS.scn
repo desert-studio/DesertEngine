@@ -8,9 +8,12 @@
 # (21,2); HLOD_Main cell (1,0)). The Player 9000001 near the origin: the building's Main cell is beyond 200 m, so it
 # is drawn by its HLOD_Main HLOD; the camera 600 m from it.
 # Expected log ("[WorldPartition] 'WP_Protocol': ..."): Build HLODs writes HLOD_G0_L0_21_2_DL<hash>.dhlod and a
-# parent row HLOD_Main(1,0)_DL<hash>; Play: "data layer 'Night' Activated -> Unloaded." then the HLOD cell
-# "HLOD HLOD_Main(1,0)" of the Night set unloaded; back: "... Unloaded -> Activated." and that HLOD cell loaded.
-# Restore at the end: membership, layers, save, Build HLODs again (WP_Protocol stays as WP-PROTOCOL.scn left it).
+# parent row HLOD_Main(1,0)_DL<hash>; Play: "data layer 'Night' Activated -> Unloaded." then the HLOD cell of the
+# Night set "HLOD HLOD_Main(1,0)_DL<hash> unloaded." (Rules::DescribeHLODUnit names the set); back: "... Unloaded ->
+# Activated." and "HLOD HLOD_Main(1,0)_DL<hash> loaded, N HLOD record(s)".
+# Restore at the end: membership, layers, camera 1003's Far back to its saved 306000 (the 8 km above is an Edit
+# that Stop keeps and the restoring Save would otherwise write), save, Build HLODs again (WP_Protocol stays as
+# WP-PROTOCOL.scn left it).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
@@ -29,13 +32,14 @@
 Тогда hlod_dl_activated_start 600 м до дома 200414: высокий дом (39 м) виден вдали как HLOD_Main (инстанс), остальные дома ячейки HLOD_Main(1,0) вокруг на месте; лог Build HLODs: файл HLOD_G0_L0_21_2_DL<hash>.dhlod и строка HLOD_Main(1,0)_DL<hash>
 Когда run Scene "World Partition: Data layer Night -> Unloaded"
 Когда advance 2
-Тогда hlod_dl_unloaded_far тот же вид: на месте дома 200414 пусто (ни HLOD_Main, ни слитого блока HLOD_Main_Far), HLOD остальной ячейки на месте, дыр рядом нет; лог: "data layer 'Night' Activated -> Unloaded." и HLOD-ячейка HLOD_Main(1,0) набора Night unloaded
+Тогда hlod_dl_unloaded_far тот же вид: на месте дома 200414 пусто (ни HLOD_Main, ни слитого блока HLOD_Main_Far), HLOD остальной ячейки на месте, дыр рядом нет; лог: "data layer 'Night' Activated -> Unloaded." и "HLOD HLOD_Main(1,0)_DL<hash> unloaded."
 Когда run Scene "World Partition: Data layer Night -> Activated"
 Когда advance 3
-Тогда hlod_dl_activated_far тот же вид: силуэт дома 200414 снова виден вдали (его HLOD_Main), без двойного блока; лог: "data layer 'Night' Unloaded -> Activated." и HLOD-ячейка набора Night loaded
+Тогда hlod_dl_activated_far тот же вид: силуэт дома 200414 снова виден вдали (его HLOD_Main), без двойного блока; лог: "data layer 'Night' Unloaded -> Activated." и "HLOD HLOD_Main(1,0)_DL<hash> loaded, … HLOD record(s)"
 Когда run Action "Stop"
 Когда set 200414 DataLayersData.Layers []
 Когда set world WorldPartition.DataLayers []
+Когда set 1003 CameraData.Far 306000
 Когда run Scene "Save"
 Когда run Scene "Build HLODs"
 Тогда hlod_dl_restored мир как в начале: в разделе Data Layers "This world has no data layers."; Build HLODs без строк _DL

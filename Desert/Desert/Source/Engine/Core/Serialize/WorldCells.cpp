@@ -1222,9 +1222,10 @@ namespace Desert::Core::WorldCells
         }
 
         // A parent HLOD's file stem, by the HLOD cell it stands in for: `HLOD_H<layer grid>_<X>_<Z>`, and for a
-        // cell of runtime data layers their suffix (`..._DL<hash>`, Rules::DataLayersCellSuffix), as a cell's file.
-        std::string ParentHLODFileStem( const WorldPartitionSerialized& partition, const Rules::HLODHierarchy& hierarchy,
-                                        const Rules::HLODNode& node )
+        // cell of runtime data layers their suffix (`..._DL<hash>`, Rules::DataLayersCellSuffix), as a cell's
+        // file.
+        std::string ParentHLODFileStem( const WorldPartitionSerialized& partition,
+                                        const Rules::HLODHierarchy& hierarchy, const Rules::HLODNode& node )
         {
             const Rules::HLODCell& child = hierarchy.Cells.at( node.StandsFor );
             return std::format( "HLOD_H{}_{}_{}{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
@@ -1289,7 +1290,20 @@ namespace Desert::Core::WorldCells
             text += Common::Json::Write( canonical );
             text += '\n';
         }
-        text += Common::Json::Write( partition );
+        // ...and the partition minus what no HLOD is built from (WP-HLOD-DATA-LAYERS): a data layer's
+        // InitiallyLoadedInEditor (what the editor opens loaded), its InitialRuntimeState and the world's
+        // DataLayersLogicOperator (which state Play shows it in) decide when an HLOD is drawn, never what it
+        // holds; hashing them made every saved HLOD of the world stale the moment one was toggled. A layer's Name
+        // and Type stay: the Type splits the cells (and so the members), the Name keys the rows and files.
+        WorldPartitionSerialized built = partition;
+        if ( built.DataLayers.has_value() )
+            for ( DataLayerSerialized& layer : *built.DataLayers )
+            {
+                layer.InitiallyLoadedInEditor = true;
+                layer.InitialRuntimeState.reset();
+            }
+        built.DataLayersLogicOperator = WorldPartitionDataLayersLogicOperator::Or;
+        text += Common::Json::Write( built );
         return Common::Utils::Crc32c( text.data(), text.size() );
     }
 
