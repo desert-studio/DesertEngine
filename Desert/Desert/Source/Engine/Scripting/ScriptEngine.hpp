@@ -178,6 +178,11 @@ namespace Desert::Scripting
         // player's input and calls OnPawnDied(pawn) on every script; a PlayerRestarted possesses the new pawn
         // (its input contexts) and calls OnPlayerRestarted(pawn). After TickPlayerInput, before the scripts run.
         void                     DeliverGameModeEvents( entt::registry& registry );
+        // The World Partition's news of its last streaming tick (Core::WorldPartitionStreamingEvents), once:
+        // OnWorldPartitionCellActivated(cell), OnWorldPartitionCellUnloaded(cell) and OnStreamingStateUpdated() on
+        // every script; then the WorldPartition.waitUntilStreamed callbacks whose query completed. After
+        // DeliverGameModeEvents, before the scripts run.
+        void DeliverWorldPartitionEvents( entt::registry& registry );
         Input::LocalPlayerInput& PlayerInput();
 
     public:

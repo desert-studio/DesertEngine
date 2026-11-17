@@ -188,6 +188,7 @@ namespace Desert::Core
     WorldStreamer::WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName )
          : m_Scene( &scene ), m_Assets( &assets ), m_SceneName( std::move( sceneName ) )
     {
+        m_Scene->GetRegistry().set<WorldStreamerOfScene>( WorldStreamerOfScene{ this } );
     }
 
     Common::ResultStr<std::unique_ptr<WorldStreamer>>
@@ -740,6 +741,7 @@ namespace Desert::Core
             wait.Sources.emplace( entities[index], completion.GetValue() );
         }
         m_Scene->GetRegistry().set<WorldStreamingWait>( std::move( wait ) );
+        PublishStreamingEvents();
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
         if ( done.DeferredReferences > 0 || done.UnboundReferences > 0 )
         {
@@ -749,6 +751,33 @@ namespace Desert::Core
                       m_SceneName, done.DeferredReferences, done.UnboundReferences );
         }
         return BOOLSUCCESS;
+    }
+
+    void WorldStreamer::PublishStreamingEvents()
+    {
+        const Rules::WorldPartitionPlan&         plan  = Executor().Plan();
+        const std::vector<Rules::UnitResidency>& units = Executor().State().Units;
+        WorldPartitionStreamingEvents            events;
+        events.Publication = ++m_EventPublication;
+        if ( m_StatesSeen.size() != units.size() )
+            m_StatesSeen.assign( units.size(), Rules::Residency::Unloaded );
+        for ( std::size_t unit = 0; unit < units.size(); ++unit )
+        {
+            const Rules::Residency now  = units[unit].State;
+            const Rules::Residency seen = m_StatesSeen[unit];
+            if ( now == seen )
+                continue;
+            m_StatesSeen[unit] = now;
+            events.Updated     = true;
+            if ( unit < plan.AlwaysLoaded.size() )
+                continue; // the always-loaded part is resident for the whole session; it is no cell's news
+            if ( now == Rules::Residency::Activated )
+                events.Activated.push_back( Rules::DescribeResidencyUnit( plan, unit ) );
+            else if ( now == Rules::Residency::Unloaded &&
+                      ( seen == Rules::Residency::Loaded || seen == Rules::Residency::Activated ) )
+                events.Unloaded.push_back( Rules::DescribeResidencyUnit( plan, unit ) );
+        }
+        m_Scene->GetRegistry().set<WorldPartitionStreamingEvents>( std::move( events ) );
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1025,6 +1054,15 @@ namespace Desert::Core
 
     WorldStreamer::~WorldStreamer()
     {
+        if ( m_Scene != nullptr )
+        {
+            entt::registry& registry = m_Scene->GetRegistry();
+            if ( const auto* ref = registry.try_ctx<WorldStreamerOfScene>(); ref != nullptr && ref->Streamer == this )
+            {
+                registry.unset<WorldStreamerOfScene>();
+                registry.unset<WorldPartitionStreamingEvents>();
+            }
+        }
         // The scene outlives its streamer (hosts reset the streamer before clearing the scene); what the
         // streamer said about it must not outlive the streamer.
         if ( m_Scene != nullptr )

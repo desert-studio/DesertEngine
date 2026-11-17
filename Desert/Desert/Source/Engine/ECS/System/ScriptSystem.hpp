@@ -124,6 +124,8 @@ namespace Desert::ECS
             // The GameMode's deaths and restarts reach the player's input and the scripts' hooks before any
             // script runs this frame (GameModeSystem raised them last frame, after the scripts).
             m_Engine.DeliverGameModeEvents( registry );
+            // The World Partition's last streaming tick (cells activated / unloaded, the completed waits).
+            m_Engine.DeliverWorldPartitionEvents( registry );
 
             // ---- Run the scripts (each entity may run several script SLOTS, like UE ActorComponents) ----
             auto view = registry.view<ScriptComponent>();

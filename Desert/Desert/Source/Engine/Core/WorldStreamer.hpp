@@ -224,6 +224,8 @@ namespace Desert::Core
         WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName );
         // Takes @p sources as this frame's; the first frame with none logs the one named error (THE SOURCES).
         void UseSources( std::vector<Rules::StreamingSource> sources );
+        // Compares each unit's residency with what the last call saw and sets WorldPartitionStreamingEvents.
+        void PublishStreamingEvents();
         // Gives each of the first @p entities.size() sources the velocity its entity moved at since the last Tick.
         void StampVelocities( std::vector<Rules::StreamingSource>& sources,
                               std::span<const std::uint32_t> entities, double nowSeconds );
@@ -305,5 +307,18 @@ namespace Desert::Core
         // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
         std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
         double                                       m_SourcesAt = 0.0;
+        // What each unit's residency was when PublishStreamingEvents last looked, and its publication count.
+        std::vector<Rules::Residency> m_StatesSeen;
+        std::uint64_t                 m_EventPublication = 0;
+    };
+
+    // THE STREAMER OF A SCENE, ON THE SCENE'S REGISTRY CONTEXT (UE: a world's UWorldPartitionSubsystem): set while
+    // a WorldStreamer streams the scene - from its construction, so a script asks before the first tick and is
+    // told the truth (nothing has arrived) - and removed by its destructor. What the WorldPartition script library
+    // (Libraries/WorldPartitionLibrary.hpp) reads the plan and the residency through; a host draws from
+    // WorldStreamingWait instead.
+    struct WorldStreamerOfScene
+    {
+        WorldStreamer* Streamer = nullptr;
     };
 } // namespace Desert::Core
