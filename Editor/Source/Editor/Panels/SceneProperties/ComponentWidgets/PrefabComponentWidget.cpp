@@ -2,6 +2,7 @@
 
 #include <ImGui/imgui.h>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -116,16 +117,19 @@ namespace Desert::Editor
 
             ImGui::SameLine();
 
-            if ( ImGui::Button( ICON_MDI_PACKAGE_VARIANT_CLOSED " Unpack" ) )
+            if ( ImGui::Button( ICON_MDI_PACKAGE_VARIANT_CLOSED " Break" ) )
             {
-                // Remove PrefabComponent from root — children keep their components
-                entity.GetRegistry()->remove<ECS::PrefabComponent>( entity.GetHandle() );
-                if ( scene != nullptr )
-                    scene->MarkModifiedSubtree( entity );
+                // The Outliner's Break (one level): one route, one undo step.
+                const auto broken = Commands::BreakPrefabInstance( entity.GetComponent<ECS::UUIDComponent>().UUID,
+                                                                   Commands::BreakDepth::OneLevel );
+                if ( !broken.IsSuccess() )
+                    LOG_ERROR( "[Prefab] {}", broken.GetError() );
                 Utils::ImGuiUtilities::PopID();
-                return; // component is gone; stop rendering this widget
+                return; // the link is gone (or the refusal is logged); stop rendering this widget
             }
-            Utils::ImGuiUtilities::Tooltip( "Break the prefab link; entity and children become regular objects" );
+            Utils::ImGuiUtilities::Tooltip( "Break the prefab link one level: this instance's entities become regular "
+                                            "objects; prefabs nested in it stay instances (the Outliner's Break Prefab "
+                                            "(all levels) breaks those too)" );
 
             ImGui::SameLine();
         }

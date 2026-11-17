@@ -1,0 +1,21 @@
+# WP-PREFAB-CREATE: UE's Create Level Instance from a selection (ULevelInstanceSubsystem::CreateLevelInstanceFrom,
+# pivot Center Min): five entities become ONE new prefab and one instance of it in their place, as ONE undo step; the
+# instance stands at the centre of the group's base (Y up), where its gizmo sits. Undo brings the five back where they stood.
+# WP_Protocol holds no barrels or crate (its props are Main-grid buildings and Foliage-grid bushes 25 m apart), so the
+# brief's "4 barrels + crate" are five bushes of one corner of the Foliage grid. The primary (last) selection names the
+# file: Content/Prefabs/Foliage_Bush_2_0.deprefab is written and STAYS after the undo (UE keeps the package too) -
+# delete it after the run, the content repo must not take it.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 3750,2000,-3500
+Дано --subject viewport set Camera.Direction 0,-0.37,0.93
+Дано run Entity "Foliage Bush 0_0"
+Дано run Entity "Add to selection Foliage Bush 0_1"
+Дано run Entity "Add to selection Foliage Bush 1_0"
+Дано run Entity "Add to selection Foliage Bush 1_1"
+Дано run Entity "Add to selection Foliage Bush 2_0"
+Тогда prefab_from_sel_before пять кустов выделены (оранжевые контуры), в Outliner пять отдельных строк Foliage Bush 0_0, 0_1, 1_0, 1_1, 2_0
+Когда run Entity "Create Prefab from Selection (pivot: Center Min)"
+Тогда prefab_from_sel на месте пяти кустов один экземпляр: в Outliner одна строка Foliage_Bush_2_0 (Prefab) с пятью детьми, выделена она; кусты на тех же местах; гизмо в центре основания группы (около X 3750, Z 2500, у земли, Y около -404); editor.log: «[Prefab] 5 entities -> '…Foliage_Bush_2_0.deprefab' (pivot Center Min)», отказа «Create Prefab from Selection:» нет
+Когда run Action "Undo"
+Тогда prefab_from_sel_undo снова пять отдельных кустов на тех же местах (кадр как prefab_from_sel_before без выделения), строки Foliage_Bush_2_0 в Outliner нет
