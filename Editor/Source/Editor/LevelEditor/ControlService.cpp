@@ -1,5 +1,7 @@
 #include "Editor/LevelEditor/ControlService.hpp"
 
+#include "Editor/Baking/MaterialBaking.hpp"
+
 #include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
@@ -612,6 +614,9 @@ namespace Desert::Editor
         // BaseColor bake runs over editor frames (TickBuild), so the reply to `run "Build HLODs"` waits for it -
         // a Save or quit answered earlier cut the bake and no <Scene>_HLOD/ was written (WP-PROTOCOL.scn).
         quiescence.Set( Control::PendingWork::HLODBuild, hlodBuildRunning );
+        // UE's Bake Materials is modal too: the reply to "Bake Material to Textures" waits for the offscreen render
+        // and its five texture assets (Editor/Baking/MaterialBaking).
+        quiescence.Set( Control::PendingWork::MaterialBake, ::Desert::Editor::Baking::IsBakeOfSelectionRunning() );
         // UE's drop of a source file into the level imports it modally (the factory runs before the actor is
         // spawned). Here the import runs on a worker and the entity waits empty, so the reply to "Drop into the
         // viewport" waits for the mesh: a frame taken earlier showed an entity with no mesh (WP-FAR-2.scn).

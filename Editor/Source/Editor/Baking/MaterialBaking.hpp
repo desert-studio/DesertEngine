@@ -57,7 +57,7 @@ namespace Desert::Editor::Baking
     {
         Geometry::RenderMeshData Mesh;     // the source mesh (ToRenderMesh of the component's mesh), object space
         int                      Slot = 0; // the material id of the submeshes to bake
-        Assets::AssetHandle      Material; // the slot's material asset
+        Common::AssetHandle      Material; // the slot's material asset
         uint32_t                 Size = 1024;
         std::string              Name; // the stem of written assets (the entity's name)
     };
@@ -83,7 +83,7 @@ namespace Desert::Editor::Baking
     class MaterialBake
     {
     public:
-        MaterialBake( MaterialBakeRequest request, const Assets::AssetManager* assets );
+        explicit MaterialBake( MaterialBakeRequest request );
         ~MaterialBake();
 
         MaterialBake( const MaterialBake& )            = delete;
@@ -120,8 +120,7 @@ namespace Desert::Editor::Baking
                                                      const std::vector<uint8_t>& emissive );
         void                                Fail( std::string error );
 
-        MaterialBakeRequest         m_Request;
-        const Assets::AssetManager* m_Assets = nullptr;
+        MaterialBakeRequest m_Request;
 
         std::unique_ptr<Graphic::SceneRenderer>         m_Renderer;
         std::shared_ptr<::Desert::Core::Scene>          m_Scene;
@@ -150,9 +149,7 @@ namespace Desert::Editor::Baking
     // THE PALETTE'S "Bake Material to Textures" on the selected entity's slot @p slot: starts the bake (one at a
     // time). Refused: no single selected entity with a static mesh, no readable mesh, a slot without a material or
     // without triangles, a bake already running.
-    [[nodiscard]] Common::BoolResultStr StartBakeOfSelection( ::Desert::Core::Scene&      scene,
-                                                              const Assets::AssetManager& assets, int slot,
-                                                              uint32_t size );
+    [[nodiscard]] Common::BoolResultStr StartBakeOfSelection( ::Desert::Core::Scene& scene, int slot, uint32_t size );
     // One editor frame of the running palette bake; on completion its images are written under
     // Assets/Textures/Baked as `T_<entity>_<slot>_{BaseColor,Normal,ORM,Emissive,OpacityMask}` texture assets.
     void TickBakeOfSelection( Assets::AssetManager& assets );

@@ -12,6 +12,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
@@ -23,6 +24,7 @@
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Timestep.hpp>
 
@@ -297,8 +299,7 @@ namespace Desert::Editor::Baking
         }
     }
 
-    MaterialBake::MaterialBake( MaterialBakeRequest request, const Assets::AssetManager* assets )
-         : m_Request( std::move( request ) ), m_Assets( assets )
+    MaterialBake::MaterialBake( MaterialBakeRequest request ) : m_Request( std::move( request ) )
     {
         if ( m_Request.Size == 0 )
             Fail( "the bake size is 0" );
@@ -337,15 +338,24 @@ namespace Desert::Editor::Baking
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
         m_Scene->Resize( m_Request.Size, m_Request.Size );
 
-        // The proxy is the entity's runtime mesh; every slot index the proxy's submesh may name draws the baked
-        // material.
-        ECS::StaticMeshDesc desc;
+        // The proxy is the entity's edited mesh, set through the one writer of an edited mesh and its render form
+        // (ECS::SetEditableMesh) and the one writer of the component (ECS::SetStaticMesh): the welded proxy keeps
+        // the source's normal, tangent, bitangent and UV as overlays, so its render form is the proxy again. Every
+        // slot index its submesh may name draws the baked material.
+        auto imported = Geometry::DynamicMeshFromRenderMesh( data );
+        if ( !imported )
+            return Common::MakeError( "the UV-space proxy did not convert: " + imported.GetError() );
+        Geometry::ImportedDynamicMesh welded = imported.ExtractValue();
+        ECS::StaticMeshDesc           desc;
         desc.MaterialSlots.assign( static_cast<std::size_t>( m_Request.Slot ) + 1, m_Request.Material );
-        desc.RuntimeMesh       = std::make_shared<DynamicMesh>( data.Vertices, data.Indices, data.Submeshes );
         desc.CastShadows       = false;
         desc.CastContactShadow = false;
-        ECS::Entity& entity    = m_Scene->CreateNewEntity( "MaterialBakeProxy" );
-        entity.AddComponent<ECS::StaticMeshComponent>( desc );
+        if ( auto set =
+                  ECS::SetEditableMesh( desc, std::make_shared<Geometry::DynamicMesh3>( std::move( welded.Mesh ) ) );
+             !set )
+            return Common::MakeError( "the UV-space proxy was refused: " + set.GetError() );
+        ECS::Entity& entity = m_Scene->CreateNewEntity( "MaterialBakeProxy" );
+        static_cast<void>( ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc ) );
 
         // Straight down at the plane: right = +X, up = -Z, so texel column c is u and row r is v; the
         // orthographic window is the proxy's square.
@@ -531,6 +541,32 @@ namespace Desert::Editor::Baking
         if ( !walked )
             return walked;
 
+        // THE ISLAND'S EDGE IS WHERE BOTH RASTERISERS AGREE. The G-buffer is drawn with the view's temporal jitter
+        // (up to half a texel) and the GPU's fill rule, the islands above by texel centre: a border texel the CPU
+        // counts inside and the GPU left empty is a raster disagreement, not the material's mask, so it leaves the
+        // island and the dilation fills it like any texel outside. Inside the island an empty texel is the mask.
+        std::vector<uint8_t> rasterMiss( texels, 0 );
+        for ( uint32_t y = 0; y < size; ++y )
+            for ( uint32_t x = 0; x < size; ++x )
+            {
+                const std::size_t texel = static_cast<std::size_t>( y ) * size + x;
+                if ( covered[texel] == 0 || drawn[texel] != 0 )
+                    continue;
+                for ( int dy = -1; dy <= 1 && rasterMiss[texel] == 0; ++dy )
+                    for ( int dx = -1; dx <= 1 && rasterMiss[texel] == 0; ++dx )
+                    {
+                        const int nx = static_cast<int>( x ) + dx;
+                        const int ny = static_cast<int>( y ) + dy;
+                        const bool outside = nx < 0 || ny < 0 || nx >= static_cast<int>( size ) ||
+                                             ny >= static_cast<int>( size ) ||
+                                             covered[static_cast<std::size_t>( ny ) * size + nx] == 0;
+                        rasterMiss[texel] = outside ? 1 : 0;
+                    }
+            }
+        for ( std::size_t texel = 0; texel < texels; ++texel )
+            if ( rasterMiss[texel] != 0 )
+                covered[texel] = 0;
+
         // The emissive's scale first (UE FFlattenMaterial::EmissiveScale): the largest channel any drawn texel
         // holds.
         for ( std::size_t texel = 0; texel < texels; ++texel )
@@ -560,7 +596,7 @@ namespace Desert::Editor::Baking
             const glm::vec4 e            = HalfTexel( emissive, texel );
             out.ORM[texel * 4 + 0]       = UnitToByte( e.a ); // material AO
             out.ORM[texel * 4 + 1]       = UnitToByte( b.a ); // roughness
-            out.ORM[texel * 4 + 2]       = 0;                 // metallic: REMAINDER (the G-buffer shading word)
+            out.ORM[texel * 4 + 2]       = albedo[texel * 4 + 3]; // metallic: G-buffer A alpha, linear UNORM
             out.ORM[texel * 4 + 3]       = 255;
             const float scale            = out.EmissiveScale > 0.0f ? out.EmissiveScale : 1.0f;
             out.Emissive[texel * 4 + 0]  = UnitToByte( LinearToSrgb( e.r / scale ) );
@@ -599,8 +635,7 @@ namespace Desert::Editor::Baking
         }
     } // namespace
 
-    Common::BoolResultStr StartBakeOfSelection( ::Desert::Core::Scene& scene, const Assets::AssetManager& assets,
-                                                const int slot, const uint32_t size )
+    Common::BoolResultStr StartBakeOfSelection( ::Desert::Core::Scene& scene, const int slot, const uint32_t size )
     {
         if ( Running().Bake )
             return Common::MakeError( "Bake Material to Textures: a bake is already running" );
@@ -623,7 +658,7 @@ namespace Desert::Editor::Baking
                  std::format( "Bake Material to Textures: '{}' has no material in slot {} ({} "
                               "slots)",
                               name, slot, slots.size() ) );
-        auto mesh = ::Desert::Editor::Core::GetToolTargetMesh( component );
+        auto mesh = GetToolTargetMesh( component );
         if ( !mesh.IsSuccess() || !mesh.GetValue().Mesh )
             return Common::MakeError(
                  std::format( "Bake Material to Textures: '{}': {}", name,
@@ -633,13 +668,19 @@ namespace Desert::Editor::Baking
             return Common::MakeError(
                  std::format( "Bake Material to Textures: '{}': {}", name, render.GetError() ) );
 
+        // The slot each submesh DRAWS with (SectionMaterialSlot: a slot list shorter than the mesh's material ids
+        // gives every remaining one its last slot), so the bake takes every triangle the renderer shades with it.
+        Geometry::RenderMeshData source = render.ExtractValue();
+        for ( int& id : source.SubmeshMaterialIds )
+            id = static_cast<int>(
+                 ::Desert::SectionMaterialSlot( static_cast<std::size_t>( std::max( id, 0 ) ), slots.size() ) );
         MaterialBakeRequest request;
-        request.Mesh     = render.ExtractValue();
+        request.Mesh     = std::move( source );
         request.Slot     = slot;
         request.Material = slots[slot];
         request.Size     = size;
         request.Name     = std::format( "T_{}_{}", FileStem( name ), slot );
-        Running().Bake   = std::make_unique<MaterialBake>( std::move( request ), &assets );
+        Running().Bake   = std::make_unique<MaterialBake>( std::move( request ) );
         LOG_INFO( "Bake Material to Textures: '{}' slot {} at {}x{} started", name, slot, size, size );
         return BOOLSUCCESS;
     }
