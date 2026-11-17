@@ -1,0 +1,18 @@
+# WP-HLOD-MATFLATTEN: a material rendered in its mesh's UV space (UE FMaterialBakingModule / FMeshMaterialRenderItem).
+# Editor/Baking/MaterialBaking.cpp: the slot's triangles as a UV-space proxy drawn by the material's own G-buffer
+# cell, read back, the normal brought into the source tangent frame, islands dilated, five texture assets written
+# under Content/Textures/Baked as T_<entity>_<slot>_<property>. The palette reply waits for the bake
+# (PendingWork::MaterialBake). The shape is placed in FIELD_Barn and given a barn material before the bake (REMAINDER:
+# the material path and the opened asset's path are to be confirmed on the first run).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Position 0,250,-400
+Дано --subject viewport set Camera.Direction 0,-0.5,0.866
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Тогда-вид matflat_source the placed sphere selected at the viewport centre, its slot 0 material visible on it
+Когда run Modeling "Bake Material to Textures"
+Когда open Content/Textures/Baked/T_Sphere_0_BaseColor.detex
+Тогда matflat_basecolor Texture Viewer: T_Sphere_0_BaseColor 1024x1024 - the sphere's unwrap in its material's colours, no black seams at the island borders (dilated outward)
+Когда open Content/Textures/Baked/T_Sphere_0_Normal.detex
+Тогда matflat_normal Texture Viewer: T_Sphere_0_Normal - a bluish tangent-space map (flat = 128,128,255), no black gaps between islands

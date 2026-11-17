@@ -68,6 +68,8 @@ namespace Desert::Editor::Control
         MeshDrops, ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
         MaterialPipelines, ///< the frame drew a material's default surface while its own pipeline compiled
         GrassInstances, ///< the frame drew grass whose instance buffers were sized for another view (a camera cut)
+        MaterialBake,   ///< a Bake Material to Textures is still rendering its slot; its textures are not written
+                        ///< yet
         Count
     };
 
@@ -95,6 +97,7 @@ namespace Desert::Editor::Control
          "a dropped mesh is still being imported (the viewport shows 'Loading meshes' and an empty entity)",
          "a material's pipeline is still compiling (the frame drew the default surface in its place)",
          "the grass is still being counted after a camera cut (the field drew truncated)",
+         "Bake Material to Textures is still rendering its slot (its texture assets are not written yet)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

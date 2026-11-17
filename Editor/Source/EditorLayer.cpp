@@ -96,6 +96,7 @@
 #include <format>
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
+#include "Editor/Baking/MaterialBaking.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Widgets/WindowButtonStyle.hpp"
@@ -620,6 +621,9 @@ namespace Desert::Editor
         // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
         if ( m_WorldPartitionPanel )
             m_WorldPartitionPanel->TickBuild();
+        // A running "Bake Material to Textures" records its offscreen frames here (Editor/Baking/MaterialBaking).
+        if ( m_AssetManager )
+            ::Desert::Editor::Baking::TickBakeOfSelection( *m_AssetManager );
 
         m_Dock.UpdateContextualPanels();
 
