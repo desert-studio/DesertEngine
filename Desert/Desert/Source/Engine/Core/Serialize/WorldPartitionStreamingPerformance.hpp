@@ -188,4 +188,18 @@ namespace Desert::Core
         // as of this tick: what a script asks with entity:streamingCellsPending().
         std::unordered_map<std::uint32_t, Rules::SourceCompletion> Sources;
     };
+
+    // WHAT CHANGED IN THE LAST STREAMING TICK, FOR GAMEPLAY (UE UWorldPartitionSubsystem::OnStreamingStateUpdated
+    // and a cell's activation / unload): set on the scene's registry context by WorldStreamer::Tick every frame,
+    // replacing the last tick's, and delivered once to the scripts by ScriptEngine::DeliverWorldPartitionEvents
+    // (Publication tells a delivered tick from a new one). Cells are named as the streaming log names them
+    // (Rules::DescribeResidencyUnit).
+    struct WorldPartitionStreamingEvents
+    {
+        std::uint64_t            Publication = 0;
+        bool                     Updated     = false; // some cell changed its residency this tick
+        std::vector<std::string> Activated;           // cells whose entities entered the world this tick
+        std::vector<std::string> Unloaded;            // cells that were Loaded or Activated and left this tick
+        bool                     Delivered = false;   // the scripts heard this publication
+    };
 } // namespace Desert::Core

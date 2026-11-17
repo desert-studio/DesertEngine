@@ -1,0 +1,46 @@
+# WP-SCRIPT-API (owner 11-17, World Partition to the end): the Luau library WorldPartition
+# (Desert/Desert/Source/Engine/Libraries/WorldPartitionLibrary.hpp) - streamingPending / allStreamingPending (UE
+# IsStreamingCompleted / IsAllStreamingCompleted as counts, 0 = complete, no -1 before the first tick),
+# waitUntilStreamed (UE's latent wait), cellStatesAt (a cell's GetCurrentState) and the hooks
+# OnStreamingStateUpdated(), OnWorldPartitionCellActivated(cell), OnWorldPartitionCellUnloaded(cell)
+# (ScriptEngine::DeliverWorldPartitionEvents). A QUERY LOADS NOTHING (UE FWorldPartitionStreamingQuerySource):
+# the teleport streams its destination with a Streaming Source there, then waits on the query, then moves.
+# World: Scenes/WP_Protocol (WP-PROTOCOL.scn). CONTENT TO ADD BEFORE THE RUN (content repo, by the lead):
+#   entity 9000003 "WPTeleportTarget": Transform at P = (300000, 0, 0) (3 km +X), StreamingSource disabled;
+#   entity 9000004 "WPTeleport": Script Scripts/World/WPTeleport.lua:
+#     local P = vector.create(300000, 0, 0)
+#     function OnStart()
+#       World.find("WPTeleportTarget"):component("StreamingSource").Data.Enabled = true
+#       print("pending before the first tick: " .. WorldPartition.streamingPending({Location = P, Radius = 5000}, "Activated"))
+#       coroutine.wrap(function() -- the yielding wait: the coroutine sleeps until the destination streamed
+#         local co = coroutine.running()
+#         WorldPartition.waitUntilStreamed({Location = P, Radius = 5000}, "Activated", function(ms) coroutine.resume(co, ms) end)
+#         local ms = coroutine.yield()
+#         print("teleport after " .. ms .. " ms")
+#         gameMode.pawn():setPosition(P + vector.create(0, 200, 0))
+#         World.find("WPTeleportTarget"):component("StreamingSource").Data.Enabled = false
+#         local lines = WorldPartition.cellStatesAt(P)
+#         for _, line in lines do print(line) end
+#       end)()
+#     end
+#     function OnWorldPartitionCellActivated(cell) print("activated " .. cell) end
+#     function OnWorldPartitionCellUnloaded(cell) print("unloaded " .. cell) end
+# Expected (editor.log): "pending before the first tick: N" with N > 0 (never -1); "activated G..." lines for the
+# cells around P; "[WorldPartition] streaming completed for query in N ms (Activated)", "teleport after N ms" (the coroutine resumed); then cellStatesAt prints
+# "...: Activated" for every cell holding P; "unloaded G..." for the start area afterwards.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано set 9000001 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.Enabled false
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 6
+# Тогда [кадр]: wpapi_teleport_wait - the first frame after the move: the player stands on the ground at P, the cells
+# around are real (not HLOD), nothing falls; the log has "streaming completed for query in N ms".
+Тогда wpapi_teleport_wait первый кадр после переноса: игрок стоит на земле в P (3 км), вокруг настоящие ячейки (не HLOD), без падения; в логе «streaming completed for query in N ms», «activated G…» для ячеек вокруг P, cellStatesAt(P) — «Activated»
+Когда run Action "Stop"
+# The second half of the card (a script sets the data layer "Night" Activated and writes "Night: Activated" in the UI
+# from OnDataLayerRuntimeStateChanged; frame wpapi_layer_event) needs RUNTIME data layers, which no branch streams
+# yet: task/WP-DATA-LAYERS-RUNTIME holds the EDITOR layers only (SceneFormat.hpp DataLayerSerialized). Its lines join
+# this file with WorldPartition.setDataLayerRuntimeState / getDataLayerRuntimeState / getDataLayerEffectiveRuntimeState.
