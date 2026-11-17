@@ -1,6 +1,8 @@
-// DefaultLit — UE's MSM_DefaultLit: Cook-Torrance for every analytic light (Mesh/DirectLighting.glslh, the
-// kd * albedo / PI diffuse plus GGX specular) and the split-sum environment with the
-// one-bounce indirect (Mesh/AmbientIBL.glslh). The model of a surface template that names none.
+// DefaultLit — UE's MSM_DefaultLit, the slab with no feature (Mesh/SubstrateSlab.glslh; UE Substrate's legacy
+// conversion of DefaultLit is one slab of the material's BaseColor, Metallic, Specular and Roughness): Cook-Torrance
+// for every analytic light (Mesh/DirectLighting.glslh, the kd * albedo / PI diffuse plus GGX specular; a rect source
+// through Mesh/RectLight.glslh) and the split-sum environment with the one-bounce indirect (Mesh/AmbientIBL.glslh).
+// The model of a surface template that names none.
 Guid 6570679776162095495;
 Payload
 {
@@ -11,43 +13,26 @@ Inputs
     Metallic;
     Roughness;
 }
+SlabFeatures DefaultLitSlabFeatures;
 
-#include <Mesh/BRDF.glslh>
-#include <Mesh/DirectLighting.glslh>
-#include <Mesh/RectLight.glslh> // a rect source's area response (DesertLight::RectCenter)
-// The pure half of the ambient text. A lighting pass has already included the whole file (its samplers too);
-// a G-buffer pass, which only packs the shading word, has not, and gets the half that declares no binding.
-#ifndef AMBIENT_IBL_GLSLH
-#define AMBIENT_IBL_NO_SAMPLERS
-#include <Mesh/AmbientIBL.glslh>
-#endif
+#include <Mesh/SubstrateSlab.glslh>
 
-vec3 DefaultLitF0( DesertSurface S )
+uint DefaultLitSlabFeatures( DesertPayload P )
 {
-    return DesertSpecularF0( S );
+    return 0u;
 }
 
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    if ( DesertIsRectLight( L ) )
-        return EvaluateRectLight( L, S.V, S.N, DefaultLitF0( S ), S.Metallic, S.Roughness, S.BaseColor ) * L.Shadow;
-    return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, DefaultLitF0( S ), S.Metallic, S.Roughness, S.BaseColor ) *
-           L.Shadow;
+    return DesertSlabEvaluate( L, S, DesertMakeSlab( S, DefaultLitSlabFeatures( P ) ) );
 }
 
 vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    if ( DesertIsRectLight( L ) )
-        return EvaluateRectLightSpecular( L, S.V, S.N, DefaultLitF0( S ), S.Roughness ) * L.Shadow;
-    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DefaultLitF0( S ), S.Roughness ) * L.Shadow;
+    return DesertSlabEvaluateSpecular( L, S, DesertMakeSlab( S, DefaultLitSlabFeatures( P ) ) );
 }
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    const vec3 F0       = DefaultLitF0( S );
-    const vec3 diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
-    const vec3 specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
-    // UE ReflectionEnvironment: the reflection takes GetSpecularOcclusion( NoV, Roughness^2, AO ), the diffuse AO.
-    const float specularOcclusion = DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
-    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+    return DesertSlabEvaluateAmbient( A, S, DesertMakeSlab( S, DefaultLitSlabFeatures( P ) ) );
 }

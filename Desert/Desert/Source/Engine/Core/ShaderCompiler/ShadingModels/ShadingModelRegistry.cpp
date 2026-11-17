@@ -405,6 +405,25 @@ namespace Desert::Core::ShadingModels
                                 ShadingModelIndexDefine( e.Manifest.Name ) );
         out += "    return false;\n}\n";
 
+        // UE Substrate's slab presets (Mesh/SubstrateSlab.glslh): the features a texel's slab is built with, from the
+        // manifests' SlabFeatures lines - the function the model's own slab calls, so the word DesertPackShadingWord
+        // writes below and the evaluation agree - and whether the model's response IS the slab (a texel of such a
+        // model with no feature bit is DefaultLit exactly: "Deferred: Tile Classify" shades it with the SIMPLE tiles).
+        out += "\n// The slab features (kDesertSlab*) of the texel's slab; 0 = the model is no plain slab preset.\n"
+               "uint DesertShadingModelSlabFeatures( int index, DesertPayload P )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SlabFeaturesFunction.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return {}( P );\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ), e.Manifest.SlabFeaturesFunction );
+        out += "    return 0u;\n}\n";
+        out += "\n// The model's response is the slab alone: with no feature bit it shades exactly as DefaultLit.\n"
+               "bool DesertShadingModelIsPlainSlab( int index )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SlabFeaturesFunction.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return true;\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ) );
+        out += "    return false;\n}\n";
+
         // The shading word (ShadingModelContract.glslh): a uvec2, packed and unpacked with integer operations, its
         // bits numbered across the pair (0..31 = .x, 32..63 = .y). The NO_SUN_SHADOWS bit is not one of these
         // fields and is left to the pass.
@@ -454,6 +473,11 @@ uvec2 DesertPackShadingWord( int index, float sampledTextureCount, float specula
     word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData2 ), DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT );
     word |= DesertShadingWordBits( DesertPayloadUnorm( P.CustomData3 ), DESERT_SHADING_WORD_PAYLOAD3_FIRST_BIT );
     word |= DesertShadingWordBits( DesertPayloadUnorm( specular ), DESERT_SHADING_WORD_SPECULAR_FIRST_BIT );
+    // The slab features of the payload as the readers will see it (quantized), so the classify's bits and the
+    // evaluation's features are one function of one value.
+    const uint featureMax = ( 1u << uint( DESERT_SHADING_WORD_SLAB_FEATURES_BITS ) ) - 1u;
+    word |= DesertShadingWordBits( DesertShadingModelSlabFeatures( index, DesertQuantizePayload( P ) ) & featureMax,
+                                   DESERT_SHADING_WORD_SLAB_FEATURES_FIRST_BIT );
     // The landscape bit belongs to the terrain pass alone (DesertMarkLandscape): no packed field may carry it.
     word.x &= ~( 1u << uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) );
     return word;
