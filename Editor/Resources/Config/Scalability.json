@@ -143,16 +143,10 @@
                 "Textures.LandscapeVirtualTextureUpdatesPerFrame": 48
             },
             "High": {
-                "Textures.StreamingPoolMiB": 2048,
-                "Textures.LandscapeVirtualTextureSizeLog2": 16,
-                "Textures.LandscapeVirtualTexturePoolPages": 32,
-                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 64
+                "Textures.StreamingPoolMiB": 2048
             },
             "Epic": {
-                "Textures.StreamingPoolMiB": 2048,
-                "Textures.LandscapeVirtualTextureSizeLog2": 16,
-                "Textures.LandscapeVirtualTexturePoolPages": 32,
-                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 64
+                "Textures.StreamingPoolMiB": 2048
             },
             "Cinematic": {
                 "Textures.StreamingPoolMiB": 8192,
