@@ -6,6 +6,8 @@
 // NOLINTBEGIN
 #pragma once
 
+#include <Engine/Graphic/ShaderPushBlock.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -18,6 +20,7 @@ namespace Desert::Graphic::ShaderPush
 {% for f in s.fields %}        {{ f.type }} {{ f.name }}{{ f.extent }}{};
 {% endfor %}    };
     static_assert( sizeof( {{ s.name }} ) == {{ s.size }}u, "{{ s.name }}: std430 push block size" );
+    template <> inline constexpr bool IsBlock<{{ s.name }}> = true;
 {% for f in s.fields %}    static_assert( offsetof( {{ s.name }}, {{ f.name }} ) == {{ f.offset }}u, "{{ s.name }}::{{ f.name }}: std430 offset" );
 {% endfor %}
 {% endfor %}} // namespace Desert::Graphic::ShaderPush
