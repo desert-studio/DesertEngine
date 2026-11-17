@@ -61,6 +61,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -120,6 +121,16 @@ namespace Desert::Core
         // @p instruments) and apply what it decides.
         [[nodiscard]] Common::BoolResultStr Tick( double                                  nowSeconds,
                                                   std::span<const Rules::StreamingSource> instruments = {} );
+
+        // RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME; UE UDataLayerManager). Every Runtime layer of the world starts
+        // Play and a packaged game in its InitialRuntimeState; Set moves it (UE SetDataLayerInstanceRuntimeState) and
+        // the next Tick loads, activates, deactivates or releases its cells (Rules::StepResidency). Refused, by name,
+        // for a layer the world does not state or an Editor layer. Luau reaches these through WP-SCRIPT-API.
+        [[nodiscard]] Common::BoolResultStr SetDataLayerRuntimeState( std::string_view layer, DataLayerRuntimeState state );
+        // UE GetDataLayerInstanceRuntimeState: nullopt for a name the world does not state or an Editor layer.
+        [[nodiscard]] std::optional<DataLayerRuntimeState> GetDataLayerRuntimeState( std::string_view layer ) const;
+        // UE GetCellEffectiveWantedState: how far its runtime layers want unit @p unit (Activated for none).
+        [[nodiscard]] DataLayerRuntimeState GetUnitEffectiveRuntimeState( std::size_t unit ) const;
 
         // WHAT THE LAST Tick DID, for an instrument that attributes a frame's cost (the editor's --flight).
         // Reset at the start of every Tick, so it never carries an earlier frame's activations.
@@ -300,6 +311,9 @@ namespace Desert::Core
         WorldPartitionSerialized              m_Partition;
         std::vector<Rules::StreamingSource>   m_LastSources;
         bool                                  m_SaidNoSource = false;
+        // Per unit of runtime data layers: the effective state and residency last said in the log (SayDataLayerUnits).
+        std::vector<std::uint8_t> m_SaidLayerUnit;
+        void                      SayDataLayerUnits();
         // Entities whose Angle From Camera found no camera, already named in the log.
         std::unordered_set<std::uint32_t> m_SaidWithoutCamera;
         // Where each entity source stood on the last Tick, and when: what its velocity is measured from.

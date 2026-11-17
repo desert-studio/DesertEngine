@@ -190,7 +190,8 @@ namespace Desert::Core::Rules
         // a unit list, whose HLODs are resident the whole session). An HLOD whose own cell is not Activated has
         // no entities: nothing is told, and it is told again the frame its cell activates.
         [[nodiscard]] Common::ResultStr<std::size_t>
-        Sync( const ResidencyState& state, const ResidencyState* hlodState, HLODVisibilityWorld& world )
+        Sync( const ResidencyState& state, const ResidencyState* hlodState, HLODVisibilityWorld& world,
+              std::span<const DataLayerRuntimeState> unitLayerStates = {} )
         {
             if ( state.Units.size() != m_HLODOfUnit.size() )
                 return Common::MakeError<std::size_t>(
@@ -210,7 +211,12 @@ namespace Desert::Core::Rules
                     continue;
                 }
                 const ResidencyState& of      = streamed && m_ForHLODUnit[hlod] == 1 ? *hlodState : state;
-                const std::uint8_t    visible = IsCellVisible( of.Units[m_UnitOfHLOD[hlod]].State ) ? 0 : 1;
+                // WP-DATA-LAYERS-RUNTIME: the HLOD of a cell whose runtime data layers are not Activated stands in
+                // for nothing (UE: an HLOD actor carries the data layers of what it was built from).
+                const bool layersOff = !( streamed && m_ForHLODUnit[hlod] == 1 ) &&
+                                       m_UnitOfHLOD[hlod] < unitLayerStates.size() &&
+                                       unitLayerStates[m_UnitOfHLOD[hlod]] != DataLayerRuntimeState::Activated;
+                const std::uint8_t visible = IsCellVisible( of.Units[m_UnitOfHLOD[hlod]].State ) || layersOff ? 0 : 1;
                 if ( m_Applied[hlod] == visible )
                     continue;
                 world.SetHLODVisible( hlod, visible == 1 );
@@ -350,7 +356,8 @@ namespace Desert::Core::Rules
         auto tick = executor.Tick( sources, nowSeconds, world );
         if ( !tick.IsSuccess() )
             return tick;
-        if ( auto synced = hlods.Sync( executor.State(), hlodWorld ); !synced.IsSuccess() )
+        if ( auto synced = hlods.Sync( executor.State(), nullptr, hlodWorld, executor.UnitDataLayerStates() );
+             !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
         return tick;
     }
@@ -379,7 +386,9 @@ namespace Desert::Core::Rules
         if ( auto hlodTick = hlodExecutor.Tick( hlodSources, nowSeconds, hlodCells, &hlodGate.GetValue() );
              !hlodTick.IsSuccess() )
             return Common::MakeError<ResidencyTick>( "the HLOD cells: " + hlodTick.GetError() );
-        if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld ); !synced.IsSuccess() )
+        if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld,
+                                       executor.UnitDataLayerStates() );
+             !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
         return tick;
     }
