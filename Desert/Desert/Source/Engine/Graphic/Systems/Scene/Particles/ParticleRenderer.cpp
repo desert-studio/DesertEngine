@@ -1,4 +1,5 @@
 #include "ParticleRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include "ParticleEmitterRetire.hpp"
@@ -188,15 +189,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // ParticleSort.shader's PushConstants, field for field.
-        struct ParticleSortPush
-        {
-            glm::uvec4 Range; // x = alive offset, y = draw slot, z = key base, w = N
-            glm::uvec4 Step;  // x = stage, y = k, z = j
-            glm::vec4  ViewOrigin;
-            glm::vec4  ViewForward;
-        };
-        static_assert( sizeof( ParticleSortPush ) == kParticleSortPushBytes );
     } // namespace
 
     ParticleRenderer::~ParticleRenderer() = default;
@@ -471,9 +463,9 @@ namespace Desert::Graphic::System
                 continue;
             const ParticleEmitterGpu& gpu = *ve.Frame->Gpu;
             // Open mode (ParticleDispatchArgs Step.w = 1): x = the range's pool base, y = its particle count.
-            const ParticleArgsPush push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, 0u, 1u ) };
+            const ShaderPush::ParticleDispatchArgs push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, 0u, 1u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched =
                  renderer.DispatchCompute( bindings, *m_ArgsPipeline, 1, 1, 1 );
             if ( !dispatched )
@@ -502,7 +494,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDispatchArgsShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleDispatchArgsShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
+                 .PushConstants<ShaderPush::ParticleDispatchArgs>();
         }
     }
 
@@ -522,14 +514,16 @@ namespace Desert::Graphic::System
             const bool          reset = compact == 0 && gpu.NeedsReset;
             const uint32_t      flags =
                  ( compact == 0 ? kParticleCompactFullScan : 0u ) | ( reset ? kParticleCompactReset : 0u );
-            ParticleCompactPush push;
-            push.Range = glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags );
+            ShaderPush::ParticleCompact push;
+            push.SortRange    = glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags );
+            // Later compacts copy nothing (kParticleAttrNone).
+            push.PreviousCopy = glm::uvec4( 0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u );
             // Compact 0 starts the tick's motion: PreviousPosition = Position (UE Particles.Previous.Position).
             if ( compact == 0 )
                 push.PreviousCopy =
                      glm::uvec4( gpu.DrawColumns.Columns0.x, gpu.DrawColumns.Columns3.x, 0u, 0u );
             RDG::PassBindings         bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             // Compact 0 rebuilds the lists from the whole range; a later one scans the touched particles only,
             // as many groups as the step's Dispatch Args wrote.
             const Common::BoolResultStr dispatched =
@@ -563,7 +557,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleCompactShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageWrite )
                  .Storage( ParticleCompactShaderParameters::AttributeFloats, ve.FloatsRef,
                            RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleCompactPush ) ) );
+                 .PushConstants<ShaderPush::ParticleCompact>();
             if ( compact > 0 )
                 pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -581,10 +575,10 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step, stage ) )
                 continue;
-            // y = the system's event step serial of step 0 (ParticleSimPush::Stack.y, Common/VFXEvents.glslh).
-            const ParticleArgsPush push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
+            // y = the system's event step serial of step 0 (ShaderPush::ParticleSimulate::Stack.y, Common/VFXEvents.glslh).
+            const ShaderPush::ParticleDispatchArgs push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched =
                  renderer.DispatchCompute( bindings, *m_ArgsPipeline, 1, 1, 1 );
             if ( !dispatched )
@@ -612,7 +606,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDispatchArgsShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleDispatchArgsShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
+                 .PushConstants<ShaderPush::ParticleDispatchArgs>();
         }
     }
 
@@ -624,10 +618,10 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step, stage ) )
                 continue;
-            ParticleSimPush push = ve.Frame->Push;
+            ShaderPush::ParticleSimulate push = ve.Frame->Push;
             push.Counts.y        = step;
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             // As many groups as the step's Dispatch Args wrote: max(alive, spawned) threads.
             const Common::BoolResultStr dispatched = Renderer::DispatchComputeIndirect(
                  bindings, *ve.Frame->Pipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
@@ -680,7 +674,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleSimulateShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleSimulateShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
+                 .PushConstants<ShaderPush::ParticleSimulate>();
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
     }
@@ -935,13 +929,13 @@ namespace Desert::Graphic::System
             const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
             const uint32_t            half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
             const uint32_t            rows = m_World->IsDebugTable( gpu ) ? kParticleDebugMaxRows : 0u;
-            const ParticleDebugPush   push{
+            const ShaderPush::ParticleDebugReadback   push{
                  glm::uvec4( half, m_World->DebugRequest().FirstRow, rows, gpu.FloatColumns ),
                  glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, gpu.Range.Count, gpu.Range.Base,
                              m_World->DebugSerial() ),
                  glm::uvec4( gpu.IntColumns, 0u, 0u, 0u ) };
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
                  bindings, *m_DebugPipeline, std::max( 1u, ( rows + kParticleLocalSize - 1 ) / kParticleLocalSize ),
                  1, 1 );
@@ -974,10 +968,10 @@ namespace Desert::Graphic::System
             const uint32_t half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
             const uint32_t lights =
                  std::min( ve.Frame->Light->MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter );
-            const ParticleLightPush push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
+            const ShaderPush::ParticleLightReadback push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
                                           glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, 0u, 0u, 0u ) };
             RDG::PassBindings       bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
                  bindings, *m_LightPipeline,
                  std::max( 1u, ( lights + kParticleLocalSize - 1 ) / kParticleLocalSize ), 1, 1 );
@@ -1007,7 +1001,7 @@ namespace Desert::Graphic::System
                            RDG::Access::StorageRead )
                  .Storage( ParticleLightReadbackShaderParameters::Readback, ve.LightRef,
                            RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleLightPush ) ) );
+                 .PushConstants<ShaderPush::ParticleLightReadback>();
         }
     }
 
@@ -1034,7 +1028,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDebugReadbackShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleDebugReadbackShaderParameters::Events, ve.EventsRef, RDG::Access::StorageRead )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
+                 .PushConstants<ShaderPush::ParticleDebugReadback>();
         }
     }
 
@@ -1108,7 +1102,7 @@ namespace Desert::Graphic::System
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
                 const ParticleSortStage stage = stages[s];
-                const ParticleSortPush  push{
+                const ShaderPush::ParticleSort  push{
                      glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
                      glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
                      origin, forward };
@@ -1125,7 +1119,7 @@ namespace Desert::Graphic::System
                      [this, push, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, sizeof( push ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_SortPipeline, stage.Groups,
                                                                          1, 1 );
                      } );
@@ -1737,16 +1731,7 @@ namespace Desert::Graphic::System
                 const RDG::BufferRef history = graph.RegisterExternal(
                      state.HistoryImport, std::format( "ParticleMeshHistory{}.{}", i, vm.Row ) );
 
-                struct MeshPush
-                {
-                    glm::uvec4 Range;
-                    glm::vec4  Scale;
-                    glm::uvec4 Frame;
-                    glm::vec4  Sphere;
-                    glm::vec4  Lens;
-                    glm::uvec4 Lod;
-                };
-                MeshPush push{
+                ShaderPush::ParticleMeshInstances push{
                      glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half, state.Submeshes,
                                  state.Capacity ),
                      glm::vec4( vm.Scale, 0.0f ),
@@ -1781,12 +1766,12 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
                                         RDG::Access::StorageRead )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                              .PushConstants<ShaderPush::ParticleMeshInstances>();
                      },
                      [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, sizeof( push ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, groups, 1, 1 );
                      } );
                 // The emitter's level (UE Niagara Mesh Renderer, LOD by screen size): the instances pass reduced
@@ -1816,12 +1801,12 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
                                         RDG::Access::StorageRead )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                              .PushConstants<ShaderPush::ParticleMeshInstances>();
                      },
                      [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, sizeof( push ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, 1, 1, 1 );
                      } );
 

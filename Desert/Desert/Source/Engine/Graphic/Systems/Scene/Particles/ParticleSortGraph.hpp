@@ -3,6 +3,7 @@
 #include "ParticleSortKey.hpp"
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -41,9 +42,6 @@ namespace Desert::Graphic::System
     {
         return Core::Formats::IsTranslucentBlend( blend );
     }
-
-    // ParticleSort.shader's push block: SortRange, Step, ViewOrigin, ViewForward (four 16-byte rows).
-    inline constexpr std::uint32_t kParticleSortPushBytes = 64;
 
     // One emitter as the sort sees it: its index in the view's emitter list, its cell's blend mode, its range's
     // capacity (MaxParticles) and where its drawn alive half and draw slot are.
@@ -144,6 +142,6 @@ namespace Desert::Graphic::System
                        writesSorted ? RDG::Access::StorageRead : RDG::Access::StorageWrite )
              .Storage( ParticleSortShaderParameters::SortedAlive, buffers.Sorted, RDG::Access::StorageWrite )
              .Storage( ParticleSortShaderParameters::RibbonOrder, buffers.Ribbon, RDG::Access::StorageWrite )
-             .PushConstantBytes( kParticleSortPushBytes );
+             .PushConstants<ShaderPush::ParticleSort>();
     }
 } // namespace Desert::Graphic::System

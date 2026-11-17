@@ -2,6 +2,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Template.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -47,11 +48,6 @@ namespace Desert::Engine::Neural
         };
         using FusedMlpSlots = NeuralFusedMlpShaderParameters;
 
-        struct NeuralMlpPush
-        {
-            uint32_t Batch       = 0;
-            uint32_t MatrixCount = 0;
-        };
 
         std::vector<float> FromStored( const std::vector<uint8_t>& bytes, const NeuralKernelPath path )
         {
@@ -276,7 +272,7 @@ namespace Desert::Engine::Neural
         // Built over @p graph's arena (CPU-RDG-ALLOC): a capture set beyond the inline buffer spills there.
         Graphic::RDG::Builder::ExecFunction RecordNnDispatch( Graphic::RDG::Builder&                    graph,
                                                               std::shared_ptr<Graphic::ComputePipeline> pipeline,
-                                                              const NeuralMlpPush values, const uint32_t groupsX,
+                                                              const Graphic::ShaderPush::NeuralFusedMlp values, const uint32_t groupsX,
                                                               const uint32_t groupsY )
         {
             return Graphic::RDG::Builder::ExecFunction(
@@ -285,7 +281,7 @@ namespace Desert::Engine::Neural
                   groupsY]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &values, sizeof( values ) );
+                     bindings.PushConstants( values );
                      return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
                  } );
         }
@@ -358,9 +354,9 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnInput, inputs.Input, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnOutput, out.Output, RDG::Access::StorageWrite )
                       .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
+                      .PushConstants<Graphic::ShaderPush::NeuralFusedMlp>();
              },
-             RecordNnDispatch( graph, forward.Pipeline, NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = L },
+             RecordNnDispatch( graph, forward.Pipeline, Graphic::ShaderPush::NeuralFusedMlp{ .Batch = inputs.Batch, .MatrixCount = L },
                                inputs.Batch / kFusedMlpBatchGranularity, 1 ) );
         return Common::MakeSuccess( std::move( out ) );
     }
@@ -389,10 +385,10 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnInput, inputs.Input, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnOutput, output, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
+                      .PushConstants<Graphic::ShaderPush::NeuralFusedMlp>();
              },
              RecordNnDispatch( graph, inference.Pipeline,
-                               NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = inputs.Shape.MatrixCount() },
+                               Graphic::ShaderPush::NeuralFusedMlp{ .Batch = inputs.Batch, .MatrixCount = inputs.Shape.MatrixCount() },
                                inputs.Batch / kFusedMlpBatchGranularity, 1 ) );
         return Common::MakeSuccess( output );
     }
@@ -427,7 +423,7 @@ namespace Desert::Engine::Neural
              RDG::BufferDesc{ static_cast<uint64_t>( L ) * kFusedMlpWidth * kFusedMlpWidth * sizeof( float ) },
              "NeuralFusedMlp.WeightGrad" );
 
-        const NeuralMlpPush push{ .Batch = batch, .MatrixCount = L };
+        const Graphic::ShaderPush::NeuralFusedMlp push{ .Batch = batch, .MatrixCount = L };
         // Weight gradient: scalar 16 groups of 4 rows per matrix; coopmat one group per matrix, its subgroups
         // walking the tiles.
         const uint32_t weightGradGroups = path == NeuralKernelPath::CoopMatFp16 ? 1u : kFusedMlpWidth / 4u;
@@ -443,7 +439,7 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnOutputGrad, inputs.OutputGrad, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnGrads, out.Grads, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
+                      .PushConstants<Graphic::ShaderPush::NeuralFusedMlp>();
              },
              RecordNnDispatch( graph, backward.Pipeline, push, batch / kFusedMlpBatchGranularity, 1 ) );
 
@@ -457,7 +453,7 @@ namespace Desert::Engine::Neural
                       .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnGrads, out.Grads, RDG::Access::StorageRead )
                       .Storage( FusedMlpSlots::NnWeightGrad, out.WeightGrad, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
+                      .PushConstants<Graphic::ShaderPush::NeuralFusedMlp>();
              },
              RecordNnDispatch( graph, weightGrad.Pipeline, push, weightGradGroups, L ) );
         return Common::MakeSuccess( std::move( out ) );

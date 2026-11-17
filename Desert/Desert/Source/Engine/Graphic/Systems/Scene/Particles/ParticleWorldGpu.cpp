@@ -1152,7 +1152,7 @@ namespace Desert::Graphic::System
         gpu.LastHalf         = stepCount & 1u;
         gpu.HasLastHalf      = true;
         fe.Push.LocalToWorld = localToWorld;
-        fe.Push.Step         = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
+        fe.Push.StepLength   = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
         fe.WorldBounds       = Assets::Serialization::VFXBoundsAt( data.Bounds, localToWorld );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         // The random streams' step (Stack.x + step): the emitter's own step since its reset, never the world's

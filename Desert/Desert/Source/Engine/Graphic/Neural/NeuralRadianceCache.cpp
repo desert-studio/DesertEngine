@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Neural/NeuralRadianceCache.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -64,14 +65,6 @@ namespace Desert::Engine::Neural
         };
         using NrcSlots = NeuralRadianceCacheShaderParameters;
 
-        // NeuralRadianceCache.shader "NrcPush".
-        struct NrcPush
-        {
-            glm::uvec4 Rows{ 0u };
-            glm::uvec4 Extra{ 0u };
-            glm::vec4  Adam{ 0.0f };
-            glm::vec4  Adam2{ 0.0f };
-        };
 
         uint32_t Groups( const uint64_t rows )
         {
@@ -91,7 +84,7 @@ namespace Desert::Engine::Neural
         // arena (CPU-RDG-ALLOC): a capture set beyond the inline buffer spills there, never onto the heap.
         RDG::Builder::ExecFunction RecordDispatch( RDG::Builder&                             graph,
                                                    std::shared_ptr<Graphic::ComputePipeline> pipeline,
-                                                   const NrcPush push, const uint32_t groupsX,
+                                                   const Graphic::ShaderPush::NeuralRadianceCache push, const uint32_t groupsX,
                                                    const uint32_t groupsY )
         {
             return RDG::Builder::ExecFunction(
@@ -100,7 +93,7 @@ namespace Desert::Engine::Neural
                   groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
                  } );
         }
@@ -412,7 +405,7 @@ namespace Desert::Engine::Neural
         const RDG::BufferRef input      = graph.CreateBuffer(
              RDG::BufferDesc{ static_cast<uint64_t>( dispatched ) * kFusedMlpWidth * sizeof( float ) },
              "NRC.Input" );
-        NrcPush push;
+        Graphic::ShaderPush::NeuralRadianceCache push;
         push.Rows  = glm::uvec4( strideVec4, firstRow, dispatched, records );
         push.Extra = glm::uvec4( countIndex, capacity, countBase, 0u );
         push.Adam  = glm::vec4( hashScale, 0.0f, 0.0f, 0.0f );
@@ -426,7 +419,7 @@ namespace Desert::Engine::Neural
                       .Storage( NrcSlots::NrcHashTableUB, hashTable, RDG::Access::StorageRead )
                       .Storage( NrcSlots::NrcCountersUB, counters, RDG::Access::StorageRead )
                       .Storage( NrcSlots::NnInput, input, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                      .PushConstants<Graphic::ShaderPush::NeuralRadianceCache>();
              },
              RecordDispatch( graph, m_Encode.Pipeline, push, Groups( dispatched ), 1 ) );
         return input;
@@ -471,7 +464,7 @@ namespace Desert::Engine::Neural
                      graph, mlpInputs( input, Groups( rows ) * kGroup, {}, inferMlp ), m_Path );
                 if ( !output )
                     return Common::MakeFormattedError( "NRC inference: {}", output.GetError() );
-                NrcPush push;
+                Graphic::ShaderPush::NeuralRadianceCache push;
                 push.Rows  = glm::uvec4( base, rows, first, trace.Width );
                 push.Extra = glm::uvec4( counter, capacity, 0u, 0u );
                 push.Adam  = glm::vec4( composite.PathIntensityClamp, 0.0f, 0.0f, 0.0f );
@@ -490,7 +483,7 @@ namespace Desert::Engine::Neural
                               .Storage( NrcSlots::DemodulatedSpecularTexture, composite.DemodulatedSpecular,
                                         RDG::Access::StorageWrite )
                               .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                              .PushConstants<Graphic::ShaderPush::NeuralRadianceCache>();
                      },
                      RecordDispatch( graph, m_Composite.Pipeline, push, Groups( rows ), 1 ) );
             }
@@ -519,7 +512,7 @@ namespace Desert::Engine::Neural
             const RDG::BufferRef outputGrad = graph.CreateBuffer(
                  RDG::BufferDesc{ static_cast<uint64_t>( kNrcTrainingBatch ) * kFusedMlpWidth * sizeof( float ) },
                  "NRC.OutputGrad" );
-            NrcPush lossPush;
+            Graphic::ShaderPush::NeuralRadianceCache lossPush;
             lossPush.Rows = glm::uvec4( step, kNrcTrainingBatch, kNrcMaxTrainingPaths, 0u );
             graph.AddPass(
                  "NRC: Loss", RDG::PassFlags::Compute,
@@ -535,7 +528,7 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .Storage( NrcSlots::NnOutputGrad, outputGrad, RDG::Access::StorageWrite )
                           .Storage( NrcSlots::NrcLossPartialsUB, lossPartials, RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                          .PushConstants<Graphic::ShaderPush::NeuralRadianceCache>();
                  },
                  RecordDispatch( graph, m_Loss.Pipeline, lossPush, Groups( kNrcTrainingBatch ), 1 ) );
 
@@ -544,7 +537,7 @@ namespace Desert::Engine::Neural
             if ( !backward )
                 return Common::MakeFormattedError( "NRC training backward: {}", backward.GetError() );
 
-            NrcPush gradPush;
+            Graphic::ShaderPush::NeuralRadianceCache gradPush;
             gradPush.Rows = glm::uvec4( step, kNrcTrainingBatch, 0u, 0u );
             graph.AddPass(
                  "NRC: Input gradient", RDG::PassFlags::Compute,
@@ -558,12 +551,12 @@ namespace Desert::Engine::Neural
                                     RDG::Access::StorageRead )
                           .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .Storage( NrcSlots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                          .PushConstants<Graphic::ShaderPush::NeuralRadianceCache>();
                  },
                  RecordDispatch( graph, m_InputGrad.Pipeline, gradPush, Groups( kNrcTrainingBatch ), 1 ) );
 
             const uint32_t t = static_cast<uint32_t>( ++m_AdamStep );
-            NrcPush        mlpPush;
+            Graphic::ShaderPush::NeuralRadianceCache        mlpPush;
             mlpPush.Rows  = glm::uvec4( step, kNrcTrainingBatch, kWeightElements, t );
             mlpPush.Adam  = glm::vec4( kNrcLearningRate, kNrcAdamBeta1, kNrcAdamBeta2, kNrcAdamEpsilon );
             mlpPush.Adam2 = glm::vec4( kNrcWeightDecay, kNrcEmaDecay,
@@ -583,11 +576,11 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcInferenceWeightsUB, cache.InferenceWeights,
                                     RDG::Access::StorageWrite )
                           .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                          .PushConstants<Graphic::ShaderPush::NeuralRadianceCache>();
                  },
                  RecordDispatch( graph, m_AdamMlp.Pipeline, mlpPush, Groups( kWeightElements ), 1 ) );
 
-            NrcPush hashPush = mlpPush;
+            Graphic::ShaderPush::NeuralRadianceCache hashPush = mlpPush;
             hashPush.Rows.z  = kHashElements;
             hashPush.Adam2   = glm::vec4( 0.0f, kNrcEmaDecay, 0.0f, 0.0f );
             // 2D: 1024 groups of 64 per row of the dispatch (the shader's e = x + y * 65536).
@@ -603,7 +596,7 @@ namespace Desert::Engine::Neural
                           .Storage( NrcSlots::NrcHashEmaUB, cache.HashEma, RDG::Access::StorageWrite )
                           .Storage( NrcSlots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
                           .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                          .PushConstants<Graphic::ShaderPush::NeuralRadianceCache>();
                  },
                  RecordDispatch( graph, m_AdamHash.Pipeline, hashPush, kHashGroupsX,
                                  ( kHashElements + kHashGroupsX * kGroup - 1 ) / ( kHashGroupsX * kGroup ) ) );
