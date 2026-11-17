@@ -538,6 +538,30 @@ namespace Desert::Editor
             commands.push_back( { std::string( CommandInfo( command ).Context ),
                                   std::string( CommandInfo( command ).Label ),
                                   [this, command] { return Run( command ); } } );
+        // RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME): UE's Data Layer Outliner in PIE - a Runtime layer's state set
+        // by hand, one entry per layer and state; the same call a game makes (WorldStreamer::SetDataLayerRuntimeState).
+        if ( const auto& partition = m_Workspace.ActiveScene()->GetWorldPartition();
+             partition.has_value() && partition->DataLayers.has_value() )
+            for ( const ::Desert::Core::DataLayerSerialized& layer : *partition->DataLayers )
+            {
+                if ( layer.Type != ::Desert::Core::DataLayerType::Runtime )
+                    continue;
+                for ( const auto state : { ::Desert::Core::DataLayerRuntimeState::Unloaded,
+                                           ::Desert::Core::DataLayerRuntimeState::Loaded,
+                                           ::Desert::Core::DataLayerRuntimeState::Activated } )
+                    commands.push_back(
+                         { "Scene",
+                           std::format( "World Partition: Data layer {} -> {}", layer.Name,
+                                        ::Desert::Core::Rules::DataLayerRuntimeStateName( state ) ),
+                           [this, name = layer.Name, state]
+                           {
+                               ::Desert::Core::WorldStreamer* const streamer = Streamer();
+                               if ( streamer == nullptr || !streamer->Streams( *m_Workspace.ActiveScene() ) )
+                                   return PaletteCommandOutcome( false, "nothing is streaming: a runtime data layer "
+                                                                        "has a state in Play only." );
+                               return streamer->SetDataLayerRuntimeState( name, state );
+                           } } );
+            }
         // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`.
         auto& registry = m_Workspace.ActiveScene()->GetRegistry();
         for ( const auto entity : registry.view<ECS::PlayerStartComponent>() )

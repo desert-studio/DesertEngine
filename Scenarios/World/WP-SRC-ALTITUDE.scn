@@ -1,0 +1,42 @@
+# WP-SRC-ALTITUDE (owner 10-06, the plane): the loading range reaches a cell in 3D - the distance from a source
+# to the box a cell's streaming bounds make with the Y span of what it holds (Rules::PlannedCell::Height, UE's cell
+# content bounds Z; WorldPartitionStreamingRules.hpp THE RULE, WithAltitude). World: Scenes/WP_Protocol
+# (WP-PROTOCOL.scn): Main 25 m cells / 200 m range, Foliage 12.8 m / 64 m, LandscapeTiles 50 m / 510 m; HLOD_Main
+# 512 m cells / 1024 m, its parent HLOD_Main_Far always resident; Foliage/Landscape HLODs always resident.
+# Source: the Plane 9000002 (Y 50 m, TargetGrids Main+Foliage, Scripts/World/WPFly.lua +X 125 m/s for 8 s); the
+# Player 9000001 off. Its shape is raised by StreamingSourceData.ShapeOffset.y (the shape's Location.y now places
+# the shape's altitude): 195000 = 2 km above the ground.
+# Expected by phase (editor.log "[WorldPartition] 'WP_Protocol': ..."):
+#   2 km: every Main and Foliage cell Load All kept is "unloaded." and none is "loaded" again while the source is
+#         up there; HLOD_Main cells unloaded too (1024 m < 2 km); the game never blocks behind the loading
+#         overlay (StreamingPerformance CellHolds: under the feet only when also reached);
+#   50 m: the Main/Foliage cells around the plane "loaded" again, the zone on the WP map a full circle.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000002 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.ShapeOffset 0,195000,0
+Дано set 1003 CameraData.Far 800000
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 3
+Когда --subject viewport set Camera.Position 0,200000,-150000
+Когда --subject viewport set Camera.Direction 0,-1,0.75
+Когда advance 2
+# Тогда [кадр]: alt_2km - the city from 2 km: merged HLOD_Main_Far blocks + landscape HLOD + foliage HLOD, no hole and no
+# doubled block anywhere; the WP map shows no Main/Foliage cell loaded under the plane; no loading overlay.
+Тогда alt_2km город с 2 км: слитые блоки HLOD_Main_Far + HLOD ландшафта и листвы, без дыр и без двойных блоков; на карте WP под самолётом нет загруженных ячеек Main/Foliage; оверлея загрузки нет; лог: ячейки Main/Foliage unloaded, ни одной loaded
+Когда run Action "Stop"
+Дано set 9000002 StreamingSourceData.ShapeOffset 0,0,0
+Когда run Action "Play from Here"
+Когда advance 3
+Когда --subject viewport set Camera.Position 0,40000,-40000
+Когда --subject viewport set Camera.Direction 0,-1,1
+Когда advance 2
+# Тогда [кадр]: alt_50m - the same plane at 50 m: the Main cells within ~190 m and the Foliage cells within ~40 m of it
+# are real (loaded) again, HLOD beyond; the WP map zone a circle around the plane.
+Тогда alt_50m самолёт на 50 м: ячейки Main в ~190 м и Foliage в ~40 м вокруг него снова настоящие (loaded), дальше HLOD; на карте WP зона - круг вокруг самолёта
+Когда run Action "Stop"

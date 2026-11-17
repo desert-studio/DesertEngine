@@ -81,6 +81,7 @@
 #include <format>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -168,6 +169,7 @@ namespace Desert::Core::Rules
         std::size_t                  WaitingForBudget = 0;   // wanted Loaded units left for a later frame
         std::size_t                  WaitingForGate   = 0;   // wanted Loaded units a ResidencyGate held back
         std::size_t                  StaleOutcomes    = 0;
+        std::size_t                  HeldByDataLayers = 0; // wanted Loaded units their data layers keep Loaded
     };
 
     // WHAT ANOTHER RESIDENCY ASKS OF THIS STEP (WP-FAR-8: a world's cells and the HLOD cells that stand in for
@@ -186,6 +188,95 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline std::size_t ResidencyUnitCount( const WorldPartitionPlan& plan )
     {
         return plan.AlwaysLoaded.size() + plan.Cells.size();
+    }
+
+    // ── RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME; UE UDataLayerManager + GetCellEffectiveWantedState) ─────
+    //
+    // Every runtime layer of the world has a state (DataLayerRuntimeState), starting at its InitialRuntimeState
+    // and moved by the game (WorldStreamer::SetDataLayerRuntimeState). A unit of runtime layers - a cell of that
+    // set (PlannedCell::DataLayers) or an always-loaded composite in such layers - has an EFFECTIVE state, its
+    // layers' states combined by the world's DataLayersLogicOperator (Or: the furthest, And: the least); a unit of
+    // no runtime layer is Activated by its layers (only distance moves it). StepResidency then:
+    //   Unloaded  - the unit is neither wanted nor kept: not read, and released when it was resident;
+    //   Loaded    - wanted and kept like any unit in range, read, and NOT activated; an Activated one is
+    //               deactivated and stays Loaded (its records in memory, no entity);
+    //   Activated - as before: distance decides.
+    // An editor layer's entry is Activated: it gates nothing (no unit counts it among its runtime layers).
+
+    // A state's name in a log line or a palette command (UE's enum names).
+    [[nodiscard]] constexpr std::string_view DataLayerRuntimeStateName( DataLayerRuntimeState state )
+    {
+        switch ( state )
+        {
+            case DataLayerRuntimeState::Unloaded:
+                return "Unloaded";
+            case DataLayerRuntimeState::Loaded:
+                return "Loaded";
+            case DataLayerRuntimeState::Activated:
+                return "Activated";
+        }
+        return "Unknown";
+    }
+
+    // The runtime layers of @p unit: a cell's third coordinate, or an always-loaded composite's runtime layers.
+    [[nodiscard]] inline std::vector<std::size_t> UnitRuntimeDataLayers( const WorldPartitionPlan&       plan,
+                                                                         const WorldPartitionSerialized& partition,
+                                                                         std::size_t                     unit )
+    {
+        if ( unit < plan.AlwaysLoaded.size() )
+            return RuntimeDataLayersOf( partition, plan.Composites.at( plan.AlwaysLoaded[unit] ).DataLayers );
+        return plan.Cells.at( unit - plan.AlwaysLoaded.size() ).DataLayers;
+    }
+
+    // The state each layer of the world starts Play (and a packaged game) in, index = layer: a Runtime layer's
+    // InitialRuntimeState. Refused, by the layer's name, for a Runtime layer that states none (CheckDataLayers
+    // names the same Issue) - which state it starts in is not guessed.
+    [[nodiscard]] inline Common::ResultStr<std::vector<DataLayerRuntimeState>>
+    InitialDataLayerStates( const WorldPartitionSerialized& partition )
+    {
+        std::vector<DataLayerRuntimeState> states;
+        if ( !partition.DataLayers.has_value() )
+            return Common::MakeSuccess( std::move( states ) );
+        for ( const DataLayerSerialized& layer : *partition.DataLayers )
+        {
+            if ( layer.Type == DataLayerType::Editor )
+            {
+                states.push_back( DataLayerRuntimeState::Activated );
+                continue;
+            }
+            if ( !layer.InitialRuntimeState.has_value() )
+                return Common::MakeError<std::vector<DataLayerRuntimeState>>( std::format(
+                     "the Runtime data layer '{}' states no InitialRuntimeState (Unloaded, Loaded or Activated)",
+                     layer.Name ) );
+            states.push_back( *layer.InitialRuntimeState );
+        }
+        return Common::MakeSuccess( std::move( states ) );
+    }
+
+    // UE UWorldPartitionRuntimeCell::GetCellEffectiveWantedState: @p runtimeLayers' states combined by @p logic.
+    [[nodiscard]] inline DataLayerRuntimeState
+    EffectiveDataLayerState( WorldPartitionDataLayersLogicOperator logic, std::span<const DataLayerRuntimeState> layerStates,
+                             std::span<const std::size_t> runtimeLayers )
+    {
+        if ( runtimeLayers.empty() )
+            return DataLayerRuntimeState::Activated;
+        const bool            any   = logic == WorldPartitionDataLayersLogicOperator::Or;
+        DataLayerRuntimeState state = any ? DataLayerRuntimeState::Unloaded : DataLayerRuntimeState::Activated;
+        for ( const std::size_t layer : runtimeLayers )
+            state = any ? std::max( state, layerStates[layer] ) : std::min( state, layerStates[layer] );
+        return state;
+    }
+
+    // Every unit's effective state, index = unit: what StepResidency's @p unitLayerStates takes.
+    [[nodiscard]] inline std::vector<DataLayerRuntimeState>
+    DataLayerUnitStates( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
+                         std::span<const DataLayerRuntimeState> layerStates )
+    {
+        std::vector<DataLayerRuntimeState> units( ResidencyUnitCount( plan ), DataLayerRuntimeState::Activated );
+        for ( std::size_t unit = 0; unit < units.size(); ++unit )
+            units[unit] = EffectiveDataLayerState( partition.DataLayersLogicOperator, layerStates,
+                                                   UnitRuntimeDataLayers( plan, partition, unit ) );
+        return units;
     }
 
     // A unit's name for a report: "L1(3,-2)" for the level-1 cell at X 3, Z -2, "A5" for the sixth
@@ -298,7 +389,7 @@ namespace Desert::Core::Rules
     StepResidency( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
                    std::span<const StreamingSource> sources, const ResidencySettings& settings,
                    ResidencyState state, std::span<const LoadOutcome> outcomes, double nowSeconds,
-                   const ResidencyGate* gate = nullptr )
+                   const ResidencyGate* gate = nullptr, std::span<const DataLayerRuntimeState> unitLayerStates = {} )
     {
         if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
             return Common::MakeError<ResidencyStep>( valid.GetError() );
@@ -324,6 +415,12 @@ namespace Desert::Core::Rules
                               gate->HoldActivation.size(), gate->HoldRelease.size(), unitCount ) );
         const auto held = []( const std::vector<std::uint8_t>& holds, std::size_t unit )
         { return !holds.empty() && holds[unit] != 0; };
+        if ( !unitLayerStates.empty() && unitLayerStates.size() != unitCount )
+            return Common::MakeError<ResidencyStep>(
+                 std::format( "StepResidency: {} data layer state(s) for {} unit(s)", unitLayerStates.size(), unitCount ) );
+        // Empty = a world of no runtime layer: every unit Activated by its layers (see RUNTIME DATA LAYERS).
+        const auto layerState = [&unitLayerStates]( std::size_t unit )
+        { return unitLayerStates.empty() ? DataLayerRuntimeState::Activated : unitLayerStates[unit]; };
 
         ResidencyStep step;
 
@@ -381,10 +478,14 @@ namespace Desert::Core::Rules
         if ( !keptWish.IsSuccess() )
             return Common::MakeError<ResidencyStep>( "StepResidency: " + keptWish.GetError() );
 
-        const std::vector<std::size_t> wanted = Detail::UnitsInOrder( plan, wished.GetValue() );
-        std::vector<bool>              kept( unitCount, false );
+        // A unit whose data layers are Unloaded is neither wanted nor kept, wherever the sources are.
+        std::vector<std::size_t> wanted;
+        for ( const std::size_t unit : Detail::UnitsInOrder( plan, wished.GetValue() ) )
+            if ( layerState( unit ) != DataLayerRuntimeState::Unloaded )
+                wanted.push_back( unit );
+        std::vector<bool> kept( unitCount, false );
         for ( const std::size_t unit : Detail::UnitsInOrder( plan, keptWish.GetValue() ) )
-            kept[unit] = true;
+            kept[unit] = layerState( unit ) != DataLayerRuntimeState::Unloaded;
 
         // 3. Whatever is outside the band leaves, in unit order.
         for ( std::size_t index = 0; index < unitCount; ++index )
@@ -415,6 +516,19 @@ namespace Desert::Core::Rules
             unit.FailureReason.clear();
         }
 
+        // 3b. A kept Activated unit whose data layers went to Loaded stops being entities and stays read (UE: a cell
+        //     of a Loaded layer is loaded and not activated). Not budgeted, as any deactivation.
+        for ( std::size_t index = 0; index < unitCount; ++index )
+        {
+            UnitResidency& unit = state.Units[index];
+            if ( !kept[index] || unit.State != Residency::Activated || layerState( index ) != DataLayerRuntimeState::Loaded )
+                continue;
+            if ( gate != nullptr && held( gate->HoldRelease, index ) )
+                continue;
+            step.Actions.push_back( { ResidencyActionKind::Deactivate, index, 0 } );
+            unit.State = Residency::Loaded;
+        }
+
         // 4. Loads, in priority order, up to the number in flight.
         auto inFlight = static_cast<std::size_t>( std::count_if( state.Units.begin(), state.Units.end(),
                                                                  []( const UnitResidency& unit )
@@ -443,6 +557,11 @@ namespace Desert::Core::Rules
             UnitResidency& unit = state.Units[index];
             if ( unit.State != Residency::Loaded )
                 continue;
+            if ( layerState( index ) != DataLayerRuntimeState::Activated )
+            {
+                ++step.HeldByDataLayers; // read, and its layers want it no further
+                continue;
+            }
             if ( gate != nullptr && held( gate->HoldActivation, index ) )
             {
                 ++step.WaitingForGate;
