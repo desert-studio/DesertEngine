@@ -42,7 +42,8 @@
 // hierarchy's plan (Serialize/WorldPartitionHLODHierarchy.hpp) - read on workers, activated under the budget,
 // destroyed the frame they leave range - and only the top of each chain (an always-loaded layer) is made before
 // the first frame, one HLOD at a time. A city then holds the HLODs around its sources and one coarse top, not
-// every HLOD it has. Begin (Play) only: a cooked world refuses such a layer (WorldCells::CookWorld).
+// every HLOD it has. Both beginnings: Play reads the saved HLODs, a game the cooked HLOD cells (WorldCells.hpp,
+// THE HLOD CELLS OF A SPATIALLY LOADED LAYER) through the same region chunks as its world cells.
 
 #include <set>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -257,13 +258,15 @@ namespace Desert::Core
         // once, by reason.
         [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
-        // THE HLOD CELLS (see the top): @p rows per node of @p hierarchy, its saved row (null when missing or
-        // stale - already said - or when it has no file), read from @p held. Makes the always-loaded nodes
-        // entities one at a time, starts the HLOD residency and shows what stands in now.
-        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy hierarchy,
-                                                            std::shared_ptr<const WorldCells::StoredHLODs> held,
-                                                            std::vector<const WorldCells::BuiltHLODCell*>  rows,
-                                                            std::span<const Rules::HLODExclusion>          holes );
+        // THE HLOD CELLS (see the top): @p residency is MakeHLODResidency's of @p hierarchy, @p nodeIds per node
+        // the ids of its records (empty for one with none) and @p source reads one HLOD residency unit's records -
+        // the saved HLODs (Begin) or the cooked HLOD cells (BeginCooked). Makes the always-loaded nodes entities
+        // one at a time, starts the HLOD residency and shows what stands in now.
+        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy                   hierarchy,
+                                                            Rules::HLODResidency                   residency,
+                                                            std::vector<std::vector<Common::UUID>> nodeIds,
+                                                            std::shared_ptr<const Rules::WorldCellSource> source,
+                                                            std::span<const Rules::HLODExclusion>         holes );
 
         // The ResidencyWorld of the HLOD cells: their reads, activations and destructions (WorldStreamer.cpp).
         class HLODCellWorld;

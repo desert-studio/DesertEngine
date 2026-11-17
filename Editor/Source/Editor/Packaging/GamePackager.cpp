@@ -315,6 +315,16 @@ namespace Desert::Editor
                     }
                     for ( const auto& hlod : index.HLODs )
                         sharedRoots.insert( hlod.Assets.begin(), hlod.Assets.end() );
+                    // The HLOD cells (WP-FAR-8): a session-resident HLOD unit's assets ship Shared, an HLOD cell's
+                    // in the region chunk its file goes to (ChunkLayoutOf).
+                    for ( const auto& unit : index.HLODUnits )
+                    {
+                        if ( unit.Reason.has_value() )
+                            sharedRoots.insert( unit.Assets.begin(), unit.Assets.end() );
+                        else
+                            regionRoots[division.FileChunk.at( unit.File )].insert( unit.Assets.begin(),
+                                                                                    unit.Assets.end() );
+                    }
                     group.SharedRoots.assign( sharedRoots.begin(), sharedRoots.end() );
                     for ( const auto& [region, roots] : regionRoots )
                         group.Regions.push_back(
