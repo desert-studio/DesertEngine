@@ -774,6 +774,11 @@ namespace Desert::Core
             Assets::PlaceInstanceRoot( rootLocal, stated.GetValue() );
             ECS::SetLocalTransform( *prefabRoot.GetRegistry(), prefabRoot.GetHandle(), rootLocal );
 
+            // How this instance streams, when it overrides its prefab (WP21-WHOLE): kept on the link the factory
+            // tagged the root with, so the next save states it again.
+            if ( prefabRoot.HasComponent<ECS::PrefabComponent>() )
+                prefabRoot.GetComponent<ECS::PrefabComponent>().RuntimeBehavior = entityData->RuntimeBehavior;
+
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved
             // without an id has nothing for a child's `parent` to name, so there is nothing to register:
             // the map entry would only shadow whatever else lacked an id.

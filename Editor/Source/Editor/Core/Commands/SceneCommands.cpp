@@ -1533,6 +1533,14 @@ namespace Desert::Editor::Commands
             return false;
         }
 
+        // The instance's streaming override went into the prefab with the rest (CreateFromEntity, WP21-WHOLE); the
+        // instance follows the prefab again - as the Details "Apply to Prefab" button does.
+        if ( auto& link = root->GetComponent<ECS::PrefabComponent>(); link.RuntimeBehavior.has_value() )
+        {
+            link.RuntimeBehavior.reset();
+            s_Scene->MarkModifiedSubtree( *root );
+        }
+
         LOG_INFO( "[Prefab] Applied instance changes -> {}", asset->GetMetadata().Filepath.string() );
         return true;
     }

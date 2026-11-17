@@ -287,8 +287,8 @@ namespace Desert::Core
                          "world streaming of '" + source.SceneName +
                          "': making the expanded prefab instances failed: " + instantiated.GetError() );
                 LOG_INFO( "[WorldPartition] Play of '{0}': {1} prefab instance(s) expanded into {2} record(s), as "
-                          "the cook expands them",
-                          source.SceneName, world.Instances, made.size() );
+                          "the cook expands them ({3} Standalone: streamed whole, one composite each)",
+                          source.SceneName, world.Instances, made.size(), world.Standalone );
                 source = std::move( world.Scene );
             }
         }

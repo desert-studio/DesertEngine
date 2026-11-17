@@ -54,8 +54,9 @@ namespace Desert::Assets
         }
 
         // The identity the file states, which Serialize writes back.
-        m_Guid       = PrefabStatedGuid( loadable.GetValue() );
-        m_EntityData = std::move( loadable.GetValue().Entities );
+        m_Guid            = PrefabStatedGuid( loadable.GetValue() );
+        m_RuntimeBehavior = loadable.GetValue().RuntimeBehavior;
+        m_EntityData      = std::move( loadable.GetValue().Entities );
         m_IsLoaded   = true;
         // The file IS the payload now, whatever this asset held before.
         m_CapturedInMemory = false;
@@ -91,6 +92,7 @@ namespace Desert::Assets
         PrefabData data;
         data.Name = m_Metadata.Filepath.stem().string();
         data.Entities = m_EntityData;
+        data.RuntimeBehavior = m_RuntimeBehavior;
         // Root names the first record BY ID, so it can only be written when that record has one. It used to
         // fall back to a default-constructed UUID, which was a random number — a root id pointing at no
         // entity, baked into the file.
@@ -250,6 +252,14 @@ namespace Desert::Assets
         // serialized data so that re-instantiating doesn't recurse into itself.
         if ( !m_EntityData.empty() )
             m_EntityData[0].PrefabPath = std::nullopt;
+
+        // The captured root's own streaming override is the instance's word on how this prefab streams: applied,
+        // it becomes the prefab's (WP21-WHOLE). The record keeps none - a body record with no PrefabPath that
+        // stated one would be a setting nothing reads, and the cook refuses it.
+        if ( !m_EntityData.empty() && m_EntityData[0].RuntimeBehavior.has_value() )
+            m_RuntimeBehavior = *m_EntityData[0].RuntimeBehavior;
+        if ( !m_EntityData.empty() )
+            m_EntityData[0].RuntimeBehavior.reset();
 
         m_IsLoaded = true;
         // Nothing on disk holds this yet — see IsReloadableFromFile and Unload's refusal.

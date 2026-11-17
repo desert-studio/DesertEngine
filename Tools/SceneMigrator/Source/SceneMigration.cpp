@@ -5077,7 +5077,9 @@ namespace Desert::Migration
             const std::ifstream in( located.GetValue().File, std::ios::binary );
             std::ostringstream  text;
             text << in.rdbuf();
-            const auto prefab = rfl::json::read<Assets::PrefabData>( text.str() );
+            // The tool's own mirror: a prefab not yet at WP v4 states no RuntimeBehavior, which the engine's
+            // struct requires under a strict read.
+            const auto prefab = rfl::json::read<Migration::PrefabData>( text.str() );
             if ( !prefab )
             {
                 report.UnknownNames.push_back( site +
@@ -5486,10 +5488,12 @@ namespace Desert::Migration
     {
         // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
         // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
-        // @p scene holds the WorldPartition block the v3 step restates; a prefab passes an empty scene (it states
-        // no block, so its step is the stamp). @p file names the file in a refusal.
+        // @p scene holds the WorldPartition block the v5 step restates; a prefab passes an empty scene (it states
+        // no block). @p prefabRecords: a prefab's records (its nested instances are restated by v7), null for a
+        // scene. @p file names the file in a refusal.
         void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
-                                     SceneSerialized& scene, const std::string& file, FileMigrationReport& report )
+                                     SceneSerialized& scene, std::vector<Assets::EntityData>* prefabRecords,
+                                     const std::string& file, FileMigrationReport& report )
         {
             report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
@@ -5515,6 +5519,19 @@ namespace Desert::Migration
             // v5 -> v6 is additive the same way: a Location Volume is a component a v5 file never states.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionLocationVolumes )
                 report.LocationVolumesRaised = true;
+            // v6 -> v7: the prefab's own RuntimeBehavior is read as Partitioned and the rewrite states it; a
+            // nested instance keeps the whole body it always had (Standalone), unless it already states its own.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionPrefabRuntimeBehavior )
+            {
+                report.PrefabRuntimeBehaviorRaised = true;
+                if ( prefabRecords != nullptr )
+                    for ( Assets::EntityData& record : *prefabRecords )
+                        if ( record.PrefabPath.has_value() && !record.RuntimeBehavior.has_value() )
+                        {
+                            record.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Standalone;
+                            ++report.NestedInstancesKeptWhole;
+                        }
+            }
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5858,7 +5875,7 @@ namespace Desert::Migration
             report.VolumetricFogRaised = true;
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
-        RunWorldPartitionSteps( scene.Header, scene, scene.SceneName, report );
+        RunWorldPartitionSteps( scene.Header, scene, nullptr, scene.SceneName, report );
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )
@@ -5949,8 +5966,8 @@ namespace Desert::Migration
         }
         if ( outcome.Steps.Refused.empty() )
         {
-            SceneSerialized noWorld; // a prefab states no WorldPartition block: the v3 step is its stamp
-            RunWorldPartitionSteps( prefab.Header, noWorld, prefab.Name, outcome.Steps );
+            SceneSerialized noWorld; // a prefab states no WorldPartition block: the v5 step is its stamp
+            RunWorldPartitionSteps( prefab.Header, noWorld, &prefab.Entities, prefab.Name, outcome.Steps );
         }
         if ( outcome.Steps.Refused.empty() )
             RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );

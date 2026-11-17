@@ -164,7 +164,14 @@ namespace Desert::Core
     // ALocationVolume: an editor loader's box, left out by the cook). Additive - a v5 file states none and reads the
     // same - so the step (Tools/SceneMigrator, kWorldPartitionVersionLocationVolumes) states the tag and changes
     // nothing else; the number moves so a v5 build refuses a world whose volumes it would cook as entities.
-    inline constexpr int kWorldPartitionVersion = 6;
+    // v7 (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior): a prefab states its `RuntimeBehavior`
+    // (Assets::PrefabRuntimeBehavior: Partitioned or Standalone) and an instance record may override it with its
+    // own `RuntimeBehavior`. A Standalone instance is expanded with its body kept under its root - one composite,
+    // one cell, one HLOD source, carried by the root (Core::WorldCells::ExpandPrefabInstances). The step (Tools/
+    // SceneMigrator, kWorldPartitionVersionPrefabRuntimeBehavior) states Partitioned on every prefab (what each
+    // meant) and Standalone on every nested instance record inside a prefab (a nested body was always kept whole
+    // under its root, and a Partitioned nested instance now opens into the outer world).
+    inline constexpr int kWorldPartitionVersion = 7;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

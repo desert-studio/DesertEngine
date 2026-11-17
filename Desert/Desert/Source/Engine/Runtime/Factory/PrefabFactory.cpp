@@ -162,6 +162,11 @@ namespace Desert::Runtime::Factory
                 scene.Attach( created[plannedPrefab.Parent], nestedRoot );
             }
 
+            // The nesting record's override of how the nested instance streams (WP21-WHOLE), kept on the nested
+            // root's link so capturing this prefab again (PrefabAsset::CreateFromEntity) states it again.
+            if ( nestedRoot && nestedRoot.HasComponent<ECS::PrefabComponent>() )
+                nestedRoot.GetComponent<ECS::PrefabComponent>().RuntimeBehavior = data.RuntimeBehavior;
+
             // A nested instance may itself have been edited when this prefab was captured. Those edits
             // live on the NESTING RECORD (not in the nested file, which is shared by every other instance
             // of it), so they are applied here, against the body that was just built.

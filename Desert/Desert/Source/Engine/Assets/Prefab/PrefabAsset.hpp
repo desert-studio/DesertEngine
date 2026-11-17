@@ -54,6 +54,15 @@ namespace Desert::Assets
 
         void CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager );
 
+        // How every instance of this prefab streams in a partitioned world unless it overrides it (WP21-WHOLE;
+        // PrefabData::RuntimeBehavior, UE ALevelInstance::DesiredRuntimeBehavior). Read from the file by Load and
+        // written by Serialize; CreateFromEntity ("Apply to Prefab") takes the captured root's override as the new
+        // value, as UE applies an instance's overrides to its level.
+        [[nodiscard]] PrefabRuntimeBehavior GetRuntimeBehavior() const
+        {
+            return m_RuntimeBehavior;
+        }
+
         // The GUID the file's header states; null for a prefab no file holds yet. Serialize writes it
         // back, so re-saving a prefab never mints a new identity for it.
         [[nodiscard]] const Common::Content::AssetGuid& Guid() const
@@ -88,6 +97,7 @@ namespace Desert::Assets
     private:
         Common::Content::AssetGuid m_Guid;
         std::vector<EntityData>    m_EntityData;
+        PrefabRuntimeBehavior      m_RuntimeBehavior = PrefabRuntimeBehavior::Partitioned;
         bool                    m_IsLoaded = false;
         // Set by CreateFromEntity and cleared by Load: this payload came from a live entity and no file
         // holds it yet, so releasing it destroys the only copy.

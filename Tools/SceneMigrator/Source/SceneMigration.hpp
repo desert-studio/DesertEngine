@@ -103,8 +103,9 @@ namespace Desert::Migration
         std::optional<float> ChunkRegionSize;
         // Core::WorldPartitionSerialized::DataLayers (WP v2), carried through untouched (no step reads it).
         std::optional<std::vector<Core::DataLayerSerialized>> DataLayers;
-        // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3): Or when a file does not state it.
-        Core::WorldPartitionDataLayersLogicOperator DataLayersLogicOperator = Core::WorldPartitionDataLayersLogicOperator::Or;
+        // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3), carried through. Optional HERE because this
+        // tool's read is strict (no rfl::DefaultIfMissing) and no v1/v2 file states it; absent, the engine reads Or.
+        std::optional<Core::WorldPartitionDataLayersLogicOperator> DataLayersLogicOperator;
         // v50..v66 files only.
         std::optional<std::string> DefaultHLODLayer;
     };
@@ -137,6 +138,9 @@ namespace Desert::Migration
         std::string                                               Name;
         std::vector<Assets::EntityData>                           Entities;
         Common::UUID                                              Root;
+        // Assets::PrefabData::RuntimeBehavior (WP v4). Optional HERE because this tool's read is strict (no
+        // rfl::DefaultIfMissing) and no file before v4 states it; ToEnginePrefab writes it, Partitioned when absent.
+        std::optional<Assets::PrefabRuntimeBehavior> RuntimeBehavior;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> SceneVersion;
         std::optional<int> UnitVersion;
@@ -148,7 +152,9 @@ namespace Desert::Migration
     // pre-v26 integers, which a migrated prefab no longer states.
     [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
     {
-        return Assets::PrefabData{ prefab.Header, prefab.Bounds, prefab.Name, prefab.Entities, prefab.Root };
+        return Assets::PrefabData{ prefab.Header,   prefab.Bounds, prefab.Name,
+                                   prefab.Entities, prefab.Root,
+                                   prefab.RuntimeBehavior.value_or( Assets::PrefabRuntimeBehavior::Partitioned ) };
     }
 
     // THE MINIMUM GENERATION THIS TOOL READS. A file stating less than this - on either integer - is
@@ -551,6 +557,14 @@ namespace Desert::Migration
     //       cook as entities. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionLocationVolumes = 6;
 
+    //   7 - PREFAB RUNTIME BEHAVIOUR (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior). A prefab states its
+    //       `RuntimeBehavior` (Assets::PrefabRuntimeBehavior) and an instance record may state its own. The read
+    //       gives a prefab Partitioned (what every prefab meant) and the rewrite states it; every NESTED instance
+    //       record inside a prefab that states none is given Standalone, because a nested body was always kept
+    //       whole under its root and a Partitioned nested instance now opens into the outer world. Scene records
+    //       change nothing.
+    inline constexpr int kWorldPartitionVersionPrefabRuntimeBehavior = 7;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -598,7 +612,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionLocationVolumes == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionPrefabRuntimeBehavior == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1384,6 +1398,8 @@ namespace Desert::Migration
         bool        RuntimePartitionsRaised = false; // below kWorldPartitionVersionRuntimePartitions
         std::size_t GridsRestated           = 0;     // grids restated as LHGrid runtime partitions
         bool        LocationVolumesRaised   = false; // below kWorldPartitionVersionLocationVolumes (additive)
+        bool        PrefabRuntimeBehaviorRaised = false; // below kWorldPartitionVersionPrefabRuntimeBehavior
+        std::size_t NestedInstancesKeptWhole    = 0;     // nested instance records given Standalone by that step
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1450,7 +1466,8 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised || RuntimeDataLayersRaised ||
-                   DataLayerOutlinerRaised || RuntimePartitionsRaised || LocationVolumesRaised || ReflectedAssetRefsRaised ||
+                   DataLayerOutlinerRaised || RuntimePartitionsRaised || LocationVolumesRaised ||
+                   PrefabRuntimeBehaviorRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
                    FilmicDefaultRaised || GrassRasterPathRaised;
         }

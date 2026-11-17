@@ -14,12 +14,18 @@
 //      overrides); every other record gets a STABLE id = FNV-1a 64 of (instance id, PrefabPathKey(path)), so
 //      the cook stays byte-reproducible; `parent` and every Rules::kEntityReferences field naming a body record
 //      are remapped to the new ids (PrefabFactory mints fresh ids and does NOT remap them - a factory defect);
-//   4. THE SPLIT: the body's records directly under the root are unparented from it - their transform becomes
+//   4. THE SPLIT, by the instance's runtime behaviour (WP21-WHOLE; Assets::PrefabRuntimeBehavior, UE
+//      ALevelInstance::DesiredRuntimeBehavior - the instance record's override, else the prefab's own):
+//      PARTITIONED - the body's records directly under the root are unparented from it - their transform becomes
 //      the root's composed with their own (Rules::Detail::ComposeLocal, the planner's convention) and they hang
-//      off the instance's own parent - so each is placed by its own bounds. Deeper links are real containment
-//      and are kept. Consequence (UE embedded mode has it too): in a cooked world, moving an instance root at
-//      runtime does not carry its body; a prefab that must move whole needs an author flag (follow-up card).
-// No expanded record carries a PrefabPath or PrefabOverrides.
+//      off the instance's own parent - so each is placed by its own bounds; a nested instance lifted so whose
+//      own behaviour is Partitioned opens the same way. Deeper links are real containment and are kept. As in UE
+//      embedded mode, moving a Partitioned instance's root at runtime does not carry its body.
+//      STANDALONE (UE LevelStreaming) - nothing is unparented: the body stays under the root, so the planner's
+//      containment makes the whole instance ONE composite (footprint = the union of its body's), it lands in
+//      one cell, that cell's HLOD stands in for all of it, and moving the root at runtime carries the body.
+// No expanded record carries a PrefabPath, PrefabOverrides or RuntimeBehavior; a record that states a
+// RuntimeBehavior and instances no prefab is refused by name (it would be a setting nothing reads).
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -42,13 +48,17 @@ namespace Desert::Core::WorldCells
         std::size_t First    = 0; // index into ExpandedScene::Scene.Entities
         std::size_t Count    = 0; // 1 for a record that is no instance
         bool        Instance = false;
+        // An instance's resolved runtime behaviour (its record's override, else its prefab's); Partitioned for a
+        // record that is no instance.
+        Assets::PrefabRuntimeBehavior Behavior = Assets::PrefabRuntimeBehavior::Partitioned;
     };
 
     struct ExpandedScene
     {
         SceneSerialized           Scene; // the source scene with every instance replaced by its records
         std::vector<ExpandedSlot> Slots; // one per SOURCE record, in source order
-        std::size_t               Instances = 0;
+        std::size_t               Instances  = 0;
+        std::size_t               Standalone = 0; // of Instances, those that stream whole
     };
 
     // Refused, naming the record and the prefab: an instance with no id or no stated transform, an empty reader

@@ -584,6 +584,13 @@ namespace
                              Desert::Migration::kWorldPartitionVersionRuntimePartitions )
                 << "->v" << Desert::Migration::kWorldPartitionVersionLocationVolumes
                 << " (location volumes: additive, nothing restated)";
+        if ( report.PrefabRuntimeBehaviorRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionLocationVolumes )
+                << "->v" << Desert::Migration::kWorldPartitionVersionPrefabRuntimeBehavior
+                << " (prefab RuntimeBehavior stated; " << report.NestedInstancesKeptWhole
+                << " nested instance(s) kept whole as Standalone)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

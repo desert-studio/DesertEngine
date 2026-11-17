@@ -1271,6 +1271,32 @@ namespace Desert::Editor
                     if ( !entity )
                         return Control::Response::Failure( request.Id, entity.GetError() );
                     ECS::Entity                 en    = entity.GetValue();
+
+                    // THE PREFAB INSTANCE'S STREAMING ROW (WP21-WHOLE): the Details "Prefab" component is a custom
+                    // widget, not a reflected block, so its one authored field is addressed here by the name the
+                    // widget shows it under. Text: Prefab (follow the prefab), Partitioned or Standalone.
+                    if ( typeName == "Prefab" && fieldPath == "RuntimeBehavior" )
+                    {
+                        if ( !en.HasComponent<ECS::PrefabComponent>() )
+                            return Control::Response::Failure(
+                                 request.Id, std::format( "entity {} is no prefab instance", request.Entity ) );
+                        auto& link = en.GetComponent<ECS::PrefabComponent>();
+                        if ( request.Text == "Prefab" )
+                            link.RuntimeBehavior.reset();
+                        else if ( request.Text == "Partitioned" )
+                            link.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Partitioned;
+                        else if ( request.Text == "Standalone" )
+                            link.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Standalone;
+                        else
+                            return Control::Response::Failure(
+                                 request.Id,
+                                 std::format(
+                                      "Prefab.RuntimeBehavior is Prefab, Partitioned or Standalone, not '{}'",
+                                      request.Text ) );
+                        scene->MarkModifiedSubtree( en );
+                        return Control::Response::Success( request.Id );
+                    }
+
                     const ComponentEditorEntry* found = nullptr;
                     for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
                         if ( entry.DataPtr && ( entry.ReflectedTypeName == typeName || entry.Name == typeName ) &&

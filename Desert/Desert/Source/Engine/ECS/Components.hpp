@@ -21,6 +21,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/Prefab/PrefabRuntimeBehavior.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -2892,6 +2893,10 @@ namespace Desert::ECS
     struct PrefabComponent
     {
         Assets::AssetHandle Prefab;
+        // This instance's override of how it streams in a partitioned world (WP21-WHOLE; UE ALevelInstance::
+        // DesiredRuntimeBehavior); absent = what the prefab states (PrefabAsset::GetRuntimeBehavior). Saved as the
+        // instance record's RuntimeBehavior; Play and the cook read it from there (ExpandPrefabInstances).
+        std::optional<Assets::PrefabRuntimeBehavior> RuntimeBehavior;
     };
 
     // WHICH RECORD OF WHICH PREFAB FILE THIS ENTITY CAME FROM — the link an override is addressed by.
