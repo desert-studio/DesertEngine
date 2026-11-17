@@ -1,3 +1,4 @@
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 
 #include <gtest/gtest.h>
@@ -244,7 +245,8 @@ namespace
 
     using Verdict = Common::ResultStr<std::vector<RdgResolvedEntry>>;
 
-    const float kPush[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
+    const ShaderPush::BloomUpsample kPush{ .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ),
+                                           .FilterRadius    = 1.0f };
 
     // What the setup BELIEVES the shader declares (a ShaderBindingLayout, as a stale ShaderBindingLayoutCache
     // entry would hold it): the slots the block fills and the push size it gives, so ValidatePassBindings passes
@@ -282,13 +284,14 @@ namespace
              {
                  BindingBlockBuilder declared = pass.Bindings( believed, NoOtherRouteFill() );
                  fill( declared, chain );
-                 declared.PushConstantBytes( believed.PushConstantBytes );
+                 if ( believed.PushConstantBytes != 0 )
+                     declared.PushConstants<ShaderPush::BloomUpsample>();
              },
              [&]( PassContext& context ) -> Common::BoolResultStr
              {
                  PassBindings bindings( context, context.GetBindingBlock( block ) );
                  if ( believed.PushConstantBytes != 0 )
-                     bindings.PushConstants( kPush, sizeof( kPush ) );
+                     bindings.PushConstants( kPush );
                  verdict = ResolveRdgPassBindings( reflection, "BloomUpsample", bindings, other );
                  return Common::MakeSuccess( true );
              } );
