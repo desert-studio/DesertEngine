@@ -10,6 +10,8 @@
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Editor/Panels/WorldPartition/EditorLoadedRegions.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -232,6 +234,31 @@ namespace Desert::Editor
             // new scene would re-derive its path on every save and a rename between two saves would
             // leave the user's work split across two files.
             m_OpenScenePath = destination;
+
+            // MAP CHECK ON SAVE (WP-MAP-CHECK): a partitioned world just written is checked from its files - the one
+            // list Tools > Check World Partition and `WorldCook --check` read - and its StreamingGeneration log is
+            // written to <project>/Saved/Logs/WorldPartition.
+            const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
+            auto       check      = Desert::Core::WorldCells::CheckSavedWorldPartition(
+                 std::filesystem::path( destination.string() ), registries );
+            if ( !check )
+                Editor::ToastManager::Push( std::format( "World Partition check after the save failed: {}", check.GetError() ),
+                                            Editor::ToastLevel::Warning );
+            else if ( check.GetValue().has_value() )
+            {
+                const Desert::Core::WorldCells::WorldPartitionCheck& checked = *check.GetValue();
+                (void)Desert::Core::WorldCells::ReportWorldPartitionCheck( checked );
+                if ( const auto log = Desert::Core::WorldCells::WriteStreamingGenerationLog(
+                          Common::Constants::Path::ProjectDir(), checked.World, checked.Partition, checked.Plan,
+                          checked.Descriptors, checked.Issues );
+                     !log )
+                    LOG_ERROR( "[WorldPartition] {}", log.GetError() );
+                if ( !checked.Issues.empty() )
+                    Editor::ToastManager::Push( std::format( "{} World Partition issue{} - Tools > Check World Partition "
+                                                             "lists them",
+                                                             checked.Issues.size(), checked.Issues.size() == 1 ? "" : "s" ),
+                                                Editor::ToastLevel::Warning );
+            }
         }
 
         if ( verdict.IsError )

@@ -3,6 +3,8 @@
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -1583,5 +1585,209 @@ namespace Desert::Core::WorldCells
                 stale.push_back( node.Name );
         }
         return Common::MakeSuccess( std::move( stale ) );
+    }
+
+    std::vector<Rules::GenerationIssue> StaleHLODIssues( std::span<const std::string> units )
+    {
+        std::vector<Rules::GenerationIssue> issues;
+        for ( const std::string& unit : units )
+            issues.push_back( Rules::GenerationIssue{
+                 Rules::GenerationIssueKind::StaleHLOD, Rules::kNoRecord, Rules::kNoRecord,
+                 std::format( "the saved HLOD of {} is missing or older than its cell; run Build > Build HLODs", unit ) } );
+        return issues;
+    }
+
+    Rules::GenerationIssue MissingHLODsIssue( std::string_view why )
+    {
+        return Rules::GenerationIssue{ Rules::GenerationIssueKind::StaleHLOD, Rules::kNoRecord, Rules::kNoRecord,
+                                       std::format( "no built HLODs: {}; run Build > Build HLODs", why ) };
+    }
+
+    Common::ResultStr<WorldPartitionCheck>
+    CheckWorldPartition( const SceneSerialized& scene, std::vector<Rules::EntityDescriptor> descriptors,
+                         std::span<const Common::Utils::AssetRegistry> registries,
+                         const std::filesystem::path&                  scenePath )
+    {
+        using Result = WorldPartitionCheck;
+        if ( !scene.WorldPartition.has_value() )
+            return Common::MakeError<Result>( "'" + scene.SceneName +
+                                              "' states no WorldPartition block: it is not a partitioned world" );
+        WorldPartitionCheck check;
+        check.World       = scene.SceneName;
+        check.Partition   = *scene.WorldPartition;
+        check.Descriptors = std::move( descriptors );
+        check.Plan        = Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( check.Descriptors ),
+                                                       check.Partition, BoundsFrom( registries ) );
+        check.Issues      = Rules::PlanIssues( check.Plan, check.Descriptors );
+        if ( Rules::AnyGridHLODLayer( check.Partition ) )
+        {
+            auto stored = scenePath.empty() ? Common::MakeError<StoredHLODs>(
+                                                   "'" + scene.SceneName + "' is not saved, so it has no built HLODs" )
+                                            : ReadBuiltHLODs( scenePath );
+            if ( !stored )
+                check.Issues.push_back( MissingHLODsIssue( stored.GetError() ) );
+            else
+            {
+                auto stale = StaleHLODCells( stored.GetValue().Index, scene, check.Descriptors, registries );
+                if ( !stale )
+                    return Common::MakeError<Result>( stale.GetError() );
+                const std::vector<Rules::GenerationIssue> named = StaleHLODIssues( stale.GetValue() );
+                check.Issues.insert( check.Issues.end(), named.begin(), named.end() );
+            }
+        }
+        return Common::MakeSuccess( std::move( check ) );
+    }
+
+    Common::ResultStr<std::optional<WorldPartitionCheck>>
+    CheckSavedWorldPartition( const std::filesystem::path&                  scenePath,
+                              std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        using Result = std::optional<WorldPartitionCheck>;
+        auto text    = ExternalEntities::ReadSceneFileText( scenePath );
+        if ( !text )
+            return Common::MakeError<Result>( text.GetError() );
+        auto parsed = ParseLoadableScene( scenePath.string(), text.GetValue() );
+        if ( !parsed )
+            return Common::MakeError<Result>( parsed.GetError() );
+        const SceneSerialized& scene = parsed.GetValue().Scene;
+        if ( !scene.WorldPartition.has_value() )
+            return Common::MakeSuccess( Result() );
+        auto index = DescriptorIndex::Refresh( scenePath );
+        if ( !index )
+            return Common::MakeError<Result>( index.GetError() );
+        auto check = CheckWorldPartition( scene, DescriptorIndex::Descriptors( index.GetValue().Index ), registries,
+                                          scenePath );
+        if ( !check )
+            return Common::MakeError<Result>( check.GetError() );
+        return Common::MakeSuccess( Result( check.ExtractValue() ) );
+    }
+
+    std::string ReportWorldPartitionCheck( const WorldPartitionCheck& check )
+    {
+        std::string                         text = Rules::ReportPlanIssues( check.Plan, check.World );
+        std::vector<Rules::GenerationIssue> hlods;
+        for ( const Rules::GenerationIssue& issue : check.Issues )
+            if ( issue.Kind == Rules::GenerationIssueKind::StaleHLOD )
+                hlods.push_back( issue );
+        const std::string stale = Rules::ReportGenerationIssues( hlods, check.World );
+        if ( !text.empty() && !stale.empty() )
+            text += "\n";
+        return text + stale;
+    }
+
+    std::filesystem::path StreamingGenerationLogPath( const std::filesystem::path& projectDir, std::string_view world )
+    {
+        return projectDir / "Saved" / "Logs" / "WorldPartition" / std::format( "{}-StreamingGeneration.log", world );
+    }
+
+    std::string StreamingGenerationLogText( std::string_view world, const WorldPartitionSerialized& partition,
+                                            const Rules::WorldPartitionPlan&         plan,
+                                            std::span<const Rules::EntityDescriptor> descriptors,
+                                            std::span<const Rules::GenerationIssue>  issues )
+    {
+        std::string out = std::format( "World Partition streaming generation of '{}'\n{}\n", world,
+                                       Rules::SummarisePartition( plan, partition ) );
+        const auto  name   = [&]( std::size_t record ) { return Rules::Detail::RecordName( descriptors, record ); };
+        const auto  layers = [&]( std::span<const std::size_t> held )
+        { return Rules::Detail::LayerNames( partition, held ); };
+        std::unordered_map<std::uint64_t, std::size_t> byId;
+        for ( std::size_t record = 0; record < descriptors.size(); ++record )
+            if ( descriptors[record].Id.has_value() )
+                byId.emplace( *descriptors[record].Id, record );
+        std::vector<std::size_t> compositeOf( descriptors.size(), Rules::kNoRecord );
+        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+            for ( const std::size_t member : plan.Composites[group].Members )
+                if ( member < compositeOf.size() )
+                    compositeOf[member] = group;
+        std::vector<std::string> unitOf( plan.Composites.size(), std::string( "no place" ) );
+        for ( const std::size_t group : plan.AlwaysLoaded )
+            unitOf[group] = "the always-loaded set";
+        for ( const Rules::PlannedCell& cell : plan.Cells )
+            for ( const std::size_t group : cell.Composites )
+                unitOf[group] = "cell " + Rules::CellStem( partition, cell );
+
+        const auto composite = [&]( std::size_t group )
+        {
+            const Rules::PlannedComposite& held = plan.Composites[group];
+            std::string                    text = std::format( "    composite of {}", name( held.Anchor ) );
+            if ( held.Footprint.has_value() )
+                std::format_to( std::back_inserter( text ), ", footprint X {:.0f}..{:.0f} Z {:.0f}..{:.0f}",
+                                held.Footprint->MinX, held.Footprint->MaxX, held.Footprint->MinZ, held.Footprint->MaxZ );
+            if ( held.Height.has_value() )
+                std::format_to( std::back_inserter( text ), ", height Y {:.0f}..{:.0f}", held.Height->MinY,
+                                held.Height->MaxY );
+            std::format_to( std::back_inserter( text ), ", data layers {}\n", layers( held.DataLayers ) );
+            for ( const std::size_t member : held.Members )
+            {
+                std::format_to( std::back_inserter( text ), "      {}\n", name( member ) );
+                for ( const Rules::DescriptorReference& reference : descriptors[member].References )
+                {
+                    const auto target = byId.find( reference.Target );
+                    if ( target == byId.end() )
+                        std::format_to( std::back_inserter( text ), "        -> {} through {}.{}: no such record\n",
+                                        reference.Target, reference.Component, reference.Field );
+                    else if ( compositeOf[target->second] != group )
+                        std::format_to( std::back_inserter( text ), "        -> {} in {} through {}.{}\n",
+                                        name( target->second ), unitOf[compositeOf[target->second]],
+                                        reference.Component, reference.Field );
+                }
+            }
+            return text;
+        };
+
+        std::format_to( std::back_inserter( out ), "\nAlways-loaded: {} composite(s)\n", plan.AlwaysLoaded.size() );
+        for ( const std::size_t group : plan.AlwaysLoaded )
+        {
+            const Rules::PlannedComposite& held = plan.Composites[group];
+            std::format_to( std::back_inserter( out ), "  reason {}{}\n", ReasonName( held.Reason ),
+                            held.Because == Rules::kNoRecord ? std::string() : " by " + name( held.Because ) );
+            out += composite( group );
+        }
+        std::format_to( std::back_inserter( out ), "\nCells: {}\n", plan.Cells.size() );
+        for ( const Rules::PlannedCell& cell : plan.Cells )
+        {
+            std::format_to( std::back_inserter( out ),
+                            "  cell {}: grid '{}', level {}, square X {:.0f}..{:.0f} Z {:.0f}..{:.0f}, bounds X "
+                            "{:.0f}..{:.0f} Z {:.0f}..{:.0f}, height Y {:.0f}..{:.0f}, data layers {}, {} composite(s)\n",
+                            Rules::CellStem( partition, cell ), partition.Grids.at( cell.Grid ).Name, cell.Level,
+                            cell.Square.MinX, cell.Square.MaxX, cell.Square.MinZ, cell.Square.MaxZ, cell.Bounds.MinX,
+                            cell.Bounds.MaxX, cell.Bounds.MinZ, cell.Bounds.MaxZ, cell.Height.MinY, cell.Height.MaxY,
+                            layers( cell.DataLayers ), cell.Composites.size() );
+            for ( const std::size_t group : cell.Composites )
+                out += composite( group );
+        }
+        std::size_t unplaced = 0;
+        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+            if ( unitOf[group] == "no place" )
+            {
+                if ( unplaced++ == 0 )
+                    out += "\nWithout a place (UnplacedPrefabInstances, UnplacedLandscapeTiles):\n";
+                out += composite( group );
+            }
+        std::format_to( std::back_inserter( out ), "\nIssues: {}\n", issues.size() );
+        for ( const Rules::GenerationIssue& issue : issues )
+            std::format_to( std::back_inserter( out ), "  {}: {}\n", Rules::GenerationIssueKindName( issue.Kind ),
+                            issue.Text );
+        return out;
+    }
+
+    Common::ResultStr<std::filesystem::path>
+    WriteStreamingGenerationLog( const std::filesystem::path& projectDir, std::string_view world,
+                                 const WorldPartitionSerialized& partition, const Rules::WorldPartitionPlan& plan,
+                                 std::span<const Rules::EntityDescriptor> descriptors,
+                                 std::span<const Rules::GenerationIssue>  issues )
+    {
+        using Result                     = std::filesystem::path;
+        const std::filesystem::path file = StreamingGenerationLogPath( projectDir, world );
+        std::error_code             made;
+        std::filesystem::create_directories( file.parent_path(), made );
+        if ( made )
+            return Common::MakeError<Result>(
+                 std::format( "cannot create '{}': {}", file.parent_path().string(), made.message() ) );
+        const std::string text    = StreamingGenerationLogText( world, partition, plan, descriptors, issues );
+        const auto        written = Common::Utils::FileSystem::WriteBytesToFileAtomic( file, std::as_bytes( std::span( text ) ) );
+        if ( !written )
+            return Common::MakeError<Result>( written.GetError() );
+        return Common::MakeSuccess( file );
     }
 } // namespace Desert::Core::WorldCells

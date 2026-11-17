@@ -2,6 +2,7 @@
 
 #include <Editor/Core/IPanel.hpp>
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <memory>
@@ -32,6 +33,11 @@ namespace Desert::Editor
             return { 420.0f, 300.0f };
         }
         void OnUIRender() override;
+
+        // Tools > Check World Partition (WP-MAP-CHECK; UE Map Check of a World Partition world): the findings of
+        // WorldCells::CheckWorldPartition over the world as the editor holds it (EditorRegions::HeldWorld), listed
+        // here, a click selecting the record each one is about.
+        Common::BoolResultStr CheckWorldPartition();
 
     private:
         struct Issue

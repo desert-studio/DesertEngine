@@ -112,6 +112,7 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
@@ -299,6 +300,69 @@ namespace Desert::Core::Rules
         Common::UUID NamedId;
     };
 
+    // ── WHAT STREAMING GENERATION FINDS WRONG WITH A WORLD (WP-MAP-CHECK) ──────────────────────────────────
+    //
+    // UE 5.5 IStreamingGenerationErrorHandler (WorldPartitionStreamingGeneration.h): the streaming generation calls
+    // one handler per finding - OnInvalidReference, OnInvalidReferenceGridPlacement, OnInvalidReferenceDataLayers,
+    // OnInvalidReferenceRuntimeGrid - and the Map Check window (FStreamingGenerationMapCheckErrorHandler), the cook
+    // log (FStreamingGenerationLogErrorHandler) and the check commandlet are three handlers of ONE list. Here the
+    // planner is the generation: it states every finding in WorldPartitionPlan::Generation as it plans, PlanIssues
+    // is the one list of everything wrong with a plan, and the three consumers (Check World Partition in the
+    // editor, the warning after a save, `WorldCook --check`) and the StreamingGeneration log read that list - none
+    // of them checks anything of its own. A finding never changes the plan: it names what the plan already does.
+    enum class GenerationIssueKind
+    {
+        // A value the planner could not read or a name it could not resolve (WorldPartitionPlan::Issues).
+        Planner,
+        // UE OnInvalidReference: a reference naming an id no record of the world is.
+        InvalidReference,
+        // UE OnInvalidReferenceGridPlacement: an always-loaded record references one that is spatially loaded. By
+        // containment the target is pulled into the always-loaded set whole; by observation it is null wherever
+        // its cell is not loaded.
+        AlwaysLoadedReferencesSpatial,
+        // UE OnInvalidReferenceDataLayers: an observation between two different sets of runtime data layers.
+        ReferenceAcrossDataLayers,
+        // UE OnInvalidReferenceDataLayers: from a record in runtime data layers to one in none.
+        ReferenceIntoNoDataLayer,
+        // UE OnInvalidReferenceRuntimeGrid: a member of a composite states a runtime grid other than the one its
+        // composite streams on (its anchor's), so its own is not used.
+        ReferenceAcrossRuntimeGrids,
+        // The saved HLOD of a cell is missing or was built from other records (WorldCells::StaleHLODCells).
+        StaleHLOD,
+    };
+
+    [[nodiscard]] inline std::string_view GenerationIssueKindName( GenerationIssueKind kind )
+    {
+        switch ( kind )
+        {
+            case GenerationIssueKind::Planner:
+                return "Planner";
+            case GenerationIssueKind::InvalidReference:
+                return "InvalidReference";
+            case GenerationIssueKind::AlwaysLoadedReferencesSpatial:
+                return "InvalidReferenceGridPlacement";
+            case GenerationIssueKind::ReferenceAcrossDataLayers:
+                return "InvalidReferenceDataLayers";
+            case GenerationIssueKind::ReferenceIntoNoDataLayer:
+                return "InvalidReferenceNoDataLayer";
+            case GenerationIssueKind::ReferenceAcrossRuntimeGrids:
+                return "InvalidReferenceRuntimeGrid";
+            case GenerationIssueKind::StaleHLOD:
+                return "StaleHLOD";
+        }
+        return "Unknown";
+    }
+
+    // ONE FINDING. `Record` is what an editor selects (the referer; kNoRecord: the world as a whole), `Target` the
+    // record it references when there is one - both indices into the records the plan was made from.
+    struct GenerationIssue
+    {
+        GenerationIssueKind Kind   = GenerationIssueKind::Planner;
+        std::size_t         Record = kNoRecord;
+        std::size_t         Target = kNoRecord;
+        std::string         Text;
+    };
+
     // A RECTANGLE ON THE GROUND, in world units (centimetres). X and Z only, for the same reason the
     // grid is two-dimensional: height does not partition.
     struct CellBounds
@@ -481,6 +545,12 @@ namespace Desert::Core::Rules
         // component's default is kept — and says so here instead of in silence; every place that plans a world
         // to act on it (cook, Play, editor regions) names them through ReportPlanIssues.
         Common::Json::Issues Issues;
+
+        // WHAT THE STREAMING GENERATION FOUND WRONG WITH THE REFERENCES (WP-MAP-CHECK, UE IStreamingGenerationErrorHandler):
+        // invalid references, always-loaded records referencing spatially loaded ones, references across runtime data
+        // layers or grids. Named, never acted on: the plan above already is what it is. PlanIssues lists these with
+        // Issues; ReportPlanIssues logs both.
+        std::vector<GenerationIssue> Generation;
 
         // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
         // the footprint furthest from the origin. At least 1 when there is a grid; 0 when there is none.
@@ -1526,13 +1596,81 @@ namespace Desert::Core::Rules
         }
     } // namespace Detail
 
+    // THE STREAMING GENERATION FINDINGS OF @p issues, logged one warning line each (UE FStreamingGenerationLogErrorHandler)
+    // after the plan's Issues line; Planner findings are not logged here - Common::Json::ReportIssues logs them as
+    // the one error line of a read. Returns the logged text ("" when there is none).
+    inline std::string ReportGenerationIssues( std::span<const GenerationIssue> issues, std::string_view world )
+    {
+        std::string text;
+        for ( const GenerationIssue& issue : issues )
+        {
+            if ( issue.Kind == GenerationIssueKind::Planner )
+                continue;
+            const std::string line =
+                 std::format( "[WorldPartition] '{}': {}: {}", world, GenerationIssueKindName( issue.Kind ), issue.Text );
+            LOG_WARN( "{}", line );
+            text += ( text.empty() ? "" : "\n" ) + line;
+        }
+        return text;
+    }
+
     // THE ONE REPORT OF A PLAN'S ISSUES. Every caller that plans a world to act on it - the cook (WorldCells),
-    // Play (BeginWorldStreaming) and editor regions (EditorRegions) - names what the planner refused through
-    // this, so an Issue (an unknown StreamingSource.TargetGrids name, a RuntimeGrid.Grid the world lacks, ...)
-    // is never seen by one of them and dropped by another. Returns the logged text ("" when there is none).
+    // Play (BeginWorldStreaming) and editor regions (EditorRegions) - names what the planner refused and what the
+    // streaming generation found (WorldPartitionPlan::Generation) through this, so an Issue (an unknown
+    // StreamingSource.TargetGrids name, a RuntimeGrid.Grid the world lacks, ...) is never seen by one of them and
+    // dropped by another. Returns the logged text ("" when there is none).
     inline std::string ReportPlanIssues( const WorldPartitionPlan& plan, std::string_view world )
     {
-        return Common::Json::ReportIssues( plan.Issues, std::format( "the world partition plan of '{}'", world ) );
+        std::string       text   = Common::Json::ReportIssues( plan.Issues,
+                                                              std::format( "the world partition plan of '{}'", world ) );
+        const std::string found  = ReportGenerationIssues( plan.Generation, world );
+        if ( !text.empty() && !found.empty() )
+            text += "\n";
+        return text + found;
+    }
+
+    // THE ONE LIST OF EVERYTHING WRONG WITH A PLAN (WP-MAP-CHECK): every value the planner could not read or name it
+    // could not resolve (WorldPartitionPlan::Issues, as Planner findings) and every streaming generation finding
+    // (WorldPartitionPlan::Generation), in that order. @p records are the ones the plan was made from: a Planner
+    // finding's path (`Entities[7]...` or `Entities[id=9000001]...`) names the record it selects.
+    [[nodiscard]] inline std::vector<GenerationIssue> PlanIssues( const WorldPartitionPlan&         plan,
+                                                                  std::span<const EntityDescriptor> records )
+    {
+        std::vector<GenerationIssue> issues;
+        issues.reserve( plan.Issues.size() + plan.Generation.size() );
+        constexpr std::string_view kEntities = "Entities[";
+        for ( const Common::Json::Issue& issue : plan.Issues )
+        {
+            GenerationIssue named;
+            named.Text = Common::Json::Describe( issue );
+            if ( issue.Path.starts_with( kEntities ) )
+            {
+                std::string_view rest   = std::string_view( issue.Path ).substr( kEntities.size() );
+                const bool       byId   = rest.starts_with( "id=" );
+                rest                    = byId ? rest.substr( 3 ) : rest;
+                std::uint64_t     value = 0;
+                std::size_t       digits = 0;
+                while ( digits < rest.size() && rest[digits] >= '0' && rest[digits] <= '9' )
+                {
+                    value = value * 10 + static_cast<std::uint64_t>( rest[digits] - '0' );
+                    ++digits;
+                }
+                if ( digits > 0 && digits < rest.size() && rest[digits] == ']' )
+                {
+                    if ( !byId && value < records.size() )
+                        named.Record = static_cast<std::size_t>( value );
+                    for ( std::size_t record = 0; byId && record < records.size(); ++record )
+                        if ( records[record].Id == value )
+                        {
+                            named.Record = record;
+                            break;
+                        }
+                }
+            }
+            issues.push_back( std::move( named ) );
+        }
+        issues.insert( issues.end(), plan.Generation.begin(), plan.Generation.end() );
+        return issues;
     }
 
     // THE GRID A RuntimeGrid NAME STREAMS ON (UE AActor::RuntimeGrid), the one rule the planner and every editor
@@ -1703,6 +1841,190 @@ namespace Desert::Core::Rules
         return check;
     }
 
+    namespace Detail
+    {
+        // The highest level count a grid may have: a cell index of a coordinate past it does not fit an int32.
+        inline constexpr int kMaxGridLevels = 31;
+
+        // A footprint's larger side: what its level is chosen by. Not finite = no level can hold it.
+        [[nodiscard]] inline double FootprintExtent( const CellBounds& box )
+        {
+            return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
+                             static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
+        }
+
+        // THE PLACEMENT RULE (UE FSquare2DGridHelper), its one statement: the lowest of @p levelCount levels whose
+        // cell is at least as wide as the footprint's larger side, and the cell of the footprint's centre in it.
+        // nullopt: no level holds it, or its centre's cell index does not fit an int32 (a corrupt 1e30, a NaN - that
+        // conversion is undefined behaviour) - the planner's NoFit.
+        [[nodiscard]] inline std::optional<std::pair<int, CellCoord>>
+        PlaceFootprint( const CellBounds& footprint, float cellSize, int levelCount )
+        {
+            const double extent = FootprintExtent( footprint );
+            const double centreX =
+                 ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
+            const double centreZ =
+                 ( static_cast<double>( footprint.MinZ ) + static_cast<double>( footprint.MaxZ ) ) * 0.5;
+            for ( int level = 0; std::isfinite( extent ) && level < levelCount; ++level )
+            {
+                const double size = LevelCellSize( cellSize, level );
+                if ( size < extent )
+                    continue;
+                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) || !( std::fabs( centreZ / size ) < 2147483647.0 ) )
+                    return std::nullopt;
+                return std::make_pair( level, CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
+                                                         static_cast<std::int32_t>( std::floor( centreZ / size ) ) } );
+            }
+            return std::nullopt;
+        }
+
+        // A record as a finding names it: its tag and id (`House (9200001)`), or `Entities[<id>]` without a tag.
+        [[nodiscard]] inline std::string RecordName( std::span<const EntityDescriptor> records, std::size_t record )
+        {
+            const EntityDescriptor& described = records[record];
+            const std::string       id        = described.Id.has_value() ? std::to_string( *described.Id )
+                                                                         : std::format( "record {}", record );
+            return described.Tag.empty() ? std::format( "Entities[{}]", id ) : std::format( "{} ({})", described.Tag, id );
+        }
+
+        // The names of @p layers (indices into settings.DataLayers), or "none".
+        [[nodiscard]] inline std::string LayerNames( const WorldPartitionSerialized& settings,
+                                                     std::span<const std::size_t>    layers )
+        {
+            std::string names;
+            for ( const std::size_t layer : layers )
+                names += ( names.empty() ? "" : ", " ) + settings.DataLayers->at( layer ).Name;
+            return names.empty() ? std::string( "none" ) : names;
+        }
+
+        // STEP 7 OF THE PLANNER: THE REFERENCES, VALIDATED (UE FWorldPartitionStreamingGenerator's validation of the
+        // actor desc views, each finding to IStreamingGenerationErrorHandler). Into plan.Generation, never into the
+        // plan itself:
+        //   * a reference naming an id no record is (OnInvalidReference) - a dangling parent or socket target, an
+        //     observation of nothing;
+        //   * an always-loaded record referencing one that would stream on its own (OnInvalidReferenceGridPlacement,
+        //     UE's rule: invalid when the referer is not spatially loaded and the reference is). By CONTAINMENT the
+        //     target is pulled into the always-loaded set whole - named with the cell it would have had; by
+        //     OBSERVATION it reads null wherever its cell is not loaded;
+        //   * an observation between different sets of runtime data layers (OnInvalidReferenceDataLayers), split as
+        //     the owner's rule list splits it: into no layer, or across two sets. (Containment across layers is the
+        //     planner's own Issue in step 4d: a composite has its anchor's layers.)
+        //   * a composite member stating a runtime grid other than the composite's (OnInvalidReferenceRuntimeGrid).
+        inline void ValidateReferences( WorldPartitionPlan& plan, std::span<const EntityDescriptor> records,
+                                        const WorldPartitionSerialized& settings, bool gridsUsable,
+                                        const std::unordered_map<Common::UUID, std::size_t>& byId,
+                                        const std::vector<std::optional<CellBounds>>&        ownFootprint )
+        {
+            std::vector<std::size_t> compositeOf( records.size(), kNoRecord );
+            for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+                for ( const std::size_t member : plan.Composites[group].Members )
+                    compositeOf[member] = group;
+            std::vector<std::size_t> cellOf( plan.Composites.size(), kNoRecord );
+            for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
+                for ( const std::size_t group : plan.Cells[cell].Composites )
+                    cellOf[group] = cell;
+            const auto name = [&]( std::size_t record ) { return RecordName( records, record ); };
+            const auto add  = [&]( GenerationIssueKind kind, std::size_t record, std::size_t target, std::string text )
+            { plan.Generation.push_back( GenerationIssue{ kind, record, target, std::move( text ) } ); };
+
+            for ( const DanglingContainment& dangling : plan.Dangling )
+                add( GenerationIssueKind::InvalidReference, dangling.Member, kNoRecord,
+                     std::format( "{} names {} {}, which no record of the world is: it is loaded without it",
+                                  name( dangling.Member ),
+                                  dangling.Relation == Containment::Hierarchy ? "the parent" : "the SocketAttachment.Target",
+                                  static_cast<std::uint64_t>( dangling.NamedId ) ) );
+
+            for ( const ContainmentEdge& edge : plan.Containment )
+            {
+                const PlannedComposite& held = plan.Composites[compositeOf[edge.Member]];
+                if ( !gridsUsable ||
+                     ( held.Reason != AlwaysLoadedReason::Author && held.Reason != AlwaysLoadedReason::Component ) )
+                    continue;
+                if ( records[edge.Member].Reason == AlwaysLoadedReason::None ||
+                     records[edge.Holder].Reason != AlwaysLoadedReason::None || !ownFootprint[edge.Holder].has_value() )
+                    continue;
+                const std::optional<std::size_t> grid = GridIndexOf( settings, records[edge.Holder].RuntimeGrid );
+                if ( !grid.has_value() )
+                    continue;
+                const auto place = PlaceFootprint( *ownFootprint[edge.Holder], settings.Grids[*grid].CellSize, kMaxGridLevels );
+                if ( !place.has_value() )
+                    continue;
+                PlannedCell would;
+                would.Grid       = *grid;
+                would.Level      = place->first;
+                would.Cell       = place->second;
+                would.DataLayers = RuntimeDataLayersOf( settings, held.DataLayers );
+                add( GenerationIssueKind::AlwaysLoadedReferencesSpatial, edge.Member, edge.Holder,
+                     std::format( "AlwaysLoaded {} references spatially loaded {} (cell {}) through {}: the whole "
+                                  "composite is always loaded",
+                                  name( edge.Member ), name( edge.Holder ), CellStem( settings, would ),
+                                  edge.Relation == Containment::Hierarchy ? "its parent" : "SocketAttachment.Target" ) );
+            }
+
+            for ( std::size_t record = 0; record < records.size(); ++record )
+                for ( const DescriptorReference& reference : records[record].References )
+                {
+                    if ( reference.Kind != ReferenceKind::Observation )
+                        continue;
+                    const std::string through = std::format( "{}.{}", reference.Component, reference.Field );
+                    const auto        found   = byId.find( Common::UUID( reference.Target ) );
+                    if ( found == byId.end() )
+                    {
+                        add( GenerationIssueKind::InvalidReference, record, kNoRecord,
+                             std::format( "{} references {} through {}, which no record of the world is: it reads null",
+                                          name( record ), reference.Target, through ) );
+                        continue;
+                    }
+                    const std::size_t target = found->second;
+                    const std::size_t from   = compositeOf[record];
+                    const std::size_t to     = compositeOf[target];
+                    if ( from == to )
+                        continue;
+                    const PlannedComposite& referer    = plan.Composites[from];
+                    const PlannedComposite& referenced = plan.Composites[to];
+                    if ( referer.Reason != AlwaysLoadedReason::None && cellOf[to] != kNoRecord )
+                        add( GenerationIssueKind::AlwaysLoadedReferencesSpatial, record, target,
+                             std::format( "AlwaysLoaded {} references spatially loaded {} (cell {}) through {}: it reads "
+                                          "null wherever that cell is not loaded",
+                                          name( record ), name( target ), CellStem( settings, plan.Cells[cellOf[to]] ),
+                                          through ) );
+                    const std::vector<std::size_t> fromLayers = RuntimeDataLayersOf( settings, referer.DataLayers );
+                    const std::vector<std::size_t> toLayers   = RuntimeDataLayersOf( settings, referenced.DataLayers );
+                    if ( fromLayers == toLayers )
+                        continue;
+                    if ( !fromLayers.empty() && toLayers.empty() )
+                        add( GenerationIssueKind::ReferenceIntoNoDataLayer, record, target,
+                             std::format( "{} in data layers {} references {}, which is in no runtime data layer, through {}",
+                                          name( record ), LayerNames( settings, fromLayers ), name( target ), through ) );
+                    else
+                        add( GenerationIssueKind::ReferenceAcrossDataLayers, record, target,
+                             std::format( "{} in data layers {} references {} in data layers {} through {}: it reads null "
+                                          "while those layers are not activated",
+                                          name( record ), LayerNames( settings, fromLayers ), name( target ),
+                                          LayerNames( settings, toLayers ), through ) );
+                }
+
+            for ( const PlannedComposite& held : plan.Composites )
+            {
+                if ( !gridsUsable || held.Reason == AlwaysLoadedReason::NoGrid )
+                    continue;
+                for ( const std::size_t member : held.Members )
+                {
+                    if ( member == held.Anchor || !records[member].RuntimeGrid.has_value() )
+                        continue;
+                    const std::optional<std::size_t> own = GridIndexOf( settings, records[member].RuntimeGrid );
+                    if ( own.has_value() && *own == held.Grid )
+                        continue;
+                    add( GenerationIssueKind::ReferenceAcrossRuntimeGrids, member, held.Anchor,
+                         std::format( "{} states runtime grid '{}' but is part of the composite of {}, which streams on "
+                                      "grid '{}': its own grid is not used",
+                                      name( member ), *records[member].RuntimeGrid, name( held.Anchor ),
+                                      settings.Grids[held.Grid].Name ) );
+                }
+            }
+        }
+    } // namespace Detail
+
     // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
     // scene in memory). Record `r` of the plan is descriptor `r`.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
@@ -1848,6 +2170,8 @@ namespace Desert::Core::Rules
             unplaced[record] = true;
 
         std::vector<glm::vec3> points;
+        // Each record's own footprint, beside its composite's: where it would stream on its own (ValidateReferences).
+        std::vector<std::optional<CellBounds>> ownFootprint( records.size() );
         for ( PlannedComposite& group : plan.Composites )
         {
             for ( const std::size_t member : group.Members )
@@ -1876,6 +2200,16 @@ namespace Desert::Core::Rules
                 }
                 else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
                     ++plan.PointOnlyRecords;
+                for ( const glm::vec3& point : points )
+                {
+                    std::optional<CellBounds>& own = ownFootprint[member];
+                    if ( !own.has_value() )
+                        own = CellBounds{ point.x, point.z, point.x, point.z };
+                    own->MinX = std::min( own->MinX, point.x );
+                    own->MinZ = std::min( own->MinZ, point.z );
+                    own->MaxX = std::max( own->MaxX, point.x );
+                    own->MaxZ = std::max( own->MaxZ, point.z );
+                }
                 for ( const glm::vec3& point : points )
                 {
                     if ( !group.Footprint.has_value() )
@@ -1955,6 +2289,7 @@ namespace Desert::Core::Rules
                     plan.Composites[group].Reason = AlwaysLoadedReason::NoGrid;
                 plan.AlwaysLoaded.push_back( group );
             }
+            Detail::ValidateReferences( plan, records, settings, false, byId, ownFootprint );
             return plan;
         }
 
@@ -1996,13 +2331,9 @@ namespace Desert::Core::Rules
         // is inside one of the four cells around the origin. Only composites still to be placed count: the
         // sun at 10 km does not widen any grid. The cap keeps a corrupt coordinate (1e30) from asking for a
         // level past what an int32 cell index can express at level 0; a footprint beyond it is NoFit.
-        constexpr int       kMaxLevels = 31;
+        constexpr int kMaxLevels = Detail::kMaxGridLevels;
         // A footprint's larger side: what its level is chosen by. Not finite = no level can hold it.
-        const auto extentOf = []( const CellBounds& box )
-        {
-            return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
-                             static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
-        };
+        const auto extentOf = []( const CellBounds& box ) { return Detail::FootprintExtent( box ); };
         std::vector<double> furthest( settings.Grids.size(), 0.0 );
         std::vector<double> widest( settings.Grids.size(), 0.0 );
         for ( const PlannedComposite& group : plan.Composites )
@@ -2049,25 +2380,13 @@ namespace Desert::Core::Rules
             // The lowest level whose cell is at least as wide as the footprint's larger side; the cell of the
             // footprint's centre in it. A centre whose cell index an int32 cannot hold (a corrupt 1e30, a
             // NaN) is not converted - that conversion is undefined behaviour - and the composite is NoFit.
-            const double extent = extentOf( footprint );
-            const double centreX =
-                 ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
-            const double centreZ =
-                 ( static_cast<double>( footprint.MinZ ) + static_cast<double>( footprint.MaxZ ) ) * 0.5;
-            bool placed = false;
-            for ( int level = 0; std::isfinite( extent ) && level < plan.GridLevelCount[held.Grid]; ++level )
+            const std::optional<std::pair<int, CellCoord>> place =
+                 Detail::PlaceFootprint( footprint, cellSize, plan.GridLevelCount[held.Grid] );
+            const bool placed = place.has_value();
+            if ( placed )
             {
-                const double size = LevelCellSize( cellSize, level );
-                if ( size < extent )
-                    continue;
-                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) ||
-                     !( std::fabs( centreZ / size ) < 2147483647.0 ) )
-                    break;
-                held.Level = level;
-                held.Cell  = CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
-                                       static_cast<std::int32_t>( std::floor( centreZ / size ) ) };
-                placed     = true;
-                break;
+                held.Level = place->first;
+                held.Cell  = place->second;
             }
             if ( !placed )
             {
@@ -2127,6 +2446,8 @@ namespace Desert::Core::Rules
             plan.Cells.push_back( std::move( cell ) );
         }
 
+        // ── 7. The references, validated as UE's streaming generation validates them (Detail::ValidateReferences) ──
+        Detail::ValidateReferences( plan, records, settings, true, byId, ownFootprint );
         return plan;
     }
 
