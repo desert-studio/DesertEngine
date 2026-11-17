@@ -378,13 +378,16 @@ namespace Desert::ECS
         std::uint64_t m_DeliveredDestruction = 0; // DestructionEventQueue::Publication last delivered
 
         // WP-ENTITY-REFS: an entity a running slot's Entity property names arrived in the world or left it (World
-        // Partition streaming: ECS::EntityReferenceBindings), so the property is written into the script again - the
-        // entity now, nil once it is gone. Drained whole every update: while nothing plays no script runs, and a
-        // slot that starts later reads its properties at its start.
+        // Partition streaming: ECS::EntityReferenceBindings), so the property is written into the script again -
+        // the entity now, nil once it is gone. In Edit no script runs, so the queue is dropped (a slot reads its
+        // properties at its start); a PAUSED session keeps it for the frame its world ticks again - streaming goes
+        // on while paused, and a binding dropped then would leave the running script holding a stale entity.
         void DeliverReferenceBindings( entt::registry& registry, const bool playing )
         {
             auto* queue = registry.try_ctx<EntityReferenceBindings>();
             if ( queue == nullptr || queue->Pending.empty() )
+                return;
+            if ( !playing && m_Scene != nullptr && m_Scene->GetState() == Core::Scene::SceneState::Paused )
                 return;
             const std::vector<EntityReferenceBinding> pending = std::exchange( queue->Pending, {} );
             if ( !playing || m_Scene == nullptr )

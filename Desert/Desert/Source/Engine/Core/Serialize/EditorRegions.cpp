@@ -12,6 +12,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <format>
 #include <memory>
 #include <optional>
 #include <unordered_set>
@@ -66,7 +67,8 @@ namespace Desert::Core::EditorRegions
             if ( regions == nullptr && everyLayerLoaded )
             {
                 // Nothing is planned, so the plan report below does not name what the references could not resolve.
-                Common::Json::ReportIssues( referenceIssues, path.string() + ": entity references" );
+                Common::Json::ReportIssues( referenceIssues,
+                                            std::format( "{}: entity references", path.string() ) );
                 selected.Selection.Records = selected.RowIds;
                 return Common::MakeSuccess( std::move( selected ) );
             }

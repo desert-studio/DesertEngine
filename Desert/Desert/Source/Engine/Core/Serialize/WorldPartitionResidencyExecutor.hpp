@@ -149,8 +149,7 @@ namespace Desert::Core::Rules
         [[nodiscard]] static Common::ResultStr<ResidencyExecutor>
         Begin( WorldPartitionPlan plan, WorldPartitionSerialized partition,
                std::span<const Assets::EntityData> records, const ResidencySettings& settings,
-               std::span<const StreamingSource> sources, ResidencyWorld& world,
-               const ScriptReferenceSource& scripts = {} )
+               std::span<const StreamingSource> sources, ResidencyWorld& world )
         {
             for ( std::size_t record = 0; record < records.size(); ++record )
             {
@@ -162,17 +161,11 @@ namespace Desert::Core::Rules
                                       record, records[record].Tag.value_or( "" ) ) );
                 }
             }
-            // The observations, resolved to record indices once by the planner's own resolver. A target the file
-            // does not contain is dangling, not a streaming matter — the planner already names those.
-            Common::Json::Issues                             issues;
-            std::vector<std::pair<std::size_t, std::size_t>> observations;
-            for ( const ResolvedReference& reference :
-                  ResolveEntityReferences( DescribeEntities( records ), scripts, issues ) )
-                if ( reference.Kind == ReferenceKind::Observation && reference.To != kNoRecord &&
-                     reference.To != reference.From )
-                    observations.emplace_back( reference.From, reference.To );
-            // An observation field of the wrong type observes nothing; it is named, not skipped in silence.
-            Common::Json::ReportIssues( issues, "world partition observation references" );
+            // The observations, as the plan resolved them (WorldPartitionPlan::Observations: register, scripts,
+            // names - Rules::ResolveEntityReferences, once). What it could not resolve is in the plan's Issues,
+            // which its caller reports (ReportPlanIssues); a target the file does not contain is dangling, not a
+            // streaming matter.
+            const std::vector<std::pair<std::size_t, std::size_t>> observations = plan.Observations;
             auto made = Make( std::move( plan ), std::move( partition ), settings, records.size(), observations );
             if ( !made.IsSuccess() )
                 return made;
@@ -471,7 +464,7 @@ namespace Desert::Core::Rules
         // Play names what the planner refused exactly as the cook does (ReportPlanIssues).
         ReportPlanIssues( plan, scene.SceneName );
         auto begun = ResidencyExecutor::Begin( std::move( plan ), *scene.WorldPartition, scene.Entities, settings,
-                                               sources, world, scripts );
+                                               sources, world );
         if ( !begun.IsSuccess() )
             return Common::MakeError<std::optional<ResidencyExecutor>>( "'" + scene.SceneName +
                                                                         "': " + begun.GetError() );

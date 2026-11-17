@@ -1096,6 +1096,7 @@ namespace Desert::Core::WorldCells
             // crossing containment, whatever its origin - register, script or name).
             world.Observations.emplace_back( from->second.first, to->second.first );
         }
+        world.Plan.Observations = world.Observations;
         return Common::MakeSuccess( std::move( world ) );
     }
 

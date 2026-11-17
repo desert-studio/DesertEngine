@@ -257,9 +257,9 @@ namespace Desert::Core::Rules
     // (Components.hpp:1992, "names are looked up across the scene"), so a name link is not confined to
     // one canvas the way the hierarchy would confine it. If a name-addressed reference is ever
     // CONTAINMENT, this partitioner cannot enforce it without an index from name to record — and that
-    // index exists now (WP-ENTITY-REFS): ResolveEntityReferences matches every name to the records carrying it
-    // at planning time, so a row of kind Containment clusters its holder with every one of them. Before it,
-    // index is the work that row would cost.
+    // index is the work that row would cost. That index exists now (WP-ENTITY-REFS): ResolveEntityReferences
+    // matches every name to the records carrying it at planning time, so a row of kind Containment clusters its
+    // holder with every one of them.
     struct NamedEntityReferenceRow
     {
         std::string_view ComponentKey;       // the block holding the name
@@ -508,6 +508,13 @@ namespace Desert::Core::Rules
         // How many levels each grid has for THIS world, index = grid: every grid has its own ladder (UE: one
         // FSpatialHashStreamingGrid per runtime grid). LevelCount above is the highest of them.
         std::vector<int> GridLevelCount;
+
+        // (holder, target) record pairs of every Observation reference ResolveEntityReferences found, self and
+        // unresolved ones left out (WP-ENTITY-REFS) - resolved ONCE, by the plan, so residency
+        // (ResidencyExecutor:: Begin) observes exactly what the plan clustered by, without describing the records
+        // again. A plan read from a cooked index states the crossing ones (WorldCells::PlanFromIndex), the only
+        // ones a cook keeps.
+        std::vector<std::pair<std::size_t, std::size_t>> Observations;
     };
 
     // ── WHICH COMPONENTS MAKE THEIR ENTITY ALWAYS-LOADED ──────────────────────────────────────────
@@ -1385,10 +1392,14 @@ namespace Desert::Core::Rules
                                   prop.ReadInto( "Name", name, issues );
                                   prop.ReadInto( "Type", type, issues );
                                   prop.ReadInto( "ElementType", element, issues );
+                                  // Ref is the UUID's bits as the Script serializer's mirror writes a uint64 (a
+                                  // JSON integer, int64: an id at or above 2^63 is spelt negative), so it is read
+                                  // as int64 and taken back bit for bit - a uint64 read refuses half of all ids.
                                   const auto add = [&]( const Common::Json::Node& value )
                                   {
-                                      std::uint64_t target = 0;
-                                      value.ReadInto( "Ref", target, issues );
+                                      std::int64_t bits = 0;
+                                      value.ReadInto( "Ref", bits, issues );
+                                      const auto target = static_cast<std::uint64_t>( bits );
                                       if ( target != 0 )
                                           out.ScriptReferences.push_back(
                                                DescriptorScriptReference{ key, name, target } );
@@ -1592,7 +1603,7 @@ namespace Desert::Core::Rules
                     resolved.Kind = *kind;
                 else
                     issues.push_back( Common::Json::Issue{
-                         where( record ) + "." + std::string( kScriptComponent ),
+                         std::format( "{}.{}", where( record ), kScriptComponent ),
                          std::format( "an Entity property '{}' that '{}' declares", reference.Property,
                                       reference.Script ),
                          "none: the script does not declare it as an Entity or does not load, so the reference "
@@ -1611,7 +1622,7 @@ namespace Desert::Core::Rules
                 if ( row == std::end( kEntityReferencesByName ) )
                 {
                     issues.push_back( Common::Json::Issue{
-                         where( record ) + "." + reference.Component + "." + reference.Field,
+                         std::format( "{}.{}.{}", where( record ), reference.Component, reference.Field ),
                          "a reference by name kEntityReferencesByName has a row for",
                          "none: the descriptor is of another build; refresh the descriptor index" } );
                     continue;
@@ -1626,8 +1637,9 @@ namespace Desert::Core::Rules
                 {
                     if ( row->Kind == ReferenceKind::Containment )
                         issues.push_back( Common::Json::Issue{
-                             where( record ) + "." + reference.Component + "." + reference.Field,
-                             std::format( "an entity whose {} is named '{}'", row->TargetComponentKey, reference.Name ),
+                             std::format( "{}.{}.{}", where( record ), reference.Component, reference.Field ),
+                             std::format( "an entity whose {} is named '{}'", row->TargetComponentKey,
+                                          reference.Name ),
                              "none: the containment holds nothing" } );
                     out.push_back( std::move( resolved ) );
                     continue;
@@ -2027,6 +2039,10 @@ namespace Desert::Core::Rules
         // parent, then its references (the register's, its scripts' hard ones, its names').
         const std::vector<ResolvedReference> references    = ResolveEntityReferences( records, scripts, plan.Issues );
         std::size_t                          nextReference = 0;
+        for ( const ResolvedReference& reference : references )
+            if ( reference.Kind == ReferenceKind::Observation && reference.To != kNoRecord &&
+                 reference.To != reference.From )
+                plan.Observations.emplace_back( reference.From, reference.To );
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
             const EntityDescriptor& data = records[record];

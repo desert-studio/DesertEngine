@@ -40,9 +40,7 @@ namespace Desert::ECS
     {
         if ( bindings.empty() )
             return;
-        EntityReferenceBindings* queue = registry.try_ctx<EntityReferenceBindings>();
-        if ( queue == nullptr )
-            queue = &registry.set<EntityReferenceBindings>();
-        queue->Pending.insert( queue->Pending.end(), bindings.begin(), bindings.end() );
+        EntityReferenceBindings& queue = registry.ctx_or_set<EntityReferenceBindings>();
+        queue.Pending.insert( queue.Pending.end(), bindings.begin(), bindings.end() );
     }
 } // namespace Desert::ECS
