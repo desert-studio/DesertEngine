@@ -73,6 +73,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
+#include <Projects/WorldPartitionSettings.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -111,10 +112,11 @@ namespace Desert::Core::Rules
         std::uint64_t              NextTicket = 1;
     };
 
-    struct ResidencySettings
+    // The project's streaming settings (Projects/WorldPartitionSettings.hpp: the WorldPartition section of
+    // Config/Engine.json with the platform layer over it, read by the WorldStreamer as Play or the game begins)
+    // and what the engine MEASURED rather than a project chooses.
+    struct ResidencySettings : Project::WorldPartitionSettings
     {
-        // Main-thread time one frame may spend activating, milliseconds.
-        double ActivationBudgetMs = 2.0;
         // Activation cost of one record, MEASURED (WP5b, 2026-09-24): WorldStreamer times every
         // SceneSerializer::InstantiateRecords it makes and logs the total at the end of Play. Release editor,
         // World_Grid8km with a 128 m grid (StaticMesh cubes, ~9 records a unit), headless --play flights across
@@ -122,15 +124,6 @@ namespace Desert::Core::Rules
         // worse run, so a frame is not promised more than it gets; a world of heavier records (prefab
         // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
         double MsPerRecord = 0.02;
-        // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin),
-        // and a sector's angle and a look-ahead's sweep length are widened by the same factor.
-        float UnloadMargin = 0.25f;
-        // Loads in flight at once.
-        std::uint32_t MaxConcurrentLoads = 4;
-        // The wait before retrying a failed load, growing by RetryBackoff per consecutive failure.
-        double RetryDelaySeconds    = 1.0;
-        double RetryBackoff         = 2.0;
-        double MaxRetryDelaySeconds = 30.0;
     };
 
     // What the loader reports about one StartLoad.

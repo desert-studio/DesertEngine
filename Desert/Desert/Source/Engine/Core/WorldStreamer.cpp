@@ -8,6 +8,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Projects/WorldPartitionSettings.hpp>
 
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -243,6 +244,10 @@ namespace Desert::Core
         }
         auto   snapshot = std::make_shared<const SceneSerialized>( std::move( source ) );
         Result streamer( new WorldStreamer( scene, assets, snapshot->SceneName ) );
+        // THE PROJECT'S STREAMING SETTINGS (Engine.json + this platform's layer), read as Play begins: a change
+        // in Project Settings applies to the next Play.
+        static_cast<Project::WorldPartitionSettings&>( streamer->m_Settings ) =
+             Project::CurrentWorldPartitionSettings();
         std::vector<Rules::StreamingSource> sources = GatherSources( scene, instruments );
         // BEFORE the executor begins: its Begin destroys every unwanted record, and Destroy finds each by id.
         // A record without one is refused by that Begin; the null id here is never looked up.
@@ -425,6 +430,10 @@ namespace Desert::Core
     {
         using Result = std::unique_ptr<WorldStreamer>;
         Result streamer( new WorldStreamer( scene, assets, world.Index->SceneName ) );
+        // THE PROJECT'S STREAMING SETTINGS (the packaged Config/Engine.json + this platform's layer), read as the
+        // game's world begins.
+        static_cast<Project::WorldPartitionSettings&>( streamer->m_Settings ) =
+             Project::CurrentWorldPartitionSettings();
         // Every read of `world` is resolved before the plan is moved out of it: an argument list is not
         // sequenced (clang evaluates it left to right, MSVC right to left).
         const auto  recordCount  = world.Indexed.RecordIds.size();
@@ -723,6 +732,19 @@ namespace Desert::Core
             LOG_INFO( "[WorldPartition] '{0}': the cell under the streaming source is resident; play resumes",
                       m_SceneName );
         }
+        // Blocking disabled (Engine.json WorldPartition.BlockOnSlowStreaming off): the same Critical state is said
+        // once per stretch, and play goes on over the HLOD or the empty ground.
+        const bool criticalUnblocked = m_LastTick.Streaming.Performance == Rules::StreamingPerformance::Critical &&
+                                       !m_LastTick.Streaming.BlockOnSlowStreaming;
+        if ( criticalUnblocked && !m_SaidCriticalUnblocked )
+        {
+            LOG_WARN(
+                 "[WorldPartition] '{0}': slow streaming (blocking disabled): the cell under a streaming source "
+                 "({1}) is not resident; play goes on",
+                 m_SceneName,
+                 Rules::DescribeResidencyUnit( Executor().Plan(), m_LastTick.Streaming.UnderSource ) );
+        }
+        m_SaidCriticalUnblocked = criticalUnblocked;
         if ( Rules::ReleasesCellAssets( done ) )
         {
             Assets::AssetEvictionSchedule::Request(

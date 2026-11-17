@@ -8,16 +8,19 @@
 // WHEN STREAMING CANNOT KEEP UP (WP12, owner decision O2): "fly on HLOD, block only when there is no cell under
 // the player's feet".
 //
-// Every frame the residency leaves a queue behind: units wanted and read (Loaded) but not yet activated, and
-// units still being read (Loading). The queue is weighed against ONE frame's activation budget — its records
-// times MsPerRecord against ActivationBudgetMs — and a queue that does not fit is SLOW: the world will fill in
-// over the coming frames, and until it does the far cells are drawn by their HLOD (WP11). Nothing stops.
+// SLOW is UE's warning band (GetStreamingPerformanceForCell, wp.Runtime.BlockOnSlowStreamingRatio x
+// ...WarningFactor): a cell the sources want that is not activated yet lies within SlowStreamingRatio x
+// SlowStreamingWarningFactor of a source's loading range - the cell's distance (the 3D distance THE QUERY uses)
+// over that range. A ratio and not one frame's activation budget (WP-STREAM-SETTINGS): a long queue far away is
+// the ordinary state of a moving camera, a missing cell close to the player is what is slow. Until the cell
+// arrives its HLOD draws it (WP11). Nothing stops.
 //
-// CRITICAL is narrower and is the only state that blocks: a cell whose square holds a streaming source is not
-// Activated. There the HLOD is no help — it stands in for a cell seen from outside its range, not for the
-// ground under the player — so the game's time stops and a loading overlay is drawn while the loader keeps
-// reading (the host's Tick goes on; nothing is read synchronously). The block lifts on the first frame every
-// such cell is Activated.
+// CRITICAL is narrower and is the only state that blocks (while Engine.json's WorldPartition.BlockOnSlowStreaming
+// is on; off, the WorldStreamer logs it once as "slow streaming (blocking disabled)" and play goes on): a cell
+// whose square holds a streaming source is not Activated. There the HLOD is no help — it stands in for a cell seen
+// from outside its range, not for the ground under the player — so the game's time stops and a loading overlay is
+// drawn while the loader keeps reading (the host's Tick goes on; nothing is read synchronously). The block lifts
+// on the first frame every such cell is Activated.
 //
 // Two cases do NOT block, on purpose:
 //   * no planned cell holds the source at all: an empty stretch of the world has nothing to wait for;
@@ -27,8 +30,10 @@
 // PURE: a function of the plan, the settings, the residency state and the sources.
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <unordered_map>
 
@@ -36,8 +41,8 @@ namespace Desert::Core::Rules
 {
     enum class StreamingPerformance : std::uint8_t
     {
-        Good,     // the queue fits in this frame's activation budget
-        Slow,     // it does not: far cells show their HLOD until it drains
+        Good,     // every cell near a source is activated
+        Slow,     // a cell near a source is not activated yet: its HLOD draws it until it is
         Critical, // a cell under a source is not resident: the game waits behind the loading overlay
     };
 
@@ -50,9 +55,13 @@ namespace Desert::Core::Rules
         std::size_t          UnderSource    = kNoRecord; // first cell unit under a source that blocks
         std::size_t          FailedUnderSrc = 0;         // cells under a source that failed (do not block)
 
+        // ResidencySettings::BlockOnSlowStreaming the assessment was made with: off, a Critical frame is reported
+        // (and logged) but play goes on.
+        bool BlockOnSlowStreaming = true;
+
         [[nodiscard]] bool Blocks() const
         {
-            return Performance == StreamingPerformance::Critical;
+            return Performance == StreamingPerformance::Critical && BlockOnSlowStreaming;
         }
     };
 
@@ -79,6 +88,32 @@ namespace Desert::Core::Rules
         return false;
     }
 
+    // The smallest distance from a source streaming @p cell's grid to the cell, over that source's loading range
+    // on the grid (UE's DistanceToCell / LoadingRange), in the 3D distance THE QUERY uses; +infinity when no
+    // source streams the grid.
+    [[nodiscard]] inline double CellRangeRatio( const PlannedCell& cell, std::span<const StreamingSource> sources,
+                                                const WorldPartitionSerialized& partition )
+    {
+        double best = std::numeric_limits<double>::infinity();
+        if ( cell.Grid >= partition.Grids.size() )
+            return best;
+        const auto& grid = partition.Grids[cell.Grid];
+        for ( const StreamingSource& source : sources )
+        {
+            if ( !source.TargetGrids.empty() && !TargetsGrid( source, grid ) )
+                continue;
+            for ( const SourceSector& sector : SourceSectors( source, grid ) )
+            {
+                if ( !( sector.Radius > 0.0f ) )
+                    continue;
+                const double distance = static_cast<double>(
+                     WithAltitude( DistanceToCellInSector( sector, cell.Bounds ), sector, cell.Height ) );
+                best = std::min( best, distance / static_cast<double>( sector.Radius ) );
+            }
+        }
+        return best;
+    }
+
     // @p state sized for @p plan (an unsized state — before the first step — has nothing resident).
     [[nodiscard]] inline StreamingAssessment AssessStreaming( const WorldPartitionPlan&        plan,
                                                               const WorldPartitionSerialized&  partition,
@@ -100,13 +135,18 @@ namespace Desert::Core::Rules
                 out.QueuedRecords += ResidencyUnitRecords( plan, unit );
             }
         }
-        out.QueuedMs = static_cast<double>( out.QueuedRecords ) * settings.MsPerRecord;
-        if ( out.QueuedMs > settings.ActivationBudgetMs )
-            out.Performance = StreamingPerformance::Slow;
+        out.QueuedMs             = static_cast<double>( out.QueuedRecords ) * settings.MsPerRecord;
+        out.BlockOnSlowStreaming = settings.BlockOnSlowStreaming;
 
+        const double slowRatio = static_cast<double>( settings.SlowStreamingRatio ) *
+                                 static_cast<double>( settings.SlowStreamingWarningFactor );
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
         {
-            const std::size_t unit = plan.AlwaysLoaded.size() + cell;
+            const std::size_t unit  = plan.AlwaysLoaded.size() + cell;
+            const Residency   state = stateOf( unit );
+            if ( out.Performance == StreamingPerformance::Good && state != Residency::Activated &&
+                 state != Residency::Failed && CellRangeRatio( plan.Cells[cell], sources, partition ) < slowRatio )
+                out.Performance = StreamingPerformance::Slow;
             bool              held = false;
             for ( const StreamingSource& source : sources )
                 held = held || CellHolds( plan.Cells[cell], source, partition );
