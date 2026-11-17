@@ -269,9 +269,8 @@ namespace Desert::WorldCook
             << "  index        : " << files.back().Bytes.size() << " bytes\n"
             << "  largest cell : " << largestName << ", " << largest << " bytes\n"
             << "  HLOD         : " << ( index.HLODUnits.empty() ? index.HLODs.size() : index.HLODNodes.size() )
-            << " HLOD(s), " << index.HLODUnits.size() << " HLOD unit(s) streamed by the HLOD grids, " << hlodInstances
-            << " instances, "
-            << notInstanced << " drawing record(s) without a stand-in\n"
+            << " HLOD(s), " << index.HLODUnits.size() << " HLOD unit(s) streamed by the HLOD grids, "
+            << hlodInstances << " instances, " << notInstanced << " drawing record(s) without a stand-in\n"
             << "  references   : " << index.References.size() << " crossing a unit\n"
             << "  assets       : "
             << ( index.AssetClosureKnown ? "closure per unit from the registry" : "UNKNOWN (--no-registry)" )
@@ -357,7 +356,8 @@ namespace Desert::WorldCook
         }
         if ( hlodPlan.GetValue().has_value() )
         {
-            const Core::WorldCells::CookedCellSource hlodCells( indexBack, reader, Core::WorldCells::UnitSet::HLOD );
+            const Core::WorldCells::CookedCellSource hlodCells( indexBack, reader,
+                                                                Core::WorldCells::UnitSet::HLOD );
             for ( std::size_t unit = 0; unit < indexBack.HLODUnits.size(); ++unit )
             {
                 auto records = hlodCells.UnitRecords( unit );

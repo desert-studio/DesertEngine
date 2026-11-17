@@ -687,8 +687,8 @@ namespace Desert::Core::WorldCells
                 return Common::MakeError<Result>( "'" + scene.SceneName + "': " + planned.GetError() );
             hierarchy = planned.ExtractValue();
         }
-        for ( std::size_t unit = plan.AlwaysLoaded.size(); anyHLODLayer && !hierarchy.Streams() && unit < unitCount;
-              ++unit )
+        for ( std::size_t unit = plan.AlwaysLoaded.size();
+              anyHLODLayer && !hierarchy.Streams() && unit < unitCount; ++unit )
         {
             const BuiltHLODCell& built = *builtRows.at( index.Units[unit].Name );
             if ( !built.File.has_value() && built.NotInstanced.empty() )
@@ -737,8 +737,8 @@ namespace Desert::Core::WorldCells
             index.HLODs.push_back( std::move( row ) );
         }
         // THE HLOD CELLS (WP-FAR-8; UE UHLODLayer::bIsSpatiallyLoaded: a layer's HLOD actors are cooked into the
-        // runtime cells of its own grid). Every HLOD residency unit gets a file holding its nodes' saved records in
-        // node order and a row as a world cell gets one; every node a row naming its unit.
+        // runtime cells of its own grid). Every HLOD residency unit gets a file holding its nodes' saved records
+        // in node order and a row as a world cell gets one; every node a row naming its unit.
         if ( hierarchy.Streams() )
         {
             std::vector<const BuiltHLODCell*> nodeRows;
@@ -747,8 +747,9 @@ namespace Desert::Core::WorldCells
             {
                 const auto row = builtRows.find( node.Name );
                 if ( row == builtRows.end() )
-                    return Common::MakeError<Result>( std::format(
-                         "'{}': the HLOD {} has no saved row; run Build > Build HLODs", scene.SceneName, node.Name ) );
+                    return Common::MakeError<Result>(
+                         std::format( "'{}': the HLOD {} has no saved row; run Build > Build HLODs",
+                                      scene.SceneName, node.Name ) );
                 nodeRows.push_back( row->second );
                 counts.push_back( row->second->File.has_value() ? row->second->Ids.size() : 0 );
             }
@@ -826,8 +827,8 @@ namespace Desert::Core::WorldCells
                 if ( !wrapped )
                     return Common::MakeError<Result>( wrapped.GetError() );
                 CookedFile file{ row.File, wrapped.ExtractValue() };
-                index.Files.push_back(
-                     { row.File, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
+                index.Files.push_back( { row.File, file.Bytes.size(),
+                                         Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
                 cooked.Files.push_back( std::move( file ) );
                 index.HLODUnits.push_back( std::move( row ) );
             }
@@ -902,7 +903,8 @@ namespace Desert::Core::WorldCells
         {
             if ( node.Unit >= index.HLODUnits.size() )
                 return Common::MakeError<WorldIndex>( std::format( "'{}': the HLOD {} is in unit {} of {}", name,
-                                                                   node.Name, node.Unit, index.HLODUnits.size() ) );
+                                                                   node.Name, node.Unit,
+                                                                   index.HLODUnits.size() ) );
             nodeRecords[node.Unit] += node.Ids.size();
         }
         for ( std::size_t unit = 0; unit < index.HLODUnits.size(); ++unit )
@@ -911,8 +913,9 @@ namespace Desert::Core::WorldCells
             const bool       listed = std::any_of( index.Files.begin(), index.Files.end(),
                                                    [&]( const IndexFile& file ) { return file.Name == row.File; } );
             if ( !listed )
-                return Common::MakeError<WorldIndex>( std::format(
-                     "'{}': HLOD unit {} names file '{}', which the index does not list", name, row.Name, row.File ) );
+                return Common::MakeError<WorldIndex>(
+                     std::format( "'{}': HLOD unit {} names file '{}', which the index does not list", name,
+                                  row.Name, row.File ) );
             if ( nodeRecords[unit] != row.Ids.size() )
                 return Common::MakeError<WorldIndex>(
                      std::format( "'{}': HLOD unit {} lists {} record(s) and its HLODs hold {}", name, row.Name,
@@ -1232,8 +1235,8 @@ namespace Desert::Core::WorldCells
         for ( std::size_t n = 0; n < nodes.size(); ++n )
         {
             if ( nodes[n].Name != index.HLODNodes[n].Name )
-                return refused( std::format( "HLOD {} of the index is {} and the world's hierarchy has {} there", n,
-                                             index.HLODNodes[n].Name, nodes[n].Name ) );
+                return refused( std::format( "HLOD {} of the index is {} and the world's hierarchy has {} there",
+                                             n, index.HLODNodes[n].Name, nodes[n].Name ) );
             counts.push_back( index.HLODNodes[n].Ids.size() );
         }
         auto residency = Rules::MakeHLODResidency( index.WorldPartition, out.Hierarchy, counts );
@@ -1250,8 +1253,8 @@ namespace Desert::Core::WorldCells
             const IndexUnit&  row  = index.HLODUnits[unit];
             const std::string name = Rules::DescribeHLODUnit( out.Hierarchy, out.Residency, unit );
             if ( row.Name != name )
-                return refused(
-                     std::format( "HLOD unit {} of the index is {} and the hierarchy has {} there", unit, row.Name, name ) );
+                return refused( std::format( "HLOD unit {} of the index is {} and the hierarchy has {} there",
+                                             unit, row.Name, name ) );
             const std::vector<std::size_t> unitNodes =
                  unit < hlodPlan.AlwaysLoaded.size()
                       ? std::vector<std::size_t>{ hlodPlan.AlwaysLoaded[unit] }
@@ -1260,12 +1263,14 @@ namespace Desert::Core::WorldCells
             for ( const std::size_t n : unitNodes )
             {
                 if ( index.HLODNodes[n].Unit != unit )
-                    return refused( std::format( "the HLOD {} is in unit {} of the index and in {} of the hierarchy",
-                                                 nodes[n].Name, index.HLODNodes[n].Unit, name ) );
+                    return refused(
+                         std::format( "the HLOD {} is in unit {} of the index and in {} of the hierarchy",
+                                      nodes[n].Name, index.HLODNodes[n].Unit, name ) );
                 ids.insert( ids.end(), index.HLODNodes[n].Ids.begin(), index.HLODNodes[n].Ids.end() );
             }
             if ( ids != row.Ids )
-                return refused( std::format( "HLOD unit {} does not list its HLODs' record ids in their order", name ) );
+                return refused(
+                     std::format( "HLOD unit {} does not list its HLODs' record ids in their order", name ) );
         }
         return Common::MakeSuccess( Result( std::move( out ) ) );
     }
@@ -1322,8 +1327,8 @@ namespace Desert::Core::WorldCells
                 if ( !unit.Reason.has_value() )
                 {
                     if ( !unit.Square.has_value() )
-                        return Common::MakeError<Result>( std::format( "world '{}': cell unit '{}' states no square",
-                                                                       index.SceneName, unit.Name ) );
+                        return Common::MakeError<Result>( std::format(
+                             "world '{}': cell unit '{}' states no square", index.SceneName, unit.Name ) );
                     const double cx = 0.5 * ( double( unit.Square->MinX ) + double( unit.Square->MaxX ) );
                     const double cz = 0.5 * ( double( unit.Square->MinZ ) + double( unit.Square->MaxZ ) );
                     const auto   rx = static_cast<std::int64_t>( std::floor( cx / double( *size ) ) );

@@ -201,8 +201,9 @@ namespace Desert::Core::WorldCells
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
         // THE HLOD CELLS (WP-FAR-8), when an HLOD layer is spatially loaded (Rules::HLODHierarchy::Streams; HLODs
         // is then empty): the residency units of Rules::MakeHLODResidency in its unit order - each node resident
-        // the whole session (`Reason` kHLODResidentReason, a file of its own), then the HLOD cells by (grid, X, Z),
-        // `Grid` indexing Rules::HLODResidency::Partition.Grids - and every node of the hierarchy, in node order.
+        // the whole session (`Reason` kHLODResidentReason, a file of its own), then the HLOD cells by (grid, X,
+        // Z), `Grid` indexing Rules::HLODResidency::Partition.Grids - and every node of the hierarchy, in node
+        // order.
         std::vector<IndexUnit>     HLODUnits;
         std::vector<IndexHLODNode> HLODNodes;
     };
@@ -384,8 +385,8 @@ namespace Desert::Core::WorldCells
     // `World_<dir>_R<rx>_<rz>`, and so does every HLOD cell's file (HLODUnits, WP-FAR-8) by its own square. The
     // index, the always-loaded file, every session-resident HLOD file (HLODs, and the HLODUnits resident the whole
     // session) go to `World_<dir>_Shared`, which is mounted at start (the streamer decides from the index and
-    // draws those HLODs from the first frame). `Regions` are the region chunk names, sorted; `FileChunk` names the chunk of every file the index
-    // lists, and of the index itself.
+    // draws those HLODs from the first frame). `Regions` are the region chunk names, sorted; `FileChunk` names the
+    // chunk of every file the index lists, and of the index itself.
     struct WorldChunkLayout
     {
         std::string                        Shared;
@@ -395,8 +396,8 @@ namespace Desert::Core::WorldCells
 
     // The layout of @p index's world, cooked into @p worldDirectory (CookedWorldDirectory). nullopt when the world
     // states no ChunkRegionSize (it ships in the base chunk). Refused: a region size that is not finite and > 0, a
-    // cell unit (or HLOD cell unit) without its square, a file two units place in different chunks, a file the index lists that no
-    // unit or HLOD names.
+    // cell unit (or HLOD cell unit) without its square, a file two units place in different chunks, a file the
+    // index lists that no unit or HLOD names.
     [[nodiscard]] Common::ResultStr<std::optional<WorldChunkLayout>>
     ChunkLayoutOf( const WorldIndex& index, std::string_view worldDirectory );
 

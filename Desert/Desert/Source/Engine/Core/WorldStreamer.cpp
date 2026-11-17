@@ -97,8 +97,9 @@ namespace Desert::Core
             };
         }
 
-        // A cooked world's cells - its world cells or its HLOD cells (WP-FAR-8) - holding each loaded cell's region
-        // chunk while the cell is loaded (WP23): the chunk unmounts when the last loaded cell of its region goes.
+        // A cooked world's cells - its world cells or its HLOD cells (WP-FAR-8) - holding each loaded cell's
+        // region chunk while the cell is loaded (WP23): the chunk unmounts when the last loaded cell of its region
+        // goes.
         class RegionChunkCellSource final : public Rules::WorldCellSource
         {
         public:
@@ -361,7 +362,7 @@ namespace Desert::Core
                         if ( !residency )
                             return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                               "': " + residency.GetError() );
-                        const Rules::HLODResidency& r = residency.GetValue();
+                        const Rules::HLODResidency&                                r = residency.GetValue();
                         std::vector<std::vector<const WorldCells::BuiltHLODCell*>> unitRows(
                              Rules::ResidencyUnitCount( r.Plan ) );
                         for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
@@ -373,9 +374,9 @@ namespace Desert::Core
                              std::make_shared<StoredHLODCellSource>( held, std::move( unitRows ) );
                         Rules::HLODHierarchy streamedHierarchy = hierarchy.ExtractValue();
                         Rules::HLODResidency streamedResidency = residency.ExtractValue();
-                        if ( auto begun = streamer->BeginHLODCells( std::move( streamedHierarchy ),
-                                                                    std::move( streamedResidency ),
-                                                                    std::move( nodeIds ), std::move( source ), holes );
+                        if ( auto begun = streamer->BeginHLODCells(
+                                  std::move( streamedHierarchy ), std::move( streamedResidency ),
+                                  std::move( nodeIds ), std::move( source ), holes );
                              !begun )
                             return Common::MakeError<Result>( begun.GetError() );
                         streamed = true;
@@ -473,10 +474,9 @@ namespace Desert::Core
             streamer->m_RecordIds.emplace_back( id );
         streamer->m_Partition = partition;
         streamer->m_Index     = world.Index;
-        streamer->m_Loader    = std::make_unique<WorldCellLoader>(
-             std::make_shared<RegionChunkCellSource>( world.Index, world.Directory, world.RegionChunkOfFile,
-                                                      WorldCells::UnitSet::World ) );
-        auto streamedHLODs = WorldCells::PlanHLODsFromIndex( *world.Index, streamer->Executor().Plan() );
+        streamer->m_Loader    = std::make_unique<WorldCellLoader>( std::make_shared<RegionChunkCellSource>(
+             world.Index, world.Directory, world.RegionChunkOfFile, WorldCells::UnitSet::World ) );
+        auto streamedHLODs    = WorldCells::PlanHLODsFromIndex( *world.Index, streamer->Executor().Plan() );
         if ( !streamedHLODs )
             return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
                                               "': " + streamedHLODs.GetError() );
@@ -498,9 +498,10 @@ namespace Desert::Core
                 for ( const std::uint64_t id : node.Ids )
                     ids.emplace_back( id );
             }
-            LOG_INFO( "[WorldPartition] '{0}': {1} cooked HLOD(s) in {2} HLOD unit(s) ({3} HLOD cell(s)) from '{4}'",
-                      streamer->m_SceneName, nodeIds.size(), world.Index->HLODUnits.size(),
-                      plannedHLODs->Residency.Plan.Cells.size(), world.Directory );
+            LOG_INFO(
+                 "[WorldPartition] '{0}': {1} cooked HLOD(s) in {2} HLOD unit(s) ({3} HLOD cell(s)) from '{4}'",
+                 streamer->m_SceneName, nodeIds.size(), world.Index->HLODUnits.size(),
+                 plannedHLODs->Residency.Plan.Cells.size(), world.Directory );
             std::shared_ptr<const Rules::WorldCellSource> source = std::make_shared<RegionChunkCellSource>(
                  world.Index, world.Directory, world.RegionChunkOfFile, WorldCells::UnitSet::HLOD );
             if ( auto begun = streamer->BeginHLODCells( std::move( plannedHLODs->Hierarchy ),
@@ -967,8 +968,8 @@ namespace Desert::Core
         const auto failed = [this]( const std::string& why )
         { return Common::MakeError( "world streaming of '" + m_SceneName + "': " + why ); };
         if ( nodeIds.size() != hierarchy.Nodes.size() || residency.FirstRecord.size() != hierarchy.Nodes.size() )
-            return failed( std::format( "{} HLOD id list(s) and {} residency node(s) for {} HLOD(s)", nodeIds.size(),
-                                        residency.FirstRecord.size(), hierarchy.Nodes.size() ) );
+            return failed( std::format( "{} HLOD id list(s) and {} residency node(s) for {} HLOD(s)",
+                                        nodeIds.size(), residency.FirstRecord.size(), hierarchy.Nodes.size() ) );
         // The HLOD record space in node order: node n's records are [FirstRecord[n], FirstRecord[n] + its ids).
         std::vector<Common::UUID> recordIds( residency.Records );
         for ( std::size_t n = 0; n < nodeIds.size(); ++n )
@@ -986,7 +987,7 @@ namespace Desert::Core
         m_HLODIds                     = std::move( nodeIds ); // per HLOD: its entities' ids
         const Rules::HLODHierarchy& h = *m_HLODHierarchy;
         const Rules::HLODResidency& r = *m_HLODResidency;
-        m_HLODCells                   = std::make_unique<HLODCellWorld>( *this, std::move( source ), std::move( recordIds ) );
+        m_HLODCells = std::make_unique<HLODCellWorld>( *this, std::move( source ), std::move( recordIds ) );
 
         auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), h, r );
         if ( !runtime )

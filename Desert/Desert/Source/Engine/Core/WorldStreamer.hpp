@@ -245,13 +245,13 @@ namespace Desert::Core
         // once, by reason.
         [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
-        // THE HLOD CELLS (see the top): @p residency is MakeHLODResidency's of @p hierarchy, @p nodeIds per node the
-        // ids of its records (empty for one with none) and @p source reads one HLOD residency unit's records - the
-        // saved HLODs (Begin) or the cooked HLOD cells (BeginCooked). Makes the always-loaded nodes entities one at
-        // a time, starts the HLOD residency and shows what stands in now.
-        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy                          hierarchy,
-                                                            Rules::HLODResidency                          residency,
-                                                            std::vector<std::vector<Common::UUID>>        nodeIds,
+        // THE HLOD CELLS (see the top): @p residency is MakeHLODResidency's of @p hierarchy, @p nodeIds per node
+        // the ids of its records (empty for one with none) and @p source reads one HLOD residency unit's records -
+        // the saved HLODs (Begin) or the cooked HLOD cells (BeginCooked). Makes the always-loaded nodes entities
+        // one at a time, starts the HLOD residency and shows what stands in now.
+        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy                   hierarchy,
+                                                            Rules::HLODResidency                   residency,
+                                                            std::vector<std::vector<Common::UUID>> nodeIds,
                                                             std::shared_ptr<const Rules::WorldCellSource> source,
                                                             std::span<const Rules::HLODExclusion>         holes );
 
