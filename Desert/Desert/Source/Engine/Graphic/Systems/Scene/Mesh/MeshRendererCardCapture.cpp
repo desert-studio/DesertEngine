@@ -594,6 +594,18 @@ namespace Desert::Graphic::System
                                           {
                                               DrawPushFields push;
                                               push.Transform( glm::mat4( 1.0f ) ).MaterialIndex( *row );
+                                              // EMISSIVE-MEGALIGHTS: a material with Emissive Lights Scene on
+                                              // lights the scene through MegaLights directly, so its card holds
+                                              // no emission (GI would count the lamp a second time). Resolved as
+                                              // the emissive lists resolve it: the instance chain, else the
+                                              // surface.
+                                              const bool lightsScene =
+                                                   section.Instance != nullptr
+                                                        ? section.Instance->IsEmissiveLightsScene()
+                                                        : section.Surface != nullptr &&
+                                                               section.Surface->IsEmissiveLightsScene();
+                                              if ( lightsScene )
+                                                  push.PrimitiveFlags( PrimitiveFlag::NoEmission );
                                               if ( path == MeshVertexPath::Instanced )
                                                   push.Wind( InstanceWindPush{} ); // a still card
                                               else

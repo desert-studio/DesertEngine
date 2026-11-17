@@ -55,6 +55,10 @@ namespace Desert::Graphic
     {
         // UE !bCastContactShadow (StaticMeshComponent / InstancedStaticMeshComponent::CastContactShadow off).
         inline constexpr uint32_t NoContactShadow = 1u << 0;
+        // The draw writes no emission into the G-buffer: a surface-cache card capture of a material with
+        // EmissiveLightsScene on (MegaLights lights the scene from it; the cards' emissive layer GI reads holds
+        // none).
+        inline constexpr uint32_t NoEmission = 1u << 1;
     } // namespace PrimitiveFlag
 
     [[nodiscard]] constexpr uint32_t PrimitiveFlagsOf( const bool castContactShadow )

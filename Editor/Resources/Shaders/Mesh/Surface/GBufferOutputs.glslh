@@ -56,8 +56,9 @@ void DesertSurfaceNormalFootprint( const SurfaceInput i, const SurfaceOutput s, 
 }
 
 // @p castsContactShadow: the primitive's contact-shadow cast (UE bCastContactShadow), as its draw states it.
+// @p emits: the draw writes the surface's emission (DESERT_PRIMITIVE_FLAG_NO_EMISSION clears it).
 void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
-                         const float objectMoved, const bool castsContactShadow )
+                         const float objectMoved, const bool castsContactShadow, const bool emits )
 {
     vec3  N         = DesertSurfaceWorldNormal( i, s );
     vec3  baseColor = s.BaseColor;
@@ -81,7 +82,7 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     oGBufferShadingWord = DesertMarkContactShadowCast(
          DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
          castsContactShadow );
-    oGBufferEmissive      = vec4( s.Emissive, ao );
+    oGBufferEmissive      = vec4( emits ? s.Emissive : vec3( 0.0 ), ao );
     oVelocity             = DesertVelocity( clip, prevClip, objectMoved );
     oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
 }

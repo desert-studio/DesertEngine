@@ -28,6 +28,9 @@ Shader "MegaLightsGenerateSamples"
 
         layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // RisReservoir, stacked layers
 
+        // The emissive triangles a sample pixel draws per frame (UE MegaLights' emissive candidates per pixel).
+        #define MEGALIGHTS_EMISSIVE_CANDIDATES 4
+
         LocalSize(8, 8, 1);
 
         void main()
@@ -50,7 +53,7 @@ Shader "MegaLightsGenerateSamples"
         		const uint cell       = LightGridCellAt(lightGrid, vec2(screen) + 0.5, p.Position);
         		const uint count      = lightGridCells[cell];
         		const bool overflowed = LightGridCellOverflowed(lightGrid, count);
-        		const uint candidates = overflowed ? uint(MegaLightsLightCount()) : count;
+        		const uint candidates = overflowed ? uint(MegaLightsLocalLightCount()) : count;
         		const uint list       = LightGridListOffset(lightGrid, cell);
         		uint       random     = MegaLightsSeed(pixel, 0u);
         		for (uint j = 0u; j < candidates; ++j)
@@ -61,6 +64,33 @@ Shader "MegaLightsGenerateSamples"
         				continue;
         			for (uint k = 0u; k < samples; ++k)
         				RisStreamCandidate(streams[k], light, target, 1.0, MegaLightsRandom(random));
+        		}
+        		// THE EMISSIVE TRIANGLES (Common/MegaLights.glslh): MEGALIGHTS_EMISSIVE_CANDIDATES drawn from the
+        		// list's power tree, each streamed with the inverse of its draw density (1 / (count x pick pdf)), so
+        		// the streams' weight sums stay unbiased estimates of the sum over every light. Their OWN stream: the
+        		// local lights above drew what a frame without emissive lights draws.
+        		const float emissiveTotal = MegaLightsEmissiveTriangleCount() > 0
+        		                                 ? EmissiveLightsTotal(EmissiveCounts, EmissiveDynamicCounts)
+        		                                 : 0.0;
+        		if (emissiveTotal > 0.0)
+        		{
+        			uint emissiveRandom = MegaLightsPcg(MegaLightsSeed(pixel, 0u) ^ 0x6A09E667u);
+        			for (uint j = 0u; j < uint(MEGALIGHTS_EMISSIVE_CANDIDATES); ++j)
+        			{
+        				const uint  triangle =
+        				     EmissiveLightsPick(MegaLightsRandom(emissiveRandom), EmissiveCounts, EmissiveDynamicCounts);
+        				const float pick = EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts);
+        				if (int(triangle) >= MegaLightsEmissiveTriangleCount() || pick <= 0.0)
+        					continue;
+        				const int   light  = MegaLightsLocalLightCount() + int(triangle);
+        				const float target = MegaLightsTargetPdf(p, light);
+        				if (target <= 0.0)
+        					continue;
+        				const float inverseDensity = 1.0 / (float(MEGALIGHTS_EMISSIVE_CANDIDATES) * pick);
+        				for (uint k = 0u; k < samples; ++k)
+        					RisStreamCandidate(streams[k], light, target, inverseDensity,
+        					                   MegaLightsRandom(emissiveRandom));
+        			}
         		}
         	}
         	for (uint k = 0u; k < samples; ++k)

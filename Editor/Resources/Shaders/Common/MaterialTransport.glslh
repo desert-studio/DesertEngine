@@ -51,5 +51,8 @@ m_PushConstants;
 
 // The bits of PrimitiveFlags — C++ twin: Graphic::PrimitiveFlag (Engine/Graphic/Materials/Material.hpp).
 #define DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW 1u
+// The draw writes no emission into the G-buffer: a surface-cache card capture of a material with Emissive Lights
+// Scene on (MegaLights lights the scene from it directly; the cards' emissive layer, which GI reads, holds none).
+#define DESERT_PRIMITIVE_FLAG_NO_EMISSION 2u
 
 #endif

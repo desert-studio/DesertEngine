@@ -26,7 +26,16 @@
 //                        (MEGALIGHTS_SHADING too: the contact shadow reads the shading word and the subsurface
 //                        opacity of the receiver).
 // Bindings: 0 the view block, 1 depth, 2 GBufferB, 3 GBufferA, 4 the shading word, 6 / 16 the point / spot rows
-// (Mesh/PointLight.glslh, Mesh/Spotlight.glslh); a pass's own inputs and outputs from 10 on.
+// (Mesh/PointLight.glslh, Mesh/Spotlight.glslh), 60..66 the scene-lighting emissive triangles; a pass's own inputs
+// and outputs from 10 on.
+//
+// THE EMISSIVE TRIANGLES AS LIGHTS (UE MegaLights' emissive-mesh lights; EMISSIVE-MEGALIGHTS): the triangles of the
+// materials with Emissive Lights Scene on (SceneRenderer::AddFrameSceneEmissiveLights - its own instance of the
+// emissive list, Common/EmissiveLights.glslh, filtered to those materials) are lights of the same index space,
+// AFTER the points and spots: light points + spots + t is triangle t of that list. A pixel's candidates draw them
+// from the list's power tree on their OWN random stream (the local lights' draws stay those of a frame without
+// them), a triangle is shaded by its vector irradiance as a rect light is (Mesh/LightSources.glslh), and its
+// shadow ray aims at a random point of it.
 // Reservoir textures are sample-pixel sized (MegaLightsSampleSize), stacked in layers; the G-buffer is render sized.
 
 #include <Common/ReconstructPosition.glslh>
@@ -56,7 +65,43 @@ Uniform(0) MegaLightsViewUB
 	uvec4 MegaLightsFrame;           // x = frame index, y = render width, z = render height, w = downsample factor
 	vec4  ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
 	                                   // z = dither frame (Common/ContactShadow.glslh)
+	uvec4 EmissiveCounts;            // the scene-lighting emissive list, static part: x = triangles, y = power tree
+	                                   // leaves, z = its levels, w = TLAS instances of its lookup (0: none)
+	uvec4 EmissiveDynamicCounts;     // its dynamic part: x = triangles, y = leaves, z = levels
 };
+
+// The scene-lighting emissive triangles (RayTracing::EmissiveLightsFrame of SceneRenderer::
+// AddFrameSceneEmissiveLights; MegaLightsShaderParameters), bindings 60..66.
+#include <Common/EmissiveLights.glslh>
+layout(std430, binding = 60) readonly buffer MegaLightsEmissiveSegmentsUB
+{
+	EmissiveSegment emissiveSegments[];
+};
+layout(std430, binding = 61) readonly buffer MegaLightsEmissiveLookupUB
+{
+	uint emissiveLookup[];
+};
+layout(std430, binding = 62) readonly buffer MegaLightsEmissiveTrianglesUB
+{
+	EmissiveTriangle emissiveTriangles[];
+};
+layout(std430, binding = 63) readonly buffer MegaLightsEmissivePowerUB
+{
+	float emissivePower[];
+};
+layout(std430, binding = 64) readonly buffer MegaLightsEmissiveDynamicSegmentsUB
+{
+	EmissiveSegment emissiveDynamicSegments[];
+};
+layout(std430, binding = 65) readonly buffer MegaLightsEmissiveDynamicTrianglesUB
+{
+	EmissiveTriangle emissiveDynamicTriangles[];
+};
+layout(std430, binding = 66) readonly buffer MegaLightsEmissiveDynamicPowerUB
+{
+	float emissiveDynamicPower[];
+};
+#include <Common/EmissiveLightsSampling.glslh>
 
 Uniform(1) texture2D GBufferDepthTexture;  // device depth, reversed-Z (0 = far: no surface)
 #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
@@ -93,9 +138,27 @@ uint MegaLightsSamplesPerPixel()
 	return clamp(Counts.z, 1u, uint(MEGALIGHTS_MAX_SAMPLES));
 }
 
-int MegaLightsLightCount()
+// The local lights of the light grid (points, then spots): the lights before the emissive triangles.
+int MegaLightsLocalLightCount()
 {
 	return int(Counts.x + Counts.y);
+}
+
+// The scene-lighting emissive triangles (0: none this frame).
+int MegaLightsEmissiveTriangleCount()
+{
+	return int(EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts));
+}
+
+// Every light of the index space: the local lights, then the emissive triangles.
+int MegaLightsLightCount()
+{
+	return MegaLightsLocalLightCount() + MegaLightsEmissiveTriangleCount();
+}
+
+bool MegaLightsLightIsEmissive(int light)
+{
+	return light >= MegaLightsLocalLightCount();
 }
 
 ivec2 MegaLightsReservoirTexel(ivec2 samplePixel, uint layer)
@@ -181,10 +244,64 @@ vec4 MegaLightsLightContactShadow(int light)
 	return light < points ? LightContactShadow(pointLights[light]) : LightContactShadow(spotLights[light - points]);
 }
 
+// ---- The emissive triangles (after the local lights) ------------------------------------------------------------
+// The radiance the triangle emits: its segment's material estimate (colour x intensity) scaled by the emissive map's
+// average over the triangle, which its power carries (power = luminance x map average x area, "EmissiveLights:
+// Build") - the same estimate the power tree picks it by.
+vec3 MegaLightsEmissiveRadiance(uint triangle, EmissiveTriangle t)
+{
+	const uint row      = floatBitsToUint(t.Edge2Segment.w);
+	const vec4 radiance = triangle < EmissiveCounts.x ? emissiveSegments[row].Radiance
+	                                                  : emissiveDynamicSegments[row].Radiance;
+	if (radiance.w <= 0.0 || t.P0Area.w <= 0.0)
+		return vec3(0.0);
+	return radiance.rgb * (t.Edge1Power.w / (t.P0Area.w * radiance.w));
+}
+
+// THE TRIANGLE AS AN AREA LIGHT (Mesh/LightSources.glslh DesertRectLightAt over three edges, Heitz et al. 2016): its
+// vector irradiance V gives L = V / |V| and Radiance = radiance x |V|, so Radiance x dot(N, L) is the triangle's
+// Lambert irradiance on a surface it lies wholly above. Emission is two-sided (EmissiveLightsNormal): V is turned
+// toward the triangle whatever its winding. Received as a punctual light along L (zero rect extents): the
+// specular lobe sees the triangle from its representative direction.
+DesertLight MegaLightsEmissiveLightAt(uint triangle, vec3 worldPosition)
+{
+	DesertLight light;
+	light.L                  = vec3(0.0, 0.0, 1.0);
+	light.Radiance           = vec3(0.0);
+	light.Shadow             = 1.0;
+	light.TransmissionShadow = 1.0;
+	light.RectCenter         = vec3(0.0);
+	light.RectExtentX        = vec3(0.0);
+	light.RectExtentY        = vec3(0.0);
+	light.RectLuminance      = vec3(0.0);
+	light.RectLtcTexture     = 0;
+	const EmissiveTriangle t = EmissiveLightsTriangle(triangle, EmissiveCounts);
+	const vec3  a        = t.P0Area.xyz - worldPosition;
+	const vec3  b        = a + t.Edge1Power.xyz;
+	const vec3  c        = a + t.Edge2Segment.xyz;
+	const float shortest = min(dot(a, a), min(dot(b, b), dot(c, c)));
+	if (shortest <= 1e-8)
+		return light; // the receiver is on the emitter
+	const vec3 c0 = normalize(a);
+	const vec3 c1 = normalize(b);
+	const vec3 c2 = normalize(c);
+	vec3 irradiance = (RectLightEdge(c0, c1) + RectLightEdge(c1, c2) + RectLightEdge(c2, c0)) * 3.14159265;
+	if (dot(irradiance, a + b + c) < 0.0)
+		irradiance = -irradiance;
+	const float solidAngle = length(irradiance);
+	if (solidAngle <= 0.0)
+		return light;
+	light.L        = irradiance / solidAngle;
+	light.Radiance = MegaLightsEmissiveRadiance(triangle, t) * solidAngle;
+	return light;
+}
+
 // The light as a shading model receives it, unshadowed (the target function's light and the shading's).
 DesertLight MegaLightsLightAt(int light, vec3 worldPosition)
 {
 	const int points = int(Counts.x);
+	if (MegaLightsLightIsEmissive(light))
+		return MegaLightsEmissiveLightAt(uint(light - MegaLightsLocalLightCount()), worldPosition);
 	return light < points ? DesertPointLightAt(pointLights[light], worldPosition)
 	                      : DesertSpotLightAt(spotLights[light - points], worldPosition);
 }
@@ -298,8 +415,37 @@ int MegaLightsLightShadowMaskSlot(int light)
 // marched through the screen depth as the light's contact shadow (UE MegaLights screen traces: the detail the TLAS
 // does not hold), then one ray query over the TLAS from the point (off the surface along its normal, on the
 // light's side - UE r.RayTracing.NormalBias) to the sphere, stopped short by the same bias.
+// AN EMISSIVE TRIANGLE'S TEST: one ray to a point uniform over the triangle (EmissiveLightsSamplePoint, two draws of
+// the sample's stream: the shadow softens with the occluder's distance over frames, as the sphere's), off the
+// surface as a local light's, stopped short of the emitter by the bias and a relative margin (the emitter's own
+// surface is not its occluder). The ray query when the program has it, else the screen trace; no contact shadow
+// and no virtual shadow map (the triangle has neither).
+float MegaLightsEmissiveVisibility(MegaLightsPixel p, int light, inout uint random)
+{
+	const uint             triangle = uint(light - MegaLightsLocalLightCount());
+	const EmissiveTriangle t        = EmissiveLightsTriangle(triangle, EmissiveCounts);
+	vec2 u;
+	u.x = MegaLightsRandom(random);
+	u.y = MegaLightsRandom(random);
+	const float bias     = Params.z;
+	const vec3  toPoint  = EmissiveLightsSamplePoint(t, u) - p.Position;
+	const float distance = length(toPoint);
+	if (distance <= 2.0 * bias)
+		return 1.0; // on the emitter
+	const vec3  dir    = toPoint / distance;
+	const vec3  origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
+	const float reach  = max(distance - max(2.0 * bias, 1e-3 * distance), 0.0);
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
+	return RayQueryVisibility(origin, dir, reach, RAY_TRACING_MASK_SHADOW_CASTER);
+#else
+	return MegaLightsScreenTraceOccluded(origin, dir, reach) ? 0.0 : 1.0;
+#endif
+}
+
 float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 {
+	if (MegaLightsLightIsEmissive(light))
+		return MegaLightsEmissiveVisibility(p, light, random);
 	if (!MegaLightsLightCastsShadow(light))
 		return 1.0;
 	const float bias     = Params.z;

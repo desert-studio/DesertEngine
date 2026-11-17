@@ -1805,6 +1805,22 @@ namespace Desert::Graphic
         // frame this returns. @p emissive in PathTracingSceneHash: its Hash.
         [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
         AddFrameEmissiveLights( RDG::Builder& graph );
+        // THE SCENE-LIGHTING EMISSIVE LIST (EMISSIVE-MEGALIGHTS; UE MegaLights' emissive-mesh lights): a SECOND
+        // instance of the emissive list over the same gather, its estimate the shared one's for the segments whose
+        // material (or instance) has Emissive Lights Scene on and dark for every other - so it holds those
+        // triangles only, and the shared list (the path tracer's, the surface cache's) is untouched. MegaLights
+        // samples it as lights after the points and spots (MegaLightsInputs::Emissive). With no such material its
+        // parts are empty and nothing is sampled.
+        [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
+        AddFrameSceneEmissiveLights( RDG::Builder& graph );
+        // THE FRAME'S ONE SCENE GATHER for the emissive lists (RayTracingSceneRenderer::GatherScene): a second call
+        // in the same frame on a frame without a TLAS would clear the moved-primitives list the first one filled,
+        // so the list built second would miss its movers. Every emissive list of the frame reads this one.
+        [[nodiscard]] Common::BoolResultStr GatherFrameEmissiveScene();
+        // The emission estimate of a gather segment record (the surface templates' SurfaceEmission in the row the
+        // raster draws it with): what both emissive lists' power trees are made of.
+        [[nodiscard]] static RayTracing::EmissiveMaterialEstimate
+        EstimateSegmentEmission( const RayTracing::RayTracingSegmentRecord& segment );
         // The view's path tracer system on first use (latched like EnsureSSRResources); false lowers the frame
         // (LowerPathTracingForFrame).
         bool EnsurePathTracerResources();
@@ -2349,6 +2365,16 @@ namespace Desert::Graphic
         // RT scene's layout serial it was last given (RayTracingSceneRenderer::GetLayoutSerial; ~0: none yet).
         RayTracing::EmissiveTriangleListCache m_EmissiveList;
         uint64_t                              m_EmissiveLayoutSerial = ~0ull;
+        // The scene-lighting emissive list (AddFrameSceneEmissiveLights): MegaLights' emissive lights, its own GPU
+        // part and CPU list and the layout serial it was last given.
+        RayTracing::EmissiveLightsRenderer    m_SceneEmissiveLights;
+        RayTracing::EmissiveTriangleListCache m_SceneEmissiveList;
+        uint64_t                              m_SceneEmissiveLayoutSerial = ~0ull;
+        // The absolute frame GatherFrameEmissiveScene last gathered in (~0: none yet).
+        uint64_t m_EmissiveGatherFrame = ~0ull;
+        // AddFrameMegaLights: why the scene-lighting emissive list was last missing (said once per cause; empty
+        // while it builds).
+        std::string m_ReportedSceneEmissive;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
