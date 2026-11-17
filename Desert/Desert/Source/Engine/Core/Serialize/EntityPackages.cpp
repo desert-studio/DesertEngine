@@ -1,5 +1,7 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 
+#include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
+
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -162,12 +164,14 @@ namespace Desert::Core
             // A world an editor region holds in part (WP19): "whole" is every LOADED record, written as a delta
             // so the records left on disk keep their files and their place in the header.
             plan.Whole = false;
-            if ( !partitioned || !m_BaselinePath || *m_BaselinePath != scenePath.lexically_normal() )
+            if ( !partitioned || !m_BaselinePath )
                 plan.Refusal =
                      fmt::format( "{} of its {} entities are not loaded (an editor region left them on disk), "
                                   "and a save that is not a delta of the world's own files would drop them. Load "
                                   "the whole world first. Nothing was written.",
                                   m_NotLoaded.size(), plan.Listed.size() );
+            else if ( *m_BaselinePath != scenePath.lexically_normal() )
+                plan.CarryFrom = *m_BaselinePath; // the new file starts with no record files: nothing to remove
             else
                 plan.Removed = goneRecords();
             return plan;
@@ -223,6 +227,59 @@ namespace Desert::Core
         return plan;
     }
 
+    namespace
+    {
+        // SAVE AS OF A WORLD HELD IN PART (PackageSavePlan::CarryFrom): the files of the records the editor region
+        // left on disk, copied from the entity folder of `from` into the one of `to`, then the descriptor index -
+        // derived data whose rows of those files match them byte for byte, so the refresh after the delta write
+        // reuses them instead of reading every not-loaded file again. REFUSED, writing nothing, when `to` already
+        // has an entity folder (a world saved there before, or a folder a delete left): its files would be mixed
+        // with the carried ones. A copy that fails removes the folder it made.
+        Common::BoolResultStr CarryNotLoadedRecords( const std::filesystem::path&  from,
+                                                     const std::filesystem::path&  to,
+                                                     std::span<const Common::UUID> notLoaded )
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const fs::path  folder = ExternalEntities::DirectoryOf( to );
+            if ( fs::exists( folder, ec ) )
+                return Common::MakeError( fmt::format(
+                     "'{}' already holds entity files, and the {} entities of '{}' that are not loaded would be "
+                     "mixed with them. Choose a name with no such folder, or load the whole world first. Nothing "
+                     "was written.",
+                     folder.string(), notLoaded.size(), from.string() ) );
+            const auto failed = [&]( const fs::path& source, const fs::path& target ) -> Common::BoolResultStr
+            {
+                const std::string reason = ec.message();
+                std::error_code   undo;
+                fs::remove_all( folder, undo );
+                return Common::MakeError( fmt::format( "'{}' did not copy to '{}' (Save As of a world held in "
+                                                       "part): {}. Nothing was written.",
+                                                       source.string(), target.string(), reason ) );
+            };
+            for ( const Common::UUID id : notLoaded )
+            {
+                const fs::path source = ExternalEntities::FileOf( from, id );
+                const fs::path target = ExternalEntities::FileOf( to, id );
+                fs::create_directories( target.parent_path(), ec );
+                if ( !ec )
+                    fs::copy_file( source, target, ec );
+                if ( ec )
+                    return failed( source, target );
+            }
+            const fs::path index = DescriptorIndex::PathOf( from );
+            if ( fs::is_regular_file( index, ec ) )
+            {
+                fs::create_directories( folder, ec );
+                if ( !ec )
+                    fs::copy_file( index, DescriptorIndex::PathOf( to ), ec );
+                if ( ec )
+                    return failed( index, DescriptorIndex::PathOf( to ) );
+            }
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
     Common::ResultStr<PackageSaveOutcome> SaveThroughPackages( const std::filesystem::path& scenePath,
                                                                EntityPackages&              packages,
                                                                std::span<const LiveEntity> live, bool partitioned,
@@ -259,6 +316,10 @@ namespace Desert::Core
         }
         if ( auto records = document.GetValue().RecordsAt( ExternalEntities::kRecords ) )
             outcome.Serialized = records.GetValue().size();
+        if ( plan.CarryFrom )
+            if ( auto carried = CarryNotLoadedRecords( *plan.CarryFrom, scenePath, plan.NotLoaded ); !carried )
+                return Common::MakeError<PackageSaveOutcome>(
+                     fmt::format( "'{}': {}", scenePath.string(), carried.GetError() ) );
 
         auto written = plan.Whole ? ExternalEntities::WriteSceneFile( scenePath, document.GetValue() )
                                   : ExternalEntities::WriteSceneDelta( scenePath, document.GetValue(), plan.Listed,

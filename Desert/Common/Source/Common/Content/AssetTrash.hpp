@@ -25,8 +25,9 @@ namespace Common::Content
     //   * the path itself - one file, or a folder with everything under it;
     //   * its import record (`<source>.deimport`, ImportRecordPathFor) when there is one - the source's
     //     identity, so a restored source is not re-imported as a new asset;
-    //   * a partitioned scene's entity folder (ExternalEntitiesDirectoryOf) - the scene without it would
-    //     load with every entity missing.
+    //   * a scene's companion folders (SceneCompanionDirectoriesOf): a partitioned scene's entity folder with
+    //     its descriptor index - the scene without it would load with every entity missing - and its built
+    //     HLODs (`<stem>_HLOD/`), whose cell materials and textures have registry rows of their own.
     // Beside them: Trash.json (where each file came from, the GUID) and Rows.json (the registry rows
     // removed, AssetRegistry::Serialize), so a slot is restorable after the editor restarts.
     //

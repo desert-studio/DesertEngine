@@ -5,6 +5,7 @@
 #include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ExternalEntitiesFolder.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/Crc32c.hpp>
@@ -1408,7 +1409,8 @@ namespace Desert::Core::WorldCells
 
     std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath )
     {
-        return scenePath.parent_path() / ( scenePath.stem().string() + "_HLOD" );
+        // The rule lives in Common: the content browser's Duplicate / Delete carry the folder with the scene.
+        return Common::Content::BuiltHLODDirectoryOf( scenePath );
     }
 
     BuiltHLODSink BuiltHLODWriter( const std::filesystem::path& scenePath )
