@@ -220,7 +220,35 @@ namespace Desert::Graphic::System
             m_LensFlareTint      = tint;
         }
 
+        // THE LENS STAGE (LENS-POST): film grain, chromatic aberration, vignette and Panini projection, applied in
+        // the composite itself (SceneComposite.shader), so the lens costs no pass of its own. The values are the
+        // view's resolved post-process volume (SceneRenderer, from Core::PostProcessSettings), the only source.
+        struct LensSettings
+        {
+            float FilmGrainIntensity             = 0.0f;
+            float FilmGrainTexelSize             = 1.0f;
+            float ChromaticAberrationIntensity   = 0.0f; // UE SceneFringeIntensity
+            float ChromaticAberrationStartOffset = 0.0f;
+            float VignetteIntensity              = 0.0f;
+            float PaniniD                        = 0.0f;
+            float PaniniS                        = 0.0f;
+        };
+        void SetLens( const LensSettings& lens )
+        {
+            m_Lens = lens;
+        }
+        // This frame's view: the unjittered projection's half-FOV tangents (Panini maps through them) and the
+        // view's frame count (the grain's per-frame seed).
+        void SetLensView( const glm::vec2& tanHalfFov, const uint64_t frameIndex )
+        {
+            m_LensTanHalfFov = tanHalfFov;
+            m_LensFrameIndex = frameIndex;
+        }
+
     private:
+        // The shader's three lens vectors (MaterialTonemap::Params) from m_Lens and this frame's view.
+        void FillLens( MaterialTonemap::Params& params ) const;
+
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         mutable ShaderBindingLayoutCache  m_BindingLayout; // the tonemap shader's layout, kept between frames
 
@@ -248,5 +276,9 @@ namespace Desert::Graphic::System
         LocalExposureFrame     m_LocalExposure;
         float                  m_LensFlareIntensity = 0.0f;
         glm::vec3              m_LensFlareTint      = glm::vec3( 1.0f );
+
+        LensSettings m_Lens;                         // SetLens
+        glm::vec2    m_LensTanHalfFov{ 1.0f, 1.0f }; // SetLensView
+        uint64_t     m_LensFrameIndex = 0;           // SetLensView
     };
 } // namespace Desert::Graphic::System

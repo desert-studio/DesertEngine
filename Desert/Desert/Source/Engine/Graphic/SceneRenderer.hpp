@@ -2099,7 +2099,9 @@ namespace Desert::Graphic
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
         // @p source: the colour the post chain reads (the temporal output, or the scene colour without one).
-        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source );
+        // @p frame: the view whose lens the composite applies (LENS-POST: Panini's FOV, the grain's frame seed).
+        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source,
+                              const ViewFrame& frame );
         void AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures );
         // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).

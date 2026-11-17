@@ -226,7 +226,9 @@
                 "Shadows.RainOcclusionMapSize": 1024,
                 "Shadows.RainOcclusionExtent": 15000
             },
-            "Epic": {},
+            "Epic": {
+                "Shadows.Method": "VirtualMaps"
+            },
             "Cinematic": {
                 "Shadows.Distance": 30000,
                 "Shadows.DistanceFieldCascadeDistance": 10000,

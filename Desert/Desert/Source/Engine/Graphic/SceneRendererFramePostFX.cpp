@@ -16,6 +16,8 @@
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <span>
 #include <Common/Core/Units.hpp>
@@ -513,11 +515,16 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures,
-                                         const RDG::TextureRef source )
+                                         const RDG::TextureRef source, const ViewFrame& frame )
     {
         auto* tonemap = m_Systems.Tonemap.get();
         if ( tonemap == nullptr )
             return;
+        // The lens's view (LENS-POST): the projection's [0][0] / [1][1] are 1 / tan(half FOV), signed by the
+        // flips.
+        tonemap->SetLensView( glm::vec2( 1.0f / std::max( std::abs( frame.Projection[0][0] ), 1e-6f ),
+                                         1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ) ),
+                              frame.FrameIndex );
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
         // Without an auto-exposure node the shader's AverageLuminanceTexture reads System.White; the manual exposure is
         // used then (the auto flag is off), so the value is never read as a measurement.

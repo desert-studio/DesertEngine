@@ -333,6 +333,34 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Target FPS" ), Category( "Motion Blur" ), Range( 0.0f, 120.0f ) )
         float MotionBlurTargetFPS = 30.0f; // > 0: blur length as at this frame rate; 0: per rendered frame
 
+        // LENS-POST: the camera lens's own marks on the picture, applied in ONE stage, the scene composite
+        // (SceneComposite.shader, System::TonemapRenderer::SetLens): UE's PostProcessSettings film grain,
+        // chromatic aberration (SceneFringe) and vignette, and UE's Panini projection (r.Upscale.Panini.D / .S,
+        // here authored per volume). Every default is 0 = off: a scene that states none of them draws as before.
+        PROPERTY( DisplayName( "Film Grain Intensity" ), Category( "Lens" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Strength of the per-frame film grain over the exposed scene colour. 0 = off." ) )
+        float FilmGrainIntensity = 0.0f;
+        PROPERTY( DisplayName( "Film Grain Texel Size" ), Category( "Lens" ), Range( 1.0f, 8.0f ),
+                  Tooltip( "Size of one grain cell in output pixels." ) )
+        float FilmGrainTexelSize = 1.0f;
+        PROPERTY(
+             DisplayName( "Chromatic Aberration" ), Category( "Lens" ), Range( 0.0f, 5.0f ),
+             Tooltip( "UE SceneFringeIntensity: red and green displaced radially, as a lens does. 0 = off." ) )
+        float ChromaticAberrationIntensity = 0.0f;
+        PROPERTY( DisplayName( "Chromatic Aberration Start Offset" ), Category( "Lens" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Normalised distance from the centre where the aberration starts." ) )
+        float ChromaticAberrationStartOffset = 0.0f;
+        PROPERTY( DisplayName( "Vignette Intensity" ), Category( "Lens" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "UE VignetteIntensity: the cosine-fourth falloff toward the corners. 0 = off." ) )
+        float VignetteIntensity = 0.0f;
+        PROPERTY(
+             DisplayName( "Panini Distance" ), Category( "Lens" ), Range( 0.0f, 1.0f ),
+             Tooltip( "UE r.Upscale.Panini.D: 0 = rectilinear, 1 = full Panini (less stretch at wide FOV)." ) )
+        float PaniniD = 0.0f;
+        PROPERTY( DisplayName( "Panini Vertical Squeeze" ), Category( "Lens" ), Range( -1.0f, 1.0f ),
+                  Tooltip( "UE r.Upscale.Panini.S: straightens horizontal lines (> 0) or keeps them (0)." ) )
+        float PaniniS = 0.0f;
+
         PROPERTY( DisplayName( "Enable Lens Flare" ), Category( "Lens Flare" ) )
         bool EnableLensFlare = false;
         PROPERTY( DisplayName( "Intensity" ), Category( "Lens Flare" ), Range( 0.0f, 5.0f ) )

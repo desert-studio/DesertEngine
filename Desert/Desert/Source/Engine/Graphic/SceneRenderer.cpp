@@ -1559,6 +1559,14 @@ namespace Desert::Graphic
              static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
         m_Systems.Tonemap->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
         m_Systems.Tonemap->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
+        // The lens stage (LENS-POST): the resolved volume's values, applied by the composite.
+        m_Systems.Tonemap->SetLens( { .FilmGrainIntensity             = post.FilmGrainIntensity,
+                                      .FilmGrainTexelSize             = post.FilmGrainTexelSize,
+                                      .ChromaticAberrationIntensity   = post.ChromaticAberrationIntensity,
+                                      .ChromaticAberrationStartOffset = post.ChromaticAberrationStartOffset,
+                                      .VignetteIntensity              = post.VignetteIntensity,
+                                      .PaniniD                        = post.PaniniD,
+                                      .PaniniS                        = post.PaniniS } );
 
         // Lens flare: the authored "Lens Flare" group, copied whole. Intensity and Tint are held out of
         // the pass's own params because the pass never applies them — the tonemap does, so that a flare
@@ -3099,7 +3107,7 @@ namespace Desert::Graphic
             }
             AddFrameLightShafts( graph, textures, postInput, values );
             AddFrameLensFlare( graph, textures, postInput, values );
-            AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource );
+            AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource, frame );
 
             if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
             {
