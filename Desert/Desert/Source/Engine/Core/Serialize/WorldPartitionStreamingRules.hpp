@@ -19,9 +19,17 @@
 // grid at coarser cells — UE:Engine/Source/Runtime/Engine/Private/WorldPartition/RuntimeSpatialHash/
 // RuntimeSpatialHashGridHelper.h, FSquare2DGridHelper::ForEachIntersectingCells).
 //
-// Distance is two-dimensional, X and Z, for the reason the grid is (WorldPartitionGridSerialized): the
-// vertical axis is not partitioned, so a camera high above a cell is exactly as near to it as one on the
-// ground below.
+// Distance is THREE-dimensional (WP-SRC-ALTITUDE, owner 10-06: "a plane does not need the small things under
+// it"). The grid stays two-dimensional - the vertical axis is not partitioned (WorldPartitionGridSerialized) -
+// but every cell knows the Y span of what it holds (PlannedCell::Height, UE's cell content bounds in Z), and the
+// distance is to the box that span raises over the cell's streaming bounds: the ground distance and the gap
+// between the source's altitude and that span, combined (WithAltitude). So a source 2 km up does not want a 25 m
+// cell of a 200 m range, while a level whose range is wider than the altitude still loads under it, and the
+// cell's HLOD stands in for the rest (WorldPartitionHLODSwitch.hpp): the levels of decision O1 plus the
+// always-resident HLOD give the picture from above. UE's spatial hash only tests the Z RANGES for overlap
+// (bEnableZCulling: the content's [MinZ, MaxZ] against the source's centre +- radius) on top of a 2D circle; here
+// the distance is exact, so a cell diagonally below is not loaded by a sphere that only its bounding cylinder
+// reaches. The look-ahead sweeps on the ground; the altitude is where the source IS.
 //
 // ── THE SHAPES ────────────────────────────────────────────────────────────────────────────────────
 //
@@ -110,7 +118,7 @@ namespace Desert::Core::Rules
         bool  IsSector    = false;
         float SectorAngle = 360.0f;
         // Where the shape's centre sits from the source, cm, in the source's frame: X right, Z backward
-        // (an entity's local axes, whose forward is −Z). Y is carried and ignored, as the position's is.
+        // (an entity's local axes, whose forward is −Z). Y raises the shape's centre, as the position's Y places the source.
         glm::vec3 Location{ 0.0f };
         // Degrees the shape's axis is turned from the source's forward, counter-clockwise seen from above
         // (a turn about +Y, the entity's own yaw).
@@ -119,7 +127,7 @@ namespace Desert::Core::Rules
 
     // A POINT THE WORLD LOADS AROUND: a player's pawn, a cinematic's target, an instrument's camera — in
     // Play never the view by itself (ECS::StreamingSourceComponent is what makes an entity one). World
-    // units (cm); Y is carried because that is what a caller has, and ignored.
+    // units (cm); Y is the altitude THE RULE measures to a cell's Height from (WP-SRC-ALTITUDE).
     struct StreamingSource
     {
         glm::vec3 Position{ 0.0f };
@@ -185,6 +193,8 @@ namespace Desert::Core::Rules
         // THE LOOK-AHEAD: where the shape will have moved to, cm (X, Z); the shape reaches along the whole
         // segment from Centre to Centre + Sweep. Zero for a source that does not look ahead.
         glm::dvec2 Sweep{ 0.0 };
+        // World Y of the shape's centre, cm: the source's altitude plus the shape's own Location.y (WP-SRC-ALTITUDE).
+        double Altitude = 0.0;
 
         [[nodiscard]] bool IsCircle() const
         {
@@ -271,9 +281,28 @@ namespace Desert::Core::Rules
             sector.Axis    = Detail::TurnAboutUp( forward, static_cast<double>( shape.Yaw ) );
             sector.Heading = heading( sector.Axis );
             sector.Sweep   = sweep;
+            sector.Altitude = static_cast<double>( source.Position.y ) + static_cast<double>( shape.Location.y );
             sectors.push_back( sector );
         }
         return sectors;
+    }
+
+    // How far @p altitude is above or below what a cell holds vertically, cm; 0 within its span.
+    [[nodiscard]] inline double VerticalGap( double altitude, const HeightSpan& height )
+    {
+        if ( altitude < static_cast<double>( height.MinY ) )
+            return static_cast<double>( height.MinY ) - altitude;
+        if ( altitude > static_cast<double>( height.MaxY ) )
+            return altitude - static_cast<double>( height.MaxY );
+        return 0.0;
+    }
+
+    // THE RULE's distance in 3D: a distance on the ground to a cell's streaming bounds (any of the Distance*
+    // functions above, +inf outside a sector's slice) combined with the vertical gap from the shape's altitude to
+    // the cell's @p height. Exact: the box is the bounds times the span, so the two axes separate.
+    [[nodiscard]] inline double WithAltitude( double ground, const SourceSector& sector, const HeightSpan& height )
+    {
+        return std::hypot( ground, VerticalGap( sector.Altitude, height ) );
     }
 
     struct WantedCell
@@ -684,10 +713,12 @@ namespace Desert::Core::Rules
                         {
                             ++wish.CellsExamined;
                             const CellBounds& bounds  = plan.Cells[cellIndex].Bounds;
-                            const double      here    = DistanceToCellInSector( sector, bounds );
+                            const double      here    = WithAltitude( DistanceToCellInSector( sector, bounds ), sector,
+                                                                    plan.Cells[cellIndex].Height );
                             const double      reached = sector.Sweep == glm::dvec2( 0.0 )
                                                              ? here
-                                                             : DistanceToCellAlongSweep( sector, bounds );
+                                                             : WithAltitude( DistanceToCellAlongSweep( sector, bounds ), sector,
+                                                                             plan.Cells[cellIndex].Height );
                             if ( reached <= radius )
                             {
                                 // THE LOOK-AHEAD: a cell reached only along the sweep is ordered by its plain
@@ -695,7 +726,8 @@ namespace Desert::Core::Rules
                                 const double distance =
                                      here <= radius
                                           ? here
-                                          : DistanceToCellSquare( sector.Centre.x, sector.Centre.y, bounds );
+                                          : WithAltitude( DistanceToCellSquare( sector.Centre.x, sector.Centre.y, bounds ),
+                                                          sector, plan.Cells[cellIndex].Height );
                                 hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority,
                                                             distance * HeadingWeight( sector, bounds ),
                                                             grid.Priority } );
