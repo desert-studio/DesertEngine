@@ -1,4 +1,5 @@
-// SubsurfaceProfile — UE's MSM_SubsurfaceProfile (ShadingModels.ush SubsurfaceProfileBxDF): DefaultLit's lobes, but
+// SubsurfaceProfile — UE's MSM_SubsurfaceProfile (ShadingModels.ush SubsurfaceProfileBxDF; Substrate: a slab with an
+// SSS profile): the slab's lobes (Mesh/SubstrateSlab.glslh), but
 // the DIFFUSE light is scattered in screen space by the material's Burley profile (SSS-PROFILE). The model only
 // says so: the `SubsurfaceProfile` line below marks it screen-space scattered, the deferred composite then writes
 // its demodulated diffuse (BaseColor = 1, UE AdjustBaseColorAndSpecularColorForSubsurfaceProfileLighting) into the
@@ -24,39 +25,27 @@ Inputs
 SubsurfaceOpacity CustomData3;
 SubsurfaceProfile CustomData0;
 
-#include <Mesh/BRDF.glslh>
-#include <Mesh/DirectLighting.glslh>
-#ifndef AMBIENT_IBL_GLSLH
-#define AMBIENT_IBL_NO_SAMPLERS
-#include <Mesh/AmbientIBL.glslh>
-#endif
+#include <Mesh/SubstrateSlab.glslh>
 
+// The slab of the surface, no feature: SubsurfaceProfile is not a plain slab preset (its diffuse leaves through the
+// screen-space scatter), so it declares no SlabFeatures line and its texels stay in the complex tiles.
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Metallic, S.Roughness,
-                                S.BaseColor ) *
-           L.Shadow;
+    return DesertSlabEvaluate( L, S, DesertMakeSlab( S, 0u ) );
 }
 
 vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
+    return DesertSlabEvaluateSpecular( L, S, DesertMakeSlab( S, 0u ) );
 }
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    const vec3  F0       = DesertSpecularF0( S );
-    const vec3  diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
-    const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
-    const float specularOcclusion = DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
-    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+    return DesertSlabEvaluateAmbient( A, S, DesertMakeSlab( S, 0u ) );
 }
 
 // The specular half of EvaluateAmbient (the term ComposeAmbient adds for the reflection).
 vec3 EvaluateAmbientSpecular( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    const vec3  F0       = DesertSpecularF0( S );
-    const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
-    const float specularOcclusion = DesertSpecularOcclusion( DesertAmbientNoV( S.N, S.V ), S.Roughness, A.Occlusion );
-    return specular * specularOcclusion;
+    return DesertSlabEvaluateAmbientSpecular( A, S, DesertMakeSlab( S, 0u ) );
 }

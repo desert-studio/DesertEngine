@@ -115,7 +115,7 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 11> kShadingWordFields{ {
+    inline constexpr std::array<ShadingWordField, 12> kShadingWordFields{ {
          { "INDEX", 0, 4 },              // shading-model index, 0..15
          { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
          { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
@@ -126,6 +126,8 @@ namespace Desert::Core::ShadingModels
                                          // the push PrimitiveFlags); 0, the clear value, casts
          { "LANDSCAPE", 26, 1 },         // set = the landscape's own surface (TerrainGBuffer.shader), not what
                                          // stands on it; 0, the clear value, not ground
+         { "SLAB_FEATURES", 27, 5 },     // the texel's slab features (Mesh/SubstrateSlab.glslh: HAZE, CLEAR_COAT,
+                                         // FUZZ, F90, ANISOTROPY), from the model's SlabFeatures line; 0, the clear value, none
          { "PAYLOAD2", 32, 8 },          // CustomData2, unorm8 (.y)
          { "PAYLOAD3", 40, 8 },          // CustomData3, unorm8 (.y)
          { "SPECULAR", 48, 8 },          // UE's Specular pin, unorm8 (.y): F0 = 0.08 x Specular
@@ -169,6 +171,13 @@ namespace Desert::Core::ShadingModels
         // Programs/SurfaceCache). Empty = the model lets nothing through. Set = the model has UE's backface
         // diffuse (DesertHasBackfaceDiffuse: the screen probe gather's temporal filter treats it as foliage).
         std::string              SubsurfaceColorFunction;
+        // UE Substrate's slab presets (Mesh/SubstrateSlab.glslh): the optional `SlabFeatures <fn>;` line (after
+        // SubsurfaceColor) names the body's `uint <fn>( DesertPayload P )` that returns the slab features
+        // (kDesertSlab*) the model's slab is built with. Set = the model's response IS the slab: DesertPackShadingWord
+        // writes those bits into the shading word's SLAB_FEATURES field, and a texel with none of them set is
+        // DefaultLit exactly, so the tile classification shades it with the SIMPLE tiles
+        // (DesertShadingModelIsPlainSlab). Empty = the model is no plain slab preset (its feature bits stay 0).
+        std::string              SlabFeaturesFunction;
         std::string              Body;    // the GLSL after the Inputs block
         std::filesystem::path    SourcePath;
     };
