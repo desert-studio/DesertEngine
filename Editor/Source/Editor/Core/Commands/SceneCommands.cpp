@@ -42,6 +42,14 @@ namespace Desert::Editor::Commands
         // NOTE: fully qualified — inside Desert::Editor, an unqualified `Core::` means Editor::Core.
         ::Desert::Core::Scene*                s_Scene        = nullptr;
         ::Desert::Assets::AssetManager*       s_AssetManager = nullptr;
+        // UE's actor editor context: stamped on every entity the user creates (SetCreatedEntitiesContext).
+        CreatedEntitiesContext s_CreatedContext;
+
+        void ApplyCreatedContext( const std::vector<Common::UUID>& roots )
+        {
+            if ( s_CreatedContext && s_Scene != nullptr && !roots.empty() )
+                s_CreatedContext( *s_Scene, roots );
+        }
 
         // A captured subtree: one record per entity, pre-order, root first — and, per record, the prefab
         // record path the entity was instantiated from (ECS::PrefabInstanceComponent).
@@ -1066,6 +1074,7 @@ namespace Desert::Editor::Commands
         if ( alive.empty() )
             return;
 
+        ApplyCreatedContext( alive );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>( std::move( alive ) ) );
         OnStructuralChange();
     }
@@ -1129,6 +1138,7 @@ namespace Desert::Editor::Commands
         }
 
         const Common::UUID duplicateId = UUIDOf( duplicate );
+        ApplyCreatedContext( { duplicateId } );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>(
              std::vector<Common::UUID>{ duplicateId } ) );
         OnStructuralChange();
@@ -1160,6 +1170,7 @@ namespace Desert::Editor::Commands
         if ( duplicates.empty() )
             return duplicates;
 
+        ApplyCreatedContext( duplicates );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>( duplicates ) );
         OnStructuralChange();
         return duplicates;
@@ -1483,6 +1494,7 @@ namespace Desert::Editor::Commands
         if ( pasted.empty() )
             return pasted;
 
+        ApplyCreatedContext( pasted );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>( pasted ) );
         OnStructuralChange();
         return pasted;
@@ -1987,6 +1999,35 @@ namespace Desert::Editor::Commands
         CommandHistory::Get().PushCommand(
              std::make_unique<EntityStateCommand>( std::move( before ), std::move( after ) ) );
         OnStructuralChange(); // the mutation itself may have relocated component pools
+    }
+
+    void MutateEntitiesUndoable( const std::vector<Common::UUID>& roots, const std::string& label,
+                                 const std::function<void()>& mutate )
+    {
+        if ( !Ready() || !mutate )
+            return;
+        std::vector<std::pair<Common::UUID, SubtreeSnapshot>> before;
+        for ( const auto& uuid : FilterTopLevel( roots ) )
+            if ( auto e = FindEntity( uuid ) )
+                before.emplace_back( uuid, CaptureSubtree( *e ) );
+        mutate();
+        auto composite = std::make_unique<CompositeCommand>( label );
+        for ( auto& [uuid, snapshot] : before )
+            if ( auto e = FindEntity( uuid ) )
+            {
+                auto after = CaptureSubtree( *e );
+                composite->Add(
+                     std::make_unique<EntityStateCommand>( std::move( snapshot ), std::move( after ) ) );
+            }
+        if ( composite->Empty() )
+            return;
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+    }
+
+    void SetCreatedEntitiesContext( CreatedEntitiesContext context )
+    {
+        s_CreatedContext = std::move( context );
     }
 
     Common::ResultStr<std::filesystem::path> OutputStaticMesh( const Common::UUID& uuid, std::string_view folder,

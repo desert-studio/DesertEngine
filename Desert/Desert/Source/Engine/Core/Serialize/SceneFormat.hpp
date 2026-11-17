@@ -9,6 +9,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -146,12 +147,17 @@ namespace Desert::Core
     // component. Additive - a v1 file states neither and reads the same - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionDataLayers) states the tag and changes nothing else; the number moves so an older
     // build refuses a world whose layers it would silently ignore.
-    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime layer
-    // its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads every layer
-    // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
-    // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
-    // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime
+    // layer its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads
+    // every layer as an Editor layer and the operator as Or, which is what it meant - so the step
+    // (Tools/SceneMigrator, kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number
+    // moves so a v2 build refuses a world whose runtime layers it would stream as if they were not there. v4
+    // (WP-DATA-LAYER-OUTLINER): a layer states its `Parent` (UE UDataLayerInstance::Parent), its `DebugColor` (UE
+    // UDataLayerAsset::DebugColor) and `InitiallyVisible` (UE bIsInitiallyVisible). Additive - a v3 file's layers
+    // are top-level, grey and visible, which the read gives every missing key and the rewrite states - so the step
+    // (Tools/SceneMigrator, kWorldPartitionVersionDataLayerOutliner) changes nothing else; the number moves so a
+    // v3 build refuses a world whose nesting it would read flat (a child streaming past its parent).
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -344,6 +350,25 @@ namespace Desert::Core
         // REFUSED on an Editor one (Rules::CheckDataLayers), so a state nobody reads cannot sit in a file looking
         // like a setting.
         std::optional<DataLayerRuntimeState> InitialRuntimeState;
+
+        // UE UDataLayerInstance::Parent (WP v4): the layer this one nests under, by name; absent = a top-level
+        // layer. A member of a child layer is a member of its parent too, the way UE resolves it: the parent gates
+        // the child - it is loaded in the editor and visible only while every ancestor is (Rules::
+        // EffectiveDataLayerFlags), and a runtime child is never further along than its parent (Rules::
+        // EffectiveDataLayerStates). Must name ANOTHER layer of the world and close no cycle, and a Runtime
+        // layer's parent is a Runtime layer (UE UDataLayerInstance::CanBeChildOf) - Rules::CheckDataLayers.
+        std::optional<std::string> Parent;
+
+        // UE UDataLayerAsset::DebugColor (WP v4): the layer's colour, sRGB 0..1 - its swatch in the Data Layers
+        // outliner and the mark on its members' rows there. A layer made in the editor gets
+        // Rules::SeededDataLayerColor of its name; the default is what a v3 layer reads as.
+        std::array<float, 3> DebugColor = { 0.5f, 0.5f, 0.5f };
+
+        // UE UDataLayerInstance::bIsInitiallyVisible (WP v4): whether the layer's members are drawn in the editor
+        // when the world opens. The WORLD's default; hiding or showing the layer afterwards is the session's
+        // (Editor DataLayerEditor::SetVisible, UE's transient bIsVisible) and is never written. Visibility is not
+        // loading: a hidden layer's members stay loaded and in the Outliner, only not drawn (UE bHiddenEdLayer).
+        bool InitiallyVisible = true;
 
         bool operator==( const DataLayerSerialized& ) const = default;
     };

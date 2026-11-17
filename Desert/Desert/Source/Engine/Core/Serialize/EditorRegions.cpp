@@ -190,7 +190,8 @@ namespace Desert::Core::EditorRegions
                 state = true;
             loaded.push_back( state );
         }
-        return loaded;
+        // UE IsEffectiveLoadedInEditor (WP v4): a child layer is loaded only while every ancestor is.
+        return Rules::EffectiveDataLayerFlags( settings, loaded );
     }
 
     DataLayerOverrides WithDataLayerLoaded( const WorldPartitionSerialized& settings, DataLayerOverrides overrides,

@@ -1,0 +1,31 @@
+# WP-DATA-LAYER-OUTLINER (UE Data Layer Outliner: SDataLayerBrowser, FDataLayerTreeItem / FDataLayerActorTreeItem;
+# UDataLayerInstance Parent / bIsVisible / DebugColor; UDataLayerEditorSubsystem AddToActorEditorContext,
+# AddActorsToDataLayers). WP format v4: a layer states Parent, DebugColor, InitiallyVisible.
+# Layers: Gameplay > Enemies (Enemies.Parent = Gameplay) and Props; Props is made current, so the cube dropped from the
+# Content Browser joins Props in its own creation step (Commands::SetCreatedEntitiesContext). The "barrels" are the three
+# blocks of cell C11_10 of WP_Protocol (200513 "Main C11_10_B00", 200514 "..._B01", 200515 "..._B02"; WP_Protocol has
+# no barrel mesh): DesertCtl `select` takes ONE entity, so each is selected and added in turn - the same verb a
+# multi-selection runs once (DataLayerEditor::AddEntities over the selection's composites, one undo step).
+# Hiding Enemies is the session's (not written): the blocks stay loaded and listed under Enemies (dimmed), not drawn
+# (ECS::HiddenByDataLayersComponent, UE bHiddenEdLayer).
+# Nothing is saved: the editor closes at the end with the world on disk as it was.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано run Panel "Open Data Layers"
+Дано set world WorldPartition.DataLayers [{"Name":"Gameplay","InitiallyLoadedInEditor":true,"DebugColor":[0.85,0.35,0.30]},{"Name":"Enemies","InitiallyLoadedInEditor":true,"Parent":"Gameplay","DebugColor":[0.90,0.60,0.20]},{"Name":"Props","InitiallyLoadedInEditor":true,"DebugColor":[0.30,0.65,0.90]}]
+Дано run Scene "Data Layers: Make Current Props"
+Дано --subject viewport set Camera.Position 86000,4000,48000
+Дано --subject viewport set Camera.Direction 0,-0.35,1
+Тогда dlo_before вид на ячейку C11_10: три блока 200513..200515 видны; в панели Data Layers дерево Gameplay > Enemies и Props, у Props отмечен Current и подпись "(current)", участников нет
+Когда drop-mesh Content/Meshes/Cube.desmesh 86000,0,60000
+Когда select 200513
+Когда run Scene "Data Layers: Add Selected to Enemies"
+Когда select 200514
+Когда run Scene "Data Layers: Add Selected to Enemies"
+Когда select 200515
+Когда run Scene "Data Layers: Add Selected to Enemies"
+Когда run Scene "Data Layers: Hide Enemies"
+Тогда dlo_tree панель Data Layers - дерево Gameplay > Enemies (под Enemies три строки Main C11_10_B00/B01/B02, тусклые), Props (под ним новый Cube), Props помечен текущим (Current отмечен, "(current)"), у Enemies снят Visible; во вьюпорте трёх блоков нет, новый куб стоит; в Outliner блоки есть (загружены, скрыты)
+Тогда-вид dlo_tree_view тот же вид без панелей: блоков 200513..200515 нет, куб на месте, остальная ячейка на месте
