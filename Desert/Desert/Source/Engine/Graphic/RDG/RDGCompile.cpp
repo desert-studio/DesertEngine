@@ -1046,8 +1046,10 @@ namespace Desert::Graphic::RDG
     // ── S2 (pre). Graphics work into the async windows (RDG-ASYNC-1) ─────────────────────────────────────
     // The graphics queue waits at a run's join when the graphics passes between the run's fork and its first
     // consumer take less time than the run (FPS-FIELD-BARN: 1.5-1.9 ms of graphics against a 2.41 ms chain).
-    // A graphics pass after that consumer and before the next run that depends on no async pass, and on no
-    // pass from the insertion point on that is not moved itself, is moved - in its order - to just before the
+    // A graphics pass after that consumer and before the next run that depends on no async pass the graphics
+    // queue has not already waited for before the insertion point (FPS-PROBE-WAIT: an earlier run's results
+    // past its join are graphics inputs like any other), and on no pass from the insertion point on that is not
+    // moved itself, is moved - in its order - to just before the
     // consumer: every dependency edge keeps its direction, so the graph's result is the same and the queue
     // fills the window. UE leaves this to the renderer's declaration order; the graph has the edges, so the
     // compile decides it, with no hand-placed order in the renderer.
@@ -1083,6 +1085,34 @@ namespace Desert::Graphic::RDG
             return std::find( preds.begin() + predBegin[position], preds.begin() + predBegin[position + 1], on ) !=
                    preds.begin() + predBegin[position + 1];
         };
+        // FPS-PROBE-WAIT (UE: after a join the async results are ordinary graphics inputs). The graphics position
+        // by which each async position is complete: the first graphics pass that depends on it or on any async
+        // pass after it - the compute queue is one FIFO, so waiting for a later pass waits for this one. A pass
+        // after a window's first consumer that reads an EARLIER run's results the graphics queue has already
+        // waited for before the insertion point (the light grid, the radiance cache, the grass lists) adds no
+        // wait when it moves into the window: it is pulled like a pass with graphics predecessors only. Before
+        // this, any async predecessor kept a pass out (FIELD_Barn TURN: 0.40 ms "RDG Wait .. before 'Deferred:
+        // Composite'" with such passes queued after the composite). Positions here are the pre-move ones; every
+        // window moves only positions from its insertion point on, so a position before it is final.
+        constexpr uint32_t      kNeverDone = ~0u;
+        ScratchVector<uint32_t> doneBy( m_ExecutedCount, kNeverDone );
+        for ( const DependencyEdge& edge : m_Result.Edges )
+        {
+            const uint32_t from = m_PositionOf[edge.From];
+            const uint32_t to   = m_PositionOf[edge.To];
+            if ( m_PipeAt[from] == Pipe::AsyncCompute && m_PipeAt[to] != Pipe::AsyncCompute )
+                doneBy[from] = std::min( doneBy[from], to );
+        }
+        {
+            uint32_t later = kNeverDone; // the earliest graphics wait on an async position after this one
+            for ( uint32_t position = m_ExecutedCount; position-- > 0; )
+            {
+                if ( m_PipeAt[position] != Pipe::AsyncCompute )
+                    continue;
+                later            = std::min( later, doneBy[position] );
+                doneBy[position] = later;
+            }
+        }
 
         ScratchVector<bool>     moved( m_ExecutedCount, false );
         ScratchVector<uint32_t> order; // new position -> old position
@@ -1127,7 +1157,13 @@ namespace Desert::Graphic::RDG
                 for ( uint32_t k = predBegin[q]; k < predBegin[q + 1] && free; ++k )
                 {
                     const uint32_t before = preds[k];
-                    free = m_PipeAt[before] != Pipe::AsyncCompute && ( before < insertAt || moved[before] );
+                    // An async predecessor of an earlier run the graphics queue waited for before the insertion
+                    // point (doneBy above); this run's own passes and later runs never are (their first graphics
+                    // consumer is at or after the join).
+                    if ( m_PipeAt[before] == Pipe::AsyncCompute )
+                        free = before < first && doneBy[before] < insertAt;
+                    else
+                        free = before < insertAt || moved[before];
                 }
                 moved[q] = free;
                 any      = any || free;

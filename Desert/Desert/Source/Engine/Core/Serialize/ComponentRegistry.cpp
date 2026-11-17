@@ -40,6 +40,7 @@
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
+#include <Engine/Assets/IesProfileAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
@@ -1044,6 +1045,22 @@ namespace Desert::Core::Serialize
                 }
                 return static_cast<uint64_t>( Common::Content::HandleForGuid( sound.GetValue().Guid ) );
             }
+            if ( type == "IesProfileAsset" )
+            {
+                // The locator half of a local light's IES {Guid, Path}: the `.dies` the path names states the
+                // GUID, and ResolveGuidRef checks it is the one the scene states. Nothing is held: the light
+                // collectors read the profile into the atlas on the first frame that asks (IesProfileService).
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                const auto profile = Assets::IesProfileAsset::ReadFile( full );
+                if ( !profile )
+                {
+                    LOG_ERROR( "[IES] {}", profile.GetError() );
+                    return 0;
+                }
+                return static_cast<uint64_t>( Common::Content::HandleForGuid( profile.GetValue().Guid ) );
+            }
             if ( type == "VFXSystemAsset" )
             {
                 // A VFX component's `.dfx` system. Announced, not read, as the wave set above: VFXSystemService
@@ -1272,6 +1289,12 @@ namespace Desert::Core::Serialize
             {
                 // A sound's handle IS HandleForGuid of its header GUID, so the registry row under it is the
                 // `.desound`, wherever it has since moved; nothing is loaded until a voice starts.
+                return Assets::ContentRegistry::KeyForHandle( guid ).empty() ? 0 : guid;
+            }
+            if ( type == "IesProfileAsset" )
+            {
+                // An IES profile's handle IS HandleForGuid of its header GUID, as a sound's: the registry row
+                // under it is the `.dies` wherever it has since moved.
                 return Assets::ContentRegistry::KeyForHandle( guid ).empty() ? 0 : guid;
             }
             if ( type == "SkyboxAsset" )

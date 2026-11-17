@@ -1,0 +1,71 @@
+#ifndef DESERT_LIGHT_FUNCTION_ATLAS_GLSLH
+#define DESERT_LIGHT_FUNCTION_ATLAS_GLSLH
+
+// THE LIGHT FUNCTION ATLAS, reader side (UE LightFunctionAtlas.ush, UE 5.3+: one 2D projection per light in one
+// atlas, sampled by deferred, forward, MegaLights and fog alike). System::LightFunctionAtlas renders each light's
+// `Domain LightFunction` material into a square tile of LIGHT_FUNCTION_TILE_TEXELS texels (Common/LightFunction.glslh
+// is the writer side and must use the SAME two parametrisations below); the atlas is a bindless RGBA8 image whose
+// width is a whole number of tiles, tiles numbered row-major. The light payload carries the atlas slot and its tile
+// (-1 = no light function: the factor is exactly 1, so a light without one shades bit-identically to before).
+//
+// The light's frame is the IES frame (Mesh/IesProfile.glslh): forward, tangent, bitangent = cross(forward, tangent).
+// Tile coordinates are in [-1, 1]^2:
+//   spot (perspective of the cone): (dot(d, tangent), dot(d, bitangent)) / (dot(d, forward) * tan(outer cone))
+//   point / rect (octahedral):      DesertLightFunctionOctEncode( (dot(d, tangent), dot(d, bitangent), dot(d, forward)) )
+#include <Common/BindlessTextures.glslh>
+
+const float LIGHT_FUNCTION_TILE_TEXELS = 128.0; // Graphic::System::kLightFunctionTileTexels
+
+// The unit vector @p n onto the octahedron unfolded into [-1, 1]^2 (z > 0 the inner diamond).
+vec2 DesertLightFunctionOctEncode( vec3 n )
+{
+    n /= max( abs( n.x ) + abs( n.y ) + abs( n.z ), 1.0e-8 );
+    vec2 p = n.xy;
+    if ( n.z < 0.0 )
+        p = ( 1.0 - abs( p.yx ) ) * vec2( p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0 );
+    return p;
+}
+
+// The tile's colour at tile coordinate @p local ([-1, 1]^2), bilinear, clamped half a texel inside the tile so a
+// neighbour never bleeds in.
+vec3 DesertLightFunctionSample( int atlasTexture, int tile, vec2 local )
+{
+    const uint slot    = uint( atlasTexture );
+    const vec2 size    = vec2( textureSize( sampler2D( BindlessTextures[nonuniformEXT( slot )],
+                                                       BindlessSamplers[BINDLESS_SAMPLER_LINEAR_CLAMP] ),
+                                            0 ) );
+    const int  columns = max( int( size.x / LIGHT_FUNCTION_TILE_TEXELS ), 1 );
+    const vec2 origin  = vec2( float( tile % columns ), float( tile / columns ) ) * LIGHT_FUNCTION_TILE_TEXELS;
+    const vec2 texel   = clamp( ( clamp( local, -1.0, 1.0 ) * 0.5 + 0.5 ) * LIGHT_FUNCTION_TILE_TEXELS, vec2( 0.5 ),
+                                vec2( LIGHT_FUNCTION_TILE_TEXELS - 0.5 ) );
+    return SampleBindless( slot, BINDLESS_SAMPLER_LINEAR_CLAMP, ( origin + texel ) / size, 0.0 ).rgb;
+}
+
+// A spot's function; @p fromLight the unit direction from the light to the shaded point. Behind the apex the cone
+// factor is already 0; the function answers 1 there.
+vec3 DesertSpotLightFunction( int atlasTexture, int tile, vec3 fromLight, vec3 forward, vec3 tangent,
+                              float cosOuter )
+{
+    if ( tile < 0 || atlasTexture <= 0 )
+        return vec3( 1.0 );
+    const float along = dot( fromLight, forward );
+    if ( along <= 1.0e-4 )
+        return vec3( 1.0 );
+    const float tanOuter  = sqrt( max( 1.0 - cosOuter * cosOuter, 0.0 ) ) / max( cosOuter, 1.0e-4 );
+    const vec3  bitangent = cross( forward, tangent );
+    const vec2  local     = vec2( dot( fromLight, tangent ), dot( fromLight, bitangent ) ) / ( along * tanOuter );
+    return DesertLightFunctionSample( atlasTexture, tile, local );
+}
+
+// A point or rect light's function over every direction (octahedral).
+vec3 DesertOmniLightFunction( int atlasTexture, int tile, vec3 fromLight, vec3 forward, vec3 tangent )
+{
+    if ( tile < 0 || atlasTexture <= 0 )
+        return vec3( 1.0 );
+    const vec3 bitangent = cross( forward, tangent );
+    const vec2 local     = DesertLightFunctionOctEncode(
+         vec3( dot( fromLight, tangent ), dot( fromLight, bitangent ), dot( fromLight, forward ) ) );
+    return DesertLightFunctionSample( atlasTexture, tile, local );
+}
+
+#endif // DESERT_LIGHT_FUNCTION_ATLAS_GLSLH

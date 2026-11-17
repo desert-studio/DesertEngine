@@ -30,7 +30,9 @@ void main()
     const vec2  maskDy   = dFdyCoarse( maskUV ) * mipScale;
     if ( DesertVisibilityHidden( ivec2( gl_FragCoord.xy ), gl_FragCoord.z ) )
         return;
-    if ( DesertSurfaceOpacityMaskGrad( maskUV, maskDx, maskDy ) < DESERT_SURFACE_CLIP_THRESHOLD() )
+    // DESERT_SURFACE_CLIP's two cuts: the other level of a dithered LOD transition, then the mask.
+    if ( DESERT_SURFACE_LOD_CLIPPED() ||
+         DesertSurfaceOpacityMaskGrad( maskUV, maskDx, maskDy ) < DESERT_SURFACE_CLIP_THRESHOLD() )
         discard;
 #endif
     // A row holds 128 triangles of one instance: a blade strip has fewer (its row is v_VisibilityRow), a mesh

@@ -148,6 +148,8 @@ namespace Desert::Graphic::SurfaceCache
             RDG::BufferRef                        GIFrame;
             RDG::BufferRef                        PointLights;
             RDG::BufferRef                        SpotLights;
+            // The light function atlas the rows' tiles name (ViewLightBuffers::LightFunctionAtlas); invalid = none.
+            RDG::TextureRef                       LightFunctionAtlas;
             RDG::BufferRef                        WorldGridParams;
             RDG::BufferRef                        WorldGridCells;
             RDG::TextureRef                       EnvSpecular;

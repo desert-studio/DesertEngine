@@ -14,7 +14,7 @@
 // ONE SPOT LIGHT AS THE SHADERS READ IT, listed ONCE: the members expand into SpotLightPayload and into
 // kSpotLightPayloadFields, from which the includer GENERATES `struct SpotLight` (Mesh/LightSourceLayouts.glslh)
 // and the SpotLightsUB storage buffer (Mesh/SpotLightsUB.glslh, binding 16, included by Mesh/Spotlight.glslh);
-// neither is a file on disk. std430, 112 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
+// neither is a file on disk. std430, 128 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
 // half-angles (precomputed on the CPU so the shader avoids acos).
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -51,9 +51,16 @@
     FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 92 */                                          \
     /* UE ULightComponent::VolumetricScatteringIntensity (PointLight.hpp says how). */                            \
     FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 96 */               \
-    FIELD( float, Pad2, pad2, { 0.0f } ) /* 100 */                                                                \
-    FIELD( float, Pad3, pad3, { 0.0f } ) /* 104 */                                                                \
-    FIELD( float, Pad4, pad4, { 0.0f } ) /* 108 -> 112 */
+    /* The IES profile (PointLight.hpp says how): atlas slot, stamped by SceneRenderer::AddSpotLight, and row. */ \
+    FIELD( int32_t, IesAtlasTexture, iesAtlasTexture, { 0 } ) /* 100 */                                           \
+    FIELD( int32_t, IesProfileRow, iesProfileRow, { -1 } )    /* 104 */                                           \
+    /* UE light function (LIGHT-FUNCTIONS): the view's atlas slot, stamped by SceneRenderer::AddSpotLight; the */ \
+    /* tile (LightFunctionTile below) holds the function over the cone's perspective footprint. */                 \
+    FIELD( int32_t, LightFunctionAtlasTexture, lightFunctionAtlasTexture, { 0 } ) /* 108 */                                           \
+    /* The light's tangent (unit, world; the entity's X): with Direction, the frame IES horizontal angles */      \
+    /* are measured in (IesProfile.glslh). */                                                                     \
+    FIELD( glm::vec3, Tangent, tangent, {} ) /* 112 */                                                            \
+    FIELD( int32_t, LightFunctionTile, lightFunctionTile, { -1 } ) /* 124 -> 128, -1 = no light function */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -63,7 +70,7 @@ namespace Desert::Graphic::ShaderProtocols
          Std430StructLayoutMatches( kSpotLightPayloadFields, sizeof( SpotLightPayload ) ),
          "SpotLightPayload is not laid out (or strided) as std430 places the generated struct SpotLight: "
          "reorder or pad DESERT_SPOT_LIGHT_FIELDS" );
-    static_assert( sizeof( SpotLightPayload ) == 112 );
+    static_assert( sizeof( SpotLightPayload ) == 128 );
 
     struct SpotLight
     {
