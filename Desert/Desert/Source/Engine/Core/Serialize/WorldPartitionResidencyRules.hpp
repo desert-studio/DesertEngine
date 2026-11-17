@@ -253,15 +253,18 @@ namespace Desert::Core::Rules
                  !finiteAtLeast( s.UnloadMargin, 0.0 ) || s.MaxConcurrentLoads == 0 ||
                  !std::isfinite( s.RetryDelaySeconds ) || s.RetryDelaySeconds <= 0.0 ||
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
-                 !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) )
+                 !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) ||
+                 !finiteAtLeast( s.SlowStreamingRatio, 0.0 ) || !finiteAtLeast( s.SlowStreamingWarningFactor, 1.0 ) )
             {
                 return Common::MakeError<bool>( std::format(
                      "StepResidency: settings ActivationBudgetMs {:f}, MsPerRecord {:f}, UnloadMargin {:f}, "
                      "MaxConcurrentLoads {}, RetryDelaySeconds {:f}, RetryBackoff {:f}, MaxRetryDelaySeconds "
-                     "{:f}; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the "
-                     "backoff >= 1 and the longest delay >= the first",
+                     "{:f}, SlowStreamingRatio {:f}, SlowStreamingWarningFactor {:f}; budget, cost, margin and "
+                     "ratio must be finite and >= 0, loads >= 1, the delay > 0, the backoff and the warning "
+                     "factor >= 1 and the longest delay >= the first",
                      s.ActivationBudgetMs, s.MsPerRecord, s.UnloadMargin, s.MaxConcurrentLoads,
-                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds ) );
+                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds, s.SlowStreamingRatio,
+                     s.SlowStreamingWarningFactor ) );
             }
             return Common::MakeSuccess( true );
         }

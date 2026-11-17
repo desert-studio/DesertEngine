@@ -4,6 +4,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Document.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <filesystem>
 #include <format>
@@ -34,8 +35,9 @@ namespace Desert::Project
         Common::ResultStr<std::optional<Common::Json::Value>> ReadLayer( const std::filesystem::path& path )
         {
             using Layer = std::optional<Common::Json::Value>;
-            std::error_code exists;
-            if ( !std::filesystem::exists( path, exists ) )
+            // On disk OR in a mounted archive: a packaged game's Config/ ships inside its pak
+            // (Editor/Packaging/PackagedContentTrees.hpp), where std::filesystem sees nothing.
+            if ( !Common::Utils::FileSystem::Exists( path ) )
                 return Common::MakeSuccess( Layer() );
             auto text = Common::Json::Detail::ReadFileText( path );
             if ( !text )

@@ -143,9 +143,9 @@ namespace Desert::Core::Rules
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
         {
             const std::size_t unit  = plan.AlwaysLoaded.size() + cell;
-            const Residency   state = stateOf( unit );
-            if ( out.Performance == StreamingPerformance::Good && state != Residency::Activated &&
-                 state != Residency::Failed && CellRangeRatio( plan.Cells[cell], sources, partition ) < slowRatio )
+            const Residency   residency = stateOf( unit );
+            if ( out.Performance == StreamingPerformance::Good && residency != Residency::Activated &&
+                 residency != Residency::Failed && CellRangeRatio( plan.Cells[cell], sources, partition ) < slowRatio )
                 out.Performance = StreamingPerformance::Slow;
             bool              held = false;
             for ( const StreamingSource& source : sources )
