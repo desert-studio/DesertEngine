@@ -62,10 +62,33 @@ namespace Desert::Migration
     // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
     // land in. Read, never written: MigrateGridHLODLayerV67ToV68 moves it onto the grids and clears it, and rfl
     // omits an empty optional, so the block this tool writes is the block the engine reads.
+    // THE HLOD LAYER THIS TOOL READS: the engine's Core::HLODLayerSerialized, member for member and in its order,
+    // PLUS the WP v1..v3 SimplifyTrianglePercent, frozen here. WP v4 moved it into the layer's Settings (its
+    // MeshSimplify builder's TrianglePercent), and the read is strict, so an older file's key needs a member to
+    // land in. Read, never written: MigrateHLODBuilderSettingsV3ToV4 moves it and clears it, and rfl omits an
+    // empty optional.
+    struct HLODLayerSerialized
+    {
+        std::string                 Name;
+        Core::HLODLayerType         Type = Core::HLODLayerType::Instancing;
+        std::optional<std::string>  ParentLayer;
+        std::optional<std::string>  Builder;
+        std::optional<rfl::Generic> Settings;
+        std::optional<float>        CellSize;
+        std::optional<float>        LoadingRange;
+        // WP v1..v3 files only.
+        std::optional<float> SimplifyTrianglePercent;
+    };
+    static_assert(
+         rfl::named_tuple_t<HLODLayerSerialized>::size() ==
+              rfl::named_tuple_t<Core::HLODLayerSerialized>::size() + 1,
+         "Core::HLODLayerSerialized gained or lost a member: mirror it in Migration::HLODLayerSerialized, "
+         "or this tool drops it from every scene it rewrites" );
+
     struct WorldPartitionSerialized
     {
-        std::vector<Core::WorldPartitionGridSerialized>       Grids;
-        std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        std::vector<Core::WorldPartitionGridSerialized> Grids;
+        std::optional<std::vector<HLODLayerSerialized>> HLODLayers;
         // Core::WorldPartitionSerialized::ChunkRegionSize, carried through untouched (no step reads it).
         std::optional<float> ChunkRegionSize;
         // Core::WorldPartitionSerialized::DataLayers (WP v2), carried through untouched (no step reads it).
@@ -493,6 +516,14 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
+    //   4 - HLOD BUILDERS BY NAME (WP-HLOD-BUILDERS; UE UHLODLayer::HLODBuilderClass + HLODBuilderSettings). A
+    //   layer
+    //       states its builder's `Settings` object and a Custom layer its `Builder`; MeshSimplify's
+    //       SimplifyTrianglePercent is its Settings' TrianglePercent: every layer stating it states
+    //       {"TrianglePercent": <the same number>} instead (MigrateHLODBuilderSettingsV3ToV4). Scenes only carry
+    //       layers; a prefab's chain raises the number and changes nothing.
+    inline constexpr int kWorldPartitionVersionHLODBuilders = 4;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -540,7 +571,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionHLODBuilders == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -978,6 +1009,10 @@ namespace Desert::Migration
     // (kSceneVersionGridHLODLayer); how many grids were given the layer.
     std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
 
+    // Restates every HLOD layer's SimplifyTrianglePercent as its Settings {"TrianglePercent": ...} and clears it
+    // (kWorldPartitionVersionHLODBuilders); how many layers moved. Refused, by layer, when a layer states both.
+    Common::ResultStr<std::size_t> MigrateHLODBuilderSettingsV3ToV4( SceneSerialized& scene );
+
     // Drops siblingIndex from every root record of a partitioned (external-entities) scene
     // (kSceneVersionRootSiblingIndex); how many records lost it.
     std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene );
@@ -1316,6 +1351,8 @@ namespace Desert::Migration
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        HLODBuildersRaised          = false; // below kWorldPartitionVersionHLODBuilders
+        std::size_t HLODSimplifySettingsMoved   = 0;     // layers whose SimplifyTrianglePercent became Settings
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1383,7 +1420,7 @@ namespace Desert::Migration
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised;
+                   FilmicDefaultRaised || GrassRasterPathRaised || HLODBuildersRaised;
         }
     };
 

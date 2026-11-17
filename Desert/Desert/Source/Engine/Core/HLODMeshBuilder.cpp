@@ -21,6 +21,8 @@
 #include <cstring>
 #include <format>
 #include <map>
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -227,11 +229,11 @@ namespace Desert::Core
             return Common::MakeFormattedError<Result>( "the merged mesh does not weld: {}", imported.GetError() );
         Geometry::DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
 
-        if ( request.Type == HLODLayerType::MeshSimplify )
+        if ( request.TrianglePercent.has_value() )
         {
             const int target =
                  std::max( 1, static_cast<int>( std::ceil( static_cast<double>( mesh.TriangleCount() ) *
-                                                           request.TrianglePercent ) ) );
+                                                           *request.TrianglePercent ) ) );
             // Recomputes the normals too: the collapses moved vertices.
             Geometry::SimplifyToTriangleCount( mesh, target );
         }
@@ -498,13 +500,83 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( block ) );
     }
 
-    HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries )
+    namespace
     {
-        return HLODBuilders{
-             .Mesh = [registries]( const Rules::HLODMeshRequest& request )
-             { return BuildHLODMesh( request, registries ); },
-             .Landscape = []( const Rules::LandscapeHLODRequest& request )
-             { return BuildLandscapeHLODMesh( request ); },
+        // UE UHLODBuilderMeshMerge: the gathered batches merged (Rules::MergeHLODBatches over BuildHLODMesh).
+        // Reads no settings.
+        class HLODBuilderMeshMerge final : public Rules::IHLODBuilder
+        {
+        public:
+            [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
+            Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
+            {
+                return Rules::MergeHLODBatches( context, std::move( gathered ), std::nullopt,
+                                                [&context]( const Rules::HLODMeshRequest& request )
+                                                { return BuildHLODMesh( request, context.Registries ); } );
+            }
         };
+
+        // UE UHLODBuilderMeshSimplify: merged, then simplified to its Settings' TrianglePercent
+        // (HLODMeshSimplifySettings).
+        class HLODBuilderMeshSimplify final : public Rules::IHLODBuilder
+        {
+        public:
+            [[nodiscard]] Common::BoolResultStr
+            ValidateSettings( const Common::Json::Value* settings ) const override
+            {
+                auto read = Rules::ReadHLODBuilderSettings<HLODMeshSimplifySettings>( settings );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                const std::optional<float> percent = read.GetValue().TrianglePercent;
+                if ( !percent.has_value() )
+                    return Common::MakeError<bool>( "MeshSimplify's Settings state no TrianglePercent" );
+                if ( !( *percent > 0.0f && *percent <= 1.0f ) )
+                    return Common::MakeError<bool>(
+                         std::format( "MeshSimplify's TrianglePercent {:f} is outside (0, 1]", *percent ) );
+                return Common::MakeSuccess( true );
+            }
+
+            [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
+            Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
+            {
+                if ( auto valid = ValidateSettings( context.Settings ); !valid )
+                    return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+                auto read = Rules::ReadHLODBuilderSettings<HLODMeshSimplifySettings>( context.Settings );
+                if ( !read )
+                    return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+                return Rules::MergeHLODBatches( context, std::move( gathered ), read.GetValue().TrianglePercent,
+                                                [&context]( const Rules::HLODMeshRequest& request )
+                                                { return BuildHLODMesh( request, context.Registries ); } );
+            }
+        };
+
+        // The name the engine registers a built-in type's builder under (Rules::kBuiltInHLODBuilders).
+        [[nodiscard]] std::string BuiltInHLODBuilderName( HLODLayerType type )
+        {
+            HLODLayerSerialized layer;
+            layer.Type = type;
+            return std::string( Rules::HLODBuilderNameOf( layer ) );
+        }
+    } // namespace
+
+    Rules::HLODBuilderRegistry& HLODBuilders()
+    {
+        static Rules::HLODBuilderRegistry registry = []
+        {
+            Rules::HLODBuilderRegistry builtIn;
+            // Three distinct names into an empty registry, none refusable (Register refuses only an empty name, no
+            // builder, or a name taken).
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::Instancing ),
+                                                 std::make_shared<Rules::HLODBuilderInstancing>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshMerge ),
+                                                 std::make_shared<HLODBuilderMeshMerge>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshSimplify ),
+                                                 std::make_shared<HLODBuilderMeshSimplify>() ) );
+            builtIn.SetLandscapeBuilder(
+                 std::make_shared<Rules::HLODBuilderLandscape>( []( const Rules::LandscapeHLODRequest& request )
+                                                                { return BuildLandscapeHLODMesh( request ); } ) );
+            return builtIn;
+        }();
+        return registry;
     }
 } // namespace Desert::Core

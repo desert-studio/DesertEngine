@@ -326,6 +326,11 @@ namespace Desert::Editor
         // ── HLOD per grid (Edit, a partitioned world) ──
         if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() )
         {
+            // What the HLOD builders say of the world's layers (UE: a layer whose builder is not loaded or refuses
+            // its settings), red and above every section: Build HLODs refuses with the first of them.
+            for ( const std::string& refused : ::Desert::Core::Rules::HLODLayerBuilderIssues(
+                       *m_Scene->GetWorldPartition(), ::Desert::Core::HLODBuilders() ) )
+                ImGui::TextColored( ImVec4( 1.0f, 0.35f, 0.35f, 1.0f ), "%s", refused.c_str() );
             DrawRuntimeGrids();
             DrawGridHLODLayers();
             DrawDataLayers();
@@ -741,36 +746,37 @@ namespace Desert::Editor
             return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
         const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
-        // Phase 1: the landscape HLODs' areas, from the same request the build makes for each.
-        std::vector<LandscapeHLODBakeTile>                 areas;
-        decltype( builders.Landscape )                     collect;
-        if ( builders.Landscape )
-            collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
-            {
-                auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
-                if ( !area )
-                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
-                auto mesh = builders.Landscape( request );
-                if ( !mesh )
-                    return mesh;
-                const bool known = std::any_of( areas.begin(), areas.end(),
-                                                [&]( const auto& seen ) {
-                                                    return static_cast<uint64_t>( seen.Area.Tile ) ==
-                                                           static_cast<uint64_t>( area.GetValue().Tile );
-                                                } );
-                if ( known )
-                    return mesh;
-                // The bake states the normal map in the tangent frame of this very mesh.
-                if ( !mesh.GetValue().EditMesh )
-                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
-                         std::format( "the landscape HLOD of tile {} carries no mesh",
-                                      static_cast<uint64_t>( area.GetValue().Tile ) ) );
-                areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
+        // Phase 1: the landscape HLODs' areas, from the same request the build makes for each: the process's
+        // builders (Core::HLODBuilders) with a landscape builder that also keeps each tile's area.
+        ::Desert::Core::Rules::HLODBuilderRegistry  builders = ::Desert::Core::HLODBuilders();
+        std::vector<LandscapeHLODBakeTile>          areas;
+        ::Desert::Core::Rules::LandscapeHLODBuilder collect;
+        collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        {
+            auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
+            if ( !area )
+                return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
+            auto mesh = ::Desert::Core::BuildLandscapeHLODMesh( request );
+            if ( !mesh )
                 return mesh;
-            };
+            const bool known = std::any_of( areas.begin(), areas.end(),
+                                            [&]( const auto& seen ) {
+                                                return static_cast<uint64_t>( seen.Area.Tile ) ==
+                                                       static_cast<uint64_t>( area.GetValue().Tile );
+                                            } );
+            if ( known )
+                return mesh;
+            // The bake states the normal map in the tangent frame of this very mesh.
+            if ( !mesh.GetValue().EditMesh )
+                return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
+                     std::format( "the landscape HLOD of tile {} carries no mesh",
+                                  static_cast<uint64_t>( area.GetValue().Tile ) ) );
+            areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
+            return mesh;
+        };
+        builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( collect ) );
         if ( auto probe = WC::BuildWorldHLODs(
-                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders.Mesh, collect,
+                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders,
                   // The probe only gathers the landscape tiles to bake: its files are dropped.
                   []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
@@ -826,27 +832,27 @@ namespace Desert::Editor
             return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
         const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
+        ::Desert::Core::Rules::HLODBuilderRegistry builders = ::Desert::Core::HLODBuilders();
         // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
         // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness.
-        decltype( builders.Landscape ) landscape;
-        if ( builders.Landscape )
-            landscape = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
-            {
-                auto mesh = builders.Landscape( request );
-                if ( !mesh )
-                    return mesh;
-                const auto& id = request.Records[request.Tile].id;
-                for ( const LandscapeHLODBaked& tile : baked )
-                    if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
-                    {
-                        ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
-                        block.MaterialSlots = std::vector<::Desert::Assets::AssetGuidRef>{
-                             ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
-                        return Common::MakeSuccess( std::move( block ) );
-                    }
+        ::Desert::Core::Rules::LandscapeHLODBuilder landscape;
+        landscape = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        {
+            auto mesh = ::Desert::Core::BuildLandscapeHLODMesh( request );
+            if ( !mesh )
                 return mesh;
-            };
+            const auto& id = request.Records[request.Tile].id;
+            for ( const LandscapeHLODBaked& tile : baked )
+                if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
+                {
+                    ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
+                    block.MaterialSlots                            = std::vector<::Desert::Assets::AssetGuidRef>{
+                         ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
+                    return Common::MakeSuccess( std::move( block ) );
+                }
+            return mesh;
+        };
+        builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( landscape ) );
         // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
         // actors cell by cell), so the world's HLODs are never in memory at once.
         const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
@@ -854,7 +860,7 @@ namespace Desert::Editor
         std::size_t                 bytes  = 0;
         std::size_t                 files  = 0;
         auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
-                                          builders.Mesh, landscape,
+                                          builders,
                                           [&]( WC::CookedFile file ) -> Common::BoolResultStr
                                           {
                                               bytes += file.Bytes.size();
