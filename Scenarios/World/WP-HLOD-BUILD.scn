@@ -1,0 +1,20 @@
+# WP-HLOD-BUILD: Build HLODs as a service (Editor/Core/WorldPartitionHLODBuilder) - incremental by the HLOD checksum,
+# which now holds the saved content of every mesh / material / texture a cell's records name (UE: the HLOD hash).
+# A bench mesh that stands in 3 Main cells of WP_Protocol is edited and saved in the Static Mesh editor: exactly
+# those 3 cells and the HLOD_Main_Far parent above them go stale; Build HLODs rebuilds only them.
+# The bench is the StaticMesh asset the 3 Main-grid records share (pick it in the Content Browser by its referrers).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Scene "Build HLODs (force all)"
+Дано run Panel "Open World Partition"
+Тогда 0_fresh World Partition panel, HLODs section: «0 stale HLOD»; log «built N of N HLOD cells (force all)», read back 0 stale
+Дано run Asset "Open Static Mesh Editor" Content/Meshes/WP_Protocol/SM_Bench.stmesh
+Дано run StaticMesh "Scale" 1.0 1.6 1.0
+Дано run Action "Save Asset"
+Дано run Panel "Open World Partition"
+Тогда hlodbuild_stale World Partition panel, HLODs section: «4 stale HLOD» (the bench's 3 Main cells + their HLOD_Main_Far parent; hover lists them); a toast «World Partition: 4 stale HLOD - Build HLODs»
+Когда run Scene "Build HLODs"
+Тогда hlodbuild_incremental log «built 4 of N HLOD cells (others up to date)», read back 0 stale; panel «0 stale HLOD»; far camera on the bench cells: the HLOD shows the taller bench
+Когда run Scene "Delete HLODs"
+Тогда hlodbuild_deleted log «[Delete HLODs] 'WP_Protocol': K file(s) removed»; panel «HLODs not built: N stale HLOD»; WP_Protocol_HLOD/ is gone
+Когда run Scene "Build HLODs"
+Тогда hlodbuild_rebuilt log «built N of N HLOD cells (others up to date)»; panel «0 stale HLOD»

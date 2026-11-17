@@ -374,6 +374,8 @@ namespace Desert::Editor
                                        m_AnimationLibrary, *m_ThumbnailPool );
             m_FileExplorerPanel              = handles.FileExplorer;
             m_WorldPartitionPanel            = handles.WorldPartition;
+            // Save and build HLODs saves through the one save path (Ctrl+S, File -> Save, the palette).
+            m_WorldPartitionPanel->SetSceneSaver( [this] { return m_SceneFiles.SaveOpenScene(); } );
         }
 
         // ── WHICH EDITOR OPENS WHICH KIND OF SUBJECT, AND HOW A PATH BECOMES ONE OF THEM ──────────────────

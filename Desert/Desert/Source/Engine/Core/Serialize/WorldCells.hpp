@@ -66,6 +66,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -368,6 +369,11 @@ namespace Desert::Core::WorldCells
     inline constexpr std::string_view kBuiltHLODIndexName = "HLODs.dhlod";
     inline constexpr std::string_view kBuiltHLODExtension = ".dhlod";
 
+    // UE's HLODBaseKey (FWorldPartitionHLODUtilities::ComputeHLODHash): the version of what the HLOD builders make
+    // from one input. Raised with any change to their output for the same records and assets, it makes every saved
+    // HLOD stale, so the next Build HLODs rebuilds them all.
+    inline constexpr std::uint32_t kHLODBuilderVersion = 1;
+
     // One cell unit's built HLOD. There is a row for EVERY cell unit, also one that draws nothing, so a plan
     // cell without a row is stale and never ambiguous. `BuiltFrom` is HLODBuildChecksum of the cell's records
     // when it was built: a different checksum now is a stale HLOD.
@@ -395,12 +401,39 @@ namespace Desert::Core::WorldCells
     // HLOD actors cell by cell). An error stops the build by name.
     using BuiltHLODSink = std::function<Common::BoolResultStr( CookedFile file )>;
 
-    // What an HLOD is built from: the cell's records (Json::Write of each member without its outliner sort key
-    // `siblingIndex`, in member order; the one form Build, Cook and Play hash) and the
-    // world's partition block (grids and HLOD layers). Crc32c.
+    // THE SAVED CONTENT AN HLOD IS BUILT FROM BEYOND ITS RECORDS (UE: UHLODBuilder::ComputeHLODHash reaches the
+    // static mesh, its materials and their textures, each by the hash of what was saved - the asset registry's
+    // FAssetPackageData::PackageSavedHash): every asset the members name, transitively through the registry's
+    // dependency edges (mesh -> material -> texture), as "<registry key> <content hash>" lines in key order. An
+    // asset envelope's content hash is folded from its table of contents (each section's tag and hash, read with
+    // the header and never the body); any other file's from its bytes. A file that does not read hashes as
+    // absent, so an HLOD built without it is stale once it is back. A hasher remembers each asset's hash for its
+    // own lifetime - one build or one staleness check - never across an edit.
+    class HLODAssetHasher
+    {
+    public:
+        explicit HLODAssetHasher( std::span<const Common::Utils::AssetRegistry> registries );
+        ~HLODAssetHasher();
+        HLODAssetHasher( const HLODAssetHasher& )            = delete;
+        HLODAssetHasher& operator=( const HLODAssetHasher& ) = delete;
+
+        [[nodiscard]] std::string ContentOf( std::span<const Assets::EntityData> records,
+                                             std::span<const std::size_t>        members );
+
+    private:
+        struct State;
+        std::unique_ptr<State> m_State;
+    };
+
+    // What an HLOD is built from (UE: the HLOD actor's hash - its input actors, the assets they use, its layer's
+    // settings and the builder's base key): the cell's records (Json::Write of each member without its outliner
+    // sort key `siblingIndex`, in member order; the one form Build, Cook and Play hash), the saved content of
+    // every asset they name (@p assets), the world's partition block (grids and HLOD layers) and
+    // kHLODBuilderVersion. Crc32c. A mesh or material edited and saved makes the HLODs that use it stale.
     [[nodiscard]] std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
                                                    std::span<const std::size_t>        members,
-                                                   const WorldPartitionSerialized&     partition );
+                                                   const WorldPartitionSerialized&     partition,
+                                                   HLODAssetHasher&                    assets );
 
     // BUILD HLODs: the HLOD of every cell unit of @p scene by the world's default HLOD layer, planned from
     // @p descriptors as CookWorld plans. Refused, by name, as CookWorld refuses: no WorldPartition block, no
@@ -408,11 +441,21 @@ namespace Desert::Core::WorldCells
     // Each cell's file goes to @p sink as soon as it is built and is freed with the cell; the index is returned.
     // Prefab instances are expanded first with @p prefabs (ExpandWorldForCook), as CookWorld expands them, so
     // the cook of the same world finds every HLOD fresh.
-    [[nodiscard]] Common::ResultStr<BuiltHLODIndex>
+    //
+    // INCREMENTAL (UE UWorldPartitionHLODsBuilder: an HLOD actor whose hash did not change is not rebuilt): a row
+    // of @p previous whose BuiltFrom is the checksum now and whose file reads back as that row's is kept as it is,
+    // and its file stays; only the other rows are built and only they reach the builders and @p sink. nullptr
+    // builds every row (Build HLODs, force all).
+    struct HLODBuild
+    {
+        BuiltHLODIndex           Index;
+        std::vector<std::string> Built; // the rows built, by unit name; every other row was kept
+    };
+    [[nodiscard]] Common::ResultStr<HLODBuild>
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                      const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                     const BuiltHLODSink& sink );
+                     const StoredHLODs* previous, const BuiltHLODSink& sink );
 
     // `<dir>/<stem>_HLOD/` of the scene file @p scenePath (beside `<stem>_Landscape/`).
     [[nodiscard]] std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath );

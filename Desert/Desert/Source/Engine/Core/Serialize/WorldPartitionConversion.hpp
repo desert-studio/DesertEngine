@@ -30,6 +30,12 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kConvertToWorldPartitionLabel = "Convert scene to World Partition";
     // UE's Build > Build HLODs: the step that builds every cell's HLOD and saves it beside the world.
     inline constexpr std::string_view kBuildHLODsLabel = "Build HLODs";
+    // The same build with every HLOD rebuilt, whatever its checksum says (UE: -ForceBuild).
+    inline constexpr std::string_view kBuildAllHLODsLabel = "Build HLODs (force all)";
+    // The scene saved through the editor's one save path, then Build HLODs (the unsaved-world prompt's answer).
+    inline constexpr std::string_view kSaveAndBuildHLODsLabel = "Save and Build HLODs";
+    // UE's -DeleteHLODs: everything Build HLODs saved beside the world removed.
+    inline constexpr std::string_view kDeleteHLODsLabel = "Delete HLODs";
 
     /// The partition an UNPARTITIONED world gets: exactly one grid, at the format's own defaults
     /// (WorldPartitionGridSerialized — 128 m cells, 256 m loading range, in centimetres).
