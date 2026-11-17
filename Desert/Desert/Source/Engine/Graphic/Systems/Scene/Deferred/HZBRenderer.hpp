@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
@@ -109,7 +110,7 @@ namespace Desert::Graphic::System
                                       kind == HZBKind::Furthest ? "HZB.Furthest" : "HZB" );
             if ( m_SinglePass )
                 return AddSinglePassDispatches( graph, depth, hzb, width, height, mips, kind );
-            const glm::uvec4 push( static_cast<uint32_t>( kind ), 0u, 0u, 0u );
+            const ShaderPush::HZB push{ .Params = glm::uvec4( static_cast<uint32_t>( kind ), 0u, 0u, 0u ) };
             for ( uint32_t mip = 0; mip < mips; ++mip )
                 graph.AddPass(
                      std::format( "{}: Mip {}", kind == HZBKind::Furthest ? "HZB Furthest" : "HZB", mip ),
@@ -127,14 +128,14 @@ namespace Desert::Graphic::System
                                         RDG::SamplerDesc::PointClamp() )
                               .Storage( HZBBuildShaderParameters::DestinationMipTexture, hzb,
                                         RDG::Access::StorageWrite, mip )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+                              .PushConstants<ShaderPush::HZB>();
                      },
                      [pipeline = m_Pipeline, mip, width, height,
                       push]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS( "HZB" );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute(
                               bindings, *pipeline, GroupCount( std::max( 1u, width >> mip ) ),
                               GroupCount( std::max( 1u, height >> mip ) ), 1 );
@@ -177,7 +178,7 @@ namespace Desert::Graphic::System
                 const uint32_t         first  = dispatch * kMipsPerDispatch;
                 const uint32_t         count  = std::min( kMipsPerDispatch, mips - first );
                 const uint32_t         topMip = first + count - 1u;
-                const glm::uvec4       push( static_cast<uint32_t>( kind ), count, 0u, 0u );
+                const ShaderPush::HZBSinglePass push{ .Params = glm::uvec4( static_cast<uint32_t>( kind ), count, 0u, 0u ) };
                 const uint32_t         groupsX = TileCount( std::max( 1u, width >> topMip ) );
                 const uint32_t         groupsY = TileCount( std::max( 1u, height >> topMip ) );
                 const std::string_view name    = furthest ? kFurthestNames[dispatch] : kClosestNames[dispatch];
@@ -205,14 +206,14 @@ namespace Desert::Graphic::System
                              else
                                  block.Storage( slots[slot], scratch, RDG::Access::StorageWrite, slot - count );
                          }
-                         block.PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+                         block.PushConstants<ShaderPush::HZBSinglePass>();
                      },
                      [pipeline = m_SinglePassPipeline, groupsX, groupsY,
                       push]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS( "HZB" );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groupsX, groupsY,
                                                                          1 );
                      } );
