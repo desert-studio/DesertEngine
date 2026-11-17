@@ -114,7 +114,8 @@ namespace Desert::Graphic
         // EmissiveLightsScene of this instance (MaterialData::EmissiveLightsScene), resolved as TwoSided: its own
         // override, else its parent instance's, else the base material's. Nothing = inherit. Read by the view's
         // scene-lighting emissive list every frame (its estimates are re-evaluated per material), so a change
-        // needs no publish.
+        // needs no publish; a change moves Material::EmissiveLightsGeneration (the draws' EMISSION_IS_LIGHT mark
+        // and the surface cache's cards key on it).
         void               SetEmissiveLightsSceneOverride( std::optional<bool> lightsScene ) noexcept;
         [[nodiscard]] bool IsEmissiveLightsScene() const;
         // THE RENDER-COPY PUBLISH EPOCH (UE: a MaterialInstance parameter change invalidates the cached mesh draw

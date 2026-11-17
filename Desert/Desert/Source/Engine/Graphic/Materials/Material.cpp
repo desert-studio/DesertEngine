@@ -11,6 +11,35 @@
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // Material::EmissiveLightsGeneration: any thread may set the flag (an asset load, an instance build), a
+        // view reads it at its sync.
+        std::atomic<uint64_t>& EmissiveLightsCounter() noexcept
+        {
+            static std::atomic<uint64_t> counter{ 1 };
+            return counter;
+        }
+    } // namespace
+
+    void Material::SetEmissiveLightsScene( const bool lightsScene ) noexcept
+    {
+        if ( m_EmissiveLightsScene == lightsScene )
+            return;
+        m_EmissiveLightsScene = lightsScene;
+        NoteEmissiveLightsChange();
+    }
+
+    uint64_t Material::EmissiveLightsGeneration() noexcept
+    {
+        return EmissiveLightsCounter().load( std::memory_order_relaxed );
+    }
+
+    void Material::NoteEmissiveLightsChange() noexcept
+    {
+        EmissiveLightsCounter().fetch_add( 1, std::memory_order_relaxed );
+    }
+
     void Material::ReportMissingProperty( const std::string& name ) const
     {
         if ( !m_ReportedMissing.insert( name ).second )

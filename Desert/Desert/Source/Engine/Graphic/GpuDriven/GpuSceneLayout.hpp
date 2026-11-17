@@ -50,6 +50,10 @@ namespace Desert::Graphic::GpuDriven
         // a_PrevPosition; clear = the vertices did not move under the mesh, it reads a_Position (UE's previous
         // position stream bound only where one exists).
         inline constexpr uint32_t kPreviousPositions = 1u << 6;
+        // NEVER IN A PRIMITIVE ROW: the bit a resolved binned draw's Flags carries from its slot's
+        // kDrawSlotEmissionIsLight (GLSL DESERT_GPU_DRAW_EMISSION_IS_LIGHT, Common/GpuScene.glslh
+        // DesertResolveDrawOf). Reserved here so no primitive flag takes it.
+        inline constexpr uint32_t kDrawEmissionIsLight = 1u << 7;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
@@ -197,6 +201,9 @@ namespace Desert::Graphic::GpuDriven
         uint32_t Flags            = 0; // 12
     };
     inline constexpr uint32_t kDrawSlotDitheredLod = 1u << 0;
+    // The slot's material has Emissive Lights Scene on (its emission is a MegaLights light source): the binned
+    // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (GLSL DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT).
+    inline constexpr uint32_t kDrawSlotEmissionIsLight = 1u << 1;
     static_assert( sizeof( GpuDrawSlot ) == 16, "std430 twin in Common/GpuScene.glslh" );
     static_assert( offsetof( GpuDrawSlot, SubmeshTransform ) == 8, "Common/GpuScene.glslh" );
 

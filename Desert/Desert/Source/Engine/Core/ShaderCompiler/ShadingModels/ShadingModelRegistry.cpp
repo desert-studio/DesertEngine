@@ -478,8 +478,10 @@ uvec2 DesertPackShadingWord( int index, float sampledTextureCount, float specula
     const uint featureMax = ( 1u << uint( DESERT_SHADING_WORD_SLAB_FEATURES_BITS ) ) - 1u;
     word |= DesertShadingWordBits( DesertShadingModelSlabFeatures( index, DesertQuantizePayload( P ) ) & featureMax,
                                    DESERT_SHADING_WORD_SLAB_FEATURES_FIRST_BIT );
-    // The landscape bit belongs to the terrain pass alone (DesertMarkLandscape): no packed field may carry it.
+    // The landscape bit belongs to the terrain pass alone (DesertMarkLandscape), the emission-is-a-light bit to the
+    // G-buffer writer's draw flag (DesertMarkEmissionIsLight): no packed field may carry either.
     word.x &= ~( 1u << uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) );
+    word.x &= ~( 1u << uint( DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT ) );
     return word;
 }
 

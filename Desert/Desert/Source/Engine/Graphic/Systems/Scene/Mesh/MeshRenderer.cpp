@@ -1751,11 +1751,14 @@ namespace Desert::Graphic::System
         // frame's records (their surfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
         // instance.
         bool reresolve = false;
-        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
-                                                                     WireframeView() != m_BinnedWireframe ||
-                                                                     virtualShadow != m_BinnedVirtualShadow )
+        // A material's Emissive Lights Scene toggled re-resolves too: the slots' kDrawSlotEmissionIsLight.
+        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch();
+             epoch != m_BinnedPipelineEpoch || WireframeView() != m_BinnedWireframe ||
+             virtualShadow != m_BinnedVirtualShadow ||
+             Graphic::Material::EmissiveLightsGeneration() != m_BinnedEmissiveLightsGeneration )
         {
-            m_BinnedPipelineEpoch = epoch;
+            m_BinnedPipelineEpoch            = epoch;
+            m_BinnedEmissiveLightsGeneration = Graphic::Material::EmissiveLightsGeneration();
             m_BinnedWireframe     = WireframeView();
             m_BinnedVirtualShadow = virtualShadow;
             m_BinnedRefused.clear();  // a reload may have fixed what was refused; say a remaining refusal again
@@ -2378,7 +2381,15 @@ namespace Desert::Graphic::System
                 const std::array<const GraphicsPipeline*, 3> states{ m_StaticGBufferPipeline.get(),
                                                                      m_InstancedGBufferPipeline.get(),
                                                                      m_SkinnedGBufferPipeline.get() };
-                return ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                // EMISSIVE-MEGALIGHTS-3: a material with Emissive Lights Scene on is a MegaLights light source;
+                // its slots mark the shading word's EMISSION_IS_LIGHT so screen GI takes none of its emission.
+                // Resolved as the emissive lists resolve it: the instance chain, else the surface.
+                GpuDriven::PassPipelineResolution resolved =
+                     ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                resolved.EmissionIsLight = resolved.Pipeline != nullptr &&
+                                           ( row.Instance != nullptr ? row.Instance->IsEmissiveLightsScene()
+                                                                     : row.Surface->IsEmissiveLightsScene() );
+                return resolved;
             }
             case GpuDriven::MeshPass::Forward:
             {

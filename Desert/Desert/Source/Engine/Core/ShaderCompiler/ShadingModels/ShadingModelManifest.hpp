@@ -115,9 +115,13 @@ namespace Desert::Core::ShadingModels
 
     inline constexpr std::uint8_t kShadingWordBits = 64;
 
-    inline constexpr std::array<ShadingWordField, 12> kShadingWordFields{ {
+    inline constexpr std::array<ShadingWordField, 13> kShadingWordFields{ {
          { "INDEX", 0, 4 },              // shading-model index, 0..15
-         { "TEXTURES", 4, 4 },           // sampled-texture count (Material Complexity), clamped to 15
+         { "TEXTURES", 4, 3 },           // sampled-texture count (Material Complexity), clamped to 7 (the view
+                                         // saturates at 3)
+         { "EMISSION_IS_LIGHT", 7, 1 },  // set = the emission is a MegaLights light source (Emissive Lights Scene,
+                                         // the push PrimitiveFlags): screen GI hits take no emission from the
+                                         // texel; 0, the clear value, ordinary emission GI counts
          { "PAYLOAD0", 8, 8 },           // CustomData0, unorm8
          { "PAYLOAD1", 16, 8 },          // CustomData1, unorm8
          { "NO_SUN_SHADOWS", 24, 1 },    // set = the sun's cascades do not shadow the surface

@@ -60,8 +60,11 @@ void DesertSurfaceNormalFootprint( const SurfaceInput i, const SurfaceOutput s, 
 
 // @p castsContactShadow: the primitive's contact-shadow cast (UE bCastContactShadow), as its draw states it.
 // @p emits: the draw writes the surface's emission (DESERT_PRIMITIVE_FLAG_NO_EMISSION clears it).
+// @p emissionIsLight: the emission is a MegaLights light source (DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT, the binned
+// draw's DESERT_GPU_DRAW_EMISSION_IS_LIGHT): the shading word's EMISSION_IS_LIGHT mark.
 void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
-                         const float objectMoved, const bool castsContactShadow, const bool emits )
+                         const float objectMoved, const bool castsContactShadow, const bool emits,
+                         const bool emissionIsLight )
 {
     vec3  N         = DesertSurfaceWorldNormal( i, s );
     vec3  baseColor = s.BaseColor;
@@ -84,10 +87,12 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     const uvec2 word =
          DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
-    // The material's sun-shadow receive, then the primitive's contact-shadow cast.
-    oGBufferShadingWord = DesertMarkContactShadowCast(
-         DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
-         castsContactShadow );
+    // The material's sun-shadow receive, then the primitive's contact-shadow cast and its emission-is-a-light mark.
+    oGBufferShadingWord = DesertMarkEmissionIsLight(
+         DesertMarkContactShadowCast(
+              DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
+              castsContactShadow ),
+         emissionIsLight );
     oGBufferEmissive      = vec4( emits ? s.Emissive : vec3( 0.0 ), ao );
     oVelocity             = DesertVelocity( clip, prevClip, objectMoved );
     oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );

@@ -3243,7 +3243,10 @@ namespace Desert::Graphic::System
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj->GpuPrimitive )
                                          .MaterialIndex( materialRow )
-                                         .PrimitiveFlags( PrimitiveFlagsOf( obj->CastContactShadow ) )
+                                         .PrimitiveFlags( PrimitiveFlagsOf(
+                                              obj->CastContactShadow,
+                                              mat != standInKey && ( inst != nullptr ? inst->IsEmissiveLightsScene()
+                                                                                     : mat->IsEmissiveLightsScene() ) ) )
                                          .LodFadeSide( singles[i].LodFadeSide ) } );
             }
         }
@@ -3437,7 +3440,10 @@ namespace Desert::Graphic::System
                     if ( ismMasked )
                         d.LodFadeSide = run.Side;
                     d.Wind              = ismWind;
-                    d.PrimitiveFlags = PrimitiveFlagsOf( ism.CastContactShadow );
+                    d.PrimitiveFlags = PrimitiveFlagsOf(
+                         ism.CastContactShadow,
+                         !ismStandsIn && ( ism.Material != nullptr ? ism.Material->IsEmissiveLightsScene()
+                                                                   : mat->IsEmissiveLightsScene() ) );
                     if ( ismSet->SceneIds )
                     {
                         // The level's slice of the ISM's range of the view's ids (PrepareViewIsmIds: the entry's

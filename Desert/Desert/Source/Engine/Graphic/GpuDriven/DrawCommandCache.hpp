@@ -128,6 +128,9 @@ namespace Desert::Graphic::GpuDriven
         // dithered LOD transition: its slots carry kDrawSlotDitheredLod (InstanceCull.shader EmitToBins draws
         // both levels of a fading instance there). False: the submesh switches level at once.
         bool                    DitheredLod = false;
+        // The submesh's material has Emissive Lights Scene on: its slots carry kDrawSlotEmissionIsLight, so the
+        // G-buffer marks its emission as a MegaLights light source (screen GI takes none of it).
+        bool                    EmissionIsLight = false;
     };
 
     // One pass's cached state: what the cull and the draw need, as host mirrors of the GPU tables.
@@ -272,6 +275,8 @@ namespace Desert::Graphic::GpuDriven
             std::array<std::vector<BinFallback>, kMeshPassCount> Fallbacks;
             // [pass][submesh]: PassPipelineResolution::DitheredLod of a non-null Pipelines entry (1), else 0.
             std::array<std::vector<uint8_t>, kMeshPassCount> DitheredLod;
+            // [pass][submesh]: PassPipelineResolution::EmissionIsLight of a non-null Pipelines entry (1), else 0.
+            std::array<std::vector<uint8_t>, kMeshPassCount> EmissionIsLight;
         };
         struct MeshTransformRows
         {
