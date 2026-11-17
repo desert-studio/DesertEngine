@@ -493,6 +493,14 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
+    //   4 - HLOD LAYER PER ENTITY (WP-SETTINGS-UI; UE AActor::HLODLayer). A record may state an `HLODLayer`
+    //       component naming one of the world's HLOD layers: its composite's part of its cell's HLOD is built by that
+    //       layer instead of the grid's (Rules::CompositeHLODLayer). ADDITIVE: a v3 record states none and is built
+    //       by its grid's layer, exactly as before - the step has no transform of its own, the stamp states WPAR 4.
+    //       The number moves so a v3 build refuses a world whose per-entity layers it would silently ignore. Scenes
+    //       and prefabs alike.
+    inline constexpr int kWorldPartitionVersionEntityHLODLayer = 4;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -540,7 +548,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionEntityHLODLayer == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1316,6 +1324,7 @@ namespace Desert::Migration
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        EntityHLODLayerRaised   = false; // below kWorldPartitionVersionEntityHLODLayer (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected

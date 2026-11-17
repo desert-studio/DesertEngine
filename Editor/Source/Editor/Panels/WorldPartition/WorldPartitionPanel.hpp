@@ -101,6 +101,12 @@ namespace Desert::Editor
         // One combo per grid: the layer its cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups);
         // undoable.
         void DrawRuntimeGrids();
+        /// UE's UHLODLayer assets of the world (WP-SETTINGS-UI): the world's HLODLayers as a table - New, Rename and
+        /// Delete (refused while a grid, a layer's Parent or an entity's HLOD Layer names it), Type, Parent, Spatially
+        /// Loaded with its Cell Size and Loading Range, and the MeshSimplify builder's triangle share - and the
+        /// world's ChunkRegionSize. Every commit is one history entry through EditWorldPartition, refused by the
+        /// same rules as the file (Rules::ValidateHLODLayers).
+        void DrawHLODLayers();
         void DrawGridHLODLayers();
         /// UE's Data Layer Outliner (WP-DATA-LAYERS): the world's layers - a new one, Initially Loaded (the world's,
         /// undoable through EditWorldPartition), Loaded (this user's, reloading what the editor holds), and Delete,
@@ -161,6 +167,8 @@ namespace Desert::Editor
         std::string                                      m_GridEditStatus; ///< the last Runtime grids refusal
         std::string m_DataLayerStatus; ///< the last Data Layers refusal or reload
         std::array<char, 128> m_NewDataLayer{}; ///< the Data Layers section's name field
+        std::string m_HLODLayerStatus; ///< the last HLOD layers / chunking refusal
+        std::array<char, 128> m_NewHLODLayer{}; ///< the HLOD layers section's name field
         /// What the editor holds of this world for this user - the regions, or the whole world, and the data-layer
         /// state - as EditorLoadedRegions remembers it; read once per scene, written after every reload.
         ::Desert::Core::EditorRegions::HeldRegions m_Held;

@@ -29,6 +29,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
+#include <Engine/ECS/Components.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -327,6 +328,7 @@ namespace Desert::Editor
         if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() )
         {
             DrawRuntimeGrids();
+            DrawHLODLayers();
             DrawGridHLODLayers();
             DrawDataLayers();
         }
@@ -524,6 +526,304 @@ namespace Desert::Editor
         }
         if ( !m_GridEditStatus.empty() )
             ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
+    }
+
+    // UE's UHLODLayer, edited where UE's World Settings > World Partition Setup edits the partition: one row per
+    // layer of the world (Name, Type, Parent, Spatially Loaded + Cell Size + Loading Range, the MeshSimplify
+    // builder's triangle share, who names it), New and Delete, and the world's ChunkRegionSize. Every commit is
+    // ONE history entry through EditWorldPartition - refused whole, by name, by Rules::ValidateHLODLayers. A
+    // Parent is what makes a layer spatially loaded (Rules::ValidateHLODLayers: only a spatially loaded layer has
+    // one), so picking a Parent states UE's default cell and range and picking None clears all three.
+    void WorldPartitionPanel::DrawHLODLayers()
+    {
+        if ( !ImGui::CollapsingHeader( "HLOD layers" ) )
+            return;
+        namespace Core                                         = ::Desert::Core;
+        const Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
+        static const std::vector<Core::HLODLayerSerialized> kNoLayers;
+        const std::vector<Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
+        // UE UHLODLayer's defaults for a spatially loaded layer (cm) and UHLODBuilderMeshSimplify's starting share.
+        constexpr float kDefaultCellSize     = 25600.0f;
+        constexpr float kDefaultLoadingRange = 51200.0f;
+        constexpr float kDefaultSimplify     = 0.5f;
+
+        // Who names each layer: grids (HLODLayer), layers (ParentLayer), entities (their HLODLayer block - the
+        // plan's composites, which over the descriptor index include those not loaded, and the loaded ones).
+        std::vector<std::size_t> gridUsers( layers.size(), 0 ), parentUsers( layers.size(), 0 ),
+             entityUsers( layers.size(), 0 ), liveUsers( layers.size(), 0 );
+        for ( std::size_t i = 0; i < layers.size(); ++i )
+        {
+            for ( const Core::WorldPartitionGridSerialized& grid : current.Grids )
+                if ( grid.HLODLayer == layers[i].Name )
+                    ++gridUsers[i];
+            for ( const Core::HLODLayerSerialized& other : layers )
+                if ( other.ParentLayer == layers[i].Name )
+                    ++parentUsers[i];
+        }
+        if ( m_EditPlan )
+            for ( const Core::Rules::PlannedComposite& composite : m_EditPlan->Composites )
+                if ( composite.HLODLayer.has_value() && *composite.HLODLayer < entityUsers.size() &&
+                     m_EditPartition == current )
+                    entityUsers[*composite.HLODLayer] += composite.Members.size();
+        {
+            auto& registry = m_Scene->GetRegistry();
+            auto  view     = registry.view<::Desert::ECS::HLODLayerComponent>();
+            for ( const auto handle : view )
+                if ( const auto index = Core::Rules::HLODLayerIndexOf(
+                          current, view.get<::Desert::ECS::HLODLayerComponent>( handle ).Data.Layer );
+                     index.has_value() )
+                    ++liveUsers[*index];
+        }
+        const auto entitiesNaming = [&]( std::size_t i ) { return std::max( entityUsers[i], liveUsers[i] ); };
+        const auto usedBy         = [&]( std::size_t i )
+        {
+            return std::format( "{} grid(s), {} layer(s) as Parent, {} entit{}", gridUsers[i], parentUsers[i],
+                                entitiesNaming( i ), entitiesNaming( i ) == 1 ? "y" : "ies" );
+        };
+
+        std::optional<Core::WorldPartitionSerialized> after;
+        std::string                                   label;
+        const auto edit = [&]( std::string what ) -> std::vector<Core::HLODLayerSerialized>&
+        {
+            after = current;
+            label = std::move( what );
+            return *after->HLODLayers;
+        };
+        if ( layers.empty() )
+            ImGui::TextDisabled( "This world states no HLOD layer." );
+        else if ( ImGui::BeginTable( "##hlodlayers", 9,
+                                     ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Type" );
+            ImGui::TableSetupColumn( "Parent" );
+            ImGui::TableSetupColumn( "Spatially Loaded" );
+            ImGui::TableSetupColumn( "Cell size (cm)" );
+            ImGui::TableSetupColumn( "Loading range (cm)" );
+            ImGui::TableSetupColumn( "Triangles kept" );
+            ImGui::TableSetupColumn( "Used by" );
+            ImGui::TableSetupColumn( "" );
+            ImGui::TableHeadersRow();
+            constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
+            constexpr const char*         kTypes[] = { "Instancing", "MeshMerge", "MeshSimplify" };
+            for ( std::size_t i = 0; i < layers.size() && !after; ++i )
+            {
+                const Core::HLODLayerSerialized& layer = layers[i];
+                ImGui::PushID( static_cast<int>( i ) );
+                ImGui::TableNextRow();
+
+                // Name: a rename carries every grid and Parent naming the layer; refused while an entity names it
+                // (an entity on disk cannot be renamed with the block, so its name would dangle).
+                ImGui::TableNextColumn();
+                char name[128];
+                std::snprintf( name, sizeof( name ), "%s", layer.Name.c_str() );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && layer.Name != name )
+                {
+                    if ( entitiesNaming( i ) > 0 )
+                        m_HLODLayerStatus = std::format(
+                             "Rename '{}': {} entit{} name it as their HLOD Layer - give them another layer first.",
+                             layer.Name, entitiesNaming( i ), entitiesNaming( i ) == 1 ? "y" : "ies" );
+                    else
+                    {
+                        const std::string renamed( name );
+                        std::vector<Core::HLODLayerSerialized>& list =
+                             edit( std::format( "Rename HLOD layer {} to {}", layer.Name, renamed ) );
+                        for ( Core::HLODLayerSerialized& other : list )
+                            if ( other.ParentLayer == layer.Name )
+                                other.ParentLayer = renamed;
+                        list[i].Name = renamed;
+                        for ( Core::WorldPartitionGridSerialized& grid : after->Grids )
+                            if ( grid.HLODLayer == layer.Name )
+                                grid.HLODLayer = renamed;
+                    }
+                }
+
+                // Type (UE UHLODLayer::HLODBuilderClass): MeshSimplify states its triangle share, the others none.
+                ImGui::TableNextColumn();
+                int type = static_cast<int>( layer.Type );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::Combo( "##type", &type, kTypes, IM_ARRAYSIZE( kTypes ) ) && type != static_cast<int>( layer.Type ) )
+                {
+                    Core::HLODLayerSerialized& changed =
+                         edit( std::format( "Set type of HLOD layer {} to {}", layer.Name, kTypes[type] ) )[i];
+                    changed.Type = static_cast<Core::HLODLayerType>( type );
+                    if ( changed.Type == Core::HLODLayerType::MeshSimplify )
+                        changed.SimplifyTrianglePercent = changed.SimplifyTrianglePercent.value_or( kDefaultSimplify );
+                    else
+                        changed.SimplifyTrianglePercent.reset();
+                }
+
+                // Parent (UE UHLODLayer::ParentLayer): a Parent makes the layer spatially loaded, None makes it the
+                // always-loaded top of its chain.
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::BeginCombo( "##parent", layer.ParentLayer.value_or( "None" ).c_str() ) )
+                {
+                    std::optional<std::optional<std::string>> picked;
+                    if ( ImGui::Selectable( "None", !layer.ParentLayer.has_value() ) && layer.ParentLayer.has_value() )
+                        picked = std::optional<std::string>();
+                    for ( const Core::HLODLayerSerialized& other : layers )
+                        if ( other.Name != layer.Name &&
+                             ImGui::Selectable( other.Name.c_str(), layer.ParentLayer == other.Name ) &&
+                             layer.ParentLayer != other.Name )
+                            picked = std::optional<std::string>( other.Name );
+                    ImGui::EndCombo();
+                    if ( picked )
+                    {
+                        Core::HLODLayerSerialized& changed = edit( std::format(
+                             "Set parent of HLOD layer {} to {}", layer.Name, picked->value_or( "None" ) ) )[i];
+                        changed.ParentLayer = *picked;
+                        if ( changed.ParentLayer.has_value() )
+                        {
+                            changed.CellSize     = changed.CellSize.value_or( kDefaultCellSize );
+                            changed.LoadingRange = changed.LoadingRange.value_or( kDefaultLoadingRange );
+                        }
+                        else
+                        {
+                            changed.CellSize.reset();
+                            changed.LoadingRange.reset();
+                        }
+                    }
+                }
+
+                // Spatially Loaded (UE UHLODLayer::bIsSpatiallyLoaded): both numbers or neither; turning it on
+                // without a Parent is refused by the rule that names why (nothing would stand in beyond the range).
+                ImGui::TableNextColumn();
+                bool spatial = layer.CellSize.has_value();
+                if ( ImGui::Checkbox( "##spatial", &spatial ) )
+                {
+                    Core::HLODLayerSerialized& changed =
+                         edit( std::format( "{} HLOD layer {} spatially loaded", spatial ? "Make" : "Stop making",
+                                            layer.Name ) )[i];
+                    if ( spatial )
+                    {
+                        changed.CellSize     = kDefaultCellSize;
+                        changed.LoadingRange = kDefaultLoadingRange;
+                    }
+                    else
+                    {
+                        changed.CellSize.reset();
+                        changed.LoadingRange.reset();
+                        changed.ParentLayer.reset();
+                    }
+                }
+                ImGui::TableNextColumn();
+                if ( layer.CellSize.has_value() )
+                {
+                    float cell = *layer.CellSize;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) && cell != *layer.CellSize )
+                        edit( std::format( "Set cell size of HLOD layer {}", layer.Name ) )[i].CellSize = cell;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+                ImGui::TableNextColumn();
+                if ( layer.LoadingRange.has_value() )
+                {
+                    float range = *layer.LoadingRange;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                         range != *layer.LoadingRange )
+                        edit( std::format( "Set loading range of HLOD layer {}", layer.Name ) )[i].LoadingRange = range;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+
+                // The builder's settings: MeshSimplify's share of the merged triangles kept, in percent.
+                ImGui::TableNextColumn();
+                if ( layer.SimplifyTrianglePercent.has_value() )
+                {
+                    float percent = *layer.SimplifyTrianglePercent * 100.0f;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##simplify", &percent, 0.0f, 0.0f, "%.1f %%", kCommit ) &&
+                         percent / 100.0f != *layer.SimplifyTrianglePercent )
+                        edit( std::format( "Set triangles kept of HLOD layer {}", layer.Name ) )[i]
+                             .SimplifyTrianglePercent = percent / 100.0f;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted( usedBy( i ).c_str() );
+                ImGui::TableNextColumn();
+                if ( ImGui::SmallButton( "Delete" ) )
+                {
+                    if ( gridUsers[i] + parentUsers[i] + entitiesNaming( i ) > 0 )
+                        m_HLODLayerStatus = std::format( "Delete '{}': it is named by {} - name another layer there "
+                                                         "first.",
+                                                         layer.Name, usedBy( i ) );
+                    else
+                    {
+                        std::vector<Core::HLODLayerSerialized>& list =
+                             edit( std::format( "Delete HLOD layer {}", layer.Name ) );
+                        list.erase( list.begin() + static_cast<std::ptrdiff_t>( i ) );
+                        if ( list.empty() )
+                            after->HLODLayers.reset(); // no layers is no key, never an empty list
+                    }
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+
+        ImGui::SetNextItemWidth( 200.0f );
+        ImGui::InputTextWithHint( "##newhlodlayer", "New HLOD layer name", m_NewHLODLayer.data(),
+                                  m_NewHLODLayer.size() );
+        ImGui::SameLine();
+        if ( ImGui::Button( "New HLOD Layer" ) && !after )
+        {
+            // UE's new UHLODLayer: Instancing, not spatially loaded (the top of a chain until it is given a Parent).
+            after = current;
+            if ( !after->HLODLayers )
+                after->HLODLayers.emplace();
+            Core::HLODLayerSerialized layer;
+            layer.Name = std::string( m_NewHLODLayer.data() );
+            label      = std::format( "New HLOD layer {}", layer.Name );
+            after->HLODLayers->push_back( std::move( layer ) );
+        }
+
+        // ChunkRegionSize: the side of the square region (cm) whose cells a packaged build ships in one content
+        // chunk; off = the world ships in the base chunk.
+        bool  chunked = current.ChunkRegionSize.has_value();
+        float region  = current.ChunkRegionSize.value_or( 0.0f );
+        if ( ImGui::Checkbox( "Chunked packaging", &chunked ) && !after )
+        {
+            after = current;
+            // A 1 km region to start from (the Protocol world's); the field below sets the real one.
+            after->ChunkRegionSize = chunked ? std::optional<float>( 100000.0f ) : std::nullopt;
+            label = chunked ? "Ship the world in chunks" : "Ship the world in the base chunk";
+        }
+        if ( current.ChunkRegionSize.has_value() )
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 160.0f );
+            if ( ImGui::InputFloat( "Chunk region (cm)", &region, 0.0f, 0.0f, "%.0f",
+                                    ImGuiInputTextFlags_EnterReturnsTrue ) &&
+                 region != *current.ChunkRegionSize && !after )
+            {
+                if ( !( std::isfinite( region ) && region > 0.0f ) )
+                    m_HLODLayerStatus = std::format( "Chunk region {:f} cm: it must be positive and finite", region );
+                else
+                {
+                    after                  = current;
+                    after->ChunkRegionSize = region;
+                    label                  = "Set chunk region size";
+                }
+            }
+        }
+
+        if ( after )
+        {
+            const bool created = label.starts_with( "New HLOD layer" );
+            const auto edited  = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_HLODLayerStatus  = edited ? std::string() : edited.GetError();
+            m_EditPlanStale    = true; // the Used by counts are the plan's
+            if ( edited && created )
+                m_NewHLODLayer.fill( '\0' );
+        }
+        if ( !m_HLODLayerStatus.empty() )
+            ImGui::TextWrapped( "%s", m_HLODLayerStatus.c_str() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()

@@ -1338,17 +1338,29 @@ namespace Desert::Core::WorldCells
         std::set<std::uint64_t>         hlodIds;
         BuiltHLODIndex                  out;
         out.SceneName = scene.SceneName;
-        // One HLOD built and handed to the sink: @p members are the records it stands in for, @p cookedName names
-        // its ids (HLODRecordId), @p name is its saved file.
-        const auto build = [&]( BuiltHLODCell& row, const HLODLayerSerialized& hlodLayer,
+        // One HLOD built and handed to the sink: @p members are the records it stands in for, @p parts the same
+        // records grouped by the layer that builds them (Rules::CellHLODParts; one part for a parent), @p cookedName
+        // names its ids (HLODRecordId), @p name is its saved file.
+        const auto build = [&]( BuiltHLODCell& row, std::span<const Rules::CellHLODPart> parts,
                                 std::span<const std::size_t> members, float minVisibleDistance,
                                 const std::string& cookedName, const std::string& name ) -> Common::BoolResultStr
         {
-            auto builtCell = Rules::BuildCellHLOD( hlodLayer, records, world, members, minVisibleDistance,
-                                                   customShader, issues, foliageInHLOD, meshBuilder, landscape );
-            if ( !builtCell )
-                return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + builtCell.GetError() );
-            const Rules::InstancingHLOD built = builtCell.ExtractValue();
+            // Every part by its own layer, then one HLOD of their batches: the cell is one residency unit.
+            Rules::InstancingHLOD built;
+            for ( const Rules::CellHLODPart& part : parts )
+            {
+                auto builtPart = Rules::BuildCellHLOD( *part.Layer, records, world, part.Members, minVisibleDistance,
+                                                       customShader, issues, foliageInHLOD, meshBuilder, landscape );
+                if ( !builtPart )
+                    return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + builtPart.GetError() );
+                Rules::InstancingHLOD piece = builtPart.ExtractValue();
+                built.Instances += piece.Instances;
+                built.FoliageLeftOut += piece.FoliageLeftOut;
+                built.NotInstanced.insert( built.NotInstanced.end(), piece.NotInstanced.begin(),
+                                           piece.NotInstanced.end() );
+                for ( Rules::HLODBatch& batch : piece.Batches )
+                    built.Batches.push_back( std::move( batch ) );
+            }
             row.Instances                     = built.Instances;
             for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
                 row.NotInstanced.push_back(
@@ -1392,11 +1404,13 @@ namespace Desert::Core::WorldCells
             BuiltHLODCell             row;
             row.Unit      = hp.Names[unit];
             row.BuiltFrom = HLODBuildChecksum( records, hp.Members[unit], *scene.WorldPartition );
-            // The layer is the cell's GRID's (WP22c): a grid that states none gives its cells a row with no file.
-            const HLODLayerSerialized* const hlodLayer =
-                 Rules::GridHLODLayer( *scene.WorldPartition, scene.WorldPartition->Grids.at( cell.Grid ) );
-            if ( hlodLayer != nullptr )
-                if ( auto built = build( row, *hlodLayer, hp.Members[unit],
+            // The layer is the cell's GRID's (WP22c), and a composite's own where it names one (WP-SETTINGS-UI,
+            // Rules::CellHLODParts): a grid that states none gives its cells a row with no file.
+            auto parts = Rules::CellHLODParts( *scene.WorldPartition, hp.Plan, cell, hp.Members[unit] );
+            if ( !parts )
+                return Common::MakeError<Result>( "'" + scene.SceneName + "', " + row.Unit + ": " + parts.GetError() );
+            if ( !parts.GetValue().empty() )
+                if ( auto built = build( row, parts.GetValue(), hp.Members[unit],
                                          Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
                                          HLODFileName( CellFileName( *scene.WorldPartition, cell ) ),
                                          BuiltHLODFileName( *scene.WorldPartition, cell ) );
@@ -1424,8 +1438,10 @@ namespace Desert::Core::WorldCells
             BuiltHLODCell          row;
             row.Unit      = node.Name;
             row.BuiltFrom = HLODBuildChecksum( records, members, *scene.WorldPartition );
+            const Rules::CellHLODPart whole{ &layers.at( node.Layer ), members };
             if ( auto built =
-                      build( row, layers.at( node.Layer ), members, *layers.at( child.Layer ).LoadingRange,
+                      build( row, std::span<const Rules::CellHLODPart>( &whole, 1 ), members,
+                             *layers.at( child.Layer ).LoadingRange,
                              stem + std::string( kCellExtension ), stem + std::string( kBuiltHLODExtension ) );
                  !built )
                 return Common::MakeError<Result>( built.GetError() );

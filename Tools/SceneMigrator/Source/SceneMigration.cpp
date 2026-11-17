@@ -5436,6 +5436,10 @@ namespace Desert::Migration
             // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
                 report.RuntimeDataLayersRaised = true;
+            // v3 -> v4 is additive with no restatement at all: a record that states no HLODLayer component is
+            // built by its grid's layer, as it was.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionEntityHLODLayer )
+                report.EntityHLODLayerRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

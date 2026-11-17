@@ -151,7 +151,12 @@ namespace Desert::Core
     // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
     // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v4 (WP-SETTINGS-UI): a record may state an `HLODLayer` component (ECS::HLODLayerComponent, UE AActor::HLODLayer)
+    // naming one of the world's HLODLayers: its composite's part of its cell's HLOD is built by that layer instead of
+    // its grid's (Rules::CompositeHLODLayer). Additive - a v3 record states none and is built as before - so the step
+    // (Tools/SceneMigrator, kWorldPartitionVersionEntityHLODLayer) states the tag and changes nothing else; the
+    // number moves so a v3 build refuses a world whose per-entity layers it would silently build by the grid's.
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

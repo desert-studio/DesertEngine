@@ -3339,6 +3339,31 @@ namespace Desert::ECS
         DataLayersData Data;
     };
 
+    // WHICH HLOD LAYER BUILDS THIS ENTITY'S PART OF ITS CELL'S HLOD - UE's AActor::HLODLayer (WP-SETTINGS-UI, WP v4).
+    // Absent = its grid's layer (Core::WorldPartitionGridSerialized::HLODLayer), so there is no present-and-empty
+    // second spelling of "the grid's". A composite is built by its ANCHOR's layer; a name the world has no layer
+    // of, or a member that states another layer than its anchor, is an Issue of the world's plan with the entity's
+    // path (Rules::PlanWorldPartition), and a grid that builds no HLOD refuses Build HLODs for a member that names
+    // one (Rules::CompositeHLODLayer).
+    struct HLODLayerData
+    {
+        REFLECT()
+
+        // Hidden: Details draws it as a pick of THIS world's HLOD layers (WorldPartitionDetails.cpp), as UE's
+        // Details picks an actor's HLOD Layer asset - a typed name would invite one no layer has.
+        PROPERTY( DisplayName( "HLOD Layer" ), Category( "World Partition" ),
+                  Tooltip( "The World Partition HLOD layer that builds this entity's part of its cell's HLOD, "
+                           "instead of its grid's layer." ),
+                  Hidden )
+        std::string Layer;
+    };
+
+    struct HLODLayerComponent
+    {
+        COMPONENT( Key( "HLODLayer" ), Block( Data ), Run( ActorsAndUI ) )
+        HLODLayerData Data;
+    };
+
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);
     // the script drives behavior through the bound API (self:move/jump/addYaw..., Input.*). See ScriptEngine.
     // A behavior unit, like a UE ActorComponent: one .lua file + its exposed properties + lifecycle flag.

@@ -1,0 +1,28 @@
+# WP-SETTINGS-UI (UE World Settings > World Partition Setup + the UHLODLayer editor + actor Details > World Partition):
+# the World Partition panel edits the world's HLOD layers (New/Rename/Delete refused while named, Type, Parent,
+# Spatially Loaded + Cell size + Loading range, MeshSimplify's Triangles kept) and ChunkRegionSize; the Details panel
+# shows a World Partition section for every entity of a partitioned world - Is Spatially Loaded, Runtime Grid,
+# HLOD Layer (new per-entity override, WP format v4, ECS::HLODLayerComponent, read by Rules::CellHLODParts) and Data
+# Layers, plus the cell its composite lands in (Rules::CellStem). Every edit is one undo step.
+# WP_Protocol states layers HLOD_Main (spatial, parent HLOD_Main_Far), HLOD_Main_Far, HLOD_Foliage, HLOD_Landscape -
+# the brief's "Near" is HLOD_Main here; its grid "MainGrid" is "Main".
+# The house: 1000 is the first external record of WP_Protocol; lead - if it is not a Main-grid building, take any
+# building's id from the Outliner (Details > World Partition must read Grid Main).
+# Lead: if `set` does not create a missing component, add it first (Details > Add Component > HLOD Layer, or the
+# DesertCtl add-component form) - the field is HLODLayerData.Layer; the Details row itself adds it.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Когда set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"},{"Name":"Far2","Type":"MeshSimplify","SimplifyTrianglePercent":0.5}]
+Когда set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"Far2","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"},{"Name":"Far2","Type":"MeshSimplify","SimplifyTrianglePercent":0.5}]
+Когда select 1000
+Когда set 1000 HLODLayerData.Layer "Far2"
+Тогда wpui_layers панель World Partition, раздел HLOD layers: строка Far2 (Type MeshSimplify, Triangles kept 50.0 %, Parent None, Spatially Loaded снят), у HLOD_Main Parent = Far2, Used by у Far2: "0 grid(s), 1 layer(s) as Parent, 1 entity"; раздел Chunked packaging отмечен, Chunk region 100000. Details дома 1000 - раздел World Partition: Is Spatially Loaded отмечен, Runtime Grid "Main (main grid)", HLOD Layer Far2, Data Layers "No layer", Cell G0_L0_<x>_<z> - grid Main, level 0, cell 25 m
+Когда run Action "Undo"
+Тогда wpui_undo Details дома: HLOD Layer "Grid's layer (HLOD_Main)"; панель как в wpui_layers (слой и Parent - отдельные шаги истории)
+Когда run Action "Redo"
+Тогда wpui_redo то же, что wpui_layers: HLOD Layer Far2, ячейка та же
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда wpui_restored раздел HLOD layers без Far2, у HLOD_Main Parent = HLOD_Main_Far; Details дома: HLOD Layer "Grid's layer (HLOD_Main)"; мир как в начале (сцену не сохранять)

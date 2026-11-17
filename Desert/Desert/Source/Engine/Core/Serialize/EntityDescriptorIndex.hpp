@@ -50,7 +50,9 @@ namespace Desert::Core::DescriptorIndex
     };
     // 3 (WP-DATA-LAYERS + WP-SRC-ALTITUDE): a descriptor states its DataLayers and its instance points are 3D -
     // an index of 2 is rebuilt, never read without them.
-    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 3 )
+    // 4 (WP-SETTINGS-UI): a descriptor states its HLODLayer (the entity's HLOD layer override) - an index of 3 is
+    // rebuilt, never read without it.
+    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 4 )
 
     // Where the index of the scene at `scenePath` lives.
     [[nodiscard]] std::filesystem::path PathOf( const std::filesystem::path& scenePath );
