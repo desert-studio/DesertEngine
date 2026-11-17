@@ -6,6 +6,8 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <array>
+#include <span>
 
 namespace Desert::Graphic::GpuDriven
 {
@@ -29,6 +31,18 @@ namespace Desert::Graphic::GpuDriven
             return Common::MakeFormattedError(
                  "indirect groups: {} blocks, {} carriers and {} pipelines for {} groups", groupBindings.size(),
                  groupMaterials.size(), groupPipelines.size(), pass.Groups.size() );
+        // FPS-CPU2-VKRECORD: the groups go to the API in batches (RendererAPI::RenderMeshIndirectGroup), so what
+        // consecutive groups share - the argument buffer, the pass state, the geometry - is resolved and bound
+        // once; a fixed batch on the stack, flushed when full and at the end (no per-frame heap container).
+        constexpr size_t                                kBatch = 32;
+        std::array<MeshIndirectGroupBatchEntry, kBatch> batch{};
+        size_t                                          batched = 0;
+        const auto flush = [&]() -> Common::BoolResultStr
+        {
+            const auto entries = std::span<const MeshIndirectGroupBatchEntry>( batch.data(), batched );
+            batched            = 0;
+            return api.RenderMeshIndirectGroup( entries );
+        };
         for ( size_t group = 0; group < pass.Groups.size(); ++group )
         {
             const IndirectGroup& indirect = pass.Groups[group];
@@ -60,11 +74,19 @@ namespace Desert::Graphic::GpuDriven
             if ( Common::Profiling::MeshDrawSplitOn() && pass.BinLabels.size() == pass.Bins.size() )
                 draw.SplitLabels = std::span<const DrawSplitLabel>( pass.BinLabels )
                                         .subspan( indirect.FirstBin, indirect.BinCount );
-            if ( const Common::BoolResultStr recorded =
-                      api.RenderMeshIndirectGroup( *bindings, *pipeline, indirect.Binding, draw );
-                 !recorded )
-                return recorded;
+            batch[batched++] = MeshIndirectGroupBatchEntry{
+                 .Bindings = bindings, .Pipeline = pipeline, .Geometry = &indirect.Binding, .Draw = draw };
+            if ( batched == kBatch )
+            {
+                if ( const Common::BoolResultStr recorded = flush(); !recorded )
+                    return recorded;
+            }
         }
+        if ( batched == 0u )
+            return Common::MakeSuccess( true );
+        // Success(false) (a group's pipeline still compiling, skipped) is not an error: the rest are recorded.
+        if ( const Common::BoolResultStr recorded = flush(); !recorded )
+            return recorded;
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::GpuDriven

@@ -684,8 +684,8 @@ namespace Desert::Core
         // dirtied is latched for scene.renderDirty and the next frame starts from an empty set.
         {
             std::lock_guard lock( m_RenderStateDirtyMutex );
-            m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
-            m_RenderStateDirty.clear();
+            m_RenderStateDirtyLastFrame = m_RenderStateDirty.Size();
+            m_RenderStateDirty.Clear();
         }
         m_RenderStateDelta.FrameBoundary();
 
@@ -1591,6 +1591,12 @@ namespace Desert::Core
         m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
         m_Registry.on_construct<ECS::RelationshipComponent>().disconnect( this );
+        m_Registry.on_update<ECS::RelationshipComponent>().disconnect( this );
+        m_Registry.on_destroy<ECS::RelationshipComponent>().disconnect( this );
+        // The hierarchy stamp (ECS::HierarchyRevision): a relationship emplaced (OnRelationshipConstructed),
+        // replaced or destroyed; Attach / Detach edit it in place and bump it themselves.
+        m_Registry.on_update<ECS::RelationshipComponent>().connect<&Scene::OnRelationshipChanged>( this );
+        m_Registry.on_destroy<ECS::RelationshipComponent>().connect<&Scene::OnRelationshipChanged>( this );
         // The world-transform cache first, so the render-state listeners below already see the composed world.
         m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
         m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformWorldPending>( this );
@@ -1612,6 +1618,8 @@ namespace Desert::Core
         connect.template operator()<ECS::InstancedStaticMeshComponent>();
         connect.template operator()<ECS::MaterialComponent>();
         connect.template operator()<ECS::VisibilityComponent>();
+        // A field's foliage type: the ISM record's fade and wind source (MeshECSSystem's Ism channel).
+        connect.template operator()<ECS::FoliageComponent>();
         // Every component that holds render caches parks them as it dies (UE: the proxy's RHI objects are
         // deleted once no frame in flight names them, never at the component's unregister).
         const auto retireOnDestroy = [this]<typename Component>()
@@ -1625,12 +1633,15 @@ namespace Desert::Core
         retireOnDestroy.template operator()<ECS::TextComponent>();
         {
             std::lock_guard lock( m_RenderStateDirtyMutex );
-            m_RenderStateDirty.clear();
+            m_RenderStateDirty.Clear();
             m_RenderStateDirtyLastFrame = 0;
         }
         // The retained render cache rebuilds from the registry as it now stands (MeshECSSystem).
         m_RenderStateDelta.RequestFullRebuild();
         m_Registry.ctx_or_set<ECS::RenderStateDeltaLink>().Delta = &m_RenderStateDelta;
+        // A reload is a new hierarchy: every cache derived from the old one is dropped.
+        m_HierarchyRevision.Bump();
+        m_Registry.ctx_or_set<ECS::HierarchyRevisionLink>().Revision = &m_HierarchyRevision;
     }
 
     void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )
@@ -1645,6 +1656,12 @@ namespace Desert::Core
         // Unconditional: a root emplaced with its Children already listed (scene load restores children before
         // their parent's relationship) has to push its world down to them as well.
         ECS::UpdateWorldTransforms( registry, entity );
+        m_HierarchyRevision.Bump();
+    }
+
+    void Scene::OnRelationshipChanged( entt::registry&, entt::entity )
+    {
+        m_HierarchyRevision.Bump();
     }
 
     void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
@@ -1662,19 +1679,22 @@ namespace Desert::Core
         std::lock_guard lock( m_RenderStateDirtyMutex );
         if ( !subtree )
         {
-            m_RenderStateDirty.insert( entity );
+            (void)m_RenderStateDirty.Mark( entity );
             m_RenderStateDelta.Mark( entity );
             return;
         }
-        // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
+        // Iterative, so a deep hierarchy cannot overflow the stack; the stack is a member kept under the lock,
+        // so a transform event allocates nothing once it has grown. An entity already in the set had its
         // subtree dirtied when it entered — unless it entered alone (a mesh / material / visibility change),
         // so the walk goes on below every entity regardless.
-        std::vector<entt::entity> pending{ entity };
+        std::vector<entt::entity>& pending = m_RenderStateWalk;
+        pending.clear();
+        pending.push_back( entity );
         while ( !pending.empty() )
         {
             const entt::entity current = pending.back();
             pending.pop_back();
-            m_RenderStateDirty.insert( current );
+            (void)m_RenderStateDirty.Mark( current );
             m_RenderStateDelta.Mark( current );
             if ( !m_Registry.valid( current ) )
                 continue;
@@ -1709,6 +1729,7 @@ namespace Desert::Core
 
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
+        m_HierarchyRevision.Bump(); // edited in place: no signal carries it
         // A new parent is a new world transform for the child and everything under it.
         ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
@@ -1739,6 +1760,7 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        m_HierarchyRevision.Bump(); // edited in place: no signal carries it
         ECS::UpdateWorldTransforms( m_Registry, child.GetHandle() );
         MarkRenderStateDirty( child.GetHandle(), true );
     }

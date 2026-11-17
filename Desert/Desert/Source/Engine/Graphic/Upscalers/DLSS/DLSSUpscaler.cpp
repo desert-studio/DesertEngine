@@ -46,7 +46,7 @@ namespace Desert::Graphic
         {
             using Kind = RDG::ShaderResourceKind;
             static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
-                 std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+                 RDG::MakeIndexedLayout( RDG::ShaderBindingLayout{
                       .ShaderName = kPathGuidesShaderName,
                       .Slots      = { { "GuideAlbedoTexture", Kind::StorageTexture },
                                       { "GuideNormalTexture", Kind::StorageTexture },
@@ -83,7 +83,7 @@ namespace Desert::Graphic
         {
             using Kind = RDG::ShaderResourceKind;
             static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
-                 std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+                 RDG::MakeIndexedLayout( RDG::ShaderBindingLayout{
                       .ShaderName = kGuidesShaderName,
                       .Slots      = { { "GBufferAlbedoTexture", Kind::Texture },
                                       { "GBufferNormalTexture", Kind::Texture },

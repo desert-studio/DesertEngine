@@ -75,18 +75,17 @@ namespace Desert::Graphic::System
         // logRefused: false for a program that declares only what it reads (the deferred depth-normal slice),
         // where a texture the program lacks is no refusal.
         //
-        // ApplyGenericOverrides (defaults, parameter overrides, textures) builds the draw's ROW and is called by
-        // SyncGpuScene only, which puts that row in the scene material table. A recording material takes the
-        // textures alone (ApplyGenericTextures): its descriptor set holds the TextureBinding textures, and its
-        // parameters are never read — the draw reads its row from the table.
+        // The draw's ROW (defaults, parameter overrides, row textures) is built by SyncGpuScene only
+        // (RegisterGenericRows: DataDrivenMaterial::ApplyOverrides when its revision moved), which puts that row
+        // in the scene material table. A recording material takes the textures alone (ApplyGenericTextures, once a
+        // frame per material by @p epoch, 0 = every call): its descriptor set holds the TextureBinding textures,
+        // and its parameters are never read — the draw reads its row from the table.
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g );
         // The same key into @p key (cleared first) with @p order as the sort scratch: the per-frame form.
         void WriteGenericTextureKey( const MeshRenderer::GenericMeshRenderData& g, std::string& key,
                                      std::vector<const std::pair<std::string, uint64_t>*>& order );
-        void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                    std::string_view shaderName, bool logRefused );
         void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                   std::string_view shaderName, bool logRefused );
+                                   std::string_view shaderName, bool logRefused, uint64_t epoch );
 
         static_assert( SceneResources::kMaxCascadeViews == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
@@ -98,7 +97,6 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::MeshDrawList;
 
     using MeshRendererDetail::AppendRow;
-    using MeshRendererDetail::ApplyGenericOverrides;
     using MeshRendererDetail::ApplyGenericTextures;
     using MeshRendererDetail::CreateCellMaterial;
     using MeshRendererDetail::DefaultSurfaceProgram;

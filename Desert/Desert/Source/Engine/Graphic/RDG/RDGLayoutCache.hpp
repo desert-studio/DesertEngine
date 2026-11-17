@@ -30,8 +30,8 @@ namespace Desert::Graphic::RDG
                  !m_Source.expired() && !m_Source.owner_before( observed ) && !observed.owner_before( m_Source );
             if ( !m_Layout || !sameSource || m_Generation != generation )
             {
-                m_Layout =
-                     std::make_shared<const ShaderBindingLayout>( std::forward<Derive>( derive )( *source ) );
+                // FPS-ARCH-BINDINGS: kept indexed (IndexShaderBindingLayout), so a block declares by slot index.
+                m_Layout = MakeIndexedLayout( std::forward<Derive>( derive )( *source ) );
                 m_Source     = observed;
                 m_Generation = generation;
             }

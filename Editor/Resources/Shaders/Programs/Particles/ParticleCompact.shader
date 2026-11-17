@@ -11,6 +11,10 @@ Shader "ParticleCompact"
         // resets slot ((c + 1) & 1) for compact c + 1 - that slot was last read by the Spawn+Update before this
         // compact. Reset (SortRange.w = 1, compact 0 of a fresh or restarted emitter) first kills the whole range:
         // the pool is never zeroed on the CPU.
+        // Compact 0 also starts the tick's motion (UE: the update script's copy of Particles.Previous.Position):
+        // every slot's PreviousPosition column takes its Position before the steps move it, so a tick of no
+        // step (paused, or shorter than the fixed step) draws no motion and the vertex factories reproject a
+        // particle to where the tick before left it.
         LocalSize(64, 1, 1);
 
         #include <Common/ParticleState.glslh>
@@ -37,9 +41,16 @@ Shader "ParticleCompact"
             ParticleDrawSlot Slots[];
         };
 
+        // The emitter's attribute columns (component c of particle n at c * count + n): compact 0's copy only.
+        Buffer(4) AttributeFloats
+        {
+            float AttributeFloatsData[];
+        };
+
         PushConstant PushConstants
         {
             uvec4 SortRange; // x = the range's pool base, y = its particle count, z = the slot filled, w = 1 reset | 2 full scan
+            uvec4 PreviousCopy; // x = Position's first column, y = PreviousPosition's (0xFFFFFFFF: no copy), zw 0
         };
 
         void main()
@@ -57,6 +68,10 @@ Shader "ParticleCompact"
                 i = base + t;
                 if ( ( SortRange.w & 1u ) != 0u )
                     PoolSlotsData[i] = ParticleSlot( 0u, 0u );
+                if ( PreviousCopy.y != 0xFFFFFFFFu )
+                    for ( uint c = 0u; c < 3u; ++c )
+                        AttributeFloatsData[( PreviousCopy.y + c ) * count + t] =
+                             AttributeFloatsData[( PreviousCopy.x + c ) * count + t];
             }
             else
             {

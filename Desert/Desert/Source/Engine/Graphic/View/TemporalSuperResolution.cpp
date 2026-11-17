@@ -94,7 +94,7 @@ namespace Desert::Graphic
         std::shared_ptr<const RDG::ShaderBindingLayout> MakeLayout( const char*                  shader,
                                                                     std::vector<RDG::ShaderSlot> slots )
         {
-            return std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+            return RDG::MakeIndexedLayout( RDG::ShaderBindingLayout{
                  .ShaderName = shader, .Slots = std::move( slots ), .PushConstantBytes = 0 } );
         }
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).

@@ -43,7 +43,62 @@ namespace Desert::Graphic::System
     namespace
     {
         constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
+
+        // The static queue's entries [0, @p count) a main-view walk asks, in increasing order (UE
+        // TConstSetBitIterator over the view's PrimitiveVisibilityMap): with @p viewBits (MainStaticBitsFor) the
+        // set ones only, each in view (@p visit's second argument true); without them every one, whose frustum
+        // test the visitor then asks itself (false) after its own cheaper tests. @p visit returns true to stop the
+        // walk; the result says whether it stopped. The same entries reach the same tests in the same order either
+        // way: every test a visitor makes is a pure read.
+        template <class Visit>
+        bool VisitStaticEntries( const std::span<const uint64_t> viewBits, const std::size_t count,
+                                 Visit&& visit ) noexcept
+        {
+            if ( viewBits.empty() )
+            {
+                for ( std::size_t si = 0; si < count; ++si )
+                    if ( visit( si, false ) )
+                        return true;
+                return false;
+            }
+            for ( std::size_t w = 0; w < viewBits.size(); ++w )
+            {
+                for ( uint64_t word = viewBits[w]; word != 0u; word &= word - 1u )
+                {
+                    const std::size_t si = w * 64u + static_cast<std::size_t>( std::countr_zero( word ) );
+                    if ( si >= count )
+                        return false;
+                    if ( visit( si, true ) )
+                        return true;
+                }
+            }
+            return false;
+        }
     } // namespace
+
+    MeshRenderer::FrustumBitsKey MeshRenderer::FrustumBitsKey::Of( const Core::Frustum& frustum ) noexcept
+    {
+        FrustumBitsKey key;
+        for ( uint32_t p = 0; p < 6u; ++p )
+        {
+            const Core::Frustum::Plane plane = frustum.GetPlane( static_cast<Core::FrustumPlane>( p ) );
+            key.Bits[p * 4u + 0u]            = std::bit_cast<uint32_t>( plane.Normal.x );
+            key.Bits[p * 4u + 1u]            = std::bit_cast<uint32_t>( plane.Normal.y );
+            key.Bits[p * 4u + 2u]            = std::bit_cast<uint32_t>( plane.Normal.z );
+            key.Bits[p * 4u + 3u]            = std::bit_cast<uint32_t>( plane.Distance );
+        }
+        return key;
+    }
+
+    std::span<const uint64_t> MeshRenderer::MainStaticBitsFor( const FrustumBitsKey& planes ) const noexcept
+    {
+        const StaticViewBits& bits = m_MainStaticBits;
+        if ( !bits.Valid || !StaticLanesCurrent() || bits.Count != m_StaticQueue.size() ||
+             bits.Revision != m_StaticSnapshot.Revision || bits.Gather != m_StaticSnapshot.Gather ||
+             !( bits.Planes == planes ) )
+            return {};
+        return bits.Words;
+    }
 
     namespace MeshRendererDetail
     {
@@ -86,24 +141,24 @@ namespace Desert::Graphic::System
             return key;
         }
 
-        void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                    const std::string_view shaderName, const bool logRefused )
-        {
-            material.ApplyDefaults();
-            for ( const auto& [name, value] : g.Overrides().Params )
-                material.SetParamRaw( name, value );
-            ApplyGenericTextures( material, g, shaderName, logRefused );
-        }
-
         void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
-                                   const std::string_view shaderName, const bool logRefused )
+                                   const std::string_view shaderName, const bool logRefused, const uint64_t epoch )
         {
-            // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler name.
-            // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
-            // the material and not per draw, because the key above guarantees every draw sharing
-            // this material asked for the same set.
-            for ( const auto& [name, handle] : g.Overrides().Textures )
+            // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler. Unset samplers keep
+            // the backend fallback texture, so this is purely additive. Bound on the material and not per draw,
+            // because the key above guarantees every draw sharing this material asked for the same set - so it is
+            // bound ONCE a frame per material (@p epoch, the queue's frame; 0 = bind regardless), through the
+            // handles the material keeps per override position (no sampler name looked up while they stand).
+            // A refusal said by a slice that does not name refusals leaves the material unbound for this frame,
+            // so the slice that names them still says it.
+            const std::unique_lock<std::mutex> lock = material.LockOverrideTextures();
+            if ( material.OverrideTexturesBound( epoch ) )
+                return;
+            bool        refusedUnsaid = false;
+            const auto& textures      = g.Overrides().Textures;
+            for ( size_t index = 0; index < textures.size(); ++index )
             {
+                const auto& [name, handle] = textures[index];
                 if ( handle == 0 )
                     continue;
                 auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
@@ -113,15 +168,27 @@ namespace Desert::Graphic::System
                 // type
                 auto* img = static_cast<Image2D*>(
                      Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                if ( img != nullptr && !material.SetTexture( name, img ) && logRefused )
+                if ( img == nullptr || material.SetTexture( material.OverrideTextureHandle( index ), name, img ) )
+                    continue;
+                if ( logRefused )
                     LogRefusedTextureOverride( shaderName, name );
+                else
+                    refusedUnsaid = true;
             }
 
-            // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
-            // SDF atlas takes this path.
+            // Runtime-owned texture (no asset handle) bound straight to its sampler - the text SDF atlas takes
+            // this path. Its handle sits past the asset overrides'.
             if ( g.DirectTexture != nullptr && !g.DirectTextureSampler().empty() &&
-                 !material.SetTexture( g.DirectTextureSampler(), g.DirectTexture ) && logRefused )
-                LogRefusedTextureOverride( shaderName, g.DirectTextureSampler() );
+                 !material.SetTexture( material.OverrideTextureHandle( textures.size() ), g.DirectTextureSampler(),
+                                       g.DirectTexture ) )
+            {
+                if ( logRefused )
+                    LogRefusedTextureOverride( shaderName, g.DirectTextureSampler() );
+                else
+                    refusedUnsaid = true;
+            }
+            if ( !refusedUnsaid )
+                material.MarkOverrideTexturesBound( epoch );
         }
     } // namespace MeshRendererDetail
 
@@ -176,15 +243,31 @@ namespace Desert::Graphic::System
             {
                 shared = SharedGenericMaterial( g.ShaderName(), gi, shader );
             }
-            // The draw-time slices name a refused texture; this row build does not repeat it.
-            ApplyGenericOverrides( *shared, g, g.ShaderName(), false );
+            // The textures first: a TextureBinding-free template's row textures are row slots read from them. The
+            // draw-time slices name a refused texture; this row build does not repeat it.
+            ApplyGenericTextures( *shared, g, g.ShaderName(), false, m_GenericTextureEpoch );
             const GpuDriven::MaterialRowKey key{ .Material = shared,
                                                  .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
                                                           static_cast<uint64_t>( g.MotionPart ) };
             const auto [claimed, fresh] = ClaimFrameMaterialRow( key );
             if ( fresh )
             {
-                claimed->Index = registry.SyncMaterialRow( key, shared->GetParamRow() );
+                // WRITTEN ONLY WHEN SOMETHING MOVED (UE: FMaterialRenderProxy's uniform expression cache): the row
+                // is what the template's defaults and row textures (the base revision) and this record's
+                // Params (their revision, compared by value, no name read) make; while both stand, the table's
+                // row is this record's already and nothing is written or compared.
+                const GpuDriven::MaterialRowRevision revision{
+                     .Template = shared->GetBaseRowRevision(),
+                     .Instance = DataDrivenMaterial::SyncOverrideRevision( g.Overrides() ) };
+                if ( const std::optional<uint32_t> reused = registry.ReuseMaterialRow( key, revision ) )
+                {
+                    claimed->Index = *reused;
+                }
+                else
+                {
+                    shared->ApplyOverrides( g.Overrides() ); // defaults in place, Params by handle
+                    claimed->Index = registry.SyncMaterialRow( key, shared->GetParamRow(), revision );
+                }
             }
             else
             {
@@ -554,7 +637,10 @@ namespace Desert::Graphic::System
                 row = m_GenericStandInRow;
             else if ( g.SlotMaterial == nullptr )
                 // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
-                ApplyGenericTextures( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal && slice != GenericSlice::ForwardDepth );
+                ApplyGenericTextures( *material, g, shaderName,
+                                      slice != GenericSlice::DeferredDepthNormal &&
+                                           slice != GenericSlice::ForwardDepth,
+                                      m_GenericTextureEpoch );
             if ( !row )
                 continue; // the stand-in's row: SyncGpuScene registers it whenever the generic queue is not empty
 
@@ -1101,27 +1187,30 @@ namespace Desert::Graphic::System
         const auto          samples = [&]( const std::shared_ptr<Shader>& shader )
         { return shader && shader->IsCompiled() && shader->SamplesTexture( textureName ); };
         // The queue's columns (m_StaticColumns): a surface is set only for a record with a mesh-cell section, and
-        // its translucent flag is IsTranslucent's answer, so an opaque record costs one byte.
+        // its translucent flag is IsTranslucent's answer, so an opaque record costs one byte. The main view's
+        // bits (MainStaticBitsFor) when they answer this frustum: an entry out of view is not visited at all.
         const StaticWalkColumns& columns = m_StaticColumns;
-        for ( std::size_t si = 0; si < columns.Count(); ++si )
-        {
-            if ( columns.Meshes[si] == nullptr || ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
-                continue;
-            DataDrivenMaterial* const mat = columns.Surfaces[si];
-            if ( columns.Instances[si] == nullptr || mat == nullptr )
-                continue;
-            if ( !StaticEntryInView( frustum, si ) )
-                continue;
-            // The template and its front layer cell from its facts (ProgramOf): no name asked per section.
-            const ResolvedProgram resolved = ProgramOf( *mat );
-            if ( samples( resolved.Program ) )
-                return true;
-            if ( resolved.Facts != nullptr &&
-                 mat->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent &&
-                 samples( resolved.Facts->FrontLayerProgram ) )
-                return true;
-        }
-        return false;
+        return VisitStaticEntries( MainStaticBitsFor( FrustumBitsKey::Of( frustum ) ), columns.Count(),
+                                   [&]( const std::size_t si, const bool inView )
+                                   {
+                                       if ( columns.Meshes[si] == nullptr ||
+                                            ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
+                                           return false;
+                                       DataDrivenMaterial* const mat = columns.Surfaces[si];
+                                       if ( columns.Instances[si] == nullptr || mat == nullptr )
+                                           return false;
+                                       if ( !inView && !StaticEntryInView( frustum, si ) )
+                                           return false;
+                                       // The template and its front layer cell from its facts (ProgramOf): no name
+                                       // asked per section.
+                                       const ResolvedProgram resolved = ProgramOf( *mat );
+                                       if ( samples( resolved.Program ) )
+                                           return true;
+                                       return resolved.Facts != nullptr &&
+                                              mat->GetSchema().Blend ==
+                                                   Core::Formats::SurfaceBlendMode::Translucent &&
+                                              samples( resolved.Facts->FrontLayerProgram );
+                                   } );
     }
 
     bool MeshRenderer::TranslucentSectionsVisible() const
@@ -1133,17 +1222,17 @@ namespace Desert::Graphic::System
         if ( camera == nullptr )
             return false;
         const Core::Frustum frustum = camera->GetFrustum();
-        // The queue's columns (m_StaticColumns): the translucent flag first (one byte), the frustum after it.
+        // The queue's columns (m_StaticColumns): the translucent flag first (one byte), the frustum after it - or
+        // the main view's bits (MainStaticBitsFor) before it, when they answer this frustum.
         const StaticWalkColumns& columns = m_StaticColumns;
-        for ( std::size_t si = 0; si < columns.Count(); ++si )
-        {
-            if ( columns.Meshes[si] == nullptr || columns.Instances[si] == nullptr ||
-                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
-                continue;
-            if ( StaticEntryInView( frustum, si ) )
-                return true;
-        }
-        return false;
+        return VisitStaticEntries( MainStaticBitsFor( FrustumBitsKey::Of( frustum ) ), columns.Count(),
+                                   [&]( const std::size_t si, const bool inView )
+                                   {
+                                       if ( columns.Meshes[si] == nullptr || columns.Instances[si] == nullptr ||
+                                            ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
+                                           return false;
+                                       return inView || StaticEntryInView( frustum, si );
+                                   } );
     }
 
     MeshRenderer::LateDepthWriter MeshRenderer::LateDepthWriterInView()
@@ -1165,22 +1254,25 @@ namespace Desert::Graphic::System
         { return draw != nullptr && draw->Pipeline && draw->Pipeline->GetSpecification().DepthWriteEnabled; };
         const TranslucentDraw* const standIn = TranslucentStandIn();
         const StaticWalkColumns&     columns = m_StaticColumns;
-        for ( std::size_t si = 0; si < columns.Count(); ++si )
-        {
-            DataDrivenMaterial* const mat = columns.Surfaces[si];
-            if ( columns.Meshes[si] == nullptr || columns.Instances[si] == nullptr || mat == nullptr ||
-                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u ||
-                 !StaticEntryInView( frustum, si ) )
-                continue;
-            const TranslucentDraw* const own = TranslucentDrawOf( mat );
-            if ( own == nullptr )
-                continue; // refused once, by name: the glass draws nothing for it
-            // The stand-in too whatever the cell's state: whether the cell is still in the driver this frame is
-            // ChoosePipelineDraw's answer, asked (and counted) once, by the glass walk.
-            if ( writesDepth( own ) || writesDepth( standIn ) )
-                return LateDepthWriter::Translucent;
-        }
-        return LateDepthWriter::None;
+        // The main view's bits (MainStaticBitsFor) when they answer this frustum: an entry out of view is skipped
+        // without a read.
+        const bool translucent = VisitStaticEntries(
+             MainStaticBitsFor( FrustumBitsKey::Of( frustum ) ), columns.Count(),
+             [&]( const std::size_t si, const bool inView )
+             {
+                 DataDrivenMaterial* const mat = columns.Surfaces[si];
+                 if ( columns.Meshes[si] == nullptr || columns.Instances[si] == nullptr || mat == nullptr ||
+                      ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u ||
+                      ( !inView && !StaticEntryInView( frustum, si ) ) )
+                     return false;
+                 const TranslucentDraw* const own = TranslucentDrawOf( mat );
+                 if ( own == nullptr )
+                     return false; // refused once, by name: the glass draws nothing for it
+                 // The stand-in too whatever the cell's state: whether the cell is still in the driver this frame
+                 // is ChoosePipelineDraw's answer, asked (and counted) once, by the glass walk.
+                 return writesDepth( own ) || writesDepth( standIn );
+             } );
+        return translucent ? LateDepthWriter::Translucent : LateDepthWriter::None;
     }
 
     bool MeshRenderer::QueuedForwardDrawSamples( const std::string_view textureName, const bool blendedOnly ) const
@@ -1412,56 +1504,54 @@ namespace Desert::Graphic::System
         auto&                  sortKeys     = walk.SortKeys;
         TranslucentDraw* const standInState = TranslucentStandIn();
         // The queue's columns (m_StaticColumns): the translucent flag (IsTranslucent's answer, one byte) before
-        // the frustum, so an opaque record costs this walk no box test and no record read.
+        // the frustum, so an opaque record costs this walk no box test and no record read. The main view's bits
+        // (MainStaticBitsFor, filled by the G-buffer / forward walk of this frustum): an entry out of view is not
+        // visited at all; the ones in view in queue order, so the draws and their sort keys are the same.
         const StaticWalkColumns& columns = m_StaticColumns;
-        for ( std::size_t si = 0; si < columns.Count(); ++si )
-        {
-            MaterialInstance* const   surfaceInst = columns.Instances[si];
-            DataDrivenMaterial* const mat         = columns.Surfaces[si];
-            if ( columns.Meshes[si] == nullptr || surfaceInst == nullptr ||
-                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
-            {
-                continue; // opaque -> drawn by the opaque pass, not here
-            }
-            if ( !StaticEntryInView( frustum, si ) )
-            {
-                continue;
-            }
-            const StaticMeshRenderData& data = m_StaticQueue[si];
-            TranslucentDraw* state = TranslucentDrawOf( mat ); // its template's facts: no name asked per frame
-            if ( state == nullptr )
-            {
-                continue; // refused once, by name, inside TranslucentDrawFor
-            }
-            // AL1-12 INSIDE THE GRAPH (RDG-PSO): a translucent cell still in the driver is drawn by the default
-            // surface with the translucent draw state (its own row, its own material) — recording the cell would
-            // fail this node and drop the frame graph.
-            // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row); a stand-in
-            // names the default surface's.
-            std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
-            const GraphicsPipeline* const glassStandIn =
-                 standInState != nullptr ? standInState->Pipeline.get() : nullptr;
-            switch ( ChoosePipelineDraw( state->Pipeline.get(), glassStandIn, {} ) )
-            {
-                case MaterialPipelineTracker::CellDraw::Own:
-                    break;
-                case MaterialPipelineTracker::CellDraw::DefaultSurface:
-                    state = standInState;
-                    row   = m_StandInMaterialRows[0];
-                    break;
-                case MaterialPipelineTracker::CellDraw::Nothing:
-                    continue; // before the reveal, said once by ChoosePipelineDraw
-            }
-            if ( !row )
-            {
-                continue;
-            }
-            walk.AddCell( state );
-            draws.push_back( { &data, state, *row } );
-            const Common::Math::AABB world = StaticEntryWorldBounds( si );
-            sortKeys.push_back( { .WorldBoundsCenter = ( world.Min + world.Max ) * 0.5f,
-                                  .Priority          = data.TranslucencySortPriority } );
-        }
+        static_cast<void>( VisitStaticEntries(
+             MainStaticBitsFor( FrustumBitsKey::Of( frustum ) ), columns.Count(),
+             [&]( const std::size_t si, const bool inView )
+             {
+                 MaterialInstance* const   surfaceInst = columns.Instances[si];
+                 DataDrivenMaterial* const mat         = columns.Surfaces[si];
+                 if ( columns.Meshes[si] == nullptr || surfaceInst == nullptr ||
+                      ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
+                     return false; // opaque -> drawn by the opaque pass, not here
+                 if ( !inView && !StaticEntryInView( frustum, si ) )
+                     return false;
+                 const StaticMeshRenderData& data = m_StaticQueue[si];
+                 TranslucentDraw*            state =
+                      TranslucentDrawOf( mat ); // its template's facts: no name asked per frame
+                 if ( state == nullptr )
+                     return false; // refused once, by name, inside TranslucentDrawFor
+                 // AL1-12 INSIDE THE GRAPH (RDG-PSO): a translucent cell still in the driver is drawn by the
+                 // default surface with the translucent draw state (its own row, its own material) — recording
+                 // the cell would fail this node and drop the frame graph.
+                 // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row); a stand-in
+                 // names the default surface's.
+                 std::optional<uint32_t>       row = FindMaterialRow( mat, surfaceInst );
+                 const GraphicsPipeline* const glassStandIn =
+                      standInState != nullptr ? standInState->Pipeline.get() : nullptr;
+                 switch ( ChoosePipelineDraw( state->Pipeline.get(), glassStandIn, {} ) )
+                 {
+                     case MaterialPipelineTracker::CellDraw::Own:
+                         break;
+                     case MaterialPipelineTracker::CellDraw::DefaultSurface:
+                         state = standInState;
+                         row   = m_StandInMaterialRows[0];
+                         break;
+                     case MaterialPipelineTracker::CellDraw::Nothing:
+                         return false; // before the reveal, said once by ChoosePipelineDraw
+                 }
+                 if ( !row )
+                     return false;
+                 walk.AddCell( state );
+                 draws.push_back( { &data, state, *row } );
+                 const Common::Math::AABB world = StaticEntryWorldBounds( si );
+                 sortKeys.push_back( { .WorldBoundsCenter = ( world.Min + world.Max ) * 0.5f,
+                                       .Priority          = data.TranslucencySortPriority } );
+                 return false;
+             } ) );
         if ( draws.empty() )
         {
             return;
@@ -1550,35 +1640,40 @@ namespace Desert::Graphic::System
         auto& draws = walk.Draws;
         // The queue's columns (m_StaticColumns): a front layer is only of a translucent-pass surface (its flag,
         // one byte), so an opaque record costs this walk no box test; Translucent itself is asked of the template.
+        // The main view's bits (MainStaticBitsFor) when they answer this frustum: an entry out of view is not
+        // visited at all; the ones in view in queue order.
         const StaticWalkColumns& columns = m_StaticColumns;
-        for ( std::size_t si = 0; si < columns.Count(); ++si )
-        {
-            MaterialInstance* const   surfaceInst = columns.Instances[si];
-            DataDrivenMaterial* const mat         = columns.Surfaces[si];
-            if ( columns.Meshes[si] == nullptr || surfaceInst == nullptr || mat == nullptr ||
-                 ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
-                continue;
-            if ( mat->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Translucent )
-                continue;
-            if ( !StaticEntryInView( frustum, si ) )
-                continue;
-            const StaticMeshRenderData& data  = m_StaticQueue[si];
-            TranslucentDraw* const state = FrontLayerDrawOf( mat ); // its template's facts
-            if ( state == nullptr )
-                continue; // refused once, by name, inside FrontLayerDrawFor
-            // A cell still in the driver has no stand-in here: the default surface is opaque and has no front layer
-            // cell, so until the cell is ready the object keeps the sky's reflection (said once by
-            // ChoosePipelineDraw).
-            if ( ChoosePipelineDraw( state->Pipeline.get(), nullptr, {} ) !=
-                 MaterialPipelineTracker::CellDraw::Own )
-                continue;
-            // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row).
-            const std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
-            if ( !row )
-                continue;
-            walk.AddCell( state );
-            draws.push_back( { &data, state, *row } );
-        }
+        static_cast<void>( VisitStaticEntries(
+             MainStaticBitsFor( FrustumBitsKey::Of( frustum ) ), columns.Count(),
+             [&]( const std::size_t si, const bool inView )
+             {
+                 MaterialInstance* const   surfaceInst = columns.Instances[si];
+                 DataDrivenMaterial* const mat         = columns.Surfaces[si];
+                 if ( columns.Meshes[si] == nullptr || surfaceInst == nullptr || mat == nullptr ||
+                      ( columns.Flags[si] & StaticWalkColumns::kTranslucent ) == 0u )
+                     return false;
+                 if ( mat->GetSchema().Blend != Core::Formats::SurfaceBlendMode::Translucent )
+                     return false;
+                 if ( !inView && !StaticEntryInView( frustum, si ) )
+                     return false;
+                 const StaticMeshRenderData& data  = m_StaticQueue[si];
+                 TranslucentDraw* const      state = FrontLayerDrawOf( mat ); // its template's facts
+                 if ( state == nullptr )
+                     return false; // refused once, by name, inside FrontLayerDrawFor
+                 // A cell still in the driver has no stand-in here: the default surface is opaque and has no front
+                 // layer cell, so until the cell is ready the object keeps the sky's reflection (said once by
+                 // ChoosePipelineDraw).
+                 if ( ChoosePipelineDraw( state->Pipeline.get(), nullptr, {} ) !=
+                      MaterialPipelineTracker::CellDraw::Own )
+                     return false;
+                 // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row).
+                 const std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
+                 if ( !row )
+                     return false;
+                 walk.AddCell( state );
+                 draws.push_back( { &data, state, *row } );
+                 return false;
+             } ) );
         if ( draws.empty() )
             return false;
 
@@ -1850,6 +1945,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::WalkStaticChunk( const ClusterWalkView& view, const Core::Frustum& frustum,
                                         const std::size_t first, const std::size_t last,
+                                        const std::span<uint64_t> viewBits, const bool fillBits,
                                         DrawBuildScratch::StaticWalkChunk& chunk ) const
     {
         chunk.GroupCount = 0;
@@ -1872,31 +1968,29 @@ namespace Desert::Graphic::System
         // joins a group or a mask (its address). A record past the columns was queued after the sync: skipped.
         const StaticWalkColumns& columns = m_StaticColumns;
         const std::size_t        end     = std::min( last, columns.Count() );
-        // The snapshot's boxes four at a time (CPU-SIMD 4; UE's primitive-bounds batch): the group of a record
-        // that reaches the frustum test is tested once over the snapshot's lanes, kept with the static revision;
-        // each record reads its bit - StaticEntryInView's answer. The chunk's own cursor: chunks run in parallel.
-        const bool lanes      = StaticLanesCurrent();
-        const auto entryGroup = [this, &frustum]( const std::size_t base ) noexcept
-        { return StaticEntriesInView4( frustum, base ); };
-        VisibleInViewQuads entryQuads;
-        for ( std::size_t i = first; i < end; ++i )
+        // THE VIEW'S BITS (m_MainStaticBits; UE PrimitiveVisibilityMap + TConstSetBitIterator): the snapshot's
+        // boxes four at a time over its lanes (CPU-SIMD 4, StaticEntryInView's answer bit for bit), written once
+        // per view - by this chunk for its own words when fillBits - and the walk below visits the set bits only,
+        // in increasing order: a record out of the frustum costs no column read and no CpuWalkUninterned. The
+        // admission is the same conjunction as before (in view, a mesh with a slot binding, not wholly held by
+        // the bins), only asked in the cheaper order; every test is a pure read, so the same records, masks and
+        // groups come out in the same order.
+        if ( fillBits && last > first )
+            VisibleInViewBits( frustum, m_StaticSnapshot.WorldLanes, first, last - first,
+                               viewBits.subspan( first / 64u ) );
+        const auto admit = [&]( const std::size_t i )
         {
             const Desert::Mesh* const mesh = columns.Meshes[i];
             if ( mesh == nullptr || ( columns.Flags[i] & StaticWalkColumns::kHasSlots ) == 0u )
-                continue;
+                return;
             const uint64_t hidden = columns.Hidden[i];
 
             // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
-            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling
-            // work.
+            // the bins issue it.
             const std::optional<UninternedWalk> walk =
                  CpuWalkUninterned( view, mesh, columns.Primitives[i], hidden, chunk.WalkWords );
             if ( !walk )
-                continue;
-            // The dense snapshot's box (m_StaticSnapshot, built once per static revision), not this entry's mesh.
-            const bool inView = lanes ? entryQuads.Visible( i, entryGroup ) : StaticEntryInView( frustum, i );
-            if ( !inView )
-                continue;
+                return;
             const StaticMeshRenderData& data = m_StaticQueue[i];
             // Words past submesh 63 make a mask unlike the entry's own (an interned view never equals none).
             if ( walk->HighWords != 0u || walk->Low != hidden )
@@ -1915,6 +2009,32 @@ namespace Desert::Graphic::System
             // surface column is SectionSurface's answer, asked once at the sync.
             if ( columns.Instances[i] != nullptr )
                 groupOf( columns.Surfaces[i] ).push_back( &data );
+        };
+        if ( viewBits.empty() )
+        {
+            // No current lanes (the snapshot is not of this gather): each record's box asked on its own, a mesh
+            // first (StaticEntryInView then builds the box from it).
+            for ( std::size_t i = first; i < end; ++i )
+                if ( columns.Meshes[i] != nullptr && StaticEntryInView( frustum, i ) )
+                    admit( i );
+            return;
+        }
+        if ( end <= first )
+            return;
+        // The set bits of [first, end), word by word in increasing order (the serial walk's order).
+        const std::size_t lastWord = ( end - 1u ) / 64u;
+        for ( std::size_t w = first / 64u; w <= lastWord; ++w )
+        {
+            uint64_t word = viewBits[w];
+            if ( w == first / 64u )
+                word &= ~uint64_t{ 0 } << ( first % 64u );
+            if ( w == lastWord && end % 64u != 0u )
+                word &= ( uint64_t{ 1 } << ( end % 64u ) ) - 1u;
+            while ( word != 0u )
+            {
+                admit( w * 64u + static_cast<std::size_t>( std::countr_zero( word ) ) );
+                word &= word - 1u;
+            }
         }
     }
 
@@ -2085,18 +2205,49 @@ namespace Desert::Graphic::System
             const std::size_t chunks = std::clamp<std::size_t>( queued / kStaticWalkChunkMin, 1u, participants );
             if ( scratch.WalkChunks.size() < chunks )
                 scratch.WalkChunks.resize( chunks );
+            // THE VIEW'S BITS, FILLED ONCE (m_MainStaticBits; UE ComputeViewVisibility's PrimitiveVisibilityMap):
+            // kept while the camera frustum's planes (bit for bit), the snapshot's revision and gather and the
+            // queue's size stand - the second static walk of the frame's view (deferred early-Z then G-buffer,
+            // forward prepass then base pass) tests no box. Otherwise the chunks fill it, each its own words.
+            // (An empty queue keeps nothing: its fill writes no word.)
+            StaticViewBits&      viewBits = m_MainStaticBits;
+            const FrustumBitsKey planes   = FrustumBitsKey::Of( frustum );
+            const bool           lanes    = StaticLanesCurrent();
+            const bool           keep     = lanes && !MainStaticBitsFor( planes ).empty();
+            const bool           fill     = lanes && !keep;
+            if ( !lanes )
+                viewBits.Valid = false;
+            if ( fill )
+            {
+                viewBits.Valid = false; // until the chunks joined
+                viewBits.Words.resize( ( queued + 63u ) / 64u );
+            }
+            const std::span<uint64_t> bitsSpan =
+                 lanes ? std::span<uint64_t>( viewBits.Words ) : std::span<uint64_t>{};
+            // Chunk edges on whole words (a multiple of 64 records, the last at the queue's end), so a filling
+            // chunk writes only words of its own; the merge below is the serial walk's for any edges.
+            const auto edge = [queued, chunks]( const std::size_t c ) noexcept
+            { return c >= chunks ? queued : ( queued * c / chunks ) & ~std::size_t{ 63u }; };
             {
                 ::Common::TaskGroup tasks( m_SceneRenderer->ParallelSetup() );
                 for ( std::size_t c = 0; c < chunks; ++c )
                 {
-                    const std::size_t                  first = queued * c / chunks;
-                    const std::size_t                  last  = queued * ( c + 1 ) / chunks;
+                    const std::size_t                  first = edge( c );
+                    const std::size_t                  last  = edge( c + 1u );
                     DrawBuildScratch::StaticWalkChunk& chunk = scratch.WalkChunks[c];
                     tasks.Launch( "Mesh: Static walk chunk",
-                                  [this, &mainWalk, &frustum, &chunk, first, last]() noexcept
-                                  { WalkStaticChunk( mainWalk, frustum, first, last, chunk ); } );
+                                  [this, &mainWalk, &frustum, &chunk, bitsSpan, fill, first, last]() noexcept
+                                  { WalkStaticChunk( mainWalk, frustum, first, last, bitsSpan, fill, chunk ); } );
                 }
                 tasks.Join();
+            }
+            if ( fill )
+            {
+                viewBits.Planes   = planes;
+                viewBits.Revision = m_StaticSnapshot.Revision;
+                viewBits.Gather   = m_StaticSnapshot.Gather;
+                viewBits.Count    = queued;
+                viewBits.Valid    = true;
             }
             // A mask that cannot be interned (a walk inside a setup task, MissInSetupTask) drops its record, as
             // the serial walk's CpuWalkHidden did: none in a Full or a Resolve call.
@@ -4026,10 +4177,22 @@ namespace Desert::Graphic::System
             // and interned, so equal keys answer one id and the callers keep their materials by it.
             m_GenericTextureKeys.resize( m_GenericQueue.size() );
             m_GenericTextureSets.resize( m_GenericQueue.size(), 0u );
+            m_GenericTextureKeySources.resize( m_GenericQueue.size() );
             for ( std::size_t gi = 0; gi < m_GenericQueue.size(); ++gi )
             {
-                MeshRendererDetail::WriteGenericTextureKey( m_GenericQueue[gi], m_GenericTextureKeyScratch,
-                                                            m_GenericTextureOrder );
+                const GenericMeshRenderData& g      = m_GenericQueue[gi];
+                GenericTextureKeySource&     source = m_GenericTextureKeySources[gi];
+                // A producer-kept record whose revision, runtime texture and sampler are the ones the slot's key
+                // was written from: the key and its set stand (a slot-material record has revision 0).
+                if ( g.ValuesRevision != 0u && m_GenericTextureSets[gi] != 0u &&
+                     source.ValuesRevision == g.ValuesRevision && source.DirectTexture == g.DirectTexture &&
+                     source.DirectTextureSampler == g.DirectTextureSampler() )
+                    continue;
+                source.ValuesRevision = g.SlotMaterial == nullptr ? g.ValuesRevision : 0u;
+                source.DirectTexture  = g.DirectTexture;
+                if ( source.DirectTextureSampler != g.DirectTextureSampler() )
+                    source.DirectTextureSampler.assign( g.DirectTextureSampler() );
+                MeshRendererDetail::WriteGenericTextureKey( g, m_GenericTextureKeyScratch, m_GenericTextureOrder );
                 std::string& key = m_GenericTextureKeys[gi];
                 if ( m_GenericTextureSets[gi] != 0u && key == m_GenericTextureKeyScratch )
                     continue;
@@ -4038,6 +4201,8 @@ namespace Desert::Graphic::System
                 const auto interned      = m_GenericTextureSetIds.try_emplace( key, next ).first;
                 m_GenericTextureSets[gi] = interned->second;
             }
+            // A new frame of the queue: every shared material binds its override textures once in it.
+            ++m_GenericTextureEpoch;
             m_GenericProgramsResolved = true;
         }
         return m_GenericPrograms[index];

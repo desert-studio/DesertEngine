@@ -1,0 +1,23 @@
+# FPS-FIELD-BARN-TURN-GI32: FPS-FIELD-BARN-TURN at the GI "UE High" probe density - the GlobalIllumination group's
+# level with the override GlobalIllumination.ScreenProbeDownsample 32 (UE BaseScalability [GlobalIlluminationQuality@2]
+# r.Lumen.ScreenProbeGather.DownsampleFactor=32; our High keeps 16, the owner's look). A quarter of the uniform probes
+# and of the adaptive budget, so ScreenProbes Near Field / Far Field trace a quarter of the rays; temporal
+# accumulation + the upsample carry the rest. Unattended: the override lives in this process only (machine.json is
+# not written). Compare its two tables with FPS-FIELD-BARN-TURN's: Far Field + Near Field -40 % or more.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: GlobalIllumination.ScreenProbeDownsample 32"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Когда profile-dump
+Тогда-вид t0_still the barn view still at 32-px screen probes: field, barn, trees and sky drawn, indirect light without blotches or probe-grid blocks
+Когда --subject viewport set Camera.Spin 1
+Когда frames 360
+Когда profile-dump
+Когда --subject viewport set Camera.Spin 0
+Когда --subject viewport set Camera.Direction 0.15,0.03,-1
+Когда frames 60
+Тогда-вид t1_turn the barn view after a full turn at 32-px screen probes: the same field, barn, trees and sky as t0_still, no GI smearing left by the turn
+Когда run Quality "Quality: GlobalIllumination.ScreenProbeDownsample Level"

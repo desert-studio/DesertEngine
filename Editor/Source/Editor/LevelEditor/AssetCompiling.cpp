@@ -53,11 +53,15 @@ namespace Desert::Editor
         // re-registered runtime materials (which now reference the reloaded texture images).
         if ( activeScene != nullptr )
         {
+            // Through registry.patch: the drop is a render-state change event (Scene::OnRenderStateChanged), which
+            // is the only thing MeshECSSystem's retained static and skinned caches rebuild on.
             auto& reg = activeScene->GetRegistry();
-            reg.view<ECS::StaticMeshComponent>().each( []( auto, ECS::StaticMeshComponent& c )
-                                                       { c.RuntimeMaterialInstances().clear(); } );
-            reg.view<ECS::SkinnedMeshComponent>().each( []( auto, ECS::SkinnedMeshComponent& c )
-                                                        { c.RuntimeMaterialInstances().clear(); } );
+            for ( const entt::entity e : reg.view<ECS::StaticMeshComponent>() )
+                reg.patch<ECS::StaticMeshComponent>( e, []( ECS::StaticMeshComponent& c )
+                                                     { c.RuntimeMaterialInstances().clear(); } );
+            for ( const entt::entity e : reg.view<ECS::SkinnedMeshComponent>() )
+                reg.patch<ECS::SkinnedMeshComponent>( e, []( ECS::SkinnedMeshComponent& c )
+                                                      { c.RuntimeMaterialInstances().clear(); } );
         }
 
         if ( fileExplorer != nullptr )

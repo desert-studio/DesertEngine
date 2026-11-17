@@ -269,6 +269,12 @@ namespace Desert::Graphic
         // generator takes its screen-width floor from it (GrassRenderer::PrepareVariety,
         // System::UnpackGrassFieldLens). 0 for every other view (a light view, a still preview frame).
         glm::vec4 GrassLens{ 0.0f };
+        // The rectangle of its target the view's geometry rasterises into (x, y its origin, z, w its size; target
+        // pixels): a scene view's whole render target, (0, 0, Split.Render) (SceneViewState::BeginFrame); a
+        // surface cache card its atlas rectangle (MeshRenderer card capture). The G-buffer cells take their clip
+        // position from the pixel through it (CameraUB::PixelToNdc, ShaderProtocols::MakePixelToNdc). 0 for a view
+        // that draws no G-buffer cell (a light view, a still preview frame).
+        glm::vec4 RasterRect{ 0.0f };
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

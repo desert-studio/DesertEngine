@@ -9,6 +9,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Utilities/ProcessMemory.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -184,6 +185,8 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::Shutdown()
     {
+        // The sampling job reads the VMA allocator and the ledger: it ends before either goes.
+        WaitMemorySampling();
         if ( s_VmaAllocator != VK_NULL_HANDLE )
         {
             // The device is idle here (VulkanContext::Shutdown drained the queues first): the zero buffer no
@@ -388,10 +391,30 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::LogCensusIfDue()
     {
-        const auto now = std::chrono::steady_clock::now();
+        const auto             now = std::chrono::steady_clock::now();
+        const std::scoped_lock sampling( m_SamplingMutex );
         if ( s_VmaAllocator == VK_NULL_HANDLE || now - m_LastCensus < std::chrono::seconds( 1 ) )
             return;
-        m_LastCensus                               = now;
+        m_LastCensus = now;
+        // THE LEVEL GATE FIRST (Common::Logger::SetLevel): the per-second line below is a debug line, and
+        // building it - a sorted ledger copy, a map of every tag, formatted heap and tag rows - for a line the
+        // gate then drops was the whole census cost in a Release run. Only the dev peak census is unconditional.
+        const bool debug = Common::Logger::Level() <= spdlog::level::debug;
+#if DESERT_DEV_INSTRUMENTS
+        constexpr uint64_t kCensusPeakStep = 128ull * 1024ull * 1024ull;
+        // The process's own footprint, read here (one syscall a second): MemoryWatch samples only inside its
+        // watch windows after a scene load, and the Bistro peak comes minutes later, at the hand-over. The
+        // PHYSICAL footprint, not the resident set: on unified memory the resident set leaves out every Metal
+        // allocation (1.7 GB resident at a 6.4 GB kill), and phys_footprint is the number the process is killed
+        // on.
+        const uint64_t peak    = Common::Utils::ReadProcessFootprint().Physical;
+        const bool     peakDue = peak >= m_CensusPeakReported + kCensusPeakStep;
+        if ( !debug && !peakDue )
+            return;
+#else
+        if ( !debug )
+            return;
+#endif
         constexpr double                        MB = 1024.0 * 1024.0;
         std::string                             heaps;
         const VkPhysicalDeviceMemoryProperties* props = nullptr;
@@ -399,33 +422,36 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VmaBudget> budgets( props != nullptr ? props->memoryHeapCount : 0 );
         if ( !budgets.empty() )
             vmaGetHeapBudgets( s_VmaAllocator, budgets.data() );
-        for ( std::size_t heap = 0; heap < budgets.size(); ++heap )
-            heaps += std::format( " heap{}: blocks {:.1f} MB, allocations {:.1f} MB, driver usage {:.1f} MB;",
-                                  heap, static_cast<double>( budgets[heap].statistics.blockBytes ) / MB,
-                                  static_cast<double>( budgets[heap].statistics.allocationBytes ) / MB,
-                                  static_cast<double>( budgets[heap].usage ) / MB );
-        std::string tags;
         const auto  byTag = m_Ledger.ByTag();
-        for ( std::size_t i = 0; i < byTag.size() && i < 6; ++i )
-            tags += std::format( " {} x{} {:.1f} MB;", byTag[i].Tag, byTag[i].Count,
-                                 static_cast<double>( byTag[i].Bytes ) / MB );
-        std::vector<std::pair<std::ptrdiff_t, const AllocationLedger::TagTotal*>> growth;
-        std::unordered_map<std::string, std::size_t>                              bytesNow;
-        for ( const auto& total : byTag )
-        {
-            bytesNow[total.Tag] = total.Bytes;
-            const auto last     = m_LastCensusBytes.find( total.Tag );
-            const auto before   = last != m_LastCensusBytes.end() ? last->second : std::size_t{ 0 };
-            if ( total.Bytes > before )
-                growth.emplace_back( static_cast<std::ptrdiff_t>( total.Bytes - before ), &total );
-        }
-        std::ranges::sort( growth, []( const auto& a, const auto& b ) { return a.first > b.first; } );
+        std::string tags;
         std::string grew;
-        for ( std::size_t i = 0; i < growth.size() && i < 6; ++i )
-            grew += std::format( " {} +{:.1f} MB (x{} {:.1f} MB);", growth[i].second->Tag,
-                                 static_cast<double>( growth[i].first ) / MB, growth[i].second->Count,
-                                 static_cast<double>( growth[i].second->Bytes ) / MB );
-        m_LastCensusBytes = std::move( bytesNow );
+        if ( debug )
+        {
+            for ( std::size_t heap = 0; heap < budgets.size(); ++heap )
+                heaps += std::format( " heap{}: blocks {:.1f} MB, allocations {:.1f} MB, driver usage {:.1f} MB;",
+                                      heap, static_cast<double>( budgets[heap].statistics.blockBytes ) / MB,
+                                      static_cast<double>( budgets[heap].statistics.allocationBytes ) / MB,
+                                      static_cast<double>( budgets[heap].usage ) / MB );
+            for ( std::size_t i = 0; i < byTag.size() && i < 6; ++i )
+                tags += std::format( " {} x{} {:.1f} MB;", byTag[i].Tag, byTag[i].Count,
+                                     static_cast<double>( byTag[i].Bytes ) / MB );
+            std::vector<std::pair<std::ptrdiff_t, const AllocationLedger::TagTotal*>> growth;
+            std::unordered_map<std::string, std::size_t>                              bytesNow;
+            for ( const auto& total : byTag )
+            {
+                bytesNow[total.Tag] = total.Bytes;
+                const auto last     = m_LastCensusBytes.find( total.Tag );
+                const auto before   = last != m_LastCensusBytes.end() ? last->second : std::size_t{ 0 };
+                if ( total.Bytes > before )
+                    growth.emplace_back( static_cast<std::ptrdiff_t>( total.Bytes - before ), &total );
+            }
+            std::ranges::sort( growth, []( const auto& a, const auto& b ) { return a.first > b.first; } );
+            for ( std::size_t i = 0; i < growth.size() && i < 6; ++i )
+                grew += std::format( " {} +{:.1f} MB (x{} {:.1f} MB);", growth[i].second->Tag,
+                                     static_cast<double>( growth[i].first ) / MB, growth[i].second->Count,
+                                     static_cast<double>( growth[i].second->Bytes ) / MB );
+            m_LastCensusBytes = std::move( bytesNow );
+        }
 
 #if DESERT_DEV_INSTRUMENTS
         // THE CENSUS BY SUBSYSTEM, at every new resident peak (BISTRO-MEM-2). The line above names the six largest
@@ -433,13 +459,8 @@ namespace Desert::Graphic::API::Vulkan
         // ledger rolled up by the subsystem its tags name, the allocations no ledger row covers (the render
         // graph's transient heaps and resources, VulkanRdgTransient / VulkanRenderGraph), the owners
         // (ResourceLedger) and the process/device readout - all at one moment, so they subtract.
-        constexpr uint64_t kCensusPeakStep = 128ull * 1024ull * 1024ull;
-        // The process's own footprint, read here (one syscall a second): MemoryWatch samples only inside its
-        // watch windows after a scene load, and the Bistro peak comes minutes later, at the hand-over. The
-        // PHYSICAL footprint, not the resident set: on unified memory the resident set leaves out every Metal
-        // allocation (1.7 GB resident at a 6.4 GB kill), and phys_footprint is the number the process is killed on.
-        if ( const uint64_t peak = Common::Utils::ReadProcessFootprint().Physical;
-             peak >= m_CensusPeakReported + kCensusPeakStep )
+        // The peak and its threshold were read above, before the level gate.
+        if ( peakDue )
         {
             m_CensusPeakReported = peak;
             struct Subsystem
@@ -490,16 +511,13 @@ namespace Desert::Graphic::API::Vulkan
             }
             {
                 const std::lock_guard lock( m_DeletionMutex );
-                for ( const BufferDeletionEntry& owed : m_BufferDeletionQueue )
+                const auto addOwed = [&rollup]( const auto& owed )
                 {
                     rollup[10].Bytes += AllocationSize( owed.Allocation );
                     ++rollup[10].Count;
-                }
-                for ( const ImageDeletionEntry& owed : m_ImageDeletionQueue )
-                {
-                    rollup[10].Bytes += AllocationSize( owed.Allocation );
-                    ++rollup[10].Count;
-                }
+                };
+                m_BufferDeletionQueue.ForEach( addOwed );
+                m_ImageDeletionQueue.ForEach( addOwed );
             }
             std::string bySubsystem;
             for ( const Subsystem& subsystem : rollup )
@@ -564,6 +582,8 @@ namespace Desert::Graphic::API::Vulkan
         }
 #endif
 
+        if ( !debug )
+            return;
         std::size_t owedCount   = 0;
         std::size_t owedBuffers = 0;
         std::size_t owedImages  = 0;
@@ -670,7 +690,7 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<HostObjectDeletionEntry> taken;
             {
                 const std::lock_guard lock( m_DeletionMutex );
-                taken.swap( m_ServiceRetireQueue );
+                m_ServiceRetireQueue.Take( []( uint64_t ) { return true; }, taken );
             }
             if ( taken.empty() )
                 return released;
@@ -820,20 +840,49 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t              framesInFlight = frames.GetMaxFramesInFlight();
         (void)DestroyQueued( [current, framesInFlight]( uint64_t queued )
                              { return IsRetired( queued, current, framesInFlight ); } );
+        ScheduleMemorySampling();
+    }
+
+    void VulkanAllocator::ScheduleMemorySampling()
+    {
+        // One job at a time: a frame that finds the previous one still running leaves the sample to a later
+        // frame (the census is time-gated, the scene-open window keeps its maximum).
+        if ( m_SamplingInFlight.exchange( true, std::memory_order_acq_rel ) )
+            return;
+        const auto run = [this]() noexcept
+        {
+            RunMemorySampling();
+            m_SamplingInFlight.store( false, std::memory_order_release );
+            m_SamplingInFlight.notify_all();
+        };
+        if ( !Common::JobSystem::Get().Submit( run, Common::JobPriority::Background ) )
+        {
+            // The pool is shutting down: nothing samples any more.
+            m_SamplingInFlight.store( false, std::memory_order_release );
+            m_SamplingInFlight.notify_all();
+        }
+    }
+
+    void VulkanAllocator::RunMemorySampling()
+    {
 #if DESERT_DEV_INSTRUMENTS
         SampleSceneOpen();
 #endif
         LogCensusIfDue();
     }
 
+    void VulkanAllocator::WaitMemorySampling() noexcept
+    {
+        m_SamplingInFlight.wait( true, std::memory_order_acquire );
+    }
+
     std::size_t VulkanAllocator::OwedBytes() const
     {
         const std::lock_guard lock( m_DeletionMutex );
-        std::size_t owed = 0;
-        for ( const BufferDeletionEntry& entry : m_BufferDeletionQueue )
-            owed += AllocationSize( entry.Allocation );
-        for ( const ImageDeletionEntry& entry : m_ImageDeletionQueue )
-            owed += AllocationSize( entry.Allocation );
+        std::size_t           owed = 0;
+        const auto            add  = [&owed]( const auto& entry ) { owed += AllocationSize( entry.Allocation ); };
+        m_BufferDeletionQueue.ForEach( add );
+        m_ImageDeletionQueue.ForEach( add );
         return owed;
     }
 
@@ -847,6 +896,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::BeginSceneOpen( std::string_view scene )
     {
+        const std::scoped_lock sampling( m_SamplingMutex );
         if ( m_SceneOpenIndex > 0 )
             LogSceneOpenPeak( " (window closed: the next open starts)" );
         const uint64_t now      = Common::Utils::ReadProcessFootprint().Physical;
@@ -863,6 +913,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::SampleSceneOpen()
     {
+        const std::scoped_lock sampling( m_SamplingMutex );
         if ( m_SceneOpenIndex == 0 || s_VmaAllocator == VK_NULL_HANDLE )
             return;
         const uint64_t now = Common::Utils::ReadProcessFootprint().Physical;
@@ -902,7 +953,8 @@ namespace Desert::Graphic::API::Vulkan
         return total;
     }
 
-    std::size_t VulkanAllocator::DestroyQueued( const std::function<bool( uint64_t )>& takeFrame )
+    template <typename TakeFrame>
+    std::size_t VulkanAllocator::DestroyQueued( const TakeFrame& takeFrame )
     {
         if ( s_VmaAllocator == VK_NULL_HANDLE )
             return 0;
@@ -914,19 +966,12 @@ namespace Desert::Graphic::API::Vulkan
         // TAKE UNDER THE LOCK, DESTROY OUTSIDE IT. Every entry @p takeFrame retires (IsRetired per frame) is
         // moved out of its queue while m_DeletionMutex is held; nothing is destroyed until it is released. A
         // loader thread queuing meanwhile lands in the queue for a later pass, and a host-object destroy that
-        // queues again (below) re-enters RT_Destroy* without the lock held.
-        const auto take = [&takeFrame]<typename Entry>( std::vector<Entry>& queue )
+        // queues again (below) re-enters RT_Destroy* without the lock held. Only the retiring buckets are
+        // touched (DeletionRing): nothing is moved or allocated for an entry that stays queued.
+        const auto take = [&takeFrame]<typename Entry>( DeletionRing<Entry>& queue )
         {
             std::vector<Entry> taken;
-            std::vector<Entry> kept;
-            for ( Entry& entry : queue )
-            {
-                if ( takeFrame( entry.QueuedFrame ) )
-                    taken.push_back( std::move( entry ) );
-                else
-                    kept.push_back( std::move( entry ) );
-            }
-            queue = std::move( kept );
+            queue.Take( takeFrame, taken );
             return taken;
         };
 
@@ -947,8 +992,7 @@ namespace Desert::Graphic::API::Vulkan
             framebuffers           = take( m_FramebufferDeletionQueue );
             renderPasses           = take( m_RenderPassDeletionQueue );
             hostObjects            = take( m_HostObjectDeletionQueue );
-            for ( HostObjectDeletionEntry& entry : take( m_ServiceRetireQueue ) )
-                hostObjects.push_back( std::move( entry ) );
+            m_ServiceRetireQueue.Take( takeFrame, hostObjects );
             queryPools             = take( m_QueryPoolDeletionQueue );
             pipelines              = take( m_PipelineDeletionQueue );
 
@@ -968,9 +1012,9 @@ namespace Desert::Graphic::API::Vulkan
                     destroyedPools.push_back( entry.DescriptorPool );
                 descriptorPools.push_back( entry );
             }
-            std::erase_if( m_DescriptorPoolDeletionQueue,
-                           [&destroyedAlready]( const DescriptorPoolDeletionEntry& entry )
-                           { return !entry.Sets.empty() && destroyedAlready( entry.DescriptorPool ); } );
+            m_DescriptorPoolDeletionQueue.EraseIf(
+                 [&destroyedAlready]( const DescriptorPoolDeletionEntry& entry )
+                 { return !entry.Sets.empty() && destroyedAlready( entry.DescriptorPool ); } );
         }
 
         std::size_t destroyed = 0;

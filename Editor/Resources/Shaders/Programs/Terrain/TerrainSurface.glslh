@@ -146,8 +146,13 @@
                     w0 = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
                 if ( pages > 1.5 && !LandscapeTilePageEmpty( CurrentTerrain, 1 ) )
                     w1 = texture( WeightmapTexture, LandscapeWeightmapPageUV( g, 1.0, size, pages ) );
+#ifndef DESERT_TERRAIN_DEPTH_EQUAL
+                // DESERT_TERRAIN_DEPTH_EQUAL (TerrainRenderer::GBufferDepthEqualVariant): the G-buffer over the
+                // ground's own depth prepass, which discarded the hole already; its texel holds a farther depth
+                // and fails the EQUAL test before this stage runs (UE: no clip in the base pass after early-Z).
                 if ( LandscapeTileIsHole( CurrentTerrain, w0, w1 ) )
                     discard;
+#endif
             }
             // Distance to the camera for the far tiling: from the view block's eye, as the ray tracing hit measures it.
             dist = length( v_WorldPos - cameraUB.CameraPos );

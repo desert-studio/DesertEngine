@@ -12,6 +12,9 @@
 
 #include <VulkanAllocator/vk_mem_alloc.h>
 
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <functional>
@@ -94,6 +97,92 @@ namespace Desert::Graphic::API::Vulkan
         // Empty: destroy the pool. Non-empty: free these sets back into it and keep the pool. One queue
         // for both, because a pool destroyed first frees its sets implicitly and the drain has to know.
         std::vector<VkDescriptorSet> Sets;
+    };
+
+    // ONE DEFERRED-DELETION QUEUE, BUCKETED BY THE FRAME IT WAS QUEUED ON (FPS-CPU2-VKFRAME; UE: the deferred
+    // deletion queue's per-fence batches). The drain used to move EVERY queued entry of every kind into a taken
+    // or a fresh kept vector each frame - O(queued) under m_DeletionMutex and an allocation per non-empty queue
+    // even when nothing retired. An entry goes into bucket QueuedFrame % kBuckets; a bucket is taken whole once
+    // its NEWEST frame is retired, so the drain touches only retiring entries and every bucket keeps its
+    // capacity. kBuckets exceeds every frames-in-flight count plus one, so with a drain per frame a bucket
+    // holds one frame; a bucket that mixes two frames (no drain for kBuckets frames) is taken with its newer
+    // one - later, never earlier. Every member is called under the owner's m_DeletionMutex.
+    template <typename Entry>
+    class DeletionRing
+    {
+    public:
+        static constexpr std::size_t kBuckets = 8;
+
+        void push_back( Entry&& entry )
+        {
+            Bucket& bucket = m_Buckets[entry.QueuedFrame % kBuckets];
+            bucket.Newest  = std::max( bucket.Newest, entry.QueuedFrame );
+            bucket.Entries.push_back( std::move( entry ) );
+            ++m_Size;
+        }
+        [[nodiscard]] std::size_t size() const noexcept
+        {
+            return m_Size;
+        }
+        [[nodiscard]] bool empty() const noexcept
+        {
+            return m_Size == 0;
+        }
+        template <typename Visit>
+        void ForEach( const Visit& visit ) const
+        {
+            for ( const Bucket& bucket : m_Buckets )
+            {
+                for ( const Entry& entry : bucket.Entries )
+                    visit( entry );
+            }
+        }
+        // Appends to @p out, oldest frame first, the entries of every bucket whose newest frame @p takeFrame
+        // accepts; those buckets are emptied with their capacity kept.
+        template <typename TakeFrame>
+        void Take( const TakeFrame& takeFrame, std::vector<Entry>& out )
+        {
+            std::array<std::size_t, kBuckets> order{};
+            std::size_t                       count = 0;
+            for ( std::size_t index = 0; index < kBuckets; ++index )
+            {
+                if ( m_Buckets[index].Entries.empty() || !takeFrame( m_Buckets[index].Newest ) )
+                    continue;
+                // Insertion by frame: at most kBuckets buckets.
+                std::size_t at = count++;
+                for ( ; at > 0 && m_Buckets[order[at - 1]].Newest > m_Buckets[index].Newest; --at )
+                    order[at] = order[at - 1];
+                order[at] = index;
+            }
+            for ( std::size_t taken = 0; taken < count; ++taken )
+            {
+                Bucket& bucket = m_Buckets[order[taken]];
+                for ( Entry& entry : bucket.Entries )
+                    out.push_back( std::move( entry ) );
+                m_Size -= bucket.Entries.size();
+                bucket.Entries.clear();
+                bucket.Newest = 0;
+            }
+        }
+        template <typename Erase>
+        void EraseIf( const Erase& erase )
+        {
+            for ( Bucket& bucket : m_Buckets )
+            {
+                m_Size -= static_cast<std::size_t>( std::erase_if( bucket.Entries, erase ) );
+                if ( bucket.Entries.empty() )
+                    bucket.Newest = 0;
+            }
+        }
+
+    private:
+        struct Bucket
+        {
+            std::vector<Entry> Entries;
+            uint64_t           Newest = 0;
+        };
+        std::array<Bucket, kBuckets> m_Buckets;
+        std::size_t                  m_Size = 0;
     };
 
     class VulkanAllocator
@@ -187,9 +276,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             return queued + framesInFlight <= current;
         }
-        /// At most once a second, from ProcessDeletionQueue: owed deletions, the ledger's live bytes and largest
-        /// tags, and VMA's per-heap block/allocation bytes against the driver's usage, as one debug line. Growth
-        /// inside the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
+        /// At most once a second, from the memory sampling job (ScheduleMemorySampling), and only while the log
+        /// level lets a debug line through: owed deletions, the ledger's live bytes and largest tags, and VMA's
+        /// per-heap block/allocation bytes against the driver's usage, as one debug line. Growth inside the
+        /// ledger, inside VMA's blocks, or only in the driver's number names three different causes. In dev
+        /// builds also the subsystem census at every new footprint peak, whatever the level.
         void LogCensusIfDue();
 
         /// ONE MEASUREMENT WINDOW PER SCENE OPEN (FIELD-MEM p4). The peak census above writes only past the run's
@@ -199,8 +290,9 @@ namespace Desert::Graphic::API::Vulkan
         /// "[Memory] scene open #N '<scene>' peak P MB, owed O MB" is written whenever the window's peak climbs
         /// (O = deferred destructions still queued at that peak); the last such line of a window is its peak.
         void BeginSceneOpen( std::string_view scene );
-        /// Folds the process footprint now into the open window. Per present (ProcessDeletionQueue) and by the
-        /// opener at the end of the open, which runs without frames.
+        /// Folds the process footprint now into the open window. By the memory sampling job (started by every
+        /// ProcessDeletionQueue that finds none in flight) and by the opener at the end of the open, which runs
+        /// without frames. Takes m_SamplingMutex.
         void SampleSceneOpen();
 
         /// Destroys EVERYTHING still queued, whatever frame it was queued on, and answers how many.
@@ -276,7 +368,22 @@ namespace Desert::Graphic::API::Vulkan
         /// The one body behind ProcessDeletionQueue and DrainDeletionQueue. They differ ONLY in which
         /// queued frames they take, and that is the whole reason they share this: two copies of four
         /// erase loops is where a fifth resource kind gets destroyed on one path and leaked on the other.
-        std::size_t DestroyQueued( const std::function<bool( uint64_t )>& takeFrame );
+        /// @p takeFrame: bool( uint64_t queuedFrame ), asked once per bucket (DeletionRing::Take).
+        template <typename TakeFrame>
+        std::size_t DestroyQueued( const TakeFrame& takeFrame );
+
+        /// THE MEMORY SAMPLING JOB (FPS-CPU2-VKFRAME; UE: stat memory sampled off the frame path). The scene-open
+        /// footprint (SampleSceneOpen) and the once-a-second census (LogCensusIfDue) were run by the per-frame
+        /// drain on the render thread: two GetProcessMemoryInfo calls every frame and, once a second, a census
+        /// that sorted the ledger and formatted lines (p99 3.1 ms / max 3.7 ms in "Vulkan: slot retire"). They
+        /// now run as one Background job the drain starts when none is in flight; Shutdown waits for it.
+        void              ScheduleMemorySampling();
+        void              RunMemorySampling();
+        void              WaitMemorySampling() noexcept;
+        std::atomic<bool> m_SamplingInFlight{ false };
+        // The scene-open window and the census's state: written by the sampling job, BeginSceneOpen (the
+        // opener's thread) and SampleSceneOpen's callers.
+        mutable std::mutex m_SamplingMutex;
 
         friend class Common::Singleton<VulkanAllocator>;
 
@@ -296,18 +403,18 @@ namespace Desert::Graphic::API::Vulkan
         // the take in DestroyQueued. DestroyQueued MOVES the retired entries out under the lock and destroys them
         // after it is released, so a host-object destroy that queues again cannot deadlock and no vkDestroy* or
         // vmaDestroy* runs under it.
-        mutable std::mutex                              m_DeletionMutex;
-        std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
-        std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
-        std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
-        std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
-        std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
-        std::vector<PipelineDeletionEntry>              m_PipelineDeletionQueue;
-        std::vector<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
-        std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
-        std::vector<HostObjectDeletionEntry>     m_HostObjectDeletionQueue;
+        mutable std::mutex                               m_DeletionMutex;
+        DeletionRing<BufferDeletionEntry>                m_BufferDeletionQueue;
+        DeletionRing<ImageDeletionEntry>                 m_ImageDeletionQueue;
+        DeletionRing<FramebufferDeletionEntry>           m_FramebufferDeletionQueue;
+        DeletionRing<RenderPassDeletionEntry>            m_RenderPassDeletionQueue;
+        DeletionRing<QueryPoolDeletionEntry>             m_QueryPoolDeletionQueue;
+        DeletionRing<PipelineDeletionEntry>              m_PipelineDeletionQueue;
+        DeletionRing<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
+        DeletionRing<DescriptorPoolDeletionEntry>        m_DescriptorPoolDeletionQueue;
+        DeletionRing<HostObjectDeletionEntry>            m_HostObjectDeletionQueue;
         // RT_RetireServiceObject's: engine wrappers only, never a third-party GPU object (see there).
-        std::vector<HostObjectDeletionEntry> m_ServiceRetireQueue;
+        DeletionRing<HostObjectDeletionEntry> m_ServiceRetireQueue;
 
         AllocationLedger m_Ledger;
         std::mutex                            m_ZeroBufferMutex;

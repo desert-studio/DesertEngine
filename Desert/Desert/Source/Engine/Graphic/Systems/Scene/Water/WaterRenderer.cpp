@@ -266,14 +266,17 @@ namespace Desert::Graphic::System
             folded.Stamp    = stamp;
             folded.Overrides.Params.clear();
             folded.Overrides.Textures.clear();
+            // The refilled Params may name other parameters in the same places: the handles start over.
+            folded.Overrides.Resolved.Reset();
             if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
                 (void)materials->ResolveOverrides( material, folded.Overrides );
-            cell.ApplyDefaults();
-            for ( const auto& [name, value] : folded.Overrides.Params )
-                (void)cell.SetParam( name, value );
+            // FPS-MAT-HANDLES3: the defaults, then each param by its handle (resolved once per layout stamp).
+            cell.ApplyOverrides( folded.Overrides );
         }
-        for ( const auto& [name, handle] : folded.Overrides.Textures )
+        const auto& textures = folded.Overrides.Textures;
+        for ( size_t index = 0; index < textures.size(); ++index )
         {
+            const auto& [name, handle] = textures[index];
             if ( handle == 0 )
                 continue;
             auto* texture = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
@@ -281,12 +284,30 @@ namespace Desert::Graphic::System
                 continue; // still loading: picked up the frame it lands
             const auto* image = dynamic_cast<Image2D*>(
                  Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
+            // FPS-MAT-HANDLES3: through the cell's handle for this override's place (re-resolved by name only
+            // when the layout, the executor or the name there moved).
             if ( image != nullptr )
-                (void)cell.SetTexture( name, image );
+                (void)cell.SetTexture( cell.OverrideTextureHandle( index ), name, image );
         }
         const Core::Formats::MaterialParamRow& row = cell.GetParamRow();
-        if ( auto* rows = cell.Get<StorageBufferProperty>( WaterShaderParameters::Materials ) )
+        if ( auto* rows = BlocksOf( program ).Rows )
             rows->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
+    }
+
+    const WaterRenderer::WaterProgram::CellBlocks& WaterRenderer::BlocksOf( WaterProgram& program )
+    {
+        WaterProgram::CellBlocks& blocks   = program.Blocks;
+        const DataDrivenMaterial& cell     = *program.Material;
+        const MaterialLayoutStamp stamp    = cell.GetLayoutStamp();
+        const MaterialExecutor*   executor = cell.GetMaterialExecutor();
+        if ( blocks.Resolved && blocks.Stamp == stamp && blocks.Executor == executor )
+            return blocks;
+        blocks.Stamp    = stamp;
+        blocks.Executor = executor;
+        blocks.Rows     = cell.Get<StorageBufferProperty>( WaterShaderParameters::Materials );
+        blocks.Tiles    = cell.Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles );
+        blocks.Resolved = true;
+        return blocks;
     }
 
     void WaterRenderer::PrepareFrame()
@@ -294,6 +315,7 @@ namespace Desert::Graphic::System
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
         m_Frame            = nullptr;
+        m_Walk             = TileWalk{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -385,18 +407,43 @@ namespace Desert::Graphic::System
             }
         }
 
-        const glm::mat4     view     = camera->GetViewMatrix();
-        const glm::mat4     proj     = camera->GetProjectionMatrix();
-        const glm::vec3     observer = glm::vec3( glm::inverse( view )[3] );
-        const Core::Frustum frustum( proj, view );
+        // The waves block is whole here (its WaterInfo lane reads the ground and the mask depth, both settled
+        // above): the upload's head, the tile task appends the rows after it.
+        if ( ground != nullptr && ground->ExtentCm > 0.0f )
+            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
+        m_Upload.resize( sizeof( WaterWavesBlock ) );
+        std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
+
+        const glm::mat4 view     = camera->GetViewMatrix();
+        const glm::mat4 proj     = camera->GetProjectionMatrix();
+        const glm::vec3 observer = glm::vec3( glm::inverse( view )[3] );
         // The lens stretches every water LOD ring (VIEW-LOD-FOV): the one view scale meshes, foliage and terrain
         // read, so a 10-degree scope keeps the far sea as fine as it looks.
         const float lensScale = DrawDistanceScale( Geometry::LODView{ .Origin = observer, .Projection = proj } );
+        m_Walk                = TileWalk{ .Program        = program,
+                                          .Material       = material,
+                                          .Stamp          = stamp,
+                                          .Ground         = std::move( ground ),
+                                          .View           = view,
+                                          .Projection     = proj,
+                                          .Observer       = observer,
+                                          .LensScale      = lensScale,
+                                          .VerticalExtent = verticalExtent,
+                                          .Rows           = 0 };
+    }
+
+    void WaterRenderer::PrepareTiles() noexcept
+    {
+        if ( m_Walk.Program == nullptr )
+            return;
+        const Core::Frustum frustum( m_Walk.Projection, m_Walk.View );
+        const glm::vec3     observer       = m_Walk.Observer;
+        const float         lensScale      = m_Walk.LensScale;
+        const float         verticalExtent = m_Walk.VerticalExtent;
 
         // Every zone's tiles in its density order: one instanced draw per run of one grid density (a row carries
         // its own zone, so a run may span two zones). The rows go straight into the upload, after its waves block
-        // (written last: its WaterInfo lane needs the ground).
-        m_Upload.resize( sizeof( WaterWavesBlock ) );
+        // (PrepareFrame wrote it).
         uint32_t rowCount = 0;
         m_ZoneTrees.resize( m_Queue.size() );
         for ( size_t z = 0; z < m_Queue.size(); ++z )
@@ -434,13 +481,20 @@ namespace Desert::Graphic::System
                 ++rowCount;
             }
         }
-        if ( rowCount == 0u )
+        m_Walk.Rows = rowCount;
+    }
+
+    void WaterRenderer::FinishPrepare()
+    {
+        WaterProgram* const program = m_Walk.Program;
+        if ( program == nullptr || m_Walk.Rows == 0u )
             return;
 
-        ApplyMaterial( material, stamp, *program );
+        ApplyMaterial( m_Walk.Material, m_Walk.Stamp, *program );
 
         // THE WATER INFO GROUND (UE WaterInfo): re-uploaded only when the collector baked a new one. Over no
         // landscape the texture is one texel of kWaterInfoNoGroundCm - a bottom no wave reaches.
+        const std::shared_ptr<const Water::WaterInfoGround>& ground = m_Walk.Ground;
         if ( ground != m_GroundBaked || m_WaterInfo == nullptr )
         {
             m_GroundBaked = ground;
@@ -448,13 +502,8 @@ namespace Desert::Graphic::System
                                  ? CreateWaterInfoImage( ground->Size, ground->HeightCm )
                                  : CreateWaterInfoImage( 1u, { Water::kWaterInfoNoGroundCm } );
         }
-        if ( ground != nullptr && ground->ExtentCm > 0.0f )
-            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
-        if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
-        {
-            std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
+        if ( auto* tiles = BlocksOf( *program ).Tiles )
             tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
-        }
         m_Frame = program;
     }
 
@@ -500,6 +549,11 @@ namespace Desert::Graphic::System
         const MaterialExecutor*       executor = material.GetMaterialExecutor();
         const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
         std::vector<std::byte>&       push     = m_Push;
+        // FPS-MAT-HANDLES3: the cell's push fields placed once per shader code (DrawPushFields::ShaderPlacements,
+        // as TerrainRenderer::RecordDraws), copied here so a later Of on this thread cannot move it under the
+        // loop; no field is found by name per draw.
+        const DrawPushFields::Placement placement =
+             DrawPushFields::ThreadShaderPlacements().Of( executor->GetShader().get() );
         for ( const FrameDraw& draw : m_FrameDraws )
         {
             push.assign( pushed.Size, std::byte{ 0 } );
@@ -507,7 +561,7 @@ namespace Desert::Graphic::System
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
             DrawPushFields fields;
             fields.Transform( glm::mat4( 1.0f ) ).MaterialIndex( 0u ).PrimitiveIndex( draw.FirstRow );
-            if ( auto written = fields.WriteInto( push, material.GetMaterialLayout() ); !written )
+            if ( auto written = fields.WriteInto( push, placement ); !written )
                 return Common::MakeFormattedError( "{}: water draw at tile row {}: {}", context.GetPassName(),
                                                    draw.FirstRow, written.GetError() );
             if ( auto drawn = Renderer::GetInstance().DrawProcedural( block, *m_Frame->Pipeline, executor,

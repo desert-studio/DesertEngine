@@ -165,6 +165,7 @@ namespace Desert::Graphic::System
         // and the virtual shadow map's levels.
         m_GBufferDraws.CountAs( GpuDriven::MeshPass::GBuffer );
         m_GBufferPostDraws.CountAs( GpuDriven::MeshPass::GBuffer );
+        m_OccluderDepthDraws.CountAs( GpuDriven::MeshPass::GBuffer );
         m_DepthNormalDraws.CountAs( GpuDriven::MeshPass::DepthPrepass );
         m_ForwardDraws.CountAs( GpuDriven::MeshPass::Forward );
         m_GenericDraws.CountAs( GpuDriven::MeshPass::Forward );
@@ -183,6 +184,11 @@ namespace Desert::Graphic::System
         // table's groups through the same twins) takes the same key.
         m_MaskedDepthDraws.RecordBinnedFirst();
         m_EarlyZPostDepthDraws.RecordBinnedFirst();
+        // "Deferred: GBuffer" and its phase 2 draw their depth writers (the opaque meshes the masked prepass left
+        // out, bins and clusters too) before their EQUAL twins of what it drew (FPS-MASKED-PREPASS): a prepassed
+        // grass or leaf texel behind the barn then fails EQUAL before the full G-buffer fragment runs.
+        m_GBufferDraws.RecordDepthWritersFirst();
+        m_GBufferPostDraws.RecordDepthWritersFirst();
 
         const auto& targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
@@ -491,7 +497,15 @@ namespace Desert::Graphic::System
         m_StaticColumns.Truncate( m_StaticRetained );
         m_StaticSceneSubmitted = false;
         m_SkinnedQueue.clear();
-        m_GenericQueue.clear(); // capacity kept; its records reference the recording ending with this frame
+        // The retained skinned sections no submission asked for since the last clear: their binding was replaced
+        // (a material / slot / mesh change) or the entity left the view's recording. The entries asked for stay.
+        std::erase_if( m_SkinnedSections,
+                       [this]( const auto& held ) { return held.second.Seen != m_SkinnedSectionsEpoch; } );
+        ++m_SkinnedSectionsEpoch;
+        // Kept as last frame's (SubmitGenericMesh compares identity words with it, never follows its references:
+        // they name the recording ending with this frame); the queue starts empty, capacity of both kept.
+        m_GenericRecycled.clear();
+        std::swap( m_GenericQueue, m_GenericRecycled );
         m_GenericProgramsResolved = false; // GenericProgramOf resolves the next frame's records
         // The ISM queue is not destroyed but kept as the next frame's recycled entries (SubmitInstancedRow); the
         // ones the frame before did not take back (a row that left) are released here.
@@ -543,6 +557,27 @@ namespace Desert::Graphic::System
         // set — the shader name comes from the material at draw time).
         if ( data.Mesh && ( !data.ShaderName().empty() || data.SlotMaterial ) )
         {
+            // THE GENERIC RECORDS' PRODUCER EVENT (FPS-SCENE-EVENTS5): the record differs from last frame's at
+            // this position in what its GpuScene record is made of, or is one more. Addresses only (the old
+            // record's references are dead): the values revision, the producer-kept hit and the slot material
+            // stand for their values; a record without a revision is re-folded by SyncGpuScene instead
+            // (HeldGeneric).
+            const std::size_t at = m_GenericQueue.size();
+            if ( at >= m_GenericRecycled.size() )
+                m_GenericQueueChanged = true;
+            else
+            {
+                const GenericMeshRenderData& last = m_GenericRecycled[at];
+                if ( last.Entity != data.Entity || last.MotionPart != data.MotionPart || last.Mesh != data.Mesh ||
+                     last.Transform != data.Transform || last.CastShadows != data.CastShadows ||
+                     last.VisibleInRayTracing != data.VisibleInRayTracing ||
+                     last.SlotMaterial != data.SlotMaterial ||
+                     last.VisibleSubmeshMask != data.VisibleSubmeshMask ||
+                     last.ValuesRevision != data.ValuesRevision ||
+                     last.RevisionHasShaderName != data.RevisionHasShaderName ||
+                     last.RayHitRef != data.RayHitRef || last.DirectTexture != data.DirectTexture )
+                    m_GenericQueueChanged = true;
+            }
             // A trivially copied record: its names and values are referenced (GenericMeshRenderData).
             m_GenericQueue.push_back( data );
             m_GenericProgramsResolved = false;
@@ -571,8 +606,20 @@ namespace Desert::Graphic::System
         if ( at < m_InstancedRecycled.size() )
             m_InstancedQueue.push_back( std::move( m_InstancedRecycled[at] ) );
         else
+        {
             m_InstancedQueue.emplace_back();
+            m_InstancedQueueChanged = true; // a row more than last frame
+        }
         InstancedMeshRenderData& data = m_InstancedQueue.back();
+        // THE FIELD'S PRODUCER EVENT (FPS-SCENE-EVENTS4): the entry differs from last frame's at this position in
+        // what its GpuScene field record is made of (the retained ISM list published a new version, a row left or
+        // came, a split record is whole again). Held until SyncGpuScene syncs full field records; a frame without
+        // one keeps the fields' proxies (GpuSceneProxies::KeepsFields).
+        if ( data.Entity != row.Entity || data.Mesh != row.Mesh || data.Material != row.Material ||
+             data.DisplacedMaterial != row.DisplacedMaterial || data.Transforms != row.Transforms ||
+             data.InstanceIds || data.HiddenSubmeshes != row.HiddenSubmeshes ||
+             data.CastShadows != row.CastShadows || data.CastContactShadow != row.CastContactShadow )
+            m_InstancedQueueChanged = true;
         data.Entity                   = row.Entity;
         data.Mesh                     = row.Mesh;
         AssignInstancedHandle( data.Material, row.Material );
@@ -646,6 +693,79 @@ namespace Desert::Graphic::System
             // a record nested on the thread between two draws never sees another record's bytes.
             thread_local std::vector<std::byte>                t_RecordPush;
             thread_local std::vector<const RDG::PassBindings*> t_RecordGroupBindings;
+            // FPS-CPU2-GRASS2 (UE FParallelMeshDrawCommandPass / SubmitMeshDrawCommandsRange: a run of the list's
+            // draws in one backend submit): the compacted bins a command record holds back until the run ends -
+            // consecutive bins of one binding block go to Renderer::RenderMeshIndirectCountBins as ONE batch. The
+            // bins, their push blocks end to end and each one's (offset, size) there (the spans are set at the
+            // flush, after the last append can move the bytes). A record takes them out of the thread (BinBatch)
+            // for its run, so a record nested on the thread inside the backend call cannot touch a pending batch.
+            struct RecordBinScratch
+            {
+                std::vector<BinDraw>                       Bins;
+                std::vector<std::byte>                     Push;
+                std::vector<std::pair<uint32_t, uint32_t>> PushAt;
+            };
+            thread_local RecordBinScratch t_RecordBins;
+
+            // The thread's RecordBinScratch for one RecordCommands: moved out on entry, back (emptied, its
+            // capacity kept) on exit - no heap allocation once the thread's vectors have grown.
+            class BinBatch
+            {
+            public:
+                BinBatch() noexcept : m_Scratch( std::move( t_RecordBins ) )
+                {
+                    Reset();
+                }
+                ~BinBatch()
+                {
+                    Reset();
+                    t_RecordBins = std::move( m_Scratch );
+                }
+                BinBatch( const BinBatch& )            = delete;
+                BinBatch& operator=( const BinBatch& ) = delete;
+
+                [[nodiscard]] bool Empty() const noexcept
+                {
+                    return m_Scratch.Bins.empty();
+                }
+                [[nodiscard]] uint32_t Block() const noexcept
+                {
+                    return m_Block;
+                }
+                // Holds @p bin of binding block @p block back, its push block a copy of @p push.
+                void Add( const uint32_t block, const BinDraw& bin, const std::span<const std::byte> push )
+                {
+                    m_Block = block;
+                    m_Scratch.PushAt.emplace_back( static_cast<uint32_t>( m_Scratch.Push.size() ),
+                                                   static_cast<uint32_t>( push.size() ) );
+                    m_Scratch.Push.insert( m_Scratch.Push.end(), push.begin(), push.end() );
+                    m_Scratch.Bins.push_back( bin );
+                }
+                // Records the held bins as one batch with @p bindings (their block's), then holds none.
+                Common::BoolResultStr Flush( const RDG::PassBindings& bindings )
+                {
+                    if ( m_Scratch.Bins.empty() )
+                        return BOOLSUCCESS;
+                    for ( size_t b = 0; b < m_Scratch.Bins.size(); ++b )
+                        m_Scratch.Bins[b].Push = std::span<const std::byte>(
+                             m_Scratch.Push.data() + m_Scratch.PushAt[b].first, m_Scratch.PushAt[b].second );
+                    Common::BoolResultStr drawn =
+                         Renderer::RenderMeshIndirectCountBins( bindings, m_Scratch.Bins );
+                    Reset();
+                    return drawn;
+                }
+
+            private:
+                void Reset() noexcept
+                {
+                    m_Scratch.Bins.clear();
+                    m_Scratch.Push.clear();
+                    m_Scratch.PushAt.clear();
+                }
+
+                RecordBinScratch m_Scratch;
+                uint32_t         m_Block = 0;
+            };
             // The depth pass's one sweep of its bins (RecordBinned under RecordBinnedFirst): per group the
             // pipeline this sweep draws it with, null = the other sweep's. Same kept-scratch rule as the two
             // above.
@@ -675,24 +795,39 @@ namespace Desert::Graphic::System
             m_SceneInstances = {};
             m_GroupBlock.clear();
             m_VgGroupBlock.clear();
-            m_OpaqueCommands.clear();
-            m_MaskedCommands.clear();
+            m_EarlyCommands.clear();
+            m_LateCommands.clear();
             m_CommandViewports = false;
             m_Layouts.DropExpired();
         }
 
+        bool MeshDrawList::SortsLate( const GraphicsPipeline& pipeline ) const
+        {
+            switch ( m_SortKey )
+            {
+                case SortKey::DepthPass:
+                    return ClipsInDepthPass( pipeline );
+                case SortKey::BasePass:
+                    // An EQUAL / test-only draw (the masked prepass's G-buffer twin): after every depth writer.
+                    return !pipeline.GetSpecification().DepthWriteEnabled;
+                case SortKey::BuildOrder:
+                    return false;
+            }
+            return false;
+        }
+
         void MeshDrawList::BucketForDepthSort( const uint32_t index )
         {
-            if ( !m_BinnedFirst )
+            if ( m_SortKey == SortKey::BuildOrder )
                 return;
             const MeshDrawCommand& command = m_Commands[index];
             if ( command.Viewport )
                 m_CommandViewports = true;
             // Add refused a command without pipeline, so every command here has one.
-            if ( ClipsInDepthPass( *command.Pipeline ) )
-                m_MaskedCommands.push_back( index );
+            if ( SortsLate( *command.Pipeline ) )
+                m_LateCommands.push_back( index );
             else
-                m_OpaqueCommands.push_back( index );
+                m_EarlyCommands.push_back( index );
         }
 
         void MeshDrawList::SetBinned( BinnedIssue issue )
@@ -1004,15 +1139,24 @@ namespace Desert::Graphic::System
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
             // GPU-COST-22: several lists (the camera's, a cascade's, phase 2's) read one Instances through their
             // ids.
-            // CPU-FRAME-ARENA 3: the buffers declared so far in the list's kept scratch (m_DeclaredReads), no
-            // vector per declaration.
-            std::vector<RDG::BufferRef>& read = m_DeclaredReads;
-            read.clear();
-            const auto readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
+            // CPU-FRAME-ARENA 3 / FPS-CPU-DEBT-TAIL: the buffers declared so far are those stamped with this
+            // declaration's epoch in the list's kept stamp table (m_DeclaredStamp), O(1) per read.
+            std::vector<uint32_t>& stamp = m_DeclaredStamp;
+            if ( ++m_DeclaredEpoch == 0u ) // wrapped: no stale stamp may equal a new epoch
             {
-                if ( !buffer.IsValid() || std::find( read.begin(), read.end(), buffer ) != read.end() )
+                std::fill( stamp.begin(), stamp.end(), 0u );
+                m_DeclaredEpoch = 1u;
+            }
+            const uint32_t epoch    = m_DeclaredEpoch;
+            const auto     readOnce = [&]( const RDG::BufferRef& buffer, const RDG::Access access )
+            {
+                if ( !buffer.IsValid() )
                     return;
-                read.push_back( buffer );
+                if ( buffer.Index >= stamp.size() )
+                    stamp.resize( static_cast<size_t>( buffer.Index ) + 1u, 0u );
+                if ( stamp[buffer.Index] == epoch )
+                    return;
+                stamp[buffer.Index] = epoch;
                 declaration.Read( buffer, access );
             };
             for ( const MeshDrawCommand& command : m_Commands )
@@ -1055,21 +1199,22 @@ namespace Desert::Graphic::System
             if ( m_CountedPass )
                 counted.emplace( static_cast<uint32_t>( *m_CountedPass ) );
             const RDG::OpenBindingBlocks blocks( context, 0u, m_Blocks.size() );
-            // RecordBinnedFirst: the depth pass's sort key (UE CalculateDepthPassMeshStaticSortKey, the masked bit
-            // first): the opaque bins + clusters, the opaque CPU commands, then the masked bins + clusters and the
-            // masked CPU commands. A command setting a viewport keeps the build order (both sweeps of the bins,
-            // then every command). Every other list: the commands first, then its one sweep of the bins.
-            if ( m_BinnedFirst && !m_CommandViewports )
+            // A sort key (RecordBinnedFirst: the depth pass's, UE CalculateDepthPassMeshStaticSortKey, the
+            // masked bit last; RecordDepthWritersFirst: the base pass's, the EQUAL draws last): the early bins +
+            // clusters, the early CPU commands, then the late bins + clusters and the late CPU commands. A command
+            // setting a viewport keeps the build order (both sweeps of the bins, then every command). A BuildOrder
+            // list: the commands first, then its one sweep of the bins.
+            if ( m_SortKey != SortKey::BuildOrder && !m_CommandViewports )
             {
                 if ( auto binned = RecordBinned( context, blocks, 0u ); !binned )
                     return binned;
-                if ( auto opaque = RecordCommands( context, blocks, CommandSweep::Opaque ); !opaque )
-                    return opaque;
+                if ( auto early = RecordCommands( context, blocks, CommandSweep::Early ); !early )
+                    return early;
                 if ( auto binned = RecordBinned( context, blocks, 1u ); !binned )
                     return binned;
-                return RecordCommands( context, blocks, CommandSweep::Masked );
+                return RecordCommands( context, blocks, CommandSweep::Late );
             }
-            if ( m_BinnedFirst )
+            if ( m_SortKey != SortKey::BuildOrder )
             {
                 for ( uint32_t sweep = 0; sweep < 2u; ++sweep )
                     if ( auto binned = RecordBinned( context, blocks, sweep ); !binned )
@@ -1097,20 +1242,28 @@ namespace Desert::Graphic::System
             // nothing and builds no label.
             const bool                                          split = Common::Profiling::MeshDrawSplitOn();
             std::optional<Common::Profiling::GpuDrawSplitScope> drawRun;
+            // FPS-CPU2-GRASS2: consecutive compacted bins of one block, recorded as one batch when the run ends (a
+            // draw of another kind or block, a viewport, the end of the list). The draw split times each bin on
+            // its own, so with it on every bin is its own call, as before.
+            BinBatch binBatch;
             const Mesh*                                         groupMesh     = nullptr;
             const MaterialExecutor*                             groupMaterial = nullptr;
             // The commands this call issues: all in build order, or one depth-sort bucket (indices into
             // m_Commands, so m_BlockOf / m_FirstRecords keep their meaning).
             const std::vector<uint32_t>* bucket = nullptr;
-            if ( which == CommandSweep::Opaque )
-                bucket = &m_OpaqueCommands;
-            else if ( which == CommandSweep::Masked )
-                bucket = &m_MaskedCommands;
+            if ( which == CommandSweep::Early )
+                bucket = &m_EarlyCommands;
+            else if ( which == CommandSweep::Late )
+                bucket = &m_LateCommands;
             const size_t issued = bucket != nullptr ? bucket->size() : m_Commands.size();
             for ( size_t k = 0; k < issued; ++k )
             {
                 const size_t           i    = bucket != nullptr ? size_t{ ( *bucket )[k] } : k;
                 const MeshDrawCommand& draw = m_Commands[i];
+                const bool             held = !split && draw.IndirectCount.IsValid();
+                if ( !binBatch.Empty() && ( !held || draw.Viewport || m_BlockOf[i] != binBatch.Block() ) )
+                    if ( auto flushed = binBatch.Flush( blocks.At( binBatch.Block() ) ); !flushed.IsSuccess() )
+                        return flushed;
                 if ( split )
                 {
                     if ( !drawRun || draw.Mesh != groupMesh || draw.Material != groupMaterial )
@@ -1146,6 +1299,23 @@ namespace Desert::Graphic::System
                 if ( draw.IndirectCount.IsValid() )
                 {
                     static_assert( kGpuDrawBinCommandBytes == kMeshDrawArgumentsBytes );
+                    if ( held )
+                    {
+                        binBatch.Add( m_BlockOf[i],
+                                      BinDraw{ .Pipeline          = draw.Pipeline,
+                                               .Mesh              = draw.Mesh,
+                                               .Material          = draw.Material,
+                                               .Transform         = draw.Transform,
+                                               .Push              = {},
+                                               .Args              = draw.IndirectArgs,
+                                               .Offset            = draw.IndirectArgsOffset,
+                                               .Count             = draw.IndirectCount,
+                                               .CountOffset       = draw.IndirectCountOffset,
+                                               .MaxDraws          = draw.IndirectMaxDraws,
+                                               .HiddenSubmeshMask = draw.HiddenSubmeshMask },
+                                      push );
+                        continue;
+                    }
                     if ( auto drawn = Renderer::RenderMeshIndirectCount(
                               blocks.At( m_BlockOf[i] ), *draw.Pipeline, *draw.Mesh, draw.Transform,
                               *draw.Material, push, draw.IndirectArgs, draw.IndirectArgsOffset, draw.IndirectCount,
@@ -1184,6 +1354,9 @@ namespace Desert::Graphic::System
                      !drawn.IsSuccess() )
                     return drawn;
             }
+            if ( !binBatch.Empty() )
+                if ( auto flushed = binBatch.Flush( blocks.At( binBatch.Block() ) ); !flushed.IsSuccess() )
+                    return flushed;
             drawRun.reset();
             return BOOLSUCCESS;
         }
@@ -1195,7 +1368,7 @@ namespace Desert::Graphic::System
             // The GPU-culled bins, after the CPU commands unless RecordBinnedFirst (whatever the CPU lists still
             // draw is what the bins do not hold: MeshRenderer::CpuWalkHidden).
             const bool     split  = Common::Profiling::MeshDrawSplitOn();
-            const uint32_t sweeps = m_BinnedFirst ? 2u : 1u;
+            const uint32_t sweeps = m_SortKey != SortKey::BuildOrder ? 2u : 1u;
             if ( m_Binned && sweep < sweeps )
             {
                 // CPU-FRAME-ARENA 3: the groups' open blocks in this thread's kept scratch (read by the call below
@@ -1213,18 +1386,20 @@ namespace Desert::Graphic::System
                 // runs. The Table's group order mixes the two (one group per pipeline, in first-use order). Every
                 // other list: one sweep, every group, as before. The depth written is the nearest fragment
                 // whatever the order (CloserOrEqual + write), so only the cost moves. One sweep per call: Record
-                // puts the opaque CPU commands between the two.
-                const bool sweepMasked = sweep == 1u;
+                // puts the opaque CPU commands between the two. The base pass's key (RecordDepthWritersFirst)
+                // splits the same way by depth write: the opaque groups' own pipelines, then the masked groups'
+                // EQUAL twins.
+                const bool sweepLate = sweep == 1u;
                 // The bins: this sweep's groups through a filtered copy of the issue's pipelines.
                 std::span<const GraphicsPipeline* const> pipelines = m_Binned->GroupPipelines;
-                if ( m_BinnedFirst && m_Binned->BinsIssued )
+                if ( sweeps > 1u && m_Binned->BinsIssued )
                 {
                     std::vector<const GraphicsPipeline*>& sweepPipelines = t_RecordSweepPipelines;
                     sweepPipelines.assign( m_Binned->Table->Groups.size(), nullptr );
                     for ( size_t group = 0; group < sweepPipelines.size(); ++group )
                     {
                         const GraphicsPipeline* const pipeline = m_Binned->GroupPipeline( group );
-                        if ( pipeline != nullptr && ClipsInDepthPass( *pipeline ) == sweepMasked )
+                        if ( pipeline != nullptr && SortsLate( *pipeline ) == sweepLate )
                             sweepPipelines[group] = pipeline;
                     }
                     pipelines = sweepPipelines;
@@ -1252,7 +1427,7 @@ namespace Desert::Graphic::System
             {
                 // The VG raster after the bins: per group its clusters' one indirect draw (an empty group draws
                 // zero instances; the arguments are the GPU's). Of two sweeps (RecordBinned), only the sweep's
-                // groups: the opaque ones in sweep 0, the masked ones in sweep 1.
+                // groups: the early ones in sweep 0, the late ones in sweep 1 (SortsLate).
                 if ( m_Binned->VirtualGeometry )
                 {
                     const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
@@ -1261,7 +1436,7 @@ namespace Desert::Graphic::System
                         if ( m_VgGroupBlock[group] >= blocks.Count() )
                             continue;
                         const GraphicsPipeline&        pipeline = *vg.GroupPipeline( *m_Binned->Table, group );
-                        if ( sweeps > 1u && ClipsInDepthPass( pipeline ) != ( sweep == 1u ) )
+                        if ( sweeps > 1u && SortsLate( pipeline ) != ( sweep == 1u ) )
                             continue;
                         // The cluster raster's group: one indirect draw whose triangles only the GPU knows.
                         std::optional<Common::Profiling::GpuDrawSplitScope> vgGroup;
@@ -1711,6 +1886,8 @@ namespace Desert::Graphic::System
     {
         m_FrameBinned.clear();
         m_FrameClusterCandidates.clear();
+        m_EarlyZOccluderIssue.reset();
+        m_EarlyZOccluderFrame.reset();
         std::erase_if( m_BinnedCarriers, []( const auto& entry ) { return entry.second.Program.expired(); } );
         if ( !m_DrawCommandCache )
             return Common::MakeError<GpuDriven::DrawCommandBuffers>(
@@ -2413,7 +2590,7 @@ namespace Desert::Graphic::System
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
-                                                      const uint64_t                         frame )
+                                                      const uint64_t frame, RDG::Builder& graph )
     {
         DESERT_PROFILE_SCOPE( "MeshRenderer::SyncGpuScene" );
         namespace Flags       = GpuDriven::PrimitiveFlags;
@@ -2454,18 +2631,33 @@ namespace Desert::Graphic::System
                 Pointer( shading.Surface );
                 Value( ( shading.Masked ? 1u : 0u ) | ( shading.Translucent ? 2u : 0u ) );
             }
-            void MeshOf( const Mesh* mesh )
+            static ContentMeshKey KeyOf( const Mesh* mesh )
             {
-                Pointer( mesh );
                 if ( mesh == nullptr )
+                    return {};
+                return { .Mesh           = reinterpret_cast<std::uintptr_t>( mesh ),
+                         .Submeshes      = reinterpret_cast<std::uintptr_t>( mesh->GetSubmeshes().data() ),
+                         .SubmeshCount   = mesh->GetSubmeshes().size(),
+                         .IndexCount     = mesh->GetGeometry().IndexCount,
+                         .RenderRevision = mesh->GetRenderRevision(),
+                         .Resident       = mesh->GetGeometry().IsResident() };
+            }
+            void MeshOf( const ContentMeshKey& key )
+            {
+                Value( static_cast<uint64_t>( key.Mesh ) );
+                if ( key.Mesh == 0u )
                     return;
-                Pointer( mesh->GetSubmeshes().data() );
-                Value( mesh->GetSubmeshes().size() );
-                Value( mesh->GetGeometry().IndexCount );
-                Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+                Value( static_cast<uint64_t>( key.Submeshes ) );
+                Value( key.SubmeshCount );
+                Value( key.IndexCount );
+                Value( key.Resident ? 1u : 0u );
                 // A content change of the same mesh object (a sculpt, a reload into it): its render identity
                 // (MeshRenderRevision) is what the static casters' shadow parts key it by (SCENE-CACHE-4).
-                Value( mesh->GetRenderRevision() );
+                Value( key.RenderRevision );
+            }
+            void MeshOf( const Mesh* mesh )
+            {
+                MeshOf( KeyOf( mesh ) );
             }
         };
         // @p shading: the record's ShadingOf, asked once by the gather below (it fills the walk columns too).
@@ -2493,34 +2685,111 @@ namespace Desert::Graphic::System
             words.Value( ( rayHit.Template.empty() ? 0u : 1u ) | ( rayHit.Opacity.has_value() ? 2u : 0u ) );
             // The surface cache's card gather keeps a generic draw's capture while the static casters' revision
             // holds (SCENE-CACHE-5): a Shader Override's program, textures and values are its cards' surface.
-            words.Value( std::hash<std::string>{}( data.ShaderName() ) );
-            words.Value( std::hash<std::string>{}( GenericTextureKey( data ) ) );
-            for ( const auto& [name, value] : data.Overrides().Params )
+            // A per-slot draw (SlotMaterial) has none of them: its material is its surface, keyed above.
+            if ( data.SlotMaterial != nullptr )
+                return words.Hash;
+            // A producer-kept record: its revision IS its overrides, hit and (when it carries it) shader name -
+            // no string hashed, no texture key built, no override walked per frame (GenericMeshDrawParams).
+            if ( data.ValuesRevision != 0u )
+                words.Value( data.ValuesRevision );
+            else
             {
-                words.Value( std::hash<std::string>{}( name ) );
-                for ( int lane = 0; lane < 4; ++lane )
-                    words.Value( std::hash<float>{}( value[lane] ) );
+                // The command's own values, by value. The texture overrides in submission order: an order change
+                // of an equal set is a spurious content change at worst (GenericTextureKey sorts for sharing, the
+                // content only needs to see every change). Unset slots (handle 0) bind nothing, as in the key.
+                for ( const auto& [name, value] : data.Overrides().Params )
+                {
+                    words.Value( std::hash<std::string_view>{}( name ) );
+                    for ( int lane = 0; lane < 4; ++lane )
+                        words.Value( std::hash<float>{}( value[lane] ) );
+                }
+                for ( const auto& [sampler, handle] : data.Overrides().Textures )
+                    if ( handle != 0u )
+                    {
+                        words.Value( std::hash<std::string_view>{}( sampler ) );
+                        words.Value( handle );
+                    }
+            }
+            if ( data.ValuesRevision == 0u || !data.RevisionHasShaderName )
+                words.Value( std::hash<std::string_view>{}( data.ShaderName() ) );
+            // The runtime texture is the command's (the text atlas), never the params': its address and sampler.
+            if ( data.DirectTexture != nullptr && !data.DirectTextureSampler().empty() )
+            {
+                words.Pointer( data.DirectTexture );
+                words.Value( std::hash<std::string_view>{}( data.DirectTextureSampler() ) );
             }
             return words.Hash;
         };
-        const auto skinnedContent = []( const SkinnedMeshRenderData& data )
+        // THE SKINNED AND FIELD RECORDS' CONTENT IS THEIR PROXY'S (UE FScene: a proxy persists and its producer's
+        // change updates it): folded only when what it was folded for moved - the mesh key (a new mesh, a morph /
+        // displacement twin, an upload, a sculpt), the producer's binding or slot instance (MeshECSSystem builds a
+        // new one per slot change, never edits one), the sections or the hidden mask. A section's shading is a
+        // function of its instance alone (an instance's parent and a surface's schema are fixed at construction),
+        // so an unchanged key is an unchanged content; a steady frame runs no ShadingOf and folds no word.
+        const auto sameSections = []( const SkinnedSectionList& a, const SkinnedSectionList& b )
         {
+            if ( a.Shares( b ) ) // the retained list of the same binding: the steady frame
+                return true;
+            if ( a.size() != b.size() )
+                return false;
+            for ( std::size_t i = 0; i < a.size(); ++i )
+                if ( a[i].Material != b[i].Material || a[i].Instance != b[i].Instance ||
+                     a[i].HiddenSubmeshes != b[i].HiddenSubmeshes )
+                    return false;
+            return true;
+        };
+        const uint64_t skinnedSync    = ++m_SkinnedContentSync;
+        std::size_t    skinnedClaimed = 0;
+        const auto     skinnedContent = [&]( const SkinnedMeshRenderData& data ) -> uint64_t
+        {
+            // The entity's first record not yet claimed this sync: its records keep their order (one command).
+            SkinnedContentProxy* proxy = nullptr;
+            for ( uint64_t ordinal = 0;; ++ordinal )
+            {
+                SkinnedContentProxy& candidate =
+                     m_SkinnedContentProxies[( ordinal << 32 ) | static_cast<uint64_t>( data.Entity )];
+                if ( candidate.Sync != skinnedSync )
+                {
+                    proxy = &candidate;
+                    break;
+                }
+            }
+            proxy->Sync = skinnedSync;
+            ++skinnedClaimed;
+            const ContentMeshKey mesh = ContentWords::KeyOf( data.Mesh );
+            if ( proxy->Binding != nullptr && proxy->Binding == data.MaterialSlots && proxy->Mesh == mesh &&
+                 sameSections( proxy->Sections, data.Sections ) )
+                return proxy->Content;
             ContentWords words;
-            words.MeshOf( data.Mesh );
+            words.MeshOf( mesh );
             words.Value( data.Sections.size() );
             for ( const SkinnedSection& section : data.Sections )
                 words.Section( section.HiddenSubmeshes, ShadingOf( section ) );
-            return words.Hash;
+            proxy->Mesh     = mesh;
+            proxy->Binding  = data.MaterialSlots;
+            proxy->Sections = data.Sections;
+            proxy->Content  = words.Hash;
+            return proxy->Content;
         };
-        const auto fieldContent = []( const InstancedMeshRenderData& data )
+        const auto fieldContent = []( InstancedMeshRenderData& data ) -> uint64_t
         {
+            InstancedMeshRenderData::ContentProxy& proxy = data.Proxy;
+            const ContentMeshKey                   mesh  = ContentWords::KeyOf( data.Mesh );
+            if ( proxy.Valid && proxy.Mesh == mesh && proxy.Material == data.Material &&
+                 proxy.HiddenSubmeshes == data.HiddenSubmeshes )
+                return proxy.Content;
             ContentWords words;
-            words.MeshOf( data.Mesh );
+            words.MeshOf( mesh );
             words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
-            return words.Hash;
+            proxy.Mesh            = mesh;
+            proxy.Material        = data.Material;
+            proxy.HiddenSubmeshes = data.HiddenSubmeshes;
+            proxy.Content         = words.Hash;
+            proxy.Valid           = true;
+            return proxy.Content;
         };
 
-        // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
+        // The queued records as the registry keys them (GpuSceneProxies::Sync: one primitive per entity slot,
         // submesh records of one object share it, slots stable per submission); this function only gathers them,
         // writes each one's rows back and uploads the scene's deltas.
         // A view that replayed no static scene queues none of the retained prefix.
@@ -2588,26 +2857,81 @@ namespace Desert::Graphic::System
         if ( firstGathered < m_StaticQueue.size() )
             ++m_StaticColumnsGeneration;
         RefreshStaticPlanRows();
-        for ( const auto& data : m_GenericQueue )
-            rigid.push_back( { .Entity = data.Entity,
-                               .Part   = data.MotionPart,
-                               .World  = data.Transform,
-                               .Mesh    = data.Mesh,
-                               .Flags   = rigidFlags( data.CastShadows, true ),
-                               .Content = genericContent( data ) } );
-        rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
+        // THE RIGID RECORDS BY PRODUCER EVENT (FPS-SCENE-EVENTS5; UE FScene::UpdatePrimitiveTransform /
+        // AddPrimitive from component events, an unchanged primitive is not visited): while no generic record
+        // differs from last frame's (SubmitGenericMesh raises m_GenericQueueChanged) and the per-frame static
+        // suffix and the landscape tiles equal what the last full rigid sync sent (few records, gathered above /
+        // handed in anyway), the proxies keep every rigid record - no generic record built, no world packed, no
+        // proxy looked up, no record compared there. What the producer cannot see is checked here per generic
+        // record, by value: its mesh key (an upload, a sculpt, residency) and, for a record whose values are not
+        // revision-kept, its re-folded Content; the geometry binding in GpuSceneProxies::KeepsRigid. Any miss:
+        // full records, as before.
+        const auto sameRecord = []( const MotionRecord& a, const MotionRecord& b )
+        {
+            return a.Entity == b.Entity && a.Part == b.Part && a.World == b.World && a.Mesh == b.Mesh &&
+                   a.Flags == b.Flags && a.ForcedLod == b.ForcedLod && a.LodBias == b.LodBias &&
+                   a.Content == b.Content;
+        };
+        // A record whose Content is a function of the words SubmitGenericMesh compares (and its mesh key): a
+        // per-slot draw, or one whose values, hit and shader name are a producer-kept revision with no direct
+        // texture (whose sampler name is the recorded command's).
+        const auto revisionKept = []( const GenericMeshRenderData& data )
+        {
+            return data.SlotMaterial != nullptr ||
+                   ( data.ValuesRevision != 0u && data.RevisionHasShaderName && data.DirectTexture == nullptr );
+        };
+        HeldRigid&        heldRigid   = m_HeldRigid;
+        const std::size_t suffixCount = rigid.size();
+        const std::size_t rigidCount  = suffixCount + m_GenericQueue.size() + otherRigid.size();
+        bool keptRigid = heldRigid.Valid && !m_GenericQueueChanged && heldRigid.Suffix.size() == suffixCount &&
+                         heldRigid.Generic.size() == m_GenericQueue.size() &&
+                         heldRigid.Other.size() == otherRigid.size() &&
+                         std::equal( rigid.begin(), rigid.end(), heldRigid.Suffix.begin(), sameRecord ) &&
+                         std::equal( otherRigid.begin(), otherRigid.end(), heldRigid.Other.begin(), sameRecord );
+        for ( std::size_t g = 0; keptRigid && g < m_GenericQueue.size(); ++g )
+        {
+            const GenericMeshRenderData& data = m_GenericQueue[g];
+            const HeldGeneric&           was  = heldRigid.Generic[g];
+            keptRigid                         = was.Mesh == ContentWords::KeyOf( data.Mesh ) &&
+                        ( revisionKept( data ) || was.Content == genericContent( data ) );
+        }
+        keptRigid = keptRigid && m_GpuSceneProxies.KeepsRigid( registry, rigidCount );
+        if ( !keptRigid )
+        {
+            for ( const auto& data : m_GenericQueue )
+                rigid.push_back( { .Entity  = data.Entity,
+                                   .Part    = data.MotionPart,
+                                   .World   = data.Transform,
+                                   .Mesh    = data.Mesh,
+                                   .Flags   = rigidFlags( data.CastShadows, true ),
+                                   .Content = genericContent( data ) } );
+            rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
+        }
 
         auto& skinned = m_ScratchSkinnedRecords;
         skinned.clear();
         skinned.reserve( m_SkinnedQueue.size() );
+        // A morphed twin that keeps its own last-frame positions (no skin cache, MeshRendererMorph) says so in its
+        // row: the vertex stage reads them at binding 3 instead of its current bind positions.
+        const auto previousPositions = []( const Desert::SkinnedMesh* mesh ) -> uint32_t
+        {
+            if ( mesh == nullptr || mesh->GetGeometry().PreviousVertices == nullptr )
+                return 0u;
+            return Flags::kPreviousPositions;
+        };
         for ( const auto& data : m_SkinnedQueue )
             skinned.push_back(
                  { .Entity  = data.Entity,
                    .World   = data.Transform,
                    .Bones   = data.BoneMatrices,
                    .Mesh    = data.Mesh,
-                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ),
+                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ) |
+                             previousPositions( data.Mesh ),
                    .Content = skinnedContent( data ) } );
+        // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
+        if ( skinnedClaimed < m_SkinnedContentProxies.size() )
+            std::erase_if( m_SkinnedContentProxies,
+                           [skinnedSync]( const auto& entry ) { return entry.second.Sync != skinnedSync; } );
 
         // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway),
         // which the binned instanced vertex stage reads from the row instead of the push block.
@@ -2622,21 +2946,56 @@ namespace Desert::Graphic::System
         };
         // Every ISM / foliage field is ONE primitive whose GpuScene instances are its instances (UE instance
         // scene data; the GI card table and the TLAS custom index are keyed per instance).
+        // THE FIELDS BY PRODUCER EVENT (FPS-SCENE-EVENTS4; UE: an ISM proxy changes on UpdateInstances / a dirty
+        // render state, not by a per-frame compare of every field): while no queued row differs from the one
+        // last synced (SubmitInstancedRow / ApplyDisplacement raise m_InstancedQueueChanged), only this frame's
+        // values go to the proxies - no record built (no snapshot handle copied), no slot derived, no proxy looked
+        // up, no content folded. What the producer cannot see is still checked per field, by value: the mesh's
+        // content key (an upload, a sculpt, residency: the field's content proxy) here, its geometry binding,
+        // flags, bounds pad and cull distances in GpuSceneProxies::KeepsFields. Any miss: full records, as before.
+        auto& fieldFrames = m_ScratchFieldFrames;
+        fieldFrames.clear();
+        bool keptFields = !m_InstancedQueueChanged;
+        if ( keptFields )
+        {
+            fieldFrames.reserve( m_InstancedQueue.size() );
+            for ( const auto& data : m_InstancedQueue )
+            {
+                if ( !data.Proxy.Valid || !( data.Proxy.Mesh == ContentWords::KeyOf( data.Mesh ) ) )
+                {
+                    keptFields = false;
+                    break;
+                }
+                fieldFrames.push_back( { .Mesh  = data.Mesh,
+                                         .Flags = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                                  ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
+                                         .BoundsPad         = WindBoundsPad( data.Wind ),
+                                         .CullDistanceStart = data.CullDistance.Min,
+                                         .CullDistanceEnd   = data.CullDistance.Max,
+                                         .Wind              = primitiveWind( data.Wind ) } );
+            }
+            keptFields = keptFields && m_GpuSceneProxies.KeepsFields( registry, fieldFrames );
+        }
         auto& fields = m_ScratchFieldRecords;
-        fields.clear();
-        fields.reserve( m_InstancedQueue.size() );
-        for ( const auto& data : m_InstancedQueue )
-            fields.push_back( { .Entity            = data.Entity,
-                                .Mesh              = data.Mesh,
-                                .Transforms        = *data.Transforms,
-                                .CullDistanceStart = data.CullDistance.Min,
-                                .CullDistanceEnd   = data.CullDistance.Max,
-                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
-                                         ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
-                                .BoundsPad = WindBoundsPad( data.Wind ),
-                                .Content   = fieldContent( data ),
-                                .Wind      = primitiveWind( data.Wind ),
-                                .Snapshot  = data.Transforms } );
+        // A kept sync leaves last full sync's records standing (the snapshots they hold are the queued ones).
+        if ( !keptFields )
+        {
+            fieldFrames.clear();
+            fields.clear();
+            fields.reserve( m_InstancedQueue.size() );
+            for ( auto& data : m_InstancedQueue ) // non-const: its content proxy is refreshed (fieldContent)
+                fields.push_back( { .Entity            = data.Entity,
+                                    .Mesh              = data.Mesh,
+                                    .Transforms        = *data.Transforms,
+                                    .CullDistanceStart = data.CullDistance.Min,
+                                    .CullDistanceEnd   = data.CullDistance.Max,
+                                    .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                             ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
+                                    .BoundsPad = WindBoundsPad( data.Wind ),
+                                    .Content   = fieldContent( data ),
+                                    .Wind      = primitiveWind( data.Wind ),
+                                    .Snapshot  = data.Transforms } );
+        }
 
         auto& rows = m_ScratchGpuSceneRows;
         if ( !keptStatic )
@@ -2644,7 +3003,33 @@ namespace Desert::Graphic::System
             registry.SyncStatic( statics, m_StaticToken, rows );
             m_StaticColumnsToken = m_StaticToken;
         }
-        registry.Sync( rigid, skinned, fields, rows );
+        // This view's proxies diff the records and tell the registry only what changed (FPS-SCENE-EVENTS).
+        if ( !m_GpuSceneProxies.Sync( registry, rigid, keptRigid, rigidCount, skinned, fields, keptFields,
+                                      fieldFrames, rows ) ||
+             rows.FieldInstances.size() != m_InstancedQueue.size() || rows.RigidPrimitives.size() != rigidCount )
+        {
+            m_InstancedQueueChanged = true; // the next sync sends full field records
+            m_GenericQueueChanged   = true; // and full rigid records
+            heldRigid.Valid         = false;
+            return Common::MakeFormattedError(
+                 "the GPU scene's records were kept against a refused keep ({} rigid, "
+                 "{} fields; rigid kept: {}, fields kept: {})",
+                 rigidCount, m_InstancedQueue.size(), keptRigid, keptFields );
+        }
+        if ( !keptFields )
+            m_InstancedQueueChanged = false; // the proxies hold this queue's records
+        if ( !keptRigid ) // the proxies hold these rigid records: what the next frame's keep is checked against
+        {
+            heldRigid.Suffix.assign( rigid.begin(), rigid.begin() + static_cast<std::ptrdiff_t>( suffixCount ) );
+            heldRigid.Other.assign( otherRigid.begin(), otherRigid.end() );
+            heldRigid.Generic.clear();
+            heldRigid.Generic.reserve( m_GenericQueue.size() );
+            for ( std::size_t g = 0; g < m_GenericQueue.size(); ++g )
+                heldRigid.Generic.push_back( { .Mesh    = ContentWords::KeyOf( m_GenericQueue[g].Mesh ),
+                                               .Content = rigid[suffixCount + g].Content } );
+            heldRigid.Valid       = true;
+            m_GenericQueueChanged = false;
+        }
         // The worlds the registry just wrote are stamped before any record is keyed by its primitive's stamp.
         StampPlacements( scene );
 
@@ -2782,20 +3167,18 @@ namespace Desert::Graphic::System
         m_GpuScene = &scene;
         FeedDrawCommandCache( scene, rows );
 
-        // The scene's deltas reach the device in a graph of their own, submitted ahead of this view's graph: its
-        // passes bind the tables by descriptor (CaptureFrameState), so the tables are at their final size and
-        // content before any pass is declared.
-        const auto upload = [&scene]() -> Common::BoolResultStr
+        // The scene's deltas reach the device through passes of this view's graph (FPS-ARCH-SETUP): every table
+        // is registered once in it (GpuScene::BeginGraph), so the scatter, the skin step and every pass that
+        // declares a table are ordered by its barriers. The tables reach their final size here, before any pass
+        // that binds them by descriptor (CaptureFrameState) is declared; "GPUScene: Publish" orders those reads.
+        scene.BeginGraph( graph );
+        const auto upload = [&scene, &graph]() -> Common::BoolResultStr
         {
             if ( !scene.HasPendingUpload() )
                 return BOOLSUCCESS;
-            RDG::Builder graph( "GPUScene" );
             if ( const auto added = scene.AddUploadPass( graph ); !added )
                 return Common::MakeFormattedError( "the GPU scene's upload could not be declared: {}",
                                                    added.GetError() );
-            if ( const Common::BoolResultStr executed = Renderer::ExecuteGraph( graph ); !executed )
-                return Common::MakeFormattedError( "the GPU scene's upload did not execute: {}",
-                                                   executed.GetError() );
             return BOOLSUCCESS;
         };
 
@@ -2804,18 +3187,18 @@ namespace Desert::Graphic::System
             skinCache->PrepareRows( *this, scene, frame );
         if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
             return uploaded;
-        // The scene's skin step, after the palettes it skins from are on the device: its own graph is submitted
-        // here, ahead of every view graph (each only reads the streams); a failure strips the address from the
-        // primitives it was to fill, which then go up again before any view pass reads them.
+        // The scene's skin step after the scatter of the palettes it skins from (it reads them through the same
+        // graph ref); an entry it refuses loses the address, and that row goes up again before the publish.
         if ( skinCache != nullptr )
         {
-            if ( const Common::BoolResultStr skinnedFrame =
-                      skinCache->SkinFrame( *this, scene, m_SkinCacheBonesImport, frame );
+            if ( const Common::BoolResultStr skinnedFrame = skinCache->SkinFrame( *this, scene, graph, frame );
                  !skinnedFrame )
                 LOG_ERROR( "[MeshRenderer] the skin cache's step failed: {}", skinnedFrame.GetError() );
             if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
                 return uploaded;
         }
+        if ( const Common::BoolResultStr published = scene.AddPublishPass( graph ); !published )
+            return published;
         return BOOLSUCCESS;
     }
 
@@ -2858,70 +3241,86 @@ namespace Desert::Graphic::System
                 skinnedData.Mesh          = MorphedMeshFor( data, static_cast<SkinnedMesh*>( data.Mesh ) );
                 skinnedData.Entity        = data.Entity;
                 skinnedData.Transform     = data.Transform;
-                skinnedData.BoneMatrices  = data.BoneMatrices;
+                skinnedData.BoneOwner     = data.BoneMatrices;
+                if ( skinnedData.BoneOwner )
+                    skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
+                // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
-                {
-                    // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections
-                    // of one slot are one draw, masked to them. Up to 64 submeshes, the masks' width.
-                    // A fixed array, not a vector per skinned mesh per frame: at most 64 sections, so at most
-                    // 64 distinct slots.
-                    using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
-                    const auto&  slots = data.MaterialSlots->Slots;
-                    const size_t count = std::min<size_t>( skinnedData.Mesh->GetSubmeshes().size(), 64 );
-                    std::array<SlotSections, 64> visibleBySlot{};
-                    size_t                       groups = 0;
-                    for ( size_t si = 0; si < count; ++si )
-                    {
-                        const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
-                        const auto   end  = visibleBySlot.begin() + static_cast<std::ptrdiff_t>( groups );
-                        const auto   it   = std::find_if( visibleBySlot.begin(), end,
-                                                          [slot]( const SlotSections& g )
-                                                          { return g.first == slot; } );
-                        if ( it != end )
-                            it->second |= 1ull << si;
-                        else
-                            visibleBySlot[groups++] = { slot, 1ull << si };
-                    }
-                    for ( size_t g = 0; g < groups; ++g )
-                    {
-                        const size_t        slot    = visibleBySlot[g].first;
-                        const uint64_t      visible = visibleBySlot[g].second;
-                        MaterialInstance*   inst    = slots[slot];
-                        DataDrivenMaterial* surface = nullptr;
-                        if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
-                            surface = parent->AsDataDriven();
-                        if ( surface != nullptr && surface->GetVertexPath() == MeshVertexPath::Skinned )
-                        {
-                            skinnedData.Sections.push_back(
-                                 { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
-                            continue;
-                        }
-                        // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its default
-                        // skinned lit material for any slot that fails to resolve, so every slot reaching here
-                        // should already carry a skinned-path parent. If one does not, the producer and this
-                        // queue disagree about what a skinned slot IS, and drawing it through the skinned
-                        // pipeline with a static material's descriptor sets is a layout mismatch - so that
-                        // section is dropped and the disagreement is named.
-                        static bool s_WarnedNoSkinnedSlot = false;
-                        if ( !s_WarnedNoSkinnedSlot )
-                        {
-                            LOG_WARN(
-                                 "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED "
-                                 "vertex path; its sections are dropped. MeshECSSystem is expected to have "
-                                 "substituted its default skinned material, so this means the two disagree.",
-                                 slot );
-                            s_WarnedNoSkinnedSlot = true;
-                        }
-                    }
-                }
+                    skinnedData.Sections =
+                         SkinnedSectionsFor( data.MaterialSlots, skinnedData.Mesh->GetSubmeshes().size() );
                 if ( !skinnedData.Sections.empty() )
                     m_SkinnedQueue.push_back( std::move( skinnedData ) );
                 break;
             }
         }
+    }
+
+    const MeshRenderer::SkinnedSectionList& MeshRenderer::SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
+                                                                             const std::size_t submeshCount )
+    {
+        SkinnedSectionsEntry& entry = m_SkinnedSections[reinterpret_cast<std::uintptr_t>( binding.get() )];
+        entry.Seen                  = m_SkinnedSectionsEpoch;
+        // Held, so an equal address is this binding; the count moves only with the mesh drawn (a reload under the
+        // same binding is a new binding, MeshECSSystem).
+        if ( entry.Binding == binding && entry.SubmeshCount == submeshCount )
+            return entry.Sections;
+
+        // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections of one slot
+        // are one draw, masked to them. Up to 64 submeshes, the masks' width: a fixed array, at most 64 distinct
+        // slots.
+        using SlotSections = std::pair<size_t, uint64_t>; // slot, the submeshes it shades
+        const auto&                  slots = binding->Slots;
+        const size_t                 count = std::min<size_t>( submeshCount, 64 );
+        std::array<SlotSections, 64> visibleBySlot{};
+        size_t                       groups = 0;
+        for ( size_t si = 0; si < count; ++si )
+        {
+            const size_t slot = Desert::SectionMaterialSlot( si, slots.size() );
+            const auto   last = visibleBySlot.begin() + static_cast<std::ptrdiff_t>( groups );
+            const auto   it =
+                 std::find_if( visibleBySlot.begin(), last, [slot]( const SlotSections& g ) { return g.first == slot; } );
+            if ( it != last )
+                it->second |= 1ull << si;
+            else
+                visibleBySlot[groups++] = { slot, 1ull << si };
+        }
+        std::vector<SkinnedSection> sections;
+        sections.reserve( groups );
+        for ( size_t g = 0; g < groups; ++g )
+        {
+            const size_t        slot    = visibleBySlot[g].first;
+            const uint64_t      visible = visibleBySlot[g].second;
+            MaterialInstance*   inst    = slots[slot];
+            DataDrivenMaterial* surface = nullptr;
+            if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
+                surface = parent->AsDataDriven();
+            if ( surface != nullptr && surface->GetVertexPath() == MeshVertexPath::Skinned )
+            {
+                sections.push_back( { .Material = surface, .Instance = inst, .HiddenSubmeshes = ~visible } );
+                continue;
+            }
+            // A consistency guard, not the custom-shader case: MeshECSSystem substitutes its default skinned lit
+            // material for any slot that fails to resolve, so every slot reaching here should already carry a
+            // skinned-path parent. If one does not, the producer and this queue disagree about what a skinned
+            // slot IS, and drawing it through the skinned pipeline with a static material's descriptor sets is a
+            // layout mismatch - so that section is dropped and the disagreement is named.
+            static bool s_WarnedNoSkinnedSlot = false;
+            if ( !s_WarnedNoSkinnedSlot )
+            {
+                LOG_WARN( "[MeshRenderer] A skinned mesh's slot {} is not a lit material on the SKINNED vertex path; "
+                          "its sections are dropped. MeshECSSystem is expected to have substituted its default "
+                          "skinned material, so this means the two disagree.",
+                          slot );
+                s_WarnedNoSkinnedSlot = true;
+            }
+        }
+        entry.Binding      = binding;
+        entry.SubmeshCount = submeshCount;
+        entry.Sections     = SkinnedSectionList( std::move( sections ) );
+        return entry.Sections;
     }
 
 } // namespace Desert::Graphic::System

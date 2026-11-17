@@ -140,7 +140,9 @@ void main()
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh DesertVelocity).
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
+#endif
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevWorld * vec4( a_Position, 1.0 ) );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the transform changed since last frame.
     v_Surface.ObjectMoved = world != prevWorld ? 1.0 : 0.0;

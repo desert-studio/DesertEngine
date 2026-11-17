@@ -90,6 +90,7 @@
 #include "Systems/Scene/PostProcessing/AutoExposureRenderer.hpp"
 #include "Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
 #include "Systems/Scene/Deferred/SSAORenderer.hpp"
+#include "Systems/Scene/Deferred/SSGIRenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
@@ -301,7 +302,7 @@ namespace Desert::Graphic
             uint32_t               Entity = 0;   // owner of the draw: its GpuScene MotionKey (velocity)
             uint32_t               MotionPart = 0;   // a stable part of the owner (MotionRecord::Part), 0 = none
             uint32_t               SectionSlot = 0;   // static: the slot this draw's submeshes shade with
-            std::vector<glm::mat4> BoneMatrices; // optional
+            std::shared_ptr<const std::vector<glm::mat4>> BoneMatrices; // optional, co-owned
             // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
             std::vector<float>     MorphWeights;
             uint64_t               MorphRevision            = 0;
@@ -534,10 +535,20 @@ namespace Desert::Graphic
         // record (MeshRenderer::GenericMeshRenderData::ShaderNameRef): they must outlive the frame's passes, as
         // the recorded command's members and its producer-kept GenericMeshDrawParams do. No defaults, because a
         // defaulted `{}` would be a temporary that dies at the call's semicolon.
+        // @p revision: what of those values the producer's GenericMeshDrawParams::Revision stands for
+        // (MeshRenderer::GenericMeshRenderData::ValuesRevision); {} = the command's own values, hashed per frame.
+        struct GenericValuesRevision
+        {
+            // GenericMeshDrawParams::Revision of @p overrides and @p rayHit; 0 = none (the command's own values).
+            uint64_t Revision = 0;
+            // The revision covers @p shaderName too (the params carry it), not only the overrides and the hit.
+            bool HasShaderName = false;
+        };
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides, bool outlined,
                                 Image2D* directTexture, const std::string& directTextureSampler, bool castShadows,
-                                bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit );
+                                bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit,
+                                GenericValuesRevision revision );
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
@@ -1447,6 +1458,10 @@ namespace Desert::Graphic
                                                        const std::vector<RDG::TextureRef>& gbuffer,
                                                        const ViewFrame&                    frame );
         bool                       EnsureMegaLightsResources();
+        // GIMethod::ScreenSpace's trace + denoiser (m_SSGI) and the screen trace's shared inputs, built with the
+        // first frame that resolves GI to ScreenSpace; a program that does not build refuses the method
+        // (RefuseProgramMethods), so the next BeginScene resolves GI below it.
+        bool EnsureSSGIResources();
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
         // MegaLightsVolume, sliced over @p lightGrid's depth range, its froxels' visibility the frame's
         // StochasticVisibility per light (rayquery: the TLAS; vsm+screen: the screen trace from the froxel point
@@ -1629,7 +1644,13 @@ namespace Desert::Graphic
         // nothing forces it later, and its consumer forces it earlier.
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
-        void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // A view that draws decals (FPS-GRASS-VISBUF-DECALS; UE: the DBuffer runs after every opaque depth writer,
+        // Nanite's included) runs @p grassVisibility's phase-1 "Grass: Visibility Raster" + "Grass: Visibility
+        // Depth" here, after the full early-Z and BEFORE "Deferred: Decals", so the decals project onto the
+        // blades and the resolve receives them. True when it did: the caller adds no second phase-1 raster.
+        [[nodiscard]] bool AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
+                                            System::MeshRenderer*                         meshRenderer,
+                                            const VirtualGeometry::VisibilityBufferFrame& grassVisibility );
         // "Deferred: Decals" (UE RenderDBuffer), from AddFrameGBuffer between the full early-Z and the base pass:
         // m_Decals' prepared boxes over @p sceneDepth into DBufferA/B/C, published as FrameTransients::DBuffer*
         // for every G-buffer writer after it; no node and no DBuffer when this view draws no decal.
@@ -1640,9 +1661,10 @@ namespace Desert::Graphic
         void AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                            System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
-        // GRASS-VIS (after the G-buffer, the terrain and the particles, BEFORE the draw bins' HZB, so this frame's
-        // HZB still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
-        // "Grass: Visibility Resolve" into the G-buffer. Nothing when the mesh renderer chose no section.
+        // GRASS-VIS (after the G-buffer, the terrain and the particles - or, in a view with decals, from
+        // AddFrameGBuffer before "Deferred: Decals" - and always BEFORE the draw bins' HZB, so this frame's HZB
+        // still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
+        // "Grass: Visibility Depth". Nothing when the mesh renderer chose no section.
         // @p postOcclusion (AddFrameGrassPostOcclusion): the two nodes over the grass's phase-2 records.
         void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                                       const VirtualGeometry::VisibilityBufferFrame& visibility, bool postOcclusion );
@@ -1866,6 +1888,12 @@ namespace Desert::Graphic
                                            const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
                                            const ViewFrame& frame );
+        // GIMethod::ScreenSpace's diffuse indirect of this frame (System::SSGIRenderer: the HZB trace over the
+        // scene colour history, then the diffuse-indirect denoiser) into FrameTransients::GIDiffuse, which the
+        // composite reads as GI mode 1 - only when the frame's GI is ScreenSpace and @p screenTrace is valid.
+        void AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                           const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
+                           const ViewFrame& frame );
         // The pending reflection capture's cube, written in this view's graph with its capture point measured by
         // the view's diffuse estimator (ReflectionCaptureLighting): the world radiance cache when @p tracedGI and
         // this frame's AddFrameTracedGI produced one, otherwise the sky's irradiance cube.
@@ -2132,6 +2160,9 @@ namespace Desert::Graphic
         Common::Settings::CloudQuality m_CloudQuality = Common::Settings::CloudQuality::High;
         // Scalability Effects.CloudFootprintSteps, refreshed with m_CloudQuality and handed with it.
         bool m_CloudFootprintSteps = true;
+        // Scalability Effects.CloudLightLocalSamples, refreshed with m_CloudQuality and handed with it: the
+        // ceiling on the clouds' near sun ray (VolumetricCloudRenderer::SetCloudSettings); identity until then.
+        int32_t m_CloudLightLocalSamples = ECS::kCloudLightMarchLocalMaxSamples;
         // WHAT THIS MACHINE CAN AFFORD. NOT read from the scene — pushed in by whoever owns the view
         // (SetQuality). See Common/Settings/MachineSettings.hpp for why it stopped being scene data.
         //
@@ -2157,10 +2188,13 @@ namespace Desert::Graphic
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
         bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
-        // Grass through the 64-bit visibility buffer this frame: PostProcessSettings::GrassVisibilityBuffer AND the
-        // device's SupportsVisibilityBuffer64 (refreshed in BeginScene). The refusal is logged once per renderer.
+        // Grass through the 64-bit visibility buffer this frame: what PostProcessSettings::GrassRaster asks for
+        // (GrassRasterPath::Scalability: the level's Foliage.GrassVisibilityBuffer) AND the device's
+        // SupportsVisibilityBuffer64. The refusal is logged once per renderer; the chosen path each time it
+        // changes (m_GrassRasterLogged: 0 none yet, 1 G-buffer, 2 visibility buffer).
         bool                    m_GrassVisibilityBuffer  = false;
         bool                    m_GrassVisibilityRefusal = false;
+        uint8_t                 m_GrassRasterLogged      = 0;
         // The view's visibility buffer (GRASS-VIS): initialised with the grass system; the last error its frame
         // returned, logged when it changes (a view that cannot allocate it keeps the G-buffer grass path).
         VirtualGeometry::VisibilityBuffer m_GrassVisibility;
@@ -2302,6 +2336,10 @@ namespace Desert::Graphic
         // diffuse and rough specular and the composite applies no SSAO to it; off, SSAO does — one AO source
         // either way.
         bool m_ScreenProbeShortRangeAO = true;
+        // Settled uniform screen probes trace a checkerboard half of their texels a frame (Scalability
+        // GlobalIllumination.ScreenProbeSparseStableRays, ScreenProbeGatherInputs::SparseStableRays), refreshed
+        // each BeginScene.
+        bool m_ScreenProbeSparseStableRays = true;
         // The surface cache's radiosity on the async compute queue (Scalability
         // GlobalIllumination.SurfaceCacheAsyncRadiosity, SurfaceCacheRenderer::IndirectLightingInputs::Async),
         // refreshed each BeginScene.
@@ -2374,6 +2412,12 @@ namespace Desert::Graphic
         System::MegaLightsQuality  m_MegaLightsQuality;
         bool                       m_MegaLightsReady  = false;
         bool                       m_MegaLightsFailed = false;
+        // GIMethod::ScreenSpace (per view: its denoiser history is this view's), created on the first frame that
+        // resolves GI to ScreenSpace; its quality (GlobalIllumination.ScreenSpace*) taken each BeginScene.
+        System::SSGIRenderer           m_SSGI;
+        System::SSGIRenderer::Settings m_SSGISettings;
+        bool                           m_SSGIReady  = false;
+        bool                           m_SSGIFailed = false;
         // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
         // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
         // BeginScene.
@@ -2399,6 +2443,17 @@ namespace Desert::Graphic
         // GPU-DRIVEN CULL validation (DebugViewState::ValidateGpuCulling) on a frame without them.
         RDG::ExternalTexture m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
+        // FPS-SET-MEMO4: the cull's kept visible rows, ONE store per call site (a site's rows must not be shared
+        // by two culls in one graph): the draw bins' main view (AddFrameDrawBins + its phase 2), the depth
+        // prepass view, the GPU-DRIVEN CULL validation (+ its phase 2) and the VG shadow-page cut.
+        GpuDriven::CulledRowStore m_GpuCullRowsMain;
+        GpuDriven::CulledRowStore m_GpuCullRowsPrepass;
+        GpuDriven::CulledRowStore m_GpuCullRowsValidation;
+        GpuDriven::CulledRowStore m_GpuCullRowsVsm;
+        // FPS-SET-MEMO4: the view's per-frame light buffers (AddFrameLightGrid -> UploadLights) and tile lists
+        // (AddFrameTileClassify -> CreateTileLists), kept with a stable VkBuffer per frame slot.
+        System::DeferredLightBufferStore m_KeptLights;
+        FrameKeptBuffer                  m_KeptDeferredTiles;
         // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
         std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
         std::string                               m_DrawBinsLastError;

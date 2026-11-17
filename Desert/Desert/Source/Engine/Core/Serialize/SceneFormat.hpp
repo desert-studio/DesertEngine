@@ -119,7 +119,8 @@ namespace Desert::Core
     // (Common::Scalability::GIRequest / ReflectionRequest) - SoftwareTraced and HardwareTraced are one Traced, the
     // tracer the machine's and the device's (Tools/SceneMigrator, MigrateTracedRequestV71ToV72).
     // v73 (GTX-TIER-LADDER): GI comes from the method alone - the lighting composite's screen-space gather is
-    // gone and GIRequest ScreenSpace is declared, not implemented; a volume that asked for it asks for Off, and
+    // gone and GIRequest ScreenSpace was then declared, not implemented (SSGIRenderer implements it since
+    // SSGI2-GTAO, no scene version); a volume that asked for it asks for Off, and
     // GIIntensity (read by that gather only) is dropped (Tools/SceneMigrator, MigrateComposedGIV72ToV73).
     //
     // A SUBSYSTEM THAT OWNS PART OF THE FORMAT COUNTS ITS OWN CHANGES (MIGRATE-SUBSYS, owner 2026-10-22; UE
@@ -131,7 +132,11 @@ namespace Desert::Core
     // that stated ACES (the former default) states Filmic (Tools/SceneMigrator, MigrateFilmicDefaultV73ToV74).
     // The white balance, colour grading, film curve and exposure compensation fields are additive (declared
     // defaults are the identity).
-    inline constexpr int kSceneVersion = 74;
+    // v75 (FPS-GRASS-VISBUF): PostProcessSettings.GrassVisibilityBuffer (bool) is GrassRaster, a
+    // Core::GrassRasterPath (Scalability 0, GBuffer 1, VisibilityBuffer 2): the renderer's choice is the level's
+    // Foliage.GrassVisibilityBuffer unless a volume overrides it. false (the former default) -> Scalability,
+    // true -> VisibilityBuffer (Tools/SceneMigrator, MigrateGrassRasterPathV74ToV75).
+    inline constexpr int kSceneVersion = 75;
 
     // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
     // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,

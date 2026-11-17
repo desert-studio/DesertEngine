@@ -30,19 +30,29 @@ namespace Desert::Assets
     class ContentDirectoryWatch
     {
     public:
-        // Returns how many files were handed to `ContentRegistry::Update`.
+        // Returns how many files were handed to `ContentRegistry::Update`. Both halves on the calling thread.
         std::size_t Poll()
         {
+            return RelistMoved( ProbeMoved() );
+        }
+
+        // THE STAT HALF, OFF THE GAME THREAD (UE FDirectoryWatcher: the change scan is not the game thread's).
+        // The first call records the baseline (a recursive walk) and reports nothing; afterwards it stats every
+        // recorded directory and returns the ones whose stamp moved. It touches only this watch's own table and
+        // the file system - no registry - so AssetHotReload runs it inside its probe job. The caller keeps the two
+        // halves apart in time: no RelistMoved while a ProbeMoved runs (the probe is joined before its apply).
+        [[nodiscard]] std::vector<std::filesystem::path> ProbeMoved()
+        {
+            std::vector<std::filesystem::path> moved;
             if ( !m_HasBaseline )
             {
                 for ( const std::filesystem::path& root : Roots() )
                     RecordTree( root );
                 m_HasBaseline = true;
-                return 0;
+                return moved;
             }
 
-            std::vector<std::filesystem::path> moved;
-            const auto                         observedAt = std::filesystem::file_time_type::clock::now();
+            const auto observedAt = std::filesystem::file_time_type::clock::now();
             for ( auto& [dir, time] : m_Directories )
             {
                 std::error_code ec;
@@ -52,7 +62,13 @@ namespace Desert::Assets
                 time = Settled( now, observedAt );
                 moved.emplace_back( dir );
             }
+            return moved;
+        }
 
+        // THE REGISTRY HALF, on the thread that owns ContentRegistry (the game thread): lists each directory
+        // ProbeMoved returned. Returns how many files were handed to `ContentRegistry::Update`.
+        std::size_t RelistMoved( const std::vector<std::filesystem::path>& moved )
+        {
             std::size_t updated = 0;
             for ( const std::filesystem::path& dir : moved )
                 updated += Relist( dir );

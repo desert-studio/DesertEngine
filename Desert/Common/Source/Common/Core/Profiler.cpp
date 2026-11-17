@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "Profiler.hpp"
+#include <Common/Core/Memory/AllocationCounter.hpp>
 
 #include <algorithm>
 #include <array>
@@ -260,14 +261,18 @@ namespace Common::Profiling
     {
         // The @p q quantile (nearest rank) of a row's per-frame cost over @p frames frames: @p sorted holds the
         // frames it ran in, ascending; every other frame of the window cost it 0.
-        double QuantileWithIdle( const std::vector<float>& sorted, const uint32_t frames, const double q )
+        // The same nearest-rank element a full sort would index, found by selection (nth_element, O(n)) and not by
+        // sorting the row's frames at every publish: @p values is reordered, its contents kept.
+        double QuantileWithIdle( std::vector<float>& values, const uint32_t frames, const double q )
         {
-            const uint64_t n    = std::max<uint64_t>( frames, sorted.size() );
+            const uint64_t n    = std::max<uint64_t>( frames, values.size() );
             const auto     rank = std::max<uint64_t>( 1, static_cast<uint64_t>( std::ceil( q * double( n ) ) ) );
-            const uint64_t idle = n - sorted.size();
+            const uint64_t idle = n - values.size();
             if ( rank <= idle )
                 return 0.0;
-            return static_cast<double>( sorted[static_cast<size_t>( rank - idle - 1 )] );
+            const auto nth = values.begin() + static_cast<std::ptrdiff_t>( rank - idle - 1 );
+            std::nth_element( values.begin(), nth, values.end() );
+            return static_cast<double>( *nth );
         }
 
         // The calling thread's buffer (Profiler::LocalStats). Trivially destructible, so it can be read at any
@@ -375,6 +380,23 @@ namespace Common::Profiling
         }
         ++m_WindowFrames;
 
+        // THE HEAP ROW: the frame that just ended is the difference of two reads of the process' counter.
+        {
+            const ::Common::Memory::AllocationCounts counts = ::Common::Memory::ReadAllocationCounts();
+            if ( m_AllocHaveLast )
+            {
+                const uint64_t allocations = counts.Allocations - m_AllocLastAllocations;
+                m_WindowAllocations += allocations;
+                m_WindowAllocatedBytes += counts.Bytes - m_AllocLastBytes;
+                m_WindowFrees += counts.Frees - m_AllocLastFrees;
+                m_WindowAllocationsMax = std::max( m_WindowAllocationsMax, allocations );
+            }
+            m_AllocLastAllocations = counts.Allocations;
+            m_AllocLastBytes       = counts.Bytes;
+            m_AllocLastFrees       = counts.Frees;
+            m_AllocHaveLast        = true;
+        }
+
         // THE FRAME DRAIN (UE FThreadStats: per-thread packets merged at the frame's end): every thread's half
         // of the frame that just ended, by name id - once a frame, not once a window, so a row knows each frame's
         // cost and a frame its own largest rows. A thread that exited since the last drain left both halves
@@ -450,7 +472,7 @@ namespace Common::Profiling
             {
                 Detail::ScopeAccum& result = window.Accum[id];
                 ScopeResult         avg;
-                avg.Name    = m_NameText[id];
+                avg.Name    = ScopeNameRef( m_NameText[id].c_str(), m_NameText[id].size() );
                 avg.TotalMs = result.TotalMs * inv;                                              // avg ms / frame
                 avg.Calls = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
                 avg.SelfMs    = result.SelfMs * inv;
@@ -462,8 +484,8 @@ namespace Common::Profiling
                 std::vector<float>& perFrame = window.RowFrames[id];
                 if ( !perFrame.empty() )
                 {
-                    std::sort( perFrame.begin(), perFrame.end() );
-                    avg.MaxMs = static_cast<double>( perFrame.back() );
+                    // Max by one pass and p99 by selection: the same two numbers the full sort gave.
+                    avg.MaxMs = static_cast<double>( *std::max_element( perFrame.begin(), perFrame.end() ) );
                     avg.P99Ms = QuantileWithIdle( perFrame, frames, 0.99 );
                     perFrame.clear();
                 }
@@ -503,7 +525,11 @@ namespace Common::Profiling
                     hitch.MedianMs = m_DisplayMedianMs;
                     hitch.Frame    = f;
                     for ( uint32_t k = 0; k < record.Count; ++k )
-                        hitch.Top.emplace_back( m_NameText[record.Ids[k]], record.SelfMs[k] );
+                    {
+                        const std::string& text = m_NameText[record.Ids[k]];
+                        hitch.Top[k] = { ScopeNameRef( text.c_str(), text.size() ), record.SelfMs[k] };
+                    }
+                    hitch.TopCount = record.Count;
                     m_DisplayHitches.push_back( std::move( hitch ) );
                 }
                 window.Frames.clear();
@@ -518,6 +544,14 @@ namespace Common::Profiling
 
         m_DisplayFrameMs      = windowMs * inv; // avg frame time over the window
         m_DisplayFrameNamedMs = window.NamedMs * inv;
+        m_DisplayAllocations    = static_cast<double>( m_WindowAllocations ) * inv;
+        m_DisplayAllocatedBytes = static_cast<double>( m_WindowAllocatedBytes ) * inv;
+        m_DisplayFrees          = static_cast<double>( m_WindowFrees ) * inv;
+        m_DisplayAllocationsMax = m_WindowAllocationsMax;
+        m_WindowAllocations     = 0;
+        m_WindowAllocatedBytes  = 0;
+        m_WindowFrees           = 0;
+        m_WindowAllocationsMax  = 0;
         window.NamedMs        = 0.0;
 
         // The mesh draw split's groups, averaged over the same frames (empty when the split was off all window).

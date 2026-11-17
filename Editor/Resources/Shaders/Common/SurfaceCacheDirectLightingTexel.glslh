@@ -200,7 +200,7 @@ float EmissiveRandom(inout uint state)
 // light twice over (its own fixture).
 float TracedShadow(vec3 worldPos, vec3 N, vec3 L, float maxT)
 {
-    const GITraceBias bias = GIRayBias(worldPos, N, L);
+    const GITraceBias bias = GIRayBias(worldPos, N);
     const float offset = bias.nearOffset;
     if (maxT <= 2.0 * offset)
         return 1.0;
@@ -217,7 +217,7 @@ float TracedShadow(vec3 worldPos, vec3 N, vec3 L, float maxT)
 // taken from the finest clipmap's centre - the clipmaps follow the camera; a card texel has no view.
 float DirectionalDistanceFieldShadow(vec3 worldPos, vec3 N, vec3 L, float tanHalf)
 {
-    const GITraceBias bias = GIRayBias(worldPos, N, L);
+    const GITraceBias bias = GIRayBias(worldPos, N);
     GITraceInput ray;
     ray.origin    = worldPos + N * bias.nearOffset;
     ray.tMin      = 0.0;

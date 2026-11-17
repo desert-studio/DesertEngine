@@ -18,12 +18,17 @@ namespace Desert::Graphic
         std::atomic<bool>          s_Lost{ false };
         std::atomic<std::uint64_t> s_Refused{ 0 };
         std::atomic<std::uint32_t> s_Reports{ 0 };
+        std::atomic<bool>          s_BreadcrumbsWanted{ false };
 
         // Guards the two strings only. They are written once, under the same flag that latches, and read
         // afterwards; the mutex is what makes "written once" true rather than hoped for.
         std::mutex  s_TextMutex;
         std::string s_FirstSite;
         std::string s_Explanation;
+        // The breadcrumb reader and its context: set by the backend that owns the breadcrumb memory, cleared
+        // before that memory goes away. Guarded by s_TextMutex like the strings.
+        DeviceLost::BreadcrumbReader s_BreadcrumbReader  = nullptr;
+        const void*                  s_BreadcrumbContext = nullptr;
 
         // THE ONE MESSAGE. Composed here rather than at the call site so that every route into device loss
         // produces the same words — the value of a single explanation is that it is recognisable.
@@ -66,6 +71,13 @@ namespace Desert::Graphic
         std::string text = Compose( site, detail );
         {
             std::lock_guard<std::mutex> lock( s_TextMutex );
+            // The GPU's own last words, read while the latch is fresh: a dead device writes no further marker,
+            // so what the words hold now is how far each queue got.
+            if ( s_BreadcrumbReader != nullptr )
+            {
+                text += '\n';
+                text += s_BreadcrumbReader( s_BreadcrumbContext );
+            }
             s_FirstSite   = std::string( site );
             s_Explanation = text;
         }
@@ -76,6 +88,23 @@ namespace Desert::Graphic
         // parse them as placeholders and throw from inside the code reporting a device loss.
         LOG_ERROR( "{}", text );
         return true;
+    }
+
+    void DeviceLost::SetBreadcrumbReader( BreadcrumbReader reader, const void* context ) noexcept
+    {
+        std::lock_guard<std::mutex> lock( s_TextMutex );
+        s_BreadcrumbReader  = reader;
+        s_BreadcrumbContext = context;
+    }
+
+    void DeviceLost::SetBreadcrumbsWanted( bool wanted ) noexcept
+    {
+        s_BreadcrumbsWanted.store( wanted, std::memory_order_relaxed );
+    }
+
+    bool DeviceLost::BreadcrumbsWanted() noexcept
+    {
+        return s_BreadcrumbsWanted.load( std::memory_order_relaxed );
     }
 
     bool DeviceLost::IsLost() noexcept

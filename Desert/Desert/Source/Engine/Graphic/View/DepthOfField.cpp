@@ -108,7 +108,7 @@ namespace Desert::Graphic
                                                                        std::vector<RDG::ShaderSlot> slots )
         {
             slots.push_back( { "DepthOfFieldBuffer", RDG::ShaderResourceKind::StorageBuffer } );
-            return std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+            return RDG::MakeIndexedLayout( RDG::ShaderBindingLayout{
                  .ShaderName = shader, .Slots = std::move( slots ), .PushConstantBytes = 0 } );
         }
 

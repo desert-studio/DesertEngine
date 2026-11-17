@@ -168,6 +168,12 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] virtual PipeCapabilities GetPipeCapabilities() const = 0;
         // B(4): the once-per-backend announcement of demoted AsyncCompute passes.
         virtual AsyncComputeFallbackLog& GetAsyncComputeFallbackLog() = 0;
+        // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): sorted AsyncBalancePassKey of the AsyncCompute passes the
+        // backend's measured balance runs on Graphics; empty for a backend without one (every pass as declared).
+        [[nodiscard]] virtual std::span<const uint64_t> GetAsyncBalance() const
+        {
+            return {};
+        }
         // RDG-FAULT1: the one dedupe point for pass and frame faults (RDGFault.hpp). Valid for the backend's
         // whole life, so what it already said survives the per-frame graphs. Builder::Execute is its only caller.
         virtual PassFaultReporter& GetPassFaultReporter() = 0;
@@ -284,6 +290,13 @@ namespace Desert::Graphic::RDG
         // past either buffer's end, the same buffer on both sides and offsets / sizes not a multiple of 4.
         virtual Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
                                                   uint64_t targetOffset, uint64_t bytes ) = 0;
+        // FPS-CPU-UPLOAD (UE: AddClearUAVPass on a buffer). Records a fill of @p bytes of buffer @p resource from
+        // @p offset with the 32-bit word @p value on the current pass's command buffer. Called only from the exec
+        // of the pass Builder::AddClearBufferPass adds, after the graph's barrier put the buffer in CopyDst; the
+        // builder has already refused an empty fill, a range past the buffer's end, and an offset or size that is
+        // not a multiple of 4.
+        virtual Common::BoolResultStr FillBuffer( uint32_t resource, uint64_t offset, uint64_t bytes,
+                                                  uint32_t value ) = 0;
 
         // Physical resource of a used resource, valid between BeginGraph and EndGraph / AbandonGraph.
         [[nodiscard]] virtual std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const = 0;

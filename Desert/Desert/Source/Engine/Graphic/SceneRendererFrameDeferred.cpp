@@ -179,10 +179,10 @@ namespace Desert::Graphic
         // it also stands for) and the black system texture for both atlases. AddFrameTracedGI replaces it with the
         // frame's update where the view traces GI; the forward passes that declare the cache read it either way.
         {
-            const std::array<std::byte, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
-            const RDG::BufferRef                                                             none =
-                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "RadianceCache.None" );
-            graph.QueueBufferUpload( none, std::span<const std::byte>( zeros ) );
+            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
+            const RDG::BufferRef none = graph.CreateBuffer(
+                 RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) }, "RadianceCache.None" );
+            graph.QueueBufferClear( none, 0u );
             view.RadianceCacheParams      = none;
             view.RadianceCacheIndirection = none;
             view.RadianceCacheProbes      = none;
@@ -416,9 +416,16 @@ namespace Desert::Graphic
             return;
         }
         // The lighting targets' extent (AddFrameComposite's directDesc); a pass at another extent covers its view.
-        const System::DeferredTileLists lists = System::DeferredLightingRenderer::CreateTileLists(
-             graph, m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
-        textures.Transients.DeferredTiles = lists;
+        const Common::ResultStr<System::DeferredTileLists> made =
+             deferred->CreateTileLists( graph, m_TargetFramebuffer->GetFramebufferWidth(),
+                                        m_TargetFramebuffer->GetFramebufferHeight(), m_KeptDeferredTiles );
+        if ( !made )
+        {
+            LOG_ERROR( "[SceneRenderer] Deferred: Tile Classify: {}; the view has no tile lists", made.GetError() );
+            return;
+        }
+        const System::DeferredTileLists& lists = made.GetValue();
+        textures.Transients.DeferredTiles      = lists;
         const RDG::TextureRef normal      = gbuffer[1];
         const RDG::TextureRef shadingWord = gbuffer[2];
         // ASYNC COMPUTE (UE Substrate's classification on the async pipe): every input is a graph resource. Fork:
@@ -450,10 +457,17 @@ namespace Desert::Graphic
              frame.Split.Render.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
         // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.ShadowViews" /
         // "Upload: Lights.GridParams", ordered before the nodes that read them.
-        const System::DeferredCompositeLights lights = System::DeferredLightingRenderer::UploadLights(
-             graph, GetPointLights(), GetSpotLights(),
-             m_Systems.Mesh->GetLocalShadowRows(), grid );
-        textures.Transients.Lights = lights;
+        const Common::ResultStr<System::DeferredCompositeLights> uploaded =
+             System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights(),
+                                                             m_Systems.Mesh->GetLocalShadowRows(), grid,
+                                                             m_KeptLights );
+        if ( !uploaded )
+        {
+            LOG_ERROR( "[SceneRenderer] LightGrid: {}; the view has no light buffers", uploaded.GetError() );
+            return {};
+        }
+        const System::DeferredCompositeLights& lights = uploaded.GetValue();
+        textures.Transients.Lights                    = lights;
 
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
         // it, before any lit node reads the lists.
@@ -710,11 +724,13 @@ namespace Desert::Graphic
         gather.Extent             = inputs.Extent;
         gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
+        gather.SparseStableRays     = m_ScreenProbeSparseStableRays;
         gather.Downsample           = m_ScreenProbeDownsample;
         gather.TracedTexels         = m_ScreenProbeTracedTexels;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         gather.PrevPreExposure      = frame.PrevPreExposure;
+        gather.PreExposure          = frame.PreExposure;
         // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
         // system black texture with the leg off when the view has no screen trace.
         gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
@@ -745,6 +761,53 @@ namespace Desert::Graphic
         t.GISpecular = gathered.GetValue().Specular;
         t.GIBackface = gathered.GetValue().Backface;
         t.GIOccluded = gathered.GetValue().ShortRangeAO;
+    }
+
+    void SceneRenderer::AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
+                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                      const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+    {
+        if ( m_RenderMethods.GlobalIllumination.Effective != Common::Scalability::GIMethod::ScreenSpace )
+            return;
+        // Said once per distinct reason (the traced GI's refusal record: the two methods never run together).
+        const auto refuse = [this]( std::string message )
+        {
+            if ( m_TracedGIRefusal.Claim( std::move( message ) ) )
+            {
+                LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
+            }
+        };
+        if ( gbuffer.size() < 2 || !m_GBuffer || !screenTrace.HZB.IsValid() ||
+             !screenTrace.SceneHistory.IsValid() )
+        {
+            refuse( "SSGI: no G-buffer normal or no screen trace this frame (HZB / scene colour history)" );
+            return;
+        }
+        if ( !EnsureSSGIResources() )
+            return; // refused once by EnsureSSGIResources; the next BeginScene resolves GI below ScreenSpace
+        const auto desc = graph.GetTextureDesc( gbuffer[1] );
+        if ( !desc )
+        {
+            refuse( std::format( "SSGI: {}", desc.GetError() ) );
+            return;
+        }
+        const auto&                        refs = textures.GraphRefs();
+        const System::SSGIRenderer::Inputs in{ .GBufferNormal        = gbuffer[1],
+                                               .GBufferDepth         = textures.Depth( m_GBuffer, "GBuffer" ),
+                                               .Velocity             = textures.Transients.Velocity,
+                                               .HZB                  = screenTrace.HZB,
+                                               .SceneHistory         = screenTrace.SceneHistory,
+                                               .Black                = refs.System.Black,
+                                               .SceneHistoryReadable = screenTrace.SceneHistoryReadable };
+        const auto traced = m_SSGI.AddPasses( graph, in, m_SSGISettings, frame, desc.GetValue().Size.Width,
+                                              desc.GetValue().Size.Height );
+        if ( !traced )
+        {
+            refuse( std::format( "SSGI: {}", traced.GetError() ) );
+            return;
+        }
+        m_TracedGIRefusal.Clear();
+        textures.Transients.GIDiffuse = traced.GetValue(); // -> Deferred: Composite, GI mode 1
     }
 
     bool SceneRenderer::WorldLightGridRead() const
@@ -856,12 +919,17 @@ namespace Desert::Graphic
         inputs.GBufferEmissive = gbuffer[3];
         inputs.SSAO            = refs.Transients.SSAO.IsValid() ? refs.Transients.SSAO : refs.System.White;
         inputs.SSR             = ssr.IsValid() ? ssr : refs.System.Black;
-        // The traced GI's final gather (screen probes or the irradiance field), or black (unread in the other
-        // modes).
-        const bool traced      = refs.Transients.GIDiffuse.IsValid();
-        inputs.GIDiffuse       = traced ? refs.Transients.GIDiffuse : refs.System.Black;
-        inputs.GISpecular      = traced ? refs.Transients.GISpecular : refs.System.Black;
-        inputs.GIBackface      = traced ? refs.Transients.GIBackface : refs.System.Black;
+        // The GI method's diffuse: the traced final gather (screen probes or the irradiance field) with its
+        // specular and backface, or GIMethod::ScreenSpace's denoised screen trace (AddFrameSSGI, diffuse alone);
+        // black where the mode does not read it.
+        using Common::Scalability::GIMethod;
+        const GIMethod gi            = m_RenderMethods.GlobalIllumination.Effective;
+        const bool     diffuseGI     = refs.Transients.GIDiffuse.IsValid();
+        const bool     screenSpaceGI = gi == GIMethod::ScreenSpace && diffuseGI;
+        const bool     traced        = diffuseGI && !screenSpaceGI;
+        inputs.GIDiffuse             = diffuseGI ? refs.Transients.GIDiffuse : refs.System.Black;
+        inputs.GISpecular            = traced ? refs.Transients.GISpecular : refs.System.Black;
+        inputs.GIBackface            = traced ? refs.Transients.GIBackface : refs.System.Black;
         inputs.View            = SceneViewInputsOf( refs );
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
@@ -943,15 +1011,18 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none (the sky's two cubes), 2 the traced
-        // final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3 the same gather occluded
-        // by its own short-range AO (the material AO alone left to apply). The composite gathers no bounce of its
-        // own: GI is the method's (GTX-TIER-LADDER). Spelled here, not cast from the enum, whose numbering is the
-        // method ladder's (Common/Settings/RenderMethods.hpp).
-        using Common::Scalability::GIMethod;
-        const GIMethod gi          = m_RenderMethods.GlobalIllumination.Effective;
-        const bool     roughFromGI = TracedGatherAnswersRoughSpecular( gi, traced );
-        const int      giMode      = !roughFromGI ? 0 : refs.Transients.GIOccluded ? 3 : 2;
+        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none (the sky's two cubes), 1 the
+        // screen-space diffuse indirect over the sky's cubes (GTAO occludes both), 2 the traced final gather's
+        // diffuse and specular in place of the sky's (SSAO occludes it), 3 the same gather occluded by its own
+        // short-range AO (the material AO alone left to apply). The composite gathers no bounce of its own: GI is
+        // the method's (GTX-TIER-LADDER). Spelled here, not cast from the enum, whose numbering is the method
+        // ladder's (Common/Settings/RenderMethods.hpp).
+        const bool roughFromGI = TracedGatherAnswersRoughSpecular( gi, traced );
+        int        giMode      = 0;
+        if ( screenSpaceGI )
+            giMode = 1;
+        else if ( roughFromGI )
+            giMode = refs.Transients.GIOccluded ? 3 : 2;
         const DeferredGIInput compositeGI{ .Mode            = giMode,
                                            .PreExposure     = frame.PreExposure,
                                            .SubsurfaceSplit = subsurfaceDiffuse.IsValid() };
@@ -991,8 +1062,8 @@ namespace Desert::Graphic
             const FrameSun light1 = GetFrameLight1();
             deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
                                     frame.InvJitteredViewProjection, debugMode, pointCount, spotCount, shadow,
-                                    compositeGI, m_EnableSSAO, cloudShadow, environment,
-                                    frame.JitteredViewProjection, tiles );
+                                    compositeGI, m_EnableSSAO && refs.Transients.SSAO.IsValid(), cloudShadow,
+                                    environment, frame.JitteredViewProjection, tiles );
         };
         using System::DeferredTileClass;
         constexpr std::array<DeferredTileClass, 1> kWhole = { DeferredTileClass::Fullscreen };
@@ -1343,6 +1414,8 @@ namespace Desert::Graphic
         const DistanceField::GlobalDistanceField::FrameField& fieldFrame = field.GetValue();
         textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
+        textures.Transients.GlobalDistanceFieldOccupiedBox               = fieldFrame.OccupiedBox;
+        textures.Transients.GlobalDistanceFieldCeiling                   = fieldFrame.Ceiling;
         textures.Transients.MeshDistanceFields            = fieldFrame.MeshFields;
         textures.Transients.GlobalDistanceFieldObjectGrid = fieldFrame.ObjectGrid;
     }
@@ -2056,10 +2129,11 @@ namespace Desert::Graphic
             reads.RadianceCache = *m_TracedFrameShared.RadianceCache;
         else
         {
-            const std::array<uint8_t, sizeof( RadianceCache::RadianceCacheParamsPayload )> zeros{};
-            const RDG::BufferRef                                                           none =
-                 graph.CreateBuffer( RDG::BufferDesc{ zeros.size() }, "Reflections.RadianceCacheNone" );
-            graph.QueueBufferUpload( none, std::as_bytes( std::span( zeros ) ) );
+            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
+            const RDG::BufferRef none =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
+                                     "Reflections.RadianceCacheNone" );
+            graph.QueueBufferClear( none, 0u );
             reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
                                                                           .Indirection = none,
                                                                           .Probes      = none,
@@ -2157,6 +2231,7 @@ namespace Desert::Graphic
              TracedGatherAnswersRoughSpecular( m_RenderMethods.GlobalIllumination.Effective,
                                                textures.Transients.GIDiffuse.IsValid() );
         const bool hitLit = traced && traced->HitGroups != nullptr;
+        settings.HitLit   = hitLit;
         // The front layer's renderer starts its rays from the front layer's surface; every hit still reads the
         // opaque G-buffer, HZB and velocity above (Common/SSRTrace.glslh SSRSurfaceNormal).
         const System::SSRRenderer::FrontLayerInputs frontInputs =
@@ -2170,8 +2245,18 @@ namespace Desert::Graphic
         if ( !hitLit )
             traceList = System::SSRRenderer::CreateTraceList( graph, *traceTargets );
         const System::SSRRenderer::TraceList* const listPtr = traceList ? &*traceList : nullptr;
-        const bool                                  hardwareTraced =
+        // UE LumenReflectionTracing: the screen trace, then the world traces over the compacted rays it left. A
+        // traced frame that is not hit-lit runs its classify and screen walk in the screen leg (no tracer in that
+        // kernel) and the world rays in the traced permutation's world stage over this list (SSR.shader).
+        const bool hardwareTraced =
              traced && traced->Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
+        // The software tracer's world stage runs as three legs over compacted lists (near field, far field, hit
+        // lighting; SSR.shader, UE LumenReflectionTracing's TraceMeshSDFs / TraceVoxels split); the hardware
+        // tracer's is one ray query.
+        std::optional<System::SSRRenderer::WorldList> worldList;
+        if ( traced && !hitLit )
+            worldList = System::SSRRenderer::CreateWorldList( graph, *traceTargets, !hardwareTraced );
+        const System::SSRRenderer::WorldList* const worldPtr = worldList ? &*worldList : nullptr;
         const System::SSRRenderer::TracedReads* const tracedPtr = traced ? &*traced : nullptr;
         const System::SSRRenderer::FrontLayerInputs* const frontPtr = frontLayer != nullptr ? &frontInputs : nullptr;
         const char* const classifyName = !traced          ? "Deferred: SSR"
@@ -2187,7 +2272,7 @@ namespace Desert::Graphic
              {
                  ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                            traceUniforms, System::SSRRenderer::TraceStage::Classify, listPtr,
-                                           tracedPtr, frontPtr );
+                                           worldPtr, tracedPtr, frontPtr );
                  // Only the textures the trace samples (its block): an unsampled G-buffer colour declared here
                  // joined the screen probes' async run at its last pass, the first reader of the shading word
                  // ("ScreenProbes: Disocclusion"), and the graphics queue waited for the whole run before it.
@@ -2203,7 +2288,7 @@ namespace Desert::Graphic
                  {
                      ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                                traceUniforms, System::SSRRenderer::TraceStage::Trace, listPtr,
-                                               tracedPtr, frontPtr );
+                                               worldPtr, tracedPtr, frontPtr );
                  },
                  [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
                   sceneHistoryReadable, seed,
@@ -2211,6 +2296,35 @@ namespace Desert::Graphic
                      return ssrPtr->RecordTraceList( context, cameraPos, settings, sceneHistoryReadable, seed,
                                                      listArgs );
                  } );
+        }
+        if ( worldList )
+        {
+            using Stage = System::SSRRenderer::TraceStage;
+            const auto addWorldPass = [&]( const char* const name, const Stage stage, const RDG::BufferRef args )
+            {
+                graph.AddPass(
+                     name, RDG::PassFlags::Compute,
+                     [&, stage]( RDG::PassBuilder& pass )
+                     {
+                         ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
+                                                   traceUniforms, stage, listPtr, worldPtr, tracedPtr, frontPtr );
+                     },
+                     [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
+                      sceneHistoryReadable, seed, stage, args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                         return ssrPtr->RecordWorldList( context, cameraPos, settings, sceneHistoryReadable, seed,
+                                                         stage, args );
+                     } );
+            };
+            addWorldPass( hardwareTraced ? "Deferred: Reflections World (HardwareTraced)"
+                                         : "Deferred: Reflections World (SoftwareTraced)",
+                          Stage::World, worldList->Args );
+            if ( worldList->Legs )
+            {
+                addWorldPass( "Deferred: Reflections World Far Field (SoftwareTraced)", Stage::WorldFarField,
+                              worldList->Far );
+                addWorldPass( "Deferred: Reflections World Hit Lighting (SoftwareTraced)", Stage::WorldHitLighting,
+                              worldList->Hits );
+            }
         }
         if ( hitLit )
         {

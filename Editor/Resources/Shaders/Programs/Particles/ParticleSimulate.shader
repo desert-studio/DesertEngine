@@ -381,6 +381,11 @@ Shader "ParticleSimulate"
                 else if ( !local )
                     position = ( LocalToWorld * vec4( position, 1.0 ) ).xyz;
                 WriteVec3( n, VFX_ATTR_POSITION, position );
+#ifdef VFX_ATTR_PREVIOUS_POSITION
+                // UE Particles.Previous.Position at spawn: a newborn is drawn without motion of its own until
+                // the next tick's compact 0 copies its Position.
+                WriteVec3( n, VFX_ATTR_PREVIOUS_POSITION, position );
+#endif
             }
 #endif
             // The events the emitter raises (its event table), at the particle's world position after the step:

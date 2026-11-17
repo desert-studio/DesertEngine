@@ -7,6 +7,7 @@
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -15,6 +16,11 @@
 namespace Desert::Graphic::RDG
 {
     class Builder;
+}
+
+namespace Desert::ShaderResources
+{
+    class StorageBuffer;
 }
 
 // GPU-DRIVEN phase CULL — InstanceCulling: WHICH INSTANCES EACH (VIEW x PASS) DRAWS, DECIDED ON THE GPU
@@ -139,6 +145,31 @@ namespace Desert::Graphic::GpuDriven
         uint32_t       ContentRegions = 0;
     };
 
+    // FPS-SET-MEMO4, THE CULL'S VISIBLE ROWS KEEP THEIR PHYSICAL IDENTITY ACROSS FRAMES (UE: the instance
+    // culling context's instance-id buffers are pooled buffers extracted per view, FRDGPooledBuffer, so a cached
+    // draw command's descriptor content repeats frame to frame; transient aliasing is for pass-local scratch).
+    // VisibleInstances / VisibleInstanceIds are read by the binned draws' descriptor sets: as graph transients
+    // they were placed per (frame slot, heap offset, size), so every plan shift or VisibleCapacity change made a
+    // new physical buffer and missed the bound-sets memo. Here they are device-local buffers the CALLER keeps,
+    // grow-only (power of two of the need), imported each graph (Renderer::ImportBuffer, whose record carries
+    // the access state across graphs on the one graphics queue every cull pass runs on). ONE store PER CALL SITE:
+    // two AddMainPhase calls in one graph must not share rows (the later cull would overwrite rows the earlier
+    // draws read). Main serves AddMainPhase, Post serves AddPostOcclusionPhase.
+    struct CulledRowStore
+    {
+        struct Rows
+        {
+            std::shared_ptr<::Desert::ShaderResources::StorageBuffer> Visible;
+            std::shared_ptr<::Desert::ShaderResources::StorageBuffer> VisibleIds;
+            RDG::ExternalBuffer                             VisibleImport;
+            RDG::ExternalBuffer                             VisibleIdsImport;
+            uint64_t                                        VisibleBytes    = 0;
+            uint64_t                                        VisibleIdsBytes = 0;
+        };
+        std::array<Rows, kMeshPassCount> Main;
+        std::array<Rows, kMeshPassCount> Post;
+    };
+
     class InstanceCulling
     {
     public:
@@ -154,11 +185,13 @@ namespace Desert::Graphic::GpuDriven
         // (SceneRenderer System.Black), bound for a pass none of whose views has an HZB (the HZB flag is then off
         // in the push).
         // @p virtualGeometry: the VG candidate append (invalid PrimitiveDags = none); refused when its tables are
-        // half given or its Capacity is 0.
+        // half given or its Capacity is 0. @p rows: the call site's kept visible rows (rows.Main); refused when a
+        // pass's rows cannot be made or imported.
         [[nodiscard]] Common::ResultStr<MainPhaseResult>
         AddMainPhase( RDG::Builder& graph, const GpuSceneBuffers& scene, std::span<const PassDrawTable> tables,
                       std::span<const PassDrawBuffers> passes, std::span<const CullViewInput> views,
-                      RDG::TextureRef neutralHzb, const VirtualGeometryCandidateInput& virtualGeometry ) const;
+                      RDG::TextureRef neutralHzb, const VirtualGeometryCandidateInput& virtualGeometry,
+                      CulledRowStore& rows ) const;
 
         // Phase 2: re-tests @p carry against each view's (this frame's) Hzb; one indirect dispatch per mesh pass
         // sized by the occluded count. Views with no Hzb get an empty CulledDraws (their draws are all in phase
@@ -166,7 +199,8 @@ namespace Desert::Graphic::GpuDriven
         [[nodiscard]] Common::ResultStr<std::vector<CulledDraws>>
         AddPostOcclusionPhase( RDG::Builder& graph, const GpuSceneBuffers& scene,
                                std::span<const PassDrawTable> tables, std::span<const PassDrawBuffers> passes,
-                               std::span<const CullViewInput> views, const OcclusionCarry& carry ) const;
+                               std::span<const CullViewInput> views, const OcclusionCarry& carry,
+                               CulledRowStore& rows ) const;
 
         struct Program;
 

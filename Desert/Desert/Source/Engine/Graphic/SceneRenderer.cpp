@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
@@ -359,11 +360,13 @@ namespace Desert::Graphic
                                "grow: {}",
                                init.GetError() );
                 }
-                // Its visibility buffer (GRASS-VIS): without it the view refuses GrassVisibilityBuffer by this error.
+                // Its visibility buffer (GRASS-VIS): without it the view refuses the grass visibility buffer path
+                // (Core::GrassRasterPath) by this error.
                 if ( const auto init = m_GrassVisibility.Initialize(); !init )
-                    LOG_ERROR( "[SceneRenderer] no grass visibility buffer; GrassVisibilityBuffer keeps the G-buffer "
-                               "grass path: {}",
+                {
+                    LOG_ERROR( "[SceneRenderer] no grass visibility buffer; the grass keeps the G-buffer path: {}",
                                init.GetError() );
+                }
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
@@ -1160,18 +1163,41 @@ namespace Desert::Graphic
              quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
-        // The grass visibility buffer is what the view asks for; it runs only on a device with 64-bit storage-buffer
-        // atomics in the fragment stage. Asked for without them it is refused by name once and the grass keeps
-        // the G-buffer path (masked depth prepass + GBuffer) - never a silent fallback.
+        // The grass visibility buffer (FPS-GRASS-VISBUF): what the view's volume asks for (Core::GrassRasterPath),
+        // and for a volume that leaves it to Scalability (the default) the level's Foliage.GrassVisibilityBuffer.
+        // It runs only on a device with 64-bit storage-buffer atomics in the fragment stage. Asked for without
+        // them it is refused by name once and the grass keeps the G-buffer path (masked depth prepass + GBuffer) -
+        // never a silent fallback. The path the view settles on is logged each time it changes.
         {
             const bool supported =
                  EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64;
-            m_GrassVisibilityBuffer = post.GrassVisibilityBuffer && supported;
-            if ( post.GrassVisibilityBuffer && !supported && !m_GrassVisibilityRefusal )
+            bool wanted = post.GrassRaster == Core::GrassRasterPath::VisibilityBuffer;
+            if ( post.GrassRaster == Core::GrassRasterPath::Scalability )
+                wanted = quality.As<int>( Parameter::FoliageGrassVisibilityBuffer ) != 0;
+            m_GrassVisibilityBuffer = wanted && supported;
+            if ( wanted && !supported && !m_GrassVisibilityRefusal )
             {
                 m_GrassVisibilityRefusal = true;
-                LOG_ERROR( "[SceneRenderer] GrassVisibilityBuffer refused: the device has no shaderInt64 + "
-                           "shaderBufferInt64Atomics + fragmentStoresAndAtomics; grass draws through the G-buffer." );
+                LOG_ERROR(
+                     "[SceneRenderer] the grass visibility buffer refused: the device has no shaderInt64 + "
+                     "shaderBufferInt64Atomics + fragmentStoresAndAtomics; grass draws through the G-buffer." );
+            }
+            const uint8_t chosen = m_GrassVisibilityBuffer ? uint8_t{ 2 } : uint8_t{ 1 };
+            if ( chosen != m_GrassRasterLogged )
+            {
+                m_GrassRasterLogged = chosen;
+                std::string_view by = "Foliage.GrassVisibilityBuffer";
+                if ( post.GrassRaster != Core::GrassRasterPath::Scalability )
+                    by = "the volume's GrassRaster";
+                if ( m_GrassVisibilityBuffer )
+                {
+                    LOG_INFO( "[SceneRenderer] grass path: visibility buffer (raster once + tiled resolve), by {}",
+                              by );
+                }
+                else
+                {
+                    LOG_INFO( "[SceneRenderer] grass path: masked depth prepass + G-buffer, by {}", by );
+                }
             }
         }
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
@@ -1179,6 +1205,7 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
+        m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
         // asked for again this frame (a fixed program draws, one still broken is refused again without a new
@@ -1252,9 +1279,14 @@ namespace Desert::Graphic
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
+        m_ScreenProbeSparseStableRays = quality.As<int>( Parameter::ScreenProbeSparseStableRays ) != 0;
         m_SurfaceCacheAsyncRadiosity = quality.As<int>( Parameter::SurfaceCacheAsyncRadiosity ) != 0;
         m_ScreenProbeDownsample      = quality.As<uint32_t>( Parameter::ScreenProbeDownsample );
         m_ScreenProbeTracedTexels    = quality.As<uint32_t>( Parameter::ScreenProbeTracedTexels );
+        m_SSGISettings.RaysPerPixel  = quality.As<uint32_t>( Parameter::GlobalIlluminationScreenSpaceRays );
+        m_SSGISettings.Iterations    = quality.As<uint32_t>( Parameter::GlobalIlluminationScreenSpaceSteps );
+        m_SSGISettings.DenoiserRadius =
+             quality.As<uint32_t>( Parameter::GlobalIlluminationScreenSpaceDenoiserRadius );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_ParallaxQuality = ParallaxQuality{ .MinSteps    = quality.As<int>( Parameter::ShadingParallaxMinSteps ),
                                              .MaxSteps    = quality.As<int>( Parameter::ShadingParallaxMaxSteps ),
@@ -1283,7 +1315,8 @@ namespace Desert::Graphic
                  .CullDistanceScale = 0.01f * static_cast<float>( quality.As<int>(
                                                    Parameter::FoliageGrassCullDistanceScalePercent ) ),
                  .LodScreenPixels =
-                      static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ) };
+                      static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ),
+                 .BladeCardHull = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0 };
             if ( const auto& grass = m_Systems.Grass )
                 grass->SetQuality( grassQuality );
             // The ground's far cover reads the lens through the view's frame (ViewFrame::GrassLens, OnUpdate).
@@ -1723,6 +1756,8 @@ namespace Desert::Graphic
                  m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineGrassCullAsync );
             m_Systems.Grass->SetCullAsync( cullAsync != 0 );
         }
+        // RenderPipeline.GpuCrashBreadcrumbs is NOT published from here (FPS-DEVLOST8): the backend's QualityState
+        // listener (VulkanRendererAPI::Init) publishes it at resolve time, so the boot frames are marked too.
         // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB): the kept dice pool, or a per-frame one.
         if ( m_Systems.Terrain )
         {
@@ -1735,6 +1770,8 @@ namespace Desert::Graphic
         const int  setupQuality  = m_Quality.As<int>( Common::Scalability::Parameter::ParallelSetup );
         const bool parallelSetup = ( setupOverride >= 0 ? setupOverride : setupQuality ) != 0;
         m_ParallelSetup          = parallelSetup; // ParallelSetup(): the passes' own setup tasks
+        // FPS-RDG-PREPARE: the graph's record prerequisites prepared on task workers too (0 = the serial order).
+        graph.SetParallelPrepare( parallelSetup );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
@@ -1874,8 +1911,8 @@ namespace Desert::Graphic
         m_CurrentViewFrame = &frame;
         const CurrentViewFrameScope currentViewFrameScope{ m_CurrentViewFrame };
 
-        // The water's tiles, once, before its node records: the quadtree walked from the main camera. After the
-        // view frame is current: PrepareFrame uploads this frame's view-projection pair from it.
+        // The water's frame, once, before its node records: its material, waves and camera here; the quadtree walk
+        // from the main camera on a setup task below (PrepareTiles), the upload after the join (FinishPrepare).
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Water + terrain frame" );
         {
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
@@ -1893,8 +1930,28 @@ namespace Desert::Graphic
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
             // The shadowed point/spot lights' draws and the scene's lit-material state follow UpdateLocalShadows
             // below (PrepareLocalShadowViews, ApplySceneFrame): the lights' views do not exist yet here.
-            m_Systems.Terrain->PrepareFrame( frame );
+            m_Systems.Terrain->PrepareFrame();
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+        // FPS-ARCH-SETUP2 (UE task-based view setup): the terrain's tile rows - LODs, instance rows, dice jobs,
+        // camera and virtual-shadow draws - as a High setup task, joined below before the first reader
+        // (AddDicePoolPass). Nothing between here and the join calls the terrain; the TaskGroup joins on every
+        // early return of this frame (its destructor) before `frame` goes.
+        Common::TaskGroup prepareTasks( parallelSetup );
+        {
+            auto* const            terrain  = m_Systems.Terrain.get();
+            const ViewFrame* const prepared = &frame;
+            prepareTasks.Launch(
+                 "Terrain: Prepare tile rows",
+                 Common::InlineJob( [terrain, prepared]() noexcept { terrain->PrepareTileRows( *prepared ); } ) );
+        }
+        // FPS-ARCH-SETUP3: the water's quadtree walk - every zone's tiles as rows and draws - on its own setup
+        // task beside the terrain's (they share no state), joined at the same point; its material, WaterInfo
+        // ground and upload follow the join (FinishPrepare). Nothing between here and the join reads the water.
+        {
+            auto* const water = m_Systems.Water.get();
+            prepareTasks.Launch( "Water: Prepare tiles",
+                                 Common::InlineJob( [water]() noexcept { water->PrepareTiles(); } ) );
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
         if ( const Common::BoolResultStr physical =
@@ -1907,6 +1964,43 @@ namespace Desert::Graphic
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Frame textures" );
         FrameTextures textures( graph );
+        // FPS-GRASS-PLAN (UE FSceneRenderer setup tasks): the landscape grass's CPU plan - every variety's
+        // capacities, pool ranges, records, visibility rows and params - on a setup task from here, as soon as the
+        // camera cull's occlusion is known (it needs the frame textures: the G-buffer depth's size for the HZB),
+        // joined at "Setup: Grass" where CommitFrame makes its buffers and adds its passes. A face view grows
+        // none. Nothing between here and the join calls the grass; the TaskGroup joins on every early return.
+        // GPU-CULL (UE: every HISM, the grass's included, is occlusion-culled per view whatever draws it): on the
+        // deferred path the generation keeps the instances last frame's furthest HZB hides out of the CAMERA's
+        // list (the cascades and the TLAS draw every one; phase 2 re-tests them after this frame's HZB,
+        // AddFrameGrassPostOcclusion, and draws the found ones through the visibility buffer or their cells),
+        // with the grass visibility buffer or without it - so it is this graph's first reader of that HZB
+        // (FramePrevHzb, reset here for the frame).
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass plan" );
+        m_FramePrevHzb               = {};
+        const bool        growsGrass = !m_ViewProfile.SceneCapture;
+        Common::TaskGroup grassTasks( parallelSetup );
+        if ( growsGrass )
+        {
+            System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
+            if ( m_RenderPath == Core::RenderPath::Deferred )
+            {
+                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
+                {
+                    occlusion.Hzb                = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
+                    occlusion.PrevViewProjection = frame.PrevViewProjection;
+                    occlusion.Extent             = glm::uvec3(
+                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
+                }
+            }
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            m_Systems.Grass->PrepareFrame( frame, *m_Systems.Mesh.get(),
+                                           RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
+                                           parallelSetup );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto* const grass = m_Systems.Grass.get();
+            grassTasks.Launch( "Grass: Plan frame",
+                               Common::InlineJob( [grass]() noexcept { grass->PlanFrame(); } ) );
+        }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Sky light" );
         AddFrameSkyLight( graph, textures );
         // The cloud layer's shadow map BEFORE the per-view sky LUTs: they march the sun term through it (UE
@@ -1930,6 +2024,10 @@ namespace Desert::Graphic
         // The landscape's dice pool (its displaced sub-vertices, evaluated once), before any node that draws the
         // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual
         // shadows.
+        DESERT_PROFILE_PHASE( setupPhases, "Setup: Join terrain + water tasks" );
+        prepareTasks.Join();
+        m_Systems.Terrain->FinishPrepare();
+        m_Systems.Water->FinishPrepare();
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
             auto* terrain = m_Systems.Terrain.get();
@@ -1981,34 +2079,12 @@ namespace Desert::Graphic
         // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles. Before the GPU
         // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
-        // after it has no row in the scene material table and is refused at draw.
-        // GPU-CULL (UE: every HISM, the grass's included, is occlusion-culled per view whatever draws it): on the
-        // deferred path the generation keeps the instances last frame's furthest HZB hides out of the CAMERA's
-        // list (the cascades and the TLAS draw every one; phase 2 re-tests them after this frame's HZB,
-        // AddFrameGrassPostOcclusion, and draws the found ones through the visibility buffer or their cells), with
-        // the grass visibility buffer or without it - so it is this graph's first reader of that HZB
-        // (FramePrevHzb, reset here for the frame).
+        // after it has no row in the scene material table and is refused at draw. The plan ran on its setup task
+        // since "Setup: Grass plan" (FPS-GRASS-PLAN): joined here, committed into this graph.
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
-        m_FramePrevHzb = {};
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
-            if ( m_RenderPath == Core::RenderPath::Deferred )
-            {
-                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
-                {
-                    occlusion.Hzb = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
-                    occlusion.PrevViewProjection = frame.PrevViewProjection;
-                    occlusion.Extent             = glm::uvec3(
-                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
-                }
-            }
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            m_Systems.Grass->AddFrame( graph, frame, *m_Systems.Mesh.get(),
-                                       RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
-                                       parallelSetup );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
+        grassTasks.Join();
+        if ( growsGrass )
+            m_Systems.Grass->CommitFrame( graph, *m_Systems.Mesh.get() );
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
         // grass registered it just above: FramePrevHzb hands the same ref), before any node drawing the terrain.
         {
@@ -2075,7 +2151,8 @@ namespace Desert::Graphic
             }
             DESERT_PROFILE_PHASE( setupPhases, "Setup: GPU scene sync" );
             if ( const Common::BoolResultStr rows =
-                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber );
+                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber,
+                                            graph );
                  !rows )
             {
                 LOG_ERROR( "[SceneRenderer] {}: the scene's GPU scene could not be synced; nothing is drawn this "
@@ -2083,8 +2160,8 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
-            // The skin step already ran in SyncGpuScene (its own graph, submitted before this view graph):
-            // this graph only reads the streams, barriered by their carried state.
+            // The skin step is declared by SyncGpuScene into this graph (FPS-ARCH-SETUP): the readers declare the
+            // refs it wrote, so the graph barriers each read after the skinning.
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
                 skinCache->DeclareReads( graph, *meshes, frameNumber, meshes->SkinCacheReads() );
@@ -2431,6 +2508,25 @@ namespace Desert::Graphic
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
         DESERT_PROFILE_PHASE_END( lightGridPhases );
+        // THE LUMEN SCENE'S LIGHTING BEFORE THE G-BUFFER (UE: the async Lumen scene lighting overlapping the base
+        // pass; an async pass is declared as early as its inputs allow, since RDGCompile never moves one). The
+        // surface cache's capture, direct lighting and lighting tiles read the cascades and the local shadow atlas
+        // (AddFrameShadowDepths), the light buffers and the world grid (AddFrameLightGrid,
+        // AddFrameLightGridWorld), the distance fields (AddFrameGlobalDistanceField), the TLAS and the cloud map
+        // (the graph head) - no G-buffer texel - so its async run forks here and gathers while the graphics queue
+        // rasters the G-buffer, instead of forking after it and lengthening the GI chain the composite joins. Its
+        // radiosity stays in AddFrameTracedGI, after the radiance cache update that marks its probes from the
+        // G-buffer's depth. Under virtual local pages its cards read the pages AddFrameVirtualShadows draws from
+        // the G-buffer's depth (LocalLightsReadVirtualPages picks the lighting program): declared after them,
+        // below.
+        const bool deferredLighting =
+             m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && !PathTraced( m_RenderMethods );
+        const bool surfaceCacheBeforeGBuffer = deferredLighting && !LocalLightsReadVirtualPages();
+        if ( surfaceCacheBeforeGBuffer )
+        {
+            DESERT_PROFILE_PHASE( addPhases, "Add passes: Surface cache" );
+            AddFrameSurfaceCache( graph, textures, frame );
+        }
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Base pass" );
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
@@ -2461,7 +2557,8 @@ namespace Desert::Graphic
             m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
             if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
             {
-                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height );
+                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
+                                                        m_Systems.Grass->VisibilitySectionFirstRows() );
                 if ( made )
                 {
                     grassVisibility = made.GetValue();
@@ -2474,9 +2571,12 @@ namespace Desert::Graphic
                                m_ViewResources.GetName(), m_GrassVisibilityError );
                 }
             }
-            // UE DBuffer decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals"
-            // runs between the prepass and the base pass and reconstructs every receiver from that depth, so the
-            // prepass must hold every opaque mesh and the ground, not only the masked ones.
+            // THE MESHES' EARLY-Z MODE (UE r.EarlyZPass; RenderPipeline.EarlyZPass, default Masked). UE DBuffer
+            // decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals" runs between
+            // the prepass and the base pass and reconstructs every receiver from that depth, so a frame with a
+            // decal prepasses every opaque mesh too. Without one the alpha-tested meshes alone pay a depth-only
+            // draw (their clip once, then EQUAL in the G-buffer); an opaque mesh's own depth write in the G-buffer
+            // is cheaper than a second draw of it.
             Common::Scalability::EarlyZPassMode earlyZ =
                  m_Quality.As<Common::Scalability::EarlyZPassMode>( Common::Scalability::Parameter::EarlyZPass );
             if ( m_Decals.HasDecals() && meshRenderer != nullptr )
@@ -2486,16 +2586,23 @@ namespace Desert::Graphic
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
+                // UE r.MinScreenRadiusForDepthPrepass: the large opaque occluders written before the masked
+                // prepass under Masked (MeshRenderer::SetEarlyZOccluderScreenRadius; thousandths of the screen).
+                meshRenderer->SetEarlyZOccluderScreenRadius(
+                     static_cast<float>(
+                          m_Quality.As<int>( Common::Scalability::Parameter::EarlyZOccluderScreenRadius ) ) /
+                     1000.0f );
             }
-            // The ground joins the same early-Z pass ("Deferred: Terrain Depth Prepass", AddFrameGBuffer), which
-            // exists only beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer"
-            // writes its own depth.
+            // THE GROUND'S DEPTH PREPASS, by its own rule (UE: the landscape is an occluder of every depth pass,
+            // whatever r.EarlyZPass admits of the meshes): "Deferred: Terrain Depth Prepass" (AddFrameGBuffer)
+            // runs whenever the frame runs an early-Z pass at all - the meshes' Masked as much as All - and only
+            // beside the meshes' node: without a mesh renderer no prepass runs and "TerrainGBuffer" writes its
+            // own depth.
             if ( auto* ground = m_Systems.Terrain.get(); ground != nullptr )
             {
-                Common::Scalability::EarlyZPassMode terrainEarlyZ = Common::Scalability::EarlyZPassMode::Off;
-                if ( meshRenderer != nullptr )
-                    terrainEarlyZ = earlyZ;
-                ground->SetEarlyZPass( terrainEarlyZ );
+                const bool groundPrepass =
+                     meshRenderer != nullptr && earlyZ != Common::Scalability::EarlyZPassMode::Off;
+                ground->SetDepthPrepass( groundPrepass );
             }
             // This view's decals (fade, cull, program, sort, rows) before AddFrameGBuffer declares "Deferred:
             // Decals"; the box matrices are the jittered ones the prepass depth was rastered with, so a depth
@@ -2504,13 +2611,17 @@ namespace Desert::Graphic
             m_Decals.PrepareFrame( frame.JitteredViewProjection, frame.CameraPosition, frame.Projection[1][1],
                                    GetPipelineCache() );
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
-            AddFrameGBuffer( graph, textures, meshRenderer );
+            // A view with decals or a prepassed ground rasters the grass's phase 1 inside AddFrameGBuffer, before
+            // "Deferred: Decals" and the base pass, so "TerrainGBuffer" rejects the ground under the blades
+            // (FPS-HZB-CULL).
+            const bool grassRasteredBeforeDecals =
+                 AddFrameGBuffer( graph, textures, meshRenderer, grassVisibility );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
             // face view draws no particles (AddFrameParticlesSimulate above).
             if ( auto* particles = m_Systems.Particle.get(); particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
-            if ( grassVisibility.IsValid() )
+            if ( grassVisibility.IsValid() && !grassRasteredBeforeDecals )
                 AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).
@@ -2585,7 +2696,10 @@ namespace Desert::Graphic
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: SSAO + surface cache" );
                 AddFrameTileClassify( graph, textures, gbuffer );
                 AddFrameSSAO( graph, textures, gbuffer, frame );
-                AddFrameSurfaceCache( graph, textures, frame );
+                // The cards lit through the virtual local pages just drawn (AddFrameVirtualShadows); otherwise the
+                // surface cache was declared before the G-buffer (surfaceCacheBeforeGBuffer).
+                if ( !surfaceCacheBeforeGBuffer )
+                    AddFrameSurfaceCache( graph, textures, frame );
 
                 // The screen traces - SSR's rays and the screen probes' (UE ScreenProbeTraceScreenTextures) - walk
                 // this frame's HZB and return LAST frame's lit scene at a hit: the view's scene colour history,
@@ -2603,14 +2717,19 @@ namespace Desert::Graphic
                                            : nullptr;
                 const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
                 const FrameScreenTrace screenTrace =
-                     ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) )
+                     ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) ||
+                       ( m_RenderMethods.GlobalIllumination.Effective ==
+                              Common::Scalability::GIMethod::ScreenSpace &&
+                         EnsureSSGIResources() ) )
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
                 AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                AddFrameSSGI( graph, textures, gbuffer, screenTrace, frame );
                 // THE GRAPHICS QUEUE'S WORK WHILE THE GI GATHERS (UE FDeferredShadingSceneRenderer::Render:
                 // Lumen's gather on the async pipe while the graphics pipe renders what reads none of it - the
                 // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache and the
-                // screen probes above fork after the surface cache and join at their first readers (the
+                // screen probes above fork after the screen trace (the surface cache's run forked before the
+                // G-buffer, surfaceCacheBeforeGBuffer) and join at their first readers (the
                 // reflections, the composite: RDGCompile CutRunsAtConsumers), so every node declared between the
                 // two that reads nothing the runs write - and writes nothing they read - fills the graphics
                 // queue's wait instead of sitting after the join. The volumetric fog's froxels: the light grid,
@@ -3152,7 +3271,7 @@ namespace Desert::Graphic
         // same Point/SpotLightShadow every surface reads (Mesh/LocalLightShadowLookup.glslh). Without its maps the
         // lights' ShadowView is -1 and the froxels light through every wall. The water is in no opaque depth the
         // screen masks were traced against either: its program reads the maps wherever it draws
-        // (WaterRenderer::FrameSamples, after PrepareFrame).
+        // (WaterRenderer::FrameSamples, after FinishPrepare).
         bool ShadowMapReadersOutsideMeshes( const SceneRenderSystems& systems, const std::string_view mapName )
         {
             if ( systems.VolumetricFog && systems.VolumetricFog->IsActive() )
@@ -3328,6 +3447,32 @@ namespace Desert::Graphic
             return false;
         }
         m_MegaLightsReady = true;
+        return true;
+    }
+
+    bool SceneRenderer::EnsureSSGIResources()
+    {
+        if ( m_SSGIReady )
+            return true;
+        if ( m_SSGIFailed )
+            return false;
+        static constexpr std::array<Common::Scalability::GIMethod, 1> kSSGIMethods{
+             Common::Scalability::GIMethod::ScreenSpace };
+        // The trace walks the view's HZB and returns its scene colour history: without them there is no method.
+        if ( !EnsureScreenTraceResources() )
+        {
+            RefuseProgramMethods( kSSGIMethods, "HZB",
+                                  "the screen trace's HZB or scene colour history did not build" );
+            m_SSGIFailed = true;
+            return false;
+        }
+        if ( const Common::BoolResultStr initialized = m_SSGI.Initialize(); !initialized )
+        {
+            RefuseProgramMethods( kSSGIMethods, "SSGI", initialized.GetError() );
+            m_SSGIFailed = true;
+            return false;
+        }
+        m_SSGIReady = true;
         return true;
     }
 
@@ -3984,6 +4129,7 @@ namespace Desert::Graphic
         // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again; the path tracer
         // is brought up again by EnsurePathTracerResources once PathTraced resolves again).
         m_SSRResourcesFailed         = false;
+        m_SSGIFailed                 = false;
         m_ScreenTraceResourcesFailed = false;
     }
 
@@ -4285,26 +4431,81 @@ namespace Desert::Graphic
                                       .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
+    namespace
+    {
+        // One entry per parent, the largest size any of its draws asked for (TextureStreamingDemand keeps the
+        // largest per texture, so one note at the maximum is the same demand as one note per draw).
+        void FoldMaterialDemand( std::vector<Render::StaticSceneViewAdmission::MaterialDemand>& demand )
+        {
+            using Entry = Render::StaticSceneViewAdmission::MaterialDemand;
+            std::sort( demand.begin(), demand.end(), []( const Entry& a, const Entry& b )
+                       { return std::less<const Material*>{}( a.Parent, b.Parent ); } );
+            std::size_t kept = 0;
+            for ( std::size_t i = 0; i < demand.size(); ++i )
+            {
+                if ( kept != 0 && demand[kept - 1].Parent == demand[i].Parent )
+                    demand[kept - 1].Pixels = std::max( demand[kept - 1].Pixels, demand[i].Pixels );
+                else
+                    demand[kept++] = demand[i];
+            }
+            demand.resize( kept );
+        }
+    } // namespace
+
     void SceneRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot& scene )
     {
         DESERT_PROFILE_SCOPE( "SceneRenderer::SubmitStaticScene" );
-        const auto*                 camera = GetMainCamera();
+        // THE VIEW'S ADMISSION IS RETAINED PER CHUNK AND RE-WALKED ON EVENTS ONLY (UE FScene: per-frame work over
+        // the dirty set; Render::StaticSceneViewAdmission names the events): a chunk MeshECSSystem rebuilt (its
+        // pointer), a view that moved (camera position / projection, target height, LOD preview), a section that
+        // waited for its geometry, a mesh upload. A camera that only turns re-walks nothing: the admission (draw
+        // distance) and the texture demand are measured from the position, not the direction.
+        using ViewAdmission = Render::StaticSceneViewAdmission;
+        ViewAdmission&      cache  = m_Systems.Mesh->StaticViewAdmission();
+        const auto*         camera = GetMainCamera();
+        ViewAdmission::View view;
+        if ( camera != nullptr )
+        {
+            view.HasCamera  = true;
+            view.Position   = camera->GetPosition();
+            view.Projection = camera->GetProjectionMatrix();
+        }
+        view.Height = GetViewExtent().Height;
+        if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 ) // LODPreviewFor's lease, as it answers
+        {
+            view.PreviewEntity = m_LODPreview.Entity;
+            view.PreviewLevel  = m_LODPreview.Level;
+        }
+        const bool sameView = cache.Valid && cache.Current == view;
+        cache.Current       = view;
+        cache.Valid         = true;
         std::optional<Geometry::LODView> lodView;
         if ( camera != nullptr )
-            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
-        // One scratch list of the slots' parents per replaying thread, as SubmitMesh's. The sections this view
-        // admits, chunk-major, are written over the list built last frame, each compared as it is written: a
-        // list that differs anywhere takes a new revision (MeshRenderer::SubmitStaticScene keeps its queue while
-        // the revision holds, with no compare of its own).
-        thread_local std::vector<const Material*> parents;
-        static std::atomic<uint64_t>              s_NextAdmittedRevision{ 0 };
-        std::vector<Render::StaticSceneAdmission>& admitted = m_StaticAdmitted;
-        const std::size_t                          before   = admitted.size();
-        std::size_t                                count    = 0;
-        bool                                       differs  = m_StaticAdmittedRevision == 0;
-        for ( uint32_t c = 0; c < static_cast<uint32_t>( scene.Chunks.size() ); ++c )
+            lodView.emplace( Geometry::LODView{ view.Position, view.Projection } );
+        const bool demandAsked = camera != nullptr && view.Height != 0;
+
+        // Uploads (the render revision, the residency, the cached bounds' validity) follow the stale epoch; while
+        // it held over two recorded frames that compared the admitted revisions, none is pending (the cache's
+        // comment). Until then every kept chunk's admitted entries are compared, one load each.
+        const uint64_t epoch = Mesh::GetStaleEpoch();
+        if ( epoch != cache.StaleEpoch )
+        {
+            cache.StaleEpoch  = epoch;
+            cache.EpochChecks = 0;
+        }
+        const bool checkRevisions = cache.EpochChecks < 2u;
+        if ( checkRevisions )
+            ++cache.EpochChecks;
+
+        // One chunk's walk: what this view admits of it and the demand its sections ask, folded per parent. The
+        // slots' parents are the chunk's, taken on its change (StaticSceneChunk::OwnerParents).
+        const auto walkChunk = [&]( const uint32_t c, ViewAdmission::Chunk& held )
         {
             const Render::StaticSceneChunk& chunk = *scene.Chunks[c];
+            held.Source                           = scene.Chunks[c];
+            held.Admitted.clear();
+            held.Demand.clear();
+            held.Pending = false;
             for ( uint32_t s = 0; s < static_cast<uint32_t>( chunk.Sections.size() ); ++s )
             {
                 const Render::StaticSceneSection& section = chunk.Sections[s];
@@ -4313,7 +4514,10 @@ namespace Desert::Graphic
                     continue;
                 Mesh* mesh = section.Mesh;
                 if ( !ReadyForDraw( *mesh ) )
+                {
+                    held.Pending = true; // walked again next frame, until its geometry is resident
                     continue;
+                }
                 // The cached bounds are the mesh's as of the revision they were taken at; an in-place edit
                 // (DynamicMesh, uploaded at this fence) bumped the revision and is measured afresh.
                 const Common::Math::AABB local = section.BoundsRevision == mesh->GetRenderRevision()
@@ -4322,32 +4526,86 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
-                parents.clear();
-                for ( const MaterialInstance* slot : slots->Slots )
-                    parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
-                NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), parents );
-                const Render::StaticSceneAdmission entry{ .Chunk        = c,
-                                                          .Section      = s,
-                                                          .ForcedLOD    = LODPreviewFor( section.Entity,
-                                                                                         section.ForcedLOD ),
-                                                          .MeshRevision = mesh->GetRenderRevision() };
-                if ( count < admitted.size() )
+                if ( demandAsked )
                 {
-                    if ( !differs && !( admitted[count] == entry ) )
-                        differs = true;
-                    admitted[count] = entry;
+                    // Measured only (no material handed in: nothing noted here); noted once per parent below.
+                    const float pixels =
+                         NoteTextureDemandOfBounds( local, std::span<const glm::mat4>( &section.Transform, 1 ), {} );
+                    if ( pixels > 0.0f )
+                        for ( const Material* parent : chunk.ParentsOf( section.Owner ) )
+                            if ( parent != nullptr )
+                                held.Demand.push_back( { .Parent = parent, .Pixels = pixels } );
                 }
-                else
-                    admitted.push_back( entry );
-                ++count;
+                held.Admitted.push_back( { .Chunk        = c,
+                                           .Section      = s,
+                                           .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
+                                           .MeshRevision = mesh->GetRenderRevision() } );
             }
+            FoldMaterialDemand( held.Demand );
+        };
+
+        const std::size_t chunkCount = scene.Chunks.size();
+        bool              rewalked   = !sameView || cache.Chunks.size() != chunkCount;
+        cache.Chunks.resize( chunkCount ); // a shorter scene releases the chunks it no longer names
+        for ( uint32_t c = 0; c < static_cast<uint32_t>( chunkCount ); ++c )
+        {
+            ViewAdmission::Chunk& held = cache.Chunks[c];
+            bool                  walk = !sameView || held.Pending || held.Source != scene.Chunks[c];
+            if ( !walk && checkRevisions )
+                for ( const Render::StaticSceneAdmission& entry : held.Admitted )
+                    if ( held.Source->Sections[entry.Section].Mesh->GetRenderRevision() != entry.MeshRevision )
+                    {
+                        walk = true;
+                        break;
+                    }
+            if ( !walk )
+                continue;
+            walkChunk( c, held );
+            rewalked = true;
         }
-        if ( count != before )
-            differs = true;
-        admitted.resize( count );
-        if ( differs )
-            m_StaticAdmittedRevision = s_NextAdmittedRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
-        m_Systems.Mesh->SubmitStaticScene( scene, admitted, m_StaticAdmittedRevision );
+
+        // The admitted list, chunk-major, rebuilt only when a chunk was re-walked: written over the list built
+        // last time, each entry compared as it is written; a list that differs anywhere takes a new revision
+        // (MeshRenderer::SubmitStaticScene keeps its queue while the revision holds, with no compare of its own).
+        static std::atomic<uint64_t> s_NextAdmittedRevision{ 0 };
+        if ( rewalked || m_StaticAdmittedRevision == 0 )
+        {
+            std::vector<Render::StaticSceneAdmission>& admitted = m_StaticAdmitted;
+            const std::size_t                          before   = admitted.size();
+            std::size_t                                count    = 0;
+            bool                                       differs  = m_StaticAdmittedRevision == 0;
+            cache.Demand.clear();
+            for ( const ViewAdmission::Chunk& held : cache.Chunks )
+            {
+                for ( const Render::StaticSceneAdmission& entry : held.Admitted )
+                {
+                    if ( count < admitted.size() )
+                    {
+                        if ( !differs && !( admitted[count] == entry ) )
+                            differs = true;
+                        admitted[count] = entry;
+                    }
+                    else
+                        admitted.push_back( entry );
+                    ++count;
+                }
+                cache.Demand.insert( cache.Demand.end(), held.Demand.begin(), held.Demand.end() );
+            }
+            FoldMaterialDemand( cache.Demand );
+            if ( count != before )
+                differs = true;
+            admitted.resize( count );
+            if ( differs )
+                m_StaticAdmittedRevision = s_NextAdmittedRevision.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        }
+        // The demand is the frame's (TextureStreamingDemand::TakeFrame): noted every frame, once per parent.
+        if ( demandAsked )
+        {
+            auto& demand = TextureStreamingDemand::Get();
+            for ( const ViewAdmission::MaterialDemand& asked : cache.Demand )
+                demand.Note( asked.Parent, asked.Pixels );
+        }
+        m_Systems.Mesh->SubmitStaticScene( scene, m_StaticAdmitted, m_StaticAdmittedRevision );
     }
 
     void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
@@ -4392,7 +4650,8 @@ namespace Desert::Graphic
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows,
                                            bool                                    visibleInRayTracing,
-                                           const RayTracing::RayTracingProgramHit& rayHit )
+                                           const RayTracing::RayTracingProgramHit& rayHit,
+                                           const GenericValuesRevision             revision )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -4408,6 +4667,8 @@ namespace Desert::Graphic
                                              .OverridesRef            = &overrides,
                                              .DirectTextureSamplerRef = &directTextureSampler,
                                              .RayHitRef               = &rayHit,
+                                             .ValuesRevision          = revision.Revision,
+                                             .RevisionHasShaderName   = revision.HasShaderName,
                                              .Outlined                = outlined,
                                              .CastShadows             = castShadows,
                                              .VisibleInRayTracing     = visibleInRayTracing,
@@ -5029,7 +5290,8 @@ namespace Desert::Graphic
     {
         m_Systems.VolumetricCloud->SetCloudSettings(
              present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection, m_CloudQuality,
-             m_CloudFootprintSteps, heroClouds ); // a profile without clouds never allocates their targets
+             m_CloudFootprintSteps, m_CloudLightLocalSamples,
+             heroClouds ); // a profile without clouds never allocates their targets
     }
 
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,

@@ -153,6 +153,18 @@ namespace Desert::Graphic
         // property, the composite never called Bind, the UB stayed zero and the clouds were black). Unclaimed and
         // whole-filled buffers are not touched (their contents are the filler's).
         [[nodiscard]] Common::BoolResultStr PrepareForRecording() const override;
+        // FPS-RDG-PREPARE: the prepare writes this executor's own members, its backend's sets and its properties'
+        // block copies (made under ViewResourceRegistry::CreationLock), so it may run on a worker - unless a 2D
+        // texture slot is still empty (its Apply would resolve the shader default, and DefaultTextures creates a
+        // missing default image lazily, with no lock) or a cube slot exists (written every frame by its producer,
+        // a handful of sky materials: not worth a second audit).
+        [[nodiscard]] bool PreparesOnAnyThread() const noexcept override;
+        // FPS-RDG-PREPARE2: the uniform buffers this prepare may write that are not its own alone - every
+        // field-filled one with fields the active copy is behind on (UpdateFields), and every one not filled whole
+        // while the owner has registered values pending (its upload may claim the field route). Keyed by the
+        // UniformBuffer object: a registered buffer (ShaderResourcesManager) is one object behind several
+        // materials, so the builder serialises exactly the materials that share it.
+        void CollectSharedWrites( std::vector<const void*>& keys ) const noexcept override;
         // The recording side (VulkanRendererAPI::BindGraphicsPassState / SubmitPulled): the material may be bound
         // only as its prepare left it. Refused, naming the material, when it was not prepared this frame (its
         // pass did not declare it: PassBuilder::Prepares) or when a property or registered value was written

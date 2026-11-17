@@ -55,6 +55,10 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrTraceListArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrTraceListUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldListArgsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldListUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldFarListUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldHitListUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -240,6 +244,20 @@ namespace Desert::Graphic::System
             return Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) }, .ShippedByCook = true };
         }
 
+        // The traced methods' screen leg (SSR.shader DESERT_REFLECTIONS_SCREEN_LEG): the classify and the screen
+        // walk of a traced frame that is not hit-lit, without the tracer - the world rays it leaves are traced by
+        // the traced permutation's compute over the world list (TraceStage::World; UE LumenReflectionTracing's
+        // screen trace, then the compacted world traces). One per surface, whatever the tracer; cooked - the one
+        // statement EnsureTracedProgram acquires and ProgramVariants lists.
+        static constexpr std::string_view        kScreenLegDefine = "DESERT_REFLECTIONS_SCREEN_LEG";
+        [[nodiscard]] static Core::ShaderVariant ScreenLegVariant( const ReflectingSurface surface )
+        {
+            Core::ShaderVariant variant{ .Defines = { std::string( kScreenLegDefine ) }, .ShippedByCook = true };
+            if ( surface == ReflectingSurface::TranslucentFrontLayer )
+                variant.Defines.emplace_back( kFrontLayerDefine );
+            return variant;
+        }
+
         // Every variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants): the
         // untraced front layer (FrontLayerVariant); "SSR" under each tracer permutation
         // (GlobalIllumination::kTracerPermutations) from either surface. A permutation is hit-lit exactly when its
@@ -251,6 +269,8 @@ namespace Desert::Graphic::System
         {
             std::vector<Core::CookedProgramVariant> variants{ { "SSR", FrontLayerVariant() } };
             for ( const ReflectingSurface surface : { ReflectingSurface::Opaque, ReflectingSurface::TranslucentFrontLayer } )
+            {
+                variants.push_back( { "SSR", ScreenLegVariant( surface ) } );
                 for ( const GlobalIllumination::Pipeline& pipeline : GlobalIllumination::kTracerPermutations )
                 {
                     const bool hitLit = pipeline.Hits == GlobalIllumination::HitLighting::InPlace;
@@ -258,6 +278,7 @@ namespace Desert::Graphic::System
                     if ( hitLit )
                         variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
                 }
+            }
             return variants;
         }
 
@@ -269,6 +290,24 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr EnsureTracedProgram( const GlobalIllumination::Pipeline& pipeline,
                                                                  const bool                          hitLighting )
         {
+            // The screen leg serves every tracer of this surface: made once, on the first traced frame that is not
+            // hit-lit (the hit-lit permutation classifies itself and traces from its ray generation).
+            if ( !hitLighting && !m_ScreenLegPipeline )
+            {
+                auto screenLeg = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                     "SSR", ScreenLegVariant( m_Surface ) );
+                if ( !screenLeg )
+                    return Common::MakeFormattedError<bool>(
+                         "SSR: the traced reflections' screen leg ({}) was refused: {}", kScreenLegDefine,
+                         screenLeg.GetError() );
+                auto       shader = screenLeg.ExtractValue();
+                const auto compute =
+                     ComputePipeline::Create( { .Shader = shader, .DebugName = "SSRTrace (screen leg)" } );
+                if ( !compute )
+                    return Common::MakeError( compute.GetError() );
+                m_ScreenLegShader   = std::move( shader );
+                m_ScreenLegPipeline = compute.GetValue();
+            }
             if ( m_TracedPipeline && pipeline == m_TracedFor && hitLighting == m_TracedHitLit )
                 return BOOLSUCCESS;
             Core::ShaderVariant variant = TracedVariant( pipeline, hitLighting, m_Surface );
@@ -378,7 +417,21 @@ namespace Desert::Graphic::System
         {
             Classify,
             Trace,
+            // A traced frame that is not hit-lit: Classify and Trace run the screen leg (ScreenLegVariant), which
+            // lists the texels that drew a world ray (WorldList); World = the traced permutation's compute, one
+            // thread per listed texel. Under the software tracer World is the near field (the mesh SDFs) and two
+            // more dispatches of the same program follow over their own compacted lists (WorldList::Legs; UE
+            // LumenReflectionTracing's TraceMeshSDFs, CompactReflectionTraces, TraceVoxels): WorldFarField = the
+            // global field's march of the rays the near field missed, WorldHitLighting = the lighting of its hits.
+            World,
+            WorldFarField,
+            WorldHitLighting,
         };
+        [[nodiscard]] static constexpr bool IsWorldStage( const TraceStage stage )
+        {
+            return stage == TraceStage::World || stage == TraceStage::WorldFarField ||
+                   stage == TraceStage::WorldHitLighting;
+        }
 
         // THE TRACED TEXELS' LIST of one frame (Common/SSRTrace.glslh SsrTraceListArgsUB / SsrTraceListUB), graph
         // buffers: Args = the trace's indirect dispatch (x = workgroups, y = z = 1) + w = the texels listed, reset
@@ -399,6 +452,55 @@ namespace Desert::Graphic::System
                  graph.CreateBuffer( RDG::BufferDesc{ std::max<uint64_t>( texels, 1u ) * sizeof( uint32_t ) },
                                      "SSR.TraceList" ) };
             graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            return list;
+        }
+
+        // THE WORLD RAYS' LIST of one traced frame (Common/SSRTrace.glslh SsrWorldListArgsUB / SsrWorldListUB),
+        // graph buffers: Args = the world stage's indirect dispatch + w = the texels listed, reset by the graph's
+        // upload; Rays = one SSRWorldRay (the screen's sums of a texel that drew a world ray), sized for every
+        // texel of the trace - the screen leg's writes, the world stage's reads.
+        // Legs (the software tracer, Common/SSRTrace.glslh THE SOFTWARE TRACER'S WORLD LEGS): Far = the rays the
+        // near field (TraceStage::World) missed, Hits = the far field's hits (TraceStage::WorldFarField's), each a
+        // uvec4 header - the next leg's indirect dispatch + w = entries, reset by the graph's upload - then one
+        // entry per trace texel at most: Far one SSRWorldFarRay (the march itself, so the far field rebuilds no
+        // texel), Hits one uvec4. Null without legs (the hardware tracer's one ray query).
+        struct WorldList
+        {
+            RDG::BufferRef Args;
+            RDG::BufferRef Rays;
+            RDG::BufferRef Far;
+            RDG::BufferRef Hits;
+            bool           Legs = false;
+        };
+        // sizeof SSRWorldRay under std430: two vec4, three floats and a uint.
+        static constexpr uint64_t kWorldRayBytes = 48u;
+        // A leg list's header (SsrWorldFarListUB / SsrWorldHitListUB) and a hit list entry: one uvec4 each.
+        static constexpr uint64_t kWorldLegEntryBytes = 16u;
+        // sizeof SSRWorldFarRay under std430: a uvec4 and two vec4 (the march's start, length, direction, seed).
+        static constexpr uint64_t kWorldFarRayBytes = 48u;
+
+        // GRAPH BUILD: this frame's world list for @p targets, its arguments reset by the graph's upload pass.
+        // @p legs: the software tracer's (the traced frame's tracer is
+        // GlobalIllumination::Tracer::SoftwareDistanceField).
+        static WorldList CreateWorldList( RDG::Builder& graph, const TraceTargets& targets, const bool legs )
+        {
+            const uint64_t texels = std::max<uint64_t>(
+                 static_cast<uint64_t>( targets.Trace.Size.Width ) * targets.Trace.Size.Height, 1u );
+            WorldList list{
+                 .Args =
+                      graph.CreateBuffer( RDG::BufferDesc{ sizeof( kTraceListArgsReset ) }, "SSR.WorldListArgs" ),
+                 .Rays = graph.CreateBuffer( RDG::BufferDesc{ texels * kWorldRayBytes }, "SSR.WorldList" ) };
+            graph.QueueBufferUpload( list.Args, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            if ( !legs )
+                return list;
+            list.Far  = graph.CreateBuffer( RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldFarRayBytes },
+                                            "SSR.WorldFarList" );
+            list.Hits = graph.CreateBuffer( RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldLegEntryBytes },
+                                            "SSR.WorldHitList" );
+            list.Legs               = true;
+            static_assert( sizeof( kTraceListArgsReset ) == kWorldLegEntryBytes );
+            graph.QueueStaticBufferUpload( list.Far, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            graph.QueueStaticBufferUpload( list.Hits, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             return list;
         }
 
@@ -494,15 +596,23 @@ namespace Desert::Graphic::System
                                    RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
                                    RDG::TextureRef sceneHistory, RDG::TextureRef hzb, RDG::BufferRef uniforms,
                                    const TraceStage stage, const TraceList* list,
+                                   const WorldList*        world      = nullptr,
                                    const TracedReads*      traced     = nullptr,
                                    const FrontLayerInputs* frontLayer = nullptr ) const
         {
-            const bool tracedProgram = traced != nullptr && m_TracedPipeline;
-            if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram ) )
+            // A traced frame with a world list: its classify and trace run the screen leg (no tracer reads), its
+            // world stage the traced permutation.
+            const bool screenLeg     = traced != nullptr && world != nullptr && !IsWorldStage( stage );
+            const bool tracedProgram = traced != nullptr && !screenLeg && m_TracedPipeline;
+            const bool screenLegReady = screenLeg && m_ScreenLegPipeline;
+            if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram && !screenLegReady ) )
                 return;
-            const std::shared_ptr<Shader>& shader   = tracedProgram ? m_TracedShader : m_TraceShader;
-            ComputePipeline&               pipeline = tracedProgram ? *m_TracedPipeline : *m_TracePipeline;
-            ShaderBindingLayoutCache&      layout   = tracedProgram ? m_TracedLayout : m_TraceLayout;
+            const std::shared_ptr<Shader>& shader =
+                 screenLeg ? m_ScreenLegShader : ( tracedProgram ? m_TracedShader : m_TraceShader );
+            ComputePipeline& pipeline =
+                 screenLeg ? *m_ScreenLegPipeline : ( tracedProgram ? *m_TracedPipeline : *m_TracePipeline );
+            ShaderBindingLayoutCache& layout =
+                 screenLeg ? m_ScreenLegLayout : ( tracedProgram ? m_TracedLayout : m_TraceLayout );
             auto block = pass.Bindings( layout.Get( shader ), Renderer::GetPipelineRouteFill( pipeline ) );
             block.Texture( SSRTraceShaderParameters::GBufferNormalTexture, gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
@@ -522,7 +632,8 @@ namespace Desert::Graphic::System
                  .Storage( SSRTraceShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageWrite )
                  .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
-            if ( list != nullptr )
+            // The world stage's program keeps no trace list (SSRTrace.glslh).
+            if ( list != nullptr && !IsWorldStage( stage ) )
             {
                 // A storage read and the indirect-argument read of one buffer in one pass are one use
                 // (RDGCompile.cpp: a buffer has no layout).
@@ -532,6 +643,33 @@ namespace Desert::Graphic::System
                      .Storage( SSRTraceShaderParameters::SsrTraceListUB, list->Texels, listAccess );
                 if ( stage == TraceStage::Trace )
                     pass.Read( list->Args, RDG::Access::IndirectArgs );
+            }
+            if ( world != nullptr )
+            {
+                // Both programs declare it: the screen leg writes it (its classify only through the shared
+                // declaration), the world stage reads it and takes its indirect arguments from it.
+                const RDG::Access worldAccess =
+                     IsWorldStage( stage ) ? RDG::Access::StorageRead : RDG::Access::StorageWrite;
+                block.Storage( SSRTraceShaderParameters::SsrWorldListArgsUB, world->Args, worldAccess )
+                     .Storage( SSRTraceShaderParameters::SsrWorldListUB, world->Rays, worldAccess );
+                if ( stage == TraceStage::World )
+                    pass.Read( world->Args, RDG::Access::IndirectArgs );
+                // The software tracer's legs (one program, every leg declares both lists): the near field writes
+                // the far list, the far field reads it (its indirect arguments too) and writes the hit list, the
+                // hit lighting reads that (its indirect arguments too).
+                if ( world->Legs && IsWorldStage( stage ) )
+                {
+                    const RDG::Access farAccess =
+                         stage == TraceStage::World ? RDG::Access::StorageWrite : RDG::Access::StorageRead;
+                    const RDG::Access hitAccess =
+                         stage == TraceStage::WorldFarField ? RDG::Access::StorageWrite : RDG::Access::StorageRead;
+                    block.Storage( SSRTraceShaderParameters::SsrWorldFarListUB, world->Far, farAccess )
+                         .Storage( SSRTraceShaderParameters::SsrWorldHitListUB, world->Hits, hitAccess );
+                    if ( stage == TraceStage::WorldFarField )
+                        pass.Read( world->Far, RDG::Access::IndirectArgs );
+                    if ( stage == TraceStage::WorldHitLighting )
+                        pass.Read( world->Hits, RDG::Access::IndirectArgs );
+                }
             }
             if ( tracedProgram )
                 DeclareTracedReads( block, *traced );
@@ -602,6 +740,9 @@ namespace Desert::Graphic::System
             // UE Lumen reflections' tile classification). False for a front layer, whose glass composes the whole
             // lobe from the trace.
             bool RoughSpecularFromGI = false;
+            // Traced only: the hit-lit permutation (its compute classifies, its ray generation traces). Otherwise
+            // a traced frame's classify and trace run the screen leg and its world stage the traced permutation.
+            bool HitLit = false;
         };
         // The classify (TraceStage::Classify): one workgroup per tile - the tile mask, and the list the trace
         // takes.
@@ -612,7 +753,7 @@ namespace Desert::Graphic::System
             // Each pass is timed on its own because EnableSSR's default is a budget decision
             // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
             DESERT_PROFILE_PASS( "SSR: Classify" );
-            ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
+            ComputePipeline* const pipeline = StagePipeline( settings, TraceStage::Classify );
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
             const TracePush push =
@@ -632,7 +773,7 @@ namespace Desert::Graphic::System
                                                              const RDG::BufferRef listArgs ) const
         {
             DESERT_PROFILE_PASS( "SSR: Trace" );
-            ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
+            ComputePipeline* const pipeline = StagePipeline( settings, TraceStage::Trace );
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
             const TracePush push =
@@ -640,6 +781,41 @@ namespace Desert::Graphic::System
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
             return Renderer::DispatchComputeIndirect( bindings, *pipeline, listArgs, 0u );
+        }
+
+        // The world stage (a traced frame that is not hit-lit), one dispatch of @p stage (IsWorldStage): World = one
+        // thread per texel the screen leg listed in the world list (the whole ray, or the software tracer's near
+        // field), WorldFarField / WorldHitLighting = one per entry of the software tracer's far / hit list
+        // (WorldList::Legs). The workgroup count from @p args (WorldList::Args, Far or Hits: the node's IndirectArgs
+        // read, its header at offset 0).
+        [[nodiscard]] Common::BoolResultStr RecordWorldList( const RDG::PassContext& context,
+                                                             const glm::vec4&        cameraPos,
+                                                             const TraceSettings&    settings,
+                                                             const bool sceneHistoryReadable, const uint32_t seed,
+                                                             const TraceStage stage, const RDG::BufferRef args ) const
+        {
+            switch ( stage )
+            {
+            case TraceStage::World:
+            {
+                DESERT_PROFILE_PASS( "SSR: World trace" );
+                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
+            }
+            case TraceStage::WorldFarField:
+            {
+                DESERT_PROFILE_PASS( "SSR: World far field" );
+                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
+            }
+            case TraceStage::WorldHitLighting:
+            {
+                DESERT_PROFILE_PASS( "SSR: World hit lighting" );
+                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
+            }
+            case TraceStage::Classify:
+            case TraceStage::Trace:
+                break;
+            }
+            return Common::MakeError( "SSR: RecordWorldList was given a stage that is not the world's" );
         }
 
         // EXEC of the hit-lit node: the same push constants as the classify's, one ray generation per trace texel,
@@ -695,6 +871,33 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // RecordWorldList's dispatch, under its stage's profile scope.
+        [[nodiscard]] Common::BoolResultStr DispatchWorldStage( const RDG::PassContext& context,
+                                                                const glm::vec4&        cameraPos,
+                                                                const TraceSettings&    settings,
+                                                                const bool sceneHistoryReadable, const uint32_t seed,
+                                                                const TraceStage stage, const RDG::BufferRef args ) const
+        {
+            ComputePipeline* const pipeline = StagePipeline( settings, stage );
+            if ( pipeline == nullptr )
+                return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
+            const TracePush   push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, stage );
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
+        }
+
+        // The compute program of @p stage (DeclareTraceBindings picks the same one): the screen alone; for a
+        // traced frame the traced permutation when it is hit-lit or at the world stage, the screen leg otherwise.
+        [[nodiscard]] ComputePipeline* StagePipeline( const TraceSettings& settings, const TraceStage stage ) const
+        {
+            if ( !settings.Traced )
+                return m_TracePipeline.get();
+            if ( settings.HitLit || IsWorldStage( stage ) )
+                return m_TracedPipeline.get();
+            return m_ScreenLegPipeline.get();
+        }
+
         // The push constants of both trace entry points (SSR.shader's compute and its "HitLighting" ray generation).
         static TracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
                                         const bool sceneHistoryReadable, const uint32_t seed,
@@ -702,7 +905,25 @@ namespace Desert::Graphic::System
         {
             const float screenLeg   = sceneHistoryReadable ? 1.0f : 0.0f;
             const float roughFromGI = settings.Traced && settings.RoughSpecularFromGI ? 1.0f : 0.0f;
-            const float traceStage  = stage == TraceStage::Trace ? 1.0f : 0.0f;
+            // SSR.shader's SsrParams3.w: 0 classify, 1 trace, 2 world (the software tracer's near field), 3 its far
+            // field, 4 its hit lighting.
+            const float traceStage = [stage]
+            {
+                switch ( stage )
+                {
+                case TraceStage::Classify:
+                    return 0.0f;
+                case TraceStage::Trace:
+                    return 1.0f;
+                case TraceStage::World:
+                    return 2.0f;
+                case TraceStage::WorldFarField:
+                    return 3.0f;
+                case TraceStage::WorldHitLighting:
+                    return 4.0f;
+                }
+                return 0.0f;
+            }();
             return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                               glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
@@ -788,6 +1009,10 @@ namespace Desert::Graphic::System
         GlobalIllumination::Pipeline     m_TracedFor{};
         bool                             m_TracedHitLit = false;
         Core::ShaderVariant              m_TracedVariant;
+        // The traced methods' screen leg (ScreenLegVariant, EnsureTracedProgram): one per surface, any tracer.
+        std::shared_ptr<Shader>          m_ScreenLegShader;
+        mutable ShaderBindingLayoutCache m_ScreenLegLayout;
+        std::shared_ptr<ComputePipeline> m_ScreenLegPipeline;
         // The hit-lit trace (Reflections.HitLighting): its ray generation program (the traced permutation's
         // "SSR/HitLighting" pass), its ray tracing pipeline and the templates whose hit groups it was built with.
         std::shared_ptr<Shader>               m_HitLightingShader;

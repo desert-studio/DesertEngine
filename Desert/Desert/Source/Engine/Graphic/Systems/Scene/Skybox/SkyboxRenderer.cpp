@@ -464,13 +464,18 @@ namespace Desert::Graphic::System
         push.VolumeParams =
              glm::vec4( m_Sky.AerialPerspectiveDistanceKm, m_Sky.AerialPerspectiveStartDepthKm, 0.0f, 0.0f );
 
-        // ONE INVOCATION PER FROXEL COLUMN — the z extent is walked inside the shader so consecutive
-        // slices share one quadrature, so the dispatch is 2D over the volume's x/y and never over z.
+        // ONE INVOCATION PER FROXEL, ONE GROUP PER 4x4 COLUMNS x THE WHOLE DEPTH (FPS-SKY-APLUT): each
+        // invocation marches its own slice's segment and the group chains a column's segments in shared
+        // memory, so consecutive slices still share one quadrature while the march is spread over every
+        // froxel - the column walk this replaces ran 1024 serial threads on 16 groups and was latency-bound.
+        static_assert( kAerialPerspectiveWidth % kAerialPerspectiveGroupColumns == 0 &&
+                       kAerialPerspectiveHeight % kAerialPerspectiveGroupColumns == 0 );
+        static_assert( kAerialPerspectiveDepth == 16, "the shader's LocalSize z / AP_GROUP_SLICES is the depth" );
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
         return renderer.DispatchCompute( bindings, *m_AerialPerspectivePipeline,
-                                         LutGroupCount( kAerialPerspectiveWidth ),
-                                         LutGroupCount( kAerialPerspectiveHeight ), 1 );
+                                         kAerialPerspectiveWidth / kAerialPerspectiveGroupColumns,
+                                         kAerialPerspectiveHeight / kAerialPerspectiveGroupColumns, 1 );
     }
 
     bool SkyboxRenderer::EnsureDistantLightResources()

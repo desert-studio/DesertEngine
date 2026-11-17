@@ -253,6 +253,20 @@ namespace Desert::Graphic::System
         // The cloud layer the running capture marches, co-owned from Begin to its last face slice (see
         // SkyCaptureSource): the faces' pipeline route names these by raw descriptor.
         CloudBakeBinding m_Clouds;
+        // FPS-DEVLOST19 (UE: a compute pass's parameter struct names every SRV it reads, and RDG derives the
+        // barriers from it). EVERY IMAGE THE FACES' PIPELINE ROUTE SAMPLES, fallbacks resolved, in binding order:
+        // BindFacesRoute fills the route FROM this list, and every faces pass (whole or a time-sliced row band)
+        // declares a SampledCompute read of each FROM this list, so what the route binds and what the graph
+        // orders and barriers are one set. Co-owned with m_Clouds for the capture, cleared with it.
+        struct RouteImage
+        {
+            uint32_t               Binding = 0u;
+            std::shared_ptr<Image> Sampled;
+            // The graph name if this capture is the first to import the image this frame (the first import of
+            // an image names it, FrameTextures::Import).
+            const char* Name = "";
+        };
+        std::vector<RouteImage> m_FacesRouteImages;
         // The faces' push block (x marches, y reads sky occlusion, z aerial start km, w per-sample sun).
         glm::vec4 m_CloudPush{ 0.0f };
         bool      m_Physical = false;

@@ -113,6 +113,48 @@ namespace Desert::Graphic
             return dilated;
         }
 
+        /// The max-mip chain of one level's DILATED column maximum (@p dilated, side x bands x side RGBA8, x
+        /// fastest, then the band, then z), laid out as one row block of the mip image
+        /// (CloudProceduralClipmap::GetColumnMipImage): side x bands x side / 2, mip m at x offset
+        /// ColumnMipOffset( side, m ), z in [0, side >> m), every other texel zero. Built for every m whose
+        /// side >> m divides the side exactly (the toroidal address (i >> m) mod (side >> m) holds only then);
+        /// the march reads no mip past that (CloudProceduralCellEmpty answers "might" there).
+        std::vector<unsigned char> BuildColumnMips( const std::vector<unsigned char>& dilated, uint32_t side )
+        {
+            constexpr size_t           kTexel = Assets::kCloudProceduralBytesPerVoxel;
+            const uint32_t             depth  = std::max( side / 2u, 1u );
+            const size_t               rowTex = side; // texels in one image row (one band of one z)
+            std::vector<unsigned char> mips( rowTex * kCloudColumnMaxBands * depth * kTexel, 0u );
+
+            const auto texelOf = [&]( uint32_t mip, uint32_t x, uint32_t band, uint32_t z ) -> size_t
+            {
+                const size_t offset = mip == 0u ? 0u : CloudProceduralClipmap::ColumnMipOffset( side, mip );
+                return ( ( static_cast<size_t>( z ) * kCloudColumnMaxBands + band ) * rowTex + offset + x ) *
+                       kTexel;
+            };
+
+            for ( uint32_t mip = 1u; mip < 32u; ++mip )
+            {
+                const uint32_t s = side >> mip;
+                if ( s == 0u || ( s << mip ) != side )
+                    break;
+                const unsigned char* source = mip == 1u ? dilated.data() : mips.data();
+                for ( uint32_t z = 0; z < s; ++z )
+                    for ( uint32_t band = 0; band < kCloudColumnMaxBands; ++band )
+                        for ( uint32_t x = 0; x < s; ++x )
+                        {
+                            unsigned char*       out = mips.data() + texelOf( mip, x, band, z );
+                            const unsigned char* a   = source + texelOf( mip - 1u, 2u * x, band, 2u * z );
+                            const unsigned char* b   = source + texelOf( mip - 1u, 2u * x + 1u, band, 2u * z );
+                            const unsigned char* c   = source + texelOf( mip - 1u, 2u * x, band, 2u * z + 1u );
+                            const unsigned char* d = source + texelOf( mip - 1u, 2u * x + 1u, band, 2u * z + 1u );
+                            for ( size_t ch = 0; ch < kTexel; ++ch )
+                                out[ch] = std::max( std::max( a[ch], b[ch] ), std::max( c[ch], d[ch] ) );
+                        }
+            }
+            return mips;
+        }
+
         /// [start, start + count) world voxels of one axis as runs of texels: one run, or two where it crosses
         /// the torus' edge; the whole axis when count reaches the side.
         std::vector<std::pair<uint32_t, uint32_t>> TexelRuns( int32_t start, uint32_t count, uint32_t side )
@@ -319,6 +361,28 @@ namespace Desert::Graphic
                  "the {}x{}x{} RGBA8 cloud column-max clipmap could not be created on the device", side, columnRows,
                  side );
         }
+
+        // Its max-mip chain (FPS-CLOUD-3), the same rows, every mip packed along x into half the depth; created
+        // with it for the same reason and written whole per level in the same Write.
+        const uint32_t                            mipDepth = std::max( side / 2u, 1u );
+        const Core::Formats::Image3DSpecification mipSpec{
+             .Tag        = "CloudColumnMipClipmap",
+             .Width      = side,
+             .Height     = columnRows,
+             .Depth      = mipDepth,
+             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Data       = Core::Formats::EmptyPixelData{},
+             .Properties = Core::Formats::Sample,
+        };
+        m_ColumnMipImage = Image3D::Create( mipSpec );
+        if ( !m_ColumnMipImage )
+        {
+            m_Image.reset();
+            m_ColumnImage.reset();
+            return Common::MakeFormattedError<bool>(
+                 "the {}x{}x{} RGBA8 cloud column-mip clipmap could not be created on the device", side,
+                 columnRows, mipDepth );
+        }
         for ( auto& level : m_ColumnMax )
         {
             const size_t levelBytes =
@@ -400,7 +464,31 @@ namespace Desert::Graphic
         }
         if ( columnWrites.empty() )
             return BOOLSUCCESS;
-        return m_ColumnImage->WriteRegions( columnWrites );
+        if ( auto wrote = m_ColumnImage->WriteRegions( columnWrites ); !wrote )
+            return Common::MakeError<bool>( wrote.GetError() );
+
+        // THE MAX-MIP CHAIN of the same dilated rows (FPS-CLOUD-3), whole per touched level: the event that
+        // changed the conservative density is the only one that changes its mips, so the march's empty-space map
+        // follows the shape and the scroll and costs nothing on a frame where neither happened.
+        std::array<std::vector<unsigned char>, kLevels> mips;
+        std::vector<Image3D::RegionWrite>               mipWrites;
+        for ( uint32_t level = 0; level < kLevels; ++level )
+        {
+            if ( !touched[level] )
+                continue;
+            mips[level] = BuildColumnMips( dilated[level], side );
+            mipWrites.push_back( Image3D::RegionWrite{
+                 .X      = 0u,
+                 .Y      = level * kCloudColumnMaxBands,
+                 .Z      = 0u,
+                 .Width  = side,
+                 .Height = kCloudColumnMaxBands,
+                 .Depth  = std::max( side / 2u, 1u ),
+                 .Bytes  = mips[level].data(),
+                 .Size   = mips[level].size(),
+            } );
+        }
+        return m_ColumnMipImage->WriteRegions( mipWrites );
     }
 
     void CloudProceduralClipmap::BeginShape( const Assets::CloudProceduralFieldParams& params,

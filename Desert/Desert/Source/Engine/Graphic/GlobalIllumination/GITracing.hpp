@@ -7,6 +7,7 @@
 
 #include <array>
 #include <vector>
+#include <Engine/Graphic/DistanceField/GlobalDistanceFieldCeiling.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
@@ -48,7 +49,7 @@
 //   * the shader permutation — TracerVariant( Pipeline ): the one place Pipeline::Tracer becomes a define;
 //   * the tracer's graph reads — TracerFrame + DeclareTracerReads( block, frame ): a consumer pass declares its
 //     own reads and then this, never a distance-field texture or a TLAS by name;
-//   * the ray biases and the screen-match tolerance — GIRayBias( position, normal, direction ), defined by the
+//   * the ray biases and the screen-match tolerance — GIRayBias( position, normal ), defined by the
 //     tracer: a near offset (the ray's origin; the software walk's mesh-SDF near field: a few cm) and a far offset
 //     the ray must have risen to before the far field counts a hit (GIFarFieldTMin -> GITraceInput.farTMin; the
 //     global SDF's voxel) (UE: the mesh-SDF and global-SDF surface biases vs. the hardware tracer's RayBias for
@@ -246,8 +247,13 @@ namespace Desert::Graphic::GlobalIllumination
     {
         std::array<glm::vec4, 4>            GlobalDistanceFieldLevels{};
         DistanceField::MeshSDFGridPlacement MeshSDFGrid; // MeshDistanceFieldReads::NearFieldGridPlacement
+        // GlobalDistanceField::FrameField::OccupiedBox: where a far-field march ends (GIFarFieldOccupiedExit).
+        std::array<glm::vec4, 2> GlobalDistanceFieldOccupiedBox{};
+        // GlobalDistanceField::FrameField::Ceiling: where a far-field march ends past the last column it is not
+        // above (GIFarFieldCeilingCut); Grid.zw = 0 (nothing placed) leaves the march uncut.
+        DistanceField::GlobalDistanceFieldCeiling GlobalDistanceFieldCeiling{};
     };
-    static_assert( sizeof( TracerSoftwarePayload ) == 176 );
+    static_assert( sizeof( TracerSoftwarePayload ) == 208 + sizeof( DistanceField::GlobalDistanceFieldCeiling ) );
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
@@ -287,8 +293,17 @@ namespace Desert::Graphic::GlobalIllumination
     // Declares the tracer's reads on a consumer pass's binding block, under the shader names the tracer include
     // (Common/GITracer.glslh) declares. The consumer's program must be compiled with TracerVariant. @p sampled =
     // the stage the consumer samples in (a compute consumer, or a raster one: the surface cache's card lighting).
+    // @p pointClamp = whether the software field's object grid binds the includer's PointClampSampler with it. The
+    // grid is fetched texel by texel, so a program that samples nothing else point-clamped (the software far field:
+    // it defers its hits, no G-buffer read) reflects no such sampler - it passes Skip.
+    enum class TracerPointClamp : uint8_t
+    {
+        Bind,
+        Skip,
+    };
     void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
-                             RDG::Access sampled = RDG::Access::SampledCompute );
+                             RDG::Access      sampled    = RDG::Access::SampledCompute,
+                             TracerPointClamp pointClamp = TracerPointClamp::Bind );
 
     // THIS FRAME'S SURFACE CACHE AS A HIT READS IT (GIHitRadiance, Common/SurfaceCacheSampling.glslh): the card //
     // records, the instance table of contract B3 (SurfaceCache.hpp; the rows of a hit come from the tracer,

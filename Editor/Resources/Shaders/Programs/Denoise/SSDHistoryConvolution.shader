@@ -10,7 +10,8 @@ Shader "SSDHistoryConvolution"
     // tangent plane (UE POSITION_BASED), normal agreement (UE BILATERAL_NORMAL), and for reflections the lobes'
     // agreement (UE BILATERAL_TOKOYASHI) with Karis' inverse luminance. This is the denoiser's output; the history
     // the next frame reads is the accumulation before it (the filter does not compound over frames).
-    // Writes STRAIGHT (rgb, a): what the lighting composes (DeferredLighting.shader SsrTexture / Gi).
+    // Writes STRAIGHT (rgb, a): what the lighting composes (DeferredLighting.shader SsrTexture / Gi) - the
+    // premultiplied accumulation divided by its coverage, or as it is where a is a signal of its own (Params.z).
 
     Compute
     {
@@ -39,7 +40,9 @@ Shader "SSDHistoryConvolution"
         PushConstant PushConstants
         {
         	vec4 Params; // x = 1 under the traced reflections' gate (ScreenSpaceDenoiser::SignalGate), y = signal
-        	             // (kSSDSignal*), zw unused
+        	             // (kSSDSignal*), z = 1 when a is a signal of its own carried straight (SSGI's sky
+        	             // visibility, DiffuseIndirectAlpha::SkyVisibility; else a = the answered share and rgb is
+        	             // premultiplied by it), w unused
         };
 
         LocalSize(8, 8, 1);
@@ -111,7 +114,10 @@ Shader "SSDHistoryConvolution"
         		if (weightSum > 0.0)
         			result = sum / weightSum;
         	}
-        	imageStore(DenoisedSignalTexture, pixel, result.a > 0.0 ? vec4(result.rgb / result.a, result.a) : vec4(0.0));
+        	if (Params.z >= 0.5)
+        		imageStore(DenoisedSignalTexture, pixel, result); // already straight: rgb and a filtered apart
+        	else
+        		imageStore(DenoisedSignalTexture, pixel, result.a > 0.0 ? vec4(result.rgb / result.a, result.a) : vec4(0.0));
         }
     }
 }

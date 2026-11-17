@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 74,
+            "SCNE": 75,
             "UNIT": 1,
             "WPAR": 1
         },
@@ -226,7 +226,7 @@
                 "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
-                    "GrassVisibilityBuffer": false,
+                    "GrassRaster": 0,
                     "GlobalIlluminationMethod": 0,
                     "ReflectionsMethod": 0,
                     "SSRIntensity": 1.0,

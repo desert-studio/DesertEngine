@@ -18,6 +18,7 @@
 #include <Common/Settings/CapabilityCatalog.hpp>
 
 #include <glm/glm.hpp>
+#include <array>
 #include <memory>
 #include <optional>
 #include <span>
@@ -30,6 +31,7 @@ namespace Desert::Graphic
 {
     struct ViewFrame;
     class FrameTextures;
+    class StorageBufferProperty;
     struct SceneViewInputs;
 }
 
@@ -52,6 +54,32 @@ namespace Desert::Graphic::System
         // material revision, shared by every tile of the root (LandscapeECSSystem::m_RootOverrides), so its
         // pointer is the revision the tile proxies (TileProxy) compare.
         std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
+    };
+
+    // The surface row values a tile reads (TerrainRenderer.cpp kTerrainRowSlotNames): the material's nine, the
+    // displacement's four, and four per weight layer.
+    inline constexpr size_t   kTerrainRowSlotCount = 13u + ( 4u * World::Landscape::kLandscapeMaxWeightLayers );
+    inline constexpr uint32_t kNoTerrainRowSlot    = ~0u;
+
+    // What a surface row resolves to for the frame material and the displacement (TerrainRowValuesOf): the
+    // material's Tint and LandscapeMaterialValues, and the displacement's (DisplacementMagnitude,
+    // DisplacementCenter, DisplacementFadeStart, DisplacementFadeEnd) as the row holds them.
+    struct TerrainRowValues
+    {
+        glm::vec4               Tint{ 0.0f };
+        LandscapeMaterialValues Values;
+        glm::vec4               Displacement{ 0.0f };
+    };
+
+    // One tile's section LODs for one view (TerrainRenderer's flat tile LOD tables): which landscape (its origin)
+    // and which tile of it, and the LODs.
+    struct TerrainTileLodEntry
+    {
+        float                    OriginX = 0.0f;
+        float                    OriginZ = 0.0f;
+        int32_t                  X       = 0;
+        int32_t                  Z       = 0;
+        LandscapeSectionLodArray Lods{};
     };
 
     // GPU landscape renderer. Draws each tile as a triangle grid over its samples into the scene framebuffer's
@@ -81,9 +109,16 @@ namespace Desert::Graphic::System
         // TerrainDepth.shader's DESERT_TERRAIN_NO_HOLES permutation (early fragment tests, nothing discards): the
         // view depth prepass of a frame whose tiles have no visibility layer (EnsureDepthNoHolesPipelines).
         [[nodiscard]] static Core::ShaderVariant                     DepthNoHolesVariant();
+        // TerrainGBuffer.shader's DESERT_TERRAIN_DEPTH_EQUAL permutation (UE: the landscape's base pass after the
+        // depth pass, DepthEqual, no clip): the G-buffer over the ground's own depth prepass, EQUAL without depth
+        // writes, the hole test not repeated (a hole the prepass discarded holds a farther depth and fails EQUAL),
+        // early fragment tests (m_GBufferPrepassedPipeline).
+        [[nodiscard]] static Core::ShaderVariant                     GBufferDepthEqualVariant();
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
-            return { { "Terrain", ForwardVsmVariant() }, { "TerrainDepth", DepthNoHolesVariant() } };
+            return { { "Terrain", ForwardVsmVariant() },
+                     { "TerrainDepth", DepthNoHolesVariant() },
+                     { "TerrainGBuffer", GBufferDepthEqualVariant() } };
         }
 
         // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
@@ -96,12 +131,23 @@ namespace Desert::Graphic::System
         // local shadow atlas has the cascades' depth format, so the one pipeline serves its views too.
         Common::BoolResultStr CreateShadowPipeline( const std::shared_ptr<Framebuffer>& cascadeFramebuffer );
 
-        // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
-        // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
-        // matrices — the same view every other pass of the frame draws for. The instance rows go up in
-        // PrepareLocalShadowViews and the scene's blocks in ApplySceneFrame, which must follow it: nothing may
-        // draw a terrain before all three ran.
-        void PrepareFrame( const ViewFrame& frame );
+        // THE FRAME'S SETUP IN THREE STEPS (FPS-ARCH-SETUP2; UE FSceneRenderer's task-based view setup: the CPU
+        // work runs as a task with an explicit join before its first reader, the render thread only records):
+        //  1. PrepareFrame - render thread, before the render graph records, inside the view's frame (after
+        //     SceneViewState::BeginFrame accepted it): resolves every queued terrain's material, binds its group's
+        //     textures, packs and uploads the param rows, and keeps each tile's group, layer inputs and row values
+        //     (m_TileSetups) for step 2.
+        //  2. PrepareTileRows - a High setup task (Common::TaskGroup), with @p frame's matrices (the same view
+        //     every other pass of the frame draws for): the tiles' LODs, instance rows, dice pool and dice cull
+        //     jobs, camera and virtual-shadow draws, the census. CPU only: no material, buffer, image or service
+        //     is touched; the grid index buffers its draws need are noted (m_MissingGridCells). Nothing may call
+        //     this renderer between the task's launch and its join.
+        //  3. FinishPrepare - render thread, after the join: makes the noted grid index buffers.
+        // The instance rows go up in PrepareLocalShadowViews and the scene's blocks in ApplySceneFrame, which
+        // must follow: nothing may draw a terrain before all of them ran.
+        void PrepareFrame();
+        void PrepareTileRows( const ViewFrame& frame ) noexcept;
+        void FinishPrepare();
 
         // After PrepareFrame AND MeshRenderer::UpdateLocalShadows (the lights get their views there, later in the
         // frame than PrepareFrame, whose rows the TLAS and the motion rows read first): for each of @p localLights
@@ -159,20 +205,21 @@ namespace Desert::Graphic::System
         // CloserOrEqual and writes none. Deferred: into the G-buffer depth BEFORE the meshes' masked prepass,
         // which their alpha-tested draws then test against ("Deferred: Terrain Depth Prepass", clearing the depth;
         // SceneRenderer::AddFrameGBuffer, GPU-MASKED-PREPASS) whenever the frame runs an early-Z
-        // pass (SetEarlyZPass); "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground the grass
+        // pass (SetEarlyZPass); "TerrainGBuffer" then tests EQUAL and writes none, so the ground the grass
         // and the meshes cover is rejected before it is shaded. SETUP: one binding block per Depth material of the
         // frame's groups (no scene/view input); the exec records through them. Both are no-ops on a frame whose
         // path does not prepass the ground (ViewDepthPipeline).
         void                                DeclareDepthDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderDepthManual( const RDG::PassContext& context );
 
-        // THE DEFERRED EARLY-Z PASS (UE r.EarlyZPass; Scalability EarlyZPass, MeshRenderer::SetEarlyZPass): set
-        // per frame by SceneRenderer before "Deferred: Masked Depth Prepass", the mode the meshes get. The ground
-        // is a masked surface (its visibility layer clips), so it joins the prepass under Masked and All; Off
-        // leaves "TerrainGBuffer" writing its own depth.
-        void SetEarlyZPass( const ::Common::Scalability::EarlyZPassMode mode )
+        // THE GROUND'S DEFERRED DEPTH PREPASS (UE: the landscape is an occluder the depth pass draws under every
+        // r.EarlyZPass mode that runs one, whatever that mode admits of the meshes). Set per frame by
+        // SceneRenderer before "Deferred: Masked Depth Prepass" from its own rule (SceneRenderer::OnUpdate), not
+        // from the meshes' mode: the meshes' Masked and All both leave the ground in the prepass. false leaves
+        // "TerrainGBuffer" writing its own depth.
+        void SetDepthPrepass( const bool prepass )
         {
-            m_EarlyZPass = mode;
+            m_DepthPrepass = prepass;
         }
         // Whether this frame's deferred G-buffer draws the ground over its own depth prepass: the early-Z pass
         // runs and both prepassed pipelines exist. "Deferred: Terrain Depth Prepass" is added exactly then.
@@ -274,6 +321,7 @@ namespace Desert::Graphic::System
             // The pooled group slots and the tile proxies name the sets and the layer inputs below: they go first.
             m_FrameGroupPool.clear();
             m_TileProxies.clear();
+            m_LightDrawCache.clear(); // its draws name the old world's groups
             m_Materials.clear();
             m_LayerInputs.clear();
         }
@@ -288,8 +336,7 @@ namespace Desert::Graphic::System
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_ViewDraws.clear();
-            m_LocalLightDraws.clear();
-            m_CascadeDraws.clear();
+            ReleaseShadowDrawLists();
         }
 
     private:
@@ -319,6 +366,87 @@ namespace Desert::Graphic::System
             // its group with no key.
             uint64_t GroupFrame = 0u;
             size_t   GroupIndex = 0u;
+
+            // THE SURFACE ROW'S SLOTS (UE FMaterialRenderProxy: a parameter's offset is resolved once per shader
+            // map): the row slot of every value the frame material and the displacement read
+            // (TerrainRenderer.cpp kTerrainRowSlotNames), found by name once per surface program layout - the
+            // program, its identity and code generation, the layout and the row's size - never per tile.
+            // kNoTerrainRowSlot: the program declares no such numeric parameter (MaterialBinder::ReadRowParam's
+            // empty), read as zero.
+            struct RowSlots
+            {
+                bool                                       Resolved   = false;
+                const DataDrivenMaterial*                  Surface    = nullptr;
+                uint64_t                                   Serial     = 0u;
+                uint64_t                                   Generation = 0u;
+                const Core::Formats::MaterialLayout*       Layout     = nullptr;
+                const Core::Formats::MaterialLayoutParam*  Params     = nullptr;
+                size_t                                     ParamCount = 0u;
+                size_t                                     RowSize    = 0u;
+                std::array<uint32_t, kTerrainRowSlotCount> Slots{};
+            } Slots;
+            // What the surface row's values resolve to (TerrainRowValuesOf), cached by the row's revision
+            // (DataDrivenMaterial::GetParamRowView: process-unique, it moves with every value and texture slot
+            // written) and the slot table it was read through: recomputed only when one of them moved.
+            bool                      ValuesValid    = false;
+            const DataDrivenMaterial* ValuesSurface  = nullptr;
+            uint64_t                  ValuesRevision = 0u;
+            TerrainRowValues          Values;
+
+            // THE GROUP'S BOUND TEXTURES (UE FLandscapeComponentSceneProxy: its bindings persist): every input the
+            // group's SetTexture block binds from, as it last bound them. A group whose inputs equal these binds
+            // nothing (every SetTexture of an equal image is no write: Texture2DProperty::SetImage).
+            struct BoundTextures
+            {
+                bool                                              Valid   = false;
+                const DataDrivenMaterial*                         Surface = nullptr;
+                std::shared_ptr<const MaterialOverrides>          Overrides;
+                std::vector<const Image2D*>                       Samplers; // per TileProxy::Samplers entry
+                std::array<const Image2D*, kTerrainLayerMapKinds> Arrays{};
+                std::array<std::string, kTerrainLayerMapKinds>    ArrayNames{};
+                const Image2D*                                    Heightmap = nullptr;
+                const Image2D*                                    Weightmap = nullptr;
+            } Bound;
+            // FPS-MAT-HANDLES3, THE GROUP'S TEXTURE HANDLES (UE FShaderResourceParameter: bound once per shader
+            // map): the Texture2D properties the SetTexture block above binds, resolved by name once per
+            // (layout stamp, executor, name) - DataDrivenMaterial::SetTexture( MaterialTextureHandle&, ... ) - and
+            // bound through the kept property otherwise. The casters are Shadow, VirtualShadow, Depth in that
+            // order; the surface's Overrides samplers use the surface's own OverrideTextureHandle( index ).
+            struct TextureHandles
+            {
+                MaterialTextureHandle                                    SurfaceHeightmap;
+                MaterialTextureHandle                                    SurfaceWeightmap;
+                std::array<MaterialTextureHandle, 3>                     CasterHeightmap;
+                std::array<MaterialTextureHandle, 3>                     CasterWeightmap;
+                std::array<MaterialTextureHandle, kTerrainLayerMapKinds> LayerArrays;
+            } Handles;
+
+            // FPS-CPU2-TAILS, THE GROUP'S ROW BLOCKS (UE: a shader's uniform-buffer slots are resolved once per
+            // shader map): each program's Materials[] and TerrainInstances storage-buffer properties, in the
+            // order surface, Shadow, VirtualShadow, Depth, found by name once per (program, serial, code
+            // generation) - a recompile rebuilds a material's properties. Null: the program declares no block.
+            struct RowBlocks
+            {
+                std::array<const DataDrivenMaterial*, 4> Programs{};
+                std::array<uint64_t, 4>                  Serials{};
+                std::array<uint64_t, 4>                  Generations{};
+                std::array<StorageBufferProperty*, 4>    Params{};
+                std::array<StorageBufferProperty*, 4>    Instances{};
+                bool                                     Valid = false;
+            } Blocks;
+            // THE GROUP'S LAST UPLOAD per block (UE FRDGBuilder: an upload of unchanged contents is skipped): the
+            // bytes, the buffer they went to and their version. A new version is taken when the bytes or the
+            // buffer change; a frame-in-flight copy that already holds the version
+            // (StorageBuffer::ActiveAppliedVersion) is not written again. Only this group writes its buffers
+            // (ShareGroupRows), so the version is the copy's contents.
+            struct RowUpload
+            {
+                std::vector<std::byte>                Bytes;
+                const ShaderResources::StorageBuffer* Target  = nullptr;
+                uint64_t                              Version = 0u;
+            };
+            RowUpload ParamUpload;
+            RowUpload InstanceUpload;
         };
 
         // A frame's terrains sharing one texture set. m_Materials owns the set; the group points at it and at its
@@ -384,12 +512,18 @@ namespace Desert::Graphic::System
         [[nodiscard]] RDG::BufferRef CameraDiceCullArgs() const;
         // Reads the census slot @p frameIndex comes back to and logs "[Terrain] triangles in view" when it moved.
         void ReportDiceCullCensus( uint64_t frameIndex );
-        // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile, the grid's
-        // index buffer made first if this is the first draw at that grid (EnsureGridIndices).
+        // @p draw with its split for row @p row at grid LOD @p gridLod of a @p quadsPerTile tile. CPU only (it
+        // runs in PrepareTileRows' task too): a grid with no index buffer yet is noted in m_MissingGridCells, and
+        // MakeMissingGridIndices makes it on the render thread before any graph records a draw of it.
         void SplitDraw( FrameDraw& draw, uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row );
         // The shared index buffer of the @p cells-a-side grid (LandscapeGridIndices), made and uploaded on first
         // use, before any graph records a draw of it; an error is logged and the draws of that grid refuse.
         void EnsureGridIndices( uint32_t cells );
+        // The grids SplitDraw met with no index buffer (each once), and the render-thread step that makes them
+        // (FinishPrepare, the end of PrepareLocalShadowViews). m_GridIndices is only READ while a task runs.
+        std::vector<uint32_t> m_MissingGridCells;
+        void                  NoteGridCells( uint32_t cells );
+        void                  MakeMissingGridIndices();
 
         // One point/spot light's terrain draws (PrepareFrame): the tiles in its reach, each at the LOD the light
         // asks for (its rows follow the camera's in the group buffers), and the key of what they draw.
@@ -504,9 +638,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_WireframeVsmPipeline; // twin of m_PipelineVsm
         bool                              m_WireframeRefused = false;
 #endif
-        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline; // writes its own depth (EarlyZPass Off)
-        // The G-buffer program over the ground's own depth prepass: CloserOrEqual, no depth write
-        // (PrepassesGBuffer).
+        std::shared_ptr<GraphicsPipeline> m_GBufferPipeline; // writes its own depth (no depth prepass)
+        // The G-buffer program over the ground's own depth prepass (PrepassesGBuffer): its
+        // GBufferDepthEqualVariant, EQUAL, no depth write, no hole discard, early fragment tests.
         std::shared_ptr<GraphicsPipeline> m_GBufferPrepassedPipeline;
         std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
         // The deferred depth prepass's (GBufferDepthLayout): TerrainDepth.shader into the G-buffer depth.
@@ -520,7 +654,7 @@ namespace Desert::Graphic::System
         // Whether a tile of this frame's m_Queue has a visibility layer (PrepareFrame): the discarding prepass.
         bool                                  m_FrameHasHoles = true;
         void                                  EnsureDepthNoHolesPipelines();
-        ::Common::Scalability::EarlyZPassMode m_EarlyZPass = ::Common::Scalability::EarlyZPassMode::Off;
+        bool                                  m_DepthPrepass = false; // SetDepthPrepass
         // The pipeline the view's depth prepass records with this frame: the forward one, the deferred one under
         // PrepassesGBuffer, or nullptr when the frame's path does not prepass the ground.
         [[nodiscard]] const GraphicsPipeline* ViewDepthPipeline() const;
@@ -558,6 +692,50 @@ namespace Desert::Graphic::System
         // The previous frame's group slots between ClearQueue and the next PrepareFrame: their vectors keep their
         // capacity, so a frame opens its groups with no allocation.
         std::vector<FrameGroup> m_FrameGroupPool;
+        // PrepareFrame's per-frame scratch, cleared and refilled with its capacity kept (no allocation on a frame
+        // whose counts did not grow): the group's resolved sampler images (compared with
+        // ProgramMaterials::Bound), each landscape's dice slab (OriginX, OriginZ, BaseY, SpacingCm -> lowest and
+        // highest sample), and the tiles' section LODs (camera and per light; TileLodTable in the .cpp).
+        std::vector<const Image2D*>                             m_GroupSamplerScratch;
+        std::vector<std::pair<std::array<float, 4>, glm::vec2>> m_DiceSlabs;
+        std::vector<TerrainTileLodEntry> m_TileLods;
+        std::vector<TerrainTileLodEntry> m_LightTileLods;
+        // PrepareFrame's hand-over to PrepareTileRows, one per queued tile in queue order: the tile's group, its
+        // layer inputs (a value of m_LayerInputs: node-stable, nothing inserts between the two steps) and a COPY
+        // of its row values - RowValuesOf's answer lives in ProgramMaterials::Values, which the next tile of the
+        // same group overwrites.
+        struct TileSetup
+        {
+            size_t                    Group  = 0;
+            const TerrainLayerInputs* Layers = nullptr;
+            TerrainRowValues          Values;
+        };
+        std::vector<TileSetup> m_TileSetups;
+        // What PrepareFrame read from the scene renderer for PrepareTileRows (the task reads no other system): the
+        // view's height in pixels, the displacement dicing rate, whether the frame needs the virtual shadow map's
+        // rows, and the fallback weightmap a tile without one hands its dice pool job.
+        uint32_t               m_PrepareViewHeight = 0u;
+        int                    m_PrepareDicingRate = 0;
+        bool                   m_PrepareVsmRows    = false;
+        std::shared_ptr<Image> m_PrepareFallbackWeightmap;
+        // The shadow views' draw lists of earlier frames (cascades', lights'), cleared, kept for their capacity:
+        // PrepareLocalShadowViews takes one per list instead of growing a fresh vector.
+        std::vector<std::vector<FrameDraw>> m_DrawListPool;
+        // Returns every cascade's and light's draw list to m_DrawListPool and empties both.
+        void                                 ReleaseShadowDrawLists();
+        [[nodiscard]] std::vector<FrameDraw> TakeDrawList();
+        // The surface row's values for this tile (TerrainRowValuesOf): the slot table resolved once per layout,
+        // the values once per row revision, both kept in @p materials.
+        const TerrainRowValues& RowValuesOf( ProgramMaterials& materials, const DataDrivenMaterial& surface,
+                                             const DataDrivenMaterial::ParamRowView& row );
+        // The group's row-block properties for this frame's @p surface (ProgramMaterials::RowBlocks): resolved by
+        // name only when a program, its serial or its code generation moved.
+        const ProgramMaterials::RowBlocks& RowBlocksOf( ProgramMaterials& materials, DataDrivenMaterial* surface );
+        // ONE UPLOAD PER GROUP with the unchanged-contents skip of ProgramMaterials::RowUpload:
+        // the first non-null block of @p blocks takes @p bytes bytes, every later one reads its buffer.
+        static void UploadGroupRows( ProgramMaterials::RowUpload&                 upload,
+                                     const std::array<StorageBufferProperty*, 4>& blocks, const void* data,
+                                     uint32_t bytes );
         // Every tile's persistent proxy (TileProxy), by entity.
         std::unordered_map<uint32_t, TileProxy> m_TileProxies;
         // Counts PrepareFrame calls: ProgramMaterials::GroupFrame names the frame a set's group opened in.
@@ -588,6 +766,33 @@ namespace Desert::Graphic::System
         // rows are casters' only.
         void                         PrepareVirtualShadowRows( const glm::vec3& eye, float diceWidthPerCm );
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
+
+        // FPS-CPU2-TAILS, A LIGHT'S TERRAIN DRAWS CACHED (UE: cached shadow-depth mesh draw commands, rebuilt when
+        // the primitive or the light changes): what PrepareLocalShadowViews derived for one light - its draws (Row
+        // left to the replay), their instance rows and their signature - keyed on the light's LOD view, its reach
+        // and the queue key (LightQueueKey: every input of a light's rows besides its own view). A light whose key
+        // equals an entry's replays it: its rows go after this frame's camera rows with no LOD, row or hash work.
+        struct LightDrawCacheEntry
+        {
+            glm::vec3                    Origin{ 0.0f };
+            glm::mat4                    Projection{ 1.0f };
+            float                        Reach     = 0.0f;
+            uint64_t                     QueueKey  = 0u;
+            uint64_t                     Signature = 0u;
+            uint64_t                     UsedFrame = 0u; // m_PrepareSerial of its last use
+            std::vector<FrameDraw>       Draws;
+            std::vector<TerrainInstance> Rows; // parallel to Draws
+        };
+        // Entries persist across frames, cleared and refilled with their capacity kept (a light that moved takes
+        // an entry no light of this frame used).
+        std::vector<LightDrawCacheEntry> m_LightDrawCache;
+        // Per-frame scratch, capacity kept: every queued tile's row with no LOD (LandscapeInstance's light
+        // independent half, parallel to m_Queue) and each light's cache entry (parallel to m_LocalLightDraws).
+        std::vector<TerrainInstance> m_LightBaseRows;
+        std::vector<size_t>          m_LightCacheSlots;
+        // The base rows of m_Queue for this frame and the key of every input a light's rows read besides its own
+        // view: the base rows, the tiles' groups, their heightmaps and weightmaps and those maps' revisions.
+        uint64_t LightQueueKey();
         // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a
         // view with no cascade this frame.
         std::vector<std::vector<FrameDraw>> m_CascadeDraws;
@@ -653,9 +858,9 @@ namespace Desert::Graphic::System
         // DicePool.x and adds its job with tile @p t's maps and @p layers' height array.
         void PushDicePoolJob( TerrainInstance& row, const TerrainDrawData& t, const TerrainLayerInputs& layers,
                               uint32_t pooled );
-        // THE GRIDS' SHARED INDEX BUFFERS (UE FLandscapeSharedBuffers), by cells a side: one per grid size any tile
-        // has drawn at (a 255-quad landscape's eight LOD grids, 2.1 MB), kept for the renderer's life. Written
-        // only in PrepareFrame / PrepareLocalShadowViews, read by RecordDraws.
+        // THE GRIDS' SHARED INDEX BUFFERS (UE FLandscapeSharedBuffers), by cells a side: one per grid size any
+        // tile has drawn at (a 255-quad landscape's eight LOD grids, 2.1 MB), kept for the renderer's life.
+        // Written only on the render thread (MakeMissingGridIndices), read by SplitDraw and RecordDraws.
         std::unordered_map<uint32_t, std::shared_ptr<IndexBuffer>> m_GridIndices;
         RDG::BufferRef                   m_DicePool;
         RDG::BufferRef                   m_DicePoolCornerNodes; // this frame's corner nodes (AddDicePoolPass)

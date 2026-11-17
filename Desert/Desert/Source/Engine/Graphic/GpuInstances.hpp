@@ -7,7 +7,11 @@
 
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
+#include <algorithm>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include <glm/vec3.hpp>
@@ -15,6 +19,72 @@
 
 namespace Desert::Graphic
 {
+    // FPS-CPU2-GRASS, A SMALL KEY TABLE (open addressing, linear probing) for the GPU-instanced walks' per-section
+    // questions that were linear finds per section (O(N^2) per walk): a section key (GpuInstancedRenderData::Key)
+    // or a pointer -> a 32-bit value. Clear keeps the capacity, so a walk that refills it every frame allocates
+    // only when the frame asks more keys than any frame before it. Insert keeps the FIRST value of a key (what a
+    // forward std::find over the list it replaces returned).
+    class GpuSectionKeyTable
+    {
+    public:
+        void Clear() noexcept
+        {
+            std::fill( m_Slots.begin(), m_Slots.end(), Slot{} );
+            m_Count = 0;
+        }
+        // True when @p key was not in the table (and is now, with @p value).
+        bool Insert( const uint64_t key, const uint32_t value )
+        {
+            if ( ( m_Count + 1u ) * 2u > m_Slots.size() )
+                Grow();
+            Slot& slot = m_Slots[Probe( key )];
+            if ( slot.Used )
+                return false;
+            slot = Slot{ .Key = key, .Value = value, .Used = true };
+            ++m_Count;
+            return true;
+        }
+        [[nodiscard]] const uint32_t* Find( const uint64_t key ) const noexcept
+        {
+            if ( m_Slots.empty() )
+                return nullptr;
+            const Slot& slot = m_Slots[Probe( key )];
+            return slot.Used ? &slot.Value : nullptr;
+        }
+        [[nodiscard]] bool Contains( const uint64_t key ) const noexcept
+        {
+            return Find( key ) != nullptr;
+        }
+
+    private:
+        struct Slot
+        {
+            uint64_t Key   = 0;
+            uint32_t Value = 0;
+            bool     Used  = false;
+        };
+        // The slot holding @p key, else the empty slot it would take (the table is never full: Insert grows it at
+        // half).
+        [[nodiscard]] size_t Probe( const uint64_t key ) const noexcept
+        {
+            const size_t mask = m_Slots.size() - 1u;
+            size_t       at   = static_cast<size_t>( ( key * 0x9E3779B97F4A7C15ull ) >> 32u ) & mask;
+            while ( m_Slots[at].Used && m_Slots[at].Key != key )
+                at = ( at + 1u ) & mask;
+            return at;
+        }
+        void Grow()
+        {
+            std::vector<Slot> old = std::move( m_Slots );
+            m_Slots.assign( std::max<size_t>( 64u, std::bit_ceil( ( m_Count + 1u ) * 4u ) ), Slot{} );
+            for ( const Slot& slot : old )
+                if ( slot.Used )
+                    m_Slots[Probe( slot.Key )] = slot;
+        }
+        std::vector<Slot> m_Slots; // a power of two, or empty
+        size_t            m_Count = 0;
+    };
+
     // The frame-graph names of one producer's two buffers, valid from the producer's compute node on (it is added
     // before the cascades and the geometry, so every draw node that reads them declares the reads after it).
     struct GpuInstanceRefs
@@ -139,6 +209,84 @@ namespace Desert::Graphic
         RDG::BufferRef Counts;
     };
 
+    // FPS-CPU2-GRASS, THE BINS' READ LISTS (UE TChunkedArray: chunks that never move what they hold): a bin's
+    // reads are one contiguous run of a chunk, handed out once its list's walk knows them all. The chunks are kept
+    // across frames (Clear empties them, keeping the capacity), so a frame allocates only past every earlier
+    // frame's total; a chunk is never grown past its capacity, so a span handed out stays where it is until Clear.
+    class GpuDrawBinReadPool
+    {
+    public:
+        void Clear() noexcept
+        {
+            for ( std::vector<RDG::BufferRef>& chunk : m_Chunks )
+                chunk.clear();
+            m_Current = 0;
+        }
+        // @p count refs (default-constructed) for the caller to fill, valid until the next Clear.
+        [[nodiscard]] std::span<RDG::BufferRef> Take( const size_t count )
+        {
+            if ( count == 0u )
+                return {};
+            while ( m_Current < m_Chunks.size() &&
+                    m_Chunks[m_Current].capacity() - m_Chunks[m_Current].size() < count )
+                ++m_Current;
+            if ( m_Current == m_Chunks.size() )
+            {
+                // A moved vector keeps its buffer: growing m_Chunks moves no ref of the older chunks.
+                m_Chunks.emplace_back();
+                m_Chunks.back().reserve( std::max( kChunkRefs, count ) );
+            }
+            std::vector<RDG::BufferRef>& chunk = m_Chunks[m_Current];
+            const size_t                 first = chunk.size();
+            chunk.resize( first + count ); // within the capacity: nothing moves
+            return std::span<RDG::BufferRef>( chunk.data() + first, count );
+        }
+
+    private:
+        static constexpr size_t                  kChunkRefs = 512;
+        std::vector<std::vector<RDG::BufferRef>> m_Chunks;
+        size_t                                   m_Current = 0;
+    };
+
+    // FPS-CPU2-GRASS, ONE LIST WALK'S BIN BOOKKEEPING (UE FParallelMeshDrawCommandPass: the draw lists are kept
+    // and refilled, not rebuilt): the walk's bins interleave (a section after another adds to an earlier bin), so
+    // the entries each bin owns and the buffers each bin's draws read are noted here as (walk-local bin, item) and
+    // laid out per bin after the walk: the entries' FirstSlot moved past the table's earlier lists, the reads into
+    // the table's GpuDrawBinReadPool. Kept by its walker across walks: Clear keeps the capacity.
+    struct GpuDrawBinWalk
+    {
+        struct Entry
+        {
+            uint32_t Bin   = 0; // walk-local
+            uint32_t Index = 0; // into the bin's table's Entries
+        };
+        struct Read
+        {
+            uint32_t       Bin = 0; // walk-local
+            RDG::BufferRef Ref;
+        };
+        std::vector<Entry>    Entries;
+        std::vector<Read>     Reads;
+        std::vector<uint32_t> ReadCounts; // per walk-local bin
+        void                  Clear() noexcept
+        {
+            Entries.clear();
+            Reads.clear();
+            ReadCounts.clear();
+        }
+        // A new walk-local bin: its index.
+        uint32_t AddBin()
+        {
+            ReadCounts.push_back( 0u );
+            return static_cast<uint32_t>( ReadCounts.size() - 1u );
+        }
+        void AddRead( const uint32_t bin, const RDG::BufferRef ref )
+        {
+            Reads.push_back( { .Bin = bin, .Ref = ref } );
+            ++ReadCounts[bin];
+        }
+    };
+
     // RENDER-JOB-CPU-4, ONE PHASE'S BINS OF ONE FRAME. The producer (GrassRenderer) owns the buffers and adds the
     // phase's gather ("Grass: Draw Gather" after "Grass: Camera Cull Finalize", "Grass: Draw Gather
     // Post-Occlusion" after the post-occlusion finalize, "Grass: Draw Gather Cascades" after the camera's for the
@@ -169,6 +317,9 @@ namespace Desert::Graphic
             bool     Admitted = false;
         };
         std::vector<SectionVerdict> Verdicts;
+        // FPS-CPU2-GRASS: Key -> its index in Verdicts (DrawBinsOf asks it several times per section and walk);
+        // cleared with Verdicts.
+        GpuSectionKeyTable          VerdictOf;
         uint32_t                    Reserved = 0;
         // This frame's content: the entries (FirstSlot final once their list is built), the rows they read, the
         // slots and bins handed out so far.
@@ -176,9 +327,10 @@ namespace Desert::Graphic
         std::vector<GpuInstanceDrawRow>  Rows;
         uint32_t                         Slots = 0;
         uint32_t                         Bins  = 0;
-        // Per bin the frame-graph buffers its draws read by address (MeshDrawCommand::AddressedReads); reserved to
-        // BinCapacity when the table opens, so a bin's span stays valid while later bins are added.
-        std::vector<std::vector<RDG::BufferRef>> BinReads;
+        // Per bin the frame-graph buffers its draws read by address (MeshDrawCommand::AddressedReads), laid out
+        // contiguous per bin once its list's walk is done (GpuDrawBinWalk); a bin's span stays valid until the
+        // table opens again (Clear at Open).
+        GpuDrawBinReadPool BinReads;
     };
 
     // What a cascade picks a grass blade strip's shadow record set and its caster density by (GPU-COST-20; UE

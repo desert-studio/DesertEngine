@@ -6,10 +6,13 @@
 // head and ScheduleIntoAsyncWindows / SinkIntoAsyncWindows move a graphics pass, along its dependency edges,
 // into an async run's overlap window.
 
+#include <Engine/Graphic/RDG/RDGAsyncBalance.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGDeclarationKey.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGScratch.hpp>
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -21,11 +24,25 @@
 #include <memory>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 
 namespace Desert::Graphic::RDG
 {
     namespace
     {
+        // CPU-RDG-RECORD: the pass's profiler rows from its Name (CompiledPass::RecordRow / PassRow), interned
+        // once per plan and name, never per recorded pass. The ids are global, so any thread records with them.
+        void InternPassRows( CompiledPass& pass )
+        {
+#if DESERT_DEV_INSTRUMENTS
+            Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
+            pass.RecordRow                        = profiler.LocalScopeName( "RDG Record: ", pass.Name );
+            pass.PassRow                          = profiler.LocalScopeName( {}, pass.Name );
+#else
+            (void)pass;
+#endif
+        }
+
         // One pass's view of one subresource after its declarations are folded together.
         struct RdgSubUse
         {
@@ -37,6 +54,8 @@ namespace Desert::Graphic::RDG
             bool        Writes      = false;
             // Needs the previous contents: every use except an attachment that clears or discards.
             bool Consumes = true;
+            // PassBuilder::SkipBarrier: a StorageWrite unordered with the skip-barrier write before it.
+            bool SkipBarrier = false;
         };
 
         // A transition on one subresource before one pass, before ranges are merged.
@@ -82,6 +101,8 @@ namespace Desert::Graphic::RDG
             // The current group is HELD ON ASYNC (FindAsyncRuns): AsyncCompute keeps it (GroupPipe, LastTouch: the
             // last async reader) while Graphics reads it too; a graphics reader widens its opening transition.
             bool HeldOnAsync = false;
+            // FPS-GI-ASYNC: the current group is a write every pass of which declared SkipBarrier (TrackUse).
+            bool GroupSkipsBarrier = false;
         };
 
         // A maximal run of consecutive executed passes on Pipe::AsyncCompute, with its fork and join.
@@ -282,8 +303,8 @@ namespace Desert::Graphic::RDG
     class Builder::Compiler
     {
     public:
-        Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
-                  const PipeCapabilities& pipes );
+        Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory, const PipeCapabilities& pipes,
+                  std::span<const uint64_t> balancedToGraphics );
 
         [[nodiscard]] Common::BoolResultStr ValidateFaultDefaults() const;
         void                                FaultMalformedPasses();
@@ -319,6 +340,16 @@ namespace Desert::Graphic::RDG
         // Writes @p sync's Cause in place (a rebound plan reuses the string's storage every frame).
         static void WriteSyncCause( const std::vector<PassRecord>&     passes,
                                     const std::vector<ResourceRecord>& resources, CrossPipeSync& sync );
+        // FPS-CPU2-RDG (DESERT_DEV_INSTRUMENTS): the check of stored @p plan under @p key as a job of its own - a
+        // copy of @p builder's declaration, of its externals' states and of the memory requirements the plan's
+        // transients asked of @p memory, compiled off the render thread and compared with a copy of @p plan.
+        // FPS-ASYNC-BALANCE: @p balancedToGraphics is copied too - the backend's list changes on its next
+        // rebalance while the job may still run, and the stored plan was compiled (and keyed) under this one.
+        [[nodiscard]] static CompileCache::Check MakeCheck( const Builder& builder, const CompileResult& plan,
+                                                            const IMemoryRequirementsProvider& memory,
+                                                            const PipeCapabilities&   pipes,
+                                                            std::span<const uint64_t> balancedToGraphics,
+                                                            CompileCache& cache, uint64_t key );
 
         // Set by AddTransfers when a transfer's acquire would record before the join ordering it.
         const std::string& SyncError() const
@@ -355,6 +386,8 @@ namespace Desert::Graphic::RDG
         const bool                         m_PassCulling;
         const IMemoryRequirementsProvider& m_Memory;
         const PipeCapabilities&            m_Pipes;
+        // FPS-ASYNC-BALANCE: sorted AsyncBalancePassKey of the AsyncCompute passes the balance runs on Graphics.
+        std::span<const uint64_t>          m_BalancedToGraphics;
         const FaultDefaults&               m_FaultDefaults;
         const Builder&                     m_Builder; // MakeFrameFaultExternal
 
@@ -427,10 +460,11 @@ namespace Desert::Graphic::RDG
     };
 
     Builder::Compiler::Compiler( const Builder& builder, const IMemoryRequirementsProvider& memory,
-                                 const PipeCapabilities& pipes )
+                                 const PipeCapabilities& pipes, std::span<const uint64_t> balancedToGraphics )
          : m_Passes( builder.m_Passes ), m_Resources( builder.m_Resources ), m_Name( builder.m_Name ),
            m_PassCulling( builder.m_PassCulling ), m_Memory( memory ), m_Pipes( pipes ),
-           m_FaultDefaults( builder.m_FaultDefaults ), m_Builder( builder )
+           m_BalancedToGraphics( balancedToGraphics ), m_FaultDefaults( builder.m_FaultDefaults ),
+           m_Builder( builder )
     {
         m_PassCount     = static_cast<uint32_t>( m_Passes.size() );
         m_ResourceCount = static_cast<uint32_t>( m_Resources.size() );
@@ -548,7 +582,7 @@ namespace Desert::Graphic::RDG
                     slot[sub] = static_cast<int32_t>( uses.size() );
                     uses.push_back( { sub, use.Resource, state, use.Usage,
                                       1u << static_cast<uint32_t>( use.Usage ), IsWriteAccess( use.Usage ),
-                                      consumes } );
+                                      consumes, use.SkipBarrier } );
                     continue;
                 }
                 RdgSubUse&     existing = uses[static_cast<size_t>( slot[sub] )];
@@ -564,7 +598,11 @@ namespace Desert::Graphic::RDG
                 // several binding blocks of the pass (the particle nodes' one block per emitter over the scene's
                 // pool) is one use. An attachment is one slot of the render pass and is never stated twice.
                 if ( use.Attachment < 0 && existing.FirstAccess == use.Usage && existing.State == state )
+                {
+                    // One write stated twice skips its barrier only when every statement says so.
+                    existing.SkipBarrier = existing.SkipBarrier && use.SkipBarrier;
                     continue;
+                }
                 // Two READS are one read state, except an image's in two layouts. A buffer has no layout (UE: one
                 // ERHIAccess such as SRVGraphics | IndirectArgs), so a storage read and an indirect-argument read
                 // of one buffer in one pass are one use, as the barrier phase already merges them
@@ -921,10 +959,18 @@ namespace Desert::Graphic::RDG
             m_PositionOf[p]  = position;
             if ( !HasFlag( m_Passes[p].Flags, PassFlags::AsyncCompute ) )
                 continue;
-            if ( m_Pipes.SeparateComputeFamily )
-                m_PipeAt[position] = Pipe::AsyncCompute;
-            else
+            if ( !m_Pipes.SeparateComputeFamily )
+            {
                 m_Result.DemotedAsyncPasses.push_back( p );
+                continue;
+            }
+            // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): the measured balance runs this pass on Graphics. Not a
+            // fallback - the pass keeps its AsyncCompute flag, so the balance can give it back.
+            if ( !m_BalancedToGraphics.empty() &&
+                 std::binary_search( m_BalancedToGraphics.begin(), m_BalancedToGraphics.end(),
+                                     AsyncBalancePassKey( m_Name, m_Passes[p].Name ) ) )
+                continue;
+            m_PipeAt[position] = Pipe::AsyncCompute;
         }
     }
 
@@ -942,6 +988,8 @@ namespace Desert::Graphic::RDG
     // after the one before by its write; only the first moved, the rest kept the grass cull's fork mid-frame and
     // the graphics queue waited 0.25 ms before "Deferred: Masked Depth Prepass"): the hoisted keep their order, so
     // those edges keep their direction. An upload with any other earlier user of its buffer stays in place.
+    // (GPU-ASYNC-WAIT-2: disjoint ranges queued back to back now join one upload pass, Builder::AddUploadPass;
+    // the chain rule still covers uploads of one buffer that overlap or that a pass other than an upload parts.)
     void Builder::Compiler::HoistQueuedUploads()
     {
         // Direct predecessors of each position, from the dependency edges (CSR); an edge runs forward in the
@@ -1182,6 +1230,8 @@ namespace Desert::Graphic::RDG
 
         buildAdjacency();
         ScratchVector<bool>     sunk( m_ExecutedCount, false );
+        ScratchVector<bool>     early( m_ExecutedCount, false );
+        ScratchVector<bool>     need( m_ExecutedCount, false );
         ScratchVector<uint32_t> order;
         uint32_t              settled  = 0;
         uint32_t              position = 0;
@@ -1219,53 +1269,104 @@ namespace Desert::Graphic::RDG
                         forkEnd = std::max( forkEnd, preds[k] + 1 );
                 }
             }
-            if ( join == nextFirst || keepsOrder( join ) )
-                continue;
-            uint32_t insertAt = join;
-            while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
-                    isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
-                --insertAt;
-            // Nothing moves across an order-keeping pass, nor out of an earlier window's settled positions.
-            uint32_t scanStart = settled;
-            for ( uint32_t q = settled; q < insertAt; ++q )
+            // Nothing moves across an order-keeping pass, nor out of an earlier window's settled positions: the
+            // fork's own range for the early move, up to the insertion point for the sink.
+            uint32_t earlyStart = settled;
+            for ( uint32_t q = settled; q < forkEnd; ++q )
             {
                 if ( keepsOrder( q ) )
-                    scanStart = q + 1;
+                    earlyStart = q + 1;
             }
-            settled = insertAt;
-            if ( forkEnd <= scanStart )
-                continue;
+            const bool hasWindow = join != nextFirst && !keepsOrder( join );
+            uint32_t   insertAt  = forkEnd;
+            uint32_t   scanStart = earlyStart;
+            if ( hasWindow )
+            {
+                insertAt = join;
+                while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
+                        isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
+                    --insertAt;
+                scanStart = settled;
+                for ( uint32_t q = settled; q < insertAt; ++q )
+                {
+                    if ( keepsOrder( q ) )
+                        scanStart = q + 1;
+                }
+                settled = insertAt;
+            }
             // From the fork back: a pass sinks when each of its successors is at or after the insertion point
             // or sinks itself (positions from the fork on never sink, so a successor there keeps it).
             std::fill( sunk.begin(), sunk.end(), false );
-            bool any = false;
-            for ( uint32_t q = forkEnd; q-- > scanStart; )
+            std::fill( early.begin(), early.end(), false );
+            bool sinking = false;
+            if ( hasWindow && forkEnd > scanStart )
             {
-                if ( m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload )
-                    continue;
-                bool free = true;
-                for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
-                    free = succs[k] >= insertAt || sunk[succs[k]];
-                sunk[q] = free;
-                any     = any || free;
+                for ( uint32_t q = forkEnd; q-- > scanStart; )
+                {
+                    if ( m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload )
+                        continue;
+                    bool free = true;
+                    for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && free; ++k )
+                        free = succs[k] >= insertAt || sunk[succs[k]];
+                    sunk[q] = free;
+                    sinking = sinking || free;
+                }
             }
-            if ( !any )
+            // THE FORK AT ITS PRODUCERS (UE: the async dispatch right after the depth / G-buffer it reads). From
+            // the fork back, a pass the fork needs stays before it: the fork itself, an async pass and a queued
+            // upload, a pass any async pass reads (moving it later would move that pass's fork later) and a pass
+            // with a staying successor before the fork. Every other graphics pass that does not sink moves, in
+            // its order, to right after the fork: the fork signals once the work it needs is done, not behind
+            // work only later graphics passes read. Every dependency edge keeps its direction.
+            // A fork a raster pass continues (a render-pass merge across it) takes nothing after it.
+            bool hoisting = false;
+            if ( forkEnd > earlyStart + 1 &&
+                 !( isRaster( forkEnd - 1 ) && isRaster( forkEnd ) && dependsOn( forkEnd, forkEnd - 1 ) ) )
+            {
+                std::fill( need.begin() + earlyStart, need.begin() + forkEnd, false );
+                need[forkEnd - 1] = true;
+                for ( uint32_t q = forkEnd - 1; q-- > earlyStart; )
+                {
+                    if ( sunk[q] )
+                        continue;
+                    bool stays = m_PipeAt[q] != Pipe::Graphics || m_Passes[m_Executed[q]].QueuedUpload;
+                    for ( uint32_t k = succBegin[q]; k < succBegin[q + 1] && !stays; ++k )
+                    {
+                        const uint32_t to = succs[k];
+                        stays             = m_PipeAt[to] != Pipe::Graphics || ( to < forkEnd && need[to] );
+                    }
+                    need[q]  = stays;
+                    early[q] = !stays;
+                    hoisting = hoisting || !stays;
+                }
+            }
+            if ( !sinking && !hoisting )
                 continue;
+            // [settled, the fork] that stays, the passes moved past the fork, the fork's window up to the
+            // insertion point, the sunk passes, the rest.
+            const uint32_t limit = sinking ? insertAt : forkEnd;
             order.clear();
             order.reserve( m_ExecutedCount );
-            for ( uint32_t q = 0; q < scanStart; ++q )
+            for ( uint32_t q = 0; q < earlyStart; ++q )
                 order.push_back( q );
-            for ( uint32_t q = scanStart; q < insertAt; ++q )
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
             {
-                if ( !sunk[q] )
+                if ( !sunk[q] && !early[q] )
                     order.push_back( q );
             }
-            for ( uint32_t q = scanStart; q < insertAt; ++q )
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
+            {
+                if ( early[q] )
+                    order.push_back( q );
+            }
+            for ( uint32_t q = forkEnd; q < limit; ++q )
+                order.push_back( q );
+            for ( uint32_t q = earlyStart; q < forkEnd; ++q )
             {
                 if ( sunk[q] )
                     order.push_back( q );
             }
-            for ( uint32_t q = insertAt; q < m_ExecutedCount; ++q )
+            for ( uint32_t q = limit; q < m_ExecutedCount; ++q )
                 order.push_back( q );
             ScratchVector<uint32_t> executed( m_ExecutedCount );
             ScratchVector<Pipe>     pipes( m_ExecutedCount );
@@ -2026,11 +2127,13 @@ namespace Desert::Graphic::RDG
                 sub.GroupRaw = addRaw( position, kRdgUntouchedState, use.State, true );
                 return;
             }
-            m_Raws[position].push_back( { use.Sub, use.Resource, before, use.State, false,
-                                          BarrierKind::OwnershipAcquire, from, pipe, releasePosition } );
-            sub.GroupRaw = static_cast<int32_t>( m_Raws[position].size() - 1 );
+            const uint32_t at = position;
+            sub.GroupPosition = at;
+            m_Raws[at].push_back( { use.Sub, use.Resource, before, use.State, false, BarrierKind::OwnershipAcquire,
+                                    from, pipe, releasePosition } );
+            sub.GroupRaw = static_cast<int32_t>( m_Raws[at].size() - 1 );
             m_EpilogueRaws[releasePosition].push_back( { use.Sub, use.Resource, before, use.State, false,
-                                                         BarrierKind::OwnershipRelease, from, pipe, position } );
+                                                         BarrierKind::OwnershipRelease, from, pipe, at } );
             sub.ReleaseRaw      = static_cast<int32_t>( m_EpilogueRaws[releasePosition].size() - 1 );
             sub.ReleasePosition = releasePosition;
         };
@@ -2067,6 +2170,7 @@ namespace Desert::Graphic::RDG
             sub.Group              = use.State;
             sub.GroupPosition      = at;
             sub.HeldOnAsync        = false;
+            sub.GroupSkipsBarrier  = false;
             sub.GroupRawInEpilogue = true;
             sub.GroupRaw           = -1;
             sub.ReleaseRaw         = -1;
@@ -2180,6 +2284,13 @@ namespace Desert::Graphic::RDG
             sub.ReleaseRaw         = -1;
             crossPipes( sub.GroupBefore, opener, sub.GroupPipe );
         }
+        else if ( use.Writes && use.SkipBarrier && sub.GroupSkipsBarrier && sub.GroupPipe == pipe &&
+                  !sub.HeldOnAsync && sub.Group == use.State )
+        {
+            // FPS-GI-ASYNC (UE ERDGUnorderedAccessViewFlags::SkipBarrier): a skip-barrier write after a skip-barrier
+            // write on the same queue - the two touch disjoint texels / bytes, so the group goes on with no barrier
+            // and the passes overlap. The barrier that opened the group (its first writer's) stays the group's.
+        }
         else
         {
             // Every other change - read to write (WAR), write to read (RAW), write to write (WAW),
@@ -2226,10 +2337,15 @@ namespace Desert::Graphic::RDG
                 }
             }
             else
-                sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, false );
+            {
+                const uint32_t at = position;
+                sub.GroupPosition = at;
+                sub.GroupRaw      = addRaw( at, sub.GroupBefore, use.State, false );
+            }
         }
-        sub.GroupPipe = pipe;
-        sub.LastTouch = position;
+        sub.GroupPipe         = pipe;
+        sub.LastTouch         = position;
+        sub.GroupSkipsBarrier = use.Writes && use.SkipBarrier;
     }
 
     // The pass's compiled record and its load decisions (UE CompilePassOps). Load: a transient attachment
@@ -2241,6 +2357,7 @@ namespace Desert::Graphic::RDG
         CompiledPass      compiled;
         compiled.Pass        = p;
         compiled.Name        = pass.Name;
+        InternPassRows( compiled );
         compiled.Flags       = pass.Flags;
         compiled.AreaWidth   = pass.AreaWidth;
         compiled.AreaHeight  = pass.AreaHeight;
@@ -2638,7 +2755,8 @@ namespace Desert::Graphic::RDG
     // transient memory, barriers with load/store ops, render-pass merging, final states, barrier rectangles,
     // per-pipe stages, segments.
     Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory,
-                                                       const PipeCapabilities&            pipes ) const
+                                                       const PipeCapabilities&            pipes,
+                                                       std::span<const uint64_t> balancedToGraphics ) const
     {
         if ( !m_DeclarationError.empty() )
             return Common::MakeError<CompileResult>( m_DeclarationError );
@@ -2649,7 +2767,7 @@ namespace Desert::Graphic::RDG
         // CPU-RDG-ALLOC: every working table of the compiler is a ScratchVector of this scope (declared before
         // the compiler, so the compiler dies first); the plan it returns is heap (it outlives the graph).
         const ScratchScope scratch( m_Scratch );
-        Compiler           compiler( *this, memory, pipes );
+        Compiler           compiler( *this, memory, pipes, balancedToGraphics );
         if ( const Common::BoolResultStr defaults = compiler.ValidateFaultDefaults(); !defaults )
             return Common::MakeError<CompileResult>( defaults.GetError() );
         DESERT_PROFILE_PHASE( stages, "RDG Compile: validate blocks" );
@@ -2693,155 +2811,195 @@ namespace Desert::Graphic::RDG
 
     // RDG-RECORD-COMPILE-CACHE ─────────────────────────────────────────────────────────────────────────────
 
-    namespace
-    {
-        // The declaration key: an xxHash64 round per 64-bit word, its avalanche at the end.
-        class DeclarationHasher
-        {
-        public:
-            void Add( uint64_t value )
-            {
-                m_Hash ^= Round( value );
-                m_Hash = std::rotl( m_Hash, 27 ) * kPrime1 + kPrime4;
-            }
-            void AddFloat( float value )
-            {
-                Add( std::bit_cast<uint32_t>( value ) );
-            }
-            void AddText( std::string_view text )
-            {
-                Add( std::hash<std::string_view>{}( text ) );
-                Add( text.size() );
-            }
-            void AddRange( const SubresourceRange& range )
-            {
-                Add( ( static_cast<uint64_t>( range.BaseMip ) << 32 ) | range.MipCount );
-                Add( ( static_cast<uint64_t>( range.BaseLayer ) << 32 ) | range.LayerCount );
-            }
-            void AddState( const AccessState& state )
-            {
-                Add( static_cast<uint64_t>( state.Stages ) );
-                Add( static_cast<uint64_t>( state.Memory ) );
-                Add( static_cast<uint64_t>( state.Layout ) );
-            }
-            [[nodiscard]] uint64_t Finish() const
-            {
-                uint64_t hash = m_Hash;
-                hash ^= hash >> 33;
-                hash *= kPrime2;
-                hash ^= hash >> 29;
-                hash *= kPrime3;
-                hash ^= hash >> 32;
-                return hash;
-            }
-
-        private:
-            static constexpr uint64_t kPrime1 = 0x9E3779B185EBCA87ull;
-            static constexpr uint64_t kPrime2 = 0xC2B2AE3D27D4EB4Full;
-            static constexpr uint64_t kPrime3 = 0x165667B19E3779F9ull;
-            static constexpr uint64_t kPrime4 = 0x85EBCA77C2B2AE63ull;
-            static constexpr uint64_t kPrime5 = 0x27D4EB2F165667C5ull;
-
-            static uint64_t Round( uint64_t value )
-            {
-                return std::rotl( value * kPrime2, 31 ) * kPrime1;
-            }
-
-            uint64_t m_Hash = kPrime5;
-        };
-    } // namespace
-
-    // Everything Compile reads that is not a name: the graph switches, the fault defaults, every resource's
-    // kind, descriptors, external / extraction role, final access and the externals' states and created usage
-    // (InitialState, FoldUse), every pass's flags, uses, attachments (load op with its clear value, store),
+    // CPU-COMPILE-KEY. Everything Compile reads that is not a name: the graph switches, the fault defaults, every
+    // resource's kind, descriptors, external / extraction role, final access and the externals' states and created
+    // usage (InitialState, FoldUse), every pass's flags, uses, attachments (load op with its clear value, store),
     // render area, ExternalQueue presence (its timeline values are rebound, not keyed), declaration error and
     // binding blocks (ValidatePassBindings: the layout and other-route fill by address - PinnedObjects keeps them
-    // alive while the plan is stored - the entries' slot names and kinds, the push-constant size). Not keyed:
-    // names (messages only, rebound), prerequisites and exec lambdas (Execute's), the external objects' addresses
-    // (a plan names resources by graph index; Execute writes final states back through this graph's records).
+    // alive while the plan is stored - the entries' slot names (by NameHash) and kinds, the push-constant size).
+    // Not keyed: names (messages only, rebound), prerequisites and exec lambdas (Execute's), the external objects'
+    // addresses (a plan names resources by graph index; Execute writes final states back through this graph's
+    // records).
+    //
+    // Gathered while the graph is declared, so Compile walks no record for it: AddResourceKey when a record is
+    // made (what never changes after), AddPassKey when the next pass begins (a closed pass never changes again),
+    // and at Compile only what can still change - the externals' states (m_KeyedExternals, record order) and the
+    // role fields of the records a role call touched (m_RoleResources, ascending; a touched record whose fields
+    // are back at the untouched value is skipped, so it keys as one never touched). The same fields as keying
+    // every record at Compile, so the cache hits and misses on the same declarations.
+    void Builder::AddResourceKey( DeclarationHasher& hash, const ResourceRecord& record ) noexcept
+    {
+        const TextureDesc& texture = record.Texture;
+        hash.Add( static_cast<uint64_t>( record.Kind ) );
+        hash.Add( ( static_cast<uint64_t>( texture.Size.Width ) << 32 ) | texture.Size.Height );
+        hash.Add( texture.Size.Depth );
+        hash.Add( static_cast<uint64_t>( texture.Format ) );
+        hash.Add( ( static_cast<uint64_t>( texture.Mips ) << 32 ) | texture.Layers );
+        hash.Add( ( static_cast<uint64_t>( texture.Dim ) << 32 ) | texture.Samples );
+        hash.Add( record.Buffer.Bytes );
+        uint64_t external = record.ExternalTex != nullptr ? 1u : 0u;
+        external |= record.ExternalBuf != nullptr ? 2u : 0u;
+        hash.Add( external );
+    }
+
+    uint64_t Builder::RoleKey( const ResourceRecord& record ) noexcept
+    {
+        uint64_t roles = record.HasFinalAccess ? 16u : 0u;
+        roles |= record.ExtractTex != nullptr ? 4u : 0u;
+        roles |= record.ExtractBuf != nullptr ? 8u : 0u;
+        roles |= static_cast<uint64_t>( record.FinalAccess ) << 8;
+        roles |= static_cast<uint64_t>( record.Default ) << 16;
+        roles |= static_cast<uint64_t>( record.Policy ) << 24;
+        roles |= static_cast<uint64_t>( record.LaterAccessMask ) << 32;
+        return roles;
+    }
+
+    uint64_t Builder::UntouchedRoleKey() noexcept
+    {
+        // The defaults of ResourceRecord's role fields (RDGBuilder.hpp), spelled as RoleKey spells them.
+        uint64_t roles = static_cast<uint64_t>( Access::None ) << 8;
+        roles |= static_cast<uint64_t>( FaultDefault::None ) << 16;
+        roles |= static_cast<uint64_t>( ExternalFaultPolicy::KeepsContents ) << 24;
+        return roles;
+    }
+
+    void Builder::AddPassKey( DeclarationHasher& hash, const PassRecord& pass ) noexcept
+    {
+        uint64_t marks = static_cast<uint64_t>( pass.Flags ) << 8;
+        marks |= pass.QueuedUpload ? 1u : 0u;
+        marks |= pass.External.has_value() ? 2u : 0u;
+        marks |= pass.DeclarationError.empty() ? 0u : 4u;
+        marks |= pass.UploadBatch ? 8u : 0u;
+        hash.Add( marks );
+        // FPS-CPU-UPLOAD: the upload batch's writes grow after the next pass closed it into the key; its write set
+        // is keyed at Compile (HashDeclaration) - which buffers it writes, never its ranges or sizes, so a frame
+        // whose uploads only change size keeps the plan (MAP-cpu-frame Change B).
+        if ( pass.UploadBatch )
+            return;
+        hash.Add( ( static_cast<uint64_t>( pass.AreaWidth ) << 32 ) | pass.AreaHeight );
+        hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
+        for ( const ResourceUse& use : pass.Uses )
+        {
+            hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) |
+                      ( use.SkipBarrier ? 0x80000000u : 0u ) );
+            hash.AddRange( use.Range );
+            hash.Add( static_cast<uint32_t>( use.Attachment ) );
+        }
+        for ( const AttachmentRecord& attachment : pass.Attachments )
+        {
+            const uint64_t kind = ( attachment.IsDepth ? 1u : 0u ) | ( attachment.IsResolve ? 2u : 0u ) |
+                                  ( static_cast<uint64_t>( attachment.Load.Action ) << 8 ) |
+                                  ( static_cast<uint64_t>( attachment.Store ) << 16 );
+            hash.Add( ( static_cast<uint64_t>( attachment.Slot ) << 32 ) | kind );
+            hash.Add( ( static_cast<uint64_t>( attachment.Resource ) << 32 ) | attachment.Mip );
+            hash.Add( ( static_cast<uint64_t>( attachment.BaseLayer ) << 32 ) | attachment.LayerCount );
+            for ( const float channel : attachment.Load.Value.Color )
+                hash.AddFloat( channel );
+            hash.AddFloat( attachment.Load.Value.Depth );
+            hash.Add( attachment.Load.Value.Stencil );
+        }
+        hash.Add( pass.Blocks.size() );
+        for ( const DeclaredBindingBlock& block : pass.Blocks )
+        {
+            hash.Add( reinterpret_cast<uintptr_t>( block.Layout.get() ) );
+            hash.Add( reinterpret_cast<uintptr_t>( block.Other.get() ) );
+            hash.Add( ( static_cast<uint64_t>( block.PushConstantBytes ) << 32 ) | block.Entries.size() );
+            for ( const DeclaredBindingEntry& entry : block.Entries )
+            {
+                // The slot name as the word BindingBlockBuilder made with it (HashShaderName), plus its length
+                // as the characters were keyed before - no per-frame pass over the characters.
+                hash.Add( entry.NameHash );
+                hash.Add( entry.ShaderName.size() );
+                uint64_t shape = static_cast<uint64_t>( entry.Kind );
+                shape |= static_cast<uint64_t>( entry.Resource ) << 8;
+                shape |= static_cast<uint64_t>( entry.Declared ) << 16;
+                shape |= static_cast<uint64_t>( entry.Index ) << 32;
+                hash.Add( shape );
+                hash.AddRange( entry.Range );
+            }
+        }
+    }
+
+    void Builder::KeyNewResources() noexcept
+    {
+        for ( ; m_ResourcesKeyed < m_Resources.size(); ++m_ResourcesKeyed )
+        {
+            const ResourceRecord& record = m_Resources[m_ResourcesKeyed];
+            AddResourceKey( m_ResourceKey, record );
+            if ( record.IsExternal() )
+                m_KeyedExternals.push_back( KeyedExternal{ record.ExternalTex, record.ExternalBuf } );
+        }
+    }
+
+    void Builder::KeyClosedPasses() noexcept
+    {
+        for ( ; m_PassesKeyed < m_Passes.size(); ++m_PassesKeyed )
+            AddPassKey( m_PassKey, m_Passes[m_PassesKeyed] );
+    }
+
+    void Builder::ListRoles( uint32_t resource )
+    {
+        ResourceRecord& record = m_Resources[resource];
+        if ( record.RoleListed )
+            return;
+        record.RoleListed = true;
+        // Ascending: role calls come mostly in record order, so this is an append.
+        m_RoleResources.insert( std::upper_bound( m_RoleResources.begin(), m_RoleResources.end(), resource ),
+                                resource );
+    }
+
     uint64_t Builder::Compiler::HashDeclaration( const Builder& builder, const PipeCapabilities& pipes )
     {
         DeclarationHasher hash;
         hash.Add( ( builder.m_PassCulling ? 1u : 0u ) | ( pipes.SeparateComputeFamily ? 2u : 0u ) );
         for ( const FaultDefault value : { FaultDefault::Black, FaultDefault::White, FaultDefault::BlackCube } )
             hash.Add( builder.m_FaultDefaults.GetSource( value ) );
+
+        // Every record is keyed when it is made (KeyNewResources); a record made some other way is keyed here,
+        // in the same order, so the key never lacks one.
         hash.Add( builder.m_Resources.size() );
-        for ( const ResourceRecord& record : builder.m_Resources )
+        DeclarationHasher resources = builder.m_ResourceKey;
+        for ( size_t r = builder.m_ResourcesKeyed; r < builder.m_Resources.size(); ++r )
+            AddResourceKey( resources, builder.m_Resources[r] );
+        hash.Add( resources.Finish() );
+        const auto addExternal = [&hash]( const ExternalTexture* texture, const ExternalBuffer* buffer )
         {
-            const TextureDesc& texture = record.Texture;
-            hash.Add( static_cast<uint64_t>( record.Kind ) );
-            hash.Add( ( static_cast<uint64_t>( texture.Size.Width ) << 32 ) | texture.Size.Height );
-            hash.Add( texture.Size.Depth );
-            hash.Add( static_cast<uint64_t>( texture.Format ) );
-            hash.Add( ( static_cast<uint64_t>( texture.Mips ) << 32 ) | texture.Layers );
-            hash.Add( ( static_cast<uint64_t>( texture.Dim ) << 32 ) | texture.Samples );
-            hash.Add( record.Buffer.Bytes );
-            uint64_t roles = record.HasFinalAccess ? 16u : 0u;
-            roles |= record.ExternalTex != nullptr ? 1u : 0u;
-            roles |= record.ExternalBuf != nullptr ? 2u : 0u;
-            roles |= record.ExtractTex != nullptr ? 4u : 0u;
-            roles |= record.ExtractBuf != nullptr ? 8u : 0u;
-            roles |= static_cast<uint64_t>( record.FinalAccess ) << 8;
-            roles |= static_cast<uint64_t>( record.Default ) << 16;
-            roles |= static_cast<uint64_t>( record.Policy ) << 24;
-            roles |= static_cast<uint64_t>( record.LaterAccessMask ) << 32;
-            hash.Add( roles );
-            if ( record.ExternalTex != nullptr )
+            if ( texture != nullptr )
             {
-                hash.Add( ( static_cast<uint64_t>( record.ExternalTex->CreatedAccessMask ) << 32 ) |
-                          record.ExternalTex->SubresourceStates.size() );
-                for ( const AccessState& state : record.ExternalTex->SubresourceStates )
+                hash.Add( ( static_cast<uint64_t>( texture->CreatedAccessMask ) << 32 ) |
+                          texture->SubresourceStates.size() );
+                for ( const AccessState& state : texture->SubresourceStates )
                     hash.AddState( state );
             }
-            if ( record.ExternalBuf != nullptr )
-                hash.AddState( record.ExternalBuf->State );
-        }
-        hash.Add( builder.m_Passes.size() );
-        for ( const PassRecord& pass : builder.m_Passes )
+            if ( buffer != nullptr )
+                hash.AddState( buffer->State );
+        };
+        for ( const KeyedExternal& external : builder.m_KeyedExternals )
+            addExternal( external.Texture, external.Buffer );
+        for ( size_t r = builder.m_ResourcesKeyed; r < builder.m_Resources.size(); ++r )
+            addExternal( builder.m_Resources[r].ExternalTex, builder.m_Resources[r].ExternalBuf );
+        const uint64_t untouched = UntouchedRoleKey();
+        for ( const uint32_t r : builder.m_RoleResources )
         {
-            uint64_t marks = static_cast<uint64_t>( pass.Flags ) << 8;
-            marks |= pass.QueuedUpload ? 1u : 0u;
-            marks |= pass.External.has_value() ? 2u : 0u;
-            marks |= pass.DeclarationError.empty() ? 0u : 4u;
-            hash.Add( marks );
-            hash.Add( ( static_cast<uint64_t>( pass.AreaWidth ) << 32 ) | pass.AreaHeight );
-            hash.Add( ( static_cast<uint64_t>( pass.Uses.size() ) << 32 ) | pass.Attachments.size() );
-            for ( const ResourceUse& use : pass.Uses )
-            {
-                hash.Add( ( static_cast<uint64_t>( use.Resource ) << 32 ) | static_cast<uint32_t>( use.Usage ) );
-                hash.AddRange( use.Range );
-                hash.Add( static_cast<uint32_t>( use.Attachment ) );
-            }
-            for ( const AttachmentRecord& attachment : pass.Attachments )
-            {
-                const uint64_t kind = ( attachment.IsDepth ? 1u : 0u ) | ( attachment.IsResolve ? 2u : 0u ) |
-                                      ( static_cast<uint64_t>( attachment.Load.Action ) << 8 ) |
-                                      ( static_cast<uint64_t>( attachment.Store ) << 16 );
-                hash.Add( ( static_cast<uint64_t>( attachment.Slot ) << 32 ) | kind );
-                hash.Add( ( static_cast<uint64_t>( attachment.Resource ) << 32 ) | attachment.Mip );
-                hash.Add( ( static_cast<uint64_t>( attachment.BaseLayer ) << 32 ) | attachment.LayerCount );
-                for ( const float channel : attachment.Load.Value.Color )
-                    hash.AddFloat( channel );
-                hash.AddFloat( attachment.Load.Value.Depth );
-                hash.Add( attachment.Load.Value.Stencil );
-            }
-            hash.Add( pass.Blocks.size() );
-            for ( const DeclaredBindingBlock& block : pass.Blocks )
-            {
-                hash.Add( reinterpret_cast<uintptr_t>( block.Layout.get() ) );
-                hash.Add( reinterpret_cast<uintptr_t>( block.Other.get() ) );
-                hash.Add( ( static_cast<uint64_t>( block.PushConstantBytes ) << 32 ) | block.Entries.size() );
-                for ( const DeclaredBindingEntry& entry : block.Entries )
-                {
-                    hash.AddText( entry.ShaderName );
-                    uint64_t shape = static_cast<uint64_t>( entry.Kind );
-                    shape |= static_cast<uint64_t>( entry.Resource ) << 8;
-                    shape |= static_cast<uint64_t>( entry.Declared ) << 16;
-                    shape |= static_cast<uint64_t>( entry.Index ) << 32;
-                    hash.Add( shape );
-                    hash.AddRange( entry.Range );
-                }
-            }
+            const uint64_t roles = RoleKey( builder.m_Resources[r] );
+            if ( roles == untouched )
+                continue;
+            hash.Add( r );
+            hash.Add( roles );
+        }
+
+        // Every pass before the last is keyed when the next one begins (KeyClosedPasses); the rest here.
+        hash.Add( builder.m_Passes.size() );
+        DeclarationHasher passes = builder.m_PassKey;
+        for ( size_t p = builder.m_PassesKeyed; p < builder.m_Passes.size(); ++p )
+            AddPassKey( passes, builder.m_Passes[p] );
+        hash.Add( passes.Finish() );
+        if ( builder.m_UploadBatch != kNoUploadBatch )
+        {
+            const PassRecord& batch = builder.m_Passes[builder.m_UploadBatch];
+            hash.Add( ( static_cast<uint64_t>( builder.m_UploadBatch ) << 32 ) | batch.Uses.size() );
+            for ( const ResourceUse& use : batch.Uses )
+                hash.Add( use.Resource );
         }
         return hash.Finish();
     }
@@ -2916,8 +3074,14 @@ namespace Desert::Graphic::RDG
         for ( CompiledPass& pass : plan.Passes )
         {
             const PassRecord& record = builder.m_Passes[pass.Pass];
-            pass.Name                = record.Name;
-            pass.External            = record.External;
+            // A name that carries a counter changes; only then are its rows interned again.
+            const std::string_view recordName( record.Name.data(), record.Name.size() );
+            if ( std::string_view( pass.Name ) != recordName )
+            {
+                pass.Name.assign( recordName.data(), recordName.size() );
+                InternPassRows( pass );
+            }
+            pass.External = record.External;
         }
         for ( size_t i = 0; i < plan.CulledPassNames.size(); ++i )
             plan.CulledPassNames[i] = builder.m_Passes[plan.CulledPasses[i]].Name;
@@ -2929,16 +3093,202 @@ namespace Desert::Graphic::RDG
         AssignExternalPoints( plan );
     }
 
+    namespace
+    {
+        // FPS-CPU2-RDG: the memory requirements a check's compile may ask, taken on the render thread from the
+        // backend's provider (its cache is a plain map, not for two threads) for every transient the stored plan
+        // places, with the usage it placed it with. A fresh compile asking anything else derived another usage:
+        // its compile fails and the check reports the difference.
+        class SnapshotMemory final : public IMemoryRequirementsProvider
+        {
+        public:
+            struct Known
+            {
+                bool               Texture    = true;
+                TextureDesc        TextureKey = {};
+                uint64_t           Bytes      = 0;
+                uint32_t           AccessMask = 0;
+                MemoryRequirements Requirements;
+            };
+            std::vector<Known> Table;
+
+            [[nodiscard]] Common::ResultStr<MemoryRequirements>
+            GetTextureRequirements( const TextureDesc& desc, uint32_t accessMask ) const override
+            {
+                for ( const Known& known : Table )
+                {
+                    const TextureDesc& k = known.TextureKey;
+                    if ( known.Texture && known.AccessMask == accessMask && k.Size.Width == desc.Size.Width &&
+                         k.Size.Height == desc.Size.Height && k.Size.Depth == desc.Size.Depth &&
+                         k.Format == desc.Format && k.Mips == desc.Mips && k.Layers == desc.Layers &&
+                         k.Dim == desc.Dim && k.Samples == desc.Samples )
+                        return Common::MakeSuccess( known.Requirements );
+                }
+                return Common::MakeFormattedError<MemoryRequirements>(
+                     "a texture usage {:#x} the stored plan never placed", accessMask );
+            }
+            [[nodiscard]] Common::ResultStr<MemoryRequirements>
+            GetBufferRequirements( const BufferDesc& desc, uint32_t accessMask ) const override
+            {
+                for ( const Known& known : Table )
+                {
+                    if ( !known.Texture && known.AccessMask == accessMask && known.Bytes == desc.Bytes )
+                        return Common::MakeSuccess( known.Requirements );
+                }
+                return Common::MakeFormattedError<MemoryRequirements>(
+                     "a buffer usage {:#x} the stored plan never placed", accessMask );
+            }
+        };
+
+        // FPS-CPU2-RDG: what a check compiles, owned by its job: the declaration copied into a graph of its own
+        // (records in that graph's arena, slot names in Names), the externals' states, the requirements.
+        struct CheckSnapshot
+        {
+            explicit CheckSnapshot( std::string name ) : Graph( std::move( name ) )
+            {
+            }
+            Builder                                       Graph;
+            std::vector<std::unique_ptr<ExternalTexture>> Textures;
+            std::vector<std::unique_ptr<ExternalBuffer>>  Buffers;
+            std::vector<std::string>                      Names; // reserved once: the views into it stay
+            SnapshotMemory                                Memory;
+            PipeCapabilities                              Pipes;
+            std::vector<uint64_t>                         BalancedToGraphics; // FPS-ASYNC-BALANCE, sorted
+            CompileResult                                 Stored;
+        };
+    } // namespace
+
+    CompileCache::Check Builder::Compiler::MakeCheck( const Builder& builder, const CompileResult& plan,
+                                                      const IMemoryRequirementsProvider& memory,
+                                                      const PipeCapabilities&   pipes,
+                                                      std::span<const uint64_t> balancedToGraphics,
+                                                      CompileCache& cache, const uint64_t key )
+    {
+        const auto snapshot = std::make_shared<CheckSnapshot>( builder.m_Name );
+        Builder&   graph    = snapshot->Graph;
+        snapshot->Pipes     = pipes;
+        snapshot->BalancedToGraphics.assign( balancedToGraphics.begin(), balancedToGraphics.end() );
+        snapshot->Stored    = plan;
+        graph.m_PassCulling      = builder.m_PassCulling;
+        graph.m_AsyncCompute     = builder.m_AsyncCompute;
+        graph.m_UploadBatch      = builder.m_UploadBatch;
+        graph.m_FaultDefaults    = builder.m_FaultDefaults;
+        graph.m_DeclarationError = builder.m_DeclarationError;
+        graph.m_Resources.reserve( builder.m_Resources.size() );
+        for ( const ResourceRecord& from : builder.m_Resources )
+        {
+            ResourceRecord& to = graph.m_Resources.emplace_back( graph.m_Arena );
+            to.Name.assign( from.Name.data(), from.Name.size() );
+            to.Kind = from.Kind;
+            to.Texture = from.Texture;
+            to.Buffer  = from.Buffer;
+            if ( from.ExternalTex != nullptr )
+            {
+                auto copy               = std::make_unique<ExternalTexture>();
+                copy->Desc              = from.ExternalTex->Desc;
+                copy->SubresourceStates = from.ExternalTex->SubresourceStates;
+                copy->CreatedAccessMask = from.ExternalTex->CreatedAccessMask;
+                to.ExternalTex          = copy.get();
+                snapshot->Textures.push_back( std::move( copy ) );
+            }
+            if ( from.ExternalBuf != nullptr )
+            {
+                auto copy        = std::make_unique<ExternalBuffer>();
+                copy->Desc       = from.ExternalBuf->Desc;
+                copy->State      = from.ExternalBuf->State;
+                to.ExternalBuf   = copy.get();
+                snapshot->Buffers.push_back( std::move( copy ) );
+            }
+            // Compile reads only whether an extraction target is set, never the target.
+            to.ExtractTex      = from.ExtractTex;
+            to.ExtractBuf      = from.ExtractBuf;
+            to.ExtractOwner    = from.ExtractOwner;
+            to.HasFinalAccess  = from.HasFinalAccess;
+            to.FinalAccess     = from.FinalAccess;
+            to.LaterAccessMask = from.LaterAccessMask;
+            to.Default         = from.Default;
+            to.Policy          = from.Policy;
+            to.RoleListed      = from.RoleListed;
+            to.OpenUpload      = from.OpenUpload;
+            to.DeclaredByPass  = from.DeclaredByPass;
+            to.InUploadBatch   = from.InUploadBatch;
+        }
+        size_t entries = 0;
+        for ( const PassRecord& from : builder.m_Passes )
+            for ( const DeclaredBindingBlock& block : from.Blocks )
+                entries += block.Entries.size();
+        snapshot->Names.reserve( entries );
+        graph.m_Passes.reserve( builder.m_Passes.size() );
+        for ( const PassRecord& from : builder.m_Passes )
+        {
+            // Not the exec (Compile never runs one) nor the upload bytes and prerequisites (Compile reads neither).
+            PassRecord& to = graph.m_Passes.emplace_back( graph.m_Arena );
+            to.Name.assign( from.Name.data(), from.Name.size() );
+            to.Flags = from.Flags;
+            to.Uses.assign( from.Uses.begin(), from.Uses.end() );
+            to.Attachments.assign( from.Attachments.begin(), from.Attachments.end() );
+            to.AreaWidth        = from.AreaWidth;
+            to.AreaHeight       = from.AreaHeight;
+            to.External         = from.External;
+            to.DeclarationError = from.DeclarationError;
+            to.QueuedUpload     = from.QueuedUpload;
+            to.UploadBatch      = from.UploadBatch;
+            for ( const DeclaredBindingBlock& block : from.Blocks )
+            {
+                DeclaredBindingBlock& copy = to.Blocks.emplace_back(); // its entries on the heap
+                copy.Layout                = block.Layout;
+                copy.Other                 = block.Other;
+                copy.PushConstantBytes     = block.PushConstantBytes;
+                copy.Entries.reserve( block.Entries.size() );
+                for ( const DeclaredBindingEntry& entry : block.Entries )
+                {
+                    DeclaredBindingEntry& kept = copy.Entries.emplace_back( entry );
+                    kept.ShaderName            = snapshot->Names.emplace_back( entry.ShaderName );
+                }
+            }
+        }
+        for ( uint32_t l = 0; l < plan.Lifetimes.size() && l < plan.Usages.size(); ++l )
+        {
+            const ResourceRecord& record = builder.m_Resources[plan.Lifetimes[l].Resource];
+            if ( record.IsExtracted() )
+                continue;
+            SnapshotMemory::Known known;
+            known.Texture    = record.Kind == ResourceKind::Texture;
+            known.TextureKey = record.Texture;
+            known.Bytes      = record.Buffer.Bytes;
+            known.AccessMask = plan.Usages[l].AccessMask;
+            const Common::ResultStr<MemoryRequirements> asked =
+                 known.Texture ? memory.GetTextureRequirements( record.Texture, known.AccessMask )
+                               : memory.GetBufferRequirements( record.Buffer, known.AccessMask );
+            if ( !asked )
+                continue; // the fresh compile asks it, fails, and the check says so
+            known.Requirements = asked.GetValue();
+            snapshot->Memory.Table.push_back( known );
+        }
+        CompileCache* const target = &cache;
+        return [snapshot, target, key]()
+        {
+            Common::ResultStr<CompileResult> fresh = snapshot->Graph.Compile( snapshot->Memory, snapshot->Pipes,
+                                                                                    snapshot->BalancedToGraphics );
+            std::string_view difference = "the fresh compile failed";
+            if ( fresh )
+                difference = FirstPlanDifference( snapshot->Stored, fresh.GetValue() );
+            target->Checked( snapshot->Graph.GetName(), key, difference );
+        };
+    }
+
     Common::ResultStr<std::shared_ptr<CompileResult>> Builder::CompileThroughCache( IBackend& backend ) const
     {
         using Plan                                = std::shared_ptr<CompileResult>;
         const IMemoryRequirementsProvider& memory = backend.GetMemoryRequirements();
         const PipeCapabilities             pipes  = backend.GetPipeCapabilities();
         CompileCache* const                cache  = backend.GetCompileCache();
+        // FPS-ASYNC-BALANCE: the AsyncCompute passes the backend's measured balance runs on Graphics.
+        const std::span<const uint64_t> balanced = backend.GetAsyncBalance();
         // No cache, or a graph Compile refuses before reading anything: compiled as before the cache existed.
         if ( cache == nullptr || !m_DeclarationError.empty() )
         {
-            Common::ResultStr<CompileResult> compiled = Compile( memory, pipes );
+            Common::ResultStr<CompileResult> compiled = Compile( memory, pipes, balanced );
             if ( !compiled )
                 return Common::MakeError<Plan>( compiled.GetError() );
             return Common::MakeSuccess( std::make_shared<CompileResult>( compiled.ExtractValue() ) );
@@ -2947,34 +3297,31 @@ namespace Desert::Graphic::RDG
         {
             DESERT_PROFILE_SCOPE( "RDG Compile: cache key" );
             key = Compiler::HashDeclaration( *this, pipes );
+            // The balance's list decides pipes, so it is part of the key (the same list - the same plan).
+            if ( !balanced.empty() )
+                key = ( key ^ AsyncBalanceKeyOf( balanced ) ) * 0x100000001b3ull;
         }
         bool check = false;
-        Plan plan  = cache->Find( key, check );
+        Plan plan  = cache->Find( m_Name, key, check );
         if ( plan )
         {
             DESERT_PROFILE_SCOPE( "RDG Compile: cache rebind" );
             Compiler::Rebind( *this, *plan );
 #if DESERT_DEV_INSTRUMENTS
             // Every kCheckEvery-th hit against a fresh compile: a key that misses an input the plan depends on
-            // shows here as a logged difference, and this frame records the fresh plan.
+            // shows as a logged difference and the stored plan is dropped. FPS-CPU2-RDG: compiled on a Background
+            // job from a snapshot, so this frame records the stored plan and pays only the copy.
             if ( check )
             {
-                Common::ResultStr<CompileResult> fresh = Compile( memory, pipes );
-                std::string_view                 difference = "the fresh compile failed";
-                if ( fresh )
-                    difference = FirstPlanDifference( *plan, fresh.GetValue() );
-                cache->Checked( m_Name, key, difference );
-                if ( !difference.empty() )
-                {
-                    if ( !fresh )
-                        return Common::MakeError<Plan>( fresh.GetError() );
-                    plan = std::make_shared<CompileResult>( fresh.ExtractValue() );
-                }
+                DESERT_PROFILE_SCOPE( "RDG Compile: check snapshot" );
+                cache->RunCheck( Compiler::MakeCheck( *this, *plan, memory, pipes, balanced, *cache, key ) );
             }
+#else
+            (void)check;
 #endif
             return Common::MakeSuccess( std::move( plan ) );
         }
-        Common::ResultStr<CompileResult> compiled = Compile( memory, pipes );
+        Common::ResultStr<CompileResult> compiled = Compile( memory, pipes, balanced );
         if ( !compiled )
             return Common::MakeError<Plan>( compiled.GetError() );
         plan = std::make_shared<CompileResult>( compiled.ExtractValue() );
@@ -2983,7 +3330,7 @@ namespace Desert::Graphic::RDG
                              !plan->Substitutions.empty() || !plan->InvalidatedExternals.empty() ||
                              plan->Frame.has_value();
         if ( !faulted )
-            cache->Store( key, plan, Compiler::PinnedObjects( *this ) );
+            cache->Store( m_Name, key, plan, Compiler::PinnedObjects( *this ) );
         return Common::MakeSuccess( std::move( plan ) );
     }
 
@@ -3026,75 +3373,228 @@ namespace Desert::Graphic::RDG
         return {};
     }
 
+    // ── FPS-CPU2-RDG: one graph's sub-cache ─────────────────────────────────────────────────────────────
+
+    size_t CompileCache::Graph::Home( const uint64_t key ) noexcept
+    {
+        return static_cast<size_t>( key ^ ( key >> 29 ) ^ ( key >> 47 ) ) & ( kIndexSize - 1 );
+    }
+
+    size_t CompileCache::Graph::Cell( const uint64_t key ) const noexcept
+    {
+        size_t cell = Home( key );
+        while ( Index[cell] != 0 && Entries[Index[cell] - 1].Key != key )
+            cell = ( cell + 1 ) & ( kIndexSize - 1 );
+        return cell;
+    }
+
+    CompileCache::Entry* CompileCache::Graph::Lookup( const uint64_t key ) noexcept
+    {
+        const size_t cell = Cell( key );
+        return Index[cell] == 0 ? nullptr : &Entries[Index[cell] - 1];
+    }
+
+    bool CompileCache::Graph::WasEvicted( const uint64_t key ) const noexcept
+    {
+        const size_t remembered = std::min( EvictedCount, kEvictedMemory );
+        for ( size_t i = 0; i < remembered; ++i )
+        {
+            if ( Evicted[i] == key )
+                return true;
+        }
+        return false;
+    }
+
+    CompileCache::Entry& CompileCache::Graph::Add( const uint64_t key )
+    {
+        const size_t cell = Cell( key );
+        Entries.emplace_back().Key = key;
+        Index[cell]                = static_cast<uint32_t>( Entries.size() );
+        return Entries.back();
+    }
+
+    void CompileCache::Graph::Remove( const size_t entry ) noexcept
+    {
+        // Backward-shift erase of the entry's cell: a later cell of the run moves up when its home is not
+        // cyclically within (hole, cell], so every key stays reachable from its home without a gap.
+        size_t hole = Cell( Entries[entry].Key );
+        Index[hole] = 0;
+        for ( size_t cell = ( hole + 1 ) & ( kIndexSize - 1 ); Index[cell] != 0;
+              cell        = ( cell + 1 ) & ( kIndexSize - 1 ) )
+        {
+            const size_t home     = Home( Entries[Index[cell] - 1].Key );
+            const size_t fromHome = ( cell - home ) & ( kIndexSize - 1 );
+            const size_t fromHole = ( cell - hole ) & ( kIndexSize - 1 );
+            if ( fromHome >= fromHole )
+            {
+                Index[hole] = Index[cell];
+                Index[cell] = 0;
+                hole        = cell;
+            }
+        }
+        const size_t last = Entries.size() - 1;
+        if ( entry != last )
+        {
+            Index[Cell( Entries[last].Key )] = static_cast<uint32_t>( entry + 1 );
+            Entries[entry]                   = std::move( Entries[last] );
+        }
+        Entries.pop_back();
+    }
+
+    void CompileCache::Graph::Evict( const size_t entry ) noexcept
+    {
+        Evicted[EvictedCount % kEvictedMemory] = Entries[entry].Key;
+        ++EvictedCount;
+        ++Evictions;
+        Remove( entry );
+    }
+
+    size_t CompileCache::Graph::LeastRecent() const noexcept
+    {
+        size_t oldest = 0;
+        for ( size_t i = 1; i < Entries.size(); ++i )
+        {
+            if ( Entries[i].LastUse < Entries[oldest].LastUse )
+                oldest = i;
+        }
+        return oldest;
+    }
+
+    // ── The cache ───────────────────────────────────────────────────────────────────────────────────────
+
     CompileCache::CompileCache( Sink sink ) : m_Sink( std::move( sink ) )
     {
     }
 
-    std::shared_ptr<CompileResult> CompileCache::Find( uint64_t key, bool& check )
+    CompileCache::~CompileCache() noexcept
     {
-        const std::lock_guard lock( m_Mutex );
-        check = false;
-        for ( Entry& entry : m_Entries )
+        if ( m_CheckJob.valid() )
+            m_CheckJob.wait();
+    }
+
+    CompileCache::Graph* CompileCache::FindGraph( const std::string_view graph ) noexcept
+    {
+        const uint64_t hash = std::hash<std::string_view>{}( graph );
+        for ( Graph& sub : m_Graphs )
         {
-            if ( entry.Key != key )
-                continue;
-            // Only the cache holds it: no Execute is recording it (the count only falls outside the lock).
-            if ( entry.Plan.use_count() != 1 )
-                break;
-            entry.LastUse = ++m_Clock;
-            ++m_Hits;
-            check = ++m_HitsSinceCheck >= kCheckEvery;
-            if ( check )
-                m_HitsSinceCheck = 0;
-            return entry.Plan;
+            if ( sub.NameHash == hash && sub.Name == graph )
+                return &sub;
         }
-        ++m_Misses;
         return nullptr;
     }
 
-    void CompileCache::Store( uint64_t key, std::shared_ptr<CompileResult> plan,
+    CompileCache::Graph& CompileCache::GraphFor( const std::string_view graph )
+    {
+        if ( Graph* const found = FindGraph( graph ) )
+            return *found;
+        if ( m_Graphs.size() >= kMaxGraphs )
+        {
+            const auto oldest = std::min_element( m_Graphs.begin(), m_Graphs.end(),
+                                                  []( const Graph& a, const Graph& b )
+                                                  { return a.LastUse < b.LastUse; } );
+            m_Stored -= oldest->Entries.size();
+            m_Graphs.erase( oldest );
+        }
+        Graph& added   = m_Graphs.emplace_back();
+        added.Name     = std::string( graph );
+        added.NameHash = std::hash<std::string_view>{}( graph );
+        added.Entries.reserve( kGraphCapacity );
+        return added;
+    }
+
+    std::shared_ptr<CompileResult> CompileCache::Find( const std::string_view graph, const uint64_t key,
+                                                       bool& check )
+    {
+        const std::lock_guard lock( m_Mutex );
+        check            = false;
+        Graph* const sub = FindGraph( graph );
+        Entry* const hit = sub != nullptr ? sub->Lookup( key ) : nullptr;
+        // Only the cache holds it: no Execute is recording it (the count only falls outside the lock).
+        if ( hit == nullptr || hit->Plan.use_count() != 1 )
+        {
+            ++m_Misses;
+            if ( hit == nullptr && sub != nullptr && sub->WasEvicted( key ) )
+                ++sub->CapacityMisses;
+            return nullptr;
+        }
+        hit->LastUse = ++m_Clock;
+        sub->LastUse = m_Clock;
+        ++m_Hits;
+        // A due check waits while the last one still runs: it is taken by the next hit after it ended.
+        if ( ++m_HitsSinceCheck >= kCheckEvery && !m_CheckRunning )
+        {
+            check            = true;
+            m_HitsSinceCheck = 0;
+            m_CheckRunning   = true;
+        }
+        return hit->Plan;
+    }
+
+    void CompileCache::Store( const std::string_view graph, const uint64_t key,
+                              std::shared_ptr<CompileResult> plan,
                               std::vector<std::shared_ptr<const void>> pinned )
     {
         const std::lock_guard lock( m_Mutex );
-        Entry*                slot = nullptr;
-        for ( Entry& entry : m_Entries )
-        {
-            if ( entry.Key == key )
-            {
-                slot = &entry;
-                break;
-            }
-        }
-        if ( slot == nullptr && m_Entries.size() >= kCapacity )
-        {
-            slot = &*std::min_element( m_Entries.begin(), m_Entries.end(),
-                                       []( const Entry& a, const Entry& b ) { return a.LastUse < b.LastUse; } );
-        }
+        Graph& sub  = GraphFor( graph );
+        Entry* slot = sub.Lookup( key );
         if ( slot == nullptr )
-            slot = &m_Entries.emplace_back();
-        slot->Key     = key;
+        {
+            if ( sub.Entries.size() >= kGraphCapacity )
+            {
+                sub.Evict( sub.LeastRecent() );
+                --m_Stored;
+            }
+            else if ( m_Stored >= kCapacity )
+            {
+                Graph* fullest = &sub;
+                for ( Graph& other : m_Graphs )
+                {
+                    if ( other.Entries.size() > fullest->Entries.size() )
+                        fullest = &other;
+                }
+                fullest->Evict( fullest->LeastRecent() );
+                --m_Stored;
+            }
+            slot = &sub.Add( key );
+            ++m_Stored;
+        }
         slot->LastUse = ++m_Clock;
+        sub.LastUse   = m_Clock;
         slot->Plan    = std::move( plan );
         slot->Pinned  = std::move( pinned );
     }
 
-    void CompileCache::Checked( std::string_view graph, uint64_t key, std::string_view difference )
+    void CompileCache::RunCheck( Check check )
+    {
+        // The last check has ended (Find hands out a check only then): its future is ready, waiting is free.
+        if ( m_CheckJob.valid() )
+            m_CheckJob.wait();
+        m_CheckJob = Common::JobSystem::Get().Async( [run = std::move( check )]() noexcept { run(); },
+                                                     Common::JobPriority::Background );
+    }
+
+    void CompileCache::Checked( const std::string_view graph, const uint64_t key, const std::string_view difference )
     {
         {
             const std::lock_guard lock( m_Mutex );
+            m_CheckRunning = false;
             ++m_Checks;
             if ( difference.empty() )
                 return;
             ++m_Mismatches;
-            const auto stored = std::find_if( m_Entries.begin(), m_Entries.end(),
-                                              [&]( const Entry& entry ) { return entry.Key == key; } );
-            if ( stored != m_Entries.end() )
-                m_Entries.erase( stored );
+            if ( Graph* const sub = FindGraph( graph ) )
+            {
+                if ( Entry* const stored = sub->Lookup( key ) )
+                {
+                    sub->Remove( static_cast<size_t>( stored - sub->Entries.data() ) );
+                    --m_Stored;
+                }
+            }
         }
         if ( m_Sink )
         {
             m_Sink( true, fmt::format( "compile cache: graph '{}' plan {:016x} differs from a fresh compile "
-                                       "in {}; the fresh plan records this frame and the stored one is dropped",
+                                       "in {}; the stored plan is dropped, the next frame compiles it afresh",
                                        graph, key, difference ) );
         }
     }
@@ -3141,8 +3641,16 @@ namespace Desert::Graphic::RDG
             if ( lookups != 0 )
                 share = 100.0 * static_cast<double>( m_Hits ) / static_cast<double>( lookups );
             line = fmt::format( "compile cache: {} hits, {} misses ({:.1f} % hits) over {} frames; {} plans "
-                                "stored; {} hits checked against a fresh compile, {} differed",
-                                m_Hits, m_Misses, share, m_Frames, m_Entries.size(), m_Checks, m_Mismatches );
+                                "stored; {} hits checked against a fresh compile, {} differed; per graph "
+                                "(plans/evicted/misses of an evicted plan):",
+                                m_Hits, m_Misses, share, m_Frames, m_Stored, m_Checks, m_Mismatches );
+            for ( Graph& sub : m_Graphs )
+            {
+                fmt::format_to( std::back_inserter( line ), " '{}' {}/{}/{}", sub.Name, sub.Entries.size(),
+                                sub.Evictions, sub.CapacityMisses );
+                sub.Evictions      = 0;
+                sub.CapacityMisses = 0;
+            }
             m_Frames     = 0;
             m_Hits       = 0;
             m_Misses     = 0;
@@ -3155,5 +3663,230 @@ namespace Desert::Graphic::RDG
             if ( !chunkLine.empty() )
                 m_Sink( false, chunkLine );
         }
+    }
+
+    // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp) ───────────────────────────────────────────────────────────────
+
+    uint64_t AsyncBalancePassKey( std::string_view graph, std::string_view pass ) noexcept
+    {
+        uint64_t   hash = 14695981039346656037ull;
+        const auto add  = [&hash]( std::string_view text )
+        {
+            for ( const char c : text )
+            {
+                hash ^= static_cast<uint8_t>( c );
+                hash *= 1099511628211ull;
+            }
+        };
+        add( graph );
+        hash ^= 0xffu; // the separator: ("ab", "c") and ("a", "bc") differ
+        hash *= 1099511628211ull;
+        add( pass );
+        return hash;
+    }
+
+    uint64_t AsyncBalanceKeyOf( std::span<const uint64_t> graphicsPasses ) noexcept
+    {
+        uint64_t key = 0;
+        for ( const uint64_t pass : graphicsPasses )
+            key = ( key ^ pass ) * 1099511628211ull + 0x9e3779b97f4a7c15ull;
+        return key;
+    }
+
+    void AsyncBalance::NotePlan( std::string_view graph, const CompileResult& plan )
+    {
+        Shape* shape = nullptr;
+        for ( Shape& kept : m_Shapes )
+            if ( kept.Graph == graph )
+                shape = &kept;
+        if ( shape == nullptr )
+        {
+            shape        = &m_Shapes.emplace_back();
+            shape->Graph = std::string( graph );
+        }
+        const size_t count = plan.Passes.size();
+        if ( shape->Plan == &plan && shape->Names.size() == count )
+            return;
+        shape->Plan = &plan;
+        shape->Names.resize( count );
+        shape->Keys.resize( count );
+        shape->Pipes.resize( count );
+        shape->Eligible.assign( count, false );
+        uint32_t lastPass = 0;
+        for ( const CompiledPass& pass : plan.Passes )
+            lastPass = std::max( lastPass, pass.Pass );
+        const size_t          passSlots = count == 0 ? 0 : static_cast<size_t>( lastPass ) + 1u;
+        std::vector<uint32_t> positionOf( passSlots, ~0u );
+        for ( size_t position = 0; position < count; ++position )
+        {
+            const CompiledPass& pass = plan.Passes[position];
+            shape->Names[position]   = pass.Name;
+            shape->Keys[position]    = AsyncBalancePassKey( graph, pass.Name );
+            shape->Pipes[position]   = pass.OnPipe;
+            shape->Eligible[position] =
+                 plan.Pipes.SeparateComputeFamily && HasFlag( pass.Flags, PassFlags::AsyncCompute );
+            positionOf[pass.Pass] = static_cast<uint32_t>( position );
+        }
+        const auto known = [&positionOf]( uint32_t pass )
+        { return pass < positionOf.size() && positionOf[pass] != ~0u; };
+        // The edges by the position they end at (CSR), each as the position it starts at.
+        shape->PredFirst.assign( count + 1, 0 );
+        for ( const DependencyEdge& edge : plan.Edges )
+            if ( known( edge.From ) && known( edge.To ) )
+                ++shape->PredFirst[positionOf[edge.To] + 1];
+        for ( size_t position = 0; position < count; ++position )
+            shape->PredFirst[position + 1] += shape->PredFirst[position];
+        shape->Preds.assign( shape->PredFirst[count], 0 );
+        std::vector<uint32_t> filled( shape->PredFirst.begin(), shape->PredFirst.end() - 1 );
+        for ( const DependencyEdge& edge : plan.Edges )
+            if ( known( edge.From ) && known( edge.To ) )
+                shape->Preds[filled[positionOf[edge.To]]++] = positionOf[edge.From];
+    }
+
+    // The two-queue list schedule: each queue in position order, a pass starts after its queue's previous pass
+    // and after every pass it depends on (a fork or a join where the two are on different queues). The graph's
+    // length is the later of the two queues' ends (the graph end joins the async queue).
+    double AsyncBalance::Simulate( const Shape& shape, std::span<const Pipe> pipes, std::span<const double> cost,
+                                   std::vector<double>& finish )
+    {
+        double graphicsFree = 0.0;
+        double asyncFree    = 0.0;
+        finish.assign( pipes.size(), 0.0 );
+        for ( size_t position = 0; position < pipes.size(); ++position )
+        {
+            const bool async = pipes[position] == Pipe::AsyncCompute;
+            double     start = async ? asyncFree : graphicsFree;
+            for ( uint32_t e = shape.PredFirst[position]; e < shape.PredFirst[position + 1]; ++e )
+                start = std::max( start, finish[shape.Preds[e]] );
+            finish[position] = start + cost[position];
+            if ( async )
+                asyncFree = finish[position];
+            else
+                graphicsFree = finish[position];
+        }
+        return std::max( graphicsFree, asyncFree );
+    }
+
+    AsyncBalance::Decision* AsyncBalance::Find( uint64_t key ) noexcept
+    {
+        for ( Decision& decision : m_Decisions )
+            if ( decision.Key == key )
+                return &decision;
+        return nullptr;
+    }
+
+    void AsyncBalance::SortList()
+    {
+        std::erase_if( m_Decisions, []( const Decision& decision )
+                       { return !decision.OnGraphics && decision.FrozenLeft == 0; } );
+        m_GraphicsPasses.clear();
+        for ( const Decision& decision : m_Decisions )
+            if ( decision.OnGraphics )
+                m_GraphicsPasses.push_back( decision.Key );
+        std::sort( m_GraphicsPasses.begin(), m_GraphicsPasses.end() );
+        m_GraphicsPasses.erase( std::unique( m_GraphicsPasses.begin(), m_GraphicsPasses.end() ),
+                                m_GraphicsPasses.end() );
+    }
+
+    bool AsyncBalance::Rebalance( const CostOf& costOf, const LogFn& log )
+    {
+        for ( Decision& decision : m_Decisions )
+            if ( decision.FrozenLeft > 0 )
+                --decision.FrozenLeft;
+        bool                                           changed = false;
+        std::vector<double>                            cost;
+        std::vector<Pipe>                              pipes;
+        std::vector<double>                            finish;
+        std::unordered_map<std::string_view, uint32_t> sameName;
+        for ( Shape& shape : m_Shapes )
+        {
+            const size_t count    = shape.Names.size();
+            bool         measured = false;
+            bool         eligible = false;
+            cost.assign( count, 0.0 );
+            // A row is per name: passes of one name in the graph (a pass declared once per cascade, per view)
+            // share its time evenly.
+            sameName.clear();
+            for ( const std::string& name : shape.Names )
+                ++sameName[name];
+            for ( size_t position = 0; position < count; ++position )
+            {
+                const Cost measuredCost = costOf( shape.Names[position] );
+                cost[position]          = measuredCost.Ms / static_cast<double>( sameName[shape.Names[position]] );
+                measured                = measured || measuredCost.Measured;
+                eligible                = eligible || shape.Eligible[position];
+            }
+            // No measurement (GPU timing off, the graph not drawn in the window) or nothing to choose: the
+            // choice stays as it is.
+            if ( !measured || !eligible )
+                continue;
+            pipes.assign( shape.Pipes.begin(), shape.Pipes.end() );
+            // A pass on Graphics by the balance is modelled on AsyncCompute with the cost it measured there.
+            const auto costOn = [&]( size_t position, Pipe pipe )
+            {
+                const Decision* const decision = Find( shape.Keys[position] );
+                if ( pipe == Pipe::AsyncCompute && decision != nullptr && decision->OnGraphics )
+                    return std::max( cost[position], decision->AsyncMs );
+                return cost[position];
+            };
+            double length = Simulate( shape, pipes, cost, finish );
+            for ( uint32_t flip = 0; flip < kFlipsPerWindow; ++flip )
+            {
+                double bestLength   = length;
+                size_t bestPosition = count;
+                for ( size_t position = 0; position < count; ++position )
+                {
+                    if ( !shape.Eligible[position] )
+                        continue;
+                    if ( const Decision* const decision = Find( shape.Keys[position] );
+                         decision != nullptr && decision->FrozenLeft > 0 )
+                        continue;
+                    const Pipe   was     = pipes[position];
+                    const double wasCost = cost[position];
+                    Pipe         other   = Pipe::AsyncCompute;
+                    if ( was == Pipe::AsyncCompute )
+                        other = Pipe::Graphics;
+                    cost[position]       = costOn( position, other );
+                    pipes[position]      = other;
+                    const double flipped = Simulate( shape, pipes, cost, finish );
+                    pipes[position]      = was;
+                    cost[position]       = wasCost;
+                    if ( flipped < bestLength )
+                    {
+                        bestLength   = flipped;
+                        bestPosition = position;
+                    }
+                }
+                if ( bestPosition == count || length - bestLength < kFlipMarginMs )
+                    break;
+                Pipe to = Pipe::AsyncCompute;
+                if ( pipes[bestPosition] == Pipe::AsyncCompute )
+                    to = Pipe::Graphics;
+                Decision* decision = Find( shape.Keys[bestPosition] );
+                if ( decision == nullptr )
+                {
+                    decision      = &m_Decisions.emplace_back();
+                    decision->Key = shape.Keys[bestPosition];
+                }
+                if ( to == Pipe::Graphics )
+                    decision->AsyncMs = cost[bestPosition];
+                cost[bestPosition]   = costOn( bestPosition, to );
+                decision->OnGraphics = to == Pipe::Graphics;
+                decision->FrozenLeft = kFrozenWindows;
+                pipes[bestPosition]  = to;
+                if ( log )
+                {
+                    const std::string_view queue = to == Pipe::Graphics ? "Graphics" : "AsyncCompute";
+                    log( fmt::format(
+                         "async balance '{}': '{}' -> {} ({:.3f} ms; modelled graph {:.3f} -> {:.3f} ms)",
+                         shape.Graph, shape.Names[bestPosition], queue, cost[bestPosition], length, bestLength ) );
+                }
+                length  = bestLength;
+                changed = true;
+            }
+            shape.Pipes.assign( pipes.begin(), pipes.end() );
+        }
+        SortList();
+        return changed;
     }
 } // namespace Desert::Graphic::RDG

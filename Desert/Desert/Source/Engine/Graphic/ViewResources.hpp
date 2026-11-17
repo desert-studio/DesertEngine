@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -198,6 +199,51 @@ namespace Desert::Graphic
 
         // Where a per-frame write goes right now: the view inside an ActiveViewScope, else the frame context.
         [[nodiscard]] static ViewResources& Active();
+
+        // THE CREATION LOCK (FPS-RDG-PREPARE; UE: FRDGBuilder's setup tasks create nothing shared without the
+        // allocator's own lock). A graph's record prerequisites prepare on task workers at once (Builder::Execute,
+        // IRecordPrerequisite::PreparesOnAnyThread); FINDING a view's copy is already safe from any thread (the
+        // view's copy lock), MAKING one is not: a copy maker allocates from per-view state with no lock of its
+        // own (the view's descriptor pool chain, VulkanViewDescriptorPools) and books ledger rows. So every maker
+        // - ViewCopiedBlock::MakeActive, ViewDescriptorSets::Resolve - runs under this one lock: creations are
+        // serial among themselves exactly as they were on the render thread, finds and writes stay parallel.
+        // Recursive: a maker may reach another make through the same path (a set initializer writing a block).
+        //
+        // THE LOCK HIERARCHY (FPS-RDG-PREPARE2; UE: one documented order, the outer lock always first). Taken
+        // only in this order, top to bottom, never upwards:
+        //   1. CreationLock                 - every make of a per-view copy (CreationScope below).
+        //   2. a ViewCopiedBlock's m_Lock    - its CPU image and the write of its active copy (BlockLockMark).
+        //   3. the view's own copy lock      - inside ViewResources::Find / Acquire, held for the call only.
+        // A thread holding a block lock therefore never takes CreationLock for the first time: a block write or
+        // resolve that may have to make its copy takes CreationLock BEFORE the block's lock (ViewCopiedBlock
+        // Resolve / Write), and a thread already inside CreationLock re-enters it freely (recursive). Debug builds
+        // assert the order in CreationScope. Use CreationScope, never a bare lock of CreationLock().
+        [[nodiscard]] static std::recursive_mutex& CreationLock() noexcept;
+
+        // Holds CreationLock for its lifetime; asserts (debug) that this thread holds no block lock unless it is
+        // already inside CreationLock (a re-entry keeps the order its first entry established).
+        class CreationScope
+        {
+        public:
+            CreationScope() noexcept;
+            ~CreationScope() noexcept;
+            CreationScope( const CreationScope& )            = delete;
+            CreationScope& operator=( const CreationScope& ) = delete;
+
+            // True while this thread is inside at least one CreationScope.
+            [[nodiscard]] static bool HeldHere() noexcept;
+        };
+
+        // Marks this thread as holding a block lock (level 2 above) for its lifetime; constructed right after the
+        // block's lock is taken, destroyed before it is released. Only the order check reads it.
+        class BlockLockMark
+        {
+        public:
+            BlockLockMark() noexcept;
+            ~BlockLockMark() noexcept;
+            BlockLockMark( const BlockLockMark& )            = delete;
+            BlockLockMark& operator=( const BlockLockMark& ) = delete;
+        };
 
     private:
         friend class ViewResources;

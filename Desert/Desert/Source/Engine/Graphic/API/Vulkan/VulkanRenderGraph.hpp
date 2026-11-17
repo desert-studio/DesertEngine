@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <compare>
 #include <functional>
+#include <source_location>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -30,6 +31,7 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
+#include <Engine/Graphic/RDG/RDGAsyncBalance.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <unordered_map>
 
@@ -47,6 +49,121 @@ namespace Desert::Graphic::API::Vulkan
 {
     class VulkanRdgTransientAllocator; // VulkanRdgTransient.hpp
     class VulkanGpuProfiler;           // VulkanGpuProfiler.hpp
+
+    // GPU CRASH BREADCRUMBS (FPS-GPU-MARKER; UE FGPUBreadcrumbs / r.GPUCrashDebugging, NVIDIA Aftermath markers).
+    // One host-visible, host-coherent buffer of two words per queue (graphics, async compute): every graph pass
+    // writes its serial into its queue's STARTED word at TOP_OF_PIPE before its commands and into the FINISHED
+    // word at BOTTOM_OF_PIPE after them (vkCmdWriteBufferMarkerAMD: legal inside a render pass and in a secondary
+    // buffer, unlike vkCmdFillBuffer). Serials are the graph's base + CompiledPass::Pass, so on each queue they
+    // grow in GPU order (graphs submit in BeginGraph order, passes are never reordered), whatever thread records.
+    // A ring of kRingSize names maps a serial back to its pass. On a loss the [DeviceLost] report (DeviceLost::
+    // SetBreadcrumbReader -> Read) prints per queue the last pass started, the last finished, and the passes in
+    // between - the faulting pass is among them. Disabled (RenderPipeline.GpuCrashBreadcrumbs 0): no marker.
+    class VulkanGpuBreadcrumbs
+    {
+    public:
+        static constexpr uint32_t kRingSize  = 8192; // power of two; > the passes of the frames in flight
+        static constexpr uint32_t kNameBytes = 64;
+        static constexpr uint32_t kNoSerial  = 0;
+        // FPS-DEVLOST8: the device queues a one-off submit's words are kept for (graphics, compute, transfer).
+        static constexpr uint32_t kOneOffQueues = 3;
+
+        VulkanGpuBreadcrumbs() = default;
+        ~VulkanGpuBreadcrumbs();
+        VulkanGpuBreadcrumbs( const VulkanGpuBreadcrumbs& )            = delete;
+        VulkanGpuBreadcrumbs& operator=( const VulkanGpuBreadcrumbs& ) = delete;
+
+        // FPS-DEVLOST4: which of the device's routes the breadcrumbs take (each its DeviceCaps row, enabled).
+        struct Routes
+        {
+            bool BufferMarker = false; // VK_AMD_buffer_marker: the per-queue words
+            bool HostImport   = false; // VK_EXT_external_memory_host: the words in application-owned memory
+            bool Checkpoints  = false; // VK_NV_device_diagnostic_checkpoints: the driver's per-queue record
+        };
+        // At least one of BufferMarker / Checkpoints. A failed host import is not an error: the words go to a
+        // driver-owned host-coherent allocation and WordsHome() says so (and why) - logged once by the caller.
+        Common::BoolResultStr Init( VkPhysicalDevice physicalDevice, VkDevice device, VmaAllocator allocator,
+                                    const VulkanResourceSharing& sharing, const Routes& routes ) noexcept;
+        // The graph's queues (compute is VK_NULL_HANDLE when the async pipe runs on the graphics queue) and, for
+        // the one-off submits and the checkpoint report (FPS-DEVLOST8: every queue anything is submitted to), the
+        // device's compute and transfer queues (either may equal another queue: reported once). Before the first
+        // frame, on the frame thread.
+        void SetQueues( VkQueue graphics, VkQueue compute, VkQueue deviceCompute, VkQueue transfer ) noexcept;
+        void SetEnabled( bool enabled ) noexcept;
+        // FPS-DEVLOST4: once per frame after the slot fence. Says ONCE that the GPU's words reached the host on a
+        // healthy run (the tool works) - or, kLiveProbeFrames frames after enabling with every word still 0, that
+        // they never do (the tool is broken on this device, and a loss report's "(none yet)" means nothing).
+        void ObserveLive() noexcept;
+        // Where the words live, for the startup line and the report.
+        [[nodiscard]] const std::string& WordsHome() const noexcept
+        {
+            return m_WordsHome;
+        }
+        // Calling thread, before any pass of the graph records: reserves the graph's serials and names its passes.
+        // The graph's base serial, or kNoSerial when disabled (then the graph records no marker).
+        [[nodiscard]] uint32_t BeginGraph( std::span<const RDG::CompiledPass> passes ) noexcept;
+        void MarkStarted( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
+        void MarkFinished( VkCommandBuffer commandBuffer, RDG::Pipe pipe, uint32_t serial ) const noexcept;
+        // FPS-DEVLOST6, ONE-OFF SUBMITS (UE: a breadcrumb on every queue submit, not only graph passes): an upload
+        // or one-shot flush recorded outside any graph (CommandBufferAllocator::OneOffMarker; context is the
+        // VulkanGpuBreadcrumbs), called just before its vkEndCommandBuffer, any thread. Reserves a serial named
+        // "one-off <file>:<line>" (@p where: the caller) and records, after the buffer's commands, a TOP_OF_PIPE
+        // marker (the front end reached the end of the buffer) and a BOTTOM_OF_PIPE one (its commands completed)
+        // into the submit words of @p queue - graphics, the device's compute or its transfer queue (FPS-DEVLOST8;
+        // the words buffer is CONCURRENT over all three families, VulkanResourceSharing) - plus the NV
+        // checkpoints. Their own words: a one-off is not in the graphs' serial order on its queue.
+        static void MarkOneOff( void* context, VkCommandBuffer commandBuffer, VkQueue queue,
+                                const std::source_location& where ) noexcept;
+        // The report, from the host words and vkGetQueueCheckpointDataNV (serial << 1 | finished per checkpoint;
+        // the one device call it makes, legal on a lost device - that is what the extension is for).
+        [[nodiscard]] std::string Describe() const;
+        // DeviceLost::BreadcrumbReader: context is the VulkanGpuBreadcrumbs.
+        [[nodiscard]] static std::string Read( const void* context );
+
+    private:
+        struct Entry
+        {
+            std::atomic<uint32_t> Serial{ kNoSerial }; // published after OnPipe and Name
+            RDG::Pipe             OnPipe = RDG::Pipe::Graphics;
+            char                  Name[kNameBytes]{};
+            bool                  OneOff = false; // FPS-DEVLOST6: a one-off submit's serial, not a graph pass's
+        };
+        [[nodiscard]] std::string NameOf( uint32_t serial, RDG::Pipe& pipe ) const;
+
+        [[nodiscard]] Common::BoolResultStr MakeWordsImported( VkPhysicalDevice          physicalDevice,
+                                                               const VkBufferCreateInfo& info ) noexcept;
+        [[nodiscard]] Common::BoolResultStr MakeWordsAllocated( const VkBufferCreateInfo& info ) noexcept;
+        [[nodiscard]] std::string           DescribeCheckpoints() const;
+
+        static constexpr uint32_t kLiveProbeFrames = 300;
+
+        VkDevice                       m_Device         = VK_NULL_HANDLE;
+        VmaAllocator                   m_Allocator      = nullptr;
+        VkBuffer                       m_Buffer         = VK_NULL_HANDLE;
+        VmaAllocation                  m_Allocation     = nullptr;        // the VMA route
+        VkDeviceMemory                 m_HostMemory     = VK_NULL_HANDLE; // the host-import route
+        void*                          m_HostBlock      = nullptr;        // its application-owned block
+        const volatile uint32_t*       m_Words          = nullptr; // [queue * 2 + 0] started, [+ 1] finished
+        std::string                    m_WordsHome      = "none (no VK_AMD_buffer_marker)";
+        PFN_vkCmdWriteBufferMarkerAMD  m_WriteMarker    = nullptr;
+        PFN_vkCmdSetCheckpointNV       m_SetCheckpoint  = nullptr;
+        PFN_vkGetQueueCheckpointDataNV m_GetCheckpoints = nullptr;
+        VkQueue                        m_GraphicsQueue  = VK_NULL_HANDLE;
+        VkQueue                        m_ComputeQueue   = VK_NULL_HANDLE;
+        // FPS-DEVLOST8: the one-off words' and the checkpoint report's queues: [0] graphics, [1] the device's
+        // compute, [2] its transfer; VK_NULL_HANDLE where it is the same queue as an earlier one.
+        std::array<VkQueue, kOneOffQueues> m_OneOffQueues{};
+        // FPS-DEVLOST6: [first, first + count) of the serials, never through kNoSerial; any thread (graphs and
+        // one-off submits).
+        [[nodiscard]] uint32_t ReserveSerials( uint32_t count ) noexcept;
+
+        std::atomic<bool>              m_Enabled{ false };
+        std::atomic<bool>              m_EverEnabled{ false };
+        std::atomic<uint32_t>          m_NextSerial{ 1 };
+        uint32_t                       m_LiveFrames  = 0; // ObserveLive's thread only
+        bool                           m_LiveSaid    = false;
+        std::unique_ptr<Entry[]>       m_Ring;
+    };
 
     struct VulkanRdgDevice
     {
@@ -70,6 +187,8 @@ namespace Desert::Graphic::API::Vulkan
         // RDG-PARALLEL-3: the engine's Vulkan GPU profiler, which re-stamps the scope order of a chunk recorded on a
         // worker as the chunk is replayed (StampChunkOrder); null without one (a device suite).
         VulkanGpuProfiler* ChunkOrder = nullptr;
+        // FPS-GPU-MARKER: the pass breadcrumbs; null without VK_AMD_buffer_marker (and in a device suite).
+        VulkanGpuBreadcrumbs* Breadcrumbs = nullptr;
     };
 
     // Usage flags a transient is created with, from the graph's derived usage (bit i = 1 << Access i).
@@ -241,6 +360,13 @@ namespace Desert::Graphic::API::Vulkan
         // VulkanRendererAPI::ImportVertexBufferRange); every descriptor, barrier, copy and device address the
         // graph derives from the handle is of [offset, offset + size).
         static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size, uint64_t offset = 0 );
+        // FPS-VB-IDENTITY: Wrap of a span of an engine buffer that owns its identity (a GeometryPool buffer,
+        // VulkanVertexBuffer::GetSpanIdentity): every wrap of that VkBuffer carries @p identity, the span being
+        // its offset and size, so a descriptor content key (identity, offset, size) of the same span is equal in
+        // every graph and the set written once is bound again (AcquireCached) instead of being written anew.
+        // @p identity: nonzero, from NextRdgPhysicalIdentity, never shared with another VkBuffer.
+        static std::shared_ptr<VulkanRdgBuffer> WrapSpan( VkBuffer buffer, uint64_t identity, uint64_t size,
+                                                          uint64_t offset );
         // Wrap of the buffer backing @p accelerationStructure (a view's TLAS): a block entry of kind
         // AccelerationStructure on it binds @p accelerationStructure.
         static std::shared_ptr<VulkanRdgBuffer>
@@ -271,7 +397,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_AccessMask;
         }
-        // NextRdgPhysicalIdentity: this object's buffer range (and acceleration structure), fixed for its life.
+        // NextRdgPhysicalIdentity: this object's buffer range (and acceleration structure), fixed for its life;
+        // for a WrapSpan the identity of the whole wrapped VkBuffer (a key adds GetOffset and GetSize).
         [[nodiscard]] uint64_t GetIdentity() const
         {
             return m_Identity;
@@ -461,17 +588,48 @@ namespace Desert::Graphic::API::Vulkan
         // the frames in flight is freed (BeginFrameSlot). Safe for chunks: the cache is sharded under locks, and
         // a fresh set is seen only by the thread that allocated it until that thread's batch wrote it and it
         // calls PublishCached.
+        // FPS-SET-MEMO: a cached entry's last-bindable frame (m_CacheFrame), shared with every holder of the set
+        // outside the cache (the bound-sets memo below). kStampFreed once EvictCached freed the set: a holder
+        // that finds it so never binds the set again. Touch (a bind) and eviction race only through this word
+        // (compare-exchange), so a set is either refreshed for this frame or freed, never both.
+        using CachedStamp = std::shared_ptr<std::atomic<uint64_t>>;
+        static constexpr uint64_t kStampFreed = ~uint64_t{ 0 };
+        // Marks @p stamp's set bindable in @p frame; false when the cache already freed it.
+        [[nodiscard]] static bool TouchCached( const CachedStamp& stamp, uint64_t frame ) noexcept;
+
         struct CachedSet
         {
             VkDescriptorSet  Set  = VK_NULL_HANDLE;
             VkDescriptorPool Pool = VK_NULL_HANDLE;
             bool             Hit  = false; // written before: bind it as it is and write nothing into it
+            CachedStamp      Stamp;        // a hit's entry stamp (null for a fresh set until PublishCached)
         };
         Common::ResultStr<CachedSet> AcquireCached( VkDescriptorSetLayout layout, std::span<const uint64_t> key );
-        // After the WriteBatch that wrote @p fresh (Hit false) has flushed: makes it findable under @p key. When
-        // another thread published an equal key first, that entry stays and @p fresh is freed once no frame in
-        // flight can bind it.
-        void PublishCached( std::span<const uint64_t> key, const CachedSet& fresh );
+        // After the WriteBatch that wrote @p fresh (Hit false) has flushed: makes it findable under @p key and
+        // returns its entry's stamp. When another thread published an equal key first, that entry stays, @p fresh
+        // is freed once no frame in flight can bind it, and the stamp is null (the set must not outlive the exec).
+        CachedStamp PublishCached( std::span<const uint64_t> key, const CachedSet& fresh );
+
+        // FPS-SET-MEMO (UE FMeshDrawCommand / FMeshDrawShaderBindings: a draw's bindings are built when their
+        // inputs change and every later frame only binds them). THE BOUND-SETS MEMO: the sets one graphics
+        // draw combination resolved to, kept ACROSS frames under the full content of what decided them - the
+        // shader (address and code generation), the pipeline and set layouts, the bindless table's set, the
+        // material part (set, copy record identity and version, copied bindings, push route) and the block's
+        // signature (per entry: name hash, slot, kind, access, the physical identity and range or sampler it
+        // names; VulkanRendererAPI::BindGraphicsPassState builds it). The pass set memo (VulkanRdgPassSetMemo)
+        // lives one pass exec, so before this every frame resolved, keyed and looked up every combination of
+        // every pass again (~150 "set memo miss" per frame on FIELD_Barn) for sets the content cache already
+        // held. Every kept set is a content-cache entry, held by its stamp: a hit touches each stamp, and a set
+        // the cache freed (unused for the frames in flight) makes the entry a miss and drops it. Equal keys mean
+        // the resolution and the writes would produce exactly these sets, so a hit binds what a miss would.
+        // Thread-safe (sharded locks): chunk workers look up and keep concurrently.
+        // @p key -> the kept sets into @p sets; false (and @p sets untouched) when not kept or no longer live.
+        [[nodiscard]] bool FindBound( std::span<const uint64_t> key, std::vector<VkDescriptorSet>& sets );
+        // Keeps @p sets (each held by its @p stamps entry; null for the bindless table's set, which the key
+        // does not name - FPS-SET-MEMO3: the caller replaces it on a hit with the table's set of now) under
+        // @p key.
+        void KeepBound( std::span<const uint64_t> key, std::span<const VkDescriptorSet> sets,
+                        std::span<const CachedStamp> stamps );
         // A fresh set that is not published (an error return before its writes ended): freed once no frame in
         // flight can bind it.
         void DiscardCached( const CachedSet& fresh );
@@ -501,6 +659,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<VkDescriptorPool> Pools; // Pools[Current] allocates; a full one is followed by a new one
             size_t                        Current = 0;
+            // FPS-CPU2-VKFRAME: a set was allocated from Pools[0 .. Current] since the last reset. Pools past
+            // Current and the pools of an arena no chunk drew from hold nothing: resetting them changes nothing.
+            bool Used = false;
         };
 
         Common::ResultStr<VkDescriptorPool> AddPool( SlotPools& slot );
@@ -512,10 +673,31 @@ namespace Desert::Graphic::API::Vulkan
         struct CachedSetEntry
         {
             std::vector<uint64_t> Key;
-            VkDescriptorSet       Set      = VK_NULL_HANDLE;
-            VkDescriptorPool      Pool     = VK_NULL_HANDLE;
-            uint64_t              LastUsed = 0; // m_CacheFrame of the last exec that acquired it
+            VkDescriptorSet       Set  = VK_NULL_HANDLE;
+            VkDescriptorPool      Pool = VK_NULL_HANDLE;
+            CachedStamp           Stamp; // m_CacheFrame of the last exec that bound it (kStampFreed: freed)
         };
+        // FPS-SET-MEMO: one bound-sets memo entry (FindBound / KeepBound).
+        struct BoundSetsEntry
+        {
+            std::vector<uint64_t>        Key;
+            std::vector<VkDescriptorSet> Sets;
+            std::vector<CachedStamp>     Stamps;
+            uint64_t                     LastHit = 0; // m_CacheFrame of the last FindBound / KeepBound
+        };
+        struct BoundSetsShard
+        {
+            std::mutex                                                Lock;
+            std::unordered_map<uint64_t, std::vector<BoundSetsEntry>> Buckets; // by the key's hash
+        };
+        // EvictCached: drops the entries no draw found for this many frames (their sets age out of the cache).
+        // FPS-SET-MEMO2: also how long an UNUSED content-cache entry keeps its set (never less than the frames
+        // in flight). Before, a cached set was freed once unused for the frames in flight (2-3), so a bound-sets
+        // entry of a combination drawn every 4..8 frames (a staggered shadow cascade or probe, a pass that runs
+        // every other view) held a freed stamp and missed although nothing it names had changed: the memo's
+        // retention was dead past the frames in flight. A kept set naming a destroyed resource is never bound
+        // (its key holds the resource's never-reused identity), so keeping it longer only costs its descriptors.
+        static constexpr uint64_t kBoundSetsRetainFrames = 8;
         struct CachedSetShard
         {
             std::mutex                                                Lock;
@@ -537,6 +719,7 @@ namespace Desert::Graphic::API::Vulkan
         bool                   m_AccelerationStructures = false;
         // The content cache (AcquireCached). Its pools allow vkFreeDescriptorSets and are never reset.
         std::array<CachedSetShard, kCachedSetShards> m_CachedShards;
+        std::array<BoundSetsShard, kCachedSetShards> m_BoundShards; // FPS-SET-MEMO
         std::mutex                    m_CachedPoolLock; // m_CachedPools, m_CachedPoolCurrent, m_RetiredCached
         std::vector<VkDescriptorPool> m_CachedPools;
         size_t                        m_CachedPoolCurrent = 0;
@@ -563,17 +746,22 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanRdgPassSetMemo
     {
     public:
-        // What the sets were written from. Block: the pass's declared block (RDG::PassBindings::GetBlock); Shader and
-        // Layout: the recording pipeline's (the reflection the block was resolved against, the set layouts the sets
-        // were allocated for); Material and MaterialSet / MaterialBindings: the material whose written slots were
-        // copied into set 0 (0 / empty for none); MaterialPush and BlockPushBytes: the push-constant routes the
-        // resolution checked. Shader and Material are addresses compared as identities, never dereferenced.
+        // What the sets were written from. Block: the pass's declared block (RDG::PassBindings::GetBlock); Shader
+        // and Layout: the recording pipeline's (the reflection the block was resolved against, the set layouts the
+        // sets were allocated for); MaterialSet / MaterialBindings: the material set whose written slots were
+        // copied into set 0 (null / empty when nothing is copied); MaterialPush and BlockPushBytes: the
+        // push-constant routes the resolution checked. Shader is an address compared as an identity, never
+        // dereferenced. FPS-CPU-DEBT-NEXT (CPU-DEBT-OPEN #1; UE FMeshDrawShaderBindings keyed by what the bindings
+        // hold, not by the material): the material's identity is NOT part of the key. All the sets read of a
+        // material is its set's slots (MaterialSet + MaterialBindings, constant while the pass records: the
+        // prepare wrote them before the graph recorded) and whether it pushes (MaterialPush); two materials with
+        // no copied slots and the same push route resolve and write the same sets, so their draws share one entry.
+        // A caller passes MaterialSet null whenever MaterialBindings is empty (nothing of the set is copied).
         struct Key
         {
             RDG::BindingBlockRef      Block;
             std::uintptr_t            Shader         = 0;
             VkPipelineLayout          Layout         = VK_NULL_HANDLE;
-            std::uintptr_t            Material       = 0;
             VkDescriptorSet           MaterialSet    = VK_NULL_HANDLE;
             std::span<const uint32_t> MaterialBindings;
             bool                      MaterialPush   = false;
@@ -595,7 +783,6 @@ namespace Desert::Graphic::API::Vulkan
             RDG::BindingBlockRef Block;
             std::uintptr_t       Shader         = 0;
             VkPipelineLayout     Layout         = VK_NULL_HANDLE;
-            std::uintptr_t       Material       = 0;
             VkDescriptorSet      MaterialSet    = VK_NULL_HANDLE;
             bool                 MaterialPush   = false;
             size_t               BlockPushBytes = 0;
@@ -673,6 +860,79 @@ namespace Desert::Graphic::API::Vulkan
         mutable std::unordered_map<BufferKey, RDG::MemoryRequirements, KeyHash>  m_BufferCache;
     };
 
+    // FPS-UPLOAD-RING #10 (UE: FRHIUploadBuffer / the per-frame upload ring a QueueBufferUpload is staged in). The
+    // bytes of every graph upload (VulkanRdgBackend::UploadBuffer) are copied into a persistently mapped,
+    // host-coherent TRANSFER_SRC buffer of the frame slot being recorded, and the upload records a
+    // vkCmdCopyBuffer region from there - one copy per destination per pass with all its regions, where
+    // vkCmdUpdateBuffer put every byte into the command buffer in 64 KiB pieces.
+    //
+    // LIFETIME: a slot's blocks are reused only by BeginFrameSlot of the same slot, which the frame loop calls
+    // after that slot's fence (VulkanRendererAPI::BeginRdgFrame -> VulkanRdgBackend::BeginFrame); every graph of
+    // the frame is submitted with the slot's submissions, so the copies that read a block have finished by then.
+    // The host writes are visible to the copy by the queue submission (host-coherent memory, no flush), and the
+    // copy is a TRANSFER-stage write, the stage and access vkCmdUpdateBuffer had: the graph's barriers around
+    // the upload are unchanged.
+    //
+    // OVERFLOW: a request that does not fit the slot's current block opens a fresh block (error as value when the
+    // allocator refuses one); the next BeginFrameSlot of that slot folds its blocks into one of their total size,
+    // so a frame that overflowed once fits in one block from then on.
+    class VulkanRdgUploadRing final
+    {
+    public:
+        explicit VulkanRdgUploadRing( const VulkanRdgDevice& device ) : m_Device( device )
+        {
+        }
+        ~VulkanRdgUploadRing();
+        VulkanRdgUploadRing( const VulkanRdgUploadRing& )            = delete;
+        VulkanRdgUploadRing& operator=( const VulkanRdgUploadRing& ) = delete;
+
+        // Where one upload's bytes go: Mapped (host) is Offset bytes into Buffer (device).
+        struct Span
+        {
+            VkBuffer   Buffer = VK_NULL_HANDLE;
+            uint64_t   Offset = 0;
+            std::byte* Mapped = nullptr;
+        };
+
+        // The slot the next allocations belong to; its earlier blocks are free again (the slot's fence was
+        // waited). Not concurrent with Allocate.
+        void BeginFrameSlot( uint32_t slot ) noexcept;
+        // @p bytes of the current slot's ring. Thread-safe: graph chunks record uploads on task workers.
+        [[nodiscard]] Common::ResultStr<Span> Allocate( uint64_t bytes ) noexcept;
+
+    private:
+        struct Block
+        {
+            VmaAllocator      Allocator  = nullptr;
+            VkBuffer          Buffer     = VK_NULL_HANDLE;
+            VmaAllocation     Allocation = nullptr;
+            std::byte*        Mapped     = nullptr;
+            uint64_t          Size       = 0;
+            ResourceOwnership Ledger;
+
+            Block() = default;
+            ~Block();
+            Block( const Block& )            = delete;
+            Block& operator=( const Block& ) = delete;
+        };
+        struct Slot
+        {
+            std::vector<std::unique_ptr<Block>> Blocks;   // the last one is being filled
+            uint64_t                            Head = 0; // first free byte of Blocks.back()
+            uint64_t                            Want = 0; // the size the next first block is made with
+        };
+        static constexpr uint64_t kFirstBlockBytes = 1ull << 20;
+        static constexpr uint64_t kAlignment       = 16;
+
+        // A mapped host-coherent TRANSFER_SRC block of @p bytes into @p out, or the reason it could not be made.
+        [[nodiscard]] Common::BoolResultStr MakeBlock( uint64_t bytes, std::unique_ptr<Block>& out ) const noexcept;
+
+        const VulkanRdgDevice& m_Device;
+        std::mutex             m_Lock;
+        std::vector<Slot>      m_Slots;
+        uint32_t               m_Slot = 0;
+    };
+
     class VulkanRdgBackend final : public RDG::IBackend
     {
     public:
@@ -730,11 +990,17 @@ namespace Desert::Graphic::API::Vulkan
         void                  EndPass( const RDG::CompiledPass& pass ) override;
         Common::BoolResultStr EndGraph( std::span<const RDG::Barrier> finalBarriers ) override;
         void                  AbandonGraph() override;
-        // vkCmdUpdateBuffer in chunks of 64 KiB (its per-call limit), outside any render pass.
+        // FPS-UPLOAD-RING #10: the bytes are staged in the frame slot's upload ring (VulkanRdgUploadRing) and the
+        // copy is queued as one region of the pass's batch for that destination (PendingUpload), recorded by
+        // FlushUploads - at the end of the pass, or before any other command this backend records into the pass.
+        // Outside any render pass.
         Common::BoolResultStr UploadBuffer( uint32_t resource, uint64_t at,
                                             std::span<const std::byte> bytes ) override;
         Common::BoolResultStr CopyBuffer( uint32_t source, uint64_t sourceOffset, uint32_t target,
                                           uint64_t targetOffset, uint64_t bytes ) override;
+        // vkCmdFillBuffer, outside any render pass.
+        Common::BoolResultStr FillBuffer( uint32_t resource, uint64_t offset, uint64_t bytes,
+                                          uint32_t value ) override;
 
         // The compatibility key of the render pass this backend has open on its command buffer, empty between
         // passes. Pipelines bound by an exec lambda are resolved against it
@@ -773,6 +1039,8 @@ namespace Desert::Graphic::API::Vulkan
         RDG::PassFaultReporter&       GetPassFaultReporter() override;
         // RDG-RECORD-COMPILE-CACHE: nullptr while RenderConfig::RdgCompileCache is off.
         RDG::CompileCache*            GetCompileCache() override;
+        // FPS-ASYNC-BALANCE: m_AsyncBalance's list (RDGAsyncBalance.hpp).
+        [[nodiscard]] std::span<const uint64_t> GetAsyncBalance() const override;
         Common::BoolResultStr         BeginPipeSegment( const RDG::PipeSegment& segment ) override;
         Common::BoolResultStr         EndPipeSegment( const RDG::PipeSegment& segment ) override;
         // Vulkan 1.0 queue family ownership transfer: a VkImage/BufferMemoryBarrier with srcQueueFamilyIndex =
@@ -800,9 +1068,21 @@ namespace Desert::Graphic::API::Vulkan
 
     private:
         struct PreparedRenderPass; // below
+        // FPS-UPLOAD-RING #10: one staged upload region not yet recorded. The copies of one pass are unordered
+        // against each other (the builder joins only disjoint ranges into one upload pass), so the regions are
+        // grouped by (staging block, destination) and each group is ONE vkCmdCopyBuffer.
+        struct PendingUpload
+        {
+            VkBuffer     Source = VK_NULL_HANDLE;
+            VkBuffer     Target = VK_NULL_HANDLE;
+            VkBufferCopy Region{};
+        };
+        // Records @p pending into @p commandBuffer (grouped as above) and empties it; a null buffer only empties
+        // it (its graph recorded nothing more, as every other command of the pass).
+        static void FlushUploads( VkCommandBuffer commandBuffer, std::vector<PendingUpload>& pending ) noexcept;
         // Everything one chunk keeps while its worker records it: what the frame's state holds for the calling
         // thread (m_CommandBuffer -> Record.CommandBuffer, m_OpenRenderPass, m_PassSets, m_ProfilerScopes,
-        // m_CpuScopes), and the debug labels its passes opened (EndChunk closes what a failed pass left open).
+        // m_CpuScope), and the debug labels its passes opened (EndChunk closes what a failed pass left open).
         struct Chunk
         {
             const VulkanRdgBackend*         Owner = nullptr;
@@ -813,9 +1093,13 @@ namespace Desert::Graphic::API::Vulkan
             VulkanRdgPassSetMemo            PassSets;
             std::vector<int32_t>            ProfilerScopes;
 #if DESERT_DEV_INSTRUMENTS
-            std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> CpuScopes;
+            // CPU-RDG-RECORD: its open pass's CPU row, in place (no allocation per pass); passes never nest.
+            std::optional<Common::Profiling::ScopedTimer> CpuScope;
 #endif
             std::vector<const char*> Labels; // pass names (CompileResult outlives the chunk)
+            // FPS-GPU-MARKER: the breadcrumb serial of its open pass (kNoSerial: none) and that pass's pipe.
+            uint32_t  OpenCrumb     = VulkanGpuBreadcrumbs::kNoSerial;
+            RDG::Pipe OpenCrumbPipe = RDG::Pipe::Graphics;
             // Its primary from BeginChunk until ExecuteChunk splices it (Record.CommandBuffer is nulled by a device
             // loss; this one is still ended by EndChunk).
             VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
@@ -827,6 +1111,8 @@ namespace Desert::Graphic::API::Vulkan
             // CPU-FRAME-ARENA (MEM-7): the barrier and render-pass scratch of its passes (ScratchArena). Reset by
             // BeginChunks; every user takes it under a ScopedMark, so it is empty between two calls.
             Common::Memory::FrameArena Scratch;
+            // FPS-UPLOAD-RING: its open pass's staged upload regions (PendingUploadsState); capacity reused.
+            std::vector<PendingUpload> Uploads;
         };
         // The chunk bound to the calling thread by BeginChunk, when it is this backend's; else null.
         [[nodiscard]] Chunk* BoundChunk() const noexcept
@@ -864,6 +1150,19 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::unique_ptr<Chunk>> m_Chunks; // reused across graphs; the first m_ChunkCount are this graph's
         uint32_t                            m_ChunkCount = 0;
         Common::Memory::FrameArena          m_Scratch; // ScratchArena of the thread recording without a chunk
+        // FPS-UPLOAD-RING: the staged upload regions of the open pass of the calling thread's recording - its
+        // chunk's on a worker (the same split as RecordingBuffer).
+        [[nodiscard]] std::vector<PendingUpload>& PendingUploadsState() noexcept
+        {
+            Chunk* const chunk = BoundChunk();
+            return chunk != nullptr ? chunk->Uploads : m_Uploads;
+        }
+        std::vector<PendingUpload> m_Uploads;
+        // FPS-GPU-MARKER: this graph's breadcrumb base (kNoSerial: no markers), and the open pass's serial and
+        // pipe on the thread recording without a chunk (Chunk::OpenCrumb on a worker).
+        uint32_t  m_CrumbBase     = VulkanGpuBreadcrumbs::kNoSerial;
+        uint32_t  m_OpenCrumb     = VulkanGpuBreadcrumbs::kNoSerial;
+        RDG::Pipe m_OpenCrumbPipe = RDG::Pipe::Graphics;
         static inline thread_local Chunk*   t_Chunk      = nullptr;
 
         struct FramebufferEntry
@@ -874,6 +1173,9 @@ namespace Desert::Graphic::API::Vulkan
             VkExtent2D                                   Extent{};
             uint32_t                                     Layers      = 1;
             VkFramebuffer                                Framebuffer = VK_NULL_HANDLE;
+
+            // A texture of it destroyed by the pool: its views may be reused by a new image.
+            [[nodiscard]] bool Dead() const noexcept;
         };
 
         // What vkCmdBeginRenderPass of one pass needs (PrepareRecording / BeginRenderPass).
@@ -900,6 +1202,8 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanRdgDevice&      m_Device;
         VulkanRdgPool&              m_Pool;
         VulkanRdgMemoryRequirements m_Memory;
+        // FPS-UPLOAD-RING: the frame slot's staging for UploadBuffer; BeginFrame turns it to the slot.
+        VulkanRdgUploadRing m_UploadRing;
         VkCommandBuffer             m_CommandBuffer = VK_NULL_HANDLE; // the open segment's (or the graph tail's)
         RecordingListener           m_RecordingListener;
         PassBoundaryListener        m_PassBoundaryListener;
@@ -911,6 +1215,11 @@ namespace Desert::Graphic::API::Vulkan
         RDG::PassFaultReporter m_FaultReporter;
         // RDG-RECORD-COMPILE-CACHE: the compiled plans of this backend's graphs; counts its frames in BeginFrame.
         RDG::CompileCache m_CompileCache;
+        // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): the queue of each AsyncCompute pass from measured GPU times.
+        // BeginGraph notes each graph's plan; BeginFrame rebalances once per published profiler window (the
+        // window the profiler averaged, m_BalanceWindow: its PublishCount), from the passes' GPU self times.
+        RDG::AsyncBalance m_AsyncBalance;
+        uint64_t          m_BalanceWindow = 0;
         // Bound by BeginFrame for the frame being recorded (A1: transients and descriptors; B2: queues).
         uint32_t                     m_FrameSlot   = 0;
         const VulkanRdgQueueSet*     m_Queues      = nullptr;
@@ -921,6 +1230,13 @@ namespace Desert::Graphic::API::Vulkan
         // The graph holds the shared transient heaps after an earlier graph
         // (VulkanRdgTransientAllocator::ReserveGraphHeaps): its first command buffer opens with a memory barrier.
         bool m_SharedHeapBarrierPending = false;
+        // CPU-RDG-RECORD (F6): a chunk was spliced last and the segment has no buffer recording on this thread
+        // (VulkanRdgSegmentRecorder::SpliceChunk). Every calling-thread entry point that records calls
+        // ResumeSegment first, which begins the continuation then; a failed begin leaves no buffer recording
+        // and is reported by EndPipeSegment (m_ResumeFailure), the passes in between see no command buffer.
+        bool        m_ContinuationPending = false;
+        std::string m_ResumeFailure;
+        void        ResumeSegment();
         void RecordSharedHeapBarrier( VkCommandBuffer commandBuffer );
         // A GPU row around the graph's commands outside every pass ("RDG Barriers: <graph> | <what>"); -1 when
         // there is no profiler. EndGraphCommandsScope ignores -1.
@@ -955,11 +1271,15 @@ namespace Desert::Graphic::API::Vulkan
         // only when that structure changes - never because a pass name carries this frame's counts.
         std::map<std::string, std::vector<uint32_t>, std::less<>> m_AsyncSegmentsLogged;
 #if DESERT_DEV_INSTRUMENTS
-        std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
+        // CPU row of the open pass, in place (CPU-RDG-RECORD: no allocation per pass); passes never nest.
+        std::optional<Common::Profiling::ScopedTimer> m_CpuScope;
 #endif
         std::optional<RdgRenderPassKey>          m_OpenRenderPass;
         std::map<RdgRenderPassKey, VkRenderPass> m_RenderPasses;
-        std::vector<FramebufferEntry>            m_Framebuffers;
+        // FPS-CPU-DEBT-TAIL (UE FRenderTargetPool / framebuffer cache): by FramebufferHash of (render pass, views,
+        // extent, layers); ResolveRenderPass compares the entries of its hash and drops a found dead one, and
+        // BeginFrame sweeps the dead ones once per frame (never per graph).
+        std::unordered_multimap<uint64_t, FramebufferEntry> m_Framebuffers;
         // By CompiledPass::Pass, this graph only (PrepareRecording; Release clears it).
         std::vector<PreparedRenderPass> m_PreparedRenderPasses;
         // A render pass resolved while passes record (BeginRenderPass of an unprepared pass).

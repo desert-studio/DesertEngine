@@ -47,6 +47,8 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, FreeList );
         DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
         DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        // Compact 0 copies Position into PreviousPosition (the tick's motion start, ParticleCompact.shader).
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -491,7 +493,12 @@ namespace Desert::Graphic::System
             const bool          reset = compact == 0 && gpu.NeedsReset;
             const uint32_t      flags =
                  ( compact == 0 ? kParticleCompactFullScan : 0u ) | ( reset ? kParticleCompactReset : 0u );
-            const ParticleCompactPush push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags ) };
+            ParticleCompactPush push;
+            push.Range = glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags );
+            // Compact 0 starts the tick's motion: PreviousPosition = Position (UE Particles.Previous.Position).
+            if ( compact == 0 )
+                push.PreviousCopy =
+                     glm::uvec4( gpu.DrawColumns.Columns0.x, gpu.DrawColumns.Columns3.x, 0u, 0u );
             RDG::PassBindings         bindings( context, context.GetBindingBlock( block++ ) );
             bindings.PushConstants( &push, sizeof( push ) );
             // Compact 0 rebuilds the lists from the whole range; a later one scans the touched particles only,
@@ -525,6 +532,8 @@ namespace Desert::Graphic::System
                  .Storage( ParticleCompactShaderParameters::FreeList, m_Pool.FreeRef, RDG::Access::StorageWrite )
                  .Storage( ParticleCompactShaderParameters::AliveList, m_Pool.AliveRef, RDG::Access::StorageWrite )
                  .Storage( ParticleCompactShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::AttributeFloats, ve.FloatsRef,
+                           RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleCompactPush ) ) );
             if ( compact > 0 )
                 pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );

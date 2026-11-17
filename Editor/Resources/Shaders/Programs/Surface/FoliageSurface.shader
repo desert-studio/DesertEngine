@@ -130,7 +130,7 @@ Shader "FoliageSurface"
                                             Material.UVRotation );
             s.BaseColor = SurfaceBaseColor( Material.AlbedoColor.rgb,
                                         SurfaceSampleMaterial( Material.AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
-            const ivec2 normalSize = BindlessTextureSize( Material.NormalTexture, 0 );
+            const ivec2 normalSize = BindlessTextureExtent( Material.NormalTexture );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceScaleTangentNormal( SurfaceSampleTangentNormal( Material.NormalTexture, uv ), Material.NormalScale );
             const vec3 orm = SurfaceResolveORM( SurfaceSampleMaterial( Material.OrmTexture, uv ).rgb, Material.AOStrength,
@@ -152,10 +152,10 @@ Shader "FoliageSurface"
             // UE CustomData.a = the material's Opacity, the leaf's subsurface density for the contact shadows (the
             // mask above discards; what survives is opaque, UE's Opacity default 1).
             s.CustomData3       = s.Opacity;
-            s.SampledTextureCount = float( int( BindlessTextureSize( Material.AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
-                                           int( BindlessTextureSize( Material.OpacityTexture, 0 ).x > 1 ) +
-                                           int( BindlessTextureSize( Material.OrmTexture, 0 ).x > 1 ) +
-                                           int( BindlessTextureSize( Material.EmissiveTexture, 0 ).x > 1 ) );
+            s.SampledTextureCount = float( int( BindlessTextureExtent( Material.AlbedoTexture ).x > 1 ) + int( normalSize.x > 1 ) +
+                                           int( BindlessTextureExtent( Material.OpacityTexture ).x > 1 ) +
+                                           int( BindlessTextureExtent( Material.OrmTexture ).x > 1 ) +
+                                           int( BindlessTextureExtent( Material.EmissiveTexture ).x > 1 ) );
             return s;
         }
     }

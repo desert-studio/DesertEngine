@@ -326,6 +326,12 @@ namespace Desert::Graphic
                                                        offset, count, countOffset, maxDraws, hiddenSubmeshMask );
     }
 
+    Common::BoolResultStr Renderer::RenderMeshIndirectCountBins( const RDG::PassBindings&       bindings,
+                                                                 const std::span<const BinDraw> bins )
+    {
+        return s_RendererAPI->RenderMeshIndirectCountBins( bindings, bins );
+    }
+
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
         s_RendererAPI->ComputeImageBeginWrite( image );

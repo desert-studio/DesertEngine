@@ -38,8 +38,10 @@ namespace Desert::Engine
      *    graphics API): a graph a panel records during its draw lands after the scene, not inside its segment;
      *  - at the frame boundary, with one frame of lag (SyncPreviousFrame, Application::Run step 4b): frame N-1's
      *    jobs - its begin, views, interface, submit and present - are done before frame N's interface is
-     *    painted; and before a swapchain rebuild, only when one is pending (step 2, SwapChain::RebuildPending).
-     * After the wait it runs, in order, the commands the game thread deferred with AfterJoin().
+     *    painted (GameRenderPipelining off; on, frame N-2's are, and N-1's before N+1's first view bracket:
+     *    the interface of N overlaps N-1's interface draw, submit and present); and before a swapchain rebuild,
+     * only when one is pending (step 2, SwapChain::RebuildPending). After the wait it runs, in order, the commands
+     * the game thread deferred with AfterJoin().
      *
      * WHAT A JOB MAY READ. Only what the game thread handed it before Enqueue and does not write until the next
      * Join: the renderer's own per-frame copies (BeginScene snapshots the camera and the world parameters; the
@@ -119,13 +121,33 @@ namespace Desert::Engine
         // lag, is SyncPreviousFrame (Application::Run step 4b). ThreadMain checks the rule from the other side: a
         // job of frame F that starts after F was submitted is an error.
         void FrameEndSync();
-        // GAME THREAD. THE FRAME BOUNDARY WITH ONE FRAME OF LAG (UE FFrameEndSync, bAllowOneFrameThreadLag):
-        // returns when every job of a frame BEFORE the game thread's current one (GetGameFrameCount) has
-        // finished - frame N-1's views, interface, submit and present - while frame N's own jobs (its frame begin)
-        // keep running, then runs the commands deferred behind that work (AfterJoin) in order. Application::Run
-        // calls it once per iteration after the layers' update, so the head and the tick of frame N overlap frame
-        // N-1's render work. No-op off the game thread.
-        void SyncPreviousFrame();
+        // GAME THREAD. THE FRAME BOUNDARY WITH ONE FRAME OF LAG (UE FFrameEndSync, bAllowOneFrameThreadLag).
+        // Application::Run calls it once per iteration after the layers' update (step 4b), before the interface.
+        //  - GameRenderPipelining off (today's order): returns when every job of a frame BEFORE the game thread's
+        //    current one (GetGameFrameCount) has finished - frame N-1's views, interface, submit and present -
+        //    while frame N's own jobs keep running. The interface of N is painted after N-1 is out.
+        //  - GameRenderPipelining on (FPS-GAME-RENDER-PIPE, UE: the game thread's whole frame N, Slate included,
+        //    runs while the rendering thread finishes N-1; FFrameEndSync bounds the lead): returns when every job
+        //    of a frame before N-1 has finished. The interface of N is painted while N-1's interface draw, submit
+        //    and present still record; the lead stays ONE frame because the next tick's first view bracket
+        //    (SceneRenderer::BeginScene -> JoinViews) waits for frame N's views, which run behind all of N-1, and
+        //    step 3's slot wait waits for N-k's submission (WaitFrameSubmitted).
+        // Then runs, in order, the commands deferred behind work that has finished (AfterJoin). Returns the frame
+        // before which every job has finished (UINT64_MAX: nothing in flight): the presented notifications of
+        // those frames may be announced. No-op off the game thread (returns 0: nothing is known finished).
+        uint64_t SyncPreviousFrame();
+        // GAME THREAD. Returns when frame @p frame's jobs - its submit and present the last of them - have
+        // finished (Application::Run step 3: the slot of frame N-k is waited only once N-k was submitted). The
+        // targeted form of the Join that step used: the frames after it keep recording. No-op off the game thread.
+        void WaitFrameSubmitted( uint64_t frame );
+        // THE PIPELINING SWITCH (palette RenderPipeline."GameRenderPipelining 0/1"; on by default). Off: the
+        // frame boundary waits for frame N-1 before the interface of N is painted (the order before
+        // FPS-GAME-RENDER-PIPE, the frame-compare reference). Joins first.
+        void               SetGameRenderPipelining( bool pipelined );
+        [[nodiscard]] bool GameRenderPipelining() const noexcept
+        {
+            return m_Pipelined.load( std::memory_order_relaxed );
+        }
         // GAME THREAD. Scene::OnUpdate's fence for ANOTHER world's views: joins unless every job in flight was
         // enqueued under @p owner (ScopedOwner) or is the frame's own work (FrameOwner). This world's views of the
         // previous frame keep recording under its tick; a job with no owner is treated as foreign.
@@ -225,7 +247,10 @@ namespace Desert::Engine
         [[nodiscard]] bool OnlyViewCommandsDeferred() const noexcept;
         // Under m_Mutex: every job of a frame before @p frame has finished.
         [[nodiscard]] bool FramesBeforeDone( uint64_t frame ) const;
-        void               RunDueCommands( uint64_t currentFrame );
+        // Under m_Mutex: the first frame with a job queued or running (UINT64_MAX: none) - every frame before it
+        // has finished.
+        [[nodiscard]] uint64_t FirstUnfinishedFrame() const noexcept;
+        void                   RunDueCommands( uint64_t doneBefore );
 
         void               ThreadMain();
         void               EnsureThread();
@@ -245,6 +270,7 @@ namespace Desert::Engine
         std::atomic<bool>            m_InFlight{ false };
         std::atomic<bool>            m_Overlapped{ false };
         std::atomic<bool>            m_Serial{ false };
+        std::atomic<bool>            m_Pipelined{ true };
         std::atomic<std::thread::id> m_GameThread{};
 
         // Game thread only.

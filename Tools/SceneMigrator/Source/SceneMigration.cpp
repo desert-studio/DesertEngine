@@ -1523,6 +1523,64 @@ namespace Desert::Migration
         return report;
     }
 
+    GrassRasterPathReport MigrateGrassRasterPathV74ToV75( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr int         kScalability      = static_cast<int>( Core::GrassRasterPath::Scalability );
+        constexpr int         kVisibilityBuffer = static_cast<int>( Core::GrassRasterPath::VisibilityBuffer );
+        GrassRasterPathReport report;
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           const auto           former   = settings.get( "GrassVisibilityBuffer" );
+                           if ( !former.has_value() )
+                               return false;
+                           const auto flag = former.value().to_bool();
+                           if ( !flag.has_value() )
+                           {
+                               report.Refused.push_back( std::format(
+                                    "{}: PostProcessVolume.Settings.GrassVisibilityBuffer {} is not a bool", who,
+                                    rfl::json::write( former.value() ) ) );
+                               return false;
+                           }
+                           int path = kScalability;
+                           if ( flag.value() )
+                               path = kVisibilityBuffer;
+                           DropKey( settings, "GrassVisibilityBuffer" );
+                           settings["GrassRaster"] = rfl::Generic( path );
+                           ++report.Restated;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities )
     {
         DisplayTransferReport report;
@@ -4712,6 +4770,18 @@ namespace Desert::Migration
                 }
             }
 
+            // The grass raster path (FPS-GRASS-VISBUF): the same PostProcessVolume keys, after the v74 step.
+            if ( statedSceneVersion < kSceneVersionGrassRasterPath )
+            {
+                report.GrassRasterPathRaised = true;
+                report.GrassRasterPath       = MigrateGrassRasterPathV74ToV75( entities );
+                if ( !report.GrassRasterPath.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.GrassRasterPath.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -5720,9 +5790,12 @@ namespace Desert::Migration
         scene.UnitVersion  = std::nullopt;
 
         // Scene-only, after the stamp (MigrationHeader restates the header): it reads what every step left stated.
-        if ( statedSceneVersion < kSceneVersionSceneDependencies )
+        // Re-gathered on EVERY raise, not only from below kSceneVersionSceneDependencies: any later step may add,
+        // drop or retarget a reference, and the list must be the one the save writes for the entities as they
+        // now stand (Core::GatherSceneDependencies).
+        if ( statedSceneVersion < kSceneVersion )
         {
-            report.SceneDependenciesRaised = true;
+            report.SceneDependenciesRaised = statedSceneVersion < kSceneVersionSceneDependencies;
             report.SceneDependencies       = MigrateSceneDependenciesV51ToV52( scene, assetsRoot );
             if ( !report.SceneDependencies.Refused.empty() )
             {

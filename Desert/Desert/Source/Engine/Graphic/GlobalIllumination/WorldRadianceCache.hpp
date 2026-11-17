@@ -18,8 +18,8 @@
 #include <vector>
 
 // THE WORLD RADIANCE CACHE, RUNNING (GI-RADIANCE-CACHE) — the update of RadianceCache.hpp's interface, ported from
-// UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Six compute passes a
-// frame (Programs/GlobalIllumination/RadianceCache*.shader):
+// UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Seven compute passes
+// a frame (Programs/GlobalIllumination/RadianceCache*.shader):
 //   Mark      the cells this frame's readers interpolate are stamped "used": the G-buffer pixels, which are where
 //             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel).
 //   Update    entries whose probe belongs to another world cell (the clipmap scrolled) or that went unread for
@@ -27,6 +27,9 @@
 //   Allocate  used empty entries take a slot; every used probe is ranked (new of the coverage, new of the
 //             fallback, lights changed, then age of its last trace) into the priority histogram.
 //   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list.
+//   Place     each listed probe is moved out of geometry once (one thread a probe, UE's probe placement before
+//             TraceFromProbes): its offset, which Trace's rays start from (FPS-RC-TRACE2: Trace's every 8x8 tile
+//             ran the walk behind a barrier). A tracer permutation as Trace's, acquired with it.
 //   Trace     each listed probe traces its octahedral texels through the GI ray contract (Common/GITracing.glslh:
 //             the pipeline's tracer, the hit lit in place, the sky on a miss) into the radiance atlas, blended
 //             with its history. Its program is the permutation of TracerVariant( Pipeline ) and its tracer reads
@@ -158,22 +161,23 @@ namespace Desert::Graphic::GlobalIllumination
         WorldRadianceCache( const WorldRadianceCache& )            = delete;
         WorldRadianceCache& operator=( const WorldRadianceCache& ) = delete;
 
-        // The five tracer-independent shaders and pipelines; Trace's is acquired per tracer permutation on the
-        // first update (EnsureTraceProgram). An error names what is missing.
+        // The five tracer-independent shaders and pipelines; Place's and Trace's are acquired per tracer
+        // permutation on the first update (EnsureTraceProgram). An error names what is missing.
         [[nodiscard]] Common::BoolResultStr Initialize();
-        // The Trace program compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline changes.
+        // The Place and Trace programs compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline
+        // changes.
         // Public so the view asks for it before the update and refuses the GI methods of that tracer by name
         // when it does not build (SceneRenderer::AddFrameTracedGI); AddUpdatePasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
-        // Every variant EnsureTraceProgram can acquire: Trace under each tracer permutation (TracerProgramVariants),
-        // cooked by the package (PackageCook CookShaderVariants).
+        // Every variant EnsureTraceProgram can acquire: Place and Trace under each tracer permutation
+        // (TracerProgramVariants), cooked by the package (PackageCook CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
-        // The update of one frame, its six passes added to @p graph. The cache is (re)built when @p shape differs
-        // from the last frame's (a quality change): every probe is traced again. A significant change of the
-        // directional lights (InvalidatesLightingHistory) makes the frame a FULL UPDATE (UE
+        // The update of one frame, its seven passes added to @p graph. The cache is (re)built when @p shape
+        // differs from the last frame's (a quality change): every probe is traced again. A significant change of
+        // the directional lights (InvalidatesLightingHistory) makes the frame a FULL UPDATE (UE
         // r.Lumen.RadianceCache.ForceFullUpdate): every used probe is traced in it, its history dropped.
         [[nodiscard]] Common::ResultStr<RadianceCacheFrame>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
@@ -192,6 +196,7 @@ namespace Desert::Graphic::GlobalIllumination
             Update,
             Allocate,
             Select,
+            Place,
             Trace,
             Filter,
             PassCount
@@ -202,7 +207,7 @@ namespace Desert::Graphic::GlobalIllumination
         std::array<std::shared_ptr<Shader>, PassCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, PassCount> m_Pipelines;
         mutable std::array<ShaderBindingLayoutCache, PassCount> m_Layouts;
-        Pipeline                                                m_TraceProgramFor{}; // what m_Shaders[Trace] is
+        Pipeline m_TraceProgramFor{}; // what m_Shaders[Place / Trace] are
 
         // Persistent state (StorageBuffer persistent = true: one device buffer every frame writes).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Indirection;

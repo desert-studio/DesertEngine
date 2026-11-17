@@ -49,15 +49,10 @@ namespace Desert::Graphic::System
             uint32_t RealTime = 1u;
         };
 
-        Image2D* Fallback2D()
+        const std::shared_ptr<Image2D>& SharedFallback2D()
         {
             // RGBA32F because the fallback table holds only RGBA8F and RGBA32F (VulkanFallbackTextures.cpp); the
             // format is irrelevant to a branch the shader does not take.
-            return FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F ).get();
-        }
-
-        const std::shared_ptr<Image2D>& SharedFallback2D()
-        {
             return FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F );
         }
 
@@ -240,8 +235,9 @@ namespace Desert::Graphic::System
         // EVERY CLOUD SLOT IS WRITTEN ON EVERY PATH, whether the layer exists or not: a declared descriptor
         // nobody writes invalidates the set, and an invalid set skips the dispatch -- which costs the scene its
         // whole environment, not its clouds, with nothing in the log. The gate is the push constant.
-        Image3D* volumeFallback =
-             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ).get();
+        const std::shared_ptr<Image> volumeFallback =
+             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        const std::shared_ptr<Image> fallback2D = SharedFallback2D();
         if ( clouds.Params && clouds.Authored )
         {
             pipeline.SetStorageBuffer( kSkyBakeCloudParamsBinding, clouds.Params.get() );
@@ -256,38 +252,53 @@ namespace Desert::Graphic::System
                  clouds.Params != nullptr, clouds.Authored != nullptr );
         }
         const bool cloudsBound = clouds.Marched && clouds.Params != nullptr && clouds.Authored != nullptr;
-        const auto sampled     = [&pipeline]( uint32_t binding, Image* image )
-        { pipeline.SetInput( binding, image, RDG::Access::SampledCompute, RDG::SubresourceRange::All() ); };
+        // THE ROUTE'S IMAGE SET, built once here: the route is filled from it below and every faces pass declares
+        // its reads from it (AddFaces), so a bind can never be outside the pass's declaration (FPS-DEVLOST19).
+        m_FacesRouteImages.clear();
+        // @p use false (the layer is not marched) and a missing image both bind @p fallback: every declared slot
+        // is written on every path.
+        const auto sampled = [this]( uint32_t binding, bool use, const std::shared_ptr<Image>& image,
+                                     const std::shared_ptr<Image>& fallback, const char* name )
+        {
+            RouteImage route{ .Binding = binding, .Sampled = fallback, .Name = name };
+            if ( use && image != nullptr )
+                route.Sampled = image;
+            m_FacesRouteImages.push_back( std::move( route ) );
+        };
         // Every cloud input is a separate texture read through the one shared state the screen march reads the
         // same images with (kSkyBakeLinearRepeatSamplerBinding); the LUTs' state is the graph pass's (AddFaces).
         pipeline.SetSampler( kSkyBakeLinearRepeatSamplerBinding, RDG::SamplerDesc::LinearRepeat() );
 
+        static constexpr std::array<const char*, kCloudSpeciesSlots> kNoiseNames{
+             "SkyCapture.CloudNoise0", "SkyCapture.CloudNoise1", "SkyCapture.CloudNoise2",
+             "SkyCapture.CloudNoise3" };
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
-        {
-            Image3D* noise = cloudsBound ? clouds.Noise[slot].get() : nullptr;
-            sampled( kSkyBakeCloudNoiseBindings[slot], noise != nullptr ? noise : volumeFallback );
-        }
-        sampled( kSkyBakeCloudModellingBinding,
-                 cloudsBound && clouds.Modelling != nullptr ? clouds.Modelling.get() : volumeFallback );
-        sampled( kSkyBakeCloudFarWeatherBinding,
-                 cloudsBound && clouds.FarWeather != nullptr ? clouds.FarWeather.get() : Fallback2D() );
-        sampled( kSkyBakeCloudLayoutPatternBinding,
-                 cloudsBound && clouds.LayoutPattern != nullptr ? clouds.LayoutPattern.get() : Fallback2D() );
-        sampled( kSkyBakeCloudLayoutMaskBinding,
-                 cloudsBound && clouds.LayoutMask != nullptr ? clouds.LayoutMask.get() : Fallback2D() );
-        sampled( kSkyBakeCloudAuthoredAtlasBinding,
-                 cloudsBound && clouds.AuthoredAtlas != nullptr ? clouds.AuthoredAtlas.get() : volumeFallback );
-        sampled( kSkyBakeCloudSkyOcclusionBinding, cloudsBound && clouds.SkyOcclusion && clouds.SkyOcclusionVolume
-                                                        ? clouds.SkyOcclusionVolume.get()
-                                                        : volumeFallback );
+            sampled( kSkyBakeCloudNoiseBindings[slot], cloudsBound, clouds.Noise[slot], volumeFallback,
+                     kNoiseNames[slot] );
+        sampled( kSkyBakeCloudModellingBinding, cloudsBound, clouds.Modelling, volumeFallback,
+                 "SkyCapture.CloudModelling" );
+        sampled( kSkyBakeCloudFarWeatherBinding, cloudsBound, clouds.FarWeather, fallback2D,
+                 "SkyCapture.CloudFarWeather" );
+        sampled( kSkyBakeCloudLayoutPatternBinding, cloudsBound, clouds.LayoutPattern, fallback2D,
+                 "SkyCapture.CloudLayoutPattern" );
+        sampled( kSkyBakeCloudLayoutMaskBinding, cloudsBound, clouds.LayoutMask, fallback2D,
+                 "SkyCapture.CloudLayoutMask" );
+        sampled( kSkyBakeCloudAuthoredAtlasBinding, cloudsBound, clouds.AuthoredAtlas, volumeFallback,
+                 "SkyCapture.CloudAuthoredAtlas" );
+        sampled( kSkyBakeCloudSkyOcclusionBinding, cloudsBound && clouds.SkyOcclusion, clouds.SkyOcclusionVolume,
+                 volumeFallback, "SkyCapture.CloudSkyOcclusion" );
 
         // THE AUTHORED MEDIUM'S OWN RESOURCES, bound only when the medium's program declares them (the emitter
         // writes a block only for properties its functions read, and a sampler per Texture2D property).
         if ( clouds.MediumParams )
             pipeline.SetStorageBuffer( Core::kCloudMediumParamsBinding, clouds.MediumParams.get() );
         for ( std::size_t slot = 0; slot < clouds.MediumImages.size(); ++slot )
-            sampled( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
-                     clouds.MediumImages[slot] != nullptr ? clouds.MediumImages[slot].get() : Fallback2D() );
+            sampled( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ), true,
+                     clouds.MediumImages[slot], fallback2D, "SkyCapture.CloudMediumImage" );
+
+        for ( const RouteImage& route : m_FacesRouteImages )
+            pipeline.SetInput( route.Binding, route.Sampled.get(), RDG::Access::SampledCompute,
+                               RDG::SubresourceRange::All() );
         // The medium's shared state sits right after its textures (ShaderGraph's Volume-domain emitter), in the
         // state the screen march binds it with (VolumetricCloudRenderer, CloudMediumSampler).
         if ( !clouds.MediumImages.empty() )
@@ -401,7 +412,8 @@ namespace Desert::Graphic::System
         m_IrradianceHandle  = {};
         m_PrefilteredHandle = {};
         m_RadianceImage.reset();
-        m_Clouds      = {};
+        m_Clouds = {};
+        m_FacesRouteImages.clear();
         m_Next        = SkyCaptureStep::Done;
         m_RecordedEnd = SkyCaptureStep::Done;
     }
@@ -500,6 +512,7 @@ namespace Desert::Graphic::System
         // The cloud volumes and blocks the faces read: this frame's graph recorded the last face slice already,
         // and an image or buffer released here is destroyed past the frames in flight.
         m_Clouds = {};
+        m_FacesRouteImages.clear();
         return captured;
     }
 
@@ -528,6 +541,25 @@ namespace Desert::Graphic::System
         const FacesPush        push{ .Clouds = m_CloudPush, .FirstFace = firstFace, .FirstRow = firstRow };
         const RDG::SamplerDesc ownSampler = GlobalTextureFilterSampler();
 
+        // FPS-DEVLOST19: the cloud images the pipeline route samples (BindFacesRoute), declared from the SAME list
+        // the route was filled from, so the graph orders and barriers them against their writers this frame (the
+        // cloud uploads, the sky-occlusion bake) and no bind is outside the declaration. One read per graph
+        // texture: noise slots past the distinct count and the fallbacks repeat an image, and the 2D fallback may
+        // already be a block entry above (a LUT the gradient model does not have).
+        std::vector<RDG::TextureRef> routeReads;
+        routeReads.reserve( m_FacesRouteImages.size() );
+        for ( const RouteImage& route : m_FacesRouteImages )
+        {
+            const RDG::TextureRef ref = textures.Import( route.Sampled, route.Name );
+            if ( !ref.IsValid() || ref.Index == lutT.Index || ref.Index == lutM.Index ||
+                 ref.Index == distantSky.Index )
+                continue;
+            const bool seen = std::ranges::any_of( routeReads, [&ref]( const RDG::TextureRef& other )
+                                                   { return other.Index == ref.Index; } );
+            if ( !seen )
+                routeReads.push_back( ref );
+        }
+
         graph.AddPass(
              faceCount == kSkyCaptureFaceCount
                   ? std::string( "Sky Capture: Faces" )
@@ -547,6 +579,8 @@ namespace Desert::Graphic::System
                       .Storage( SkyCaptureFacesShaderParameters::outputFaces, radiance, RDG::Access::StorageWrite,
                                 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( FacesPush ) ) );
+                 for ( const RDG::TextureRef ref : routeReads )
+                     pass.Read( ref, RDG::Access::SampledCompute );
              },
              [pipeline = program.Pipeline, push, face, faceCount,
               rowCount]( RDG::PassContext& context ) -> Common::BoolResultStr

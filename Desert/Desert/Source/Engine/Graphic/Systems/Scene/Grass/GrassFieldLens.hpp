@@ -29,6 +29,10 @@ namespace Desert::Graphic::System
         // dropped ones shrinking out (GrassMeshFarLod). Render pixels, so a lower render resolution reaches it
         // nearer: the LOD follows what the pixels can show.
         float              LodScreenPixels   = 16.0f;
+        // Foliage.GrassBladeCardHull (FPS-GRASS-HULL): a blade's raster strip spans only its card's cooked hull
+        // (Assets::GrassCardHull; UE SubUV cutout), not the whole card rect - the transparent fragments the mask
+        // would discard are never rasterised. false = the full card (the look is the same either way).
+        bool               BladeCardHull     = true;
         [[nodiscard]] bool operator==( const GrassQuality& ) const = default;
     };
 

@@ -918,6 +918,15 @@ namespace Desert::Graphic::Streamline
                   SetOptionsLocked( viewport, input, glm::mat4( 1.0f ), glm::mat4( 1.0f ), 1.0f, &bytes );
              !set )
             return Common::MakeError<uint64_t>( set.GetError() );
+        // Once per (re)creation: the network the view runs is the Scalability level's preset row for this mode
+        // (High/Epic: Default; Low/Medium: Ray Reconstruction's lighter preset, Scalability.json).
+        const std::string_view preset =
+             input.Feature == DlssFeature::RayReconstruction
+                  ? Common::Scalability::kDlssRRPresetNames[static_cast<std::size_t>( input.RRPreset )]
+                  : Common::Scalability::kDlssPresetNames[static_cast<std::size_t>( input.Preset )];
+        LOG_INFO( "[Streamline] {} viewport {}: {} mode, preset {}, {}x{} output, {} MB held",
+                  DlssFeatureName( input.Feature ), viewport, DlssModeName( input.Mode ), preset,
+                  input.OutputWidth, input.OutputHeight, bytes / ( 1024u * 1024u ) );
         return Common::MakeSuccess( bytes );
     }
 

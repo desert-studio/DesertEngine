@@ -63,6 +63,8 @@ namespace Desert::Graphic::API::Vulkan
             // filled from it is cached under them (VulkanRenderer's WriteRdgPassSets).
             uint64_t Identity = 0;
             uint64_t Version  = 0;
+            // FPS-DEVLOST16: the storage-buffer ranges Set's descriptors hold (IViewDescriptorSetCopy).
+            std::span<const IViewDescriptorSetCopy::StorageRange> StorageRanges;
         };
         Common::ResultStr<WrittenSlots> GetWrittenSlots( uint32_t frameIndex );
 

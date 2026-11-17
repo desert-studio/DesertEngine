@@ -66,6 +66,13 @@ namespace Desert::Editor
 
         constexpr int64_t           kEveryValueSpan = 64;
         std::vector<ParameterValue> values;
+        if ( spec.PowersOfTwo ) // only the legal values (Common::Scalability::IsLegalValue): 8 / 16 / 32 / 64
+        {
+            for ( int64_t p = 1; p <= static_cast<int64_t>( spec.Max ); p *= 2 )
+                if ( p >= static_cast<int64_t>( spec.Min ) )
+                    values.push_back( static_cast<ParameterValue>( p ) );
+            return values;
+        }
         if ( static_cast<int64_t>( spec.Max ) - static_cast<int64_t>( spec.Min ) <= kEveryValueSpan )
         {
             for ( ParameterValue v = spec.Min; v <= spec.Max; ++v )

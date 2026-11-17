@@ -124,7 +124,16 @@ Shader "LandscapeDiceCull"
 
             int  level = findLSB( dice );
             uint per   = uint( dice * dice * 6 );
-            uint slot  = atomicAdd( CullArgs[( Tile.w + uint( level ) ) * 4u], per ) / per;
+            uint at    = ( Tile.w + uint( level ) ) * 4u;
+            uint slot  = atomicAdd( CullArgs[at], per ) / per;
+            // FPS-DEVLOST9 (ClusterCut HwDraw's rule): a level's list holds Tile.y cells; an append past it is taken
+            // back, so the draw's vertexCount stays inside the cells written and the list never runs into the next
+            // level's or row's range.
+            if ( slot >= Tile.y )
+            {
+                atomicAdd( CullArgs[at], 0u - per );
+                return;
+            }
             uint first = uint( CurrentTerrain.DicePool.z + 0.5 );
             DiceCells[first + uint( level ) * Tile.y + slot] = uint( x ) | ( uint( z ) << 16u );
         }

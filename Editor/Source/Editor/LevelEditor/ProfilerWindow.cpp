@@ -119,7 +119,7 @@ namespace Desert::Editor
         const std::string      frameTotalScope = ::Common::Profiling::kGpuFrameTotalScope;
         const std::string_view gapPrefix       = ::Common::Profiling::kGpuGapScopePrefix;
         // The remainder rows (Profiler.hpp): published beside the passes, never one of them.
-        const auto isRemainder = [&]( const std::string& name )
+        const auto isRemainder = [&]( const std::string_view name )
         {
             return name == frameTotalScope || name == ::Common::Profiling::kGpuUnaccountedGraphicsScope ||
                    name == ::Common::Profiling::kGpuUnaccountedAsyncScope ||
@@ -151,6 +151,10 @@ namespace Desert::Editor
         prof.ReleaseCapture(); // this dump read the held capture: time windows resume
         LOG_INFO( "[Profiler] Frame (wall) {:.3f} ms ({:.0f} FPS), GPU frame {:.3f} ms", frameMs, fps,
                   gpuFrameMs );
+        // ARCH-AUDIT C: the C++ heap per frame, every thread (Common/Core/Memory/AllocationCounter.hpp).
+        LOG_INFO( "[Profiler] heap allocs/frame {:.0f} (max {}), bytes/frame {:.0f} KB, frees/frame {:.0f}",
+                  prof.LastFrameAllocations(), prof.LastFrameAllocationsMax(),
+                  prof.LastFrameAllocatedBytes() / 1024.0, prof.LastFrameFrees() );
         // GRASS-VRAM-BUDGET-1: the device-local memory the last sampled frame ran in (MemoryWatch). A frame past
         // its budget is paged by the driver, and the GPU times below then say nothing about their passes.
         if ( const uint64_t budget = Graphic::MemoryWatch::LastDeviceLocalBudget(); budget != 0u )
@@ -270,7 +274,7 @@ namespace Desert::Editor
         for ( const Common::Profiling::HitchFrame& hitch : prof.LastHitches() )
         {
             std::string top;
-            for ( const auto& [name, selfMs] : hitch.Top )
+            for ( const auto& [name, selfMs] : hitch.TopRows() )
             {
                 if ( !top.empty() )
                     top += ", ";
@@ -380,6 +384,11 @@ namespace Desert::Editor
              "[Profiler] Grass full {} camera {} post {} cascades {} (instances drawn, {} varieties read back "
              "frames in flight late) generated {} (varieties generated this frame)",
              grass.Full, grass.Camera, grass.Post, cascades, grass.Varieties, grass.Generated );
+        // FPS-GRASS-VIS: what "Grass: Visibility Raster" rasterises - the camera's phase-1 instances and triangles,
+        // blades (by strip level) and mesh grass (by LOD) apart.
+        LOG_INFO( "[Profiler] Grass raster blades {} instances {} triangles | meshes {} instances {} triangles "
+                  "(camera phase 1, frames in flight late)",
+                  grass.BladeCamera, grass.BladeTriangles, grass.MeshCamera, grass.MeshTriangles );
         // GPU-CULL: the binned meshes' two-phase occlusion read as numbers (SceneRenderer::GetDrawBinPhaseCounts,
         // frames in flight late), per culled view: drawn = phase 1 (in view, not held back by last frame's HZB) +
         // phase 2 (found visible in this frame's), against the frustum-only count (drawn + occluded).
@@ -430,15 +439,16 @@ namespace Desert::Editor
                  rays[0], rays[5], rays[1], rays[2], rays[3], rays[4] );
             // GPU-FARFIELD-1: what the far-field leg's own trace did with its rays (ScreenProbeMissReasons
             // [6..8]); GPU-FARFIELD-3: the global field's steps of its marches and of the hit-lighting leg
-            // [9..11].
+            // [9..11]; GPU-FARFIELD-5: that leg's card-held hits [12].
             const double stepsPerRay = rays[6] > 0u ? static_cast<double>( rays[9] ) / rays[6] : 0.0;
             const double stepsPerHit = rays[10] > 0u ? static_cast<double>( rays[11] ) / rays[10] : 0.0;
             LOG_INFO(
                  "[Profiler] ScreenProbes far field rays: listed {} global-field hit {} outside the cache {} | "
-                 "steps {} ({:.1f} a ray) | lit in place {} (hit-lighting leg, steps {}, {:.1f} a hit) (a frame, "
-                 "frames in flight late; a hit is lit by the cards, or in place by the hit-lighting leg with one "
-                 "global-field shadow march per directional light; outside = marched to the full trace distance)",
-                 rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[11], stepsPerHit );
+                 "steps {} ({:.1f} a ray) | hit-lighting leg {} (card-held {}, steps {}, {:.1f} a hit) (a frame, "
+                 "frames in flight late; a hit is lit in the hit-lighting leg by the cards, else in place with "
+                 "one global-field shadow march per directional light; outside = marched to the full trace "
+                 "distance)",
+                 rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[12], rays[11], stepsPerHit );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the

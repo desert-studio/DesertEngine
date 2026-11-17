@@ -111,8 +111,13 @@ namespace Desert::Graphic::API::Vulkan
         // PresentModes list is what the surface offers, and Scalability::ResolvePresentMode is the one walk
         // (VSync on -> FIFO; off -> IMMEDIATE, else MAILBOX, else FIFO with a reason). The swapchain no longer
         // walks the surface's modes itself, so the settings UI, the resolver and the swapchain cannot disagree.
-        const Common::Scalability::ResolvedPresentMode present = Common::Scalability::ResolvePresentMode(
-             m_Display, EngineContext::GetInstance().GetCapabilities().Catalog );
+        // ARCH-AUDIT A: the copy it reads is the one ProbeSurface just republished (VulkanPhysicalDevice::
+        // PublishCatalog -> EngineContext::RefreshCapabilities), not the FIFO-only one taken at device creation;
+        // the verify is the census that the two never drift apart again.
+        const auto& presentCatalog = EngineContext::GetInstance().GetCapabilities().Catalog;
+        DESERT_VERIFY( presentCatalog.PresentModes == vkLogicalDevice->GetCapabilities().Catalog.PresentModes );
+        const Common::Scalability::ResolvedPresentMode present =
+             Common::Scalability::ResolvePresentMode( m_Display, presentCatalog );
         VkPresentModeKHR swapchainPresentMode = VK_PRESENT_MODE_FIFO_KHR;
         switch ( present.Mode )
         {

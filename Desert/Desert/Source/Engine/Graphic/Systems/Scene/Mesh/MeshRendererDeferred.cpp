@@ -127,6 +127,8 @@ namespace Desert::Graphic::System
         m_MaskedDepthDraws.Clear();
         m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
         m_MaskedPrepassedPost.clear(); // phase 2's: "Grass: Depth Prepass Post-Occlusion" refills it this frame
+        m_MaskedPrepassedKeys.Clear();
+        m_MaskedPrepassedPostKeys.Clear();
         // This frame's admissions start empty here, whatever returns below: the G-buffer reads only a set stamped
         // with its own frame (PrepassCellDraw), and only when the static / skinned halves below ran.
         m_PrepassCellDraws.clear();
@@ -138,6 +140,7 @@ namespace Desert::Graphic::System
         m_EarlyZPostFrame.reset();
         // This frame's grass visibility sections, decided before the prepass and the G-buffer skip them (GRASS-VIS).
         m_GrassVisibilitySections.clear();
+        m_GpuInstancedViaVisibility.Clear(); // the set's keys, filled with it (BuildGpuInstancedDraws asks them)
         m_GrassVisibilityMeshSections = 0;
         if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
              m_SceneRenderer != nullptr && m_SceneRenderer->GetMainCamera() != nullptr )
@@ -147,6 +150,7 @@ namespace Desert::Graphic::System
                      GrassVisibilityReady( gpu ) )
                 {
                     m_GrassVisibilitySections.push_back( gpu.Key );
+                    m_GpuInstancedViaVisibility.Insert( gpu.Key, 0u );
                     if ( gpu.Path == MeshVertexPath::Instanced )
                         ++m_GrassVisibilityMeshSections;
                 }
@@ -561,6 +565,153 @@ namespace Desert::Graphic::System
         return m_MaskedDepthDraws.Record( context );
     }
 
+    bool MeshRenderer::SetFrameEarlyZOccluders( const GpuDriven::CulledDraws&        culled,
+                                                const GpuDriven::DrawCommandBuffers& upload,
+                                                const GpuDriven::GpuSceneBuffers&    scene )
+    {
+        m_EarlyZOccluderIssue.reset();
+        m_EarlyZOccluderFrame.reset();
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( !m_DrawCommandCache || frame == nullptr )
+            return false;
+        const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( GpuDriven::MeshPass::GBuffer );
+        MeshRendererDetail::BinnedIssue issue;
+        issue.Table              = &table;
+        issue.Culled             = culled;
+        issue.Instances          = scene.Instances;
+        issue.DrawSlots          = upload.Passes[static_cast<size_t>( GpuDriven::MeshPass::GBuffer )].DrawSlots;
+        issue.SubmeshTransforms  = upload.SubmeshTransforms;
+        const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+        issue.Mode =
+             GpuDriven::SelectIndirectSubmission( { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
+                                                    .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } );
+        // The carriers and pipelines are chosen per group by DeclareOccluderDepthDraws (the depth cells').
+        issue.GroupCarriers.assign( table.Groups.size(), nullptr );
+        m_EarlyZOccluderIssue = std::move( issue );
+        m_EarlyZOccluderFrame = frame->FrameIndex;
+        return true;
+    }
+
+    const GraphicsPipeline* MeshRenderer::EarlyZOccluderTwinOf( EarlyZOccluderSlot&             slot,
+                                                                const GpuDriven::IndirectGroup& group )
+    {
+        if ( slot.Refused )
+            return nullptr;
+        std::shared_ptr<GraphicsPipeline> depth = slot.Depth.lock();
+        if ( !depth )
+        {
+            const std::shared_ptr<Shader>&      cell  = group.Pipeline->GetSpecification().Shader;
+            const std::string&                  name  = cell->GetName();
+            const std::optional<MeshVertexPath> path  = MeshCellPath( name );
+            const GraphicsPipeline*             state = nullptr;
+            if ( path == MeshVertexPath::Static )
+                state = m_StaticDepthPipeline.get();
+            else if ( path == MeshVertexPath::Instanced )
+                state = m_InstancedDepthPipeline.get();
+            else if ( path == MeshVertexPath::Skinned )
+                state = m_SkinnedDepthPipeline.get();
+            const std::string_view           templ = std::string_view( name ).substr( 0, name.find( '/' ) );
+            const std::optional<std::string> depthCell =
+                 path ? MeshShaderFor( templ, *path, MeshPass::Depth ) : std::nullopt;
+            auto* const                   shaders     = Runtime::ResourceRegistry::GetShaderService();
+            const std::string             depthBinned = depthCell ? BinnedCellOf( *depthCell ) : std::string();
+            const std::shared_ptr<Shader> depthShader =
+                 shaders != nullptr && !depthBinned.empty() ? shaders->GetByName( depthBinned ) : nullptr;
+            if ( state == nullptr || !depthShader )
+            {
+                slot.Refused = true;
+                if ( m_BinnedRefused.insert( name + "|occluder" ).second )
+                    LOG_WARN( "[MeshRenderer] G-buffer bin '{}' has no depth cell for its path ('{}'): it is no "
+                              "occluder of the masked depth prepass",
+                              name, depthBinned );
+                return nullptr;
+            }
+            depth = EarlyZTwinPipeline( depthShader, *state, group.Pipeline->GetSpecification().CullMode,
+                                        depthBinned );
+            if ( !depth )
+            {
+                slot.Refused = true;
+                return nullptr;
+            }
+            slot.Depth = depth;
+        }
+        if ( depth->GetReadiness() == PipelineReadiness::Failed )
+        {
+            slot.Refused = true;
+            return nullptr;
+        }
+        return depth->GetReadiness() == PipelineReadiness::Ready ? depth.get() : nullptr;
+    }
+
+    void MeshRenderer::DeclareOccluderDepthDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_OccluderDepthDraws.Clear();
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        std::unordered_map<const GraphicsPipeline*, EarlyZOccluderSlot> kept;
+        if ( DrawsEarlyZOccluders() && m_EarlyZOccluderIssue && frame != nullptr &&
+             m_EarlyZOccluderFrame == frame->FrameIndex )
+        {
+            DESERT_PROFILE_SCOPE( "Mesh: Occluder depth setup" );
+            MeshRendererDetail::BinnedIssue                depth  = std::move( *m_EarlyZOccluderIssue );
+            const std::vector<GpuDriven::IndirectGroup>&   groups = depth.Table->Groups;
+            const SceneFrameBinding                        state  = CaptureFrameState( frame );
+            depth.GroupPipelines.assign( groups.size(), nullptr );
+            depth.GroupCarriers.assign( groups.size(), nullptr );
+            depth.VirtualGeometry.reset();
+            bool any = false;
+            for ( size_t group = 0; group < groups.size(); ++group )
+            {
+                const GpuDriven::IndirectGroup& indirect = groups[group];
+                if ( indirect.BinCount == 0u || indirect.Pipeline == nullptr )
+                    continue;
+                const GraphicsPipelineSpecification& spec = indirect.Pipeline->GetSpecification();
+                if ( !spec.Shader || !spec.DepthWriteEnabled )
+                    continue;
+                // Only a group the G-buffer draws opaque with its own depth write over the geometric depth: not
+                // translucent, not one the early-Z pass admits (the masked prepass draws it), no parallax cell (its
+                // pixel depth offset is not the depth cell's).
+                const Core::Formats::SurfaceBlendMode blend = spec.Shader->GetProgramMeta().Blend;
+                const std::string&                    name  = spec.Shader->GetName();
+                if ( Core::Formats::IsTranslucentBlend( blend ) || EarlyZAdmitsCell( blend, name ) ||
+                     IsParallaxCell( BinnedBaseOf( name ) ) ||
+                     ShadowCasterCellFor( blend, false ) == ShadowCasterCell::Own )
+                    continue;
+                EarlyZOccluderSlot& slot = m_EarlyZOccluderTwins[indirect.Pipeline];
+                if ( slot.GroupShader.lock() != spec.Shader )
+                    slot = EarlyZOccluderSlot{ .GroupShader = spec.Shader };
+                kept.insert( { indirect.Pipeline, slot } );
+                const GraphicsPipeline* const twin = EarlyZOccluderTwinOf( slot, indirect );
+                kept[indirect.Pipeline] = slot;
+                if ( twin == nullptr )
+                    continue;
+                std::string                   error;
+                const MaterialExecutor* const carrier =
+                     PrepareBinnedCarrier( twin->GetSpecification().Shader, kBinnedMainView, state, error );
+                if ( carrier == nullptr )
+                {
+                    if ( m_BinnedRefused.insert( error ).second )
+                        LOG_ERROR( "[MeshRenderer] {}; that G-buffer bin is no occluder of the masked depth prepass",
+                                   error );
+                    continue;
+                }
+                depth.GroupPipelines[group] = twin;
+                depth.GroupCarriers[group]  = carrier;
+                any                         = true;
+            }
+            if ( any )
+                m_OccluderDepthDraws.SetBinned( std::move( depth ) );
+        }
+        m_EarlyZOccluderTwins = std::move( kept );
+        m_EarlyZOccluderIssue.reset();
+        m_EarlyZOccluderFrame.reset();
+        m_OccluderDepthDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderOccluderDepthManual( const RDG::PassContext& context ) const
+    {
+        return m_OccluderDepthDraws.Record( context );
+    }
+
     void MeshRenderer::DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
                                                           const RDG::BufferRef visibility, const bool postOcclusion )
     {
@@ -620,6 +771,7 @@ namespace Desert::Graphic::System
     {
         m_GrassDepthPostDraws.Clear();
         m_MaskedPrepassedPost.clear();
+        m_MaskedPrepassedPostKeys.Clear();
         // Phase 2's grass by phase 1's rule (BuildGpuInstancedDraws' companion-less Depth call): the sections
         // EarlyZAdmits whose DEPTH_EQUAL G-buffer half is Ready write their clipped depth here, through their
         // phase-2 records, and are recorded in m_MaskedPrepassedPost for "Grass: GBuffer Post-Occlusion".
@@ -956,17 +1108,34 @@ namespace Desert::Graphic::System
                     GraphicsPipelineSpecification resolve    = ispec;
                     resolve.DebugName                        = "GrassVisibilityResolve";
                     resolve.CullMode                         = CullMode::None;
+                    // FPS-GRASS-RESOLVE: its depth target is the material depth ("Grass: Visibility Material
+                    // Depth"), its tiles at the section's own value: EQUAL, nothing written.
+                    resolve.DepthTestEnabled  = true;
+                    resolve.DepthCompareOp    = DepthCompare::Equal;
+                    resolve.DepthWriteEnabled = false;
+                    // FPS-GRASS-VIS: an opaque cell's raster writes the depth it passes
+                    // (m_InstancedVisibilityWritePipeline): the nearest fragment's depth is the word's own
+                    // (gl_FragCoord.z both), so "Grass: Visibility Depth" and the resolve write the same value and
+                    // the frame is unchanged; the blades behind it are culled by early-Z instead of each running
+                    // an atomic.
+                    GraphicsPipelineSpecification visibilityWrite = depth;
+                    visibilityWrite.DebugName                     = "GrassVisibilityRasterDepthWrite";
+                    visibilityWrite.DepthWriteEnabled             = true;
                     const auto visibilityPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( visibility );
-                    const auto resolvePipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( resolve );
-                    if ( visibilityPipeline && resolvePipeline )
+                    const auto visibilityWritePipeline =
+                         m_SceneRenderer->GetPipelineCache().GetOrCreate( visibilityWrite );
+                    const auto resolvePipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( resolve );
+                    if ( visibilityPipeline && visibilityWritePipeline && resolvePipeline )
                     {
                         m_InstancedVisibilityPipeline        = visibilityPipeline.GetValue();
+                        m_InstancedVisibilityWritePipeline   = visibilityWritePipeline.GetValue();
                         m_InstancedVisibilityResolvePipeline = resolvePipeline.GetValue();
                     }
                     else
                         LOG_ERROR( "[MeshRenderer] no grass visibility buffer path: the blades keep the G-buffer. "
-                                   "raster: {} | resolve: {}",
+                                   "raster: {} | raster (depth write): {} | resolve: {}",
                                    visibilityPipeline ? "ok" : visibilityPipeline.GetError(),
+                                   visibilityWritePipeline ? "ok" : visibilityWritePipeline.GetError(),
                                    resolvePipeline ? "ok" : resolvePipeline.GetError() );
                 }
                 if ( !refused.empty() )

@@ -503,6 +503,19 @@ namespace Desert::Editor
                                                  [names]( std::size_t i ) { return std::string( names[i] ); } ) )
                 SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
         }
+        else if ( spec.PowersOfTwo )
+        {
+            // Only the legal values (SC::IsLegalValue): a slider would land on 24 and be lowered to 16.
+            std::vector<SC::ParameterValue> powers;
+            for ( int64_t p = 1; p <= static_cast<int64_t>( spec.Max ); p *= 2 )
+                if ( p >= static_cast<int64_t>( spec.Min ) )
+                    powers.push_back( static_cast<SC::ParameterValue>( p ) );
+            const auto        at       = std::find( powers.begin(), powers.end(), requested );
+            const std::size_t selected = static_cast<std::size_t>( at - powers.begin() );
+            if ( const auto picked = ValueCombo( label.c_str(), selected, powers.size(), [&powers]( std::size_t i )
+                                                 { return std::to_string( powers[i] ); } ) )
+                SC::QualityState::SetOverride( parameter, powers[*picked] );
+        }
         else
         {
             int value = m_DraggedParameter && m_DraggedParameter->first == parameter ? m_DraggedParameter->second

@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"2359ee2c998c43d68dfaeed7c97a113f","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 2/6 — FREE (UE UpdateCacheForUsedProbes, LumenRadianceCacheUpdate.usf): one thread per
+// THE RADIANCE CACHE UPDATE, 2/7 — FREE (UE UpdateCacheForUsedProbes, LumenRadianceCacheUpdate.usf): one thread per
 // indirection entry. An entry whose probe records another world cell (the clipmap scrolled past it) or that no
 // pixel read (as its coverage or as the fallback) for RadianceCache::kProbeUnusedFramesBeforeFree frames returns its
 // slot to the free list. With Reset it instead initialises the state: every entry empty, every slot free. Each free

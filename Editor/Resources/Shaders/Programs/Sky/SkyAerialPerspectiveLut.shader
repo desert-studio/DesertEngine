@@ -17,15 +17,25 @@ Shader "SkyAerialPerspectiveLut"
         // haze and the sky above the horizon can no longer disagree, because they are one march of one
         // medium through one pair of LUTs.
         //
-        // ONE INVOCATION PER FROXEL COLUMN, not per froxel. The thread walks its ray outward carrying
-        // (luminance, transmittance) from slice to slice, so slice k's value is slice k-1's plus one
-        // segment BY CONSTRUCTION. Re-marching from the camera per slice — the obvious dispatch shape —
-        // gives neighbouring slices slightly different quadrature, and at 16 slices over 96 km that
-        // difference reads as a hard shell at each boundary that no amount of trilinear filtering hides.
+        // ONE INVOCATION PER FROXEL, ONE QUADRATURE PER COLUMN (FPS-SKY-APLUT). Slice k's value is slice
+        // k-1's plus one segment BY CONSTRUCTION: every invocation marches only ITS segment (tPrev..tNext,
+        // the same sub-steps the column walk took) from (0, 1), and the column's 16 segments are then
+        // chained in group-shared memory by the over-operator
+        //
+        //     L_k = L_k-1 + T_k-1 * Lseg_k,   T_k = T_k-1 * Tseg_k
+        //
+        // which is SkyApIntegrateSegment's own accumulation regrouped (it is linear in its luminance and
+        // transmittance inputs). Re-marching from the camera per slice — UE's dispatch shape — gives
+        // neighbouring slices slightly different quadrature, and at 16 slices over 96 km that difference
+        // reads as a hard shell at each boundary that no amount of trilinear filtering hides; this shape
+        // keeps the column's one quadrature and still spreads the march over 16384 invocations instead of
+        // 1024 serial walks of up to 128 samples (the walk was latency-bound on 16 workgroups, so any async
+        // compute sharing the GPU stretched it: 0.107 -> 0.193 ms when the upload batch forked the light
+        // grid's async run beside it).
         //
         // The maths is Common/SkyScattering.glslh (SkyApIntegrateSegment and the slice mapping),
         // compiled as C++ by the SkyScattering tests from this same text. What is left here is the
-        // froxel's ray, the walk, and a store.
+        // froxel's ray, its segment, the chain, and a store.
 
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
@@ -115,13 +125,29 @@ Shader "SkyAerialPerspectiveLut"
 
         #include <Common/SkyScattering.glslh>
 
-        LocalSize(8, 8, 1);
+        // The group: 4x4 froxel columns x the volume's 16 slices (Graphic::kAerialPerspectiveGroupColumns,
+        // and the z extent IS kAerialPerspectiveDepth / SKY_AP_VOLUME_DEPTH - the C++ side asserts both).
+        // Each column's segments meet in shared memory to be chained; one slot per invocation.
+        const int AP_GROUP_COLUMNS = 4;
+        const int AP_GROUP_SLICES  = 16;
+        const int AP_GROUP_SIZE    = AP_GROUP_COLUMNS * AP_GROUP_COLUMNS * AP_GROUP_SLICES;
+        shared vec3 s_SegmentLuminance[AP_GROUP_SIZE];
+        shared vec3 s_SegmentTransmittance[AP_GROUP_SIZE];
+        shared vec3 s_SegmentLight1Luminance[AP_GROUP_SIZE];
+
+        LocalSize(4, 4, 16);
         void main()
         {
             ivec3 size  = imageSize(AerialPerspectiveLutTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-            if (coord.x >= size.x || coord.y >= size.y)
-                return;
+            int   slice = int(gl_LocalInvocationID.z);
+            // No early return: every invocation reaches the barrier below. An invocation outside the
+            // volume (none at 32x32x16; the guard keeps an odd extent honest) marches nothing and stores
+            // nothing.
+            const bool inside = coord.x < size.x && coord.y < size.y && slice < size.z;
+            // The column's first slot: the slices of one column are AP_GROUP_COLUMNS^2 slots apart.
+            const int column = int(gl_LocalInvocationID.y) * AP_GROUP_COLUMNS + int(gl_LocalInvocationID.x);
+            const int slot   = slice * AP_GROUP_COLUMNS * AP_GROUP_COLUMNS + column;
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
@@ -172,50 +198,70 @@ Shader "SkyAerialPerspectiveLut"
             float depthKm      = max(VolumeParams.x, 0.001f);
             float startDepthKm = max(VolumeParams.y, 0.0f);
 
-            vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
-            vec3  transmittance = vec3(1.0f, 1.0f, 1.0f);
-            float tPrev         = 0.0f;
-
             // Atmosphere light 1 (the moon): its own in-scattering through the SAME air (the transmittance is
             // the medium's, not a light's), accumulated beside the sun's and summed at the store.
-            const bool light1         = UnpackLight1Present(s);
-            vec3       light1Dir      = UnpackLight1Direction(s);
-            vec3       light1Illum    = UnpackLight1Illuminance(s);
-            vec3       light1Luminance = vec3(0.0f, 0.0f, 0.0f);
+            const bool light1      = UnpackLight1Present(s);
+            vec3       light1Dir   = UnpackLight1Direction(s);
+            vec3       light1Illum = UnpackLight1Illuminance(s);
 
-            for (int slice = 0; slice < size.z; ++slice)
+            // THIS invocation's segment: from the previous slice's distance to its own (slice 0 spans
+            // nothing, as the column walk's first step did), marched from (0, 1) so the chain below can
+            // place it behind whatever the nearer slices put in front of it.
+            const vec3 zero = vec3(0.0f, 0.0f, 0.0f);
+            const vec3 one  = vec3(1.0f, 1.0f, 1.0f);
+            SkyScatterResult segment;
+            segment.Luminance     = zero;
+            segment.Transmittance = one;
+            vec3 light1Segment    = zero;
+            if (inside)
             {
-                float unitZ = float(slice) / max(float(size.z - 1), 1.0f);
-                float tNext = SkyApDistanceFromSliceUnit(unitZ, depthKm);
+                float sliceDenom = max(float(size.z - 1), 1.0f);
+                float tPrev      = SkyApDistanceFromSliceUnit(float(max(slice - 1, 0)) / sliceDenom, depthKm);
+                float tNext      = SkyApDistanceFromSliceUnit(float(slice) / sliceDenom, depthKm);
+                if (slice == 0)
+                    tPrev = tNext;
 
                 // Aerial Perspective Start Depth: everything nearer than it is simply not marched, so a
                 // surface inside that distance keeps its own colour exactly. Both ends are lifted, so a
                 // segment straddling the start contributes only its far part.
                 g_SkyCloudShadowApplies = 1.0f; // the sun: the clouds cast along it
-                SkyScatterResult acc =
-                     SkyApIntegrateSegment(atm, originKm, rayDir, sunDir, sunIlluminance,
-                                           max(tPrev, startDepthKm), max(tNext, startDepthKm), luminance,
-                                           transmittance);
+                segment = SkyApIntegrateSegment(atm, originKm, rayDir, sunDir, sunIlluminance,
+                                                max(tPrev, startDepthKm), max(tNext, startDepthKm), zero, one);
                 g_SkyCloudShadowApplies = 0.0f; // light 1: no map is cast along it
                 if (light1)
-                    light1Luminance =
-                         SkyApIntegrateSegment(atm, originKm, rayDir, light1Dir, light1Illum,
-                                               max(tPrev, startDepthKm), max(tNext, startDepthKm), light1Luminance,
-                                               transmittance).Luminance;
-                luminance     = acc.Luminance;
-                transmittance = acc.Transmittance;
-                tPrev         = tNext;
-
-                // Alpha is the MEAN of the three channels, as UE's volume stores it: the RGBA16F froxel
-                // has one lane left and the over-operator downstream takes one scalar. What is lost is
-                // the spectral reddening of the BACKGROUND (the in-scattered light keeps its own
-                // colour), which is second-order next to the light the air adds.
-                float meanTransmittance =
-                     (transmittance.r + transmittance.g + transmittance.b) / 3.0f;
-
-                imageStore(AerialPerspectiveLutTexture, ivec3(coord.x, coord.y, slice),
-                           vec4((light1 ? luminance + light1Luminance : luminance) * apTint, meanTransmittance));
+                    light1Segment = SkyApIntegrateSegment(atm, originKm, rayDir, light1Dir, light1Illum,
+                                                          max(tPrev, startDepthKm), max(tNext, startDepthKm),
+                                                          zero, one).Luminance;
             }
+            s_SegmentLuminance[slot]       = segment.Luminance;
+            s_SegmentTransmittance[slot]   = segment.Transmittance;
+            s_SegmentLight1Luminance[slot] = light1Segment;
+            barrier();
+
+            if (!inside)
+                return;
+
+            // THE CHAIN, nearest segment first - the order the column walk accumulated in. Light 1 rides the
+            // sun's transmittance: the air in front of a segment dims both lights alike.
+            vec3 luminance       = zero;
+            vec3 transmittance   = one;
+            vec3 light1Luminance = zero;
+            for (int k = 0; k <= slice; ++k)
+            {
+                const int kSlot = k * AP_GROUP_COLUMNS * AP_GROUP_COLUMNS + column;
+                luminance       = luminance + transmittance * s_SegmentLuminance[kSlot];
+                light1Luminance = light1Luminance + transmittance * s_SegmentLight1Luminance[kSlot];
+                transmittance   = transmittance * s_SegmentTransmittance[kSlot];
+            }
+
+            // Alpha is the MEAN of the three channels, as UE's volume stores it: the RGBA16F froxel
+            // has one lane left and the over-operator downstream takes one scalar. What is lost is
+            // the spectral reddening of the BACKGROUND (the in-scattered light keeps its own
+            // colour), which is second-order next to the light the air adds.
+            float meanTransmittance = (transmittance.r + transmittance.g + transmittance.b) / 3.0f;
+
+            imageStore(AerialPerspectiveLutTexture, ivec3(coord.x, coord.y, slice),
+                       vec4((light1 ? luminance + light1Luminance : luminance) * apTint, meanTransmittance));
         }
     }
 }

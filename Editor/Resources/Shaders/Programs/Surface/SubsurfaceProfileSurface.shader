@@ -47,7 +47,7 @@ Shader "SubsurfaceProfileSurface"
                                                 Material.UVRotation );
             s.BaseColor = SurfaceBaseColor( Material.AlbedoColor.rgb,
                                         SurfaceSampleMaterial( Material.AlbedoTexture, uv ).rgb, vec3( 1.0 ) );
-            const ivec2 normalSize = BindlessTextureSize( Material.NormalTexture, 0 );
+            const ivec2 normalSize = BindlessTextureExtent( Material.NormalTexture );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceScaleTangentNormal( SurfaceSampleTangentNormal( Material.NormalTexture, uv ), Material.NormalScale );
             const vec3 orm = SurfaceResolveORM( SurfaceSampleMaterial( Material.OrmTexture, uv ).rgb, Material.AOStrength,
@@ -61,9 +61,9 @@ Shader "SubsurfaceProfileSurface"
             // The SubsurfaceProfile model's payload: the profile row (UE EncodeSubsurfaceProfile) and the opacity.
             s.CustomData0       = clamp( Material.SubsurfaceProfileIndex, 0.0, 255.0 ) / 255.0;
             s.CustomData3       = Material.SubsurfaceOpacity;
-            s.SampledTextureCount = float( int( BindlessTextureSize( Material.AlbedoTexture, 0 ).x > 1 ) + int( normalSize.x > 1 ) +
-                                           int( BindlessTextureSize( Material.OrmTexture, 0 ).x > 1 ) +
-                                           int( BindlessTextureSize( Material.EmissiveTexture, 0 ).x > 1 ) );
+            s.SampledTextureCount = float( int( BindlessTextureExtent( Material.AlbedoTexture ).x > 1 ) + int( normalSize.x > 1 ) +
+                                           int( BindlessTextureExtent( Material.OrmTexture ).x > 1 ) +
+                                           int( BindlessTextureExtent( Material.EmissiveTexture ).x > 1 ) );
             return s;
         }
     }

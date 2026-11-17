@@ -156,6 +156,14 @@ namespace Desert::Graphic
     inline constexpr uint32_t kAerialPerspectiveWidth  = 32;
     inline constexpr uint32_t kAerialPerspectiveHeight = 32;
     inline constexpr uint32_t kAerialPerspectiveDepth  = 16;
+    // The fill's workgroup (Programs/Sky/SkyAerialPerspectiveLut.shader, LocalSize(4, 4, 16), AP_GROUP_COLUMNS /
+    // AP_GROUP_SLICES): 4x4 froxel columns x the WHOLE depth, because a column's slices are chained in one
+    // group's shared memory. The group's z extent is therefore kAerialPerspectiveDepth itself.
+    inline constexpr uint32_t kAerialPerspectiveGroupColumns = 4;
+    static_assert( kAerialPerspectiveGroupColumns * kAerialPerspectiveGroupColumns * kAerialPerspectiveDepth <=
+                        1024,
+                   "one aerial-perspective group holds 4x4 columns x every slice; Vulkan guarantees 128, "
+                   "every desktop GPU 1024 invocations" );
 
     // The distant sky light's extent, and the texel it holds. ONE march of 64 directions reduced once
     // (Programs/Sky/SkyDistantLight.shader):

@@ -70,6 +70,16 @@ namespace Desert::Graphic
         // Which buffer COPY each binding was last written with. A fresh set points at fallbacks, so every
         // buffer binding is owed a write — which an empty record says by construction.
         ShaderResources::DescriptorCopyRecord BoundCopies;
+        // FPS-DEVLOST16: the buffer range each storage binding's descriptor holds since the material route wrote
+        // it (the RDG check that a graph pass binding a graph buffer declared it). Handle as its 64-bit value.
+        struct StorageRange
+        {
+            uint32_t Binding = 0;
+            uint64_t Buffer  = 0;
+            uint64_t Offset  = 0;
+            uint64_t Range   = 0;
+        };
+        std::vector<StorageRange> StorageRanges;
         // CPU-RDG-PREPARE: what the last complete prepare applied to THESE sets (one view, one frame in flight);
         // empty until one did, or after one met a refusal. Each frame-in-flight copy keeps its own, so a material
         // edited once still reaches every slot: each slot's revision is behind until that slot's prepare ran.
@@ -147,6 +157,19 @@ namespace Desert::Graphic
                      "pass declares the material in its setup "
                      "(PassBuilder::Prepares)",
                      view.GetName(), frameIndex );
+            // FPS-RDG-PREPARE: the maker allocates from the view's pool chain, which has no lock of its own;
+            // makers run one at a time across threads (ViewResourceRegistry::CreationLock). Found again under
+            // it: a prepare on another worker may have filed this material's sets while this one waited.
+            // FPS-RDG-PREPARE2: `initialize` runs under it too, so a second finder never meets sets whose
+            // fallbacks are not written yet. It may write a uniform block (ViewCopiedBlock Write / Resolve): that
+            // takes the block's lock AFTER CreationLock, the one order (ViewResourceRegistry, THE LOCK HIERARCHY),
+            // and re-enters CreationLock if the block must make its copy - no inversion, no deadlock.
+            const ViewResourceRegistry::CreationScope creation;
+            if ( IViewDescriptorSetCopy* existing = FindActive( frameIndex ) )
+            {
+                out = existing;
+                return Common::MakeSuccess( true );
+            }
             std::unique_ptr<IViewDescriptorSetCopy> made;
             auto                                    created = make( view.GetName(), frameIndex, made );
             if ( !created.IsSuccess() )

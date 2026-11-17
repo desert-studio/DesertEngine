@@ -1,8 +1,11 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <format>
+#include <thread>
 #include <utility>
 
 namespace Desert::Graphic::API::Vulkan
@@ -44,6 +47,11 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgQueueObjects::~VulkanRdgQueueObjects()
     {
+        // The pools are reset before they are destroyed (a failure no longer matters), and no job still holds
+        // this object: a job left after the join only finds no claim and returns.
+        (void)JoinResets();
+        while ( m_ResetJobsPending.load( std::memory_order_acquire ) != 0 )
+            std::this_thread::yield();
         for ( const Slot& slot : m_Slots )
         {
             for ( const PipePool& pipe : slot.Pipes )
@@ -66,39 +74,115 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRdgQueueObjects::BeginFrameSlot( uint32_t slot )
     {
+        // The previous slot's resets: all joined by its first recorded buffer, unless it recorded nothing.
+        if ( Common::BoolResultStr joined = JoinResets(); !joined )
+            return joined;
         m_Slot          = slot % static_cast<uint32_t>( m_Slots.size() );
         Slot& frameSlot = m_Slots[m_Slot];
+        m_ResetList.clear();
         for ( PipePool& pipe : frameSlot.Pipes )
         {
             // A pool none of whose buffers was begun since its last reset holds only initial-state buffers:
             // resetting it again is a driver call that changes nothing (VK-SUBMIT-THREAD).
-            if ( pipe.Pool == VK_NULL_HANDLE || pipe.Used == 0 )
-                continue;
-            const VkResult reset = vkResetCommandPool( m_Device, pipe.Pool, 0 );
-            if ( reset != VK_SUCCESS )
-                return Common::MakeError( std::format( "RDG queue objects: vkResetCommandPool failed ({})",
-                                                       static_cast<int>( reset ) ) );
-            pipe.Used = 0;
+            if ( pipe.Pool != VK_NULL_HANDLE && pipe.Used != 0 )
+                m_ResetList.push_back( &pipe );
         }
         for ( std::vector<PipePool>& arenas : frameSlot.ChunkArenas )
         {
             for ( PipePool& arena : arenas )
             {
-                if ( arena.Used == 0 )
-                    continue; // nothing begun from it since its last reset (the rule above)
-                const VkResult reset = vkResetCommandPool( m_Device, arena.Pool, 0 );
-                if ( reset != VK_SUCCESS )
-                    return Common::MakeError( std::format(
-                         "RDG queue objects: vkResetCommandPool of a chunk arena failed ({})", static_cast<int>( reset ) ) );
-                arena.Used = 0;
+                if ( arena.Used != 0 ) // nothing begun from it since its last reset (the rule above)
+                    m_ResetList.push_back( &arena );
             }
         }
         frameSlot.SemaphoresUsed = 0;
+        if ( m_ResetList.size() > kClaimIndexMask )
+            return Common::MakeError( std::format( "RDG queue objects: {} command pools to reset exceed the {} "
+                                                   "the reset claim word counts",
+                                                   m_ResetList.size(), kClaimIndexMask ) );
+        const auto count = static_cast<uint32_t>( m_ResetList.size() );
+        // Only this thread stores a new generation; a claim changes the low 16 bits only.
+        const uint64_t generation =
+             ( ClaimGeneration( m_ResetClaim.load( std::memory_order_relaxed ) ) + 1 ) & 0xFFFFFFFFull;
+        m_ResetDone.store( 0, std::memory_order_relaxed );
+        m_ResetFailure.store( VK_SUCCESS, std::memory_order_relaxed );
+        m_ResetClaim.store( ( generation << 32 ) | ( static_cast<uint64_t>( count ) << 16 ),
+                            std::memory_order_release );
+        const uint32_t jobs = std::min( count, kMaxResetJobs );
+        for ( uint32_t job = 0; job < jobs; ++job )
+        {
+            m_ResetJobsPending.fetch_add( 1, std::memory_order_relaxed );
+            // No notify after the decrement: the destructor polls the counter, so a job never touches the object
+            // after it let go of it.
+            const auto run = [this, generation]() noexcept
+            {
+                RunResets( generation );
+                m_ResetJobsPending.fetch_sub( 1, std::memory_order_acq_rel );
+            };
+            if ( !Common::JobSystem::Get().Submit( run, Common::JobPriority::High ) )
+            {
+                // The pool is shutting down: the join claims what no job took.
+                m_ResetJobsPending.fetch_sub( 1, std::memory_order_acq_rel );
+                break;
+            }
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    void VulkanRdgQueueObjects::ResetOne( PipePool& pool ) noexcept
+    {
+        const VkResult reset = vkResetCommandPool( m_Device, pool.Pool, 0 );
+        if ( reset == VK_SUCCESS )
+        {
+            pool.Used = 0;
+            return;
+        }
+        int32_t expected = VK_SUCCESS;
+        m_ResetFailure.compare_exchange_strong( expected, static_cast<int32_t>( reset ),
+                                                std::memory_order_acq_rel );
+    }
+
+    void VulkanRdgQueueObjects::RunResets( const uint64_t generation ) noexcept
+    {
+        uint64_t claim = m_ResetClaim.load( std::memory_order_acquire );
+        for ( ;; )
+        {
+            if ( ClaimGeneration( claim ) != generation || ClaimNext( claim ) >= ClaimCount( claim ) )
+                return;
+            if ( !m_ResetClaim.compare_exchange_weak( claim, claim + 1, std::memory_order_acq_rel,
+                                                      std::memory_order_acquire ) )
+                continue; // claim now holds the current word
+            ResetOne( *m_ResetList[ClaimNext( claim )] );
+            if ( m_ResetDone.fetch_add( 1, std::memory_order_acq_rel ) + 1 == ClaimCount( claim ) )
+                m_ResetDone.notify_all();
+            claim = m_ResetClaim.load( std::memory_order_acquire );
+        }
+    }
+
+    Common::BoolResultStr VulkanRdgQueueObjects::JoinResets() noexcept
+    {
+        const uint64_t claim = m_ResetClaim.load( std::memory_order_acquire );
+        const uint32_t count = ClaimCount( claim );
+        if ( count == 0 )
+            return Common::MakeSuccess( true );
+        if ( ClaimNext( claim ) < count )
+            RunResets( ClaimGeneration( claim ) );
+        // Every index is claimed now, each by a running job or by this thread: no wait on an unstarted job.
+        for ( uint32_t done = m_ResetDone.load( std::memory_order_acquire ); done < count;
+              done          = m_ResetDone.load( std::memory_order_acquire ) )
+            m_ResetDone.wait( done, std::memory_order_acquire );
+        const int32_t failure = m_ResetFailure.load( std::memory_order_acquire );
+        if ( failure != VK_SUCCESS )
+            return Common::MakeError(
+                 std::format( "RDG queue objects: vkResetCommandPool failed ({})", static_cast<int>( failure ) ) );
         return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr VulkanRdgQueueObjects::ReserveChunkArenas( RDG::Pipe pipe, uint32_t arenas )
     {
+        // The arenas may grow below: the reset jobs hold pointers into them until the join.
+        if ( Common::BoolResultStr joined = JoinResets(); !joined )
+            return joined;
         const size_t           index  = PipeIndex( pipe );
         std::vector<PipePool>& pools  = m_Slots[m_Slot].ChunkArenas[index];
         const auto&            family = m_Families[index];
@@ -123,7 +207,9 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<VkCommandBuffer> VulkanRdgQueueObjects::BeginChunkCommandBuffer( RDG::Pipe pipe, uint32_t arena )
     {
-        using Out                    = VkCommandBuffer;
+        using Out = VkCommandBuffer;
+        if ( Common::BoolResultStr joined = JoinResets(); !joined )
+            return Common::MakeError<Out>( joined.GetError() );
         std::vector<PipePool>& pools = m_Slots[m_Slot].ChunkArenas[PipeIndex( pipe )];
         if ( arena >= pools.size() )
             return Common::MakeError<Out>( std::format(
@@ -152,7 +238,9 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<VkCommandBuffer> VulkanRdgQueueObjects::BeginCommandBuffer( RDG::Pipe pipe )
     {
-        using Out      = VkCommandBuffer;
+        using Out = VkCommandBuffer;
+        if ( Common::BoolResultStr joined = JoinResets(); !joined )
+            return Common::MakeError<Out>( joined.GetError() );
         PipePool& pool = m_Slots[m_Slot].Pipes[PipeIndex( pipe )];
         if ( pool.Pool == VK_NULL_HANDLE )
             return Common::MakeError<Out>(
@@ -288,6 +376,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Open->OnPipe        = pipe;
         m_Open->Queue         = queue;
         m_Open->CommandBuffers.push_back( buffer.GetValue() );
+        m_OpenRecording = true;
         return Common::MakeSuccess( true );
     }
 
@@ -295,7 +384,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !m_Open.has_value() )
             return Common::MakeError( "no segment is open" );
-        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
+        // A segment whose last commands are a spliced chunk has no buffer of its own recording: nothing to end.
+        const bool     recording = std::exchange( m_OpenRecording, false );
+        const VkResult ended     = recording ? vkEndCommandBuffer( m_Open->CommandBuffers.back() ) : VK_SUCCESS;
         if ( ended != VK_SUCCESS )
         {
             m_Open.reset();
@@ -307,27 +398,40 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::SpliceChunk( VkCommandBuffer          chunk,
-                                                                              const VulkanRdgQueueSet& queues )
+    Common::BoolResultStr VulkanRdgSegmentRecorder::SpliceChunk( VkCommandBuffer chunk )
+    {
+        if ( !m_Open.has_value() || m_Open->CommandBuffers.empty() )
+            return Common::MakeError( "a chunk replayed while no segment is open" );
+        if ( chunk == VK_NULL_HANDLE )
+            return Common::MakeError( "a chunk with no command buffer replayed" );
+        // A failure leaves the open submission half-spliced: the caller abandons the graph (AbandonGraph drops
+        // it, its buffers reset with the slot's pools). A chunk spliced right after another finds nothing
+        // recording: the two primaries follow each other.
+        if ( std::exchange( m_OpenRecording, false ) )
+        {
+            const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
+            if ( ended != VK_SUCCESS )
+                return Common::MakeError(
+                     std::format( "vkEndCommandBuffer before a chunk failed ({})", static_cast<int>( ended ) ) );
+        }
+        m_Open->CommandBuffers.push_back( chunk );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<VkCommandBuffer> VulkanRdgSegmentRecorder::Continue( const VulkanRdgQueueSet& queues )
     {
         using Out = VkCommandBuffer;
         if ( !m_Open.has_value() || m_Open->CommandBuffers.empty() )
-            return Common::MakeError<Out>( "a chunk replayed while no segment is open" );
+            return Common::MakeError<Out>( "a segment continued while none is open" );
+        if ( m_OpenRecording )
+            return Common::MakeSuccess( m_Open->CommandBuffers.back() );
         if ( queues.Objects == nullptr )
             return Common::MakeError<Out>( "the queue set has no per-slot queue objects" );
-        if ( chunk == VK_NULL_HANDLE )
-            return Common::MakeError<Out>( "a chunk with no command buffer replayed" );
-        // A failure leaves the open submission half-spliced: the caller abandons the graph (AbandonGraph drops
-        // it, its buffers reset with the slot's pools).
-        const VkResult ended = vkEndCommandBuffer( m_Open->CommandBuffers.back() );
-        if ( ended != VK_SUCCESS )
-            return Common::MakeError<Out>(
-                 std::format( "vkEndCommandBuffer before a chunk failed ({})", static_cast<int>( ended ) ) );
-        m_Open->CommandBuffers.push_back( chunk );
         const Common::ResultStr<VkCommandBuffer> next = queues.Objects->BeginCommandBuffer( m_Open->OnPipe );
         if ( !next )
             return Common::MakeError<Out>( next.GetError() );
         m_Open->CommandBuffers.push_back( next.GetValue() );
+        m_OpenRecording = true;
         return Common::MakeSuccess( next.GetValue() );
     }
 
@@ -405,7 +509,7 @@ namespace Desert::Graphic::API::Vulkan
         // A segment that signals another API's timeline is submitted as it is: nothing may record after the
         // signal.
         if ( last && segment.OnPipe == RDG::Pipe::Graphics && endJoins.empty() && !segment.SignalExternal )
-            return Common::MakeSuccess( m_Open->CommandBuffers.back() ); // the final barriers record into it
+            return Continue( queues ); // the final barriers record into it
 
         if ( const Common::BoolResultStr closed = Close(); !closed )
             return Common::MakeError<Out>( closed.GetError() );
@@ -447,6 +551,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !dropped.empty() && m_Objects != nullptr )
             m_Objects->SignalOnHost( dropped );
         m_Open.reset();
+        m_OpenRecording = false;
         m_Submissions.resize( std::min( m_Submissions.size(), m_GraphSubmissions ) );
         m_Result = nullptr;
     }

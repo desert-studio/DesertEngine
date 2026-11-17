@@ -64,7 +64,7 @@ Buffer(5) RadianceCacheScheduleUB
 #define RC_SCHEDULE_LIST ( RC_SCHEDULE_STATS + RC_STAT_WORDS )
 // The words Select writes to RadianceCache.UpdateCounts, in this order (GlobalIllumination::RadianceCacheUpdateCounts,
 // WorldRadianceCache.hpp).
-#define RC_COUNT_STAMPED                 0u // entries a reader stamped this frame (the histogram's sum)
+#define RC_COUNT_STAMPED                 0u // entries a reader stamped this frame due a trace (the histogram's sum)
 #define RC_COUNT_NEVER_TRACED            1u // ... by a coverage reader, whose probe was never traced
 #define RC_COUNT_TRACED                  2u // probes traced this frame: min(stamped, budget)
 #define RC_COUNT_BUDGET                  3u // the Select pass's budget (radianceCache.atlas.z)
@@ -90,6 +90,10 @@ Buffer(5) RadianceCacheScheduleUB
 #define RC_PRIORITY_NEW_COVERAGE   ( RC_PRIORITY_BUCKETS - RADIANCE_CACHE_MAX_CLIPMAPS )
 #define RC_PRIORITY_NEW_FALLBACK   ( RC_PRIORITY_NEW_COVERAGE - RADIANCE_CACHE_MAX_CLIPMAPS )
 #define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_NEW_FALLBACK - 1u )
+// FPS-RC-COST: a read probe that is due no trace this frame - no event (never traced, lights changed, traced before
+// the last full update) and traced fewer than RefreshMinFrames frames ago. It ranks in no bucket: Select skips it,
+// so the budget goes to the probes that need it instead of re-tracing a converged one every frame.
+#define RC_PRIORITY_NOT_DUE        RC_PRIORITY_BUCKETS
 // The bucket of a never-traced probe of @p clipmap: of the coverage when @p covered, else of the fallback.
 uint RadianceCacheNewProbeBucket( bool covered, uint clipmap )
 {
@@ -109,6 +113,7 @@ PushConstant RadianceCachePush
     float DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
     uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
     uint  MarkFallback;     // 1: Mark stamps the clipmap past the coarse end (the screen probes' fallback)
+    uint  RefreshMinFrames; // RadianceCache::kProbeRefreshMinFrames: an event-less probe's frames between traces
 };
 
 // THE ATLAS UNDER PRESSURE (PROBE-TURN-1; not in UE, which keeps an unread probe NumFramesToKeepCachedProbes frames

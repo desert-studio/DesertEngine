@@ -162,6 +162,13 @@ namespace Desert::Animation
         /// The pipeline's OUTPUT: `component_i * OffsetMatrix_i` per bone, which is what the GPU skins with.
         [[nodiscard]] const SkinningMatrices& GetPose() const;
 
+        /// Moves on every publish of GetPose() (PublishPose, its one writer): a consumer that copies the pose
+        /// (MeshECSSystem's bone buffer) copies it again only when this moved.
+        [[nodiscard]] uint64_t GetPoseRevision() const noexcept
+        {
+            return m_SkinningRevision;
+        }
+
         /// The pose the pipeline produced, in the space it was computed in. This is the currency: what a
         /// blend blended, what a layer folded, and what a solver would modify.
         [[nodiscard]] const LocalPose& GetLocalPose() const
@@ -822,5 +829,6 @@ namespace Desert::Animation
         std::vector<BoneTransform> m_PhysicsScratch;
 
         SkinningMatrices m_Skinning;
+        uint64_t         m_SkinningRevision = 0; // GetPoseRevision
     };
 } // namespace Desert::Animation

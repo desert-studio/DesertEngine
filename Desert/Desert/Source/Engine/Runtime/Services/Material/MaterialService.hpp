@@ -415,6 +415,15 @@ namespace Desert::Runtime
             ++m_ValuesEditSerial;
         }
 
+        // Monotonic stamp of the EXTERNAL-ID MAP growing (UE: the asset registry's OnAssetAdded): Register,
+        // RegisterAsset, a discovery from the content registry, an asset manager bound. A consumer waiting for a
+        // section material (a mesh slot GetAssetHandleByExternal answered Null) asks again only when this or
+        // Assets::ContentRegistry::WriteSerial moved — a discovery needs the row, a registration needs neither.
+        uint64_t GetRegistrationSerial() const noexcept
+        {
+            return m_RegistrationSerial.load( std::memory_order_acquire );
+        }
+
     private:
         // BOOLSUCCESS when `handle` is free, or held by the very file that is registering again. Otherwise
         // it LOGS both filepaths and returns the same text as an error, and the caller writes nothing.
@@ -440,6 +449,7 @@ namespace Desert::Runtime
 
         mutable std::atomic<uint32_t> m_InvalidationVersion{ 0 };
         std::atomic<uint32_t>         m_ValuesEditSerial{ 0 }; // GetValuesEditSerial
+        mutable std::atomic<uint64_t> m_RegistrationSerial{ 0 }; // GetRegistrationSerial (discovery is const)
         // Per asset: bumped by every Invalidate of it (BuildRevision).
         std::unordered_map<Assets::AssetHandle, uint32_t>             m_BuildRevisions;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;

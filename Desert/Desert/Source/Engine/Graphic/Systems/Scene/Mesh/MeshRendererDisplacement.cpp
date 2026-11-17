@@ -40,8 +40,9 @@ namespace Desert::Graphic::System
                  cooked != nullptr && cooked->IsBakedDisplaced() && ism.DisplacedMaterial )
                 if ( const std::shared_ptr<StaticMesh> baked = cooked->GetBakedDisplaced() )
                 {
-                    ism.Mesh     = baked.get();
-                    ism.Material = ism.DisplacedMaterial;
+                    ism.Mesh                = baked.get();
+                    ism.Material            = ism.DisplacedMaterial;
+                    m_InstancedQueueChanged = true; // not the row as submitted: full field records this sync
                 }
 
         std::vector<std::optional<DisplacementMaterialRecord>> materials;
@@ -179,7 +180,8 @@ namespace Desert::Graphic::System
                 continue;
             const auto& slots     = data.MaterialSlots->Slots;
             const auto& displaced = data.MaterialSlots->Displaced->Slots;
-            std::vector<SkinnedSection> sections = data.Sections;
+            // The retained list is shared (SkinnedSectionsFor): the twin's sections are a new list, never an edit.
+            std::vector<SkinnedSection> sections( data.Sections.begin(), data.Sections.end() );
             bool                        complete = displaced.size() == slots.size();
             for ( SkinnedSection& section : sections )
             {
@@ -209,7 +211,7 @@ namespace Desert::Graphic::System
                            data.Entity );
                 continue;
             }
-            data.Sections   = std::move( sections );
+            data.Sections   = SkinnedSectionList( std::move( sections ) );
             data.SkinSource = data.Mesh;
             data.Mesh       = twin.get(); // the cache holds the twin past this frame's draws (parked on release)
         }
@@ -283,6 +285,8 @@ namespace Desert::Graphic::System
             }
             if ( split.Groups.empty() )
                 continue; // no instance draws a twin: the record draws as queued
+            // The queue no longer holds the rows as submitted: SyncGpuScene syncs full field records.
+            m_InstancedQueueChanged         = true;
             const DisplacedSplitGroup* base = nullptr;
             for ( const DisplacedSplitGroup& group : split.Groups )
             {

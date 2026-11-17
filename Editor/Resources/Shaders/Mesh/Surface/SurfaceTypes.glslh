@@ -286,6 +286,17 @@ SurfaceOutput DefaultSurfaceOutput()
 // stage evaluates nothing and declares nothing, so its layout stays the shadow casters' (vertex-only block).
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/CameraUB.glslh>
+// A fragment's pixel position (gl_FragCoord.xy) to its JITTERED NDC (UE SvPositionToScreenPosition) through the
+// view's raster viewport: CameraUB::PixelToNdc (ShaderProtocols::MakePixelToNdc - the rect's origin, its size and the
+// engine's negative-height viewport, +Y up: ndc.y = 1 - 2 (py - y) / h). The one mapping every stage that rebuilds a
+// clip position from its pixel takes - the G-buffer cell's clip (Pass_GBuffer.glslh) and the visibility resolve's
+// rebuilt triangle (Pass_VisibilityResolve.glslh) - so none re-derives the viewport's origin or y sign
+// (GRASS-SPARKLE-4: the resolve's own `xy / extent * 2 - 1` mirrored y and rebuilt the blade at the wrong height).
+// One pixel's NDC step is PixelToNdc.xy (y negative).
+vec2 DesertPixelToJitteredNdc( const vec2 pixel )
+{
+    return pixel * cameraUB.PixelToNdc.xy + cameraUB.PixelToNdc.zw;
+}
 #endif
 
 // THE BINNED CELL (DESERT_SURFACE_BINNED, the generator's `.Binned` permutation, DShaderParser kSurfaceBinnedCellSuffix):
@@ -304,8 +315,54 @@ SurfaceOutput DefaultSurfaceOutput()
 #define DESERT_SURFACE_BINNED_VARYINGS
 #endif
 
+// THE CURRENT CLIP POSITION OF A G-BUFFER CELL IS THE PIXEL'S (FPS-GBUFFER2; UE's base pass: SvPosition ->
+// SvPositionToScreenPosition, no clip-position interpolant). The fragment's own gl_FragCoord is the jittered raster
+// position, so the unjittered NDC velocity needs is gl_FragCoord.xy through the view's CameraUB::PixelToNdc
+// (the raster viewport, ViewFrame::RasterRect) less JitterNdc, at depth gl_FragCoord.z (the jitter moves only x
+// and y; the viewport's depth range is [0, 1]) - Pass_GBuffer.glslh DesertGBufferClipFromPixel. The vertex stage
+// writes no Clip: 4 interpolants and a matrix multiply less on every G-buffer draw. A `.Parallax` cell keeps the
+// interpolated clip: its pixel depth offset moves it in homogeneous space (SurfaceParallax.glslh
+// DesertPixelDepthOffsetVelocity). The forward and translucent cells keep it as well (their own passes).
+#if defined( DESERT_SURFACE_PASS_GBuffer ) && !defined( DESERT_SURFACE_PARALLAX )
+#define DESERT_SURFACE_CLIP_FROM_PIXEL 1
+#define DESERT_SURFACE_CLIP_VARYING
+#else
+#define DESERT_SURFACE_CLIP_VARYING vec4 Clip;
+#endif
+
+// THE GRASS BLADE'S VARYINGS (FPS-GBUFFER2; UE: a vertex factory interpolates only what its material reads). A
+// procedural blade (Vertex_GrassBlade.glslh) hands down less than a mesh does:
+//   * no vertex colour - its strip has no colour stream (GrassRenderer::BladeStrip, no MeshVertexStreams), so every
+//     vertex read the shared white buffer: the input is white, as a mesh without the stream reads (not a canopy);
+//   * no third frame axis - the frame's normal IS the blade's shading normal, v_Surface.Normal;
+//   * its across axis flat - BladeAt's Right is the instance matrix's width axis, one value for the whole blade.
+// What reads the input reads it through DESERT_SURFACE_VARYING_TBN / _VERTEX_COLOR, so each pass header builds
+// SurfaceInput the same way whichever layout its path has.
+#ifdef DESERT_SURFACE_PATH_GrassBlade
+#define DESERT_SURFACE_GRASS_BLADE_VARYINGS 1
+#endif
+
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
 // What only the vertex can know; what the view knows (camera position, time) the fragment reads from the view block.
+#ifdef DESERT_SURFACE_GRASS_BLADE_VARYINGS
+#define DESERT_SURFACE_VARYINGS( q ) \
+    layout( location = 0 ) q SurfaceVaryings \
+    { \
+        vec3 WorldPosition; \
+        vec3 Normal; \
+        vec2 UV0; \
+        vec3 Along; \
+        vec2 UV1; \
+        DESERT_SURFACE_CLIP_VARYING \
+        vec4 PrevClip; \
+        flat vec3 Right; \
+        flat float ObjectMoved; \
+        flat float ObjectScaleUp; \
+        DESERT_SURFACE_BINNED_VARYINGS \
+    } v_Surface;
+#define DESERT_SURFACE_VARYING_TBN          mat3( v_Surface.Right, v_Surface.Along, v_Surface.Normal )
+#define DESERT_SURFACE_VARYING_VERTEX_COLOR vec4( 1.0 )
+#else
 #define DESERT_SURFACE_VARYINGS( q ) \
     layout( location = 0 ) q SurfaceVaryings \
     { \
@@ -315,12 +372,15 @@ SurfaceOutput DefaultSurfaceOutput()
         mat3 TBN; \
         vec2 UV1; \
         vec4 VertexColor; \
-        vec4 Clip; \
+        DESERT_SURFACE_CLIP_VARYING \
         vec4 PrevClip; \
         flat float ObjectMoved; \
         flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
     } v_Surface;
+#define DESERT_SURFACE_VARYING_TBN          v_Surface.TBN
+#define DESERT_SURFACE_VARYING_VERTEX_COLOR v_Surface.VertexColor
+#endif
 
 // The material row the generated `Material` reads (DShaderParser: `MaterialRows[DESERT_SURFACE_MATERIAL_ROW]`): the
 // push block's MaterialIndex, or in a binned cell the row its vertex stage resolved. A global in a binned cell, set
@@ -368,6 +428,17 @@ vec2 DesertCanopySnowData( const vec4 vertexColor, const vec2 uv1 )
                                                : vec2( 1.0, 0.0 );
 }
 
+// UE SafeNormalize: @p v as a unit vector, or @p fallback when it is no direction - a zero, denormal, Inf or NaN
+// length (a helper lane's varyings extrapolated past a sub-pixel grass blade, whose two sides' normals tilt apart,
+// can cross zero). normalize() of it is a NaN, and a NaN normal's derivative poisoned the quad's specular AA, the
+// G-buffer roughness and every lit pixel that read it (FPS-FIREFLY2). A finite non-zero @p v: normalize( v ).
+vec3 DesertSafeNormalize( const vec3 v, const vec3 fallback )
+{
+    const float lengthSquared = dot( v, v );
+    if ( !( lengthSquared > 1.0e-20 ) || isinf( lengthSquared ) )
+        return fallback;
+    return v * inversesqrt( lengthSquared );
+}
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
@@ -388,7 +459,7 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
     const float facing = ( frontFacing || DesertIsCanopyVertex( vertexColor ) ) ? 1.0 : -1.0;
     SurfaceInput i;
     i.WorldPosition = worldPosition;
-    i.Normal        = facing * normalize( normal );
+    i.Normal        = facing * DesertSafeNormalize( normal, vec3( 0.0, 1.0, 0.0 ) );
     i.UV0           = uv0;
     i.TBN           = facing * tbn;
     i.UV1           = uv1;
@@ -406,9 +477,11 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
 
 // The shading normal: the tangent-space output through the interpolated TBN. For the default (0,0,1) this is
 // the TBN's third column, the interpolated geometric normal — what the lit shaders used without a normal map.
+// A frame that turns the tangent normal into no direction (a helper lane extrapolated past a blade's edge, a
+// degenerate tangent frame) falls back to the interpolated geometric normal (UE SafeNormalize), never a NaN.
 vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 {
-    return normalize( i.TBN * s.Normal );
+    return DesertSafeNormalize( i.TBN * s.Normal, i.Normal );
 }
 
 // BlendMode Masked (UE's OpacityMask < OpacityMaskClipValue): the parser defines DESERT_SURFACE_MASKED, has refused
@@ -431,16 +504,17 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
 // probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
 // the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
 // and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
-#define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
-                                               ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
-                                               : Material.OpacityMaskClipValue ) ) \
-        discard
+#define DESERT_SURFACE_CLIP_THRESHOLD() \
+    ( DESERT_SURFACE_OPACITY_DITHER > 0.5 ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
+                                          : Material.OpacityMaskClipValue )
 #else
-#define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
-        discard
+#define DESERT_SURFACE_CLIP_THRESHOLD() Material.OpacityMaskClipValue
 #endif
+// The cut every masked cell makes: the mask below the threshold above discards the fragment. The visibility raster
+// (Pass_Visibility.glslh) cuts by the same threshold through DesertSurfaceOpacityMaskGrad.
+#define DESERT_SURFACE_CLIP( i ) \
+    if ( DesertSurfaceOpacityMask( i ) < DESERT_SURFACE_CLIP_THRESHOLD() ) \
+        discard
 #else
 #define DESERT_SURFACE_CLIP( i )
 #endif

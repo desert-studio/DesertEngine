@@ -651,6 +651,22 @@ namespace Desert::ECS
         {
             return m_SeenMaterialsVersion;
         }
+        // The draw's co-owned slot binding over the instances above (Displaced set for a displaced mesh): built
+        // the update the instances are (re)built, then shared by every frame's command (one atomic increment),
+        // never rebuilt per frame. Dropped whenever the instances or the mesh it was built against change.
+        [[nodiscard]] Graphic::MaterialSlotBindingPtr& RuntimeSlots()
+        {
+            return m_RuntimeSlots;
+        }
+        [[nodiscard]] const Graphic::MaterialSlotBindingPtr& RuntimeSlots() const
+        {
+            return m_RuntimeSlots;
+        }
+        // The mesh RuntimeSlots was built for (identity only, never dereferenced): another mesh, another binding.
+        [[nodiscard]] const void*& RuntimeSlotsMesh()
+        {
+            return m_RuntimeSlotsMesh;
+        }
 
     private:
         void Assign( const SkinnedMeshDesc& desc );
@@ -663,6 +679,8 @@ namespace Desert::ECS
         // The displaced (base-cell) siblings of the same slots, drawn over the displaced twin (CONTRACT-DISPLACE
         // §9.8); built when the mesh is displaced, empty otherwise. Transient like the cache above.
         std::vector<Graphic::MaterialInstancePtr> m_RuntimeDisplacedInstances;
+        Graphic::MaterialSlotBindingPtr           m_RuntimeSlots;                   // see RuntimeSlots
+        const void*                               m_RuntimeSlotsMesh     = nullptr; // see RuntimeSlotsMesh
         uint32_t m_SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
@@ -725,6 +743,10 @@ namespace Desert::ECS
                                             c.m_RuntimeDisplacedInstances.clear();
                                             c.m_SeenMaterialsVersion = 0;
                                         }
+                                        // Any value change rebuilds the binding (new slots, a new mesh).
+                                        RetireRenderCache( c.m_RuntimeSlots );
+                                        c.m_RuntimeSlots.reset();
+                                        c.m_RuntimeSlotsMesh = nullptr;
                                         // Assign replaces the mesh and skeleton the draws in flight may name.
                                         if ( c.RuntimeMesh != desc.RuntimeMesh )
                                             RetireRenderCache( c.RuntimeMesh );
@@ -1019,6 +1041,7 @@ namespace Desert::ECS
         RetireRenderCache( c.GetRuntimeSkeleton() );
         RetireRenderCaches( c.RuntimeMaterialInstances() );
         RetireRenderCaches( c.RuntimeDisplacedInstances() );
+        RetireRenderCache( c.RuntimeSlots() );
     }
     inline void RetireRenderCachesOf( const InstancedStaticMeshComponent& c )
     {

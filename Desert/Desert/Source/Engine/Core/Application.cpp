@@ -19,6 +19,8 @@
 #include <Common/Core/EngineThread.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+
+#include <algorithm>
 #include <Common/Utilities/ProcessMemory.hpp>
 
 #include <Engine/Core/Glfw.hpp>
@@ -271,11 +273,25 @@ namespace Desert::Engine
             return true;
         };
         // The presented notifications of a frame handed to the render task (step 7), delivered once it is out.
-        std::vector<std::function<void()>> presentedPending;
-        const auto                         deliverPresented = [&presentedPending]()
+        // Each stamped with its frame (GetGameFrameCount at step 6): with GameRenderPipelining on, step 4b may
+        // find frame N-1 still presenting, and only the frames before RenderTask::SyncPreviousFrame's answer are
+        // out.
+        struct PresentedNotification
+        {
+            uint64_t              Frame = 0;
+            std::function<void()> Notify;
+        };
+        std::vector<PresentedNotification> presentedPending;
+        // @p doneBefore: every frame before it is out (UINT64_MAX after a Join: all of them). In frame order.
+        const auto deliverPresented = [&presentedPending]( const uint64_t doneBefore = UINT64_MAX )
         {
             std::vector<std::function<void()>> due;
-            due.swap( presentedPending );
+            const auto firstPending = std::find_if( presentedPending.begin(), presentedPending.end(),
+                                                    [doneBefore]( const PresentedNotification& pending )
+                                                    { return pending.Frame >= doneBefore; } );
+            for ( auto it = presentedPending.begin(); it != firstPending; ++it )
+                due.push_back( std::move( it->Notify ) );
+            presentedPending.erase( presentedPending.begin(), firstPending );
             // A lost device is asked for no screenshot (the run ends at the failure check).
             if ( Graphic::DeviceLost::IsLost() )
                 return;
@@ -428,8 +444,15 @@ namespace Desert::Engine
                 const FrameManager& frames = FrameManager::GetInstance();
                 const uint64_t      frame  = frames.GetGameFrameCount();
                 const uint32_t      slots  = frames.GetMaxFramesInFlight();
+                // Pipelined (FPS-GAME-RENDER-PIPE), step 4b no longer guarantees N-1 out, so this is the wait that
+                // bounds the lead: frame N-k's jobs alone, not the frames after it.
                 if ( frame >= slots && !RenderTask::Get().FrameSubmitted( frame - slots ) )
-                    RenderTask::Get().Join();
+                {
+                    if ( RenderTask::Get().GameRenderPipelining() )
+                        RenderTask::Get().WaitFrameSubmitted( frame - slots );
+                    else
+                        RenderTask::Get().Join();
+                }
             }
             const auto frameBegun = []
             {
@@ -492,8 +515,12 @@ namespace Desert::Engine
             // and the tick above overlapped it, and so did the views' game-thread halves: a view's bracket waits
             // for the views in flight only (RenderTask::JoinViews, CPU-GT-OVERLAP), not for N-1's interface draw,
             // submit and present.
-            RenderTask::Get().SyncPreviousFrame();
-            deliverPresented();
+            // GameRenderPipelining on (FPS-GAME-RENDER-PIPE; UE: Slate's frame N runs while the rendering thread
+            // finishes N-1): only N-2 is waited here, so this frame's interface is painted while N-1's interface
+            // draw, submit and present still record (RenderTask::SyncPreviousFrame); the presented notifications
+            // of the frames already out are announced, N-1's at the latest at the next boundary.
+            const uint64_t framesOutBefore = RenderTask::Get().SyncPreviousFrame();
+            deliverPresented( framesOutBefore );
             if ( endRunOnRenderFailure() )
                 break;
 
@@ -519,6 +546,8 @@ namespace Desert::Engine
 
             // Whether this frame is handed to the render task (steps 6 and 7, OVERLAP-ON-1).
             const bool handedOver = RenderTask::Get().Overlaps();
+            // The frame this iteration built (step 6 moves the count on): its presented notifications' stamp.
+            const uint64_t builtFrame = FrameManager::GetInstance().GetGameFrameCount();
             // Each layer captures what its presented notification needs of THIS frame (the serial that built it,
             // its shot record). Handed over, BEFORE step 6 enqueues the submit and present (OVERLAP-ON-5): a job a
             // layer enqueues in its capture runs in this frame's order, after its views and before its submit and
@@ -575,7 +604,7 @@ namespace Desert::Engine
                 if ( !handedOver )
                     captureFramePresented();
                 for ( std::function<void()>& notify : captured )
-                    presentedPending.push_back( std::move( notify ) );
+                    presentedPending.push_back( PresentedNotification{ builtFrame, std::move( notify ) } );
                 if ( !handedOver )
                     deliverPresented();
             }

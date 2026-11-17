@@ -129,6 +129,9 @@ namespace Desert::Graphic::API::Vulkan
     private:
         VkFormat           FindDepthFormat() const;
         QueueFamilyIndices GetQueueFamilyIndices( int flags );
+        // The rebuilt catalog to its readers: QualityState and EngineContext's capability copy (ProbeSurface,
+        // RefreshRuntimeOffers).
+        void PublishCatalog();
 
     private:
         VkPhysicalDevice                     m_PhysicalDevice = VK_NULL_HANDLE;
@@ -222,6 +225,11 @@ namespace Desert::Graphic::API::Vulkan
         VkQueue GetComputeQueue()
         {
             return m_ComputeQueue;
+        }
+        // FPS-DEVLOST8: for the breadcrumbs' per-queue report (one-off transfer flushes go to it).
+        VkQueue GetTransferQueue()
+        {
+            return m_TransferQueue;
         }
 
         /// THE ONLY vkQueueSubmit OF THE ENGINE. A VkQueue must be externally synchronised (VUID-vkQueueSubmit-

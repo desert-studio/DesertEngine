@@ -268,6 +268,11 @@ Shader "CloudRaymarch"
         // (CloudProceduralColumnsEmpty) and nothing else; the march's own binding, not the field's.
         Uniform(20) texture3D CloudColumnMaxTexture;
         #define CloudColumnMaxTexture sampler3D(CloudColumnMaxTexture, LinearRepeatSampler)
+        // ITS MAX-MIP CHAIN (Graphic::CloudProceduralClipmap::GetColumnMipImage, FPS-CLOUD-3): the same rows, mip
+        // m >= 1 packed along x at side - 2 (side >> m), side / 2 deep. texelFetched by the ray's empty-space walk
+        // (CloudSkipWalk -> CloudProceduralCellEmpty) and nothing else.
+        Uniform(22) texture3D CloudColumnMipTexture;
+        #define CloudColumnMipTexture sampler3D(CloudColumnMipTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
         // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
@@ -343,6 +348,17 @@ Shader "CloudRaymarch"
             return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, row, texel.y), 0);
         }
         #define CLOUD_SAMPLE_COLUMN_MAX(row, uv) CloudFetchColumnMax((row), (uv))
+        // Texel @p texel of mip @p mip of image row @p row: mip 0 is the column image itself, mip m >= 1 the
+        // packed chain (CloudProceduralClipmap::ColumnMipOffset). The caller keeps texel inside side >> mip.
+        vec4 CloudFetchColumnMip(int row, int mip, ivec2 texel)
+        {
+            if (mip == 0)
+                return texelFetch(CloudColumnMaxTexture, ivec3(texel.x, row, texel.y), 0);
+            int side   = textureSize(CloudColumnMaxTexture, 0).x;
+            int offset = side - 2 * (side >> mip);
+            return texelFetch(CloudColumnMipTexture, ivec3(offset + texel.x, row, texel.y), 0);
+        }
+        #define CLOUD_SAMPLE_COLUMN_MIP(row, mip, texel) CloudFetchColumnMip((row), (mip), (texel))
 
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
@@ -404,8 +420,86 @@ Shader "CloudRaymarch"
         // local transmittance; the lanes are then composed front to back, which is exact for an
         // emission-absorption integral: L = sum_k P_k L_k, T = prod_k T_k, P_k = prod_{j<k} T_j (and the
         // transmittance-weighted front the same way). The lanes of a ray sit side by side in x, so an 8-wide
-        // group row holds two rays and a ray's lanes are four consecutive subgroup lanes, aligned.
-        #define CLOUD_MARCH_SEGMENT_LANES 4u
+        // group row IS one ray and a ray's lanes are eight consecutive subgroup lanes, aligned (every subgroup
+        // size Vulkan ships for compute, 8 to 64, is a multiple of the row).
+        //
+        // EIGHT, NOT FOUR (FPS-CLOUDS-MARCH-2). At four the FIELD_Barn trace was 3259 rays = 13k invocations, about
+        // 400 waves on a GPU with room for thousands: the pass still waited on the serial chain of its longest
+        // stretch (about 24 primary and 22 light field evaluations a ray). Eight lanes halve that chain and double
+        // the waves that hide each other's fetches, with the same samples per ray and the same exact composition,
+        // so the picture is High's own; what it costs is one more lane start per ray (below, the step-back keeps
+        // that start on the ray's dither) and four more shuffles an iteration.
+        #define CLOUD_MARCH_SEGMENT_LANES 8u
+
+        // THE LANES' EXCHANGE AS A LOG-SCAN (FPS-CLOUDS-SCAN): 1 = the front transmittance every iteration, the
+        // ray's activity, the front-to-back composition and the census sums go through a butterfly over the
+        // ray's aligned lane block (subgroupShuffleXor with 1, 2, 4: log2(CLOUD_MARCH_SEGMENT_LANES) exchanges in
+        // place of CLOUD_MARCH_SEGMENT_LANES), the wave-level scan Unreal and Frostbite run; 0 = one shuffle per
+        // lane, the loops as they were, kept for the A/B. Each butterfly step joins two neighbouring blocks with
+        // the same operands on both partners (the lower block's aggregate times the upper's - IEEE multiply and
+        // add commute exactly), so every lane of the ray holds bit-identical totals. What differs from 0 is only
+        // the grouping of the products: lanes 0-3 get the old front transmittance bit for bit, lanes 4-7 a tree
+        // ((T0 T1)(T2 T3))... instead of the left fold, a few ulps apart (relative ~2e-7), which moves a stop
+        // decision only where frontT * T sits within those ulps of the stop threshold. The composition's sums
+        // regroup the same way (ulps of the stored radiance); the integer census is exact.
+        // CLOUD_MARCH_SEGMENT_LANES must stay a power of two (the blocks are lane ^ d), as it is aligned already.
+        #define CLOUD_LANE_SCAN 1
+
+        // THE COARSE TIER'S LOOKAHEAD (FPS-CLOUDS-MARCH-3): how many lattice points of the empty-space search one
+        // iteration fetches together. The search was one probe and one field evaluation per iteration, each
+        // waiting on the last, and on the FIELD_Barn turn that chain was the march (34 field evaluations and 9
+        // probe jumps a ray against 0.8 lit samples). The points' fetches do not depend on each other - only the
+        // walk that reads them does - so four are issued at once, the way CLOUD_LIGHT_GROUP groups the shadow ray,
+        // and the walk then visits exactly the points the one-at-a-time search visited.
+        #define CLOUD_COARSE_SEARCH_GROUP 4
+
+        // THE COARSE TIER'S PROFILE BEHIND ITS PROBE (FPS-CLOUD-MARCH): 1 = the exact field is evaluated only at the
+        // lattice points the walk can land on given the probes' answers (not cleared, not inside a cleared point's
+        // jump, inside the lane), all of them at once after the group's probes; 0 = every point's field is
+        // fetched beside its probe whatever the probe says, the group as FPS-CLOUDS-MARCH-3 left it, kept for the
+        // A/B. The walk reads the same profiles either way, so the picture is bit-identical; what 1 removes is the
+        // full field (the march's most expensive fetch chain) at every lattice point the probe already proved
+        // empty - on a clear-sky or horizon ray that is most of the search.
+        #define CLOUD_COARSE_PROFILE_AFTER_PROBE 1
+
+        // THE FINE TIER'S PAIRING (FPS-CLOUDS-MARCH2): 1 = two fine samples per iteration, both fetched before
+        // either is integrated (field, density, shadow ray, sky occlusion, sun LUT - none depends on the ray's
+        // transmittance), then integrated in order with the stop tested per sample; 0 = one sample per
+        // iteration, the loop as it was, kept for the A/B. With the coarse group above this makes the march's
+        // serial chain the integration only, as Unreal's and Frostbite's marches issue their fetches.
+        #define CLOUD_FINE_PAIR  1
+        #define CLOUD_FINE_GROUP (CLOUD_FINE_PAIR + 1)
+
+        // THE RAY'S EMPTY-SPACE TRIM (FPS-CLOUD-2): 1 = before the lanes split the ray, every lane probes its
+        // eighth of the segment with the column-max bound (CloudProceduralColumnsEmpty, CLOUD_RAY_TRIM_PROBES
+        // probes at once) and the ray's lanes then split only [first, last] distance that might hold cloud -
+        // Unreal's empty-space skipping start distance (and its end), done in the ray's own wave rather than in
+        // a pre-pass. The lanes were uniform over the whole shell chord, so on FIELD_Barn (35.5 field evaluations
+        // and 1.0 lit sample a ray) one or two lanes carried the stretch with cloud while the rest idled in the
+        // loop on clear air, and the pass waited on that one lane's serial chain. Every distance cut off is one
+        // the probe proved empty (no profile), so the integral is the same; what moves is where the lane starts
+        // fall, i.e. which realisation of the start dither each sample is (the reconstruction integrates it).
+        // 0 = lanes over the whole segment, the march as it was, kept for the A/B. Off for authored bodies, whose
+        // boxes are not in the column-max image (the coarse tier's probeColumns rule).
+        #define CLOUD_RAY_EMPTY_SPACE_TRIM 1
+        // Probes per lane for the trim where they tile the lane's share (steep rays: reach >= share / probes).
+        #define CLOUD_RAY_TRIM_PROBES 8
+        // THE KM-SCALE WALK FOR THE SHARES THE PROBES CANNOT TILE (FPS-CLOUD-3): a grazing ray's probe reaches
+        // ~0.18 km of a share of kilometres, so CLOUD-2 left the share's middle "might" and the horizon rays kept
+        // their whole chord. There each lane walks its share with a hierarchical DDA over the max-mip chain of
+        // the conservative density (CloudSkipWalk, CloudProceduralCellEmpty) - Unreal's empty-space skipping
+        // and Nubis' coarse weather-map skip: a front walker from the share's start and a back walker from its
+        // end, in lockstep (their fetches are independent, so one iteration costs one latency), each climbing a
+        // mip on a clear cell and descending one on a cell that might hold cloud, stopping at a "might" cell of
+        // mip 0 (the last level's voxel, 187.5 m at the default region) or when the iterations run out. Every
+        // stop is conservative: all air before it was proven empty by the cell's texel.
+        // 0 = the CLOUD-2 split (half the probes on each end, the middle "might"), kept for the A/B.
+        #define CLOUD_RAY_SKIP_WALK 1
+        // Lockstep iterations of the two walkers (each iteration = one cell test per walker).
+        #define CLOUD_SKIP_ITERATIONS 10
+        // The coarsest mip a walker climbs to: 2^5 last-level voxels = 6 km cells at the default 48 km region.
+        // Levels finer than the last read mip + (last - level), which the 256-texel chain holds up to 8.
+        #define CLOUD_SKIP_TOP_MIP 5
 
         PushConstant CloudPush
         {
@@ -587,6 +681,46 @@ Shader "CloudRaymarch"
             uint  rank     = 4u * CloudDitherRank2x2(subPixel) + CloudDitherRank2x2(gridPhase);
             float temporal = float((traceCycle * 0x9E3779B9u) >> 8u) * (1.0f / 16777216.0f);
             return fract(spatial + float(rank) * (1.0f / 16.0f) + temporal);
+        }
+
+        // ONE WALKER OF THE KM-SCALE EMPTY-SPACE WALK (CLOUD_RAY_SKIP_WALK): the ray from @p originKm along
+        // @p rayDir walked from distance @p fromKm toward @p toKm (either order), in the wind-space columns of the
+        // last level's voxel grid. State: .x the distance walked from fromKm (all air before it proven empty),
+        // .y the walker's mip, .z 1 once it stopped (reached toKm, or met a mip-0 cell that might hold cloud).
+        // One call = one cell test.
+        vec3 CloudSkipStep(CloudFieldParams params, CloudLayer layer, int side, vec3 originKm, vec3 rayDir,
+                           float fromKm, float toKm, vec3 state)
+        {
+            float lengthKm = abs(toKm - fromKm);
+            if (state.z > 0.5f || state.x >= lengthKm)
+                return vec3(min(state.x, lengthKm), state.y, 1.0f);
+
+            float sgn     = toKm >= fromKm ? 1.0f : -1.0f;
+            vec2  dirXz   = rayDir.xz * sgn;
+            vec2  startXz = originKm.xz + rayDir.xz * fromKm - params.WindOffsetKm.xz;
+            // A component at (nearly) zero never reaches a face along its axis: a huge positive inverse with the
+            // face ahead keeps that axis' exit distance huge and positive.
+            vec2  invDir  = vec2(abs(dirXz.x) > 1e-7f ? 1.0f / dirXz.x : 1e30f,
+                                 abs(dirXz.y) > 1e-7f ? 1.0f / dirXz.y : 1e30f);
+
+            int   mip    = int(state.y);
+            float cellKm = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].w * float(1 << mip);
+            // The cell holding the point just past the walked distance (10 cm on, so a point on a face picks the
+            // cell ahead; the 10 cm behind lie in the cell already proven, or inside the dilation at the start).
+            vec2  p      = startXz + dirXz * (state.x + 1e-4f);
+            ivec2 cell   = ivec2(floor(p / cellKm));
+            vec2  face   = (vec2(cell) + step(vec2(0.0f), invDir)) * cellKm;
+            vec2  exits  = (face - startXz) * invDir;
+            float exitKm = clamp(min(exits.x, exits.y), state.x, lengthKm);
+
+            float a       = fromKm + sgn * state.x;
+            float b       = fromKm + sgn * exitKm;
+            vec2  heights = CloudRayHeightFractionSpan(layer, originKm, rayDir, min(a, b), max(a, b));
+            if (CloudProceduralCellEmpty(params, side, cell, mip, heights.x, heights.y))
+                return vec3(exitKm, float(min(mip + 1, CLOUD_SKIP_TOP_MIP)), exitKm >= lengthKm ? 1.0f : 0.0f);
+            if (mip == 0)
+                return vec3(state.x, 0.0f, 1.0f);
+            return vec3(state.x, float(mip - 1), 0.0f);
         }
 
         void main()
@@ -886,15 +1020,145 @@ Shader "CloudRaymarch"
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
             float transmittance = 1.0f;
 
-            // GPU-FARFIELD-4: THIS LANE'S STRETCH of the segment (CLOUD_MARCH_SEGMENT_LANES), with the same start
-            // offset inside its first step as the whole ray had at its entry. Everything below that read the
+            // THE RAY'S OWN EMPTY-SPACE TRIM (FPS-CLOUD-2, CLOUD_RAY_EMPTY_SPACE_TRIM): the stretch the lanes share
+            // is [marchStartKm, marchEndKm], the segment with the ends the column probe proves empty cut off, so
+            // the eight lanes split the part of the ray that can hold cloud instead of the whole shell chord.
+            float marchStartKm = segment.x;
+            float marchEndKm   = segment.y;
+            if (CLOUD_RAY_EMPTY_SPACE_TRIM != 0 && CLOUD_AUTHORED_COUNT == 0)
+            {
+                // Each lane probes its uniform share of the segment with CLOUD_RAY_TRIM_PROBES probes, all issued
+                // at once (no probe depends on another's answer). A probe at s clears [s, s + reach]: every point
+                // of that piece has its column within CLOUD_COLUMN_PROBE_REACH_FRACTION of the probe radius of s's
+                // column (the reach CloudEmptyColumnAdvanceKm proves), at the heights CloudRayHeightFractionSpan
+                // bounds over the piece. Where the probes cover the share they tile it; where they cannot (a
+                // grazing ray's reach is short), half tile its front and half its back and the middle is "might".
+                float trimShareKm   = (segment.y - segment.x) / float(CLOUD_MARCH_SEGMENT_LANES);
+                float trimShareFrom = segment.x + trimShareKm * float(segmentLane);
+                float trimShareTo   = trimShareFrom + trimShareKm;
+                float trimReachKm   = CLOUD_COLUMN_PROBE_REACH_FRACTION * CLOUD_COLUMN_PROBE_RADIUS_KM /
+                                      max(length(rayDir.xz), 1e-6f);
+                bool  trimTiles     = trimReachKm * float(CLOUD_RAY_TRIM_PROBES) >= trimShareKm;
+                float trimPieceKm   = trimTiles ? trimShareKm / float(CLOUD_RAY_TRIM_PROBES) : trimReachKm;
+                const int kTrimHalf = CLOUD_RAY_TRIM_PROBES / 2;
+
+                // This share's first and last distance that might hold cloud; +inf / -inf when it is all clear.
+                const float kTrimNone = 1.0e30f;
+                float shareFirst = kTrimNone;
+                float shareLast  = -kTrimNone;
+                if (CLOUD_RAY_SKIP_WALK != 0 && !trimTiles)
+                {
+                    // The km-scale walk (CLOUD_RAY_SKIP_WALK): both walkers start at the mip whose cell spans the
+                    // share's horizontal run, so a clear share is usually one or two tests.
+                    int   skipSide    = textureSize(CloudColumnMaxTexture, 0).x;
+                    float skipVoxelKm = params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].w;
+                    float shareRunKm  = trimShareKm * max(length(rayDir.xz), 1e-6f);
+                    float startMip    = clamp(ceil(log2(max(shareRunKm / max(skipVoxelKm, 1e-6f), 1.0f))), 0.0f,
+                                              float(CLOUD_SKIP_TOP_MIP));
+                    vec3  front       = vec3(0.0f, startMip, 0.0f);
+                    vec3  back        = vec3(0.0f, startMip, 0.0f);
+                    for (int i = 0; i < CLOUD_SKIP_ITERATIONS; ++i)
+                    {
+                        front = CloudSkipStep(params, layer, skipSide, originKm, rayDir, trimShareFrom, trimShareTo,
+                                              front);
+                        back  = CloudSkipStep(params, layer, skipSide, originKm, rayDir, trimShareTo, trimShareFrom,
+                                              back);
+                        if ((front.z > 0.5f && back.z > 0.5f) || front.x + back.x >= trimShareKm)
+                            break;
+                    }
+                    // Each walker proved the air it walked; when the two proven ends meet the share is clear.
+                    if (front.x + back.x < trimShareKm)
+                    {
+                        shareFirst = trimShareFrom + front.x;
+                        shareLast  = trimShareTo - back.x;
+                    }
+                }
+                else
+                {
+                    float pieceFrom[CLOUD_RAY_TRIM_PROBES];
+                    bool  pieceClear[CLOUD_RAY_TRIM_PROBES];
+                    for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
+                    {
+                        float from = trimShareFrom + float(j) * trimPieceKm;
+                        if (!trimTiles && j >= kTrimHalf)
+                            from = trimShareTo - float(CLOUD_RAY_TRIM_PROBES - j) * trimPieceKm;
+                        float to       = min(from + trimPieceKm, segment.y);
+                        vec3  probePos = originKm + rayDir * from;
+                        vec2  heights  = CloudRayHeightFractionSpan(layer, originKm, rayDir, from, to);
+                        pieceFrom[j]   = from;
+                        pieceClear[j]  = CloudProceduralColumnsEmpty(params, probePos.xz - params.WindOffsetKm.xz,
+                                                                     CLOUD_COLUMN_PROBE_RADIUS_KM, heights.x,
+                                                                     heights.y);
+                    }
+
+                    for (int j = CLOUD_RAY_TRIM_PROBES - 1; j >= 0; --j)
+                    {
+                        if (!pieceClear[j])
+                            shareFirst = pieceFrom[j];
+                    }
+                    for (int j = 0; j < CLOUD_RAY_TRIM_PROBES; ++j)
+                    {
+                        if (!pieceClear[j])
+                            shareLast = pieceFrom[j] + trimPieceKm;
+                    }
+                    if (!trimTiles)
+                    {
+                        // The untiled middle might hold cloud (CLOUD_RAY_SKIP_WALK 0): it starts the share's "might"
+                        // when the front half is clear and ends it when the back half is.
+                        float middleFrom = trimShareFrom + float(kTrimHalf) * trimPieceKm;
+                        float middleTo   = trimShareTo - float(kTrimHalf) * trimPieceKm;
+                        bool  frontClear = true;
+                        bool  backClear  = true;
+                        for (int j = 0; j < kTrimHalf; ++j)
+                        {
+                            frontClear = frontClear && pieceClear[j];
+                            backClear  = backClear && pieceClear[CLOUD_RAY_TRIM_PROBES - 1 - j];
+                        }
+                        if (frontClear)
+                            shareFirst = min(shareFirst, middleFrom);
+                        if (backClear)
+                            shareLast = max(shareLast, middleTo);
+                    }
+                }
+
+                // The ray's span over its lanes: a butterfly min/max over the ray's aligned lane block, as the
+                // march's own exchanges run (every lane of the ray is here; a ray leaves main whole).
+                vec2 span = vec2(shareFirst, -shareLast);
+                for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                    span = min(span, subgroupShuffleXor(span, d));
+
+                // A ray whose every piece cleared gets an empty stretch: each lane starts at or past its end and
+                // leaves the loop on its first test, exactly as a ray that met nothing.
+                marchStartKm = clamp(span.x, segment.x, segment.y);
+                marchEndKm   = clamp(-span.y, marchStartKm, segment.y);
+
+                // NO LANE SHORTER THAN THE SEARCH STRIDE where the ray might hold cloud. A lane's first sample sits
+                // jitter * stepKm past its start, and on a lane shorter than that every lane of the ray (one jitter)
+                // would sample once or not at all together - the stretch's cloud drawn all-or-nothing from frame to
+                // frame, a flicker the reconstruction cannot settle. At a stride a lane every lane holds a sample, as
+                // every lane of the untrimmed segment did. The stretch grows past its end first, then before its start.
+                float minStretchKm = min(segment.y - segment.x, float(CLOUD_MARCH_SEGMENT_LANES) * coarseStepKm);
+                if (span.x < kTrimNone && marchEndKm - marchStartKm < minStretchKm)
+                {
+                    marchEndKm   = min(segment.y, marchStartKm + minStretchKm);
+                    marchStartKm = max(segment.x, marchEndKm - minStretchKm);
+                }
+            }
+
+            // GPU-FARFIELD-4: THIS LANE'S STRETCH of the march's stretch (CLOUD_MARCH_SEGMENT_LANES), with the same
+            // start offset inside its first step as the whole ray had at its entry. Everything below that read the
             // segment's ends as the march's own bounds reads these; the guide's "end of search" stays segment.y.
-            float laneLengthKm = (segment.y - segment.x) / float(CLOUD_MARCH_SEGMENT_LANES);
-            float laneStartKm  = segment.x + laneLengthKm * float(segmentLane);
-            float laneEndKm    = segment.y;
+            float laneLengthKm = (marchEndKm - marchStartKm) / float(CLOUD_MARCH_SEGMENT_LANES);
+            float laneStartKm  = marchStartKm + laneLengthKm * float(segmentLane);
+            float laneEndKm    = marchEndKm;
             if (segmentLane + 1u < CLOUD_MARCH_SEGMENT_LANES)
                 laneEndKm = laneStartKm + laneLengthKm;
             float t             = laneStartKm + jitter * stepKm;
+            // The lane's first sample. The coarse tier's step-back never lands before it (below): a lane that
+            // starts inside a body would otherwise restart its fine samples at laneStartKm itself, a distance
+            // with no dither in it, and that lane's samples would then sit on the same planes every frame - a
+            // shell the temporal reconstruction cannot average away, drawn once per lane boundary.
+            float laneFirstKm   = t;
 
             // Where along the ray this pixel's cloud effectively IS, weighted by how much of the ray's
             // light each sample still gets to contribute. A cloud is not at one distance, but the
@@ -942,6 +1206,9 @@ Shader "CloudRaymarch"
             // The jump visits none of the lattice points before the one it lands on, so the stretch whose
             // heights the probe must bound ends one stride short of the landing point.
             float emptyColumnSkipKm  = emptyColumnAdvance - coarseStepKm;
+            // The same jump in lattice points, for the grouped search's walk (CLOUD_COARSE_SEARCH_GROUP): the
+            // advance is a whole number of strides by construction, so the rounding only absorbs the division's.
+            int   emptyColumnStrides = max(int(emptyColumnAdvance / max(coarseStepKm, 1e-6f) + 0.5f), 1);
 
             // The cost census (--cloud-visualize 4): integer adds beside the fetches they count.
             int   censusFieldEvaluations = 0;
@@ -951,228 +1218,465 @@ Shader "CloudRaymarch"
             int   censusFullLightRays    = 0;
             // Left by the stretch's end or by the transmittance, not by the iteration ceiling.
             bool  laneFinished           = false;
+            // Still marching. A lane that is done stays in the loop, idle, until every lane of its ray is done:
+            // the lanes of one ray read each other's transmittance at the top of every iteration below.
+            bool  laneActive             = true;
 
             for (int i = 0; i < iterationTotal; ++i)
             {
-                if (t >= laneEndKm)
+                // THE RAY STOPS WHERE ITS COMPOSED TRANSMITTANCE DOES, not where each lane's own does
+                // (FPS-CLOUDS-MARCH). Lane k's light reaches the eye through P_k = prod_{j<k} T_j, the lanes in
+                // front of it, and a single march - Unreal's - ends once P_k * T_k falls under the stop. Judged by
+                // its local T alone a back lane kept marching, and lighting, a stretch behind a front that had
+                // already gone opaque. The front's T is read WHILE it still marches, and it only falls, so the
+                // product here is an upper bound on the final one and a lane stopped by it is past the stop.
+                //
+                // Every lane of the ray is in this loop on every iteration (the bound and the exits are per ray),
+                // so each shuffle reads an active lane. A lane that stops here or below goes idle; the ray leaves
+                // the loop on the iteration after its last lane did, seen through the activity read here.
+                float frontT    = 1.0f;
+                bool  rayActive = false;
+                // Exclusive product scan by butterfly (FPS-CLOUDS-SCAN, CLOUD_LANE_SCAN): blockState = (product
+                // of the transmittances of this lane's block, any lane of the block active). At step d the block
+                // of 2d lanes is joined from two blocks of d; a lane in the upper half has the lower half in front
+                // of it, so its front transmittance takes the lower block's product (in front of what it had).
+                // The condition is a compile-time constant: the compiler keeps one branch.
+                if (CLOUD_LANE_SCAN != 0)
+                {
+                    vec2 blockState = vec2(transmittance, float(laneActive));
+                    for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                    {
+                        vec2 partnerState = subgroupShuffleXor(blockState, d);
+                        if ((segmentLane & d) != 0u)
+                        {
+                            frontT       = partnerState.x * frontT;
+                            blockState.x = partnerState.x * blockState.x;
+                        }
+                        else
+                        {
+                            blockState.x = blockState.x * partnerState.x;
+                        }
+                        blockState.y = max(blockState.y, partnerState.y);
+                    }
+                    rayActive = blockState.y > 0.5f;
+                }
+                else
+                {
+                    vec2 ownState = vec2(transmittance, float(laneActive));
+                    for (uint lane = 0u; lane < CLOUD_MARCH_SEGMENT_LANES; ++lane)
+                    {
+                        vec2 laneState = subgroupShuffle(ownState, laneBase + lane);
+                        if (lane < segmentLane)
+                            frontT *= laneState.x;
+                        rayActive = rayActive || laneState.y > 0.5f;
+                    }
+                }
+                if (!rayActive)
+                    break;
+                if (!laneActive)
+                    continue;
+                if (t >= laneEndKm || frontT * transmittance < stopT)
                 {
                     laneFinished = true;
-                    break;
-                }
-
-                // The step this sample is integrated over and advances by: the fine step, grown with the texel
-                // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
-                float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
-
-                vec3  samplePos      = originKm + rayDir * t;
-
-                // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
-                // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the advance divides by.
-                // Its height is not linear in the ray (the shell is a sphere), so the bands the probe reads are
-                // those of the stretch's own lowest and highest point (CloudRayHeightFractionSpan), clipped to the
-                // segment the march would stop at anyway.
-                if (!fine && probeColumns)
-                {
-                    vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, t,
-                                                                     min(t + emptyColumnSkipKm, segment.y));
-                    if (CloudProceduralColumnsEmpty(params, samplePos.xz - params.WindOffsetKm.xz,
-                                                    CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
-                                                    skippedHeights.y))
-                    {
-                        t += emptyColumnAdvance;
-                        ++censusColumnJumps;
-                        continue;
-                    }
-                }
-
-                float heightFraction = CloudHeightFraction(layer, samplePos);
-
-                // The field is handed the ALTITUDE above the layer's base, never the planet-relative
-                // height. Two reasons, and the second is the one that bites: the noise is periodic, so a
-                // y of 6363 kilometres wraps to something arbitrary rather than to something meaningful;
-                // and at that magnitude float32 resolves 0.4 metres, which quantizes the vertical
-                // structure of a two-kilometre layer onto a visible ladder.
-                vec3 fieldPos = vec3(samplePos.x, length(samplePos) - layer.BottomRadiusKm, samplePos.z);
-
-                CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
-                ++censusFieldEvaluations;
-
-                if (!fine)
-                {
-                    // Outside cloud: keep striding. On the first hit, drop to fine and step BACK to the
-                    // first fine position past the last empty coarse sample, so the material between that
-                    // sample and this one is not skipped — that gap is up to a whole coarse step of cloud
-                    // and its absence reads as a flat face. Where the stride IS the fine step there is no
-                    // gap: this sample is the next fine one, and it is integrated where it stands rather
-                    // than fetched a second time.
-                    if (field.Profile > 0.0f)
-                    {
-                        fine     = true;
-                        emptyRun = 0;
-                        if (coarseStepKm > litStepKm)
-                        {
-                            t = max(laneStartKm, t - coarseStepKm + litStepKm);
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        t += coarseStepKm;
-                        continue;
-                    }
-                }
-
-                if (field.Profile <= 0.0f)
-                {
-                    ++emptyRun;
-                    if (emptyRun >= kEmptyFineSamplesBeforeCoarse)
-                    {
-                        fine     = false;
-                        emptyRun = 0;
-                    }
-                    t += litStepKm;
+                    laneActive   = false;
                     continue;
                 }
 
-                emptyRun = 0;
-
+                if (!fine)
                 {
-                    float density = CloudSampleDensity(params, field, fieldPos);
-
-                    // The near-camera fade. A camera inside the layer otherwise meets full density at
-                    // arm's length, which fills the screen with a flat wall; UE fades the nearest metres
-                    // for exactly this. Both distances at zero leave the density untouched.
-                    if (CloudFadeParams.z > 0.0f)
-                        density *= smoothstep(CloudFadeParams.w, CloudFadeParams.z, t);
-
-                    if (density > 0.0f)
+                    // THE COARSE TIER, CLOUD_COARSE_SEARCH_GROUP LATTICE POINTS AT A TIME (FPS-CLOUDS-MARCH-3).
+                    // Every probe first, for all the points at once, none waiting on another point's answer; then
+                    // the exact profile of every point the walk can land on, again all at once
+                    // (CLOUD_COARSE_PROFILE_AFTER_PROBE). At 0 the profile is fetched even where the probe clears,
+                    // as FPS-CLOUDS-MARCH-3 had it, kept for the A/B.
+                    //
+                    // The field's columns are planet x and z minus the wind (CloudSampleProceduralField), so the
+                    // ray's column moves by exactly rayDir.xz per kilometre of ray — the rate the jump divides
+                    // by. Its height is not linear in the ray (the shell is a sphere), so the bands the probe
+                    // reads are those of the stretch's own lowest and highest point (CloudRayHeightFractionSpan),
+                    // clipped to the segment the march would stop at anyway.
+                    float searchT[CLOUD_COARSE_SEARCH_GROUP];
+                    bool  searchCleared[CLOUD_COARSE_SEARCH_GROUP];
+                    float searchProfile[CLOUD_COARSE_SEARCH_GROUP];
+                    for (int j = 0; j < CLOUD_COARSE_SEARCH_GROUP; ++j)
                     {
-                        // The winning species' own opacity, per sample — through the MEDIUM, so a
-                        // material that authors its own extinction is obeyed here and, identically, on
-                        // the shadow ray, the shadow map and the occlusion volume. See the note in
-                        // CloudLightOpticalDepth.
-                        float sigmaT = density * extinction *
-                                       CloudSampleExtinctionFactor(params, field, fieldPos);
-
-                        // ONE shadow ray serves every scattering order. That is the whole economy of the
-                        // octave approximation: the expensive part is finding how much material lies
-                        // between this sample and the sun, and each order then reuses that number with its
-                        // own extinction scale.
-                        vec2  lightCost;
-                        float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
-                                                                         lightMarchKm, lightSamples, extinction,
-                                                                         lightCost);
-                        ++censusLitSamples;
-                        censusLightSamples += lightCost.x;
-                        censusFullLightRays += int(lightCost.y > 0.5f);
-
-                        // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
-                        //
-                        // The strength is the SAME field either way — CloudPhase.z, the artist's
-                        // AmbientOcclusionStrength — and it keeps one meaning, "how strongly the sky light
-                        // is occluded". What the layer's flag chooses is which occluder computes it, so
-                        // neither path leaves the other's parameters dead.
-                        //
-                        // VOLUME OFF: the sample's own Profile, i.e. its depth inside its OWN body.
-                        // Authored, not fixed at full: UE carries the amount in the alpha of its albedo
-                        // parameter, so it IS a dial there.
-                        //
-                        // VOLUME ON, WHICH IS THE DEFAULT SINCE Р12: the diffuse transmittance of
-                        // everything ABOVE this column at this altitude.
-                        // It REPLACES the profile term rather than multiplying it, and that is
-                        // deliberate — the column integrated from the sample upward already contains the
-                        // upper half of the sample's own body, so applying both would count that material
-                        // twice and darken a cloud's own core for a reason nobody could find later.
-                        float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
-                        if (CloudFrame.x > 0.5f)
+                        float pointT   = t + float(j) * coarseStepKm;
+                        vec3  pointPos = originKm + rayDir * pointT;
+                        bool  cleared  = false;
+                        // A point at or past the lane's end ends the walk before its probe is read, so it is not
+                        // probed (FPS-CLOUD-MARCH); the walk's answer is the same, the fetches past the end are gone.
+                        if (probeColumns && pointT < laneEndKm)
                         {
-                            // The WIND-SHIFTED position, because that is the frame the volume was traced
-                            // in — the same subtraction Common/CloudField.glslh makes on its own way into
-                            // the modelling volume, and the reason the two land on the same texel however
-                            // far the wind has run.
-                            vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x,
-                                                   fieldPos.y - params.WindOffsetKm.y,
-                                                   fieldPos.z - params.WindOffsetKm.z);
-
-                            vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
-                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
-                                                               heightFraction, skyWindPos);
-
-                            // textureLod AND NOT texture, for the reason every other volume fetch in this
-                            // file gives: a compute shader has no derivatives, so the implicit level of
-                            // detail is undefined.
-                            ambientOcclusion =
-                                CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
-                                                  CloudPhase.z);
+                            vec2 skippedHeights = CloudRayHeightFractionSpan(layer, originKm, rayDir, pointT,
+                                                                             min(pointT + emptyColumnSkipKm,
+                                                                                 segment.y));
+                            cleared = CloudProceduralColumnsEmpty(params, pointPos.xz - params.WindOffsetKm.xz,
+                                                                  CLOUD_COLUMN_PROBE_RADIUS_KM, skippedHeights.x,
+                                                                  skippedHeights.y);
                         }
-
-                        // Wrenninge's multiple-scattering octaves, as Unreal implements them — the series
-                        // itself is Common/CloudLighting.glslh's CloudMultiScatterStep, which is where its
-                        // arrangement and its price are written down. It lives there rather than here so
-                        // that Desert/Tests/Engine/CloudLighting can drive it as C++ and bound it against a
-                        // converged Monte Carlo; inside this loop nothing could reach it.
-                        //
-                        // The ray's transmittance is applied HERE and not inside, because it belongs to the
-                        // ray's history rather than to the medium — and keeping it out is what lets the
-                        // series be bounded by the source it integrates.
-                        // THE SUN THIS SAMPLE SEES. Resolved once per sample and handed to the series as
-                        // its source, because the atmosphere between this point and the sun is the same
-                        // atmosphere whether the light arriving is first-order or third — the octave loop
-                        // inside CloudMultiScatterStep would otherwise repeat the fetch per order.
-                        // THE MEDIUM'S LAST TWO OUTPUTS, taken here because both are per-SAMPLE in the
-                        // Volume domain's contract even though the shipped material authors them per
-                        // layer. Each default hands its argument straight back, so the two calls fold
-                        // away and the loop is the loop it was.
-                        ambientOcclusion = CloudSampleOcclusion(params, field, fieldPos, ambientOcclusion);
-
-                        // THE CLOUD BOTTOM, which neither occluder above can see: both measure cloud, and what
-                        // darkens a cumulus base is the GROUND under it — a sample at the bottom of the layer
-                        // looks down at dark earth where one at the top looks up at open sky. Unreal's
-                        // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
-                        // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
-                        // darkened, as the authored layer setting promises.
-                        ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, CloudAlbedo.w);
-                        vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
-
-                        luminance += transmittance *
-                                     CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
-                                                           ambientRadiance * ambientOcclusion, opticalDepth,
-                                                           phase, sigmaT, sampleAlbedo, litStepKm);
-
-                        // EMISSION: radiance the medium ADDS, per kilometre of march, attenuated by the
-                        // ray's own history and by nothing else. It is deliberately NOT multiplied by the
-                        // absorption coefficient — Unreal makes the same choice for the same reason, that
-                        // an artist authoring a glow wants the glow they authored and not the glow times
-                        // however opaque the cloud happens to be there (VolumetricCloud.usf:1381-1384).
-                        // The default medium returns a literal zero, so this line costs nothing until a
-                        // graph writes the pin.
-                        luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * litStepKm;
-
-                        // Recorded BEFORE the ray is attenuated: the weight is how much this sample was
-                        // able to contribute, not how much is left after it. Also the guide's front (above),
-                        // and placed before the break below so a ray stopped on transmittance keeps it.
-                        aerialWeightedT += t * transmittance;
-                        aerialWeightSum += transmittance;
-
-                        // The view ray is attenuated by the medium itself, once — the octaves are orders
-                        // of scattering INTO this ray, not extra material along it.
-                        transmittance *= CloudBeerTransmittance(sigmaT, litStepKm);
-
-                        if (transmittance < stopT)
+                        searchT[j]       = pointT;
+                        searchCleared[j] = cleared;
+                        searchProfile[j] = 0.0f;
+                        if (CLOUD_COARSE_PROFILE_AFTER_PROBE == 0)
                         {
-                            laneFinished = true;
+                            // The field takes the ALTITUDE above the layer's base, as every fetch below does.
+                            vec3 pointField  = vec3(pointPos.x, length(pointPos) - layer.BottomRadiusKm, pointPos.z);
+                            searchProfile[j] =
+                                SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
+                        }
+                    }
+
+                    // THE PROFILES THE WALK CAN READ, AND ONLY THOSE (FPS-CLOUD-MARCH, CLOUD_COARSE_PROFILE_AFTER_PROBE).
+                    // The walk below reads a point's profile only when it lands on it, the point is inside the lane and
+                    // the probe did not clear it; and where it lands depends on the profiles only through the hit that
+                    // ENDS it. So the landing points of a walk that assumes every profile is zero are a superset of the
+                    // points the real walk reads (the real walk is that walk's prefix up to its hit): those are fetched,
+                    // all at once as before, and no other. A cleared point, a point inside a cleared point's jump and a
+                    // point past the lane's end cost their probe only - the full field (level weights, trilinear
+                    // modelling fetches, the weather and its CDF) is no longer paid for a zero the walk never reads.
+                    // The walk, its hit and every sample after it are bit-identical to the fetch-everything group.
+                    if (CLOUD_COARSE_PROFILE_AFTER_PROBE != 0)
+                    {
+                        int reachable = 0;
+                        for (int j = 0; j < CLOUD_COARSE_SEARCH_GROUP; ++j)
+                        {
+                            if (j < reachable || searchT[j] >= laneEndKm)
+                                continue;
+                            if (searchCleared[j])
+                            {
+                                reachable = j + emptyColumnStrides;
+                                continue;
+                            }
+                            reachable = j + 1;
+
+                            vec3 pointPos    = originKm + rayDir * searchT[j];
+                            vec3 pointField  = vec3(pointPos.x, length(pointPos) - layer.BottomRadiusKm, pointPos.z);
+                            searchProfile[j] =
+                                SampleCloudField(params, CloudHeightFraction(layer, pointPos), pointField).Profile;
+                        }
+                    }
+
+                    // THE WALK, which is the one-at-a-time search's own: a point the probe clears jumps
+                    // emptyColumnStrides points (the reach it proved, CloudEmptyColumnAdvanceKm), one with no
+                    // profile steps to the next, the first with a profile is the hit, and a point at or past the
+                    // lane's end ends the walk where the old loop's head would have ended the lane. Points the
+                    // walk does not land on were fetched and are not read; every one of them lies inside a reach
+                    // the probe cleared or past the walk's stop, exactly the points the old search never visited.
+                    int next = 0;
+                    int hit  = -1;
+                    for (int j = 0; j < CLOUD_COARSE_SEARCH_GROUP; ++j)
+                    {
+                        if (j < next)
+                            continue;
+                        if (searchT[j] >= laneEndKm)
+                            break;
+                        if (searchCleared[j])
+                        {
+                            next = j + emptyColumnStrides;
+                            ++censusColumnJumps;
+                            continue;
+                        }
+                        ++censusFieldEvaluations;
+                        if (searchProfile[j] > 0.0f)
+                        {
+                            hit = j;
                             break;
                         }
+                        next = j + 1;
+                    }
+
+                    // Outside cloud: keep striding, from the point the walk stopped on (a jump may land past
+                    // the group; the stride count is the same either way).
+                    if (hit < 0)
+                    {
+                        t += float(next) * coarseStepKm;
+                        continue;
+                    }
+
+                    // On the first hit, drop to fine and step BACK to the first fine position past the last
+                    // empty coarse sample, so the material between that sample and this one is not skipped —
+                    // that gap is up to a whole coarse step of cloud and its absence reads as a flat face.
+                    // Where the stride IS the fine step there is no gap: this sample is the next fine one, and
+                    // it is integrated where it stands (its field is read again below, on the fine path).
+                    t        = searchT[hit];
+                    fine     = true;
+                    emptyRun = 0;
+                    // The step-back target is past the lane's first sample for every coarse sample but that first
+                    // one, whose gap behind it is the lane's own dither offset: that hit is integrated where it
+                    // stands, on the ray's dither, rather than re-fetched at the undithered lane start
+                    // (laneFirstKm above).
+                    float hitStepKm     = CloudFootprintStepKm(stepKm, coarseStepKm, t, pixelAngle);
+                    float steppedBackKm = t - coarseStepKm + hitStepKm;
+                    if (coarseStepKm > hitStepKm && steppedBackKm > laneFirstKm)
+                    {
+                        t = steppedBackKm;
+                        continue;
                     }
                 }
 
-                t += litStepKm;
+                // THE FINE TIER, CLOUD_FINE_GROUP SAMPLES AT A TIME (FPS-CLOUDS-MARCH2). A fine sample's fetches - its field,
+                // density, shadow ray, sky occlusion, sun LUT, albedo and emission - depend on its position alone, and its
+                // position on the step of the sample before it, which is a function of distance only (CloudFootprintStepKm),
+                // never of the ray's transmittance. Only the INTEGRATION reads the transmittance. So every sample of the group
+                // is fetched first, none waiting on another's answer, and then integrated in order with the one-at-a-time
+                // rules between samples: the head's stop (lane end, composed transmittance), the empty run that returns to
+                // the coarse tier, and the lane's own stop after each lit sample - Unreal's march, whose stop is per sample.
+                // A sample the walk does not reach was fetched and is discarded: the march leaves the fine tier or the lane
+                // at exactly the sample the old loop did, at the same t. CLOUD_FINE_PAIR 0 is the old loop, operation for
+                // operation. The one difference at 1: the second sample's head test reads the front lanes' transmittance
+                // from this iteration's top, an upper bound (it only falls), as the coarse group's walk does.
+                float fineStepKm[CLOUD_FINE_GROUP];
+                bool  fineProfile[CLOUD_FINE_GROUP];
+                bool  fineLit[CLOUD_FINE_GROUP];
+                // The scattered light and the emission of a lit sample BEFORE the ray's transmittance multiplies them, the
+                // view ray's Beer factor over its step, and its shadow ray's cost for the census.
+                vec3  fineScatter[CLOUD_FINE_GROUP];
+                vec3  fineEmission[CLOUD_FINE_GROUP];
+                float fineBeer[CLOUD_FINE_GROUP];
+                vec2  fineLightCost[CLOUD_FINE_GROUP];
+                float sampleT = t;
+                for (int s = 0; s < CLOUD_FINE_GROUP; ++s)
+                {
+                    // The step this sample is integrated over and advances by: the fine step, grown with the texel
+                    // footprint at this distance up to the search stride (CloudFootprintStepKm; pixelAngle 0 = fine).
+                    float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, sampleT, pixelAngle);
+
+                    fineStepKm[s]    = litStepKm;
+                    fineProfile[s]   = false;
+                    fineLit[s]       = false;
+                    fineScatter[s]   = vec3(0.0f, 0.0f, 0.0f);
+                    fineEmission[s]  = vec3(0.0f, 0.0f, 0.0f);
+                    fineBeer[s]      = 1.0f;
+                    fineLightCost[s] = vec2(0.0f, 0.0f);
+
+                    // A sample at or past the lane's end is never reached by the walk (its head test ends the lane first),
+                    // so it is not fetched. The first sample always is: the loop head above already tested its t.
+                    if (s == 0 || sampleT < laneEndKm)
+                    {
+                        vec3  samplePos      = originKm + rayDir * sampleT;
+                        float heightFraction = CloudHeightFraction(layer, samplePos);
+
+                        // The field is handed the ALTITUDE above the layer's base, never the planet-relative
+                        // height. Two reasons, and the second is the one that bites: the noise is periodic, so a
+                        // y of 6363 kilometres wraps to something arbitrary rather than to something meaningful;
+                        // and at that magnitude float32 resolves 0.4 metres, which quantizes the vertical
+                        // structure of a two-kilometre layer onto a visible ladder.
+                        vec3 fieldPos = vec3(samplePos.x, length(samplePos) - layer.BottomRadiusKm, samplePos.z);
+
+                        CloudFieldSample field = SampleCloudField(params, heightFraction, fieldPos);
+
+                        fineProfile[s] = field.Profile > 0.0f;
+
+                        if (field.Profile > 0.0f)
+                        {
+                            float density = CloudSampleDensity(params, field, fieldPos);
+
+                            // The near-camera fade. A camera inside the layer otherwise meets full density at
+                            // arm's length, which fills the screen with a flat wall; UE fades the nearest metres
+                            // for exactly this. Both distances at zero leave the density untouched.
+                            if (CloudFadeParams.z > 0.0f)
+                                density *= smoothstep(CloudFadeParams.w, CloudFadeParams.z, sampleT);
+
+                            if (density > 0.0f)
+                            {
+                                // The winning species' own opacity, per sample — through the MEDIUM, so a
+                                // material that authors its own extinction is obeyed here and, identically, on
+                                // the shadow ray, the shadow map and the occlusion volume. See the note in
+                                // CloudLightOpticalDepth.
+                                float sigmaT = density * extinction *
+                                               CloudSampleExtinctionFactor(params, field, fieldPos);
+
+                                // ONE shadow ray serves every scattering order. That is the whole economy of the
+                                // octave approximation: the expensive part is finding how much material lies
+                                // between this sample and the sun, and each order then reuses that number with its
+                                // own extinction scale.
+                                vec2  lightCost;
+                                float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
+                                                                                 lightMarchKm, lightSamples, extinction,
+                                                                                 lightCost);
+                                fineLit[s]       = true;
+                                fineLightCost[s] = lightCost;
+
+                                // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
+                                //
+                                // The strength is the SAME field either way — CloudPhase.z, the artist's
+                                // AmbientOcclusionStrength — and it keeps one meaning, "how strongly the sky light
+                                // is occluded". What the layer's flag chooses is which occluder computes it, so
+                                // neither path leaves the other's parameters dead.
+                                //
+                                // VOLUME OFF: the sample's own Profile, i.e. its depth inside its OWN body.
+                                // Authored, not fixed at full: UE carries the amount in the alpha of its albedo
+                                // parameter, so it IS a dial there.
+                                //
+                                // VOLUME ON, WHICH IS THE DEFAULT SINCE Р12: the diffuse transmittance of
+                                // everything ABOVE this column at this altitude.
+                                // It REPLACES the profile term rather than multiplying it, and that is
+                                // deliberate — the column integrated from the sample upward already contains the
+                                // upper half of the sample's own body, so applying both would count that material
+                                // twice and darken a cloud's own core for a reason nobody could find later.
+                                float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
+                                if (CloudFrame.x > 0.5f)
+                                {
+                                    // The WIND-SHIFTED position, because that is the frame the volume was traced
+                                    // in — the same subtraction Common/CloudField.glslh makes on its own way into
+                                    // the modelling volume, and the reason the two land on the same texel however
+                                    // far the wind has run.
+                                    vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x,
+                                                           fieldPos.y - params.WindOffsetKm.y,
+                                                           fieldPos.z - params.WindOffsetKm.z);
+
+                                    vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                                       params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
+                                                                       heightFraction, skyWindPos);
+
+                                    // textureLod AND NOT texture, for the reason every other volume fetch in this
+                                    // file gives: a compute shader has no derivatives, so the implicit level of
+                                    // detail is undefined.
+                                    ambientOcclusion =
+                                        CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
+                                                          CloudPhase.z);
+                                }
+
+                                // Wrenninge's multiple-scattering octaves, as Unreal implements them — the series
+                                // itself is Common/CloudLighting.glslh's CloudMultiScatterStep, which is where its
+                                // arrangement and its price are written down. It lives there rather than here so
+                                // that Desert/Tests/Engine/CloudLighting can drive it as C++ and bound it against a
+                                // converged Monte Carlo; inside this loop nothing could reach it.
+                                //
+                                // The ray's transmittance is applied HERE and not inside, because it belongs to the
+                                // ray's history rather than to the medium — and keeping it out is what lets the
+                                // series be bounded by the source it integrates.
+                                // THE SUN THIS SAMPLE SEES. Resolved once per sample and handed to the series as
+                                // its source, because the atmosphere between this point and the sun is the same
+                                // atmosphere whether the light arriving is first-order or third — the octave loop
+                                // inside CloudMultiScatterStep would otherwise repeat the fetch per order.
+                                // THE MEDIUM'S LAST TWO OUTPUTS, taken here because both are per-SAMPLE in the
+                                // Volume domain's contract even though the shipped material authors them per
+                                // layer. Each default hands its argument straight back, so the two calls fold
+                                // away and the loop is the loop it was.
+                                ambientOcclusion = CloudSampleOcclusion(params, field, fieldPos, ambientOcclusion);
+
+                                // THE CLOUD BOTTOM, which neither occluder above can see: both measure cloud, and what
+                                // darkens a cumulus base is the GROUND under it — a sample at the bottom of the layer
+                                // looks down at dark earth where one at the top looks up at open sky. Unreal's
+                                // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
+                                // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
+                                // darkened, as the authored layer setting promises.
+                                ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, CloudAlbedo.w);
+                                vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
+
+                                // The series and the emission WITHOUT the ray's transmittance, which the walk below applies: it
+                                // belongs to the ray's history rather than to the medium (the series note above).
+                                fineScatter[s] = CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
+                                                                       ambientRadiance * ambientOcclusion, opticalDepth,
+                                                                       phase, sigmaT, sampleAlbedo, litStepKm);
+
+                                // EMISSION: radiance the medium ADDS, per kilometre of march, attenuated by the
+                                // ray's own history and by nothing else. It is deliberately NOT multiplied by the
+                                // absorption coefficient — Unreal makes the same choice for the same reason, that
+                                // an artist authoring a glow wants the glow they authored and not the glow times
+                                // however opaque the cloud happens to be there (VolumetricCloud.usf:1381-1384).
+                                // The default medium returns a literal zero, so this line costs nothing until a
+                                // graph writes the pin.
+                                fineEmission[s] = CloudSampleEmissive(params, field, fieldPos);
+
+                                // The view ray is attenuated by the medium itself, once — the octaves are orders
+                                // of scattering INTO this ray, not extra material along it.
+                                fineBeer[s] = CloudBeerTransmittance(sigmaT, litStepKm);
+                            }
+                        }
+                    }
+                    sampleT += litStepKm;
+                }
+
+                // THE WALK, in order. At every sample t equals the fetch loop's sampleT for it, bit for bit: both
+                // start at t and add the same fineStepKm in the same order.
+                for (int s = 0; s < CLOUD_FINE_GROUP; ++s)
+                {
+                    // The loop head's own stop, between two samples of the group.
+                    if (s > 0 && (t >= laneEndKm || frontT * transmittance < stopT))
+                    {
+                        laneFinished = true;
+                        laneActive   = false;
+                        break;
+                    }
+
+                    ++censusFieldEvaluations;
+
+                    if (!fineProfile[s])
+                    {
+                        t += fineStepKm[s];
+                        ++emptyRun;
+                        // Left the cloud: the next iteration searches coarse from the next sample's t, and the rest of the
+                        // group is discarded - the old loop never fetched it.
+                        if (emptyRun >= kEmptyFineSamplesBeforeCoarse)
+                        {
+                            fine     = false;
+                            emptyRun = 0;
+                            break;
+                        }
+                        continue;
+                    }
+
+                    emptyRun = 0;
+
+                    if (fineLit[s])
+                    {
+                        ++censusLitSamples;
+                        censusLightSamples += fineLightCost[s].x;
+                        censusFullLightRays += int(fineLightCost[s].y > 0.5f);
+
+                        luminance += transmittance * fineScatter[s];
+                        luminance += transmittance * fineEmission[s] * fineStepKm[s];
+
+                        // Recorded BEFORE the ray is attenuated: the weight is how much this sample was able to contribute,
+                        // not how much is left after it. Also the guide's front (above), and placed before the stop below so
+                        // a ray stopped on transmittance keeps it.
+                        aerialWeightedT += t * transmittance;
+                        aerialWeightSum += transmittance;
+
+                        transmittance *= fineBeer[s];
+
+                        // The lane's own stop, the one test above that needs no other lane; it goes idle rather than
+                        // leaving, so its ray's lanes keep reading it. The rest of the group is discarded.
+                        if (transmittance < stopT)
+                        {
+                            laneFinished = true;
+                            laneActive   = false;
+                            break;
+                        }
+                    }
+
+                    t += fineStepKm[s];
+                }
             }
 
             // GPU-FARFIELD-4: THE LANES COMPOSED FRONT TO BACK (CLOUD_MARCH_SEGMENT_LANES). Every lane of the ray
             // reaches this point (each one left the loop; nothing above returned for one lane and not another),
             // so every shuffle below reads an active lane. Each lane's own sums are weighted by the transmittance
             // of the lanes in front of it; afterwards every lane holds the whole ray's result.
+            //
+            // CLOUD_LANE_SCAN: the same composition as a butterfly. Each lane holds its block's aggregate
+            // (L, W, S, T); joining a front block a with a back block b is (L_a + T_a L_b, ..., T_a T_b), and both
+            // partners evaluate it with the same operands in the same order, so all lanes end bit-identical.
+            if (CLOUD_LANE_SCAN != 0)
+            {
+                for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                {
+                    vec3  partnerL = subgroupShuffleXor(luminance, d);
+                    vec3  partnerA = subgroupShuffleXor(vec3(aerialWeightedT, aerialWeightSum, transmittance), d);
+                    bool  back     = (segmentLane & d) != 0u;
+                    vec3  frontL   = back ? partnerL : luminance;
+                    vec3  backL    = back ? luminance : partnerL;
+                    vec3  frontA   = back ? partnerA : vec3(aerialWeightedT, aerialWeightSum, transmittance);
+                    vec3  backA    = back ? vec3(aerialWeightedT, aerialWeightSum, transmittance) : partnerA;
+                    luminance       = frontL + frontA.z * backL;
+                    aerialWeightedT = frontA.x + frontA.z * backA.x;
+                    aerialWeightSum = frontA.y + frontA.z * backA.y;
+                    transmittance   = frontA.z * backA.z;
+                }
+            }
+            else
             {
                 vec3  composedLuminance = vec3(0.0f, 0.0f, 0.0f);
                 float composedWeightedT = 0.0f;
@@ -1208,6 +1712,19 @@ Shader "CloudRaymarch"
             CloudMarchCount(CLOUD_MARCH_COUNT_FULL_LIGHT_RAYS, uint(censusFullLightRays));
 
             // The census view shows the whole ray's cost: the lanes' counts summed into every lane.
+            // CLOUD_LANE_SCAN: a butterfly sum over the ray's lane block (the integers exact, the float regrouped).
+            if (CLOUD_LANE_SCAN != 0)
+            {
+                for (uint d = 1u; d < CLOUD_MARCH_SEGMENT_LANES; d <<= 1u)
+                {
+                    ivec2 partnerCounts = subgroupShuffleXor(ivec2(censusFieldEvaluations, censusLitSamples), d);
+                    float partnerLight  = subgroupShuffleXor(censusLightSamples, d);
+                    censusFieldEvaluations += partnerCounts.x;
+                    censusLitSamples       += partnerCounts.y;
+                    censusLightSamples     += partnerLight;
+                }
+            }
+            else
             {
                 int   rayFieldEvaluations = 0;
                 int   rayLitSamples       = 0;

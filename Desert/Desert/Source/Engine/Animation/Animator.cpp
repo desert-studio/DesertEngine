@@ -762,6 +762,7 @@ namespace Desert::Animation
     {
         m_Component.Invalidate();
         m_Component.WriteSkinningMatrices( m_Skinning.Matrices );
+        ++m_SkinningRevision;
     }
 
     void Animator::SyncStages()

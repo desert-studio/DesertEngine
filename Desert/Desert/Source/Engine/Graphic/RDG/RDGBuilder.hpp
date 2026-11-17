@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGBackend.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Graphic/RDG/RDGDeclarationKey.hpp>
 #include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
@@ -83,6 +84,27 @@ namespace Desert::Graphic::RDG
         // only: an exec lambda records the same work on either pipe.
         [[nodiscard]] Pipe GetPipe() const;
 
+        // FPS-DEVLOST16 (UE: RDG validation refuses a pass touching a graph resource its parameters did not
+        // declare). A raw bind - a pipeline's own setter, a material's storage buffer - is invisible to the
+        // compiler: no barrier and no cross-queue join orders it against the graph's other uses. The backend
+        // asks here whether the range it binds is a buffer of THIS graph that THIS pass declares no use of.
+        // FPS-DEVLOST17: every buffer of the graph - externals and transients (the backend's physical) - is
+        // matched, and the bind is clean when ANY resource @p match accepts is declared by the pass (two aliased
+        // transients share a range; the pass declaring one of them is ordered). Returns the name of the first
+        // accepted resource when none of them is declared; empty when the bind is clean or nothing matched.
+        using PhysicalBufferMatch = bool ( * )( const IPhysicalBuffer& physical, const void* user ) noexcept;
+        [[nodiscard]] std::string_view FindUndeclaredGraphBuffer( PhysicalBufferMatch match,
+                                                                  const void*         user ) const noexcept;
+        // FPS-DEVLOST17: the same question for an image a raw route binds (a compute pipeline's SetInput /
+        // SetOutput, a material's texture property): a texture of this graph whose physical @p match accepts.
+        using PhysicalTextureMatch = bool ( * )( const IPhysicalTexture& physical, const void* user ) noexcept;
+        [[nodiscard]] std::string_view FindUndeclaredGraphTexture( PhysicalTextureMatch match,
+                                                                   const void*          user ) const noexcept;
+        // FPS-DEVLOST17: the context of the pass whose exec runs on the calling thread (null outside an exec, and
+        // always null without DESERT_DEV_INSTRUMENTS). Lets a raw route with no context in hand - a storage
+        // buffer's device-address fetch - ask the question above.
+        [[nodiscard]] static const PassContext* GetExecuting() noexcept;
+
         // RDG-CONTRACTS A(3) - the renderer-facing contract for a graph transient (UE: FRDGTexture accessed
         // through the pass parameters, never stored). A renderer moving an owned intermediate into the graph:
         //   * declares it EVERY frame in the graph it builds: Builder::CreateTexture / CreateBuffer with a desc
@@ -113,6 +135,10 @@ namespace Desert::Graphic::RDG
              : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass ), m_Late( late )
         {
         }
+        // FPS-DEVLOST17: GetExecuting's slot, set by Builder around one exec on its recording thread.
+        static void SetExecuting( const PassContext* context ) noexcept;
+        // Whether this pass declares any use of resource @p index.
+        [[nodiscard]] bool DeclaresResource( uint32_t index ) const noexcept;
 
         const Builder&                          m_Builder;
         const CompileResult&                    m_Result;
@@ -131,6 +157,14 @@ namespace Desert::Graphic::RDG
         void Write( TextureRef texture, Access access, SubresourceRange range = SubresourceRange::All() );
         void Read( BufferRef buffer, Access access );
         void Write( BufferRef buffer, Access access );
+        // FPS-GI-ASYNC (UE ERDGUnorderedAccessViewFlags::SkipBarrier): this pass's StorageWrite of @p texture /
+        // @p buffer touches texels / bytes no other skip-barrier writer of it next to it on the same queue touches
+        // (disjoint rays, disjoint tiles, or commutative atomics), so a write after such a write records no
+        // barrier between the two. Every other edge (a read after either, a write without the flag) is a barrier
+        // as before. Declared after the use (Bindings().Storage / Write); a pass that does not write it as
+        // storage faults.
+        void SkipBarrier( TextureRef texture );
+        void SkipBarrier( BufferRef buffer );
 
         // @p layer = kAllRemaining binds every layer (layered rendering); a single layer renders one
         // cascade of a layered shadow map.
@@ -193,6 +227,9 @@ namespace Desert::Graphic::RDG
         void DeclareTexture( TextureRef texture, Access access, SubresourceRange range, bool asWrite,
                              std::string_view call );
         void DeclareBuffer( BufferRef buffer, Access access, bool asWrite, std::string_view call );
+        // FPS-DEVLOST18: the StorageRead of every buffer the graph lent to a route slot (Builder::LendToRoute)
+        // that @p fill fills - the block's other route binds it, so the pass reads it. Called by Bindings.
+        void DeclareRouteLentReads( const OtherRouteFill& fill );
         void DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access, const LoadOp& load,
                                 uint32_t mip, uint32_t layer, StoreAction store, bool isResolve = false );
 
@@ -231,6 +268,18 @@ namespace Desert::Graphic::RDG
         TextureRef RegisterExternal( ExternalTexture& texture, std::string_view name );
         BufferRef  RegisterExternal( ExternalBuffer& buffer, std::string_view name );
 
+        // FPS-DEVLOST18 (UE: the scene uniform buffer - FSceneUniformParameters' GPUScene primitives / instances /
+        // material tables - is a parameter of every mesh pass, so RDG orders each table's writers before every
+        // pass that draws a material). @p buffer of this graph is what a route (a material's own set, a pipeline's
+        // setters) binds at slot @p slot - a scene table a material holds by lend (StorageBufferProperty::
+        // LendViewBuffer). From here on, every block declared with an OtherRouteFill that fills @p slot
+        // declares StorageRead of @p buffer for its pass (PassBuilder::Bindings): the read the route's descriptor
+        // makes is a declared read, ordered after the buffer's writers by barrier and cross-queue join like any
+        // block entry. ONE place for every material-route pass, derived from what the route fills (the
+        // material's layout bindings), not a list per pass. @p slot must outlive the graph (a constant). Lending
+        // the same slot again replaces the buffer. Refused for a handle that is not a buffer of this graph.
+        void LendToRoute( std::string_view slot, BufferRef buffer );
+
         // Registers the attachments of an engine framebuffer, each carrying the state the engine recorded
         // for it (colour i as "<name>.Color<i>", depth as "<name>.Depth"). @p depth may be null. Execute
         // writes the final states back through each texture's RecordStates (after every barrier on it and at the
@@ -254,8 +303,10 @@ namespace Desert::Graphic::RDG
         void Extract( BufferRef buffer, ExternalBuffer& into, Access final );
 
         // RDG-FAULT1 C3b (UE: FRDGBuilder::QueueBufferUpload). CPU data for a buffer of this graph, the only way
-        // a graph buffer gets contents from the host. @p bytes are COPIED now (the caller's storage may die
-        // right after the call), and a Copy pass "Upload: <buffer name>" is added HERE that writes them
+        // a graph buffer gets contents from the host. @p bytes are COPIED now into the graph's arena (the caller's
+        // storage may die right after the call). FPS-CPU-UPLOAD (UE: SubmitBufferUploads): a buffer no pass
+        // declared yet is written by the graph's ONE upload batch "RDG: Uploads" (declared at the first such
+        // call); any other gets a Copy pass "Upload: <buffer name>" added HERE. Either writes them
         // (Access::CopyDst), so every pass added after this call that reads the buffer is ordered after the
         // upload by the graph, with its barrier; a reader added before it reads a buffer nothing wrote and is
         // refused ("... before any pass writes it"). The upload is culled with its buffer when nobody reads it.
@@ -274,6 +325,11 @@ namespace Desert::Graphic::RDG
         // indirect arguments), which are not copied: the upload takes no heap block for its payload. @p bytes must
         // outlive the graph's Execute; refused as QueueBufferUpload is.
         void QueueStaticBufferUpload( BufferRef buffer, std::span<const std::byte> bytes );
+        // FPS-CPU-UPLOAD (UE: AddClearUAVPass on a buffer, recorded with the upload batch). The whole buffer
+        // filled with the 32-bit word @p value on the GPU (vkCmdFillBuffer): no CPU bytes, no copy. Ordered and
+        // refused as QueueBufferUpload is (it joins the graph's upload batch when no pass declared the buffer
+        // yet).
+        void QueueBufferClear( BufferRef buffer, uint32_t value );
         // CPU-GRASS-POOL-3 (UE: AddCopyBufferPass). A Copy pass "Copy: <source> -> <target>" added HERE that
         // copies @p bytes of @p source from @p sourceOffset into @p target at @p targetOffset (Access::CopySrc /
         // CopyDst), ordered against the buffers' other passes by the graph like any pass: what a pooled buffer
@@ -297,7 +353,10 @@ namespace Desert::Graphic::RDG
             static_assert( std::is_invocable_r_v<Common::BoolResultStr, Exec, PassContext&>,
                            "exec lambda takes PassContext& and returns Common::BoolResultStr" );
             PassBuilder passBuilder = BeginPass( name, flags );
+            // CPU-COMPILE-KEY: a pass declared inside this setup must not close this one into the key.
+            ++m_SetupDepth;
             std::forward<Setup>( setup )( passBuilder );
+            --m_SetupDepth;
             // CPU-FRAME-ARENA (UE: the pass lambda FRDGBuilder::AddPass places in FRDGAllocator): the exec is
             // constructed in the graph's arena, with no heap block of its own, and destroyed by Reset (or the
             // builder's end) - after Execute, which joins every chunk that runs it. A pass whose exec could not
@@ -371,8 +430,11 @@ namespace Desert::Graphic::RDG
         //   3. ownership: one QueueOwnershipTransfer per (resource, range) whose contents cross pipes;
         //   4. lifetimes: AliasFirst/LastPosition widened over the fork..join window.
         // The single-pipe result equals Compile(memory) on the same graph, except DemotedAsyncPasses.
-        [[nodiscard]] Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory,
-                                                                const PipeCapabilities&            pipes ) const;
+        // @p balancedToGraphics (FPS-ASYNC-BALANCE, RDGAsyncBalance.hpp): sorted AsyncBalancePassKey of the
+        // AsyncCompute passes that run on Graphics anyway (they keep the flag; not DemotedAsyncPasses).
+        [[nodiscard]] Common::ResultStr<CompileResult>
+        Compile( const IMemoryRequirementsProvider& memory, const PipeCapabilities& pipes,
+                 std::span<const uint64_t> balancedToGraphics = {} ) const;
 
         // Pass culling is on by default. Off, every pass is live and CulledPasses stays empty: the debug switch
         // DebugViewState::DisablePassCulling, so that a picture which changes with it names a pass whose effect
@@ -398,6 +460,18 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] bool GetParallelExecute() const
         {
             return m_ParallelExecute;
+        }
+        // FPS-RDG-PREPARE (UE FRDGBuilder::SetupParallelExecute, r.RDG.ParallelSetup): true prepares the
+        // record prerequisites that PreparesOnAnyThread on task workers (Common::TaskGroup slices, joined before
+        // the first pass records); false prepares every one on the calling thread in pass order - the A/B and
+        // the rollback (Scalability RenderPipeline.ParallelSetup, SceneRenderer::OnUpdate).
+        void SetParallelPrepare( bool enabled ) noexcept
+        {
+            m_ParallelPrepare = enabled;
+        }
+        [[nodiscard]] bool GetParallelPrepare() const noexcept
+        {
+            return m_ParallelPrepare;
         }
         void SetAsyncCompute( bool enabled )
         {
@@ -498,6 +572,7 @@ namespace Desert::Graphic::RDG
             Access           Usage    = Access::None;
             SubresourceRange Range;           // resolved: no kAllRemaining
             int32_t          Attachment = -1; // index into PassRecord::Attachments, -1 for a plain use
+            bool SkipBarrier = false; // PassBuilder::SkipBarrier: a StorageWrite unordered with its neighbours
         };
 
         struct AttachmentRecord
@@ -513,6 +588,24 @@ namespace Desert::Graphic::RDG
             StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 
+        // One range a queued upload writes: @p Bytes at @p Offset of buffer @p Buffer. FPS-CPU-UPLOAD (UE: the
+        // QueueBufferUpload data in FRDGAllocator): the bytes are the graph arena's copy (or static storage), so
+        // an upload takes no heap block; Reset rewinds them with the graph.
+        // A range with no Bytes is a fill of @p FillBytes with the word @p FillValue (QueueBufferClear).
+        struct UploadRange
+        {
+            uint32_t                   Buffer = 0;
+            uint64_t                   Offset = 0;
+            std::span<const std::byte> Bytes;
+            uint64_t                   FillBytes = 0;
+            uint32_t                   FillValue = 0;
+
+            [[nodiscard]] uint64_t Size() const noexcept
+            {
+                return Bytes.empty() ? FillBytes : Bytes.size();
+            }
+        };
+
         // CPU-FRAME-ARENA: a record's name (beyond the string's inline buffer), uses, attachments, blocks and
         // prerequisites live in the graph's arena (UE: FRDGPass in FRDGAllocator); Reset releases them at once.
         struct PassRecord
@@ -522,7 +615,8 @@ namespace Desert::Graphic::RDG
                    Uses( Common::Memory::ArenaAllocator<ResourceUse>( arena ) ),
                    Attachments( Common::Memory::ArenaAllocator<AttachmentRecord>( arena ) ),
                    Blocks( Common::Memory::ArenaAllocator<DeclaredBindingBlock>( arena ) ),
-                   Prerequisites( Common::Memory::ArenaAllocator<uint32_t>( arena ) )
+                   Prerequisites( Common::Memory::ArenaAllocator<uint32_t>( arena ) ),
+                   Uploads( Common::Memory::ArenaAllocator<UploadRange>( arena ) )
             {
             }
 
@@ -546,6 +640,15 @@ namespace Desert::Graphic::RDG
             // The copy QueueBufferUpload added. Compile moves it to the graph head when no earlier pass touches
             // its buffer (Compiler::HoistQueuedUploads).
             bool QueuedUpload = false;
+            // GPU-ASYNC-WAIT-2 (UE: FRDGBuilder::SubmitBufferUploads, one batch): the disjoint ranges this upload
+            // pass writes, in call order - every QueueBufferUpload of one buffer from a run of uploads with no
+            // other pass between them (AddUploadPass).
+            Common::Memory::ArenaVector<UploadRange> Uploads;
+            // FPS-CPU-UPLOAD (UE: FRDGBuilder::SubmitBufferUploads, ONE upload batch per graph): the graph's
+            // upload batch "RDG: Uploads" (Builder::m_UploadBatch). Its writes grow after it is closed - one
+            // Write(CopyDst) per buffer an upload put in it - so the key takes them at Compile, not when the next
+            // pass begins (AddPassKey keys only its marks; Compiler::HashDeclaration its write set).
+            bool UploadBatch = false;
         };
 
         struct ResourceRecord
@@ -571,6 +674,18 @@ namespace Desert::Graphic::RDG
             uint32_t            LaterAccessMask = 0;
             FaultDefault        Default        = FaultDefault::None; // SetFaultDefault (transients)
             ExternalFaultPolicy Policy         = ExternalFaultPolicy::KeepsContents; // SetFaultPolicy (externals)
+            // CPU-COMPILE-KEY: in m_RoleResources (a call set Extract / SetFaultDefault / SetFaultPolicy).
+            bool                RoleListed     = false;
+            // GPU-ASYNC-WAIT-2: the last upload pass into this buffer (kNoUpload: none); later uploads join it
+            // while it is in the current run of uploads (Builder::m_UploadRunStart).
+            static constexpr uint32_t kNoUpload  = UINT32_MAX;
+            uint32_t                  OpenUpload = kNoUpload;
+            // FPS-CPU-UPLOAD: a pass other than the upload batch declared a use of this buffer
+            // (PassBuilder::DeclareBuffer); from then on an upload into it is ordered where it is called, in a
+            // pass of its own, never in the batch.
+            bool DeclaredByPass = false;
+            // FPS-CPU-UPLOAD: the upload batch writes this buffer (its Write(CopyDst) is declared once).
+            bool InUploadBatch = false;
 
             [[nodiscard]] bool IsExternal() const
             {
@@ -587,10 +702,18 @@ namespace Desert::Graphic::RDG
         };
 
         PassBuilder BeginPass( std::string_view name, PassFlags flags );
-        // The uploads' one pass: @p bytes are what it writes at @p offset, @p owned their copy (null: static
-        // storage).
-        void AddUploadPass( BufferRef buffer, uint64_t offset, std::span<const std::byte> bytes,
-                            std::shared_ptr<const std::vector<std::byte>> owned );
+        // The uploads' one pass: @p bytes (the arena's copy or static storage) are what it writes at @p offset.
+        // An upload into a buffer no pass declared yet joins the graph's upload batch (AddToUploadBatch); any
+        // other keeps a pass of its own where it is called.
+        void AddUploadPass( BufferRef buffer, const UploadRange& range );
+        // The backend call that writes @p range into physical buffer @p resource (an upload or a fill).
+        static Common::BoolResultStr RecordUploadRange( PassContext& context, uint32_t resource,
+                                                        const UploadRange& range );
+        // FPS-CPU-UPLOAD: @p bytes into the upload batch; false when the range overlaps one the batch already
+        // writes into that buffer (the caller then orders it after the batch in a pass of its own).
+        bool AddToUploadBatch( BufferRef buffer, const UploadRange& range );
+        // FPS-CPU-UPLOAD: a copy of @p bytes in the graph's arena (empty when the arena could not grow).
+        [[nodiscard]] std::span<const std::byte> CopyToArena( std::span<const std::byte> bytes ) noexcept;
         // Keeps the FIRST declaration error: later ones are usually its consequences.
         void                                RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
@@ -598,6 +721,21 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
         // RDG-FAULT1: FrameFatal external @p resource as a FrameFault lists it (with its Extract's final access).
         [[nodiscard]] FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
+
+        // CPU-COMPILE-KEY (RDGCompile.cpp, next to Compiler::HashDeclaration, the one place that says what the
+        // key covers). The compile cache key is built while the graph is declared, from data still hot: a
+        // record's fixed fields (kind, descriptor, external role) when it is made, a pass when the next pass
+        // begins (its setup and the calls right after AddPass - QueueBufferUpload's mark - are over). What may
+        // change until Compile - the externals' states, the extraction and fault fields - Compile reads from
+        // m_KeyedExternals and m_RoleResources, never by walking every record.
+        static void AddResourceKey( DeclarationHasher& hash, const ResourceRecord& record ) noexcept;
+        static void AddPassKey( DeclarationHasher& hash, const PassRecord& pass ) noexcept;
+        // The record's extraction and fault fields as one word (UntouchedRoleKey for a record no call touched).
+        [[nodiscard]] static uint64_t RoleKey( const ResourceRecord& record ) noexcept;
+        [[nodiscard]] static uint64_t UntouchedRoleKey() noexcept;
+        void KeyNewResources() noexcept;
+        void KeyClosedPasses() noexcept;
+        void ListRoles( uint32_t resource );
 
         // CPU-FRAME-ARENA: first, so it outlives every record that points into it; Reset() resets it.
         Common::Memory::FrameArena  m_Arena;
@@ -612,6 +750,12 @@ namespace Desert::Graphic::RDG
         std::string                 m_Name;
         std::vector<ResourceRecord> m_Resources;
         std::vector<PassRecord>     m_Passes;
+        // GPU-ASYNC-WAIT-2: the first pass of the current run of upload passes (every pass from it on is a
+        // queued upload); an upload pass before it is closed to new ranges.
+        uint32_t m_UploadRunStart = 0;
+        // FPS-CPU-UPLOAD: the graph's upload batch pass (kNoUploadBatch: no upload joined one yet).
+        static constexpr uint32_t kNoUploadBatch = UINT32_MAX;
+        uint32_t                  m_UploadBatch  = kNoUploadBatch;
         // Every distinct IRecordPrerequisite a pass of this graph declared (PassBuilder::Prepares), in first
         // declaration order, and the index of each in it: PassRecord::Prerequisites holds those indices.
         // CPU-RDG-ALLOC: the index is an open-addressed table (a power-of-two size, at most half full) that Reset
@@ -629,11 +773,35 @@ namespace Desert::Graphic::RDG
         bool                        m_PassCulling = true;
         bool                        m_AsyncCompute = true;
         bool                        m_ParallelExecute = true;
+        bool                        m_ParallelPrepare = true;
         // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).
         FaultDefaults                    m_FaultDefaults;
         ExecuteReport                    m_Report;
         std::vector<DefaultSubstitution> m_LateSubstitutions;
+        // CPU-COMPILE-KEY (see AddResourceKey). The running keys, how many records each covers, the externals
+        // in record order (Compile reads their states), and the records a role call touched, ascending. Plain
+        // vectors that keep their capacity across Reset: a steady frame keys without the heap.
+        struct KeyedExternal
+        {
+            const ExternalTexture* Texture = nullptr;
+            const ExternalBuffer*  Buffer  = nullptr;
+        };
+        DeclarationHasher          m_ResourceKey;
+        DeclarationHasher          m_PassKey;
+        uint32_t                   m_ResourcesKeyed = 0;
+        uint32_t                   m_PassesKeyed    = 0;
+        uint32_t                   m_SetupDepth     = 0; // AddPass setups running (an AddPass inside a setup)
+        std::vector<KeyedExternal> m_KeyedExternals;
+        std::vector<uint32_t>      m_RoleResources;
+        // FPS-DEVLOST18: LendToRoute's slots, in call order (a handful: the scene tables). Cleared by Reset,
+        // keeps its capacity.
+        struct RouteLentBuffer
+        {
+            std::string_view Slot;
+            BufferRef        Buffer;
+        };
+        std::vector<RouteLentBuffer> m_RouteLent;
     };
 } // namespace Desert::Graphic::RDG

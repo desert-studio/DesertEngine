@@ -3,6 +3,7 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <format>
 #include <vector>
@@ -34,10 +35,20 @@ namespace Desert::Editor
         const float fps = avgMs > 0.0f ? 1000.0f / avgMs : 0.0f;
 
         // Top CPU scopes from the engine aggregator (already averaged over its window).
-        auto scopes = Common::Profiling::Profiler::Get().LastFrame();
-        std::sort( scopes.begin(), scopes.end(),
-                   []( const auto& a, const auto& b ) { return a.TotalMs > b.TotalMs; } );
-        const int scopeRows = std::min<int>( 5, static_cast<int>( scopes.size() ) );
+        // The five costliest rows picked into a fixed array (a frame of the HUD copies no published row).
+        constexpr size_t                                          kTopScopes = 5;
+        std::array<const Common::Profiling::ScopeResult*, kTopScopes> scopes{};
+        size_t                                                    picked = 0;
+        for ( const Common::Profiling::ScopeResult& s : Common::Profiling::Profiler::Get().LastFrame() )
+        {
+            if ( picked == kTopScopes && s.TotalMs <= scopes[picked - 1]->TotalMs )
+                continue;
+            size_t at = picked < kTopScopes ? picked++ : picked - 1;
+            for ( ; at > 0 && scopes[at - 1]->TotalMs < s.TotalMs; --at )
+                scopes[at] = scopes[at - 1];
+            scopes[at] = &s;
+        }
+        const int scopeRows = static_cast<int>( picked );
         // The bindless table as the renderer's last memory sample saw it; no row (not "0 / 0") before the table
         // exists or when the dev instruments do not sample (Renderer::BeginFrame).
         const std::optional<Graphic::BindlessOccupancy> bindless = Graphic::MemoryWatch::LastBindless();
@@ -123,8 +134,8 @@ namespace Desert::Editor
         for ( int i = 0; i < scopeRows; ++i )
         {
             char row[96];
-            std::snprintf( row, sizeof( row ), "%-18.18s %6.2f ms", scopes[i].Name.c_str(),
-                           scopes[i].TotalMs );
+            std::snprintf( row, sizeof( row ), "%-18.18s %6.2f ms", scopes[i]->Name.c_str(),
+                           scopes[i]->TotalMs );
             dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 210, 210, 215, 255 ), row );
             y += lineH;
         }

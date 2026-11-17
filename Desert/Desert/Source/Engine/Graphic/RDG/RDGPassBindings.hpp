@@ -62,6 +62,10 @@ namespace Desert::Graphic::RDG
         Access             Declared = Access::None;
         // Set for Sampler (the shared state), empty for the texture kinds.
         std::optional<SamplerDesc> Sampler;
+        // FPS-ARCH-BINDINGS: the declared entry's slot index in the block's layout and its name hash
+        // (DeclaredBindingEntry::Slot / NameHash): what the backend places the entry by, never the name.
+        uint32_t                   Slot     = kNoShaderSlot;
+        uint64_t                   NameHash = 0;
     };
 
     struct BoundBuffer
@@ -70,6 +74,8 @@ namespace Desert::Graphic::RDG
         ShaderResourceKind Kind = ShaderResourceKind::StorageBuffer;
         BufferBinding      Buffer;
         Access             Declared = Access::None;
+        uint32_t           Slot     = kNoShaderSlot; // as BoundTexture::Slot
+        uint64_t           NameHash = 0;
     };
 
     // Fills one DeclaredBindingBlock from a setup lambda (PassBuilder::Bindings). Each call declares the access on
@@ -168,6 +174,12 @@ namespace Desert::Graphic::RDG
         // block resolve to the same entries (the constructor reads only the block and the context), so a backend
         // may key what it builds from them by it (VulkanRdgBackend's pass set memo).
         [[nodiscard]] BindingBlockRef GetBlock() const;
+        // FPS-ARCH-BINDINGS: the layout the block was declared and validated against (every entry's Slot indexes
+        // its Slots); null only for a block that failed to open (GetStatus is then an error).
+        [[nodiscard]] const ShaderBindingLayout* GetLayout() const noexcept
+        {
+            return m_Layout;
+        }
 
     private:
         // How the constructor resolves one declared entry. A sampled texture: @p range = Mip(m) is a view of that
@@ -182,6 +194,7 @@ namespace Desert::Graphic::RDG
 
         const PassContext&        m_Context;
         BindingBlockRef           m_Block;
+        const ShaderBindingLayout* m_Layout = nullptr;
         std::vector<BoundTexture> m_Textures;
         std::vector<BoundBuffer>  m_Buffers;
         std::vector<std::byte>    m_PushConstants;

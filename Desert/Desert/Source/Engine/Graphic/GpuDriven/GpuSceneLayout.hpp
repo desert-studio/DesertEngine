@@ -45,6 +45,11 @@ namespace Desert::Graphic::GpuDriven
         // maps: movable primitives go to the dynamic depths). The cull's layer flags below split on it, per
         // instance: a swaying instance past the shadow wind distance stands still there (ShadowWind.glslh).
         inline constexpr uint32_t kMovableCaster = 1u << 5;
+        // Skinned: the mesh's binding 3 holds its own last-frame positions (a morphed twin without a skin cache,
+        // MeshGeometry::PreviousVertices): the vertex stage that skins without a skin-cache entry reads
+        // a_PrevPosition; clear = the vertices did not move under the mesh, it reads a_Position (UE's previous
+        // position stream bound only where one exists).
+        inline constexpr uint32_t kPreviousPositions = 1u << 6;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
@@ -277,8 +282,12 @@ namespace Desert::Graphic::GpuDriven
         // CascadePlacement::TexelOrigin, z = a cell's side in texels (CascadeContentHash::kCellsPerMap cells per
         // map side), w = its region
         glm::ivec4 ContentCells{ 0 };
+        // 592 a depth-occluder view (CullViewFlags::kDepthOccluder): x = the minimum screen radius, squared, in
+        //     Geometry::BoundsScreenRadiusSquared's measure (InstanceCull.shader BoundsScreenRadiusSq)
+        glm::vec4 DepthOccluder{ 0.0f };
     };
-    static_assert( sizeof( GpuCullView ) == 592, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 608, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, DepthOccluder ) == 592, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, ContentCells ) == 576, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, StripPlanes ) == 368, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, Strips ) == 560, "Common/GpuScene.glslh" );
@@ -303,6 +312,12 @@ namespace Desert::Graphic::GpuDriven
         // GPU): culled as the static layer (with kCasterStaticLayer), it fills no bin; every instance the layer
         // would draw adds (instance row, rest pose, LOD) into the CascadeContentHash cells it covers.
         inline constexpr uint32_t kContentHash = 1u << 7;
+        // THE DEPTH OCCLUDERS of the main G-buffer view (FPS-PREPASS-OCCLUDERS; UE r.EarlyZPass with
+        // r.MinScreenRadiusForDepthPrepass): the main camera's G-buffer bins culled again, keeping only the
+        // instances whose bounds' screen radius reaches GpuCullView::DepthOccluder.x, and none the main view draws
+        // otherwise than through its bins (no bounds, a virtual-geometry primitive the main view cuts). Never an
+        // HZB test (nothing held back for phase 2). MeshRenderer draws their depth twins before the masked prepass.
+        inline constexpr uint32_t kDepthOccluder = 1u << 8;
     } // namespace CullViewFlags
 
     // THE CASCADE CONTENT HASH (CPU-ISM-SHADOW): per sun cascade a region of cells anchored to the map's texel

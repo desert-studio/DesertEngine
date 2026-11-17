@@ -262,11 +262,13 @@ namespace Common::Scalability
     // networks (sl_dlss_d.h DLSSDPreset): A-C were removed, D and E are the earlier transformer models, F is the
     // latest transformer model and NVIDIA's current default for every mode (the NGX log reports Preset_F under
     // Default), G-O revert to the default; D, E and F are offered. Stored by name; the Streamline runtime maps a
-    // value to its sl::DLSSDPreset.
+    // value to its sl::DLSSDPreset. The SDK keeps no CNN network (A-C are gone), so the lighter Ray
+    // Reconstruction is its first transformer model D: Scalability.json runs D on Low/Medium, and High/Epic keep
+    // Default (F) - the cost is a quality level, as UE's r.NGX.DLSS.RR presets are set per scalability level.
     enum class DlssRRPreset : int
     {
         Default = 0,
-        D, // transformer
+        D, // transformer; the first (DLSS 4.0) model, Low/Medium
         E, // transformer
         F, // transformer; NVIDIA's latest and its current default
     };

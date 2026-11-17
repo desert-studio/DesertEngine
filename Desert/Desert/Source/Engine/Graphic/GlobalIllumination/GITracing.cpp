@@ -62,7 +62,8 @@ namespace Desert::Graphic::GlobalIllumination
         return "an unknown tracer";
     }
 
-    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame, const RDG::Access sampled )
+    void DeclareTracerReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame, const RDG::Access sampled,
+                             const TracerPointClamp pointClamp )
     {
         switch ( frame.Pipeline.Tracer )
         {
@@ -85,11 +86,12 @@ namespace Desert::Graphic::GlobalIllumination
                      // The brick atlas reads through the clipmaps' shared repeat state (GITracer.glslh).
                      .Texture( GITracingShaderParameters::DistanceFieldBrickAtlasTexture,
                                frame.MeshDistanceFields.BrickAtlas, sampled, RDG::SubresourceRange::All() )
-                     .Sampler( GITracingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
-                     // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).
-                     .Texture( GITracingShaderParameters::GlobalDistanceFieldObjectGridTexture,
-                               frame.GlobalDistanceFieldObjectGrid, sampled, RDG::SubresourceRange::All() )
-                     .Sampler( GITracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+                     .Sampler( GITracingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
+                // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).
+                block.Texture( GITracingShaderParameters::GlobalDistanceFieldObjectGridTexture,
+                               frame.GlobalDistanceFieldObjectGrid, sampled, RDG::SubresourceRange::All() );
+                if ( pointClamp == TracerPointClamp::Bind )
+                    block.Sampler( GITracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
                 return;
             case Tracer::HardwareRayQuery:
                 block.AccelerationStructure( kHardwareTracerTlas, frame.Tlas )

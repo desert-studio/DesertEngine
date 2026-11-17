@@ -34,11 +34,13 @@
 //              CalculateUpsampleInterpolationWeights).
 //   Trace ×5   8x8 rays per probe, in UE's passes (LumenScreenProbeTracing.cpp TraceScreenProbes): the SCREEN over
 //              the view's HZB, a hit returning last frame's lit scene (ScreenProbeTraceScreenTexturesCS); the rays
-//              it left open COMPACTED into a dense list with its indirect arguments (ScreenProbeCompactTracesCS);
+//              it left open listed densely with their indirect arguments by the pass that left them (UE
+//              ScreenProbeCompactTracesCS folded into the legs, no pass rescans the rays: THE LEGS' LISTS,
+//              Common/ScreenProbeTracing.glslh);
 //              from where the screen left off, the GI ray contract's NEAR field over that list (TracerVariant /
 //              DeclareTracerReads: the passes name no tracer resource; software: the mesh SDFs of the view's
 //              near-field froxel grid, ScreenProbeTraceMeshSDFsCS over LumenMeshSDFCulling's grid,
-//              GlobalDistanceField::AddNearFieldCullPasses); every ray still without a hit compacted again; its
+//              GlobalDistanceField::AddNearFieldCullPasses); every ray still without a hit listed again; its
 //              FAR field (software: the global field) out to the world radiance cache's minimum trace distance,
 //              past which the cache's radiance answers (RadianceCacheRadianceAt; ScreenProbeTraceVoxelsCS). The
 //              legs hand one another each ray's state in a trace hit buffer (Common/ScreenProbeTracing.glslh).
@@ -91,7 +93,14 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 192 bytes.
+    // UE r.Lumen.ScreenProbeGather.MaxRayIntensity (40): the largest component a traced screen probe ray may
+    // carry, in the view's pre-exposed units (UE ClampMaxRayIntensity: MaxRayIntensity * View.OneOverPreExposure).
+    // One over-bright ray (a sun-lit hit lit through a bad card or a far-field surface rebuilt inside a lit wall)
+    // is otherwise spread by the probe filter over the probe's whole hemisphere and every pixel that probe lights
+    // (FPS-GLOW-ROOT: the red-orange ball in the grass of FIELD-BARN t0).
+    inline constexpr float kScreenProbeMaxRayIntensity = 40.0f;
+
+    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 208 bytes.
     struct ScreenProbeParamsPayload
     {
         glm::mat4  PrevViewProjection{ 1.0f };
@@ -101,12 +110,18 @@ namespace Desert::Graphic::GlobalIllumination
         glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
         glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = kScreenProbe* flags below,
                                 // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
+        // x = the largest component a traced ray's radiance may carry, absolute (kScreenProbeMaxRayIntensity /
+        // PreExposure); yzw unused (std430 vec4 alignment).
+        glm::vec4 RayClamp{ 0.0f };
     };
-    static_assert( sizeof( ScreenProbeParamsPayload ) == 192 );
+    static_assert( sizeof( ScreenProbeParamsPayload ) == 208 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh.
     inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the temporal history is the view's previous frame
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
     inline constexpr uint32_t kScreenProbeScreenTrace  = 4u; // last frame's scene colour is readable: screen leg
+    // ScreenProbeGatherInputs::SparseStableRays with the denoiser and the view's history: settled uniform probes
+    // trace a checkerboard half of their texels (Common/ScreenProbeTracing.glslh SPTexelSkipped).
+    inline constexpr uint32_t kScreenProbeSparseStable = 8u;
 
     // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
     struct ScreenProbePayload
@@ -251,11 +266,20 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t Downsample   = 16; // Scalability GlobalIllumination.ScreenProbeDownsample (ScreenProbeLayout)
         uint32_t TracedTexels = 8;  // Scalability GlobalIllumination.ScreenProbeTracedTexels (ScreenProbeLayout)
         bool     ShortRangeAO = true; // Scalability GlobalIllumination.ShortRangeAO: the ShortRangeAO pass runs
+        // Scalability GlobalIllumination.ScreenProbeSparseStableRays (FPS-SP-NEAR): a uniform probe whose tile's
+        // history is settled (ScreenProbes.Disocclusion 0: every pixel holds SP_DISOCCLUSION_MAX_FRAMES frames)
+        // traces a checkerboard half of its texels, alternating per frame; the spatial filter's first pass
+        // rebuilds the other half from their traced neighbours. Only with the denoiser (Denoise): it is what
+        // measures the history and accumulates the two halves.
+        bool SparseStableRays = true;
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
         // ViewFrame::PrevPreExposure: the scale the scene colour history (the screen trace's hit radiance) is
         // stored at; the trace divides by it so its output stays absolute.
         float PrevPreExposure = 1.0f;
+        // ViewFrame::PreExposure: this frame's scene colour scale; the ray clamp (kScreenProbeMaxRayIntensity) is
+        // relative to it, as UE's is to View.PreExposure.
+        float PreExposure = 1.0f;
         // The temporal filter's reprojection: the view's velocity (FrameTransients::Velocity), this frame's and
         // last frame's jitter (ViewFrame::JitterNdc / PrevJitterNdc), and whether the view's previous frame is a
         // previous frame of this one (ViewFrame::HistoryValid: false after a cut, a teleport, a resize).
@@ -295,10 +319,10 @@ namespace Desert::Graphic::GlobalIllumination
         // GPU-FARFIELD-1: then the far-field leg's own rays (ScreenProbeTrace.shader SP_FAR_FIELD_RAYS_*): [6]
         // every ray listed, [7] the rays the global field hit (lit by GIHitRadiance), [8] the rays outside the
         // cache's coverage (marched to the full trace distance). GPU-FARFIELD-3: [9] the global field's
-        // sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the hits no
-        // card holds, handed to the hit-lighting leg, [11] that leg's steps (its shadow marches: a hit = [11] /
-        // [10]).
-        static constexpr uint32_t kFarFieldClasses = 6;
+        // sphere-trace steps of the far field's own marches (steps a listed ray = [9] / [6]), [10] the hits
+        // handed to the hit-lighting leg (GPU-FARFIELD-5: every software hit, = [7]), [11] that leg's steps (its
+        // shadow marches: a hit = [11] / [10]), [12] that leg's hits a card holds (lit by the cards).
+        static constexpr uint32_t kFarFieldClasses = 7;
         static constexpr uint32_t kWords           = kReasons + kFarFieldClasses;
         // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected
         // (every traced probe's visibility 0), nan (a NaN weight), coarser (the coverage's clipmap had no traced
@@ -382,20 +406,34 @@ namespace Desert::Graphic::GlobalIllumination
             Place = 0,
             ShortRangeAO,
             TraceScreen,
-            CompactTraces,
             TraceNearField,   // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
             TraceFarField,    // the same program's far-field leg
             TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
+            TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
+                              // there
+            TraceNearHitLighting, // the same program's leg lighting the software near field's hits (FPS-NEAR-FIELD)
             Disocclusion,
             SpatialFilter,
+            SpatialFilterFill,      // ScreenProbeSpatialFilter SP_SPATIAL_FILTER_FILLS_SKIPPED: the first pass,
+                                    // rebuilding the texels the sparse stable probes skipped (FPS-SP-NEAR)
             Filter,
+            FilterSpatial,          // ScreenProbeFilter SP_FILTER_SPATIAL: the spatial filter's last pass first
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
             IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
             Integrate,              // the full permutation: the tiles that evaluate GGX samples
+            IntegrateUncovered,     // ScreenProbeIntegrate SP_INTEGRATE_UNCOVERED: the pixels no probe holds
             Temporal,
             ProgramCount
         };
+
+        // ScreenProbeTrace's world legs, each a permutation of one program (EnsureTraceProgram, ProgramVariants).
+        static constexpr std::array<Program, 6> kTracePrograms{ TraceNearField,   TraceFarField,  TraceCacheMiss,
+                                                                TraceHitLighting, TraceCacheRead, TraceNearHitLighting };
+
+        // A trace leg's permutation define (SP_TRACE_*): the one key TraceLegExists / TraceLegLightsHits decide
+        // on.
+        [[nodiscard]] static std::string_view TraceLegDefine( Program program );
 
         [[nodiscard]] Common::BoolResultStr EnsureImages( glm::uvec2 extent, const ScreenProbeLayout& layout );
 

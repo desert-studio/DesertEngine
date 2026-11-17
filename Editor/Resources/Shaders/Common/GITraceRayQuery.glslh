@@ -188,7 +188,7 @@ float GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, 
 // The ray leaves the hit by UE's normal bias (the normal turned to the ray's side, so a ray leaving the back of a
 // two-sided surface is pushed out of that side) plus its bias along the ray. A traced triangle IS the surface, so the
 // view's pixel counts as the hit only within those two offsets (the SDF tracer needs a voxel; this one does not).
-GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
+GITraceBias GIRayBias( vec3 position, vec3 normal )
 {
     GITraceBias bias;
     // One field: the near and far offsets are the same normal bias (GITraceRay reads no farTMin).

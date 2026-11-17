@@ -3,9 +3,9 @@
 
 // Ported from UE 5.8 Engine/Shaders/Private/HZBTracing.ush:33-250 (TraceHZB) and Common.ush:1893 (LineBoxIntersect),
 // adapted: GLSL; our HZB's mip 0 is the full-resolution closest depth (UE's FullResDepth permutation, base mip -1),
-// so there is no separate scene-depth level and no near-start depth scaling; mip sizes are read from the texture
-// (our mips are not padded to a power of two, UE's HZBUvFactor); the thickness test of the stop is the caller's
-// (screen probes: UE's relative depth thickness; SSR: its own confidence), and the linear thickness steps are a
+// so there is no separate scene-depth level and no near-start depth scaling; mip sizes follow the texture's base
+// extent by the mip chain rule (our mips are not padded to a power of two, UE's HZBUvFactor); the thickness test
+// of the stop is the caller's (screen probes: UE's relative depth thickness; SSR: its own confidence), and the linear thickness steps are a
 // separate function (HZBThinSurfaceAhead) the caller runs on a stop it accepted.
 //
 // THE SCREEN TRACE OVER THE CLOSEST-DEPTH HZB (Programs/Deferred/HZB.shader). A hierarchical traversal (Uludag,
@@ -75,8 +75,9 @@ HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 
 	// Out of the start's own texel without a test (UE bStepOutOfCurrentTile): no self-intersection. A crossing lands
 	// exactly ON a plane; the offset puts the position inside the next texel.
-	int   mip = 0;
-	vec2  mipResolution = vec2(textureSize(HzbTexture, 0));
+	int         mip       = 0;
+	const ivec2 baseSize  = textureSize(HzbTexture, 0);
+	vec2        mipResolution = vec2(baseSize);
 	vec2  xyPlane = (floor(start.xy * mipResolution) + floorOffset) / mipResolution + offsetSign * 0.005 / mipResolution;
 	vec2  tPlane  = (xyPlane - start.xy) * invDirection.xy;
 	float t       = min(tPlane.x, tPlane.y);
@@ -86,7 +87,9 @@ HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 	int i = 0;
 	while (mip >= 0 && i < maxIterations && t < 1.0)
 	{
-		mipResolution         = vec2(textureSize(HzbTexture, mip));
+		// A mip's extent is the base's halved and floored, at least 1 (the Vulkan mip chain rule, which is what
+		// textureSize(HzbTexture, mip) returns): ALU instead of a size query in front of every fetch of the walk.
+		mipResolution         = vec2(max(baseSize >> mip, ivec2(1)));
 		xyPlane               = (floor(position.xy * mipResolution) + floorOffset) / mipResolution +
 		                        offsetSign * 0.005 / mipResolution;
 		const ivec2 texel     = clamp(ivec2(position.xy * mipResolution), ivec2(0), ivec2(mipResolution) - 1);

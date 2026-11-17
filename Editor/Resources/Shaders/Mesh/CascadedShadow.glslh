@@ -297,13 +297,15 @@ float sampleCascadeTransmission(int light, int c, vec3 worldPos, float density)
 	return mix(mix(through.w, through.z, f.x), mix(through.x, through.y, f.x), f.y);
 }
 
-// The cascades' TransmissionShadow at worldPos: the cascade ShadowFactor chooses, cross-faded into the next one
-// across the same border band, so the transmitted light and the surface light change cascade together.
-float TransmissionShadowFactor(int light, vec3 worldPos, float density)
+// The cascades' TransmissionShadow at worldPos in cascade @p c - the cascade ShadowFactor chose for the same light
+// at the same worldPos (its cascadeOut; -1 = none, or the slot casts no shadow: lit) - cross-faded into the next
+// one across the same border band, so the transmitted light and the surface light change cascade together.
+// FPS-DIRECT-TILES2 (UE: one cascade pick per pixel and light, shared by the opaque and the subsurface lookups):
+// a receiver that ran ShadowFactor passes its cascade here instead of choosing it again - ShadowFactor's
+// cascadeOut IS chooseCascade(light, worldPos) when the slot casts a shadow and -1 when it does not, the two cases
+// TransmissionShadowFactor below answers, so the result is the same value.
+float TransmissionShadowFactorInCascade(int light, int c, vec3 worldPos, float density)
 {
-	if (DirectionalShadow[light].y < 0.5)
-		return 1.0;
-	const int c = chooseCascade(light, worldPos);
 	if (c < 0)
 		return 1.0;
 	float     through      = sampleCascadeTransmission(light, c, worldPos, density);
@@ -318,6 +320,14 @@ float TransmissionShadowFactor(int light, vec3 worldPos, float density)
 			through = mix(sampleCascadeTransmission(light, c + 1, worldPos, density), through, clamp(edge / kBand, 0.0, 1.0));
 	}
 	return through;
+}
+
+// The cascades' TransmissionShadow at worldPos for a receiver that did not run ShadowFactor: the cascade chosen here.
+float TransmissionShadowFactor(int light, vec3 worldPos, float density)
+{
+	if (DirectionalShadow[light].y < 0.5)
+		return 1.0;
+	return TransmissionShadowFactorInCascade(light, chooseCascade(light, worldPos), worldPos, density);
 }
 
 // THE HAND-OVER TO THE DISTANCE FIELDS (UE DistanceFieldShadowing: the ray-traced distance-field shadow fades in

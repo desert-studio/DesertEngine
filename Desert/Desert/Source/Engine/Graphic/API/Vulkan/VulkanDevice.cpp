@@ -239,7 +239,7 @@ namespace Desert::Graphic::API::Vulkan
              BuildCapabilityCatalog( ProbeProfiledCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
         LOG_INFO( "[Vulkan] with the surface: {}{}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ),
                   ProfileTag( m_DeviceCaps ) );
-        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
+        PublishCatalog();
     }
 
     VulkanPhysicalDevice::RuntimeOffers VulkanPhysicalDevice::AskRuntimeOffers()
@@ -268,7 +268,16 @@ namespace Desert::Graphic::API::Vulkan
              BuildCapabilityCatalog( ProbeProfiledCatalog( m_PhysicalDevice, m_ProbedSurface, m_DeviceCaps ) );
         LOG_WARN( "[Vulkan] a vendor runtime changed what it offers: {}{}",
                   Common::Scalability::FormatCatalog( m_Capabilities.Catalog ), ProfileTag( m_DeviceCaps ) );
+        PublishCatalog();
+    }
+
+    void VulkanPhysicalDevice::PublishCatalog()
+    {
+        // Both readers of the catalog get the rebuilt one: the quality resolution, and EngineContext's copy that
+        // the swapchain resolves its present mode from (ARCH-AUDIT A: that copy was taken at device creation,
+        // when the catalog listed FIFO alone, so VSync Off presented FIFO and capped the frame at the display).
         Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
+        EngineContext::GetInstance().RefreshCapabilities( m_Capabilities );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::Create( ProbedDevice probed )

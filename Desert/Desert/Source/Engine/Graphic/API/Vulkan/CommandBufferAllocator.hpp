@@ -70,7 +70,18 @@ namespace Desert::Graphic::API::Vulkan
         /// waits neither the submit thread nor the GPU. A queued submission the driver refuses still signals its
         /// value (from the host) and ends the run (the frame loop's failure), so no holder waits forever on it.
         /// Inline (submitted before the return) when no loop runs or its thread has exited.
-        Common::ResultStr<Submitted> RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer );
+        Common::ResultStr<Submitted>
+        RT_SubmitCommandBufferGraphic( VkCommandBuffer      commandBuffer,
+                                       std::source_location where = std::source_location::current() );
+
+        /// FPS-DEVLOST6, THE ONE-OFFS' BREADCRUMBS (UE: a crash marker on every queue submit, not only graph
+        /// passes): called on the submitting thread just before each one-off's vkEndCommandBuffer (the flushes
+        /// above, RT_SubmitCommandBufferGraphic) with the queue it goes to and its caller, so a device loss
+        /// before any graph pass names the upload in flight. Installed by the renderer (VulkanGpuBreadcrumbs::
+        /// MarkOneOff) and removed before what @p context names goes away; none installed = nothing recorded.
+        using OneOffMarker = void ( * )( void* context, VkCommandBuffer commandBuffer, VkQueue queue,
+                                         const std::source_location& where ) noexcept;
+        static void SetOneOffMarker( OneOffMarker marker, void* context ) noexcept;
 
         /// True once the submission's value is reached on the upload timeline, false while it is still queued
         /// or executing. Never blocks.

@@ -21,6 +21,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceFieldCeiling.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -130,6 +131,11 @@ namespace Desert::Graphic::DistanceField
         std::vector<GlobalDistanceFieldObject> Objects;
         // Each object's world box (its field's LocalSpaceMeshBounds through World), index for index with Objects.
         std::vector<Common::Math::AABB> Bounds;
+        // The set's distinct fields, first use first, and each object's index into them, index for index with
+        // Objects (sealed): the scene's residency and the frame's lookups run once per field (UE
+        // FDistanceFieldAssetState: per asset, not per instance), and an object reads its field's answer.
+        std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> Fields;
+        std::vector<uint32_t>                                               FieldOfObject;
         // The landscape tiles, placed after the objects in the object records (DF_OBJECT_FLAG_HEIGHTFIELD): the
         // global field's composite reads them, the near field's cull stops before them.
         std::vector<GlobalDistanceFieldHeightfield> Heightfields;
@@ -138,7 +144,8 @@ namespace Desert::Graphic::DistanceField
         // placement is keyed on. Not PrevWorld: the clipmaps hold this frame's surface only.
         uint64_t Identity = 0;
     };
-    // Fills @p set's Bounds and Identity from its Objects; call after every rebuild of the Objects.
+    // Fills @p set's Bounds, Fields, FieldOfObject and Identity from its Objects; call after every rebuild of the
+    // Objects.
     void SealGlobalDistanceFieldObjectSet( GlobalDistanceFieldObjectSet& set );
 
     // The parameters of a clipmap level (pure, shared by the update and every reader): its voxel in centimetres,
@@ -209,8 +216,26 @@ namespace Desert::Graphic::DistanceField
         {
             std::array<RDG::TextureRef, kGlobalDistanceFieldClipmaps> Clipmaps;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps>       Levels{};
+            // THE OCCUPIED BOX (FPS-PROBES-FAR): (min.xyz, 0), (max.xyz, 0) cm - the union of every placed
+            // record's box (the meshes and the landscape tiles: all the clipmaps were composited from), grown by
+            // kGdfOccupiedMarginVoxels of the coarsest clipmap. Outside it no clipmap sample can be in a march's
+            // band, so a far-field march ends where its ray leaves it (Common/GITraceDistanceField.glslh
+            // GIFarFieldOccupiedExit). Min > Max: nothing is placed, no ray can hit.
+            std::array<glm::vec4, 2>                                  OccupiedBox{};
+            // THE CEILING (above) of the same placement; null when nothing was placed yet.
+            std::shared_ptr<const GlobalDistanceFieldCeiling>         Ceiling;
             RDG::TextureRef                                           ObjectGrid; // the object grid (above)
             MeshDistanceFieldReads                                    MeshFields;
+        };
+
+        // FPS-DEVLOST18: where the asking view keeps its graph's imports of the buffers the composite and a trace
+        // read - the scene's asset records and indirection, the field's objects (GlobalDistanceFieldView's
+        // m_AssetImport / m_IndirectionImport / m_ObjectImport). None may be null.
+        struct MeshFieldImports
+        {
+            RDG::ExternalBuffer* Assets      = nullptr;
+            RDG::ExternalBuffer* Indirection = nullptr;
+            RDG::ExternalBuffer* Objects     = nullptr;
         };
 
         // Brings the clipmaps up to @p camera and @p objects, once per @p engineFrame (the class comment). The
@@ -218,11 +243,14 @@ namespace Desert::Graphic::DistanceField
         // the frame's update starts its frame there (@p poolMiB: Scalability
         // GlobalIllumination.DistanceFieldPoolMiB), looks its objects' fields up in the set the scene decided; then
         // its update plan and one composite pass per level that has bricks to rewrite. Every call imports the
-        // clipmaps, the object grid and the brick atlas into @p graph through @p import.
+        // clipmaps, the object grid and the brick atlas into @p graph through @p import, and registers the asset,
+        // indirection and object buffers through @p imports (FrameField::MeshFields) once this frame's objects
+        // are uploaded - BEFORE the composites, which declare their reads of all three (they run on the async
+        // queue: an undeclared read gets neither a barrier nor a cross-queue join).
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const GlobalDistanceFieldObjectSet& objects, DistanceFieldSceneData& scene,
-                         uint64_t engineFrame, uint32_t poolMiB );
+                         uint64_t engineFrame, uint32_t poolMiB, const MeshFieldImports& imports );
 
         // The object records of the frame's update (DF_OBJECT_*): what a view's graph registers as
         // MeshDistanceFieldReads::Objects.
@@ -232,6 +260,13 @@ namespace Desert::Graphic::DistanceField
         }
 
     private:
+        // FPS-DEVLOST18: imports @p scene's asset and indirection buffers and this field's objects (each frame in
+        // flight has its own copy: called after this frame's uploads) through @p imports and registers them in
+        // @p graph as @p into's Assets / Indirection / Objects.
+        [[nodiscard]] Common::BoolResultStr RegisterMeshFields( RDG::Builder& graph, const DistanceFieldSceneData& scene,
+                                                                const MeshFieldImports& imports,
+                                                                MeshDistanceFieldReads& into ) const;
+
         struct TrackedObject
         {
             Common::Math::AABB Bounds;
@@ -257,15 +292,25 @@ namespace Desert::Graphic::DistanceField
             uint64_t                        PoolGeneration = 0;
             uint64_t                        Lookups       = 0;
             std::vector<Common::Math::AABB> PlacedBounds;
+            std::array<glm::vec4, 2>        OccupiedBox{}; // FrameField::OccupiedBox, made from PlacedBounds
+            std::shared_ptr<const GlobalDistanceFieldCeiling> Ceiling; // FrameField::Ceiling, the same
             std::vector<glm::vec4>          ObjectData;
             // The placed mesh objects, which lead PlacedBounds and ObjectData; the landscape tiles follow them
             // (the global field's only - MeshDistanceFieldReads::NumMeshObjects).
             uint32_t MeshObjects = 0;
         };
         std::optional<KeptPlacement> m_Placement;
-        // The fields of the set m_FieldsIdentity names, as BeginViewFrame takes them (rebuilt with the set only).
-        std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> m_Fields;
-        std::optional<uint64_t>                                             m_FieldsIdentity;
+        // The resident slot of each of the set's Fields (DistanceFieldSceneData::ResolveFields), resolved for the
+        // set m_SlotsIdentity names at the scene's resident epoch m_SlotsEpoch: re-resolved only when either
+        // moved, so a frame's lookups read an array. The set holds the fields, so a slot cannot outlive its field.
+        std::vector<DistanceFieldSceneData::FieldSlot> m_FieldSlots;
+        std::optional<uint64_t>                        m_SlotsIdentity;
+        uint64_t                                       m_SlotsEpoch = 0;
+        // The frame's scratch, kept so a frame allocates nothing: the nearest object distance of each field, each
+        // field's record index (nullopt: not resident) and the placed objects (object, record index).
+        std::vector<float>                         m_FieldDistance;
+        std::vector<std::optional<uint32_t>>       m_FieldIndex;
+        std::vector<std::pair<uint32_t, uint32_t>> m_Placed;
         // The scene pool generation the clipmaps were composited from (DistanceFieldSceneData::GetPoolGeneration).
         std::optional<uint64_t> m_PoolGeneration;
 
@@ -278,6 +323,8 @@ namespace Desert::Graphic::DistanceField
             glm::vec3                                           Camera{ 0.0f };
             uint64_t                                            Objects = 0;
             std::array<glm::vec4, kGlobalDistanceFieldClipmaps> Levels{};
+            std::array<glm::vec4, 2>                            OccupiedBox{};
+            std::shared_ptr<const GlobalDistanceFieldCeiling>   Ceiling;
             uint32_t                                            NumMeshObjects = 0;
             uint32_t                                            NumObjects     = 0;
         };

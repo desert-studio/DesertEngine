@@ -31,6 +31,14 @@ namespace Desert::Graphic
 
         void SetRawData( const void* data, uint32_t size )
         {
+            (void)WriteRawData( data, size );
+        }
+
+        // SetRawData that says whether the bytes landed (FPS-CPU2-TAILS: a writer that records which version a
+        // frame-in-flight copy holds, StorageBuffer::NoteActiveApplied, notes only a write that landed; the
+        // refusal is logged here either way).
+        bool WriteRawData( const void* data, uint32_t size )
+        {
             // THE REFUSAL TERMINATES HERE, AND THAT IS A DECISION RATHER THAN AN OMISSION. Above this
             // sit ~25 `sb->SetRawData(...)` call sites in material Update() overrides that the render
             // graph calls with no channel of their own, and there is nothing any of them could do with a
@@ -51,23 +59,26 @@ namespace Desert::Graphic
                            "(LendViewBuffer: the scene material table or a view's per-frame buffer), which only "
                            "its owner writes",
                            m_Binding, size );
-                return;
+                return false;
             }
             const auto buffer = GetStorageBuffer();
             if ( !buffer )
             {
                 LOG_ERROR( "[SSBO] binding {}: {} byte(s) were not uploaded: the property has no buffer", m_Binding,
                            size );
-                return;
+                return false;
             }
             const auto wrote = buffer->SetData( data, size );
             if ( !wrote.IsSuccess() )
+            {
                 LOG_ERROR( "[SSBO] {} byte(s) were not uploaded, the shader reads the previous frame's "
                            "contents -- {}",
                            size, wrote.GetError() );
+            }
 
             m_Written = true;
             NoteWritten();
+            return wrote.IsSuccess();
         }
 
         // Replace the reflection-created buffer with an externally-owned one (the particle simulation's

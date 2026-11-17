@@ -1,5 +1,6 @@
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -223,6 +224,20 @@ namespace Desert::ShaderResources::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    uint64_t VulkanStorageBuffer::ActiveAppliedVersion() const
+    {
+        if ( IsPersistent() || !m_PerView )
+            return 0; // one device buffer, no per-copy record: its writer writes every time
+        return m_PerView->ActiveAppliedVersion( EngineContext::GetInstance().GetCurrentFrameIndex() );
+    }
+
+    void VulkanStorageBuffer::NoteActiveApplied( const uint64_t version )
+    {
+        if ( IsPersistent() || !m_PerView )
+            return;
+        m_PerView->NoteActiveApplied( EngineContext::GetInstance().GetCurrentFrameIndex(), version );
+    }
+
     Common::BoolResultStr VulkanStorageBuffer::SetData( const void* data, uint32_t size, uint32_t offset )
     {
         if ( !m_Built.IsSuccess() )
@@ -323,6 +338,42 @@ namespace Desert::ShaderResources::API::Vulkan
         if ( address == 0 )
             return Common::MakeFormattedError<uint64_t>( "storage buffer '{}': its buffer has no device address",
                                                          m_BufferName );
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-DEVLOST17: an address fetched inside a graph pass's exec is a read of that range by the pass.
+        CheckExecutingPassAddress( copy->Binding().Info );
+#endif
         return Common::MakeSuccess( address );
+    }
+
+    VulkanStorageBuffer::GraphRecord* VulkanStorageBuffer::FindRecord( const uint64_t copyId ) noexcept
+    {
+        if ( copyId == 0 )
+            return nullptr;
+        for ( GraphRecord& record : m_GraphRecords )
+        {
+            if ( record.CopyId == copyId )
+                return &record;
+        }
+        return nullptr;
+    }
+
+    VulkanStorageBuffer::GraphRecord& VulkanStorageBuffer::RecordForCopy( const uint64_t copyId ) noexcept
+    {
+        GraphRecord* record = FindRecord( copyId );
+        if ( record == nullptr )
+        {
+            // The least recently imported slot (an empty one has LastUse 0, so it goes first).
+            record = &m_GraphRecords[0];
+            for ( GraphRecord& candidate : m_GraphRecords )
+            {
+                if ( candidate.LastUse < record->LastUse )
+                    record = &candidate;
+            }
+            record->CopyId = copyId;
+            record->Physical.reset();
+            record->State = Desert::Graphic::RDG::AccessState{};
+        }
+        record->LastUse = ++m_GraphRecordClock;
+        return *record;
     }
 } // namespace Desert::ShaderResources::API::Vulkan

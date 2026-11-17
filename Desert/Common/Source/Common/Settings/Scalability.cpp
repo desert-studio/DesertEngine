@@ -5,6 +5,7 @@
 #include <Common/Json/Document.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -357,7 +358,7 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
                "the SP_DOWNSAMPLE permutation, 8 / 16 / 32 / 64)",
-               16, Vis::Advanced },
+               16, Vis::Advanced, /*PowersOfTwo*/ true },
              { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
                16, CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (traced texels a probe side: "
@@ -378,6 +379,21 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
                CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)", 1,
+               Vis::Advanced },
+             { P::ScreenProbeSparseStableRays, G::GlobalIllumination,
+               "GlobalIllumination.ScreenProbeSparseStableRays", 0, 1, CL::None,
+               "SceneRenderer -> GlobalIllumination::ScreenProbeGather (ScreenProbeGatherInputs::SparseStableRays: "
+               "settled uniform probes trace a checkerboard half of their texels)",
+               1, Vis::Advanced },
+             { P::GlobalIlluminationScreenSpaceRays, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceRays",
+               1, 32, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::RaysPerPixel", 8,
+               Vis::Advanced },
+             { P::GlobalIlluminationScreenSpaceSteps, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSteps",
+               8, 128, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::Iterations",
+               32, Vis::Advanced },
+             { P::GlobalIlluminationScreenSpaceDenoiserRadius, G::GlobalIllumination,
+               "GlobalIllumination.ScreenSpaceDenoiserRadius", 1, 3, CL::None,
+               "SceneRenderer::BeginScene -> SSGIRenderer -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect", 2,
                Vis::Advanced },
              { P::SurfaceCacheAsyncRadiosity, G::GlobalIllumination,
                "GlobalIllumination.SurfaceCacheAsyncRadiosity", 0, 1, CL::None,
@@ -440,10 +456,22 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (the far "
                "LOD's screen size of blades and meshes, GrassGenerate GrassFarLodShare)",
                16, Vis::Advanced },
+             { P::FoliageGrassBladeCardHull, G::Foliage, "Foliage.GrassBladeCardHull", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a blade's "
+               "raster strip spans its card's cooked hull, Vertex_GrassBlade BladeHullSide)",
+               0, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
-               "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",
-               Of( EarlyZPassMode::All ), Vis::Advanced },
+               "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL; a frame with a "
+               "DBuffer decal runs All)",
+               Of( EarlyZPassMode::Masked ), Vis::Advanced },
+             { P::EarlyZOccluderScreenRadius, G::ViewDistance, "RenderPipeline.EarlyZOccluderScreenRadius", 0,
+               1000, CL::None,
+               "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius (thousandths of the "
+               "screen: "
+               "the opaque GPU-driven instances at least that large write their depth before the masked prepass; "
+               "0 = none)",
+               30, Vis::Advanced },
              { P::ParallelExecute, G::ViewDistance, "RenderPipeline.ParallelExecute", 0, 1, CL::None,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetParallelExecute (graph pass chunks recorded on task "
                "workers into secondary command buffers, replayed in pass order)",
@@ -482,6 +510,21 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
                "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
                1, Vis::Advanced },
+             { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
+               CL::None,
+               "QualityState listener (VulkanRendererAPI::Init) -> DeviceLost::SetBreadcrumbsWanted -> "
+               "VulkanRendererAPI::BeginRdgFrame (a start and an end marker per render-graph pass and per one-off "
+               "submit, named per queue by the [DeviceLost] report)",
+               0, Vis::Advanced },
+             { P::CloudLightLocalSamples, G::Effects, "Effects.CloudLightLocalSamples", 1, 16, CL::None,
+               "SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack "
+               "(the ceiling on VolumetricCloudData::LightMarchLocalSamples, the near sun ray's samples)",
+               16, Vis::Advanced },
+             { P::FoliageGrassVisibilityBuffer, G::Foliage, "Foliage.GrassVisibilityBuffer", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate (m_GrassVisibilityBuffer: the grass rasterised once into the visibility "
+               "buffer and resolved per pixel, for a volume's GrassRasterPath::Scalability; 0 = masked depth "
+               "prepass + EQUAL G-buffer)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -493,6 +536,18 @@ namespace Common::Scalability
             return true;
         }
         static_assert( DefaultsInRange(), "a ParameterSpec Default lies outside its [Min, Max]" );
+
+        // A PowersOfTwo row's Min, Max and Default are themselves legal (Resolve lowers to a power of two >= Min).
+        constexpr bool PowersOfTwoSpecsLegal()
+        {
+            for ( const ParameterSpec& spec : kParameterSpecs )
+                if ( spec.PowersOfTwo && ( !IsLegalValue( spec, spec.Min ) || !IsLegalValue( spec, spec.Max ) ||
+                                           !IsLegalValue( spec, spec.Default ) ) )
+                    return false;
+            return true;
+        }
+        static_assert( PowersOfTwoSpecsLegal(),
+                       "a PowersOfTwo ParameterSpec has a Min/Max/Default off the powers" );
     } // namespace
 
     namespace
@@ -657,6 +712,13 @@ namespace Common::Scalability
             if ( value < spec.Min || value > spec.Max )
             {
                 errors.Add( node, "{}: {} is outside [{}, {}]", spec.Key, value, spec.Min, spec.Max );
+                return std::nullopt;
+            }
+            if ( !IsLegalValue( spec, value ) )
+            {
+                errors.Add( node,
+                            "{}: {} is not a power of two (the legal values are the powers of two in [{}, {}])",
+                            spec.Key, value, spec.Min, spec.Max );
                 return std::nullopt;
             }
             // A level states the render method it renders (RenderMethods.hpp): one this build has not implemented
@@ -1262,6 +1324,13 @@ namespace Common::Scalability
         for ( const ParameterSpec& spec : kParameterSpecs )
         {
             r.Set( spec.Id, std::clamp( r.Get( spec.Id ), spec.Min, spec.Max ), "outside the parameter's range" );
+            // Inside [Min, Max] now; a PowersOfTwo spec's Min is a power of two (PowersOfTwoSpecsLegal), so the
+            // power of two below the value is >= Min.
+            if ( !IsLegalValue( spec, r.Get( spec.Id ) ) )
+            {
+                const auto lowered = std::bit_floor( static_cast<uint32_t>( r.Get( spec.Id ) ) );
+                r.Set( spec.Id, static_cast<ParameterValue>( lowered ), "not a power of two" );
+            }
             NarrowByCatalog( spec, catalog, r );
         }
         {

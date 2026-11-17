@@ -327,6 +327,14 @@ namespace Common::Scalability
                                           // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
         ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
                                           // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        ScreenProbeSparseStableRays,      // 0/1: a uniform screen probe whose tile's history is settled traces
+                                          // half its texels a frame, a checkerboard alternating per frame, the
+                                          // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
+                                          // probe traces every texel
+        // GI ScreenSpace (System::SSGIRenderer::Settings, read by SceneRenderer::BeginScene; UE r.SSGI.Quality):
+        GlobalIlluminationScreenSpaceRays,           // cosine rays per pixel, 1..32
+        GlobalIlluminationScreenSpaceSteps,          // HZB walk iterations per ray, 8..128
+        GlobalIlluminationScreenSpaceDenoiserRadius, // the diffuse denoiser's reconstruction taps per side, 1..3
         SurfaceCacheAsyncRadiosity,       // 0/1: the surface cache's radiosity trace + integration as compute on
                                           // the async compute queue (UE Lumen scene lighting on async); 0 = the
                                           // raster passes on the graphics queue (GPU-GI-CRITPATH A/B)
@@ -387,14 +395,28 @@ namespace Common::Scalability
         // the masked depth prepass and every shadow cascade draw. 0 = no far LOD (the variety's own LOD levels
         // only).
         FoliageGrassLodScreenPixels,
+        // 0/1 (FPS-GRASS-HULL): a grass blade's raster strip spans only its card's cooked hull (the opaque part
+        // of the card on the atlas, UE SubUV cutout) instead of the whole card. Read by SceneRenderer::BeginScene
+        // -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (GrassBladeShapeGpu::HullTexels.z).
+        FoliageGrassBladeCardHull,
         // Which meshes the deferred path's early-Z pass draws before the G-buffer (UE r.EarlyZPass):
         // EarlyZPassMode (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate ->
         // MeshRenderer::SetEarlyZPass
         // ("Deferred: Masked Depth Prepass", then "Deferred: GBuffer" EQUAL for what it drew). Key
-        // "RenderPipeline.EarlyZPass": equal at every level (a renderer choice, not a quality step: All costs a
-        // depth-only draw per opaque mesh and saves the G-buffer's overdraw), so only a machine override names it;
+        // "RenderPipeline.EarlyZPass": Masked at every level (a renderer choice, not a quality step: All costs a
+        // depth-only draw per opaque mesh, more than the G-buffer overdraw it saves; a frame with a DBuffer decal
+        // runs All whatever the value, SceneRenderer::OnUpdate), so only a machine override names it;
         // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
         EarlyZPass,
+        // The deferred early-Z pass's LARGE OPAQUE OCCLUDERS under EarlyZPass Masked (UE
+        // r.MinScreenRadiusForDepthPrepass, in thousandths: 30 = UE's 0.03): the GPU-driven opaque instances whose
+        // bounds' screen radius (Geometry::BoundsScreenRadiusSquared's measure) reaches it write their depth in
+        // "Deferred: Occluder Depth Prepass" before the masked prepass, so the grass and foliage they hide fail
+        // early-Z before their clip runs; the G-buffer still draws them with their own depth test and write. 0 =
+        // no occluder pass. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZOccluderScreenRadius. Key
+        // "RenderPipeline.EarlyZOccluderScreenRadius": equal at every level (a cost choice that never moves a
+        // texel: the depth it writes is the depth the G-buffer writes), so only a machine override names it.
+        EarlyZOccluderScreenRadius,
         // 0/1: graph passes record on task workers (RDG-PARALLEL-3; UE r.RDG.ParallelExecute): a Graphics segment
         // of 24+ passes is cut into chunks of about 24 at render pass boundaries, each recorded into secondary
         // command buffers of its own and replayed in pass order (NeverParallel passes record inline). 0 = every
@@ -456,6 +478,34 @@ namespace Common::Scalability
         // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
         // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
         RenderPipelineGrassCullAsync,
+        // 0/1: GPU crash breadcrumbs (FPS-GPU-MARKER; UE r.GPUCrashDebugging + FGPUBreadcrumbs, NVIDIA Aftermath
+        // markers): every render-graph pass writes its id into a host-visible word of its queue at its start and
+        // at its end (VK_AMD_buffer_marker), so the [DeviceLost] report names, per queue, the last pass the GPU
+        // started and the last it finished. 0 = no marker is recorded (zero cost). A device without the extension
+        // has no breadcrumbs and says so once. Read by a QualityState listener (VulkanRendererAPI::Init) ->
+        // DeviceLost::SetBreadcrumbsWanted -> VulkanRendererAPI::BeginRdgFrame. Key
+        // "RenderPipeline.GpuCrashBreadcrumbs": equal at every level (a diagnostic, not a quality step), so only a
+        // machine override names it.
+        RenderPipelineGpuCrashBreadcrumbs,
+        // The ceiling the Effects level puts on VolumetricCloudData::LightMarchLocalSamples: the SHORT sun ray a
+        // lit cloud sample marches where the cloud shadow map supplies the far optical depth (Programs/Clouds/
+        // CloudRaymarch.shader, CloudSelfShadowOpticalDepth; UE r.VolumetricCloud.ShadowSampleCountScale-style).
+        // A ceiling and not a value: the GPU gets min( authored, this ), so an artist who authored fewer keeps
+        // them on every level. 16 = ECS::kCloudLightMarchLocalMaxSamples, the identity (caps nothing). On the
+        // squared quadrature over the 1 km short ray the first segment is 1 km / n^2: 4 = 62.5 m (half a map
+        // texel, the least the map's 117 m texel still meets), 6 = 27.8 m, the authored 8 = 15.6 m. Read by
+        // SceneRenderer::BeginScene -> VolumetricCloudRenderer::SetCloudSettings -> CloudSelfShadowPack. Key
+        // "Effects.CloudLightLocalSamples".
+        CloudLightLocalSamples,
+        // 0/1: the view's grass blades and mesh grass rasterise ONCE into a 64-bit visibility buffer and their
+        // material is resolved once per pixel (FPS-GRASS-VISBUF; UE 5 Nanite foliage), instead of the masked depth
+        // prepass + the EQUAL G-buffer pass that rasterise them twice. The same G-buffer texel either way (one
+        // writer, Mesh/Surface/GBufferOutputs.glslh): a cost, not a quality step. What a volume's
+        // Core::GrassRasterPath::Scalability (its default) renders; a volume stating GBuffer / VisibilityBuffer
+        // overrides it. Read by SceneRenderer::OnUpdate (m_GrassVisibilityBuffer). Key
+        // "Foliage.GrassVisibilityBuffer": 1 at every level, so only a machine override names it (0 = the A/B and
+        // the rollback).
+        FoliageGrassVisibilityBuffer,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -510,7 +560,19 @@ namespace Common::Scalability
         // lives here once. Inside [Min, Max] (static_assert in Scalability.cpp). Set to the Epic value (SCAL-UX).
         ParameterValue      Default    = 0;
         ParameterVisibility Visibility = ParameterVisibility::Advanced;
+        // THE LEGAL VALUES ARE THE POWERS OF TWO INSIDE [Min, Max], not every integer (a shader permutation keyed
+        // by log2, e.g. GlobalIllumination.ScreenProbeDownsample's SP_DOWNSAMPLE_LOG2). The table refuses any
+        // other value, Resolve lowers an override to the power of two below it (a Fallback, logged), and the
+        // palette offers only these - otherwise "ScreenProbeDownsample 24" was offered and refused by the gather.
+        bool PowersOfTwo = false;
     };
+    // Whether @p value is a value @p spec can take: inside [Min, Max] and, for a PowersOfTwo spec, a power of two.
+    [[nodiscard]] constexpr bool IsLegalValue( const ParameterSpec& spec, const ParameterValue value )
+    {
+        if ( value < spec.Min || value > spec.Max )
+            return false;
+        return !spec.PowersOfTwo || ( value > 0 && ( value & ( value - 1 ) ) == 0 );
+    }
     [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
     {
         return !spec.Reader.has_value();

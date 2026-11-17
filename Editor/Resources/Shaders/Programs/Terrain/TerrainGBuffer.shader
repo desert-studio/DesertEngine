@@ -152,6 +152,14 @@ Shader "TerrainGBuffer"
         // (Mesh/Surface/GBufferOutputs.glslh), through the one encoding.
         #include <Common/DBuffer.glslh>
 
+        // DESERT_TERRAIN_DEPTH_EQUAL (TerrainRenderer::GBufferDepthEqualVariant; UE: the base pass after the depth
+        // pass, DepthEqual): drawn EQUAL without depth writes over "Deferred: Terrain Depth Prepass", nothing in
+        // the stage discards (TerrainSurface.glslh), so the depth test runs before it: a texel the grass, a mesh
+        // or a nearer hill covers never fetches its layers.
+#ifdef DESERT_TERRAIN_DEPTH_EQUAL
+        layout( early_fragment_tests ) in;
+#endif
+
         void main()
         {
             vec3           transmission;

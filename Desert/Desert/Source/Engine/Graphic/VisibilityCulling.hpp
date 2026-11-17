@@ -98,35 +98,6 @@ namespace Desert::Graphic
         return ( ( bits[j / 64u] >> ( j % 64u ) ) & 1u ) != 0u;
     }
 
-    // A WALK THAT ASKS ONLY SOME BOXES OF A RUN (UE: the primitive-bounds batch, asked after the per-primitive
-    // relevance a view already decided - a record the GPU bins hold never reaches the frustum test): the four-box
-    // group holding box @p index is tested once, by @p groupOf( base ) (base = index rounded down to four, a
-    // VisibleInView4-shaped verdict, bit i for box base + i), the first time a box of it is asked; the next boxes
-    // of the same group read its bits. Each answer is the bit the box-at-a-time test gives, so a walk asking its
-    // boxes in increasing order keeps the same set it kept one box at a time. A walk restarting below the group
-    // it last asked (another chunk) uses its own cursor.
-    class VisibleInViewQuads final
-    {
-    public:
-        template <typename GroupOf>
-        [[nodiscard]] bool Visible( const std::size_t index, GroupOf&& groupOf ) noexcept
-        {
-            const std::size_t base = index & ~std::size_t{ 3u };
-            if ( !m_Valid || base != m_Base )
-            {
-                m_Bits  = groupOf( base );
-                m_Base  = base;
-                m_Valid = true;
-            }
-            return ( ( m_Bits >> ( index - base ) ) & 1u ) != 0u;
-        }
-
-    private:
-        std::size_t m_Base  = 0;
-        uint32_t    m_Bits  = 0;
-        bool        m_Valid = false;
-    };
-
     // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree
     // HORIZONTAL lens; through a lens of horizontal focal scale k an object at distance d is as wide on screen as
     // it would be at d / k through that one, so it stays drawn to k times the authored distance. A zoomed-in

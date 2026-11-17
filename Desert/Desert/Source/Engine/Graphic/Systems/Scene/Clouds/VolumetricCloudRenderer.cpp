@@ -59,6 +59,9 @@ namespace
         // The modelling clipmap's conservative density (CloudProceduralClipmap::GetColumnImage), the march's
         // own entry: only its coarse-tier probe reads it, so it is not one of the field's SampledVolumes.
         DESERT_SHADER_PARAMETER( Texture, CloudColumnMaxTexture );
+        // Its max-mip chain (CloudProceduralClipmap::GetColumnMipImage): the km-scale empty-space map the march's
+        // hierarchical DDA trims each ray's stretch on (FPS-CLOUD-3).
+        DESERT_SHADER_PARAMETER( Texture, CloudColumnMipTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudFarWeatherTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutPatternTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutMaskTexture );
@@ -81,9 +84,12 @@ namespace Desert::Graphic::System
         constexpr uint32_t kMarchWorkGroupSize = 8;
 
         // GPU-FARFIELD-4: lanes per view ray, CloudRaymarch.shader CLOUD_MARCH_SEGMENT_LANES. Each lane marches
-        // one contiguous quarter of the ray's segment and the four are composed front to back, so the dispatch
-        // is four times as wide for the same rays (see the shader for why).
-        constexpr uint32_t kMarchSegmentLanes = 4;
+        // one contiguous eighth of the ray's segment and the eight are composed front to back, so the dispatch
+        // is eight times as wide for the same rays and one 8-wide group row is one ray (FPS-CLOUDS-MARCH-2: four
+        // left the pass bound by its serial chain; see the shader for why).
+        constexpr uint32_t kMarchSegmentLanes = 8;
+        static_assert( kMarchWorkGroupSize % kMarchSegmentLanes == 0,
+                       "a ray's lanes must sit in one group row, aligned, for the shader's subgroup shuffles" );
 
         // One spelling with the material schema's own — the march program IS the cloud material shader.
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
@@ -1587,6 +1593,7 @@ namespace Desert::Graphic::System
                                                     const glm::vec3& windOffset, const glm::vec3& windDirection,
                                                     Common::Settings::CloudQuality        quality,
                                                     bool                                  footprintSteps,
+                                                    int32_t lightLocalSampleCeiling,
                                                     const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Present    = present;
@@ -1595,6 +1602,7 @@ namespace Desert::Graphic::System
         m_WindDirection = windDirection;
         m_Quality    = quality;
         m_FootprintSteps = footprintSteps;
+        m_LightLocalSampleCeiling = lightLocalSampleCeiling;
 
         // RE-ARM THE WARNINGS WHEN THE ARRANGEMENT CHANGES. A latch that is never released says a thing
         // once and then lies for the rest of the session: an artist who moves a body back inside the
@@ -2199,7 +2207,7 @@ namespace Desert::Graphic::System
         const bool                  selfShadowMap = HasShadowMap() && m_ShadowMap != nullptr;
         const CloudSelfShadowParams selfShadow =
              CloudSelfShadowPack( selfShadowMap, m_ShadowMapView, m_Data.LightMarchLocalSamples,
-                                  CloudQualityFor( m_Quality ).LightMarchLocalSampleCeiling );
+                                  m_LightLocalSampleCeiling );
         const auto traceSelfShadow =
              m_SelfShadowParamsBuffer->SetData( &selfShadow, static_cast<uint32_t>( sizeof( selfShadow ) ) );
 
@@ -2390,6 +2398,8 @@ namespace Desert::Graphic::System
              // (CloudProceduralClipmap), so it exists exactly when CloudModellingTexture does.
              .Texture( VolumetricCloudShaderParameters::CloudColumnMaxTexture, m_Clipmap.GetColumnImage(),
                        RDG::Access::SampledCompute, "Clouds.ColumnMax" )
+             .Texture( VolumetricCloudShaderParameters::CloudColumnMipTexture, m_Clipmap.GetColumnMipImage(),
+                       RDG::Access::SampledCompute, "Clouds.ColumnMip" )
              .Storage( VolumetricCloudShaderParameters::CloudMarchCountersUB, marchCounters,
                        RDG::Access::StorageWrite );
         // ONE 2x2 LATTICE PHASE PER FRAME (CloudTraceGridPhase): thread (x, y) marches texel

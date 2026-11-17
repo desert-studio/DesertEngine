@@ -512,12 +512,13 @@ namespace Desert::Graphic
         textures.Transients.DBufferC = dbufferC;
     }
 
-    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer )
+    bool SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
+                                         System::MeshRenderer*                         meshRenderer,
+                                         const VirtualGeometry::VisibilityBufferFrame& grassVisibility )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
         if ( !targets || meshRenderer == nullptr )
-            return;
+            return false;
         // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
         // sky by dot(normal, normal).
         // The shading word target (slot 2, RG32_UINT) takes the same clear: the bits of 0.0f are uint 0, which is
@@ -529,13 +530,14 @@ namespace Desert::Graphic
         // THE GROUND IN THE SAME EARLY-Z PASS (UE: the depth pass draws the landscape, an opaque occluder, under
         // every r.EarlyZPass mode that runs one; TERRAIN-GBUFFER-COST-1): the camera's tiles through
         // TerrainDepth.shader whenever the frame runs an early-Z pass (TerrainRenderer::PrepassesGBuffer).
-        // "TerrainGBuffer" then tests CloserOrEqual and writes none, so the ground under the grass and the meshes
-        // is rejected before its layers are fetched - with its own depth write, its pixel shader's hole discard
-        // left early-Z to the driver and every covered texel was shaded. The meshes' G-buffer tests it too.
-        // FIRST, and it clears the depth (GPU-MASKED-PREPASS; UE's depth pass draws the opaque occluders before
-        // the masked draws): the alpha-tested grass and foliage of the mesh pass below then fail the early depth
-        // test where the ground or a hill hides them instead of running their clip on every layer. The depth the
-        // two passes leave is the nearest fragment whatever their order, so the picture does not move.
+        // "TerrainGBuffer" then tests EQUAL, writes none and does not repeat the hole discard (its
+        // DESERT_TERRAIN_DEPTH_EQUAL permutation, early fragment tests), so the ground under the grass and the
+        // meshes is rejected before its layers are fetched - with its own depth write, its pixel shader's hole
+        // discard left early-Z to the driver and every covered texel was shaded. The meshes' G-buffer tests it
+        // too. FIRST, and it clears the depth (GPU-MASKED-PREPASS; UE's depth pass draws the opaque occluders
+        // before the masked draws): the alpha-tested grass and foliage of the mesh pass below then fail the early
+        // depth test where the ground or a hill hides them instead of running their clip on every layer. The depth
+        // the two passes leave is the nearest fragment whatever their order, so the picture does not move.
         RDG::LoadOp meshDepthLoad = RDG::LoadOp::ClearDepth( Core::kDepthClear );
         auto* const terrain       = m_Systems.Terrain.get();
         if ( terrain != nullptr && terrain->PrepassesGBuffer() )
@@ -545,6 +547,22 @@ namespace Desert::Graphic
                  [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return terrain->RenderDepthManual( context ); },
                  [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+            meshDepthLoad = RDG::LoadOp::Load();
+        }
+        // THE LARGE OPAQUE OCCLUDERS FIRST (FPS-PREPASS-OCCLUDERS; UE r.EarlyZPass with
+        // r.MinScreenRadiusForDepthPrepass): under the masked early-Z pass, the GPU-driven opaque instances large on
+        // screen (the occluder view of the G-buffer cull) write their depth through their (path x Depth) cells, so
+        // the alpha-tested grass and foliage of the pass below fail early-Z behind the barn, the trunks and the
+        // rocks instead of running their clip. The G-buffer draws those meshes as ever (CloserOrEqual + write over
+        // the same depth from the same vertex stage), so the picture does not move.
+        if ( meshRenderer->DrawsEarlyZOccluders() )
+        {
+            AddRaster(
+                 graph, "Deferred: Occluder Depth Prepass", depthOnly, {}, meshDepthLoad, {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderOccluderDepthManual( context ); },
+                 [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshRenderer->DeclareOccluderDepthDraws( pass, view ); } );
             meshDepthLoad = RDG::LoadOp::Load();
         }
         // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
@@ -558,6 +576,29 @@ namespace Desert::Graphic
              { return meshRenderer->RenderMaskedDepthManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
+        // THE GRASS VISIBILITY BUFFER'S DEPTH BEFORE THE DECALS (FPS-GRASS-VISBUF-DECALS; UE: Nanite emits its
+        // depth before RenderDBuffer, so a decal lands on Nanite geometry as on any opaque mesh). A view that
+        // draws decals runs the full early-Z (OnUpdate: EarlyZPassMode::All), so this depth already holds every
+        // opaque occluder and the ground: phase 1's raster tests it, "Grass: Visibility Depth" writes the blades'
+        // depth, and "Deferred: Decals" below reconstructs its receivers from it - the resolve folds the DBuffer
+        // in like the G-buffer cells (Pass_VisibilityResolve.glslh). The base pass, the ground and the particles
+        // after it then test the blades' depth (EQUAL / LESS as ever), and the resolve's CloserOrEqual keeps what
+        // lies in front of a blade.
+        // THE BLADES' DEPTH BEFORE THE GROUND'S BASE PASS (FPS-HZB-CULL; UE: Nanite's depth precedes the base
+        // pass, so the landscape's DepthEqual base pass shades no texel a Nanite blade covers). Whenever the
+        // ground prepassed its depth ("Deferred: Terrain Depth Prepass" above), this depth holds the ground, the
+        // large opaque occluders ("Deferred: Occluder Depth Prepass") and the masked meshes, so phase 1's raster
+        // keeps its occlusion by every one of them, and "TerrainGBuffer" (DESERT_TERRAIN_DEPTH_EQUAL, early
+        // fragment tests) then rejects every ground texel under a blade before its layers are fetched - with the
+        // raster after it, the ground shaded the whole field under the grass and the resolve overwrote it. The
+        // final depth is the nearest fragment in either order and the resolve keeps what lies in front of a blade,
+        // so the picture does not move; the meshes' G-buffer and the ground stay one render pass. Only a view
+        // whose ground did not prepass (early-Z off, or no ground) and that has no decal keeps the raster after
+        // the base pass (SceneRenderer::OnUpdate): there the depth would lack the ground and the opaque meshes.
+        const bool groundPrepassed   = terrain != nullptr && terrain->PrepassesGBuffer();
+        const bool grassBeforeDecals = grassVisibility.IsValid() && ( m_Decals.HasDraws() || groundPrepassed );
+        if ( grassBeforeDecals )
+            AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
         AddFrameDecals( graph, textures, targets->Depth );
         // The view's inputs below are taken AFTER "Deferred: Decals": the G-buffer reads the DBuffer it wrote.
         AddRaster(
@@ -568,6 +609,7 @@ namespace Desert::Graphic
              { return meshRenderer->RenderGBufferManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareGBufferDraws( pass, view ); } );
+        return grassBeforeDecals;
     }
 
     void SceneRenderer::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
@@ -607,11 +649,14 @@ namespace Desert::Graphic
                                                  const bool                                    postOcclusion )
     {
         // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material
-        // pass). The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it
-        // and writes none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins
-        // whatever order the draws ran in and no overdraw is shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets):
-        // after phase 1's raster "Grass: Visibility Depth" writes the words' depth WITHOUT the material, so the
-        // HZB phase 2 tests sees the grass; the material runs once, after phase 2 (AddFrameGrassVisibilityResolve)
+        // pass). The raster LOADs the G-buffer's depth (the early-Z's - the ground, the large occluders, the
+        // masked meshes; every opaque mesh in a view with decals - before "Deferred: Decals" and the base pass
+        // whenever the ground prepassed or a decal is drawn, AddFrameGBuffer; else the opaque scene, the terrain
+        // and the particles after the base pass), tests it and writes none: a blade fragment that survives its
+        // mask atomic-maxes its word, so the nearest wins whatever order the draws ran in and no overdraw is
+        // shaded. GRASS-VIS-23 (UE Nanite EmitDepthTargets): after phase 1's raster "Grass: Visibility Depth"
+        // writes the words' depth WITHOUT the material, so the HZB phase 2 tests sees the grass; the material runs
+        // once, after phase 2 (AddFrameGrassVisibilityResolve)
         // - before, the phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve
         // Post 1.67 ms).
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
@@ -643,7 +688,10 @@ namespace Desert::Graphic
                                                         System::MeshRenderer*                         meshRenderer,
                                                         const VirtualGeometry::VisibilityBufferFrame& visibility )
     {
-        // One full-screen triangle per blade section over the camera's list: phase 2 appended its slots to the
+        // Two triangles per screen tile per blade section over the camera's list, the tiles that hold none of the
+        // section's rows collapsed in its vertex stage (FPS-GRASS-RESOLVE; UE 5 Nanite material tile culling):
+        // "Grass: Visibility Classify" reads every word once after phase 2's raster and writes the tiles' records
+        // and the draws' instance count. Phase 2 appended its slots to the
         // same ids (GrassGenerate PostOcclusion), so phase 1's draws name every word's row. The G-buffer depth
         // holds the phase-1 words' depth ("Grass: Visibility Depth") and phase 2's meshes; the resolve writes each
         // word's own depth CloserOrEqual, so a phase-2 mesh in front keeps its texel.
@@ -658,6 +706,25 @@ namespace Desert::Graphic
             const char*    Name;
             MeshVertexPath Path;
         };
+        m_GrassVisibility.AddClassify( graph, visibility );
+        // FPS-GRASS-RESOLVE (UE 5 Nanite EmitMaterialDepth + the material pass's depth EQUAL): the material depth
+        // of each won pixel's section, tested EQUAL by every resolve on its own depth target, so the hardware
+        // drops another section's pixels and a pixel a nearer mesh holds before the fragment stage; then the
+        // phase-2 words' depth into the G-buffer depth (the resolves write no depth), CloserOrEqual as they did.
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        const RDG::TextureRef materialDepth =
+             m_GrassVisibility.AddMaterialDepth( graph, visibility, targets->Depth );
+        if ( !materialDepth.IsValid() )
+            return;
+        AddRaster(
+             graph, "Grass: Visibility Depth Post-Occlusion", depthOnly, {}, RDG::LoadOp::Load(), {},
+             [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return m_GrassVisibility.RecordDepth( context ); },
+             [this, words = visibility.Words]( RDG::PassBuilder& pass )
+             { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+        RasterTargets resolveTargets = *targets;
+        resolveTargets.Depth         = materialDepth;
         constexpr std::array<ResolvePass, 2> kResolvePasses{
              ResolvePass{ "Grass: Visibility Resolve", MeshVertexPath::GrassBlade },
              ResolvePass{ "Grass: Mesh Visibility Resolve", MeshVertexPath::Instanced } };
@@ -667,7 +734,7 @@ namespace Desert::Graphic
                 continue;
             const MeshVertexPath path = resolve.Path;
             AddRaster(
-                 graph, resolve.Name, *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+                 graph, resolve.Name, resolveTargets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
                  RDG::LoadOp::Load(), {},
                  [meshRenderer, path]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderGrassVisibilityResolveManual( context, path ); },

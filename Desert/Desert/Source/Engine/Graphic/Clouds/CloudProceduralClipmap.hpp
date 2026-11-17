@@ -115,6 +115,25 @@ namespace Desert::Graphic
             return m_ColumnImage;
         }
 
+        /// THE MAX-MIP CHAIN OF THE CONSERVATIVE DENSITY (FPS-CLOUD-3): the km-scale empty-space map the march's
+        /// hierarchical DDA walks before it marches (Unreal's empty-space skipping, Nubis' coarse weather map).
+        /// side x (kLevels x kCloudColumnMaxBands) x side / 2 RGBA8, the same rows as GetColumnImage; mip m >= 1
+        /// (side >> m texels a side) packed along x at ColumnMipOffset( side, m ), z in [0, side >> m). Texel j of
+        /// mip m = the per-channel max of texels [2j, 2j + 2)^2 of mip m - 1 (mip 0 = the DILATED column image),
+        /// so it is toroidal on the same terms: world voxel i of a level lands in texel (i >> m) mod (side >> m).
+        /// Built from the same bytes in the same Write, i.e. only when a shape lands or a level scrolls — never
+        /// per frame. Read by Programs/Clouds/CloudRaymarch.shader (CloudProceduralCellEmpty) and nothing else.
+        const std::shared_ptr<Image3D>& GetColumnMipImage() const
+        {
+            return m_ColumnMipImage;
+        }
+
+        /// Where mip @p mip (>= 1) of a level of side @p side starts along x in the mip image.
+        static constexpr uint32_t ColumnMipOffset( uint32_t side, uint32_t mip )
+        {
+            return side - 2u * ( side >> mip );
+        }
+
         /// How many times the image's texels were written (a shape landing, a level scrolling). A consumer that
         /// caches what it marched through the image (the cloud shadow map, the sky-occlusion volume) keys on it.
         uint64_t WriteGeneration() const
@@ -179,6 +198,7 @@ namespace Desert::Graphic
 
         std::shared_ptr<Image3D> m_Image;
         std::shared_ptr<Image3D> m_ColumnImage;
+        std::shared_ptr<Image3D> m_ColumnMipImage;
         uint64_t                 m_WriteGeneration = 0;
 
         /// Per level, side x kCloudColumnMaxBands x side RGBA8 (x fastest, then the band, then z; toroidal texel

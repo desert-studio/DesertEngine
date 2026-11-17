@@ -1,0 +1,112 @@
+// THE BLADE CARD'S HULL (FPS-GRASS-HULL; UE Cascade / Niagara SubUV cutout: each frame of a cutout texture gets the
+// bounding geometry of its opaque texels at cook, and the sprite draws that polygon instead of the full quad). The
+// strip of a blade is as wide as its card, and the card's opacity cuts the blade's outline out of it - so every
+// fragment of the card's transparent part ran early-Z, the visibility word's test, the mask fetch and a discard
+// for nothing. The cook (Assets::ComputeGrassCardHulls) stores per card, per height band, the side span outside
+// which the mask cannot pass its clip at any level up to a class; here each strip row is narrowed to the union
+// of the bands its two segments cover.
+//
+// Why the look stays the same: a strip row is the pair (side -1, +1) at height share t; the segment between rows
+// t0 and t1 is a parallelogram (BladeAt: position C(t) + Right x width / 2 x side, Right constant along the
+// blade, so its four corners are C(t0) +- R, C(t1) +- R), and UV0 is affine in (side, row) over it. Any vertices
+// placed on that same affine map (same t, side' inside -1..1) span part of the same plane with the same
+// attributes: a fragment the narrowed strip covers gets the position, depth and UV the full strip gave it. A row's
+// span covers both segments it bounds, so every segment's trapezoid contains its bands' spans: no fragment that
+// could pass the clip is lost. The shading normal (BladeNormal, normalized per vertex) is the one attribute not
+// affine in side: the narrowed corners carry the full strip's normal interpolated to them, so the row's normal
+// across the blade is the one the full strip interpolated.
+//
+// Which hull class: a fragment samples the mask at the level its UV gradient asks (plus the view's material mip
+// bias); the class must hold every level up to the coarsest the blade's pixels can reach. The vertex takes the most
+// mask texels one pixel spans at its row - across (card width over the strip's projected width) and along (card
+// height per unit t over the projected Along) - and one level of margin (the screen x / y gradient of a skewed
+// footprint is at most sqrt(2) of the larger axis rate; per vertex, not per pixel). An edge-on blade (projected
+// width -> 0) asks the last class, every level.
+//
+// Needs, declared by the includer: `Blade` (the variety's GrassBladeShapeData), `BladeHullTexels` (vec4: mask
+// level-0 texels xy, z = 1 when the hull is drawn) and `BladeHull` (vec4[128]: GrassBladeShapeGpu::Hull), and the
+// view's cameraUB.
+#ifndef GRASS_BLADE_HULL_GLSLH
+#define GRASS_BLADE_HULL_GLSLH
+
+#define GRASS_BLADE_HULL_CLASSES 4u
+#define GRASS_BLADE_HULL_BANDS 8u
+
+// Pixels of the view that the world-space step @p d at @p p spans on screen (its projection's derivative).
+float BladeHullScreenPixels( const vec3 p, const vec3 d )
+{
+    const vec4 c  = cameraUB.ViewProjection * vec4( p, 1.0 );
+    const vec4 dc = cameraUB.ViewProjection * vec4( d, 0.0 );
+    if ( c.w <= 1.0e-4 )
+        return 0.0;
+    const vec2 ndc = ( dc.xy * c.w - c.xy * dc.w ) / ( c.w * c.w );
+    return length( ndc / max( abs( cameraUB.PixelToNdc.xy ), vec2( 1.0e-9 ) ) );
+}
+
+// The hull class the row at @p blade asks: the coarsest mask level its pixels can sample, clamped to the classes.
+uint BladeHullClass( const BladePoint blade, const vec4 card, const float width )
+{
+    const vec2  texels = BladeHullTexels.xy;
+    const float across = BladeHullScreenPixels( blade.Position, blade.Right * width );
+    const float along  = BladeHullScreenPixels( blade.Position, blade.Along );
+    if ( across <= 1.0e-6 || along <= 1.0e-6 )
+        return GRASS_BLADE_HULL_CLASSES - 1u;
+    const float density = max( abs( card.z - card.x ) * texels.x / across, abs( card.w - card.y ) * texels.y / along );
+    const float level   = log2( max( density, 1.0e-6 ) ) + max( cameraUB.MaterialMipBias, 0.0 ) + 1.0;
+    return uint( clamp( ceil( level ), 0.0, float( GRASS_BLADE_HULL_CLASSES - 1u ) ) );
+}
+
+// The span (lo, hi) of card @p card's band @p band in class @p cls; lo > hi: nothing of the band passes the clip.
+vec2 BladeHullBand( const uint card, const uint cls, const uint band )
+{
+    const vec4 v = BladeHull[( card * GRASS_BLADE_HULL_CLASSES + cls ) * ( GRASS_BLADE_HULL_BANDS / 2u ) + band / 2u];
+    return ( band & 1u ) == 0u ? v.xy : v.zw;
+}
+
+// Where the strip vertex at @p side (-1 / +1) of the row at height share @p t stands across the card, for a level
+// whose segments are @p rowSpan of t each; @p blade is BladeAt at (side, t). The full card (side itself) when the
+// variety draws no hull.
+float BladeHullSide( const mat4 model, const BladePoint blade, const float side, const float t, const float rowSpan )
+{
+    if ( BladeHullTexels.z < 0.5 )
+        return side;
+    const uint  card  = BladeCardIndex( Blade, model[0].w );
+    const vec4  rect  = Blade.Cards[card];
+    const float width = BladeWidth( Blade, model );
+    const uint  cls   = BladeHullClass( blade, rect, width );
+    // The bands the two segments meeting at this row cover, t - rowSpan .. t + rowSpan, inclusive at the edges.
+    const float bands = float( GRASS_BLADE_HULL_BANDS );
+    const uint  b0    = uint( clamp( floor( ( t - rowSpan ) * bands - 1.0e-3 ), 0.0, bands - 1.0 ) );
+    const uint  b1    = uint( clamp( floor( ( t + rowSpan ) * bands + 1.0e-3 ), 0.0, bands - 1.0 ) );
+    vec2        span  = vec2( 2.0, -2.0 );
+    for ( uint b = b0; b <= b1; ++b )
+    {
+        const vec2 s = BladeHullBand( card, cls, b );
+        span         = vec2( min( span.x, s.x ), max( span.y, s.y ) );
+    }
+    if ( span.x > span.y )
+        return 0.0; // nothing of the row's segments passes: a zero-width row
+    return clamp( side < 0.0 ? span.x : span.y, -1.0, 1.0 );
+}
+
+// The point of the strip at the narrowed side @p hullSide of the row whose BladeAt at @p side is @p blade: the
+// row's place moved across by the card's width (BladeAt's position is affine in side, its frame is not a function
+// of it). Every cell and the resolve place a narrowed corner through this one expression.
+BladePoint BladeHullPoint( const mat4 model, const BladePoint blade, const float side, const float hullSide )
+{
+    BladePoint p = blade;
+    if ( hullSide != side )
+        p.Position += blade.Right * ( 0.5 * BladeWidth( Blade, model ) * ( hullSide - side ) );
+    return p;
+}
+
+// The shading normal at the narrowed side @p hullSide of the row whose full strip has its corners at side -1 / +1:
+// the full strip's corner normals interpolated across, as its raster interpolated them.
+vec3 BladeHullNormal( const BladePoint blade, const float side, const float hullSide )
+{
+    if ( hullSide == side )
+        return BladeNormal( blade, side );
+    return mix( BladeNormal( blade, -1.0 ), BladeNormal( blade, 1.0 ), 0.5 + 0.5 * hullSide );
+}
+
+#endif

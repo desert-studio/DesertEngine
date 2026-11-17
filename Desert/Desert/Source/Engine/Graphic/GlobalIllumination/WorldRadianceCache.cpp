@@ -49,6 +49,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheDepthOutTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheUpdateCountsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheDispatchArgsUB );
     };
 } // namespace
 
@@ -58,10 +59,9 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 6> kRadianceCacheShaderNames{
-             "RadianceCacheMark",   "RadianceCacheUpdate", "RadianceCacheAllocate",
-             "RadianceCacheSelect", "RadianceCacheTrace",  "RadianceCacheFilter" };
-
+        constexpr std::array<std::string_view, 7> kRadianceCacheShaderNames{
+             "RadianceCacheMark",  "RadianceCacheUpdate", "RadianceCacheAllocate", "RadianceCacheSelect",
+             "RadianceCachePlace", "RadianceCacheTrace",  "RadianceCacheFilter" };
         // std430 — must match `PushConstant RadianceCachePush` in Common/RadianceCacheState.glslh.
         struct RadianceCachePush
         {
@@ -75,15 +75,36 @@ namespace Desert::Graphic::GlobalIllumination
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
             uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
             uint32_t MarkFallback  = 0; // 1: Mark also stamps the clipmap past each pixel's coarse end
+            // An event-less probe's frames between traces (RC_PRIORITY_NOT_DUE in RadianceCacheAllocate).
+            uint32_t RefreshMinFrames = RadianceCache::kProbeRefreshMinFrames;
         };
-        static_assert( sizeof( RadianceCachePush ) == 40 );
+        static_assert( sizeof( RadianceCachePush ) == 44 );
 
         // The update's event counters in the schedule header (RC_STAT_WORDS, Common/RadianceCacheState.glslh).
         constexpr uint32_t kScheduleCounters = 6;
-        // A Trace workgroup's texels: one TRACE TILE of a probe, one ray per thread (RadianceCacheTrace's
-        // LocalSize 8x8; UE TraceFromProbes over probe trace tiles), so the budget's probes fill the GPU instead
-        // of leaving one group per probe to walk its res^2 rays in series.
-        constexpr uint32_t kTraceTileTexels = 64;
+        // A Trace workgroup's texels: one TRACE TILE of a probe, an 8x8 square of its octahedral texels, one ray
+        // per thread (RadianceCacheTrace's LocalSize 8x8; UE TraceFromProbes over 8x8 probe trace tiles), so the
+        // budget's probes fill the GPU instead of leaving one group per probe to walk its res^2 rays in series,
+        // and a warp's rays are neighbours in direction (FPS-RC-TRACE).
+        constexpr uint32_t kTraceTileSide = 8;
+        // RadianceCacheFilter.shader sizes its thread layout for at most RC_FILTER_DEPTH_OUTPUTS (64) depth and
+        // RC_FILTER_IRRADIANCE_OUTPUTS (36) irradiance texels a probe (FPS-RC-DIRTY s2).
+        static_assert( RadianceCache::kDepthProbeResolution * RadianceCache::kDepthProbeResolution <= 64u );
+        static_assert( RadianceCache::kIrradianceProbeResolution * RadianceCache::kIrradianceProbeResolution <=
+                       36u );
+        // FPS-RC-COST: RadianceCache.DispatchArgs, written by RadianceCachePlace.shader: Trace's three words, then
+        // Filter's.
+        constexpr uint64_t kTraceArgsOffset  = 0;
+        constexpr uint64_t kFilterArgsOffset = 3u * sizeof( uint32_t );
+        // The Trace dispatch's probe axis is y (its tiles run next to each other): Vulkan's guaranteed
+        // maxComputeWorkGroupCount[1].
+        constexpr uint32_t kMaxTraceProbeGroups = 65535;
+        // RadianceCacheMark's box key: clamp(base, -1, grid - 1) + 1 in 9 bits an axis, the clipmap in 3 bits
+        // under bit 31 (the key never reaches RC_MARK_NONE).
+        constexpr uint32_t kMarkKeyMaxGrid     = 511;
+        constexpr uint32_t kMarkKeyMaxClipmaps = 7;
+        static_assert( RadianceCache::kGridResolution <= kMarkKeyMaxGrid );
+        static_assert( RadianceCache::kMaxClipmaps <= kMarkKeyMaxClipmaps );
         // The "[RadianceCache] traced X of budget Y, full update Z" line: once per this many updates of a view.
         constexpr uint32_t kCountsLogFrames = 60;
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the update's event
@@ -106,6 +127,7 @@ namespace Desert::Graphic::GlobalIllumination
                  .Data       = Core::Formats::EmptyPixelData{},
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
             };
             return Image2D::Create( spec );
         }
@@ -119,7 +141,7 @@ namespace Desert::Graphic::GlobalIllumination
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         for ( uint32_t pass = 0; pass < PassCount; ++pass )
         {
-            if ( pass == Trace )
+            if ( pass == Place || pass == Trace )
                 continue; // a tracer permutation, EnsureTraceProgram
             m_Shaders[pass] = shaders->GetByName( std::string( kRadianceCacheShaderNames[pass] ) );
             if ( !m_Shaders[pass] )
@@ -137,28 +159,46 @@ namespace Desert::Graphic::GlobalIllumination
 
     std::vector<Core::CookedProgramVariant> WorldRadianceCache::ProgramVariants()
     {
-        return TracerProgramVariants( kRadianceCacheShaderNames[Trace] );
+        std::vector<Core::CookedProgramVariant> variants =
+             TracerProgramVariants( kRadianceCacheShaderNames[Place] );
+        for ( Core::CookedProgramVariant& variant : TracerProgramVariants( kRadianceCacheShaderNames[Trace] ) )
+            variants.push_back( std::move( variant ) );
+        return variants;
     }
 
     Common::BoolResultStr WorldRadianceCache::EnsureTraceProgram( const Pipeline& pipeline )
     {
-        if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
+        if ( m_Shaders[Place] && m_Pipelines[Place] && m_Shaders[Trace] && m_Pipelines[Trace] &&
+             pipeline == m_TraceProgramFor )
             return BOOLSUCCESS;
-        const std::string name( kRadianceCacheShaderNames[Trace] );
-        auto              acquired =
-             Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
-        if ( !acquired )
-            return Common::MakeFormattedError<bool>( "radiance cache: shader {} ({}, {}) was refused: {}", name,
-                                                     TracerDefine( pipeline.Tracer ),
-                                                     HitLightingDefine( pipeline.Hits ), acquired.GetError() );
-        auto shader  = acquired.ExtractValue();
-        auto compute = ComputePipeline::Create(
-             { .Shader = shader, .DebugName = std::format( "{} ({})", name, TracerDefine( pipeline.Tracer ) ) } );
-        if ( !compute )
-            return Common::MakeFormattedError<bool>( "radiance cache: {}: {}", name, compute.GetError() );
-        m_Shaders[Trace]   = std::move( shader );
-        m_Pipelines[Trace] = compute.GetValue();
-        m_TraceProgramFor  = pipeline;
+        // Both programs of the permutation or neither: the passes never run Place under one tracer and Trace under
+        // another.
+        constexpr std::array<Pass, 2>                   kTracerPasses{ Place, Trace };
+        std::array<std::shared_ptr<Shader>, 2>          shaders;
+        std::array<std::shared_ptr<ComputePipeline>, 2> pipelines;
+        for ( size_t i = 0; i < kTracerPasses.size(); ++i )
+        {
+            const std::string name( kRadianceCacheShaderNames[kTracerPasses[i]] );
+            auto              acquired =
+                 Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>( "radiance cache: shader {} ({}, {}) was refused: {}",
+                                                         name, TracerDefine( pipeline.Tracer ),
+                                                         HitLightingDefine( pipeline.Hits ), acquired.GetError() );
+            shaders[i]   = acquired.ExtractValue();
+            auto compute = ComputePipeline::Create(
+                 { .Shader    = shaders[i],
+                   .DebugName = std::format( "{} ({})", name, TracerDefine( pipeline.Tracer ) ) } );
+            if ( !compute )
+                return Common::MakeFormattedError<bool>( "radiance cache: {}: {}", name, compute.GetError() );
+            pipelines[i] = compute.GetValue();
+        }
+        for ( size_t i = 0; i < kTracerPasses.size(); ++i )
+        {
+            m_Shaders[kTracerPasses[i]]   = std::move( shaders[i] );
+            m_Pipelines[kTracerPasses[i]] = std::move( pipelines[i] );
+        }
+        m_TraceProgramFor = pipeline;
         return BOOLSUCCESS;
     }
 
@@ -206,6 +246,15 @@ namespace Desert::Graphic::GlobalIllumination
         if ( shape.ProbeResolution == 0 || shape.ProbesPerFrame == 0 )
             return Common::MakeError<RadianceCacheFrame>(
                  "radiance cache: the quality gives no probe resolution or budget" );
+        if ( shape.GridResolution > kMarkKeyMaxGrid || shape.Clipmaps > kMarkKeyMaxClipmaps )
+            return Common::MakeFormattedError<RadianceCacheFrame>(
+                 "radiance cache: grid {} x {} clipmaps exceeds the Mark key ({} x {})", shape.GridResolution,
+                 shape.Clipmaps, kMarkKeyMaxGrid, kMarkKeyMaxClipmaps );
+        if ( std::max( RadianceCache::MaxProbes( shape ), shape.ProbesPerFrame ) > kMaxTraceProbeGroups )
+            return Common::MakeFormattedError<RadianceCacheFrame>(
+                 "radiance cache: {} probe slots / {} probes per frame exceed the Trace dispatch's {} probe "
+                 "groups",
+                 RadianceCache::MaxProbes( shape ), shape.ProbesPerFrame, kMaxTraceProbeGroups );
         if ( const auto ensured = EnsureResources( shape ); !ensured )
             return Common::MakeError<RadianceCacheFrame>( ensured.GetError() );
         if ( const std::string_view missing = TracerFrameMissing( inputs.Tracer ); !missing.empty() )
@@ -270,6 +319,11 @@ namespace Desert::Graphic::GlobalIllumination
         // This frame's update in counts (RadianceCacheSelect.shader writes every word), read back for the profile.
         const RDG::BufferRef updateCounts = graph.CreateBuffer(
              RDG::BufferDesc{ RadianceCacheUpdateCounts::kWords * 4ull }, "RadianceCache.UpdateCounts" );
+        // FPS-RC-COST: Trace's and Filter's indirect arguments, written by Place from the trace list Select made
+        // (RadianceCachePlace.shader): a frame listing fewer probes than the budget (the refresh gate, a full
+        // update's MaxProbes) launches no group past them.
+        const RDG::BufferRef dispatchArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ 6u * sizeof( uint32_t ) }, "RadianceCache.DispatchArgs" );
 
         RadianceCachePush push;
         push.FrameIndex = ++m_FrameIndex;
@@ -289,29 +343,29 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t   clipCount = shape.Clipmaps;
         const glm::uvec3 entryGroups( DivideRoundUp( grid * clipCount, 4u ), DivideRoundUp( grid, 4u ),
                                       DivideRoundUp( grid, 4u ) );
-        // Trace: x the probe's place in the schedule (past its traced count a group ends), y its trace tile.
-        const uint32_t traceTiles =
-             DivideRoundUp( shape.ProbeResolution * shape.ProbeResolution, kTraceTileTexels );
+        // Trace: x the probe's 8x8 trace tile, y its place in the schedule (past its traced count a group ends).
+        const uint32_t   traceTilesPerSide = DivideRoundUp( shape.ProbeResolution, kTraceTileSide );
+        const uint32_t   traceTiles        = traceTilesPerSide * traceTilesPerSide;
         const glm::uvec3 groups[PassCount] = {
              // At least one group: Mark's first thread clears the schedule header Update and Allocate count into.
              glm::uvec3( std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) ),
                          std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) ), 1u ),
-             entryGroups,
-             entryGroups,
-             glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
-             glm::uvec3( traced, traceTiles, 1u ),
+             entryGroups, entryGroups, glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
+             // Place: one thread per scheduled probe (RadianceCachePlace's LocalSize 64; past the count a thread
+             // ends). Trace and Filter dispatch indirect from Place's arguments; these are their budget's bound.
+             glm::uvec3( DivideRoundUp( traced, 64u ), 1u, 1u ), glm::uvec3( traceTiles, traced, 1u ),
              glm::uvec3( traced, 1u, 1u ) };
         constexpr std::array<std::string_view, PassCount> kPassNames{
-             "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
-             "RadianceCache: Select", "RadianceCache: Trace",  "RadianceCache: Filter" };
+             "RadianceCache: Mark",  "RadianceCache: Update", "RadianceCache: Allocate", "RadianceCache: Select",
+             "RadianceCache: Place", "RadianceCache: Trace",  "RadianceCache: Filter" };
 
         constexpr RDG::Access kRW = RDG::Access::StorageWrite;
         constexpr RDG::Access kR  = RDG::Access::StorageRead;
         constexpr RDG::Access kS  = RDG::Access::SampledCompute;
-        // ASYNC COMPUTE (UE Lumen radiance cache on the async pipe): the six nodes read and write graph resources
-        // only (the cache's imports, the G-buffer depth / normal, the light uploads, the tracer, the surface
-        // cache); the graph forks after their last graphics writer and joins at the first graphics reader of the
-        // cache.
+        // ASYNC COMPUTE (UE Lumen radiance cache on the async pipe): the seven nodes read and write graph
+        // resources only (the cache's imports, the G-buffer depth / normal, the light uploads, the tracer, the
+        // surface cache); the graph forks after their last graphics writer and joins at the first graphics reader
+        // of the cache.
         const RDG::PassFlags  kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const auto            all = RDG::SubresourceRange::All();
         for ( uint32_t pass = 0; pass < PassCount; ++pass )
@@ -337,6 +391,11 @@ namespace Desert::Graphic::GlobalIllumination
                                         kRW );
                      if ( pass == Mark || pass == Allocate || pass == Trace )
                          block.Storage( WorldRadianceCacheShaderParameters::GIFrameUB, frame, kR );
+                     if ( pass == Place )
+                         block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheDispatchArgsUB, dispatchArgs,
+                                        kRW );
+                     if ( pass == Trace || pass == Filter )
+                         builder.Read( dispatchArgs, RDG::Access::IndirectArgs );
                      if ( pass == Mark )
                          block.Texture( WorldRadianceCacheShaderParameters::GBufferDepthTexture,
                                         inputs.GBufferDepth, kS, all )
@@ -355,6 +414,10 @@ namespace Desert::Graphic::GlobalIllumination
                                         inputs.WorldGridParams, kR )
                               .Storage( WorldRadianceCacheShaderParameters::LightGridWorldCellsUB,
                                         inputs.WorldGridCells, kR );
+                     // Place lights no hit (GI_HIT_LIGHTING_NONE): the tracer's reads without the point-clamped
+                     // state, which it does not declare.
+                     if ( pass == Place )
+                         DeclareTracerReads( block, inputs.Tracer, kS, TracerPointClamp::Skip );
                      if ( pass == Trace )
                      {
                          DeclareTracerReads( block, inputs.Tracer );
@@ -387,10 +450,16 @@ namespace Desert::Graphic::GlobalIllumination
                               .Storage( WorldRadianceCacheShaderParameters::RadianceCacheDepthOutTexture, depth,
                                         kRW );
                  },
-                 [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, push, count, pass, dispatchArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     if ( pass == Trace )
+                         return Renderer::DispatchComputeIndirect( bindings, *pipeline, dispatchArgs,
+                                                                   kTraceArgsOffset );
+                     if ( pass == Filter )
+                         return Renderer::DispatchComputeIndirect( bindings, *pipeline, dispatchArgs,
+                                                                   kFilterArgsOffset );
                      return Renderer::DispatchCompute( bindings, *pipeline, count.x, count.y, count.z );
                  } );
         }

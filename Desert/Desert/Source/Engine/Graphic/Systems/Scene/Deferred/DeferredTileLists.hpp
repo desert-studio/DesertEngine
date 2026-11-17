@@ -21,14 +21,27 @@ namespace Desert::Graphic::System
         glm::uvec2     Tiles{ 0u };  // the tile grid "Deferred: Tile Classify" is dispatched over
         glm::uvec2     Extent{ 0u }; // the classified view, in pixels: a pass at another extent covers its view
 
-        static constexpr uint32_t kHeaderWords = 20u;
+        static constexpr uint32_t kHeaderWords = 92u;
         static constexpr uint32_t kTileSize    = 8u;
-        static constexpr uint32_t kVertices    = 6u; // per listed tile, in either draw record
-        // Byte offsets of the four indirect records.
+        static constexpr uint32_t kVertices    = 6u; // per listed tile, in every draw record
+        // FPS-DIRECT-TILES: the per-model draw records (one per shading-model index, kMaxShadingModels) and the
+        // word of the mask of the models that have a list (DeferredLightingRenderer::ModelListMask).
+        static constexpr uint32_t kMaxModelLists = 16u;
+        static constexpr uint32_t kModelMaskWord = 24u;
+        static constexpr uint32_t kModelDrawWord = 28u; // + 4 x model index
+        static constexpr uint32_t kListsBeforeModels =
+             3u; // simple, complex, mixed: model m's list is the (3 + m)th
+        // Byte offsets of the indirect records.
         static constexpr uint64_t kSimpleDrawOffset       = 0u * sizeof( uint32_t );
         static constexpr uint64_t kComplexDrawOffset      = 4u * sizeof( uint32_t );
         static constexpr uint64_t kGeometryDispatchOffset = 12u * sizeof( uint32_t );
         static constexpr uint64_t kComplexDispatchOffset  = 16u * sizeof( uint32_t );
+        static constexpr uint64_t               kMixedDrawOffset        = 20u * sizeof( uint32_t );
+        [[nodiscard]] static constexpr uint64_t ModelDrawOffset( const uint32_t model ) noexcept
+        {
+            return uint64_t{ kModelDrawWord + 4u * model } * sizeof( uint32_t );
+        }
+        static_assert( kModelDrawWord + 4u * kMaxModelLists == kHeaderWords );
 
         // True when a pass of @p width x @p height may cover only the listed tiles.
         [[nodiscard]] bool Covers( const uint32_t width, const uint32_t height ) const noexcept

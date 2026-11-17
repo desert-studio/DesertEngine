@@ -37,12 +37,27 @@ namespace Desert::Graphic::RDG
         static constexpr uint32_t kWhole = ~0u;
 
         constexpr explicit ShaderParameterOf( std::string_view name, uint32_t element = kWhole )
-             : Name( name ), Element( element )
+             : Name( name ), Element( element ), NameHash( HashShaderName( name ) )
+        {
+        }
+        // ShaderParameterArrayOf::operator[]: @p nameHash is the array's HashShaderName( name ), made once.
+        constexpr explicit ShaderParameterOf( std::string_view name, uint32_t element, uint64_t nameHash )
+             : Name( name ), Element( element ), NameHash( nameHash )
         {
         }
 
         std::string_view Name;
         uint32_t         Element = kWhole;
+        // CPU-COMPILE-KEY: HashShaderName( Name ), at compile time for a DESERT_SHADER_PARAMETER constant.
+        uint64_t NameHash = 0;
+
+        // HashShaderName of the slot name (SlotName()): what DeclaredBindingEntry::NameHash holds.
+        [[nodiscard]] constexpr uint64_t SlotNameHash() const
+        {
+            if ( Element == kWhole )
+                return NameHash;
+            return HashShaderNameElement( NameHash, Element );
+        }
 
         // The slot name the reflected layout lists: Name, or "<Name>[<Element>]" for an element of an array.
         [[nodiscard]] std::string SlotName() const
@@ -80,15 +95,17 @@ namespace Desert::Graphic::RDG
     template <ShaderResourceKind K>
     struct ShaderParameterArrayOf
     {
-        constexpr explicit ShaderParameterArrayOf( std::string_view name ) : Name( name )
+        constexpr explicit ShaderParameterArrayOf( std::string_view name )
+             : Name( name ), NameHash( HashShaderName( name ) )
         {
         }
 
         std::string_view Name;
+        uint64_t         NameHash = 0; // CPU-COMPILE-KEY: each element continues it
 
         [[nodiscard]] constexpr ShaderParameterOf<K> operator[]( uint32_t element ) const
         {
-            return ShaderParameterOf<K>( Name, element );
+            return ShaderParameterOf<K>( Name, element, NameHash );
         }
     };
 

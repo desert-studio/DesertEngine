@@ -392,6 +392,30 @@ Shader "GrassGenerate"
             GrassChunkData[at + kGrassChunkLawWord] = 0u;
         }
 
+        // Tile slot @p slot's node (Common/GrassVarietyRows.glslh, the tiles' nodes): past the chunks' room.
+        uint TileNodeAt( uint slot )
+        {
+            return GrassTileNodeAt( GrassChunkData[Ranges.y + 2u], slot );
+        }
+
+        // FPS-GRASS-CULL-GPU2, THE TILE'S NODE, by each of its clusters' writers (the tile at @p header, slot
+        // @p slot): the largest scale @p scale of the cluster's chunk grows the node's (atomicMax on the float's
+        // bits, which order as the non-negative floats do; Count left it 0), and the first cluster copies the
+        // tile's root box - the union Count grew of every cluster's box, so it holds each chunk's box
+        // (FromOrderedBits keeps the order).
+        void WriteTileNode( uint header, uint slot, uint scale )
+        {
+            uint at = Ranges.y + TileNodeAt( slot );
+            atomicMax( GrassChunkData[at + kGrassTileNodeScaleWord], scale );
+            if ( gl_WorkGroupID.x != 0u || gl_WorkGroupID.y != 0u )
+                return;
+            for ( uint i = 0u; i < 6u; ++i )
+            {
+                uint box               = TileWordsData[Base.z + header + 4u + i];
+                GrassChunkData[at + i] = floatBitsToUint( FromOrderedBits( box ) );
+            }
+        }
+
         // The largest axis scale record @p r can draw at before the view law widens it (GrassViewLaw: a blade's
         // height takes its clump's, a mesh only shrinks).
         float RecordScale( TileRecord r, GrassParams p )
@@ -416,6 +440,9 @@ Shader "GrassGenerate"
                     TileWordsData[Base.z + HeaderBase() + serial] = InitialHeaderWord( serial % kTileHeaderWords );
                 if ( serial < Mode.z * kTileClusters )
                     GrassChunkData[Ranges.y + GrassChunkAt( serial ) + kGrassChunkCountWord] = 0u;
+                // Every slot's node empty (the chunk contract's tiles' nodes).
+                if ( serial < Mode.z )
+                    GrassChunkData[Ranges.y + TileNodeAt( serial ) + kGrassTileNodeScaleWord] = 0u;
                 return;
             }
             if ( Mode.x == kModeFree )
@@ -436,6 +463,8 @@ Shader "GrassGenerate"
                 for ( uint c = 0u; c < kTileClusters; ++c )
                     GrassChunkData[Ranges.y + GrassChunkAt( TileEntries[Mode.y + serial].x * kTileClusters + c ) +
                                    kGrassChunkCountWord] = 0u;
+                uint node = Ranges.y + TileNodeAt( TileEntries[Mode.y + serial].x );
+                GrassChunkData[node + kGrassTileNodeScaleWord] = 0u;
                 for ( uint w = 0u; w < kTilePageWord; ++w )
                     TileWordsData[Base.z + header + w] = InitialHeaderWord( w );
                 return;
@@ -514,6 +543,10 @@ Shader "GrassGenerate"
                     barrier();
                     if ( lane == 0u )
                     {
+                        // The tile's node starts empty: Write's clusters grow its scale (a rebuilt slot's old one
+                        // would otherwise stand under the max).
+                        if ( gl_WorkGroupID.x == 0u && gl_WorkGroupID.y == 0u )
+                            GrassChunkData[Ranges.y + TileNodeAt( entry.x ) + kGrassTileNodeScaleWord] = 0u;
                         TileWordsData[Base.z + cluster] = s_ClusterCount;
                         for ( uint i = 0u; i < 6u; ++i )
                             TileWordsData[Base.z + cluster + 2u + i] = s_ClusterBox[i];
@@ -540,8 +573,11 @@ Shader "GrassGenerate"
                     atomicMax( s_ClusterScale, floatBitsToUint( RecordScale( r, p ) ) );
                 barrier();
                 if ( lane == 0u )
+                {
                     WriteTileChunk( header, cluster, entry.x * kTileClusters +
                                                          gl_WorkGroupID.y * kTileClusterSide + gl_WorkGroupID.x, s_ClusterScale );
+                    WriteTileNode( header, entry.x, s_ClusterScale );
+                }
                 if ( !placed )
                     return;
                 uint rank = 0u;

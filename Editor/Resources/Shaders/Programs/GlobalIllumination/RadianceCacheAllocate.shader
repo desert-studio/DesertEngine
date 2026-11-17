@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"046591383d9b482fb773f89291c0a037","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 3/6 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
+// THE RADIANCE CACHE UPDATE, 3/7 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
 // SelectMaxPriorityBucket, LumenRadianceCacheUpdate.usf): one thread per indirection entry a pixel read this frame.
 // An empty one takes a slot from the free list (none left: it stays empty, and its pixels read the probes around
 // it). Every read probe is ranked into a priority bucket (RC_PRIORITY_*, Common/RadianceCacheState.glslh) — never
@@ -112,18 +112,24 @@ Shader "RadianceCacheAllocate"
             return RADIANCE_CACHE_INVALID_PROBE;
         }
 
-        void main()
+        // The group's share of the priority histogram, added to the schedule's once per group and bucket
+        // (GPU-SCREENPROBE-6: one global atomic per read probe serialised on the histogram's few busy words).
+        shared uint s_Histogram[RC_PRIORITY_BUCKETS];
+
+        // Allocates and ranks this thread's entry: its probe's priority bucket, RC_PRIORITY_BUCKETS when it ranks
+        // none (out of the grid, the reset, unread this frame, or no slot left).
+        uint AllocateAndRank()
         {
             const uvec3 id    = gl_GlobalInvocationID;
             const uint  grid  = radianceCache.shape.y;
             const uint  width = grid * radianceCache.shape.x;
             if ( id.x >= width || id.y >= grid || id.z >= grid || Reset != 0u )
-                return;
+                return RC_PRIORITY_BUCKETS;
             const uint entry = id.x + width * ( id.y + grid * id.z );
             // Which readers stamped it this frame (RadianceCacheMark): a coverage reader, or only the fallback.
             const bool covered = radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] == FrameIndex;
             if ( !covered && radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] != FrameIndex )
-                return;
+                return RC_PRIORITY_BUCKETS;
             const uint  clipmap = id.x / grid;
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
 
@@ -136,7 +142,7 @@ Shader "RadianceCacheAllocate"
                     // The atlas is full: the next frame's Update frees the probes nobody reads now.
                     atomicAdd( radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )], 1 );
                     atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_FAILED], 1u );
-                    return;
+                    return RC_PRIORITY_BUCKETS;
                 }
                 atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_ALLOCATED], 1u );
                 radianceCacheProbes[probe].cell     = ivec4( world, int( clipmap ) );
@@ -155,10 +161,33 @@ Shader "RadianceCacheAllocate"
             else if ( hash != frames.z )
                 bucket = RC_PRIORITY_LIGHTS_CHANGED;
             else
-                bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( FrameIndex - frames.y, 1u ) ) ) * 3.0 ) );
+            {
+                // FPS-RC-COST: no event - the probe is re-traced only once it is RefreshMinFrames old (a probe traced
+                // before the last full update holds the old sun: due whatever its age). Otherwise it is read as it
+                // is and takes no share of the budget (RC_PRIORITY_NOT_DUE, skipped by Select).
+                const uint age = FrameIndex - frames.y;
+                if ( age < RefreshMinFrames && frames.y >= LightingFrame )
+                    bucket = RC_PRIORITY_NOT_DUE;
+                else
+                    bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( age, 1u ) ) ) * 3.0 ) );
+            }
             radianceCacheProbes[probe].frames   = uvec4( FrameIndex, frames.y, frames.z, hash );
             radianceCacheProbes[probe].priority = uvec4( bucket, 0u, 0u, 0u );
-            atomicAdd( radianceCacheSchedule[bucket], 1u );
+            return bucket;
+        }
+
+        void main()
+        {
+            const uint t = gl_LocalInvocationIndex;
+            if ( t < RC_PRIORITY_BUCKETS )
+                s_Histogram[t] = 0u;
+            barrier();
+            const uint bucket = AllocateAndRank();
+            if ( bucket < RC_PRIORITY_BUCKETS )
+                atomicAdd( s_Histogram[bucket], 1u );
+            barrier();
+            if ( t < RC_PRIORITY_BUCKETS && s_Histogram[t] != 0u )
+                atomicAdd( radianceCacheSchedule[t], s_Histogram[t] );
         }
     }
 }

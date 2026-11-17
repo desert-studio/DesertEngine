@@ -5,6 +5,7 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <typeinfo>
@@ -143,6 +144,10 @@ namespace Desert::Assets
             // both spellings resolve here either way. Using the record's own key would be the same
             // string; using the lookup's says plainly which question this map answers.
             m_PathLookup.emplace( key, m_AssetsCache.size() - 1 );
+            // The per-type slot index (FindAllByType walks one type's records, not the whole registry) and the
+            // registration revision (a listing cached by a caller is current while the revision is unchanged).
+            m_TypeSlots[metadata.AssetType].push_back( static_cast<AssetIndex>( m_AssetsCache.size() - 1 ) );
+            ++m_RegistrationRevision;
 
             // AND THE COOKED REGISTRY LEARNS ABOUT THE FILE HERE, at the moment it becomes an asset.
             //
@@ -272,21 +277,27 @@ namespace Desert::Assets
         std::vector<std::pair<AssetHandle, Asset<TypeAsset>>> FindAllByType() const
         {
             std::vector<std::pair<AssetHandle, Asset<TypeAsset>>> result;
-            const auto                                            typeId = TypeAsset::GetTypeID();
+            const auto slots = m_TypeSlots.find( TypeAsset::GetTypeID() );
+            if ( slots == m_TypeSlots.end() )
+                return result;
+            result.reserve( slots->second.size() );
 
-            for ( const auto& [metadata, asset] : m_AssetsCache )
+            // Only this type's records (m_TypeSlots, in registration order), not the whole registry.
+            for ( const AssetIndex index : slots->second )
             {
-                if ( metadata.AssetType == typeId )
+                const auto& [metadata, asset] = m_AssetsCache[index];
+                if ( !asset )
+                    continue;
+                // Filtered on the REGISTRY's copy of the type, then checked against the ASSET's own: the two
+                // are written at different moments and a census that trusted only the copy would count a
+                // record the copy mislabels. The cast answers first; only a refusal pays for the subject string
+                // AsRequestedType names it by (the common answer, a match, builds no string).
+                if ( auto casted = std::dynamic_pointer_cast<TypeAsset>( asset ) )
                 {
-                    // Filtered on the REGISTRY's copy of the type, then checked against the ASSET's own:
-                    // the two are written at different moments and a census that trusted only the copy
-                    // would count a record the copy mislabels. AsRequestedType refuses and says so.
-                    if ( auto casted = AsRequestedType<TypeAsset>( asset, "FindAllByType",
-                                                                   metadata.Filepath.generic_string() ) )
-                    {
-                        result.emplace_back( metadata.Handle, casted );
-                    }
+                    result.emplace_back( metadata.Handle, std::move( casted ) );
+                    continue;
                 }
+                (void)AsRequestedType<TypeAsset>( asset, "FindAllByType", metadata.Filepath.generic_string() );
             }
 
             return result;
@@ -428,6 +439,13 @@ namespace Desert::Assets
             return m_AssetsCache;
         }
 
+        /// Moves on every registration (the registry is append-only): a list a caller derived from the registry
+        /// (AssetHotReload's watched assets) is current while this number is the one it was derived at.
+        [[nodiscard]] uint64_t RegistrationRevision() const noexcept
+        {
+            return m_RegistrationRevision;
+        }
+
     private:
         // THE ONLY ROUTE FROM A FILE TO A RECORD, and that is the invariant rather than a tidiness.
         //
@@ -450,6 +468,9 @@ namespace Desert::Assets
         AssetContainer                              m_AssetsCache;
         std::unordered_map<AssetHandle, AssetIndex> m_HandleLookup;
         std::unordered_map<AssetKey, AssetIndex>    m_PathLookup;
+        // Each registry type id's records, in registration order (FindAllByType).
+        std::unordered_map<decltype( AssetMetadata::AssetType ), std::vector<AssetIndex>> m_TypeSlots;
+        uint64_t m_RegistrationRevision = 0; // RegistrationRevision()
     };
 
     template <typename T>

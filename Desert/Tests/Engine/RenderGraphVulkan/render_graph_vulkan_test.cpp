@@ -826,6 +826,11 @@ void main()
         {
             return m_Inner.CopyBuffer( source, sourceOffset, target, targetOffset, bytes );
         }
+        Common::BoolResultStr FillBuffer( uint32_t resource, uint64_t offset, uint64_t bytes,
+                                          uint32_t value ) override
+        {
+            return m_Inner.FillBuffer( resource, offset, bytes, value );
+        }
         [[nodiscard]] std::shared_ptr<RDG::IPhysicalTexture> GetPhysicalTexture( uint32_t resource ) const override
         {
             return m_Inner.GetPhysicalTexture( resource );

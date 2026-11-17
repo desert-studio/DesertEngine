@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // RDG-FAULT1. The setup-time declaration of a pass's shader parameter block: what PassBuilder::Bindings records
@@ -114,12 +115,34 @@ namespace Desert::Graphic::RDG
         ShaderResourceKind Kind = ShaderResourceKind::Texture;
     };
 
+    // FPS-ARCH-BINDINGS: the index of no slot (ShaderBindingLayout::FindSlot, DeclaredBindingEntry::Slot).
+    inline constexpr uint32_t kNoShaderSlot = ~0u;
+
+    // FPS-ARCH-BINDINGS (UE FShaderParameterMap / the parameter struct's layout, bound once per shader): a layout
+    // is indexed ONCE when it is made (MakeIndexedLayout, the backend's GetBindingLayout), so a block declares an
+    // entry by the slot's index and nothing compares a slot name per pass, per frame.
     struct ShaderBindingLayout
     {
         std::string             ShaderName;            // what an error names: the shader's own name
         std::vector<ShaderSlot> Slots{};               // every resource slot the shader declares
         uint32_t                PushConstantBytes = 0; // the declared range; 0 = the shader declares none
+        // (HashShaderName( Slots[i].Name ), i) by hash: filled by IndexShaderBindingLayout, never by hand.
+        std::vector<std::pair<uint64_t, uint32_t>> ByHash{};
+        // The backend's own table this layout was derived from (Vulkan: the shader's RdgSlotTable), or null for a
+        // layout written by a renderer. Same table = the layout's slot index IS the backend's slot index, so the
+        // record walks indices only; a layout of another table (a hand layout, a program reloaded since the
+        // pass was declared) is placed by the entry's name hash against the program's current table.
+        std::shared_ptr<const void> Backend{};
+
+        // The index in Slots of the slot whose name hashes to @p hash and is @p name, or kNoShaderSlot.
+        [[nodiscard]] uint32_t FindSlot( uint64_t hash, std::string_view name ) const noexcept;
     };
+
+    // Fills @p layout.ByHash from its slots. Every layout handed to the graph is indexed: an unindexed one finds
+    // no slot, and ValidatePassBindings refuses its block naming the first entry.
+    void IndexShaderBindingLayout( ShaderBindingLayout& layout );
+    // The kept, indexed form of a layout a renderer writes by hand (its static slot list).
+    [[nodiscard]] std::shared_ptr<const ShaderBindingLayout> MakeIndexedLayout( ShaderBindingLayout layout );
 
     // What the other route (the material, or a pipeline's own setters for asset textures) fills for the draw, as
     // known when the pass is declared: the slots holding a real resource and whether it gives the push constants.
@@ -145,15 +168,58 @@ namespace Desert::Graphic::RDG
     // ShaderName VIEWS the slot name - in a graph, characters the builder copied into its frame arena
     // (BindingBlockBuilder, "<Name>" or "<Name>[<Element>]"), so it lives exactly as long as the block; a block
     // built by hand outside a graph views storage its owner keeps (a literal, a kept layout's slot name).
+    // CPU-COMPILE-KEY: FNV-1a 64 of a slot name, streamable - ContinueShaderNameHash( HashShaderName( "A" ), "[2]"
+    // ) equals HashShaderName( "A[2]" ) - so an element's hash continues its array's name hash, computed once when
+    // the parameter constant is made (ShaderParameterOf is constexpr), never per frame from the characters.
+    inline constexpr uint64_t kShaderNameHashSeed = 0xCBF29CE484222325ull;
+
+    [[nodiscard]] constexpr uint64_t ContinueShaderNameHash( uint64_t hash, std::string_view text ) noexcept
+    {
+        for ( const char c : text )
+        {
+            hash ^= static_cast<uint8_t>( c );
+            hash *= 0x100000001B3ull;
+        }
+        return hash;
+    }
+
+    [[nodiscard]] constexpr uint64_t HashShaderName( std::string_view name ) noexcept
+    {
+        return ContinueShaderNameHash( kShaderNameHashSeed, name );
+    }
+
+    // The hash of "<name>[<element>]" from the hash of <name>: the bracket and the decimal digits only.
+    [[nodiscard]] constexpr uint64_t HashShaderNameElement( uint64_t nameHash, uint32_t element ) noexcept
+    {
+        char     digits[10] = {};
+        uint32_t count      = 0;
+        do
+        {
+            digits[count++] = static_cast<char>( '0' + element % 10u );
+            element /= 10u;
+        } while ( element != 0 );
+        uint64_t hash = ContinueShaderNameHash( nameHash, "[" );
+        while ( count != 0 )
+            hash = ContinueShaderNameHash( hash, std::string_view( &digits[--count], 1 ) );
+        return ContinueShaderNameHash( hash, "]" );
+    }
+
     struct DeclaredBindingEntry
     {
         std::string_view           ShaderName;
+        // CPU-COMPILE-KEY: HashShaderName( ShaderName ), made with the name (BindingBlockBuilder, from the
+        // parameter's constexpr hash): what the compile cache key adds for the slot instead of the characters.
+        // Second, so a positional initializer that forgets it does not compile.
+        uint64_t                   NameHash = 0;
         ShaderResourceKind         Kind     = ShaderResourceKind::Texture;
         ResourceKind               Resource = ResourceKind::Texture;
         uint32_t                   Index    = kInvalidResource;
         Access                     Declared = Access::None;
         SubresourceRange           Range    = SubresourceRange::All();
         std::optional<SamplerDesc> Sampler; // Sampler only
+        // FPS-ARCH-BINDINGS: the index of the slot in the block's Layout->Slots, found once when the entry is
+        // declared (BindingBlockBuilder); kNoShaderSlot when the layout has no such slot (refused by Validate).
+        uint32_t Slot = kNoShaderSlot;
     };
 
     struct DeclaredBindingBlock

@@ -1754,9 +1754,19 @@ namespace Desert::Core::Preprocess
                  mask.DitherParam.empty()
                       ? std::string()
                       : std::format( "#define DESERT_SURFACE_OPACITY_DITHER Material.{}\n", mask.DitherParam );
-            return std::format( "{}float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
-                                "    return SurfaceSampleMaterial( Material.{}, {} )[{}];\n}}\n",
-                                dither, transform, mask.Texture, uv, channel );
+            // FPS-GRASS-COST: the mask's UV and an explicit-gradient fetch of it, as the Height reads
+            // (DesertSurfaceHeightUV / Grad): the visibility raster (Pass_Visibility.glslh) takes the UV's
+            // gradients in uniform control flow, then skips the fetch of a fragment its pixel's word already
+            // hides.
+            return std::format(
+                 "{}vec2 DesertSurfaceOpacityMaskUV( SurfaceInput i )\n{{\n{}    return {};\n}}\n"
+                 "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n"
+                 "    return SurfaceSampleMaterial( Material.{}, DesertSurfaceOpacityMaskUV( i ) )[{}];\n}}\n"
+                 "#ifndef DESERT_RAY_TRACING_STAGE\n"
+                 "float DesertSurfaceOpacityMaskGrad( vec2 uv, vec2 dUVdx, vec2 dUVdy )\n{{\n"
+                 "    return SampleBindlessGrad( Material.{}, uv, dUVdx, dUVdy )[{}];\n}}\n"
+                 "#endif\n",
+                 dither, transform, uv, mask.Texture, channel, mask.Texture, channel );
         }
 
         // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a
@@ -1881,10 +1891,10 @@ namespace Desert::Core::Preprocess
                  ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() ) +
                  ( virtualGeometry ? std::format( "#define {} 1\n", kSurfaceVirtualGeometryDefine )
                                    : std::string() ) +
-                 // The visibility cells' fragment stage rebuilds its path's triangle (Pass_VisibilityResolve.glslh).
-                 ( pass == "Visibility" || pass == "VisibilityResolve"
-                        ? std::format( "#define DESERT_SURFACE_PATH_{} 1\n", path )
-                        : std::string() );
+                 // BOTH stages of every cell know the vertex path: the varyings between them are the path's
+                 // (SurfaceTypes.glslh DESERT_SURFACE_VARYINGS: a grass blade's are not a mesh's), and the
+                 // visibility cells' fragment stage rebuilds its path's triangle (Pass_VisibilityResolve.glslh).
+                 std::format( "#define DESERT_SURFACE_PATH_{} 1\n", path );
             // A binned cell's fragment `Material` reads the row its vertex stage resolved
             // (kSurfaceMaterialRowMacro): named ahead of the generated declarations, which default it to the push
             // block's.

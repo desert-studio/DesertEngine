@@ -68,6 +68,19 @@ namespace Desert::Graphic::System
              { "Velocity", VFX::VFXValueType::Vec3, 11 },
         };
 
+        // UE Particles.Previous.Position (the attribute Niagara adds for precise motion vectors): an ENGINE
+        // column after the stack's own (TotalFloatComponents), present whenever the stack has a Vec3 Position.
+        // Not a stack attribute (the generated code never reads or writes it): compact 0 copies Position into
+        // it every tick, the host sets a newborn's (ParticleSimulate, VFX_ATTR_PREVIOUS_POSITION), the sprite
+        // and ribbon vertex paths reproject from it. A function of the layout only, so one program Key keeps
+        // one host source.
+        uint32_t PreviousPositionColumn( const VFX::VFXCompiledEmitter& compiled )
+        {
+            const auto* a = compiled.Layout.Find( "Position" );
+            return a != nullptr && a->Type == VFX::VFXValueType::Vec3 ? compiled.Layout.TotalFloatComponents
+                                                                      : kParticleAttrNone;
+        }
+
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
         // refused by name (drawn at its default), never read as the wrong number of components.
         ParticleDrawLayoutGpu DrawColumnsOf( const VFX::VFXCompiledEmitter& compiled, const uint32_t entityId,
@@ -119,6 +132,8 @@ namespace Desert::Graphic::System
                   : drawn.Lane < 8 ? columns.Columns1
                                    : columns.Columns2 )[drawn.Lane % 4] = a->FloatStart;
             }
+            if ( columns.Columns0.x != kParticleAttrNone )
+                columns.Columns3.x = PreviousPositionColumn( compiled );
             return columns;
         }
 
@@ -138,6 +153,8 @@ namespace Desert::Graphic::System
             if ( const auto* a = compiled.Layout.Find( "Velocity" );
                  a != nullptr && a->Type == VFX::VFXValueType::Vec3 )
                 source += std::format( "#define VFX_ATTR_VELOCITY {}u\n", a->FloatStart );
+            if ( const uint32_t previous = PreviousPositionColumn( compiled ); previous != kParticleAttrNone )
+                source += std::format( "#define VFX_ATTR_PREVIOUS_POSITION {}u\n", previous );
             return Common::MakeSuccess( std::move( source ) );
         }
 
@@ -553,7 +570,9 @@ namespace Desert::Graphic::System
                  slot.SlotKind == VFX::VFXParamSlot::Kind::PointSet )
                 gpu.PointSetRows.emplace_back( static_cast<uint32_t>( s ), slot.User );
         gpu.CurveFloats  = curves.GetValue().Floats;
-        gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
+        // The stack's columns, then the engine's PreviousPosition (PreviousPositionColumn).
+        gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents +
+                           ( PreviousPositionColumn( compiled.GetValue() ) != kParticleAttrNone ? 3u : 0u );
         gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
         gpu.DebugColumns = compiled.GetValue().Layout.Attributes;
         if ( gpu.ParamRows.empty() )
@@ -1076,6 +1095,12 @@ namespace Desert::Graphic::System
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
         layout.LocalToWorld          = localToWorld;
+        // The transform the tick before drew through (UE PrevLocalToWorld); a fresh or restarted range has no
+        // motion of its own yet.
+        layout.PrevLocalToWorld =
+             gpu.HasLastLocalToWorld && !gpu.NeedsReset ? gpu.LastLocalToWorld : localToWorld;
+        gpu.LastLocalToWorld    = localToWorld;
+        gpu.HasLastLocalToWorld = true;
         // The emitter's Ribbon row: its settings ride the layout to the ribbon vertex path (its RibbonIdBinding's
         // column is in DrawColumns). The emitter's ribbons are drawn by the first enabled Ribbon row; another with
         // other settings is refused aloud below (one ribbon order per emitter, ParticleSort).

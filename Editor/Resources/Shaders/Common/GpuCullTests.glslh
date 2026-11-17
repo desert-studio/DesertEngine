@@ -46,11 +46,23 @@ bool GpuCull_IsOccludedByHzb( texture2D hzb, sampler hzbSampler, GpuCullView vie
     vec2  rectMin = vec2( 1.0e30 );
     vec2  rectMax = vec2( -1.0e30 );
     float nearest = 0.0;
+    // The projection is affine in the corner: the min corner's clip position plus the box's edges through the
+    // matrix's columns gives the eight corners for one matrix product and three column scales, not eight products
+    // (GRASS-CULL-COST-4: the grass camera cull runs it per blade).
+    const vec3 extent = boxMax - boxMin;
+    const vec4 origin = viewProjection * vec4( boxMin, 1.0 );
+    const vec4 edgeX  = viewProjection[0] * extent.x;
+    const vec4 edgeY  = viewProjection[1] * extent.y;
+    const vec4 edgeZ  = viewProjection[2] * extent.z;
     for ( uint c = 0u; c < 8u; ++c )
     {
-        const vec3 corner =
-             mix( boxMin, boxMax, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
-        const vec4 clip = viewProjection * vec4( corner, 1.0 );
+        vec4 clip = origin;
+        if ( ( c & 1u ) != 0u )
+            clip += edgeX;
+        if ( ( c & 2u ) != 0u )
+            clip += edgeY;
+        if ( ( c & 4u ) != 0u )
+            clip += edgeZ;
         if ( clip.w <= 0.0 )
             return false;
         const vec3 ndc = clip.xyz / clip.w;

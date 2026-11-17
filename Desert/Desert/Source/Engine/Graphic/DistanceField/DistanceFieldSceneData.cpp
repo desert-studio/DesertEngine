@@ -5,6 +5,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <format>
 #include <limits>
@@ -151,10 +152,20 @@ namespace Desert::Graphic::DistanceField
                                                          size, wrote.GetError() );
             return BOOLSUCCESS;
         }
+
+        // The resident epochs of every scene data: never reused, so a reader's slots of one scene data are never
+        // taken for another's.
+        std::atomic<uint64_t> s_NextResidentEpoch{ 0 };
     } // namespace
 
     DistanceFieldSceneData::DistanceFieldSceneData( const ResourceOwnerInstance scene ) : m_LedgerInstance( scene )
     {
+        MoveResidentEpoch();
+    }
+
+    void DistanceFieldSceneData::MoveResidentEpoch()
+    {
+        m_ResidentEpoch = s_NextResidentEpoch.fetch_add( 1, std::memory_order_relaxed ) + 1;
     }
     DistanceFieldSceneData::~DistanceFieldSceneData() = default;
 
@@ -173,6 +184,7 @@ namespace Desert::Graphic::DistanceField
             return false;
         // Everything resident lived in the old atlas: drop it all, the next frame acquires again.
         m_Resident.clear();
+        MoveResidentEpoch();
         m_IndirectionSlots = {};
         m_AssetSlots       = {};
         m_AssetData.clear();
@@ -217,6 +229,7 @@ namespace Desert::Graphic::DistanceField
             // A new field at the address of one that died since the last sweep.
             Release( it->second );
             m_Resident.erase( it );
+            MoveResidentEpoch();
         }
         if ( field->Mips[0].IndirectionDimensions.x == 0 )
             return Common::MakeSuccess<Result>( std::nullopt );
@@ -244,6 +257,7 @@ namespace Desert::Graphic::DistanceField
         }
         const uint32_t index = resident.AssetIndex;
         m_Resident.emplace( field.get(), std::move( resident ) );
+        MoveResidentEpoch();
         return Common::MakeSuccess<Result>( index );
     }
 
@@ -406,6 +420,7 @@ namespace Desert::Graphic::DistanceField
             {
                 Release( it->second );
                 it = m_Resident.erase( it );
+                MoveResidentEpoch();
             }
             else
                 ++it;
@@ -536,25 +551,58 @@ namespace Desert::Graphic::DistanceField
         // The atlas and this frame's copies of the records, once: nothing changes them until the next frame start.
         if ( const auto flushed = FlushUploads(); !flushed )
             return flushed;
-        if ( const auto r = UploadRecords( *m_AssetBuffer, m_AssetData, "asset data" ); !r )
-            return r;
-        if ( const auto r = UploadRecords( *m_IndirectionBuffer, m_Indirection, "indirection" ); !r )
-            return r;
+        return UploadRecordsIfBehind();
+    }
+
+    Common::BoolResultStr DistanceFieldSceneData::UploadRecordsIfBehind()
+    {
+        // UE FDistanceFieldSceneData uploads the asset data it changed, not every frame. The copies are per
+        // (view x frame in flight): each is rewritten once after the records moved, then left as it is. The
+        // version is the revision + 1, so a new copy (version 0) is behind even revision 0.
+        const uint64_t version = m_Revision + 1;
+        if ( m_AssetBuffer->ActiveAppliedVersion() < version )
+        {
+            if ( const auto r = UploadRecords( *m_AssetBuffer, m_AssetData, "asset data" ); !r )
+                return r;
+            m_AssetBuffer->NoteActiveApplied( version );
+        }
+        if ( m_IndirectionBuffer->ActiveAppliedVersion() < version )
+        {
+            if ( const auto r = UploadRecords( *m_IndirectionBuffer, m_Indirection, "indirection" ); !r )
+                return r;
+            m_IndirectionBuffer->NoteActiveApplied( version );
+        }
         return BOOLSUCCESS;
+    }
+
+    void DistanceFieldSceneData::ResolveFields(
+         const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields,
+         std::vector<FieldSlot>&                                                    slots )
+    {
+        slots.assign( fields.size(), FieldSlot{} );
+        for ( size_t i = 0; i < fields.size(); ++i )
+        {
+            const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field = fields[i];
+            if ( !field )
+                continue;
+            // The address alone is not the field: a new one may sit where a dead one was until the next sweep.
+            if ( const auto it = m_Resident.find( field.get() );
+                 it != m_Resident.end() && it->second.Field.lock() == field )
+                slots[i].m_Resident = &it->second;
+        }
     }
 
     std::optional<uint32_t>
     DistanceFieldSceneData::Lookup( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field,
-                                    const float                                                   distance )
+                                    const FieldSlot slot, const float distance )
     {
         if ( !field )
             return std::nullopt;
-        if ( const auto it = m_Resident.find( field.get() );
-             it != m_Resident.end() && it->second.Field.lock() == field )
+        if ( Resident* const resident = slot.m_Resident )
         {
-            it->second.Used     = true;
-            it->second.Distance = std::min( it->second.Distance, distance );
-            return it->second.AssetIndex;
+            resident->Used     = true;
+            resident->Distance = std::min( resident->Distance, distance );
+            return resident->AssetIndex;
         }
         // Not in the frame's set (it appeared after the frame start): it waits for the next one.
         if ( field->Mips[0].IndirectionDimensions.x != 0 &&
