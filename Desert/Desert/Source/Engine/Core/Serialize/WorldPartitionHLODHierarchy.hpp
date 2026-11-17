@@ -68,6 +68,8 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> SourceUnits;
         // The union of the squares of what it stands in for.
         CellBounds Bounds;
+        // The union of the height spans of what it stands in for (PlannedCell::Height, WP-SRC-ALTITUDE).
+        HeightSpan Height;
         // Its key in the saved HLOD index: a depth-1 node is its cell unit's DescribeResidencyUnit (the WP-FAR-6B
         // row, unchanged); a parent is "<child layer>(X,Z)" of the HLOD cell it stands in for.
         std::string Name;
@@ -79,6 +81,7 @@ namespace Desert::Core::Rules
         CellCoord                Coord;
         CellBounds               Square;
         CellBounds               Bounds; // Square widened by its nodes' bounds
+        HeightSpan               Height; // the union of its nodes' height spans
         std::vector<std::size_t> Nodes;  // ascending
     };
 
@@ -146,6 +149,7 @@ namespace Desert::Core::Rules
             node.StandsFor   = plan.AlwaysLoaded.size() + c;
             node.SourceUnits = { node.StandsFor };
             node.Bounds      = cell.Square;
+            node.Height      = cell.Height;
             node.Name        = DescribeResidencyUnit( plan, node.StandsFor );
             out.Nodes.push_back( std::move( node ) );
         }
@@ -198,9 +202,11 @@ namespace Desert::Core::Rules
                 up.Layer       = parent;
                 up.ForHLODCell = true;
                 up.Bounds      = out.Nodes[members.front()].Bounds;
+                up.Height      = out.Nodes[members.front()].Height;
                 for ( const std::size_t n : members )
                 {
                     up.Bounds = Detail::UnionBounds( up.Bounds, out.Nodes[n].Bounds );
+                    up.Height = UnionHeight( up.Height, out.Nodes[n].Height );
                     up.SourceUnits.insert( up.SourceUnits.end(), out.Nodes[n].SourceUnits.begin(),
                                            out.Nodes[n].SourceUnits.end() );
                 }
@@ -234,8 +240,12 @@ namespace Desert::Core::Rules
                             static_cast<float>( static_cast<double>( x + 1 ) * size ),
                             static_cast<float>( static_cast<double>( z + 1 ) * size ) };
             cell.Bounds = cell.Square;
+            cell.Height = out.Nodes[members.front()].Height;
             for ( const std::size_t n : members )
+            {
                 cell.Bounds = Detail::UnionBounds( cell.Bounds, out.Nodes[n].Bounds );
+                cell.Height = UnionHeight( cell.Height, out.Nodes[n].Height );
+            }
             cell.Nodes = members;
             std::sort( cell.Nodes.begin(), cell.Nodes.end() );
             cellIndex.emplace( key, out.Cells.size() );
@@ -315,6 +325,7 @@ namespace Desert::Core::Rules
             out.Records += recordsOfNode[n];
             composite.Anchor    = composite.Members.empty() ? kNoRecord : composite.Members.front();
             composite.Footprint = node.Bounds;
+            composite.Height    = node.Height;
             if ( node.Cell != kNoRecord )
             {
                 const HLODCell& cell = hierarchy.Cells.at( node.Cell );
@@ -333,6 +344,7 @@ namespace Desert::Core::Rules
             planned.Cell       = cell.Coord;
             planned.Square     = cell.Square;
             planned.Bounds     = cell.Bounds;
+            planned.Height     = cell.Height;
             planned.Composites = cell.Nodes;
             out.Plan.Cells.push_back( std::move( planned ) );
         }
