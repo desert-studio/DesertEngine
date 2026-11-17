@@ -100,8 +100,69 @@ namespace Desert::Editor
     // chain CUT from it at kClusterDagCutErrors (no second simplification: the DAG is the one reduction). The cook
     // refuses a DAG whose cut 0 is not LOD0 or whose error is not monotone - the two invariants the renderer's
     // LOD rule stands on.
+    // PreserveArea's added vertices (Geometry::ClusterDagBuild): copies of their source vertices at the moved
+    // positions, appended to the END of submesh @p s's vertex range - every stream that holds one entry per vertex
+    // (StaticVertices, Colors, UV1, morph deltas) gets the source's entry - and the sections after it move up.
+    // Indices, LODs and the DAG are submesh-relative, so nothing else changes; the section's box grows to hold
+    // the moved positions.
+    Common::BoolResultStr AppendDagVertices( Ser::MeshAssetData& data, const size_t s,
+                                             const std::vector<uint32_t>& sources, const std::vector<float>& positions,
+                                             const std::string& name )
+    {
+        Ser::SubmeshData& sm    = data.Submeshes[s];
+        const size_t      total = data.StaticVertices.size();
+        if ( positions.size() != sources.size() * 3 || ( !data.Colors.empty() && data.Colors.size() != total ) ||
+             ( !data.UV1.empty() && data.UV1.size() != total ) )
+            return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): added vertices or vertex streams "
+                                                     "do not line up",
+                                                     name, s, sm.Name );
+        const size_t at = size_t( sm.VertexOffset ) + sm.VertexCount;
+        const auto   insert = [&]( auto& stream )
+        {
+            using T = typename std::decay_t<decltype( stream )>::value_type;
+            if ( stream.empty() )
+                return;
+            std::vector<T> added;
+            added.reserve( sources.size() );
+            for ( const uint32_t source : sources )
+                added.push_back( stream[sm.VertexOffset + source] );
+            stream.insert( stream.begin() + std::ptrdiff_t( at ), added.begin(), added.end() );
+        };
+        for ( const uint32_t source : sources )
+            if ( source >= sm.VertexCount )
+                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): added vertex source {} past "
+                                                         "its {} vertices",
+                                                         name, s, sm.Name, source, sm.VertexCount );
+        for ( Ser::MorphTargetData& morph : data.MorphTargets )
+        {
+            if ( ( !morph.DeltaPositions.empty() && morph.DeltaPositions.size() != total ) ||
+                 ( !morph.DeltaNormals.empty() && morph.DeltaNormals.size() != total ) )
+                return Common::MakeFormattedError<bool>( "'{}': morph target '{}' does not hold one delta per "
+                                                         "vertex",
+                                                         name, morph.Name );
+            insert( morph.DeltaPositions );
+            insert( morph.DeltaNormals );
+        }
+        insert( data.Colors );
+        insert( data.UV1 );
+        insert( data.StaticVertices );
+        for ( size_t i = 0; i < sources.size(); ++i )
+        {
+            const glm::vec3 p( positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] );
+            data.StaticVertices[at + i].Position = p;
+            sm.BoundingBox.Min                   = glm::min( sm.BoundingBox.Min, p );
+            sm.BoundingBox.Max                   = glm::max( sm.BoundingBox.Max, p );
+        }
+        const uint32_t added = static_cast<uint32_t>( sources.size() );
+        for ( Ser::SubmeshData& other : data.Submeshes )
+            if ( &other != &sm && other.VertexOffset >= at )
+                other.VertexOffset += added;
+        sm.VertexCount += added;
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr BuildMeshClusterDags( Ser::MeshAssetData& data, const std::string& name,
-                                                const bool cutLods )
+                                                const bool cutLods, const Geometry::ClusterDagSettings& settings )
     {
         // A triangle up to rotation (the winding kept): its smallest rotation, so a cluster-local reorder
         // compares.
@@ -145,12 +206,17 @@ namespace Desert::Editor
                 const Ser::IndexData& f = data.Indices[sm.IndexOffset / 3 + t];
                 tris.insert( tris.end(), { f.V1, f.V2, f.V3 } );
             }
-            auto built = Geometry::BuildClusterDag( pos, sm.VertexCount, tris, attrs.data(),
-                                                    Geometry::ClusterDagSettings{} );
+            auto built = Geometry::BuildClusterDag( pos, sm.VertexCount, tris, attrs.data(), settings );
             if ( !built.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): {}", name, s, sm.Name,
                                                          built.GetError() );
-            sm.ClusterDag            = built.ExtractValue();
+            Geometry::ClusterDagBuild build = built.ExtractValue();
+            if ( !build.AddedVertexSources.empty() )
+                if ( const auto appended =
+                          AppendDagVertices( data, s, build.AddedVertexSources, build.AddedPositions, name );
+                     !appended.IsSuccess() )
+                    return appended;
+            sm.ClusterDag = std::move( build.Dag );
             const float boundsRadius = 0.5f * glm::length( hi - lo );
             if ( Canonical( Geometry::CutClusterDag( sm.ClusterDag, 0.0f, boundsRadius ) ) != Canonical( tris ) )
                 return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): the DAG's cut 0 is not LOD0",
@@ -782,7 +848,8 @@ namespace Desert::Editor
         // Sections the authored models left without LODs are simplified; folded ones are kept as authored.
         if ( virtualGeometry )
         {
-            const auto dags = BuildMeshClusterDags( out, asset.Name, generate );
+            const auto dags = BuildMeshClusterDags( out, asset.Name, generate,
+                                                    Assets::MeshClusterDagSettings( asset.Import.Settings ) );
             if ( !dags.IsSuccess() )
                 return Common::MakeError<std::string>( dags.GetError() );
         }

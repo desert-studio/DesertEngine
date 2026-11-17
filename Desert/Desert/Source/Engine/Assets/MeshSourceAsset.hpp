@@ -24,6 +24,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDisplacementSettings.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 #include <Engine/Geometry/LODChainSettings.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 
@@ -51,7 +52,9 @@ namespace Desert::Assets
     // 6 (LOD-IMPORT): IMPT states MeshImportSettings::LodChain (the generated levels' triangle ratios and floor)
     // after the canopy numbers; a version-1..5 asset is raised with the default chain
     // (Geometry::LODChainSettings{}).
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 6;
+    // 7 (VG-CONTENT-PRESERVE-AREA): IMPT states MeshImportSettings::PreserveArea after the LOD chain; a
+    // version-1..6 asset is raised with it off.
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 7;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -157,12 +160,26 @@ namespace Desert::Assets
         // (Geometry/ClusterDag.hpp) into the "StaticMesh" record, and the discrete LOD chain is cut from that DAG.
         // In the render-data key.
         bool                         VirtualGeometry                               = false;
+        // UE FMeshNaniteSettings::bPreserveArea: the DAG's simplification gives the area it removes back to the
+        // open boundary (ClusterDagSettings::PreserveArea) - foliage whose masked cards would thin out with
+        // distance. Builds nothing without VirtualGeometry (the DAG is its only reduction), so it is keyed only
+        // with it (SerializeMeshSettingsForKey).
+        bool                         PreserveArea                                  = false;
         MeshCanopySettings           Canopy;
         // UE FStaticMeshSourceModel::ReductionSettings per LOD: how coarse each generated level is
         // (LodPolicy Generate). In the render-data key.
         Geometry::LODChainSettings   LodChain;
         bool                         operator==( const MeshImportSettings& ) const = default;
     };
+
+    // The DAG cook options a mesh's import settings state: the one place MeshImportSettings becomes
+    // Geometry::ClusterDagSettings (the cook, MeshDeriver, and its DDC key, SerializeMeshSettingsForKey).
+    [[nodiscard]] inline Geometry::ClusterDagSettings MeshClusterDagSettings( const MeshImportSettings& settings )
+    {
+        Geometry::ClusterDagSettings dag;
+        dag.PreserveArea = settings.PreserveArea;
+        return dag;
+    }
 
     // THE OPTIONS A USER SETS PER IMPORTED FILE (UE: UFbxImportUI + UFbxStaticMeshImportData, the FBX Import
     // Options window). Their one home is the source's import record (`<source>.deimport`, ImportRecordData::

@@ -27,7 +27,8 @@ namespace Desert::Assets
         // 2 (DISPLACE): + displacement mode name + bake EdgeLengthCm. 3 (VIRT-GEOM): + VirtualGeometry (u32 0 /
         // 1). 4 (FIELD-WINTER): + Canopy leaf slots (u32 count, then each name). 5 (FIELD-WINTER-3): + Canopy
         // ShellCm, ClearTexels (f32 each). 6 (LOD-IMPORT): + LodChain (u32 ratio count, f32 each ratio, u32
-        // MinTriangles). 1 to 5 are read by UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it
+        // MinTriangles). 7 (VG-CONTENT-PRESERVE-AREA): + PreserveArea (u32 0 / 1). 1 to 6 are read by
+        // UpgradeMeshSourceAsset only. The IMPT version is the MSAS version it
         // ships under.
         constexpr uint32_t kImportInfoVersion = kMeshAssetSubsystemVersion;
         // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
@@ -358,12 +359,13 @@ namespace Desert::Assets
             for ( const float ratio : info.Settings.LodChain.TriangleRatios )
                 w.F32( ratio );
             w.U32( info.Settings.LodChain.MinTriangles );
+            w.U32( info.Settings.PreserveArea ? 1u : 0u );
             return std::move( w.Out );
         }
 
         // @p expected: kImportInfoVersion, or 1 / 2 for UpgradeMeshSourceAsset (1: no displacement fields; 1 and
         // 2: no VirtualGeometry, read as off; 1 to 3: no Canopy, read as none; 1 to 4: the canopy's default shell
-        // and clearance; 1 to 5: no LodChain, read as the default chain).
+        // and clearance; 1 to 5: no LodChain, read as the default chain; 1 to 6: no PreserveArea, read as off).
         Common::ResultStr<MeshImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                             const uint32_t expected = kImportInfoVersion )
         {
@@ -416,12 +418,19 @@ namespace Desert::Assets
                     info.Settings.LodChain.TriangleRatios.push_back( r.F32() );
                 info.Settings.LodChain.MinTriangles = r.U32();
             }
+            uint32_t preserveArea = 0;
+            if ( expected >= 7 )
+                preserveArea = r.U32();
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<MeshImportInfo>( "mesh ImportInfo is truncated or has trailing bytes" );
             if ( virtualGeometry > 1u )
                 return Common::MakeFormattedError<MeshImportInfo>(
                      "mesh ImportInfo states VirtualGeometry {}, not 0 or 1", virtualGeometry );
             info.Settings.VirtualGeometry = virtualGeometry == 1u;
+            if ( preserveArea > 1u )
+                return Common::MakeFormattedError<MeshImportInfo>(
+                     "mesh ImportInfo states PreserveArea {}, not 0 or 1", preserveArea );
+            info.Settings.PreserveArea = preserveArea == 1u;
             const auto p = MeshSourceProvenanceFromName( provenance );
             const auto a = MeshSourceUpAxisFromName( axis );
             const auto l = MeshLodPolicyFromName( lodPolicy );
@@ -692,7 +701,9 @@ namespace Desert::Assets
         using Out = std::optional<std::vector<std::byte>>;
         if ( DecodeMeshSourceAssetAt( file, kMeshAssetSubsystemVersion ).IsSuccess() )
             return Common::MakeSuccess( Out{} );
-        auto old = DecodeMeshSourceAssetAt( file, 5 );
+        auto old = DecodeMeshSourceAssetAt( file, 6 );
+        if ( !old.IsSuccess() )
+            old = DecodeMeshSourceAssetAt( file, 5 );
         if ( !old.IsSuccess() )
             old = DecodeMeshSourceAssetAt( file, 4 );
         if ( !old.IsSuccess() )
@@ -702,11 +713,11 @@ namespace Desert::Assets
         if ( !old.IsSuccess() )
             old = DecodeMeshSourceAssetAt( file, 1 );
         if ( !old.IsSuccess() )
-            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 5, 4, 3, 2 or 1 reads it: {}",
+            return Common::MakeFormattedError<Out>( "neither MSAS {} nor MSAS 6, 5, 4, 3, 2 or 1 reads it: {}",
                                                     kMeshAssetSubsystemVersion, old.GetError() );
         // DecodeImportInfo at version 1 left Displacement = None and the default bake settings; at 1 and 2,
         // VirtualGeometry off; at 1 to 3, no canopy; at 1 to 4, the canopy's default ShellCm / ClearTexels; at 1
-        // to 5, the default LOD chain.
+        // to 5, the default LOD chain; at 1 to 6, PreserveArea off.
         auto encoded = EncodeMeshSourceAsset( old.GetValue() );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );
