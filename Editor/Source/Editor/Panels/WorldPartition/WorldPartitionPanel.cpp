@@ -714,7 +714,7 @@ namespace Desert::Editor
     Common::BoolResultStr WorldPartitionPanel::BuildHLODs()
     {
         namespace WC = ::Desert::Core::WorldCells;
-        if ( m_Bake )
+        if ( m_Build )
             return Common::MakeError( "Build HLODs: a build is already running (its landscape bake)." );
         if ( !m_Scene )
             return Common::MakeError( "Build HLODs: there is no active scene." );
@@ -727,204 +727,63 @@ namespace Desert::Editor
             return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
                                       "' has unsaved changes; save the scene first (the HLODs are built from its "
                                       "files)" );
-        const std::filesystem::path& path = *baseline;
-        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
-        // a cook of the same files computes.
-        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
-        if ( !text )
-            return Common::MakeError( "Build HLODs: " + text.GetError() );
-        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
-        if ( !scene )
-            return Common::MakeError( "Build HLODs: " + scene.GetError() );
-        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
-        if ( !descriptors )
-            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
-        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
-        // Phase 1: the landscape HLODs' areas, from the same request the build makes for each.
-        std::vector<LandscapeHLODBakeTile>                 areas;
-        decltype( builders.Landscape )                     collect;
-        if ( builders.Landscape )
-            collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
-            {
-                auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
-                if ( !area )
-                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
-                auto mesh = builders.Landscape( request );
-                if ( !mesh )
-                    return mesh;
-                const bool known = std::any_of( areas.begin(), areas.end(),
-                                                [&]( const auto& seen ) {
-                                                    return static_cast<uint64_t>( seen.Area.Tile ) ==
-                                                           static_cast<uint64_t>( area.GetValue().Tile );
-                                                } );
-                if ( known )
-                    return mesh;
-                // The bake states the normal map in the tangent frame of this very mesh.
-                if ( !mesh.GetValue().EditMesh )
-                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
-                         std::format( "the landscape HLOD of tile {} carries no mesh",
-                                      static_cast<uint64_t>( area.GetValue().Tile ) ) );
-                areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
-                return mesh;
-            };
-        if ( auto probe = WC::BuildWorldHLODs(
-                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders.Mesh, collect,
-                  // The probe only gathers the landscape tiles to bake: its files are dropped.
-                  []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
-             !probe )
-            return Common::MakeError( "Build HLODs: " + probe.GetError() );
-        if ( areas.empty() )
-            return FinishBuildHLODs( {} );
-        LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)", m_Scene->GetSceneName(),
-                  areas.size() );
-        ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
-        m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
+        auto build = HLODBuild::Start( *baseline, m_Scene->GetSceneName(), m_Assets );
+        if ( !build )
+            return Common::MakeError( build.GetError() );
+        m_Build = std::move( build.GetValue() );
+        // A world without landscape HLODs is built inside Start: its outcome is the button's answer now.
+        if ( const std::optional<Common::BoolResultStr> done = m_Build->Tick() )
+        {
+            m_Build.reset();
+            return *done;
+        }
         return BOOLSUCCESS;
     }
 
     void WorldPartitionPanel::TickBuild()
     {
-        if ( !m_Bake || !m_Bake->Tick() )
+        if ( !m_Build )
             return;
-        const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
-        if ( bake->Error() )
-        {
-            LOG_ERROR( "[Build HLODs] the landscape bake was refused: {0}", *bake->Error() );
+        const std::optional<Common::BoolResultStr> done = m_Build->Tick();
+        if ( !done )
             return;
-        }
-        if ( auto done = FinishBuildHLODs( bake->Baked() ); !done )
-            LOG_ERROR( "[Build HLODs] {0}", done.GetError() );
-    }
-
-    Common::BoolResultStr WorldPartitionPanel::FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked )
-    {
-        namespace WC = ::Desert::Core::WorldCells;
-        if ( !m_Scene )
-            return Common::MakeError( "Build HLODs: there is no active scene." );
-        const auto& baseline = m_Scene->Packages()->BaselinePath();
-        if ( !baseline )
-            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
-                                      "' is not saved; save it first (the HLODs are built from its files)" );
-        if ( m_Scene->Packages()->HasUnsavedChanges(
-                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
-            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
-                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
-                                      "files)" );
-        const std::filesystem::path& path = *baseline;
-        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
-        // a cook of the same files computes.
-        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
-        if ( !text )
-            return Common::MakeError( "Build HLODs: " + text.GetError() );
-        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
-        if ( !scene )
-            return Common::MakeError( "Build HLODs: " + scene.GetError() );
-        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
-        if ( !descriptors )
-            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
-        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
-        // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
-        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness.
-        decltype( builders.Landscape ) landscape;
-        if ( builders.Landscape )
-            landscape = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
-            {
-                auto mesh = builders.Landscape( request );
-                if ( !mesh )
-                    return mesh;
-                const auto& id = request.Records[request.Tile].id;
-                for ( const LandscapeHLODBaked& tile : baked )
-                    if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
-                    {
-                        ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
-                        block.MaterialSlots = std::vector<::Desert::Assets::AssetGuidRef>{
-                             ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
-                        return Common::MakeSuccess( std::move( block ) );
-                    }
-                return mesh;
-            };
-        // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
-        // actors cell by cell), so the world's HLODs are never in memory at once.
-        const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
-        const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( path );
-        std::size_t                 bytes  = 0;
-        std::size_t                 files  = 0;
-        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
-                                          builders.Mesh, landscape,
-                                          [&]( WC::CookedFile file ) -> Common::BoolResultStr
-                                          {
-                                              bytes += file.Bytes.size();
-                                              ++files;
-                                              LOG_INFO( "[Build HLODs] {0}: {1} bytes",
-                                                        ( dir / file.Name ).string(), file.Bytes.size() );
-                                              return writer( std::move( file ) );
-                                          } );
-        if ( !built )
-            return Common::MakeError( "Build HLODs: " + built.GetError() );
-        if ( auto written = WC::WriteBuiltHLODIndex( path, built.GetValue() ); !written )
-            return Common::MakeError( written.GetError() );
-        // Read back what was written and check it against the world it was built from.
-        auto stored = WC::ReadBuiltHLODs( path );
-        if ( !stored )
-            return Common::MakeError( "Build HLODs: " + stored.GetError() );
-        std::size_t records = 0;
-        for ( const WC::BuiltHLODCell& cell : stored.GetValue().Index.Cells )
-        {
-            auto cellRecords = WC::StoredCellRecords( stored.GetValue(), cell );
-            if ( !cellRecords )
-                return Common::MakeError( "Build HLODs: read back: " + cellRecords.GetError() );
-            records += cellRecords.GetValue().size();
-        }
-        // Against the world the build cut: prefab instances expanded as the cook expands them (WP21).
-        auto cut = WC::ExpandWorldForCook( scene.GetValue().Scene, planned, WC::PrefabFileReader() );
-        if ( !cut )
-            return Common::MakeError( "Build HLODs: read back: " + cut.GetError() );
-        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
-                                         cut.GetValue().Descriptors, registries );
-        if ( !stale )
-            return Common::MakeError( "Build HLODs: read back: " + stale.GetError() );
-        for ( const std::string& unit : stale.GetValue() )
-            LOG_ERROR( "[Build HLODs] {0}: the HLOD read back is stale", unit );
-        LOG_INFO(
-             "[Build HLODs] '{0}': {1} cell(s), {2} file(s), {3} bytes, {4} HLOD record(s) in {5}; read back: "
-             "{6} stale cell(s)",
-             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), files, bytes, records, dir.string(),
-             stale.GetValue().size() );
-        if ( !stale.GetValue().empty() )
-            return Common::MakeError(
-                 std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
-        return BOOLSUCCESS;
+        m_Build.reset();
+        if ( !*done )
+            LOG_ERROR( "[Build HLODs] {0}", done->GetError() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()
     {
-        if ( !m_Scene )
+        if ( auto converted = ConvertToWorldPartition( m_Scene ); !converted )
+            return converted;
+        m_EditPlanStale = true;
+        m_FocusPending  = true;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ConvertToWorldPartition( const std::shared_ptr<::Desert::Core::Scene>& scene )
+    {
+        if ( !scene )
             return Common::MakeError( kConvertButtonLabel + ": there is no active scene." );
 
-        const auto converted = ::Desert::Core::Rules::ConvertToWorldPartition( m_Scene->GetSceneName(),
-                                                                               m_Scene->GetWorldPartition() );
+        const auto converted = ::Desert::Core::Rules::ConvertToWorldPartition( scene->GetSceneName(),
+                                                                               scene->GetWorldPartition() );
         if ( !converted.IsSuccess() )
             return Common::MakeError( converted.GetError() );
 
-        std::optional<::Desert::Core::WorldPartitionSerialized> before = m_Scene->GetWorldPartition();
+        std::optional<::Desert::Core::WorldPartitionSerialized> before = scene->GetWorldPartition();
         const ::Desert::Core::WorldPartitionSerialized&         after  = converted.GetValue();
-        m_Scene->SetWorldPartition( after );
+        scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
         CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
-             "Convert to World Partition", m_Scene, std::move( before ), after ) );
+             "Convert to World Partition", scene, std::move( before ), after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
-        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
+        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *scene ); !filed )
             return Common::MakeFormattedError<bool>( "{}: the world is partitioned but its foliage is not: {}",
                                                      kConvertButtonLabel, filed.GetError() );
 
-        m_EditPlanStale = true;
-        m_FocusPending  = true;
         return BOOLSUCCESS;
     }
 

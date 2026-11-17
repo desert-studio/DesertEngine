@@ -18,7 +18,7 @@
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
 #include <Editor/Core/IPanel.hpp>
-#include "LandscapeHLODBake.hpp"
+#include "HLODBuild.hpp"
 #include "WorldPartitionMap.hpp"
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
@@ -45,6 +45,12 @@ namespace Desert::Assets
 
 namespace Desert::Editor
 {
+    /// UE's "Convert Level to World Partition" on @p scene, as one undoable history entry: Rules::ConvertToWorld-
+    /// Partition's answer stored on the scene, and its foliage refiled by the new grid (FO-6, its own undo step).
+    /// Refuses, by name, a scene that is already partitioned. The panel's button and the Convert builder
+    /// (Editor/Builders/WorldPartitionBuilders.cpp) both run it.
+    [[nodiscard]] Common::BoolResultStr ConvertToWorldPartition( const std::shared_ptr<::Desert::Core::Scene>& scene );
+
     class WorldPartitionPanel final : public IPanel
     {
     public:
@@ -84,7 +90,7 @@ namespace Desert::Editor
         void TickBuild();
 
         /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
-        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Build != nullptr; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -127,9 +133,6 @@ namespace Desert::Editor
         // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
         // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
-        // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
-        // material), write, read back.
-        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,
@@ -138,8 +141,8 @@ namespace Desert::Editor
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
         ::Desert::Assets::AssetManager*        m_Assets;
         StreamerGetter                         m_Streamer;
-        // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
-        std::unique_ptr<LandscapeHLODBake> m_Bake;
+        // A running Build HLODs (BuildHLODs -> TickBuild): its landscape bake has not finished.
+        std::unique_ptr<HLODBuild> m_Build;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;
