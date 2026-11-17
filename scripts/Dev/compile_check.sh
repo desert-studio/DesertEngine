@@ -15,7 +15,7 @@ dev_configure "$LOG" "" || exit 1
 while pgrep -x ninja >/dev/null; do sleep 5; done
 cd "$DEV_BUILD" || exit 1
 
-ninja -f build-Debug.ninja -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep '\.o$' > "$LOG/objects.txt"
+ninja -f build-Debug.ninja -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
 [ -s "$LOG/objects.txt" ] || { echo "compile_check: no objects for ${TARGETS[*]} (ninja -t inputs: $(head -1 "$LOG/inputs.err"))"; exit 1; }
 # The branch's own sources -> their Debug objects (compile_commands.json: file -> output), only those the targets use.
 base=$(git -C "$DEV_ROOT" merge-base HEAD origin/dev 2>/dev/null || git -C "$DEV_ROOT" rev-parse HEAD)
