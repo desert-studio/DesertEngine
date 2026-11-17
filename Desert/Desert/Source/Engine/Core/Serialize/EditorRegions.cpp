@@ -142,6 +142,12 @@ namespace Desert::Core::EditorRegions
                 if ( static_cast<std::uint64_t>( entity.Id ) == record )
                     leaving.push_back( entity.Id );
             }
+            // An entity deleted since the last save would come back from its file: the change asks about it too
+            // (Discard brings it back where the regions hold it, a Save deletes its file first).
+            if ( policy == UnsavedPolicy::Ask )
+                for ( const Common::UUID gone : scene.Packages()->GoneSince( live ) )
+                    unsavedLeaving.push_back( UnsavedEntity{
+                         gone, fmt::format( "{} (deleted)", static_cast<std::uint64_t>( gone ) ) } );
             // UE asks before it unloads a dirty actor: nothing is read or destroyed until the user answers.
             if ( !unsavedLeaving.empty() )
             {

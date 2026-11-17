@@ -108,7 +108,8 @@ namespace Desert::Core::EditorRegions
         Discard, // it is unloaded with its changes dropped - its file is what the world holds of it
     };
 
-    // One entity a region change would unload although it differs from its file.
+    // One entity a region change would drop the edits of: it differs from its file and would leave, or it was
+    // deleted since the last save (Name: "<id> (deleted)").
     struct UnsavedEntity
     {
         Common::UUID Id;
@@ -122,8 +123,9 @@ namespace Desert::Core::EditorRegions
         std::size_t     Loaded    = 0; // records read from their files and made
         std::size_t     Unloaded  = 0; // records whose entities were destroyed (their files kept)
         std::size_t     NotLoaded = 0; // records of the world the scene does not hold now
-        // UnsavedPolicy::Ask: the entities that differ from their files and would leave. Not empty = NOTHING was
-        // loaded or unloaded; the caller asks the user and calls again (Discard, or Ask after a save).
+        // UnsavedPolicy::Ask: the entities that differ from their files and would leave, and those deleted since
+        // the last save (EntityPackages::GoneSince). Not empty = NOTHING was loaded or unloaded; the caller asks
+        // the user and calls again (Discard, or Ask after a save).
         std::vector<UnsavedEntity> Unsaved;
     };
 

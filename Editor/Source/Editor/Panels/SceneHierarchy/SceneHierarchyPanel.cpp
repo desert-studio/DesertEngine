@@ -2,9 +2,11 @@
 
 #include <Editor/Panels/WorldPartition/WorldPartitionPanel.hpp>
 
+#include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <format>
 #include <string_view>
@@ -220,27 +222,65 @@ namespace Desert::Editor
         // The Data Layers column's width (World Partition mode), in ems: two short layer names.
         constexpr float kOutlinerLayersEm = 7.0f;
 
-        // A record left on disk has no entity to ask: its type is read off the component keys its descriptor
-        // states, in ClassifyEntity's precedence (the keys are the ComponentRegistry's).
+        // THE OUTLINER'S TYPE PRECEDENCE, one table for a loaded entity and for a record left on disk (whose type
+        // is read off the component keys its descriptor states). Order is precedence, not taste: an entity
+        // carrying both a SkyAtmosphere and a Skybox is a procedural sky that keeps an HDR fallback, and the
+        // atmosphere is what it is named for (the same precedence ScenePropertiesPanel::GetPrimaryComponentName
+        // uses). The landscape ROOT (the actor that owns the tiles) reads as one environment thing; its tiles are
+        // children with their own component and fall through to Actor like any other part of an actor. The keys
+        // are the ComponentRegistry's, and an entity is asked through the registered component's Has.
+        struct TypeRule
+        {
+            std::string_view Key;
+            EntityTypeKind   Kind;
+        };
+        constexpr TypeRule kTypePrecedence[] = {
+             { "Folder", EntityTypeKind::Folder },
+             { "Camera", EntityTypeKind::Camera },
+             { "DirectionLight", EntityTypeKind::DirectionalLight },
+             { "PointLight", EntityTypeKind::PointLight },
+             { "SpotLight", EntityTypeKind::SpotLight },
+             { "RectLight", EntityTypeKind::RectLight },
+             { "SkyAtmosphere", EntityTypeKind::SkyAtmosphere },
+             { "Skybox", EntityTypeKind::Skybox },
+             { "Landscape", EntityTypeKind::Landscape },
+             { "SkinnedMesh", EntityTypeKind::SkinnedMesh },
+             { "StaticMesh", EntityTypeKind::StaticMesh },
+             { "Text", EntityTypeKind::Text },
+        };
+        constexpr std::size_t kTypeRules = std::size( kTypePrecedence );
+
+        // Each rule's registered component, resolved once. A key the registry does not hold is a broken table:
+        // named in the log, and that rule never matches.
+        const std::array<const ::Desert::Core::Serialize::ComponentSerializer*, kTypeRules>& TypeRuleComponents()
+        {
+            static const std::array<const ::Desert::Core::Serialize::ComponentSerializer*, kTypeRules> resolved =
+                 []
+            {
+                std::array<const ::Desert::Core::Serialize::ComponentSerializer*, kTypeRules> found{};
+                const auto& all = ::Desert::Core::Serialize::ComponentRegistry::Get().All();
+                for ( std::size_t rule = 0; rule < kTypeRules; ++rule )
+                {
+                    const auto match =
+                         std::find_if( all.begin(), all.end(),
+                                       [&]( const ::Desert::Core::Serialize::ComponentSerializer& serializer )
+                                       { return serializer.Key == kTypePrecedence[rule].Key; } );
+                    if ( match == all.end() )
+                        LOG_ERROR( "[Outliner] type rule '{}' names no registered component",
+                                   kTypePrecedence[rule].Key );
+                    else
+                        found[rule] = &*match;
+                }
+                return found;
+            }();
+            return resolved;
+        }
+
         EntityTypeKind ClassifyComponentKeys( const std::vector<std::string>& keys )
         {
-            static constexpr std::pair<std::string_view, EntityTypeKind> kPrecedence[] = {
-                 { "Folder", EntityTypeKind::Folder },
-                 { "Camera", EntityTypeKind::Camera },
-                 { "DirectionLight", EntityTypeKind::DirectionalLight },
-                 { "PointLight", EntityTypeKind::PointLight },
-                 { "SpotLight", EntityTypeKind::SpotLight },
-                 { "RectLight", EntityTypeKind::RectLight },
-                 { "SkyAtmosphere", EntityTypeKind::SkyAtmosphere },
-                 { "Skybox", EntityTypeKind::Skybox },
-                 { "Landscape", EntityTypeKind::Landscape },
-                 { "SkinnedMesh", EntityTypeKind::SkinnedMesh },
-                 { "StaticMesh", EntityTypeKind::StaticMesh },
-                 { "Text", EntityTypeKind::Text },
-            };
-            for ( const auto& [key, kind] : kPrecedence )
-                if ( std::find( keys.begin(), keys.end(), key ) != keys.end() )
-                    return kind;
+            for ( const TypeRule& rule : kTypePrecedence )
+                if ( std::find( keys.begin(), keys.end(), rule.Key ) != keys.end() )
+                    return rule.Kind;
             return EntityTypeKind::Actor;
         }
 
@@ -255,35 +295,10 @@ namespace Desert::Editor
 
     EntityTypeKind SceneHierarchyPanel::ClassifyEntity( const ECS::Entity& entity )
     {
-        // Order is precedence, not taste: an entity carrying both a SkyAtmosphere and a Skybox is a
-        // procedural sky that keeps an HDR fallback, and the atmosphere is what it is named for (the
-        // same precedence ScenePropertiesPanel::GetPrimaryComponentName uses).
-        if ( entity.HasComponent<ECS::FolderComponent>() )
-            return EntityTypeKind::Folder;
-        if ( entity.HasComponent<ECS::CameraComponent>() )
-            return EntityTypeKind::Camera;
-        if ( entity.HasComponent<ECS::DirectionLightComponent>() )
-            return EntityTypeKind::DirectionalLight;
-        if ( entity.HasComponent<ECS::PointLightComponent>() )
-            return EntityTypeKind::PointLight;
-        if ( entity.HasComponent<ECS::SpotLightComponent>() )
-            return EntityTypeKind::SpotLight;
-        if ( entity.HasComponent<ECS::RectLightComponent>() )
-            return EntityTypeKind::RectLight;
-        if ( entity.HasComponent<ECS::SkyAtmosphereComponent>() )
-            return EntityTypeKind::SkyAtmosphere;
-        if ( entity.HasComponent<ECS::SkyboxComponent>() )
-            return EntityTypeKind::Skybox;
-        // The landscape ROOT (the actor that owns the tiles) reads as one environment thing; its tiles are
-        // children with their own component and fall through to Actor like any other part of an actor.
-        if ( entity.HasComponent<ECS::LandscapeComponent>() )
-            return EntityTypeKind::Landscape;
-        if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
-            return EntityTypeKind::SkinnedMesh;
-        if ( entity.HasComponent<ECS::StaticMeshComponent>() )
-            return EntityTypeKind::StaticMesh;
-        if ( entity.HasComponent<ECS::TextComponent>() )
-            return EntityTypeKind::Text;
+        const auto& components = TypeRuleComponents();
+        for ( std::size_t rule = 0; rule < kTypeRules; ++rule )
+            if ( components[rule] != nullptr && components[rule]->Has( entity ) )
+                return kTypePrecedence[rule].Kind;
         return EntityTypeKind::Actor;
     }
 
@@ -541,6 +556,15 @@ namespace Desert::Editor
                     if ( const auto piloted = PilotCameraEntity( UUID ); !piloted )
                         LOG_WARN( "[Outliner] pilot of '{}' refused: {}", name, piloted.GetError() );
                 }
+            }
+            // Pin / Unpin, as UE's outliner offers it on an actor of a World Partition world (the Pinned
+            // column's toggle, for a record of the world's files).
+            if ( m_WorldMode && m_WorldPartition != nullptr &&
+                 m_WorldRecords.contains( static_cast<std::uint64_t>( UUID ) ) )
+            {
+                const bool pinned = m_WorldPartition->IsPinned( static_cast<std::uint64_t>( UUID ) );
+                if ( ImGui::Selectable( pinned ? ICON_MDI_PIN_OUTLINE " Unpin" : ICON_MDI_PIN " Pin" ) )
+                    m_PendingPin = std::make_pair( static_cast<std::uint64_t>( UUID ), !pinned );
             }
             // An operation on a MULTI-selected entity applies to the whole selection (UE behavior).
             auto targetSet = [&]() -> std::vector<Common::UUID>

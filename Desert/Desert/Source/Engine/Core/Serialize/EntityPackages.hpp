@@ -113,6 +113,11 @@ namespace Desert::Core
         void AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded,
                           std::span<const Common::UUID> unsaved );
 
+        // The entities the baseline (or the last region change) holds that are not among `live`: deleted since,
+        // an unsaved change. A region change takes every entity it no longer sees for an unloaded one
+        // (AdoptRegion), so it asks about these first (EditorRegions::UnsavedPolicy).
+        [[nodiscard]] std::vector<Common::UUID> GoneSince( std::span<const LiveEntity> live ) const;
+
         [[nodiscard]] bool IsLoaded( Common::UUID record ) const
         {
             return !m_NotLoaded.contains( static_cast<std::uint64_t>( record ) );

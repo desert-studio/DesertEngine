@@ -31,6 +31,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -41,6 +42,7 @@
 #include <format>
 #include <numbers>
 #include <span>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Editor
@@ -126,6 +128,8 @@ namespace Desert::Editor
         m_Held     = {};
         m_HeldRead = false;
         m_DataLayerStatus.clear();
+        // A prompt asked about the scene that is gone: its answer must not change the new one.
+        m_PendingUnload.reset();
     }
 
     const ::Desert::Core::EditorRegions::HeldRegions& WorldPartitionPanel::Held()
@@ -556,12 +560,14 @@ namespace Desert::Editor
         // layer, Unload All keeps what is pinned.
         const ::Desert::Core::EditorRegions::DataLayerOverrides layers = Held().DataLayers;
         const std::vector<std::uint64_t>                        pinned = Held().Pinned;
-        auto                                                    changed =
+
+        namespace Regions = ::Desert::Core::EditorRegions;
+        auto changed =
              request.Whole
-                                                                     ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets, layers, policy )
-                                                                     : ::Desert::Core::EditorRegions::LoadRegions(
-                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ),
-                         layers, std::span<const std::uint64_t>( pinned ), policy );
+                  ? Regions::LoadWholeWorld( *m_Scene, assets, layers, policy )
+                  : Regions::LoadRegions( *m_Scene, assets,
+                                          std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ),
+                                          layers, std::span<const std::uint64_t>( pinned ), policy );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
@@ -602,18 +608,31 @@ namespace Desert::Editor
 
     Common::BoolResultStr WorldPartitionPanel::SetPinned( const std::uint64_t record, const bool pinned )
     {
+        return SetPinned( std::span<const std::uint64_t>( &record, 1 ), pinned );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetPinned( const std::span<const std::uint64_t> records,
+                                                          const bool                           pinned )
+    {
         if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
             return Common::MakeError<bool>( std::string( "Pin: the world is not partitioned." ) );
         if ( Playing() )
             return Common::MakeError<bool>(
                  std::string( "Pin: not during Play - the played world is all loaded." ) );
         const ::Desert::Core::EditorRegions::HeldRegions before = Held();
-        if ( IsPinned( record ) == pinned )
+        bool                                             moved  = false;
+        for ( const std::uint64_t record : records )
+        {
+            if ( IsPinned( record ) == pinned )
+                continue;
+            moved = true;
+            if ( pinned )
+                m_Held.Pinned.push_back( record );
+            else
+                std::erase( m_Held.Pinned, record );
+        }
+        if ( !moved )
             return Common::MakeSuccess( false );
-        if ( pinned )
-            m_Held.Pinned.push_back( record );
-        else
-            std::erase( m_Held.Pinned, record );
         // The same regions (or the whole world) again, with the record held or left to them.
         const RegionRequest again{ m_Held.Regions, m_Held.Whole };
         if ( auto reloaded = ChangeRegions( again, ::Desert::Core::EditorRegions::UnsavedPolicy::Ask, before );
@@ -623,6 +642,33 @@ namespace Desert::Editor
             return reloaded;
         }
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::PinSelection( const bool pinned )
+    {
+        const char* verb = pinned ? "Pin" : "Unpin";
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return Common::MakeError<bool>( std::format( "{}: the world is not partitioned.", verb ) );
+        const std::vector<Common::UUID>& selection = Core::SelectionManager::GetSelection();
+        if ( selection.empty() )
+            return Common::MakeError<bool>( std::format( "{}: nothing is selected.", verb ) );
+        auto world = ::Desert::Core::EditorRegions::DescribeWorld( *m_Scene );
+        if ( !world )
+            return Common::MakeError<bool>( std::format( "{}: {}", verb, world.GetError() ) );
+        const std::unordered_set<std::uint64_t> records( world.GetValue().Records.begin(),
+                                                         world.GetValue().Records.end() );
+        std::vector<std::uint64_t>              chosen;
+        for ( const Common::UUID id : selection )
+        {
+            const auto record = static_cast<std::uint64_t>( id );
+            if ( !records.contains( record ) )
+                return Common::MakeError<bool>(
+                     std::format( "{}: entity {} is not a record of the world's files (made since the last save, "
+                                  "or a part of a record - select the entity that states it).",
+                                  verb, record ) );
+            chosen.push_back( record );
+        }
+        return SetPinned( std::span<const std::uint64_t>( chosen ), pinned );
     }
 
     void WorldPartitionPanel::DrawUnloadPrompt()
@@ -652,10 +698,10 @@ namespace Desert::Editor
         ImGui::TextUnformatted(
              std::format( "{} unsaved {}: {}", unsaved.size(), unsaved.size() == 1 ? "entity" : "entities", names )
                   .c_str() );
-        ImGui::TextDisabled( "They differ from their files and would leave the loaded part of the world." );
-        ImGui::TextDisabled(
-             "Save writes the world's unsaved entities, then unloads. Discard unloads them and drops "
-             "their changes." );
+        ImGui::TextDisabled( "They differ from their files (edited or deleted since the last save), and the "
+                             "region change would drop that." );
+        ImGui::TextDisabled( "Save writes the world's unsaved entities, then changes the regions. Discard changes "
+                             "them and drops those edits." );
         ImGui::Spacing();
         bool save    = false;
         bool discard = false;

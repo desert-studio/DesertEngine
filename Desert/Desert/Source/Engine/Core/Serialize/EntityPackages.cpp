@@ -106,6 +106,19 @@ namespace Desert::Core
         }
     }
 
+    std::vector<Common::UUID> EntityPackages::GoneSince( std::span<const LiveEntity> live ) const
+    {
+        std::unordered_set<std::uint64_t> alive;
+        for ( const LiveEntity& entity : live )
+            alive.insert( Bits( entity.Id ) );
+        std::vector<Common::UUID> gone;
+        for ( const auto& [id, revision] : m_SavedRevision )
+            if ( !alive.contains( id ) )
+                gone.emplace_back( id );
+        SortAscending( gone );
+        return gone;
+    }
+
     bool EntityPackages::IsDirty( Common::UUID id ) const
     {
         if ( m_Unrecorded.contains( Bits( id ) ) )

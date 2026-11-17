@@ -3,29 +3,28 @@
 # (FActorDescTreeItem: name, type, cell; double-click loads it by pinning it). "*" marks an entity that differs from
 # its file (EntityPackages::IsDirty), the Unsaved checkbox keeps only those (and their parents); the Pin gutter is
 # UE's Pinned column (the pinned actors loader adapter, kept per user in Saved/Config/WorldPartitionEditor.json);
-# Data Layers lists each entity's layers. A region change that would unload an unsaved entity asks
+# Data Layers lists each entity's layers. A region change that would drop unsaved edits asks
 # Save / Discard / Cancel (FEditorFileUtils::SaveDirtyPackages) instead of being refused.
-# The house: Main C08_08_B00 (record 200408, at X 54.6 m Z 22.6 m) - the Main building nearest the centre.
-# WP_Protocol is FROZEN: the move is cancelled and undone, never saved.
-# Lead: the region step clicks the World Partition map - drag from about (-100 m, -100 m) to (100 m, 100 m) around
-# the world centre; read the map's points off a shot-window frame (pixels / pixelsPerPoint, minus the panel corner)
-# and replace MAPX0,MAPY0 / MAPX1,MAPY1 below.
+# The house: Main C08_08_B00 (record 200408, at X 54.6 m Z 22.6 m) - the Main building nearest the centre. It is
+# PINNED (UE's outliner Pin on the selected actor), so Unload All keeps it and every other record turns grey; the
+# unpin of the moved house is the region change that asks.
+# WP_Protocol is FROZEN: the prompt is cancelled and the move undone, never saved; the pin is taken off again and
+# Load All puts this user's editor state back to the whole world.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано select 200408
+Дано run Scene "World Partition: Pin the selected entities"
 Дано run Scene "World Partition: Unload All"
-Дано input press "World Partition" MAPX0,MAPY0
-Дано input move "World Partition" MAPX1,MAPY1
-Дано input release "World Partition" MAPX1,MAPY1
-Дано run Scene "World Partition: Load Region (map selection)"
 Дано select 200408
 Дано --subject selection set Translation 6464,-1004.1875,2261
-Тогда outliner_wp Outliner: строка "Main C08_08_B00" с оранжевой "*" (не сохранён); после загруженного дерева - серые строки невыгруженных сущностей с типом (Static Mesh) и ячейкой "[L0 (x, z)]"; в шапке колонки Pin (булавка) и Data Layers; над таблицей флажки Unsaved и Unloaded и "N not loaded"
-Когда run Scene "World Partition: Unload All"
+Тогда outliner_wp Outliner: строка "Main C08_08_B00" с оранжевой "*" (не сохранён) и закрашенной булавкой в колонке Pin; после загруженного дерева (всегда-загруженная часть + дом) - серые строки невыгруженных сущностей с типом (Static Mesh) и ячейкой "[L0 (x, z)]"; в шапке колонки Pin (булавка) и Data Layers; над таблицей флажки Unsaved и Unloaded и "N not loaded"; строка состояния World Partition: "... 1 pinned ..."
+Когда run Scene "World Partition: Unpin the selected entities"
 Тогда outliner_prompt модальный диалог "Unsaved Entities": "1 unsaved entity: Main C08_08_B00", кнопки Save / Discard / Cancel; в мире ничего не выгружено (дом на месте, сдвинут)
 Когда input key - - Escape
-Тогда outliner_cancel диалога нет; строка состояния World Partition: "Cancelled: nothing was loaded or unloaded."; дом по-прежнему с "*"
+Тогда outliner_cancel диалога нет; строка состояния World Partition: "Cancelled: nothing was loaded or unloaded."; дом по-прежнему с "*" и закрашенной булавкой
 Когда run Action "Undo"
-Когда run Scene "World Partition: Unload All"
-Тогда outliner_unloaded без диалога: загружена только всегда-загруженная часть, дом - серая строка в Outliner, "*" нет ни у одной строки
+Когда run Scene "World Partition: Unpin the selected entities"
+Тогда outliner_unloaded без диалога: загружена только всегда-загруженная часть, дом - серая строка в Outliner (булавка пустая), "*" нет ни у одной строки
 Когда run Scene "World Partition: Load All"
 Тогда outliner_restored весь мир загружен, серых строк нет; дом на исходном месте
