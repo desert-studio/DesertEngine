@@ -11,6 +11,7 @@
 # N > 0; the canvas is tiled by coloured boxes (one hue per asset kind: materials, meshes, textures, VFX systems),
 # the largest top-left, a darker "VFX_Demo_Impacts" box for the scene file itself; no red refusal line.
 Тогда 1_scene_map Size Map of VFX_Demo_Impacts: crumb "VFX_Demo_Impacts (size, N dependencies)", boxes by kind, scene's own box darker, no refusal
+# Go to Folder leaves nothing selected: Size Map... then maps the folder the browser shows (UE's path view).
 Дано run "Content Browser" "Go to Folder VFX"
 Когда run "Content Browser" "Size Map..."
 # Тогда [кадр]: a folder maps as a group: the crumb reads "<k> assets  (<total>)"; one box per VFX asset under VFX/,
