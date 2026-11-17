@@ -5433,6 +5433,9 @@ namespace Desert::Migration
             // unchanged and the tool would print "already at v2" over it.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDataLayers )
                 report.DataLayersRaised = true;
+            // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
+                report.RuntimeDataLayersRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

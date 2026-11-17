@@ -1,0 +1,42 @@
+# WP-DATA-LAYERS-RUNTIME (UE Runtime Data Layers: EDataLayerType::Runtime, InitialRuntimeState, EDataLayerRuntimeState
+# Unloaded/Loaded/Activated, UDataLayerManager::SetDataLayerInstanceRuntimeState, DataLayersLogicOperator Or). WP format
+# v3: a layer states Type + InitialRuntimeState; the set of runtime layers a composite belongs to is the third
+# coordinate of its cell (Rules::PlannedCell::DataLayers), its file G{g}_L{l}_{x}_{z}_DL<hash>.dwcell (cooked index v9).
+# Play starts the layer in its InitialRuntimeState; the Play palette moves it; residency gates the cell by it
+# (Rules::StepResidency): Unloaded = not read, Loaded = read and held, no entity, Activated = entities.
+# Expected log lines (editor.log "[WorldPartition] 'WP_Protocol': ..."):
+#   "cell G0_L0_<x>_<z>_DL<hash> (data layers Night) not loaded: its data layers are Unloaded."
+#   "data layer 'Night' Unloaded -> Loaded." then "cell ..._DL<hash> (data layers Night) loaded, not activated: ..."
+#   "data layer 'Night' Loaded -> Activated." then "cell ..._DL<hash> (data layers Night) activated."
+#   "data layer 'Night' Activated -> Unloaded." then "cell ..._DL<hash> (data layers Night) not loaded: ..."
+# Members: two Main-grid buildings of WP_Protocol near the Player 9000001 (at the origin): 200408 'Main C08_08_B00'
+# (54.6 m +X, 22.6 m +Z) and 200406 'Main C07_08_B01' (84.8 m -X, 16.1 m +Z), both well inside Main's 200 m range.
+# Their membership moves them out of their cells into G0_L0_<x>_<z>_DL<hash> cells of their own (the third
+# coordinate). The saved HLODs were built without the layer: Play logs those cells' HLODs as missing/stale and goes
+# on without them (rebuilding HLODs would write WP_Protocol_HLOD/ on disk for an unsaved edit - not done here).
+# The component is added by `set`, as in WP-DATA-LAYERS.scn (if not: Details > Add Component > Data Layers).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set world WorldPartition.DataLayers [{"Name":"Night","InitiallyLoadedInEditor":true,"Type":"Runtime","InitialRuntimeState":"Unloaded"}]
+Дано set 200408 DataLayersData.Layers ["Night"]
+Дано set 200406 DataLayersData.Layers ["Night"]
+Когда run Mode "Select mode"
+Когда run Action "Play"
+Когда advance 2
+Когда --subject viewport set Camera.Position 0,3000,-6000
+Когда --subject viewport set Camera.Direction 0,-0.4,1
+Когда advance 1
+Тогда dlr_initial_unloaded зданий 200408 (справа) и 200406 (слева) нет, земля и остальные здания на месте; лог: "cell G0_L0_…_DL<hash> (data layers Night) not loaded: its data layers are Unloaded."
+Когда run Scene "World Partition: Data layer Night -> Loaded"
+Когда advance 2
+Тогда dlr_loaded_hidden зданий всё ещё нет (прочитаны, не активированы); лог: "data layer 'Night' Unloaded -> Loaded." и "cell …_DL<hash> (data layers Night) loaded, not activated: its data layers are Loaded."; оверлея ожидания загрузки нет
+Когда run Scene "World Partition: Data layer Night -> Activated"
+Когда advance 2
+Тогда dlr_activated оба здания стоят на своих местах; лог: "cell …_DL<hash> (data layers Night) activated."
+Когда run Scene "World Partition: Data layer Night -> Unloaded"
+Когда advance 2
+Тогда dlr_unloaded_again здания исчезли, остальной мир на месте; лог: "data layer 'Night' Activated -> Unloaded." и "… not loaded: its data layers are Unloaded."
+Когда run Action "Stop"
+# Restore: Stop rebuilds the scene from the Play snapshot; the edits above were never saved.

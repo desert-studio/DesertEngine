@@ -342,7 +342,8 @@ namespace Desert::Core::Rules
 
     namespace Detail
     {
-        // Plan order: level, then X, then Z — the order PlanWorldPartition sorts `Cells` in.
+        // Plan order: level, then X, then Z — the order PlanWorldPartition sorts `Cells` in (then their runtime
+        // data layers, which a coordinate lookup walks past: see the enumeration below).
         [[nodiscard]] inline bool CellBefore( const PlannedCell& cell, int level, const CellCoord& coord )
         {
             if ( cell.Level != level )
@@ -757,8 +758,10 @@ namespace Desert::Core::Rules
                                 const auto      found = std::lower_bound(
                                      begin, end, coord, [level]( const PlannedCell& cell, const CellCoord& key )
                                      { return Detail::CellBefore( cell, level, key ); } );
-                                if ( found != end && found->Cell == coord )
-                                    consider( static_cast<std::size_t>( found - plan.Cells.begin() ) );
+                                // One cell per set of runtime data layers at a coordinate (PlannedCell::
+                                // DataLayers, ordered after Z): every one of them, adjacent in plan order.
+                                for ( auto cell = found; cell != end && cell->Cell == coord; ++cell )
+                                    consider( static_cast<std::size_t>( cell - plan.Cells.begin() ) );
                             }
                         }
                     }
