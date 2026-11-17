@@ -359,9 +359,10 @@ namespace Desert::Core::WorldCells
     // THE STREAMED HLOD HIERARCHY OF A COOKED WORLD (WP-FAR-8): the hierarchy PlanHLODHierarchy makes of @p plan
     // (PlanFromIndex's) and the residency MakeHLODResidency makes of it with the record counts of the index's
     // nodes - the plan Build HLODs and the cook made, made again by the same functions - checked against the
-    // index's HLODNodes and HLODUnits name for name, unit for unit and id for id. nullopt when the index states no
-    // HLOD unit (its HLODs, if any, are resident the whole session). Refused, naming the node or unit: an index
-    // the hierarchy does not match (a cook of another build: re-cook it).
+    // index's HLODNodes and HLODUnits name for name, unit for unit, kind and cell for cell and id for id. nullopt
+    // when the index states no HLOD unit and the world's hierarchy does not stream (its HLODs, if any, are
+    // resident the whole session). Refused, naming the node or unit: an index the hierarchy does not match, or a
+    // world whose hierarchy streams and whose index states no HLOD unit (a cook of another build: re-cook it).
     struct IndexedHLODs
     {
         Rules::HLODHierarchy Hierarchy;

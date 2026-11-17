@@ -1213,17 +1213,31 @@ namespace Desert::Core::WorldCells
     Common::ResultStr<std::optional<IndexedHLODs>> PlanHLODsFromIndex( const WorldIndex&                index,
                                                                        const Rules::WorldPartitionPlan& plan )
     {
-        using Result = std::optional<IndexedHLODs>;
-        if ( index.HLODUnits.empty() && index.HLODNodes.empty() )
-            return Common::MakeSuccess( Result{} );
+        using Result       = std::optional<IndexedHLODs>;
         const auto refused = [&index]( const std::string& why )
         { return Common::MakeError<Result>( "world '" + index.SceneName + "': " + why + "; re-cook it" ); };
+        const bool anySpatialLayer =
+             index.WorldPartition.HLODLayers.has_value() &&
+             std::any_of( index.WorldPartition.HLODLayers->begin(), index.WorldPartition.HLODLayers->end(),
+                          []( const HLODLayerSerialized& layer ) { return layer.CellSize.has_value(); } );
+        if ( index.HLODUnits.empty() && index.HLODNodes.empty() && !anySpatialLayer )
+            return Common::MakeSuccess( Result{} );
         auto hierarchy = Rules::PlanHLODHierarchy( index.WorldPartition, plan );
         if ( !hierarchy )
             return refused( hierarchy.GetError() );
         IndexedHLODs out;
         out.Hierarchy                             = hierarchy.ExtractValue();
         const std::vector<Rules::HLODNode>& nodes = out.Hierarchy.Nodes;
+        // A world whose hierarchy streams and whose index states no HLOD cell is a cook that dropped them: its
+        // game would draw no HLOD at all, so it is refused, never played without them.
+        if ( index.HLODUnits.empty() && index.HLODNodes.empty() )
+        {
+            if ( !out.Hierarchy.Streams() )
+                return Common::MakeSuccess( Result{} );
+            return refused( std::format( "an HLOD layer of the world is spatially loaded ({} HLOD cell(s)) and "
+                                         "the index states no HLOD unit",
+                                         out.Hierarchy.Cells.size() ) );
+        }
         if ( !out.Hierarchy.Streams() )
             return refused( std::format( "the index states {} HLOD unit(s) and no HLOD layer of the world is "
                                          "spatially loaded",
@@ -1255,6 +1269,21 @@ namespace Desert::Core::WorldCells
             if ( row.Name != name )
                 return refused( std::format( "HLOD unit {} of the index is {} and the hierarchy has {} there",
                                              unit, row.Name, name ) );
+            // A session-resident top and an HLOD cell can share a name (the parent standing in for HLOD cell
+            // (X,Z) and that cell), so the kind and the cell are checked too: they place the file (ChunkLayoutOf).
+            const bool resident = unit < hlodPlan.AlwaysLoaded.size();
+            if ( row.Reason.has_value() != resident )
+                return refused( std::format( "HLOD unit {} ({}) is {} in the index and {} in the hierarchy", unit,
+                                             name, row.Reason.has_value() ? "session-resident" : "a cell",
+                                             resident ? "session-resident" : "a cell" ) );
+            if ( !resident )
+            {
+                const Rules::PlannedCell& cell = hlodPlan.Cells.at( unit - hlodPlan.AlwaysLoaded.size() );
+                if ( row.Grid != cell.Grid || row.X != cell.Cell.X || row.Z != cell.Cell.Z ||
+                     !row.Square.has_value() )
+                    return refused( std::format(
+                         "HLOD unit {} ({}) does not state the hierarchy's cell and square", unit, name ) );
+            }
             const std::vector<std::size_t> unitNodes =
                  unit < hlodPlan.AlwaysLoaded.size()
                       ? std::vector<std::size_t>{ hlodPlan.AlwaysLoaded[unit] }
