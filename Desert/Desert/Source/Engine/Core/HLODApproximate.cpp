@@ -30,8 +30,10 @@ namespace Desert::Core
         constexpr int32_t kSurfaceSearchSteps = 5;
         // UE FMeshApproximationSettings::TargetMinThicknessMultiplier (bAttemptAutoThickening, on by default): an
         // open shell (a single-sided wall or roof) is thickened to this many voxels before the wrap, or it would
-        // fall between the samples and leave a hole in the shell.
-        constexpr float kMinThicknessVoxels = 1.5f;
+        // fall between the samples and leave a hole in the shell. Two, not UE's 1.5: VoxWrap thickens by at
+        // least two cells whatever it is asked (MeshVoxelOperations.cpp, as UE TImplicitSolidify), so 1.5 would
+        // be a number nobody's result follows.
+        constexpr float kMinThicknessVoxels = 2.0f;
         // The fewest triangles the tolerance search tries (a tetrahedron).
         constexpr int kMinTriangles = 4;
         // Bisection steps between the last count within tolerance and the first beyond it.

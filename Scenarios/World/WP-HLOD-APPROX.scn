@@ -20,7 +20,8 @@
 Дано set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshSimplify","SimplifyTrianglePercent":0.25}]
 Дано run File "Save"
 Дано run Scene "Build HLODs"
-Дано advance 5
+# Long enough for a landscape bake of the MeshSimplify build to finish: a second Build HLODs is refused while one runs.
+Дано advance 600
 Дано set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshApproximate","Approximation":{"WorldSpaceApproximationAccuracy":100,"ClampVoxelDimension":1024,"WindingThreshold":0.5,"FillGaps":true,"GapDistance":10,"GeometricDeviation":10,"TextureSize":1024,"CaptureResolution":2048,"NormalMode":"HardEdges","HardNormalAngle":60}}]
 Дано run File "Save"
 Дано run Scene "Build HLODs"
@@ -43,3 +44,5 @@
 Когда set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"}]
 Когда run File "Save"
 Когда run Scene "Build HLODs"
+# The restore build bakes over editor frames too; let it write its files before the editor closes.
+Когда advance 600

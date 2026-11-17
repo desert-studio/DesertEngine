@@ -1,8 +1,9 @@
 #pragma once
 
 // THE MESH APPROXIMATE HLOD'S TEXTURES, CAPTURED (UE FApproximateActorsImpl: FSceneCapturePhotoSet +
-// FRenderCaptureMapBaker): an offscreen scene holding the saved world's meshes (no landscape, no partition: the
-// sources are what the photos see) is photographed around each approximated cell from the directions
+// FRenderCaptureMapBaker): an offscreen scene holding ONLY the approximated cell's own parts (UE photographs the HLOD's own
+// actors: a neighbouring cell's wall inside the frame would be captured onto this shell) is photographed around
+// each approximated cell from the directions
 // ::Desert::Core::HLODCaptureViews gives - orthographic, framing the cell's merged source - and each photo's
 // G-buffer (BaseColor + Metallic, world Normal + Roughness, material AO; Mesh/Surface/GBufferOutputs.glslh) is read
 // back. ::Desert::Core::BakeApproximationTextures projects the shell's texels into those photos; the maps are saved
@@ -118,6 +119,7 @@ namespace Desert::Editor
         int                                             m_WarmFrames     = 0;
         bool                                            m_FirstFrame     = true;
         ::Desert::Geometry::DynamicMesh3                m_Source; // the current cell's merged parts
+        std::vector<Common::UUID>                       m_CellRecords; // the current cell's part records in m_Scene
         std::vector<::Desert::Core::HLODCaptureView>    m_Views;
         std::vector<::Desert::Core::HLODCapturePhoto>   m_Photos;
         std::vector<HLODApproximateBaked>               m_Baked;

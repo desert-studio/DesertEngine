@@ -115,20 +115,12 @@ namespace Desert::Editor
             return parsed.GetValue().Header;
         }
 
-        // The landscape stays out (it would stand in front of every wall's foot; UE captures the HLOD's own
-        // actors) and the partition goes (everything the scene holds is loaded and drawn).
-        void KeepOnlyMeshes( ::Desert::Core::LoadableScene& loaded )
+        // The bake scene starts EMPTY (no record, no partition): StartCell instantiates one cell's parts at a time,
+        // as UE captures only the HLOD's own actors, so neither a neighbouring cell nor the landscape stands in
+        // front of the cell in its photos.
+        void KeepNoRecords( ::Desert::Core::LoadableScene& loaded )
         {
-            namespace Rules     = ::Desert::Core::Rules;
-            auto&      entities = loaded.Scene.Entities;
-            const auto isLand   = []( const Assets::EntityData& record )
-            {
-                for ( const auto& [name, payload] : record.Components )
-                    if ( name == Rules::kLandscapeRootComponent || name == Rules::kLandscapeTileComponent )
-                        return true;
-                return false;
-            };
-            entities.erase( std::remove_if( entities.begin(), entities.end(), isLand ), entities.end() );
+            loaded.Scene.Entities.clear();
             loaded.Scene.WorldPartition.reset();
         }
     } // namespace
@@ -139,7 +131,7 @@ namespace Desert::Editor
          : m_ScenePath( std::move( scenePath ) ), m_Saved( std::move( saved ) ), m_Cells( std::move( cells ) ),
            m_Assets( assets )
     {
-        KeepOnlyMeshes( *m_Saved );
+        KeepNoRecords( *m_Saved );
         if ( m_Cells.empty() )
             m_Phase = Phase::Done;
     }
@@ -172,7 +164,7 @@ namespace Desert::Editor
                            .Deserialize( std::move( *m_Saved ), m_ScenePath.generic_string() );
         m_Saved.reset();
         if ( !loaded )
-            return Common::MakeError( "the world's meshes did not load into the bake scene: " + loaded.GetError() );
+            return Common::MakeError( "the bake scene did not load: " + loaded.GetError() );
         m_Camera = std::make_shared<::Desert::Core::GameplayCamera>();
         m_Camera->SetProjectionType( ::Desert::Core::ProjectionType::Orthographic );
         return BOOLSUCCESS;
@@ -191,6 +183,34 @@ namespace Desert::Editor
         if ( !merged )
             return Common::MakeError( merged.GetError() );
         m_Source = std::move( merged.ExtractValue().Mesh );
+
+        // The scene holds THIS cell's parts and nothing else: the previous cell's records go, this cell's come in
+        // as the HLOD records an Instancing layer writes (Rules::HLODRecord - one InstancedStaticMesh block each,
+        // world-space instances), so every photo sees exactly the surface m_Source answers ray casts for.
+        for ( const Common::UUID& id : m_CellRecords )
+            if ( const auto entity = m_Scene->FindEntityByID( id ); entity.has_value() )
+                m_Scene->DestroyEntity( entity->get() );
+        m_CellRecords.clear();
+        std::vector<Assets::EntityData> records;
+        records.reserve( cell.Parts.size() );
+        for ( std::size_t i = 0; i < cell.Parts.size(); ++i )
+        {
+            const Common::UUID id =
+                 ::Desert::Core::Rules::HLODRecordId( m_ScenePath.generic_string(), "A" + cell.Key, i );
+            if ( id.IsNull() )
+                return Common::MakeError( std::format( "part {} of the cell hashes to the null id", i ) );
+            ::Desert::Core::Rules::HLODBatch part;
+            part.Block = cell.Parts[i];
+            records.push_back( ::Desert::Core::Rules::HLODRecord( part, id, i ) );
+            m_CellRecords.push_back( id );
+        }
+        if ( auto made = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )
+                              .InstantiateRecords( records, "HLODApproximateBake", nullptr );
+             !made )
+            return Common::MakeError( "the cell's parts did not load into the bake scene: " + made.GetError() );
+        // The new parts' meshes, materials and textures resolve while the scene draws: the cell's first view
+        // warms as long as the bake's first did.
+        m_FirstFrame = true;
         glm::vec3 lo( std::numeric_limits<float>::max() );
         glm::vec3 hi( std::numeric_limits<float>::lowest() );
         for ( const int v : m_Source.VertexIndicesItr() )
