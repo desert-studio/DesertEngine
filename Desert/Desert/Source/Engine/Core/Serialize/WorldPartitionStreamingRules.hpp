@@ -86,6 +86,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/StreamingSourceTargetBehavior.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <glm/vec2.hpp>
@@ -125,15 +126,6 @@ namespace Desert::Core::Rules
         float Yaw = 0.0f;
     };
 
-    // UE's EStreamingSourceTargetBehavior: whether a source's TargetGrids and TargetHLODLayers are the only grids
-    // it streams (Include) or the ones it leaves alone (Exclude). With both lists empty it streams every grid
-    // whichever it states (TargetsGridNamed).
-    enum class StreamingSourceTargetBehavior : std::uint8_t
-    {
-        Include = 0,
-        Exclude = 1,
-    };
-
     // A POINT THE WORLD LOADS AROUND: a player's pawn, a cinematic's target, an instrument's camera — in
     // Play never the view by itself (ECS::StreamingSourceComponent is what makes an entity one). World
     // units (cm); Y is the altitude THE RULE measures to a cell's Height from (WP-SRC-ALTITUDE).
@@ -167,9 +159,10 @@ namespace Desert::Core::Rules
         // Empty = one circle of SourceRadius at Position (UE: no shapes, a sphere of the grid's range).
         std::vector<StreamingSourceShape> Shapes;
         // The grids this source streams, by WorldPartitionGridSerialized::Name (UE's
-        // FWorldPartitionStreamingSource::TargetGrids); empty = every grid. A grid not named here is not
-        // queried for this source at all - see TargetsGrid. A name no grid of the world carries targets nothing;
-        // the streamer names it (WorldStreamer::Tick), it is never matched by a guess.
+        // FWorldPartitionStreamingSource::TargetGrids), read under TargetBehavior; this and TargetHLODLayers both
+        // empty = every grid. A grid the source does not target is not queried for it at all - see TargetsGrid. A
+        // name no grid of the world carries targets nothing; the world's plan names it as an Issue
+        // (PlanWorldPartition, Entities[i].StreamingSource.TargetGrids), it is never matched by a guess.
         std::vector<std::string> TargetGrids;
         // The HLOD layers this source streams, by HLODLayerSerialized::Name (UE's
         // FWorldPartitionStreamingSource::TargetHLODLayers); read with TargetBehavior like TargetGrids. An HLOD

@@ -364,12 +364,12 @@ namespace Desert::Core::Rules
 
     // THE SOURCES THE HLOD CELLS STREAM FOR. A source streams an HLOD grid when its own lists target that HLOD
     // layer (UE's TargetHLODLayers under TargetBehavior, TargetsHLODLayer) OR when it streams a world grid beneath
-    // that layer (StandsForGrids): the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell above
-    // it, so a source streaming "Main" must stream Main's HLOD too or it would hold its Main cells forever - which
-    // is why an HLOD layer standing for a streamed world grid cannot be excluded. So a source excluding Main shows
-    // Main's HLOD around it (UE: the HLOD grid is not in its exclusion), and one including only Main streams Main's
-    // HLOD and nothing else. A source naming nothing streams every grid, HLOD grids included; one targeting no
-    // HLOD grid is left out (an emptied list would read as "every grid").
+    // that layer (StandsForGrids): the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell
+    // above it, so a source streaming "Main" must stream Main's HLOD too or it would hold its Main cells forever -
+    // which is why an HLOD layer standing for a streamed world grid cannot be excluded. So a source excluding Main
+    // shows Main's HLOD around it (UE: the HLOD grid is not in its exclusion), and one including only Main streams
+    // Main's HLOD and nothing else. A source naming nothing streams every grid, HLOD grids included; one targeting
+    // no HLOD grid is left out (an emptied list would read as "every grid").
     [[nodiscard]] inline std::vector<StreamingSource> HLODSources( const HLODResidency&             residency,
                                                                    std::span<const StreamingSource> sources )
     {
