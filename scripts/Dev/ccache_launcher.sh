@@ -8,7 +8,7 @@
 #   PCH       clang writes the absolute paths of the tree that built it into a precompiled header, and ccache hashes the
 #             PCH a source includes: before BUILD-FAST-1 every source behind a PCH (all of Common, the engine modules and
 #             the editor libraries) missed in every tree but the one that filled the cache (38 % hits, 11-17).
-#             With sloppiness pch_external_checksum ccache hashes <pch>.sum instead, which this script writes after every
+#             With pch_external_checksum (CCACHE_PCH_EXTSUM) ccache hashes <pch>.sum instead, which this script writes after every
 #             PCH compile: a digest of what the PCH is made of with the tree root taken out -- its command line and every
 #             file its depfile lists (path relative to the tree, content). Same headers + same flags = same .sum in every
 #             tree. -fno-pch-timestamp (CMakeLists.txt) keeps header mtimes, which differ per tree, out of the PCH.
@@ -17,7 +17,7 @@
 set -u
 ROOT="${BASH_SOURCE[0]%/scripts/Dev/ccache_launcher.sh}"
 export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${ROOT%/*}}"
-export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime,locale,pch_external_checksum"
+export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime,locale" CCACHE_PCH_EXTSUM=true
 
 out=""; dep=""; prev=""
 for a in "$@"; do
