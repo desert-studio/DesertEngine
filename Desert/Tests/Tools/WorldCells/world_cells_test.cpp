@@ -271,7 +271,8 @@ namespace
     {
         std::map<std::size_t, std::vector<std::size_t>> Activated;
 
-        Common::BoolResultStr Activate( std::size_t unit, std::span<const std::size_t> records ) override
+        Common::BoolResultStr Activate( std::size_t                  unit, std::size_t /*firstMember*/,
+                                        std::span<const std::size_t> records ) override
         {
             Activated[unit].assign( records.begin(), records.end() );
             return Common::MakeSuccess( true );

@@ -18,13 +18,20 @@
 //
 // ── STATES ────────────────────────────────────────────────────────────────────────────────────────
 //
-//   Unloaded ──StartLoad──▶ Loading ──completed──▶ Loaded ──Activate (budget)──▶ Activated
-//                             │ failed                 ▲
+//   Unloaded ──StartLoad──▶ Loading ──completed──▶ Loaded ──first slice──▶ Activating ──last slice, collision
+//                             │ failed                 ▲                                  ready──▶ Activated
 //                             ▼                        └── an in-range cell waits here for the budget
 //                           Failed ──retry time reached, still wanted──▶ Loading
 //
-// Leaving range: Activated ─Deactivate+Unload─▶ Unloaded; Loaded ─Unload─▶ Unloaded; Loading ─CancelLoad─▶
-// Unloaded; Failed ──▶ Unloaded (the failure is forgotten: a cell that comes back is tried at once).
+// Leaving range: Activated or Activating ─Deactivate+Unload─▶ Unloaded (an Activating unit's made part goes);
+// Loaded ─Unload─▶ Unloaded; Loading ─CancelLoad─▶ Unloaded; Failed ──▶ Unloaded (the failure is forgotten: a
+// cell that comes back is tried at once).
+//
+// ACTIVATING (WP-ACTIVATE-SLICED, UE ULevel between the first and the last step of UWorld::AddToWorld): some of
+// the unit's records are entities, HIDDEN, and the rest are still to be made. `Made` counts the made ones. The
+// step never moves a unit into or out of Activating by itself: the executor does, as it makes slices
+// (WorldPartitionResidencyExecutor.hpp, THE SLICES), and it makes a unit Activated only once every record is an
+// entity AND every body of the unit is in the physics world — so "Activated" means "drawn and collidable".
 //
 // A load is identified by a TICKET. An outcome whose ticket is not the unit's current load — it was cancelled,
 // or superseded by a later load — is stale: it changes nothing and is counted in `StaleOutcomes`, because an
@@ -47,14 +54,15 @@
 //
 // ── THE BUDGET ────────────────────────────────────────────────────────────────────────────────────
 //
-// Activation runs on the main thread, so it is what a frame pays for. Each Loaded unit that is wanted is
-// activated in priority order — always-loaded composites first, then cells in the query's nearest-first order —
-// while the frame's estimated activation time stays within `ActivationBudgetMs`. The estimate is the unit's
-// record count times `MsPerRecord`, a coefficient measured in WP5b (see its field). Activation stops at the
-// first unit that does not fit rather than skipping to a cheaper one behind it: priority is the order the world
-// fills in around the camera, and a cheap far cell must not overtake a nearer one. The first activation of
-// a frame always goes ahead even when it alone exceeds the budget; otherwise a unit larger than the budget
-// would never activate at all. `MaxConcurrentLoads` bounds the loads in flight, in the same priority order —
+// Activation runs on the main thread, so it is what a frame pays for. The step names the units that may be
+// advanced this frame — every wanted unit that is Loaded or Activating and that no gate holds, in priority order:
+// always-loaded composites first, then cells in the query's nearest-first order — as Activate actions, and
+// spends nothing itself. The EXECUTOR spends `ActivationBudgetMs` on them, on the clock, a slice of whole
+// composites at a time (WorldPartitionResidencyExecutor.hpp, THE SLICES; the slices are sized by a measured
+// cost per record kind, WorldPartitionActivationCost.hpp). It stops where the budget is spent rather than
+// skipping to a cheaper unit behind it: priority is the order the world fills in around the camera, and a cheap
+// far cell must not overtake a nearer one. The first slice of a frame always goes ahead, so every unit
+// progresses however large it is. `MaxConcurrentLoads` bounds the loads in flight, in the same priority order —
 // UE's MaxCellsToLoad.
 //
 // Deactivation and unloading are not budgeted: whatever leaves range leaves in the frame it does. UE does the
@@ -93,6 +101,7 @@ namespace Desert::Core::Rules
         Unloaded,
         Loading,
         Loaded,
+        Activating, // part made and hidden; see ACTIVATING
         Activated,
         Failed,
     };
@@ -104,6 +113,7 @@ namespace Desert::Core::Rules
         std::uint32_t Failures = 0; // consecutive failed loads; reset by a success or by leaving range
         double        FailedAt = 0.0;
         std::string   FailureReason; // the loader's message; set in Failed only
+        std::size_t   Made = 0;      // Activating: records of the unit already entities (a composite boundary)
     };
 
     struct ResidencyState
@@ -118,13 +128,10 @@ namespace Desert::Core::Rules
     // and what the engine MEASURED rather than a project chooses.
     struct ResidencySettings : Project::WorldPartitionSettings
     {
-        // Activation cost of one record, MEASURED (WP5b, 2026-09-24): WorldStreamer times every
-        // SceneSerializer::InstantiateRecords it makes and logs the total at the end of Play. Release editor,
-        // World_Grid8km with a 128 m grid (StaticMesh cubes, ~9 records a unit), headless --play flights across
-        // the map on an M-series Mac: 0.0152 ms/record over 3350 records, 0.0198 over 3159. Rounded UP to the
-        // worse run, so a frame is not promised more than it gets; a world of heavier records (prefab
-        // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
-        double MsPerRecord = 0.02;
+        // While a cell under a streaming source is not Activated the game waits behind the loading overlay
+        // (WorldPartitionStreamingPerformance.hpp, CRITICAL), and that frame draws nothing the budget protects:
+        // activation gets this much more. UE 5.5 s.PriorityLevelStreamingActorsUpdateExtraTime, same default.
+        double PriorityExtraMs = 5.0;
     };
 
     // What the loader reports about one StartLoad.
@@ -155,20 +162,18 @@ namespace Desert::Core::Rules
     struct ResidencyStep
     {
         ResidencyState State;
-        // In the order to perform them: every leaving unit (unit order), then loads started, then activations
-        // (both in priority order).
+        // In the order to perform them: every leaving unit (unit order), then loads started, then the units the
+        // executor may advance this frame (Activate; both in priority order — see THE BUDGET).
         std::vector<ResidencyAction> Actions;
-        double                       ActivationMs     = 0.0; // the estimate spent by this frame's activations
-        std::size_t                  WaitingForBudget = 0;   // wanted Loaded units left for a later frame
-        std::size_t                  WaitingForGate   = 0;   // wanted Loaded units a ResidencyGate held back
+        std::size_t                  WaitingForGate   = 0; // wanted Loaded/Activating units a ResidencyGate held back
         std::size_t                  StaleOutcomes    = 0;
         std::size_t                  HeldByDataLayers = 0; // wanted Loaded units their data layers keep Loaded
     };
 
     // WHAT ANOTHER RESIDENCY ASKS OF THIS STEP (WP-FAR-8: a world's cells and the HLOD cells that stand in for
     // them, WorldPartitionHLODSwitch.hpp). Per unit, empty = nothing held:
-    //  HoldActivation 1 = a Loaded unit stays Loaded this step even when wanted (what stands in for it is not
-    //                     yet in a state to give way to it); counted in WaitingForGate.
+    //  HoldActivation 1 = a Loaded or Activating unit is not advanced this step even when wanted (what stands
+    //                     in for it is not yet in a state to give way to it); counted in WaitingForGate.
     //  HoldRelease    1 = an Activated unit stays Activated this step even outside its band (something beneath
     //                     it is still drawn and would be drawn twice once it goes).
     // A gate only delays; it never starts a load, activates or releases anything by itself.
@@ -369,7 +374,7 @@ namespace Desert::Core::Rules
         {
             const auto finiteAtLeast = []( double value, double low )
             { return std::isfinite( value ) && value >= low; };
-            if ( !finiteAtLeast( s.ActivationBudgetMs, 0.0 ) || !finiteAtLeast( s.MsPerRecord, 0.0 ) ||
+            if ( !finiteAtLeast( s.ActivationBudgetMs, 0.0 ) || !finiteAtLeast( s.PriorityExtraMs, 0.0 ) ||
                  !finiteAtLeast( s.UnloadMargin, 0.0 ) || s.MaxConcurrentLoads == 0 ||
                  !std::isfinite( s.RetryDelaySeconds ) || s.RetryDelaySeconds <= 0.0 ||
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
@@ -377,12 +382,12 @@ namespace Desert::Core::Rules
                  !finiteAtLeast( s.SlowStreamingRatio, 0.0 ) || !finiteAtLeast( s.SlowStreamingWarningFactor, 1.0 ) )
             {
                 return Common::MakeError<bool>( std::format(
-                     "StepResidency: settings ActivationBudgetMs {:f}, MsPerRecord {:f}, UnloadMargin {:f}, "
+                     "StepResidency: settings ActivationBudgetMs {:f}, PriorityExtraMs {:f}, UnloadMargin {:f}, "
                      "MaxConcurrentLoads {}, RetryDelaySeconds {:f}, RetryBackoff {:f}, MaxRetryDelaySeconds "
-                     "{:f}, SlowStreamingRatio {:f}, SlowStreamingWarningFactor {:f}; budget, cost, margin and "
-                     "ratio must be finite and >= 0, loads >= 1, the delay > 0, the backoff and the warning "
+                     "{:f}, SlowStreamingRatio {:f}, SlowStreamingWarningFactor {:f}; budget, extra time, margin "
+                     "and ratio must be finite and >= 0, loads >= 1, the delay > 0, the backoff and the warning "
                      "factor >= 1 and the longest delay >= the first",
-                     s.ActivationBudgetMs, s.MsPerRecord, s.UnloadMargin, s.MaxConcurrentLoads,
+                     s.ActivationBudgetMs, s.PriorityExtraMs, s.UnloadMargin, s.MaxConcurrentLoads,
                      s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds, s.SlowStreamingRatio,
                      s.SlowStreamingWarningFactor ) );
             }
@@ -508,9 +513,13 @@ namespace Desert::Core::Rules
         for ( const std::size_t unit : Detail::UnitsInOrder( plan, wished.GetValue() ) )
             if ( layerState( unit ) != DataLayerRuntimeState::Unloaded )
                 wanted.push_back( unit );
-        std::vector<bool> kept( unitCount, false );
+        std::vector<std::size_t> keptInOrder;
         for ( const std::size_t unit : Detail::UnitsInOrder( plan, keptWish.GetValue() ) )
-            kept[unit] = layerState( unit ) != DataLayerRuntimeState::Unloaded;
+            if ( layerState( unit ) != DataLayerRuntimeState::Unloaded )
+                keptInOrder.push_back( unit );
+        std::vector<bool> kept( unitCount, false );
+        for ( const std::size_t unit : keptInOrder )
+            kept[unit] = true;
 
         // 3. Whatever is outside the band leaves, in unit order.
         for ( std::size_t index = 0; index < unitCount; ++index )
@@ -525,6 +534,7 @@ namespace Desert::Core::Rules
                 case Residency::Loading:
                     step.Actions.push_back( { ResidencyActionKind::CancelLoad, index, unit.Ticket } );
                     break;
+                case Residency::Activating: // its made part goes; HoldRelease holds only what is drawn
                 case Residency::Activated:
                     step.Actions.push_back( { ResidencyActionKind::Deactivate, index, 0 } );
                     step.Actions.push_back( { ResidencyActionKind::Unload, index, 0 } );
@@ -538,17 +548,21 @@ namespace Desert::Core::Rules
             }
             unit.State    = Residency::Unloaded;
             unit.Failures = 0;
+            unit.Made     = 0;
             unit.FailureReason.clear();
         }
 
-        // 3b. A kept Activated unit whose data layers went to Loaded stops being entities and stays read (UE: a cell
-        //     of a Loaded layer is loaded and not activated). Not budgeted, as any deactivation.
+        // 3b. A kept Activated or part-made (Activating) unit whose data layers went to Loaded stops being entities
+        //     and stays read (UE: a cell of a Loaded layer is loaded and not activated); left Activating, step 5
+        //     would never advance it and its made part would stay hidden and collidable. Not budgeted, as any
+        //     deactivation; HoldRelease holds only what is drawn (step 2).
         for ( std::size_t index = 0; index < unitCount; ++index )
         {
             UnitResidency& unit = state.Units[index];
-            if ( !kept[index] || unit.State != Residency::Activated || layerState( index ) != DataLayerRuntimeState::Loaded )
+            if ( !kept[index] || ( unit.State != Residency::Activated && unit.State != Residency::Activating ) ||
+                 layerState( index ) != DataLayerRuntimeState::Loaded )
                 continue;
-            if ( gate != nullptr && held( gate->HoldRelease, index ) )
+            if ( unit.State == Residency::Activated && gate != nullptr && held( gate->HoldRelease, index ) )
                 continue;
             step.Actions.push_back( { ResidencyActionKind::Deactivate, index, 0 } );
             unit.State = Residency::Loaded;
@@ -574,13 +588,11 @@ namespace Desert::Core::Rules
             ++inFlight;
         }
 
-        // 5. Activations, in priority order, within the budget; the first always goes (see THE BUDGET).
-        std::size_t activated   = 0;
-        bool        budgetSpent = false;
+        // 5. The units the executor may advance, in priority order (see THE BUDGET): read, or part made.
         for ( const std::size_t index : wanted )
         {
-            UnitResidency& unit = state.Units[index];
-            if ( unit.State != Residency::Loaded )
+            const UnitResidency& unit = state.Units[index];
+            if ( unit.State != Residency::Loaded && unit.State != Residency::Activating )
                 continue;
             if ( layerState( index ) != DataLayerRuntimeState::Activated )
             {
@@ -592,16 +604,25 @@ namespace Desert::Core::Rules
                 ++step.WaitingForGate;
                 continue;
             }
-            const double cost = static_cast<double>( ResidencyUnitRecords( plan, index ) ) * settings.MsPerRecord;
-            if ( budgetSpent || ( activated > 0 && step.ActivationMs + cost > settings.ActivationBudgetMs ) )
+            step.Actions.push_back( { ResidencyActionKind::Activate, index, 0 } );
+        }
+
+        // 6. A unit part made that the sources no longer want but that the band still keeps is finished too,
+        //    after every wanted unit, in priority order: its made part is hidden and already collides, and the
+        //    band keeps an Activated unit (UE finishes the AddToWorld it began). Left Activating it would stay
+        //    hidden and collidable for as long as the band holds it.
+        std::vector<bool> isWanted( unitCount, false );
+        for ( const std::size_t index : wanted )
+            isWanted[index] = true;
+        for ( const std::size_t index : keptInOrder )
+        {
+            if ( isWanted[index] || state.Units[index].State != Residency::Activating )
+                continue;
+            if ( gate != nullptr && held( gate->HoldActivation, index ) )
             {
-                budgetSpent = true;
-                ++step.WaitingForBudget;
+                ++step.WaitingForGate;
                 continue;
             }
-            ++activated;
-            unit.State = Residency::Activated;
-            step.ActivationMs += cost;
             step.Actions.push_back( { ResidencyActionKind::Activate, index, 0 } );
         }
 

@@ -13,14 +13,19 @@
 // SlowStreamingWarningFactor of a source's loading range - the cell's distance (the 3D distance THE QUERY uses)
 // over that range. A ratio and not one frame's activation budget (WP-STREAM-SETTINGS): a long queue far away is
 // the ordinary state of a moving camera, a missing cell close to the player is what is slow. Until the cell
-// arrives its HLOD draws it (WP11). Nothing stops.
+// arrives its HLOD draws it (WP11). Nothing stops. The queue it reports - units wanted and read (Loaded) or part
+// made (Activating) but not yet activated, and units still being read (Loading) - is priced at what a record has
+// cost to make so far this session (the executor's ActivationCostModel, WorldPartitionActivationCost.hpp; 0
+// before anything was made).
 //
 // CRITICAL is narrower and is the only state that blocks (while Engine.json's WorldPartition.BlockOnSlowStreaming
 // is on; off, the WorldStreamer logs it once as "slow streaming (blocking disabled)" and play goes on): a cell
-// whose square holds a streaming source is not Activated. There the HLOD is no help — it stands in for a cell seen
-// from outside its range, not for the ground under the player — so the game's time stops and a loading overlay is
-// drawn while the loader keeps reading (the host's Tick goes on; nothing is read synchronously). The block lifts
-// on the first frame every such cell is Activated.
+// whose square holds a streaming source is not Activated — and Activated means every record made AND every body
+// in the physics world (WP-ACTIVATE-SLICED, WorldPartitionResidencyExecutor.hpp THE SLICES), so the block lifts
+// on a frame the ground under the player collides, never on one where the player would fall through it. There
+// the HLOD is no help — it stands in for a cell seen from outside its range, not for the ground under the player
+// — so the game's time stops and a loading overlay is drawn while the loader keeps reading (the host's Tick goes
+// on; nothing is read synchronously). The block lifts on the first frame every such cell is Activated.
 //
 // Two cases do NOT block, on purpose:
 //   * no planned cell holds the source at all: an empty stretch of the world has nothing to wait for;
@@ -28,6 +33,7 @@
 //     (WorldPartitionResidencyRules.hpp, FAILURE); blocking on it would lock a game behind a missing file.
 //
 // PURE: a function of the plan, the settings, the residency state and the sources.
+#include <Engine/Core/Serialize/WorldPartitionActivationCost.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <algorithm>
@@ -49,9 +55,9 @@ namespace Desert::Core::Rules
     struct StreamingAssessment
     {
         StreamingPerformance Performance    = StreamingPerformance::Good;
-        std::size_t          QueuedUnits    = 0; // Loading + Loaded (not yet Activated)
-        std::size_t          QueuedRecords  = 0;
-        double               QueuedMs       = 0.0;       // QueuedRecords · MsPerRecord
+        std::size_t          QueuedUnits    = 0;   // Loading + Loaded + Activating (not yet Activated)
+        std::size_t          QueuedRecords  = 0;   // still to make
+        double               QueuedMs       = 0.0; // QueuedRecords · the measured ms per record (0 unmeasured)
         std::size_t          UnderSource    = kNoRecord; // first cell unit under a source that blocks
         std::size_t          FailedUnderSrc = 0;         // cells under a source that failed (do not block)
 
@@ -112,12 +118,11 @@ namespace Desert::Core::Rules
     }
 
     // @p state sized for @p plan (an unsized state — before the first step — has nothing resident).
-    [[nodiscard]] inline StreamingAssessment AssessStreaming( const WorldPartitionPlan&        plan,
-                                                              const WorldPartitionSerialized&  partition,
-                                                              const ResidencySettings&         settings,
-                                                              const ResidencyState&            state,
-                                                              std::span<const StreamingSource> sources,
-                                                              std::span<const DataLayerRuntimeState> unitLayerStates = {} )
+    [[nodiscard]] inline StreamingAssessment
+    AssessStreaming( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
+                     const ResidencySettings& settings, const ActivationCostModel& cost, const ResidencyState& state,
+                     std::span<const StreamingSource>       sources,
+                     std::span<const DataLayerRuntimeState> unitLayerStates = {} )
     {
         StreamingAssessment out;
         // WP-DATA-LAYERS-RUNTIME: how far its data layers want a unit (empty = all the way).
@@ -131,13 +136,15 @@ namespace Desert::Core::Rules
         {
             const Residency now = stateOf( unit );
             const bool parked = now == Residency::Loaded && layerState( unit ) != DataLayerRuntimeState::Activated;
-            if ( ( now == Residency::Loading || now == Residency::Loaded ) && !parked )
+            if ( ( now == Residency::Loading || now == Residency::Loaded || now == Residency::Activating ) && !parked )
             {
                 ++out.QueuedUnits;
-                out.QueuedRecords += ResidencyUnitRecords( plan, unit );
+                const std::size_t made = now == Residency::Activating ? state.Units[unit].Made : 0;
+                out.QueuedRecords += ResidencyUnitRecords( plan, unit ) - made;
             }
         }
-        out.QueuedMs             = static_cast<double>( out.QueuedRecords ) * settings.MsPerRecord;
+        const std::optional<double> msPerRecord = cost.MeanMsPerRecord();
+        out.QueuedMs             = static_cast<double>( out.QueuedRecords ) * msPerRecord.value_or( 0.0 );
         out.BlockOnSlowStreaming = settings.BlockOnSlowStreaming;
 
         const double slowRatio = static_cast<double>( settings.SlowStreamingRatio ) *

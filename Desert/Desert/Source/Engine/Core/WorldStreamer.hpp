@@ -212,13 +212,17 @@ namespace Desert::Core
         // viewport of width over height @p aspect: 2 atan(tan(v / 2) * aspect), capped at the full circle.
         [[nodiscard]] static float CameraViewAngle( float verticalFovDegrees, float aspect );
 
-        // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
+        // Says what streaming cost, once: the activations, their slices, and what each record kind measured.
         ~WorldStreamer() override;
         WorldStreamer( const WorldStreamer& )            = delete;
         WorldStreamer& operator=( const WorldStreamer& ) = delete;
 
-        [[nodiscard]] Common::BoolResultStr Activate( std::size_t                  unit,
-                                                      std::span<const std::size_t> records ) override;
+        [[nodiscard]] Common::BoolResultStr           Activate( std::size_t unit, std::size_t firstMember,
+                                                                std::span<const std::size_t> records ) override;
+        [[nodiscard]] Common::ResultStr<bool>         FinishActivation( std::size_t                  unit,
+                                                                        std::span<const std::size_t> records ) override;
+        [[nodiscard]] Rules::ActivationRecordKind     ActivationKindOf( std::size_t unit,
+                                                                        std::size_t member ) const override;
         void                                Destroy( std::span<const std::size_t> records ) override;
         void                                StartLoad( std::size_t unit, std::uint64_t ticket ) override;
         void                                CancelLoad( std::size_t unit, std::uint64_t ticket ) override;
@@ -289,11 +293,15 @@ namespace Desert::Core
         std::shared_ptr<const WorldCells::WorldIndex> m_Index;
         std::unique_ptr<WorldCellLoader>              m_Loader;
 
-        // What activation actually cost, measured around InstantiateRecords.
-        std::size_t m_Activations      = 0;
+        // What activation actually cost, measured around each slice's InstantiateRecords and its bodies.
+        std::size_t m_Activations      = 0; // units completed
+        std::size_t m_Slices           = 0;
         std::size_t m_RecordsActivated = 0;
         double      m_ActivationMs     = 0.0;
-        double      m_WorstUnitMs      = 0.0;
+        double      m_WorstSliceMs     = 0.0;
+        double      m_WorstUnitMs      = 0.0; // a unit's slices and finish, summed over its frames
+        // Per Activating unit: the entities its slices made, hidden until it is whole (THE SLICES).
+        std::unordered_map<std::size_t, std::vector<std::uint32_t>> m_Made;
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;

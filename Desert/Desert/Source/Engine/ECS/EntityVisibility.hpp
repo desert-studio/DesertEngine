@@ -6,6 +6,17 @@
 
 namespace Desert::ECS
 {
+    // AN ENTITY OF A WORLD PARTITION CELL THAT IS NOT WHOLE YET (WP-ACTIVATE-SLICED). A cell is made a slice at a
+    // time over several frames and drawn only once every record of it is an entity and its collision is ready —
+    // UE's ULevel::bIsVisible, false between the first and the last step of UWorld::AddToWorld. The world
+    // streamer adds this to every entity a slice makes and removes it when the cell is revealed. Runtime only:
+    // no ComponentRegistry key, so it is never saved, and the Play snapshot Stop rebuilds from never holds it.
+    // Kept apart from VisibilityComponent because that is AUTHORED: hiding through it would overwrite what the
+    // author set, and the reveal could not tell which entities to show again.
+    struct StreamingPendingComponent
+    {
+    };
+
     // ── "DO NOT DRAW ME", AS ONE PURE FUNCTION OF A REGISTRY ─────────────────────────────────────────
     //
     // The outliner's eye and the Details "Visible" tick both write one bool, VisibilityComponent::Visible,
@@ -26,10 +37,15 @@ namespace Desert::ECS
     //
     // ABSENCE MEANS VISIBLE: most entities never get the component, and treating "no component" as hidden
     // would black out every scene ever authored.
+    //
+    // A cell still being made is hidden as a whole (StreamingPendingComponent above), whatever its entities'
+    // own Visible says; it is one more bit on the entity, so this stays O(1).
     inline bool IsHidden( const entt::registry& registry, entt::entity entity )
     {
         if ( entity == entt::null || !registry.valid( entity ) )
             return false;
+        if ( registry.has<StreamingPendingComponent>( entity ) )
+            return true;
 
         // Its data layers are hidden in the editor (UE bHiddenEdLayer): stamped on the entity itself, so no walk.
         if ( registry.has<HiddenByDataLayersComponent>( entity ) )

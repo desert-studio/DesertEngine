@@ -93,8 +93,9 @@ namespace Desert::Editor::WorldPartitionMap
         Unstreamed, // Edit: nothing streams, the cell is where the partition puts it
         Unloaded,
         Loading,
-        Loaded,   // read, not yet an entity: waiting for the activation budget
-        Resident, // its records are entities
+        Loaded,        // read, not yet an entity: waiting for the activation budget
+        MakingVisible, // part made, hidden until every record is an entity and collides (UE LEVEL_MakingVisible)
+        Resident,      // its records are entities
         Failed,
         // Edit, a world opened by region (WP20, UE's World Partition editor colours its loaded regions): what
         // of the cell's composites the editor holds now.

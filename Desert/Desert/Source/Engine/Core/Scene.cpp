@@ -1190,6 +1190,7 @@ namespace Desert::Core
         r.prepare<ECS::UUIDComponent>();
         r.prepare<ECS::VisibilityComponent>();
         r.prepare<ECS::HiddenByDataLayersComponent>();
+        r.prepare<ECS::StreamingPendingComponent>(); // ECS::IsHidden reads it from every collector
 
         // Renderables.
         r.prepare<ECS::StaticMeshComponent>();
