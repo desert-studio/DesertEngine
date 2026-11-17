@@ -19,10 +19,12 @@
 
 #include <Editor/Core/IPanel.hpp>
 #include "LandscapeHLODBake.hpp"
+#include "MiniMapBuilder.hpp"
 #include "WorldPartitionMap.hpp"
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -89,6 +91,19 @@ namespace Desert::Editor
         /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
         [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
 
+        /// UE's Build > Build Minimap (UWorldPartitionMiniMapBuilder): the world SAVED at the scene's file captured
+        /// from above, one BuilderCellSize square at a time with that square's region loaded (MiniMapBuilder), into
+        /// `<stem>_MiniMap.detex`; the WorldPartition block's MiniMap then references it with the world rectangle it
+        /// spans (one undoable edit). The rectangle is every placed composite of the world on disk; the settings
+        /// (WorldUnitsPerPixel, BuilderCellSize) are the block's MiniMap's when it has one. Refused, by name, for a
+        /// scene not partitioned, not saved or with unsaved changes, a world placing nothing, one too wide for the
+        /// texture at its WorldUnitsPerPixel, and while Build HLODs bakes. TickMiniMap finishes it.
+        [[nodiscard]] Common::BoolResultStr BuildMiniMap();
+        /// Advances a running Build Minimap by one editor frame; called every frame by EditorLayer.
+        void TickMiniMap();
+        /// A Build Minimap is running: its texture is not written yet.
+        [[nodiscard]] bool IsBuildingMiniMap() const noexcept { return m_MiniMapBuild != nullptr; }
+
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
         {
@@ -154,6 +169,13 @@ namespace Desert::Editor
         StreamerGetter                         m_Streamer;
         // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
         std::unique_ptr<LandscapeHLODBake> m_Bake;
+        // A running Build Minimap (TickMiniMap), the saved scene it captures, and why the last one was refused.
+        std::unique_ptr<MiniMapBuilder> m_MiniMapBuild;
+        std::filesystem::path          m_MiniMapScene;
+        std::string                    m_MiniMapStatus;
+        // The map's picture: the MiniMap texture path it resolved, and its handle (TextureService::HandleForPath).
+        std::string                                    m_MiniMapPath;
+        std::optional<::Desert::Assets::AssetHandle> m_MiniMapHandle;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;

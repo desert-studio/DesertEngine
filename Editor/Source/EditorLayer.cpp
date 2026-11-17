@@ -618,8 +618,12 @@ namespace Desert::Editor
         DESERT_PROFILE_PHASE( phases, "Editor: Thumbnails + WP build + contextual panels" );
         m_Startup.TickThumbnails();
         // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
+        // ...and a running Build Minimap its capture.
         if ( m_WorldPartitionPanel )
+        {
             m_WorldPartitionPanel->TickBuild();
+            m_WorldPartitionPanel->TickMiniMap();
+        }
 
         m_Dock.UpdateContextualPanels();
 
@@ -702,6 +706,7 @@ namespace Desert::Editor
                                          m_Startup.ReflectionCapturesFilling(),
                                          Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
                                          m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
+                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
                                          ViewportPanel::AnyMeshDropLoading() );
     }
 

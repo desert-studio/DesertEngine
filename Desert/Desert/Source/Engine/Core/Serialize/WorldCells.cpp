@@ -1287,7 +1287,11 @@ namespace Desert::Core::WorldCells
             text += Common::Json::Write( canonical );
             text += '\n';
         }
-        text += Common::Json::Write( partition );
+        // The minimap (WP v4) is a picture OF the world, never a source of its HLODs: hashing it made every HLOD
+        // stale the moment Build Minimap ran. A world without one writes no key, so its checksums are unchanged.
+        WorldPartitionSerialized hashed = partition;
+        hashed.MiniMap.reset();
+        text += Common::Json::Write( hashed );
         return Common::Utils::Crc32c( text.data(), text.size() );
     }
 

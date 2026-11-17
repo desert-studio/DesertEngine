@@ -75,7 +75,16 @@ namespace Desert::Editor
                                       return Common::MakeError( "World Partition: Refresh: the World Partition "
                                                                 "window does not exist" );
                                   WorldPartition()->Refresh();
-                                  return BOOLSUCCESS;
+                                  return Common::MakeSuccess( true );
+                              } } );
+        // UE's Build > Build Minimap (UWorldPartitionMiniMapBuilder): the saved world captured from above, tile by
+        // tile with each tile's region loaded, into <stem>_MiniMap.detex, referenced from the WorldPartition block.
+        commands.push_back( { "Scene", std::string( "Build Minimap" ), [this]() -> Common::BoolResultStr
+                              {
+                                  if ( WorldPartition() == nullptr )
+                                      return Common::MakeError( "Build Minimap: the World Partition window does "
+                                                                "not exist" );
+                                  return WorldPartition()->BuildMiniMap();
                               } } );
 
         // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /

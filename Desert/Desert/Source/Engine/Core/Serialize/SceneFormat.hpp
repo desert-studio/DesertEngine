@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
@@ -151,7 +152,12 @@ namespace Desert::Core
     // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
     // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v4 (WP-MAP-VIEW): the block may state `MiniMap` (WorldPartitionMiniMapSerialized, UE AWorldPartitionMiniMap):
+    // the texture Build Minimap captured and the world rectangle it spans. Additive - a v3 file states none and the
+    // map simply has no picture under its grid - so the step (Tools/SceneMigrator, kWorldPartitionVersionMiniMap)
+    // states the tag and changes nothing else; the number moves because the read is strict and a v3 build would
+    // refuse the key without naming the migrator.
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -348,6 +354,31 @@ namespace Desert::Core
         bool operator==( const DataLayerSerialized& ) const = default;
     };
 
+    // THE WORLD SEEN FROM ABOVE (WP v4; UE AWorldPartitionMiniMap + UWorldPartitionMiniMapBuilder): Build Minimap
+    // loads the world one BuilderCellSize square at a time, captures each from straight above through an
+    // orthographic camera - the G-buffer's BaseColor, UE's SCS_BaseColor capture - and stitches them into one
+    // texture, `<stem>_MiniMap.detex` beside the scene. The World Partition map draws it under its cell grid.
+    // Editor-only, as UE's minimap actor is: nothing at runtime reads it, and HLODBuildChecksum leaves it out, so
+    // building a minimap never makes an HLOD stale.
+    struct WorldPartitionMiniMapSerialized
+    {
+        // UE MiniMapTexture: the captured texture (its header GUID, and its path relative to the assets root).
+        Assets::AssetGuidRef Texture;
+        // UE MiniMapWorldBounds, X/Z in cm: the rectangle the texture spans. Texel row 0 lies along MinZ, column 0
+        // along MinX (the capture looks down -Y with image up = world -Z).
+        float MinX = 0.0f;
+        float MinZ = 0.0f;
+        float MaxX = 0.0f;
+        float MaxZ = 0.0f;
+        // UE WorldUnitsPerPixel: centimetres of world per texel. Build Minimap reads it (the next build keeps it).
+        float WorldUnitsPerPixel = 50.0f;
+        // UE UWorldPartitionBuilder IterativeCellSize: the side (cm) of the square of the world Build Minimap
+        // loads and captures at once, so a world never sits in memory whole. Build Minimap reads it.
+        float BuilderCellSize = 102400.0f;
+
+        bool operator==( const WorldPartitionMiniMapSerialized& ) const = default;
+    };
+
     struct WorldPartitionSerialized
     {
         std::vector<WorldPartitionGridSerialized> Grids;
@@ -368,6 +399,8 @@ namespace Desert::Core
         // UE UWorldPartition::DataLayersLogicOperator (WP v3): how a cell of several runtime layers combines
         // their runtime states (Rules::EffectiveDataLayerState). The world's, as in UE; Or unless stated.
         WorldPartitionDataLayersLogicOperator DataLayersLogicOperator = WorldPartitionDataLayersLogicOperator::Or;
+        // UE AWorldPartitionMiniMap (WP v4): absent until Build Minimap has run on the world.
+        std::optional<WorldPartitionMiniMapSerialized> MiniMap;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };

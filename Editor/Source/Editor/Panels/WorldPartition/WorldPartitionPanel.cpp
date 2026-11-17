@@ -29,6 +29,9 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
+#include <Engine/Graphic/Image.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -260,7 +263,16 @@ namespace Desert::Editor
             return;
         }
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        auto stale = WC::StaleHLODCells( stored.GetValue().Index, saved.GetValue().Scene, descriptors, registries );
+        // Against the world the build cut: prefab instances expanded as Build HLODs and the cook expand them (WP21);
+        // over the unexpanded records every cell holding an instance read stale here while the cook found it fresh.
+        auto cut = WC::ExpandWorldForCook( saved.GetValue().Scene, descriptors, WC::PrefabFileReader() );
+        if ( !cut )
+        {
+            m_HLODStatus = "HLOD overlay: " + cut.GetError();
+            return;
+        }
+        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
+                                         cut.GetValue().Descriptors, registries );
         if ( !stale )
         {
             m_HLODStatus = "HLOD overlay: " + stale.GetError();
@@ -437,6 +449,10 @@ namespace Desert::Editor
 
         if ( !playing && !m_HLODStatus.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_HLODStatus.c_str() );
+        if ( m_MiniMapBuild )
+            ImGui::Text( "Build Minimap: tile %zu of %zu", m_MiniMapBuild->TilesDone() + 1, m_MiniMapBuild->TileCount() );
+        else if ( !m_MiniMapStatus.empty() )
+            ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_MiniMapStatus.c_str() );
 
         DrawMap( *plan, *partition, residency, streamer );
     }
@@ -959,6 +975,109 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr WorldPartitionPanel::BuildMiniMap()
+    {
+        if ( m_MiniMapBuild )
+            return Common::MakeError( "Build Minimap: a build is already running" );
+        if ( m_Bake )
+            return Common::MakeError( "Build Minimap: Build HLODs is still baking; build the minimap after it" );
+        if ( !m_Scene )
+            return Common::MakeError( "Build Minimap: there is no active scene." );
+        if ( !m_Scene->GetWorldPartition() )
+            return Common::MakeError( "Build Minimap: '" + m_Scene->GetSceneName() +
+                                      "' is not partitioned (it states no WorldPartition block)" );
+        const auto& baseline = m_Scene->Packages()->BaselinePath();
+        if ( !baseline )
+            return Common::MakeError( "Build Minimap: '" + m_Scene->GetSceneName() +
+                                      "' is not saved; save it first (the minimap is captured from its files)" );
+        if ( m_Scene->Packages()->HasUnsavedChanges(
+                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
+            return Common::MakeError( "Build Minimap: '" + m_Scene->GetSceneName() +
+                                      "' has unsaved changes; save the scene first (the minimap is captured from "
+                                      "its files)" );
+        // The world rectangle: every placed composite of the world on disk, loaded or not (UE: the editor world
+        // bounds of every actor descriptor).
+        if ( m_EditPlanStale || !m_PlanFromIndex )
+            RebuildEditPlan();
+        if ( !m_EditPlan || !m_PlanFromIndex )
+            return Common::MakeError( "Build Minimap: the world on disk could not be planned: " + m_EditPlanStatus );
+        std::optional<::Desert::Core::Rules::CellBounds> bounds;
+        for ( const ::Desert::Core::Rules::PlannedComposite& composite : m_EditPlan->Composites )
+        {
+            if ( !composite.Footprint )
+                continue;
+            const ::Desert::Core::Rules::CellBounds& box = *composite.Footprint;
+            if ( !bounds )
+            {
+                bounds = box;
+                continue;
+            }
+            bounds->MinX = std::min( bounds->MinX, box.MinX );
+            bounds->MinZ = std::min( bounds->MinZ, box.MinZ );
+            bounds->MaxX = std::max( bounds->MaxX, box.MaxX );
+            bounds->MaxZ = std::max( bounds->MaxZ, box.MaxZ );
+        }
+        if ( !bounds )
+            return Common::MakeError( "Build Minimap: '" + m_Scene->GetSceneName() +
+                                      "' places nothing (no entity of the world has a position)" );
+        ::Desert::Core::WorldPartitionMiniMapSerialized settings;
+        if ( const auto& previous = m_Scene->GetWorldPartition()->MiniMap )
+        {
+            settings.WorldUnitsPerPixel = previous->WorldUnitsPerPixel;
+            settings.BuilderCellSize    = previous->BuilderCellSize;
+        }
+        // The rectangle starts on a whole texel of the world's texel grid, so a rebuild lands on the same texels.
+        settings.MinX = std::floor( bounds->MinX / settings.WorldUnitsPerPixel ) * settings.WorldUnitsPerPixel;
+        settings.MinZ = std::floor( bounds->MinZ / settings.WorldUnitsPerPixel ) * settings.WorldUnitsPerPixel;
+        settings.MaxX = bounds->MaxX;
+        settings.MaxZ = bounds->MaxZ;
+        auto started  = MiniMapBuilder::Start( *baseline, settings, DataLayerNames(), m_Assets );
+        if ( !started )
+            return Common::MakeError( "Build Minimap: " + started.GetError() );
+        m_MiniMapBuild = started.ExtractValue();
+        m_MiniMapScene = *baseline;
+        m_MiniMapStatus.clear();
+        LOG_INFO( "[Build Minimap] '{0}': {1} tile(s) to capture", m_Scene->GetSceneName(),
+                  m_MiniMapBuild->TileCount() );
+        return BOOLSUCCESS;
+    }
+
+    void WorldPartitionPanel::TickMiniMap()
+    {
+        if ( !m_MiniMapBuild || !m_MiniMapBuild->Tick() )
+            return;
+        const std::unique_ptr<MiniMapBuilder> build = std::move( m_MiniMapBuild );
+        if ( build->Error() )
+        {
+            m_MiniMapStatus = "Build Minimap: " + *build->Error();
+            LOG_ERROR( "[Build Minimap] {0}", *build->Error() );
+            return;
+        }
+        // The texture is on disk; the world it was captured from now references it, as one undoable edit (UE marks
+        // the minimap actor's package dirty the same way: Save keeps it).
+        if ( !m_Scene || !m_Scene->GetWorldPartition() || m_Scene->Packages()->BaselinePath() != m_MiniMapScene )
+        {
+            m_MiniMapStatus = std::format( "Build Minimap: the scene changed during the build; '{}' is written but "
+                                           "no world references it",
+                                           MiniMapBuilder::TexturePath( m_MiniMapScene ).generic_string() );
+            LOG_ERROR( "[Build Minimap] {0}", m_MiniMapStatus );
+            return;
+        }
+        ::Desert::Core::WorldPartitionSerialized after = *m_Scene->GetWorldPartition();
+        after.MiniMap                                  = *build->Result();
+        if ( auto edited = EditWorldPartition( m_Scene, "Build Minimap", std::move( after ) ); !edited )
+        {
+            m_MiniMapStatus = "Build Minimap: " + edited.GetError();
+            LOG_ERROR( "[Build Minimap] {0}", edited.GetError() );
+            return;
+        }
+        // The texture was rewritten under the handle the map holds: its GPU copy is built again on the next ask.
+        if ( m_MiniMapHandle )
+            static_cast<void>( ::Desert::Runtime::ResourceRegistry::GetTextureService()->EvictBuilt( *m_MiniMapHandle ) );
+        m_MiniMapPath.clear();
+        m_MiniMapHandle.reset();
+    }
+
     Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()
     {
         if ( !m_Scene )
@@ -1098,6 +1217,48 @@ namespace Desert::Editor
         const ImVec2 corner( origin.x + avail.x, origin.y + avail.y );
         list.PushClipRect( origin, corner, true );
         list.AddRectFilled( origin, corner, IM_COL32( 22, 22, 24, 255 ) );
+
+        // ── the minimap under everything (UE SWorldPartitionEditorGrid2D paints AWorldPartitionMiniMap's texture over
+        // its MiniMapWorldBounds before the grid): row 0 of the texture lies along MinZ, column 0 along MinX ──
+        if ( partition.MiniMap && !partition.MiniMap->Texture.Path.empty() )
+        {
+            auto* textures = ::Desert::Runtime::ResourceRegistry::GetTextureService();
+            if ( partition.MiniMap->Texture.Path != m_MiniMapPath )
+            {
+                m_MiniMapPath = partition.MiniMap->Texture.Path;
+                m_MiniMapHandle.reset();
+                auto handle = textures->HandleForPath( m_MiniMapPath );
+                if ( handle )
+                    m_MiniMapHandle = handle.GetValue();
+                else
+                    m_MiniMapStatus = "Minimap: " + handle.GetError();
+            }
+            if ( m_MiniMapHandle )
+            {
+                static_cast<void>( textures->Require( *m_MiniMapHandle ) ); // starts the read; drawn once ready
+                const auto* texture = textures->Get( *m_MiniMapHandle );
+                auto*       image   = texture ? static_cast<Graphic::Image2D*>(
+                                               ::Desert::Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                                    texture->GetImageHandle() ) )
+                                              : nullptr;
+                if ( image != nullptr )
+                {
+                    static UI::UIHelper s_MiniMapUI = []
+                    {
+                        UI::UIHelper ui;
+                        ui.Init();
+                        return ui;
+                    }();
+                    const std::shared_ptr<Graphic::Image2D> shared( image, []( Graphic::Image2D* ) {} );
+                    if ( const ImTextureID id = s_MiniMapUI.GetTextureID( shared ) )
+                        list.AddImage( id,
+                                       ToScreen( m_View, size, origin,
+                                                 { partition.MiniMap->MinX, partition.MiniMap->MinZ } ),
+                                       ToScreen( m_View, size, origin,
+                                                 { partition.MiniMap->MaxX, partition.MiniMap->MaxZ } ) );
+                }
+            }
+        }
 
         // ── background grid of the level legible at this zoom ──
         {

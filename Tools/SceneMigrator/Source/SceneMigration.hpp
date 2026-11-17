@@ -72,6 +72,8 @@ namespace Desert::Migration
         std::optional<std::vector<Core::DataLayerSerialized>> DataLayers;
         // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3): Or when a file does not state it.
         Core::WorldPartitionDataLayersLogicOperator DataLayersLogicOperator = Core::WorldPartitionDataLayersLogicOperator::Or;
+        // Core::WorldPartitionSerialized::MiniMap (WP v4), carried through untouched (no step reads it).
+        std::optional<Core::WorldPartitionMiniMapSerialized> MiniMap;
         // v50..v66 files only.
         std::optional<std::string> DefaultHLODLayer;
     };
@@ -493,6 +495,13 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
+    //   4 - THE MINIMAP (WP-MAP-VIEW; UE AWorldPartitionMiniMap). The block may state `MiniMap`
+    //       (Core::WorldPartitionMiniMapSerialized: the texture Build Minimap captured and the world rectangle it
+    //       spans). ADDITIVE: a v3 file states none and means exactly what it meant, so the step has no transform
+    //       of its own - the stamp states WPAR 4. The number moves because the read is strict: a v3 build would
+    //       refuse the key without naming this tool. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionMiniMap = 4;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -540,7 +549,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionMiniMap == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1316,6 +1325,7 @@ namespace Desert::Migration
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        MiniMapRaised           = false; // below kWorldPartitionVersionMiniMap (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
