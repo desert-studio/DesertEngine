@@ -1451,7 +1451,7 @@ namespace
             return 1;
         }
         std::vector<Desert::HeaderTool::ShaderSource> sources;
-        for ( const fs::path& path : SortedSourceTree( root, { ".shader" } ) )
+        for ( const fs::path& path : SortedSourceTree( root, { ".shader", ".glslh" } ) )
             sources.push_back( { path.lexically_relative( root ).generic_string(), ReadFile( path ) } );
         const Desert::HeaderTool::ShaderPushScan scan = Desert::HeaderTool::ScanShaderPushBlocks( sources );
         for ( const std::string& error : scan.Errors )

@@ -271,7 +271,7 @@ Uniform(6) SSRTraceUB
 	mat4 JitteredWorldToClip;
 };
 
-PushConstant PushConstants
+PushConstant SSRTracePush
 {
 	vec4 CameraPosition;  // xyz = camera world position, w = per-frame seed (ray sequence + 2x2 rotation)
 	vec4 SsrParams;  // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness (world)

@@ -47,7 +47,7 @@ DESERT_SURFACE_VARYINGS( out )
 // The light view's own block: BoneOffset right after the transform (offset 64), where MaterialTransport keeps it
 // at 68 behind MaterialIndex; then the primitive's skin-cache streams (MaterialShadowSkinned::SetSkinCache, from
 // its GpuScenePrimitive row; vertex count 0 = not cached, skin from the palette).
-layout( push_constant ) uniform constants
+PushConstant SkinnedShadowCasterPush
 {
     mat4 Transform;
     uint BoneOffset;           // offset 64

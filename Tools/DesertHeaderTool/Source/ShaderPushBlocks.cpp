@@ -259,6 +259,9 @@ namespace Desert::HeaderTool
                        std::vector<std::string>& errors ) noexcept
         {
             const std::string text = StripComments( source.Text );
+            // SHADER-PUSH-GEN-2: an include (.glslh) has no `Shader "Name"`; its block is shared by every program
+            // that includes it, so the struct is named after the block (RadianceCachePush, SSRTracePush, ...).
+            const bool include = source.RelativePath.ends_with( ".glslh" );
             enum class Label
             {
                 Other,
@@ -359,7 +362,7 @@ namespace Desert::HeaderTool
                 i = close + 1;
                 lastWord.clear();
                 const std::string body = text.substr( at + 1, close - at - 1 );
-                if ( shader.empty() )
+                if ( shader.empty() && !include )
                 {
                     errors.push_back( where + ": PushConstant before the file's `Shader \"Name\"`" );
                     continue;
@@ -398,7 +401,7 @@ namespace Desert::HeaderTool
 
                 FoundBlock found;
                 found.Path   = source.RelativePath;
-                found.Shader = shader;
+                found.Shader = include ? block : shader;
                 found.Block  = block;
                 for ( auto frame = stack.rbegin(); frame != stack.rend(); ++frame )
                 {
@@ -412,7 +415,7 @@ namespace Desert::HeaderTool
                     errors.push_back( where + ": " + *failed );
                     continue;
                 }
-                found.NameParts = { Identifier( shader ) };
+                found.NameParts = { Identifier( found.Shader ) };
                 blocks.push_back( std::move( found ) );
             }
         }

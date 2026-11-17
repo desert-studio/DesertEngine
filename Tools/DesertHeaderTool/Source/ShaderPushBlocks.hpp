@@ -1,6 +1,7 @@
 #pragma once
 
-// PushConstant blocks of the .shader programs -> the C++ push structs the passes fill
+// PushConstant blocks of the .shader programs and of the .glslh includes (named after the block there) -> the C++
+// push structs the passes fill
 // (Engine/Generated/ShaderPushConstants.gen.hpp). One declaration of a pass's push block, the .shader one: the
 // C++ side is generated from it on every build, so the two cannot diverge (UE SHADER_PARAMETER_STRUCT, one
 // declaration; here the shader text is that declaration because the DSL owns the block).

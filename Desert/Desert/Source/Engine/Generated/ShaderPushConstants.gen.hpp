@@ -582,6 +582,62 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( LightShaftMask, MaxBrightness ) == 12u, "LightShaftMask::MaxBrightness: std430 offset" );
     static_assert( offsetof( LightShaftMask, WindowRadius ) == 16u, "LightShaftMask::WindowRadius: std430 offset" );
 
+    // Common/MaterialTransport.glslh
+    struct MaterialTransport
+    {
+        glm::mat4 Transform{};
+        std::uint32_t MaterialIndex{};
+        std::uint32_t BoneOffset{};
+        std::uint32_t PrimitiveIndex{};
+        std::uint32_t Std430Pad0[1]{};
+        glm::vec4 WindA{};
+        glm::vec4 WindB{};
+        glm::vec2 ShadowSlope{};
+        std::uint32_t PrimitiveFlags{};
+        float LodFadeSide{};
+    };
+    static_assert( sizeof( MaterialTransport ) == 128u, "MaterialTransport: std430 push block size" );
+    template <> inline constexpr bool IsBlock<MaterialTransport> = true;
+    static_assert( offsetof( MaterialTransport, Transform ) == 0u, "MaterialTransport::Transform: std430 offset" );
+    static_assert( offsetof( MaterialTransport, MaterialIndex ) == 64u, "MaterialTransport::MaterialIndex: std430 offset" );
+    static_assert( offsetof( MaterialTransport, BoneOffset ) == 68u, "MaterialTransport::BoneOffset: std430 offset" );
+    static_assert( offsetof( MaterialTransport, PrimitiveIndex ) == 72u, "MaterialTransport::PrimitiveIndex: std430 offset" );
+    static_assert( offsetof( MaterialTransport, Std430Pad0 ) == 76u, "MaterialTransport::Std430Pad0: std430 offset" );
+    static_assert( offsetof( MaterialTransport, WindA ) == 80u, "MaterialTransport::WindA: std430 offset" );
+    static_assert( offsetof( MaterialTransport, WindB ) == 96u, "MaterialTransport::WindB: std430 offset" );
+    static_assert( offsetof( MaterialTransport, ShadowSlope ) == 112u, "MaterialTransport::ShadowSlope: std430 offset" );
+    static_assert( offsetof( MaterialTransport, PrimitiveFlags ) == 120u, "MaterialTransport::PrimitiveFlags: std430 offset" );
+    static_assert( offsetof( MaterialTransport, LodFadeSide ) == 124u, "MaterialTransport::LodFadeSide: std430 offset" );
+
+    // Common/MaterialTransport.glslh
+    struct MaterialTransportDrawRows
+    {
+        glm::mat4 Transform{};
+        std::uint32_t MaterialIndex{};
+        std::uint32_t BoneOffset{};
+        std::uint32_t PrimitiveIndex{};
+        std::uint32_t Std430Pad0[1]{};
+        glm::vec4 WindA{};
+        glm::vec4 WindB{};
+        std::uint32_t DrawRowsLo{};
+        std::uint32_t DrawRowsHi{};
+        std::uint32_t PrimitiveFlags{};
+        float LodFadeSide{};
+    };
+    static_assert( sizeof( MaterialTransportDrawRows ) == 128u, "MaterialTransportDrawRows: std430 push block size" );
+    template <> inline constexpr bool IsBlock<MaterialTransportDrawRows> = true;
+    static_assert( offsetof( MaterialTransportDrawRows, Transform ) == 0u, "MaterialTransportDrawRows::Transform: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, MaterialIndex ) == 64u, "MaterialTransportDrawRows::MaterialIndex: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, BoneOffset ) == 68u, "MaterialTransportDrawRows::BoneOffset: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, PrimitiveIndex ) == 72u, "MaterialTransportDrawRows::PrimitiveIndex: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, Std430Pad0 ) == 76u, "MaterialTransportDrawRows::Std430Pad0: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, WindA ) == 80u, "MaterialTransportDrawRows::WindA: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, WindB ) == 96u, "MaterialTransportDrawRows::WindB: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, DrawRowsLo ) == 112u, "MaterialTransportDrawRows::DrawRowsLo: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, DrawRowsHi ) == 116u, "MaterialTransportDrawRows::DrawRowsHi: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, PrimitiveFlags ) == 120u, "MaterialTransportDrawRows::PrimitiveFlags: std430 offset" );
+    static_assert( offsetof( MaterialTransportDrawRows, LodFadeSide ) == 124u, "MaterialTransportDrawRows::LodFadeSide: std430 offset" );
+
     // Programs/Media/MediaYuvToRgb.shader (Compute)
     struct MediaYuvToRgb
     {
@@ -824,6 +880,35 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( PrefilterEnvMap, maxMip ) == 4u, "PrefilterEnvMap::maxMip: std430 offset" );
     static_assert( offsetof( PrefilterEnvMap, realTime ) == 8u, "PrefilterEnvMap::realTime: std430 offset" );
 
+    // Common/RadianceCacheState.glslh
+    struct RadianceCachePush
+    {
+        std::uint32_t FrameIndex{};
+        std::uint32_t Reset{};
+        std::uint32_t MaxProbes{};
+        std::uint32_t UnusedFrames{};
+        std::uint32_t Width{};
+        std::uint32_t Height{};
+        float HistoryWeight{};
+        float DirtyHistory{};
+        std::uint32_t LightingFrame{};
+        std::uint32_t MarkFallback{};
+        std::uint32_t RefreshMinFrames{};
+    };
+    static_assert( sizeof( RadianceCachePush ) == 44u, "RadianceCachePush: std430 push block size" );
+    template <> inline constexpr bool IsBlock<RadianceCachePush> = true;
+    static_assert( offsetof( RadianceCachePush, FrameIndex ) == 0u, "RadianceCachePush::FrameIndex: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, Reset ) == 4u, "RadianceCachePush::Reset: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, MaxProbes ) == 8u, "RadianceCachePush::MaxProbes: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, UnusedFrames ) == 12u, "RadianceCachePush::UnusedFrames: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, Width ) == 16u, "RadianceCachePush::Width: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, Height ) == 20u, "RadianceCachePush::Height: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, HistoryWeight ) == 24u, "RadianceCachePush::HistoryWeight: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, DirtyHistory ) == 28u, "RadianceCachePush::DirtyHistory: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, LightingFrame ) == 32u, "RadianceCachePush::LightingFrame: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, MarkFallback ) == 36u, "RadianceCachePush::MarkFallback: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, RefreshMinFrames ) == 40u, "RadianceCachePush::RefreshMinFrames: std430 offset" );
+
     // Programs/VirtualGeometry/RasterBinning.shader (Compute)
     struct RasterBinning
     {
@@ -996,6 +1081,21 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( SSDTemporalAccumulation, Params ) == 0u, "SSDTemporalAccumulation::Params: std430 offset" );
     static_assert( offsetof( SSDTemporalAccumulation, Params2 ) == 16u, "SSDTemporalAccumulation::Params2: std430 offset" );
 
+    // Common/SSRTrace.glslh
+    struct SSRTracePush
+    {
+        glm::vec4 CameraPosition{};
+        glm::vec4 SsrParams{};
+        glm::vec4 SsrParams2{};
+        glm::vec4 SsrParams3{};
+    };
+    static_assert( sizeof( SSRTracePush ) == 64u, "SSRTracePush: std430 push block size" );
+    template <> inline constexpr bool IsBlock<SSRTracePush> = true;
+    static_assert( offsetof( SSRTracePush, CameraPosition ) == 0u, "SSRTracePush::CameraPosition: std430 offset" );
+    static_assert( offsetof( SSRTracePush, SsrParams ) == 16u, "SSRTracePush::SsrParams: std430 offset" );
+    static_assert( offsetof( SSRTracePush, SsrParams2 ) == 32u, "SSRTracePush::SsrParams2: std430 offset" );
+    static_assert( offsetof( SSRTracePush, SsrParams3 ) == 48u, "SSRTracePush::SsrParams3: std430 offset" );
+
     // Programs/GlobalIllumination/ScreenProbePlace.shader (Compute)
     struct ScreenProbePlace
     {
@@ -1013,6 +1113,15 @@ namespace Desert::Graphic::ShaderPush
     static_assert( sizeof( ScreenProbeTraceScreen ) == 4u, "ScreenProbeTraceScreen: std430 push block size" );
     template <> inline constexpr bool IsBlock<ScreenProbeTraceScreen> = true;
     static_assert( offsetof( ScreenProbeTraceScreen, NearFieldEnd ) == 0u, "ScreenProbeTraceScreen::NearFieldEnd: std430 offset" );
+
+    // Mesh/Surface/Vertex_Static.glslh
+    struct ShadowCasterPush
+    {
+        glm::mat4 Transform{};
+    };
+    static_assert( sizeof( ShadowCasterPush ) == 64u, "ShadowCasterPush: std430 push block size" );
+    template <> inline constexpr bool IsBlock<ShadowCasterPush> = true;
+    static_assert( offsetof( ShadowCasterPush, Transform ) == 0u, "ShadowCasterPush::Transform: std430 offset" );
 
     // Programs/TemporalAA/Sharpen.shader (Compute)
     struct Sharpen
@@ -1054,6 +1163,23 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( SilhouetteSkinned, SkinCacheVertexCount ) == 68u, "SilhouetteSkinned::SkinCacheVertexCount: std430 offset" );
     static_assert( offsetof( SilhouetteSkinned, SkinCacheAddressLo ) == 72u, "SilhouetteSkinned::SkinCacheAddressLo: std430 offset" );
     static_assert( offsetof( SilhouetteSkinned, SkinCacheAddressHi ) == 76u, "SilhouetteSkinned::SkinCacheAddressHi: std430 offset" );
+
+    // Mesh/Surface/Vertex_Skinned.glslh
+    struct SkinnedShadowCasterPush
+    {
+        glm::mat4 Transform{};
+        std::uint32_t BoneOffset{};
+        std::uint32_t SkinCacheVertexCount{};
+        std::uint32_t SkinCacheAddressLo{};
+        std::uint32_t SkinCacheAddressHi{};
+    };
+    static_assert( sizeof( SkinnedShadowCasterPush ) == 80u, "SkinnedShadowCasterPush: std430 push block size" );
+    template <> inline constexpr bool IsBlock<SkinnedShadowCasterPush> = true;
+    static_assert( offsetof( SkinnedShadowCasterPush, Transform ) == 0u, "SkinnedShadowCasterPush::Transform: std430 offset" );
+    static_assert( offsetof( SkinnedShadowCasterPush, BoneOffset ) == 64u, "SkinnedShadowCasterPush::BoneOffset: std430 offset" );
+    static_assert( offsetof( SkinnedShadowCasterPush, SkinCacheVertexCount ) == 68u, "SkinnedShadowCasterPush::SkinCacheVertexCount: std430 offset" );
+    static_assert( offsetof( SkinnedShadowCasterPush, SkinCacheAddressLo ) == 72u, "SkinnedShadowCasterPush::SkinCacheAddressLo: std430 offset" );
+    static_assert( offsetof( SkinnedShadowCasterPush, SkinCacheAddressHi ) == 76u, "SkinnedShadowCasterPush::SkinCacheAddressHi: std430 offset" );
 
     // Programs/Sky/SkyAerialPerspectiveLut.shader (Compute)
     struct SkyAerialPerspectiveLut
@@ -1129,6 +1255,38 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( SurfaceCacheSceneView, CameraPosition ) == 64u, "SurfaceCacheSceneView::CameraPosition: std430 offset" );
     static_assert( offsetof( SurfaceCacheSceneView, Counts ) == 80u, "SurfaceCacheSceneView::Counts: std430 offset" );
     static_assert( offsetof( SurfaceCacheSceneView, ColorScale ) == 96u, "SurfaceCacheSceneView::ColorScale: std430 offset" );
+
+    // Common/SurfaceCacheDirectLightingTexel.glslh
+    struct SurfaceDirectLightingPush
+    {
+        glm::vec4 LightDirection{};
+        glm::vec4 LightColor{};
+        glm::vec4 Light1Direction{};
+        glm::vec4 Light1Color{};
+        glm::uvec4 LightingFlags{};
+        glm::uvec4 EmissiveCounts{};
+        glm::uvec4 EmissiveDynamicCounts{};
+    };
+    static_assert( sizeof( SurfaceDirectLightingPush ) == 112u, "SurfaceDirectLightingPush: std430 push block size" );
+    template <> inline constexpr bool IsBlock<SurfaceDirectLightingPush> = true;
+    static_assert( offsetof( SurfaceDirectLightingPush, LightDirection ) == 0u, "SurfaceDirectLightingPush::LightDirection: std430 offset" );
+    static_assert( offsetof( SurfaceDirectLightingPush, LightColor ) == 16u, "SurfaceDirectLightingPush::LightColor: std430 offset" );
+    static_assert( offsetof( SurfaceDirectLightingPush, Light1Direction ) == 32u, "SurfaceDirectLightingPush::Light1Direction: std430 offset" );
+    static_assert( offsetof( SurfaceDirectLightingPush, Light1Color ) == 48u, "SurfaceDirectLightingPush::Light1Color: std430 offset" );
+    static_assert( offsetof( SurfaceDirectLightingPush, LightingFlags ) == 64u, "SurfaceDirectLightingPush::LightingFlags: std430 offset" );
+    static_assert( offsetof( SurfaceDirectLightingPush, EmissiveCounts ) == 80u, "SurfaceDirectLightingPush::EmissiveCounts: std430 offset" );
+    static_assert( offsetof( SurfaceDirectLightingPush, EmissiveDynamicCounts ) == 96u, "SurfaceDirectLightingPush::EmissiveDynamicCounts: std430 offset" );
+
+    // Common/SurfaceCacheRadiosityTraceTexel.glslh
+    struct SurfaceRadiosityPush
+    {
+        glm::uvec4 RadiosityFrame{};
+        glm::vec4 RadiosityWeights{};
+    };
+    static_assert( sizeof( SurfaceRadiosityPush ) == 32u, "SurfaceRadiosityPush: std430 push block size" );
+    template <> inline constexpr bool IsBlock<SurfaceRadiosityPush> = true;
+    static_assert( offsetof( SurfaceRadiosityPush, RadiosityFrame ) == 0u, "SurfaceRadiosityPush::RadiosityFrame: std430 offset" );
+    static_assert( offsetof( SurfaceRadiosityPush, RadiosityWeights ) == 16u, "SurfaceRadiosityPush::RadiosityWeights: std430 offset" );
 
     // Programs/Composite/SwapchainBlit.shader (Fragment)
     struct SwapchainBlit
