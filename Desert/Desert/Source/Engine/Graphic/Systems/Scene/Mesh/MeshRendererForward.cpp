@@ -2917,7 +2917,10 @@ namespace Desert::Graphic::System
                 od.Inst = standsIn ? standIn->Instance.get()
                                    : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
                 od.HasOverrides = od.Inst != nullptr && od.Inst->GetPropertySet().HasOverrides();
-                od.Alone        = !obj->ReceiveShadows || !obj->CastContactShadow || od.HasOverrides;
+                // A MegaLights emitter draws alone: its per-object draw pushes EMISSION_IS_LIGHT, a batch the
+                // default PrimitiveFlags (RefreshStaticPlanRows' kAlone, the same rule). A stand-in is not one.
+                const bool emissionIsLight = !standsIn && od.Inst != nullptr && od.Inst->IsEmissiveLightsScene();
+                od.Alone = !obj->ReceiveShadows || !obj->CastContactShadow || emissionIsLight || od.HasOverrides;
                 od.Hidden       = hiddenOf( obj );
                 bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
@@ -2928,8 +2931,8 @@ namespace Desert::Graphic::System
                 const SubmeshMask           hidden = buckets[bi].first.second;
                 const std::vector<ObjDraw>& bucket = buckets[bi].second;
                 // Per-object state a shared batch entry can't carry: hidden submeshes, the
-                // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
-                // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
+                // shadow-receive opt-out, the contact-shadow cast opt-out and a MegaLights emitter's
+                // EMISSION_IS_LIGHT (a batch pushes one PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
                 // entry, so an overridden instance in it would silently render with someone
                 // else's values. All of those take the per-object path.
                 auto& batchable = slice.Batchable;

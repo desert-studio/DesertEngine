@@ -383,7 +383,11 @@ namespace Desert::Graphic::System
             if ( inst != nullptr && inst->IsTwoSided() )
                 flags |= StaticPlanRows::kTwoSided;
             const StaticMeshRenderData& data = m_StaticQueue[i];
-            if ( !data.ReceiveShadows || !data.CastContactShadow ||
+            // A MegaLights emitter (Emissive Lights Scene) draws alone: a batch pushes one PrimitiveFlags, the
+            // default, and the per-object draw pushes its EMISSION_IS_LIGHT (PrimitiveFlagsOf). The toggle moves
+            // DrawReadinessKey (Material::EmissiveLightsGeneration), so the rows are re-planned on it.
+            const bool emissionIsLight = inst != nullptr && inst->IsEmissiveLightsScene();
+            if ( !data.ReceiveShadows || !data.CastContactShadow || emissionIsLight ||
                  ( flags & StaticPlanRows::kHasOverrides ) != 0u )
                 flags |= StaticPlanRows::kAlone;
             rows.Flags[i]  = flags;

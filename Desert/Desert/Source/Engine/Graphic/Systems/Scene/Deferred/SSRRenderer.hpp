@@ -96,6 +96,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
         DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
@@ -202,7 +203,7 @@ namespace Desert::Graphic::System
         // What the traced permutation reads beside the screen's inputs (SSR.shader, bindings 10..41), all of this
         // frame's graph: GIHitRadiance's inputs (the GI frame record, the lights and the world light grid, the
         // radiance cache's read - a neutral one covering nothing when the GI does not run it -, the sky's cube,
-        // the G-buffer's albedo and emissive), the tracer (GlobalIllumination::TracerFrame: for the software
+        // the G-buffer's albedo, emissive and, in set 1, shading word), the tracer (GlobalIllumination::TracerFrame: for the software
         // tracer the view's mesh SDF near field too) and the surface cache's hits.
         struct TracedReads
         {
@@ -223,6 +224,8 @@ namespace Desert::Graphic::System
             RDG::TextureRef                                                 EnvSpecular;
             RDG::TextureRef                                                 GBufferA;
             RDG::TextureRef                                                 GBufferEmissive;
+            // The uint shading word: a hit's EMISSION_IS_LIGHT mark (Common/GIHitLighting.glslh GIHitMaterial).
+            RDG::TextureRef                                                 GBufferShadingWord;
         };
 
         // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
@@ -972,6 +975,7 @@ namespace Desert::Graphic::System
                  .Sampler( SSRShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
                  .Texture( SSRShaderParameters::GBufferATexture, traced.GBufferA, kS, all )
                  .Texture( SSRShaderParameters::GBufferEmissiveTexture, traced.GBufferEmissive, kS, all )
+                 .Texture( SSRShaderParameters::GBufferShadingWordTexture, traced.GBufferShadingWord, kS, all )
                  .Sampler( SSRShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
             GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )

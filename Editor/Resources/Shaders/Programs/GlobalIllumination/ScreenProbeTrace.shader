@@ -236,7 +236,6 @@ Shader "ScreenProbeTrace"
         // The shading word: a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial).
         layout(binding = 24) uniform utexture2D GBufferShadingWordTexture;
         #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
-        #define GI_HIT_READS_SHADING_WORD 1
         #else
         #define GI_HIT_LIGHTING_NONE 1
         #endif

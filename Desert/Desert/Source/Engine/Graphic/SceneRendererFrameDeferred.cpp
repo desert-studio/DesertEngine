@@ -613,6 +613,7 @@ namespace Desert::Graphic
         inputs.GBufferA        = gbuffer[0];
         inputs.GBufferB        = gbuffer[1];
         inputs.GBufferEmissive = gbuffer[3];
+        inputs.GBufferShadingWord = gbuffer[2];
         inputs.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         inputs.Tracer          = MakeTracerFrame( graph, textures, m_GIPipeline );
         // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
@@ -2259,6 +2260,7 @@ namespace Desert::Graphic
         reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         reads.GBufferA        = gbuffer[0];
         reads.GBufferEmissive = gbuffer[3];
+        reads.GBufferShadingWord = gbuffer[2];
         reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
         return reads;
     }
