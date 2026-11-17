@@ -63,10 +63,79 @@ namespace Desert::Geometry
     // THE VIEW A LOD IS ASKED FROM: where the eye is and how it projects. The projection is half the
     // question — the same object at the same distance covers four times the screen through a lens of a
     // quarter of the field of view, and a zoomed-in camera must get the detail it can actually see.
+    // THE DITHERED LOD TRANSITION's two samples of the view (UE FTemporalLODState, SceneRendering.cpp): the eye
+    // where it stood at two moments at least kLODTemporalLagSeconds apart, and how far the frame has come from
+    // the older to the newer (Transition, 0..1). Every object selects its level from BOTH origins; where the two
+    // levels differ it draws both, the older faded out and the newer faded in by complementary screen-space
+    // dither masks (DesertClipLODTransition, Mesh/Surface/LODTransition.glslh) - a level change is a short
+    // cross-fade the temporal filter resolves, never a pop. Inactive: one level, from LODView::Origin.
+    struct LODTemporalSamples
+    {
+        glm::vec3 Origins[2]{ glm::vec3( 0.0f ), glm::vec3( 0.0f ) }; // [0] older, [1] newer
+        float     Transition = 0.0f;                                  // [0] -> [1], in [0, 1]
+        bool      Active     = false;
+    };
+
+    // UE r.LODTemporalLag: the time a level change takes to fade in, seconds.
+    inline constexpr double kLODTemporalLagSeconds = 0.5;
+
     struct LODView
     {
-        glm::vec3 Origin{ 0.0f };
-        glm::mat4 Projection{ 1.0f };
+        glm::vec3          Origin{ 0.0f };
+        glm::mat4          Projection{ 1.0f };
+        LODTemporalSamples Temporal{};
+    };
+
+    // THE PER-VIEW STATE the samples come from (UE FTemporalLODState::UpdateTemporalLODTransition): the newer
+    // sample advances to the eye once it is older than the lag, the previous newer becoming the older; a
+    // sample time that does not advance (a paused clock, a cut, a first frame) collapses both onto the eye and
+    // stops every fade. Owned by the view's persistent state (SceneViewState), updated once per frame.
+    class TemporalLODState
+    {
+    public:
+        void Update( const glm::vec3& origin, const double timeSeconds, const bool reset ) noexcept
+        {
+            bool ok = !reset && m_Valid;
+            if ( ok && m_Times[1] < timeSeconds - kLODTemporalLagSeconds )
+            {
+                if ( m_Times[0] < m_Times[1] )
+                {
+                    m_Origins[0] = m_Origins[1];
+                    m_Times[0]   = m_Times[1];
+                }
+                m_Origins[1] = origin;
+                m_Times[1]   = timeSeconds;
+                ok           = m_Times[1] > m_Times[0];
+            }
+            if ( !ok )
+            {
+                m_Origins[0] = origin;
+                m_Origins[1] = origin;
+                m_Times[0]   = timeSeconds;
+                m_Times[1]   = timeSeconds;
+            }
+            m_Valid = true;
+            m_Now   = timeSeconds;
+        }
+
+        [[nodiscard]] LODTemporalSamples Samples() const noexcept
+        {
+            LODTemporalSamples out;
+            out.Origins[0]    = m_Origins[0];
+            out.Origins[1]    = m_Origins[1];
+            out.Active        = m_Valid;
+            const double span = m_Times[1] - m_Times[0];
+            out.Transition    = span > 0.0 ? static_cast<float>( std::clamp(
+                                               ( m_Now - kLODTemporalLagSeconds - m_Times[0] ) / span, 0.0, 1.0 ) )
+                                           : 1.0f;
+            return out;
+        }
+
+    private:
+        glm::vec3 m_Origins[2]{ glm::vec3( 0.0f ), glm::vec3( 0.0f ) };
+        double    m_Times[2]{ 0.0, 0.0 };
+        double    m_Now   = 0.0;
+        bool      m_Valid = false;
     };
 
     // THE SQUARED SCREEN RADIUS OF A BOUNDING SPHERE, as a fraction of the screen: the one measure every
@@ -362,5 +431,46 @@ namespace Desert::Geometry
                                int lodBias )
     {
         return SelectLODFromBounds( transform, LocalBounds( submeshes ), view, screenSizes, forcedLOD, lodBias );
+    }
+
+    // THE TWO LEVELS OF A DITHERED TRANSITION (UE FLODMask::DitheredLODIndices): the level each temporal sample
+    // selects, [0] the older (fading out), [1] the newer (fading in). Equal levels: no transition, one draw.
+    struct LODMask
+    {
+        uint32_t           Levels[2]{ 0u, 0u };
+        [[nodiscard]] bool IsDithered() const noexcept
+        {
+            return Levels[0] != Levels[1];
+        }
+    };
+
+    // The policy at both temporal samples of @p view (UE ComputeLODForMeshes with bDitheredLODTransition); an
+    // inactive Temporal gives both levels from LODView::Origin. GLSL twin: InstanceCull.shader SelectLodMask.
+    inline LODMask SelectDitheredLODFromBounds( const glm::mat4& transform, const Common::Math::AABB& localBounds,
+                                                const LODView& view, const std::span<const float> screenSizes,
+                                                int forcedLOD, int lodBias )
+    {
+        LODMask mask;
+        for ( uint32_t sample = 0; sample < 2u; ++sample )
+        {
+            LODView at = view;
+            if ( view.Temporal.Active )
+                at.Origin = view.Temporal.Origins[sample];
+            mask.Levels[sample] =
+                 SelectLODFromBounds( transform, localBounds, at, screenSizes, forcedLOD, lodBias );
+        }
+        return mask;
+    }
+
+    // THE DITHER FACTOR a level of @p mask draws with (UE GetDitheredLODTransitionState): the transition for the
+    // older level, the transition - 1 for the newer, 0 when the mask is not dithered. Its shader is
+    // DesertClipLODTransition: a factor f > 0 keeps the pixels whose noise is above f, f < 0 those below f + 1,
+    // so the two levels of a pixel are complementary and their union is the whole object at every moment.
+    [[nodiscard]] inline float LODTransitionFactor( const LODMask& mask, const uint32_t sample,
+                                                    const float transition ) noexcept
+    {
+        if ( !mask.IsDithered() )
+            return 0.0f;
+        return sample == 0u ? transition : transition - 1.0f;
     }
 } // namespace Desert::Geometry

@@ -179,7 +179,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( vulkanImage == nullptr )
             return Common::MakeError<BindlessTextureSlot>( "bindless table: not a Vulkan 2D image" );
         const Core::Formats::Image2DSpecification& spec = vulkanImage->GetSpecification();
-        if ( spec.Usage == Core::Formats::Image2DUsage::Attachment ||
+        // An attachment only when its writer declares every bindless read to the graph
+        // (Core::Formats::GraphDeclaredBindless).
+        const bool graphDeclared = ( spec.Properties & Core::Formats::GraphDeclaredBindless ) != 0 &&
+                                   ( spec.Properties & Core::Formats::Sample ) != 0 &&
+                                   !Graphic::Utils::IsDepthFormat( spec.Format );
+        if ( ( spec.Usage == Core::Formats::Image2DUsage::Attachment && !graphDeclared ) ||
              ( spec.Properties & Core::Formats::Storage ) != 0 || spec.Samples > 1 )
             return Common::MakeFormattedError<BindlessTextureSlot>(
                  "bindless table: image '{}' is an attachment, storage or multisampled image; the render graph "

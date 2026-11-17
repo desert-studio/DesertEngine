@@ -5,6 +5,7 @@
 
 #include "Assimp/AssimpImporter.hpp"
 #include "Blend/BlendImporter.hpp"
+#include "IesProfileImporter.hpp"
 #include "CookPaths.hpp"
 #include "CookedJsonWrite.hpp"
 #include "MaterialAdoption.hpp"
@@ -240,6 +241,10 @@ namespace Desert::Editor
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
 
+        // An IES light profile is no mesh source: it becomes the `.dies` beside it (IesProfileImporter).
+        if ( ext == ".ies" )
+            return ImportIesProfile( path, pass, force );
+
         if ( !m_Importers.contains( ext ) )
             return CookVerdict::NotCookable;
 
@@ -338,7 +343,7 @@ namespace Desert::Editor
             if ( ext == ".blend" )
                 continue;
 
-            if ( probe.m_Importers.contains( ext ) )
+            if ( probe.m_Importers.contains( ext ) || ext == ".ies" )
                 files.push_back( entry.path() );
         }
         return files;

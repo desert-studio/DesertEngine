@@ -132,12 +132,18 @@ namespace Desert::Editor
 
         /// A VFX module (`.dfxmod`, UE's Niagara module script): its inputs, attributes and GLSL; a block of text
         /// has no picture, so it shows the class icon as UE does.
-        VFXModule
+        VFXModule,
+
+        /// An IES light profile (`.dies`, UE UTextureLightProfile) and the IESNA LM-63 `.ies` it is imported
+        /// from - one kind for both, as a `.png` and its `.detex` are one Texture: one colour, one icon, one
+        /// filter entry. Its picture is the class icon; UE draws the profile's texture, which this asset does not
+        /// store (it keeps the photometric data, IesProfile.hpp).
+        IesProfile
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::VFXModule;
+    inline constexpr FileType kLastFileType = FileType::IesProfile;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -210,6 +216,9 @@ namespace Desert::Editor
          { "degrasstype", FileType::LandscapeGrassType },
          { "dstatetree", FileType::StateTree },
          { "dfxmod", FileType::VFXModule },
+         // The IES profile ASSET and its LM-63 source (Editor/Import/IesProfileImporter turns one into the other).
+         { "dies", FileType::IesProfile },
+         { "ies", FileType::IesProfile },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

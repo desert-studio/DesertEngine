@@ -824,7 +824,11 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImage2D::RegisterBindless()
     {
-        if ( m_Specification.Usage != Core::Formats::Image2DUsage::Image2D ||
+        // A sampled image, or a colour attachment whose writer declares its bindless readers to the graph
+        // (Core::Formats::GraphDeclaredBindless; the table checks the rest).
+        const bool graphDeclared = m_Specification.Usage == Core::Formats::Image2DUsage::Attachment &&
+                                   ( m_Specification.Properties & Core::Formats::GraphDeclaredBindless ) != 0;
+        if ( ( m_Specification.Usage != Core::Formats::Image2DUsage::Image2D && !graphDeclared ) ||
              ( m_Specification.Properties & Core::Formats::Storage ) != 0 || m_Specification.Samples > 1 )
             return BOOLSUCCESS;
         const auto slot = GetBindlessTextureTable().Register( *this );

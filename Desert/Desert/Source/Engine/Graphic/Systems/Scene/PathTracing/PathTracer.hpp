@@ -442,6 +442,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef  SpotLights;
             uint32_t        PointLightCount = 0;
             uint32_t        SpotLightCount  = 0;
+            // The light function atlas the rows' tiles name (ViewLightBuffers::LightFunctionAtlas): a point,
+            // spot or rect light's radiance is filtered by its tile (PathTracer.shader); invalid = none.
+            RDG::TextureRef LightFunctionAtlas;
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
             RDG::TextureRef CloudShadowMap; // the cloud layer's shadow map (CloudShadowMapOrWhite)
             RDG::BufferRef  CloudShadow;    // its CloudShadowUB (CloudShadowPackUniforms; Params.y = 0: no map)
@@ -1716,6 +1719,7 @@ namespace Desert::Graphic::System
                           .Storage( PathTracingTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( PathTracingTraceShaderParameters::PointLightsUB, inputs.PointLights, kR )
                           .Storage( PathTracingTraceShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
+                          .BindlessRead( inputs.LightFunctionAtlas, RDG::Access::SampledCompute )
                           .Storage( PathTracingTraceShaderParameters::SkyRadianceTexture, sky.Radiance, kR )
                           .Storage( PathTracingTraceShaderParameters::PathTracingSkyPdfUB, sky.Pdf, kR )
                           .Storage( PathTracingTraceShaderParameters::PathTracingLightGridUB, grid.Buffer, kR )

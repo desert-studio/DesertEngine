@@ -217,9 +217,13 @@ namespace Desert::Core::Formats
         DeformStamp, // the shape of a surface-deformation stamp (DEFORM-FIELD): a `Stamp { ... }` fragment
                      // compiled INTO the deformation field's stamp program (Programs/Deformation/DeformStampApply
                      // .shader); never drawn and never assigned to a renderable
-        DeferredDecal // UE MD_DeferredDecal (DECALS-DBUFFER): a box projector's material, drawn by
-                      // System::DecalRenderer into the view's DBuffer (Common/DBuffer.glslh) before the G-buffer;
-                      // assigned to a DecalComponent, never to a mesh
+        DeferredDecal, // UE MD_DeferredDecal (DECALS-DBUFFER): a box projector's material, drawn by
+                       // System::DecalRenderer into the view's DBuffer (Common/DBuffer.glslh) before the G-buffer;
+                       // assigned to a DecalComponent, never to a mesh
+        LightFunction  // UE MD_LightFunction (LIGHT-FUNCTIONS): a light's projected filter, drawn by
+                       // System::LightFunctionAtlas into the light's tile of the view's light function atlas
+                       // (Common/LightFunction.glslh) and sampled by every lit pass through LightSources.glslh;
+                       // assigned to a point / spot / rect light's Light Function Material, never to a mesh
     };
 
     // UE EDecalDBufferMaskTechnique / the DBuffer's three targets: which of them a DeferredDecal material writes
@@ -264,6 +268,8 @@ namespace Desert::Core::Formats
                 return "DeformStamp";
             case ShaderDomain::DeferredDecal:
                 return "DeferredDecal";
+            case ShaderDomain::LightFunction:
+                return "LightFunction";
         }
         return "Unspecified";
     }
@@ -291,6 +297,7 @@ namespace Desert::Core::Formats
     inline constexpr ShaderDomain kVolumePathDomain  = ShaderDomain::Volume;
     inline constexpr ShaderDomain kUIPathDomain      = ShaderDomain::UI;
     inline constexpr ShaderDomain kDecalPathDomain   = ShaderDomain::DeferredDecal;
+    inline constexpr ShaderDomain kLightFunctionPathDomain = ShaderDomain::LightFunction;
 
     constexpr bool DrawnByMeshPath( ShaderDomain domain )
     {
@@ -328,6 +335,15 @@ namespace Desert::Core::Formats
     constexpr bool DrawnByDecalPath( ShaderDomain domain )
     {
         return domain == kDecalPathDomain;
+    }
+
+    // The light function path is System::LightFunctionAtlas: one procedural quad per light into that light's tile
+    // of the view's atlas, fed the light's frame and projection (Common/LightFunction.glslh), no vertex stream and
+    // no scene texture. A mesh slot asks DrawnByMeshPath and refuses it by name; the atlas refuses every other
+    // domain.
+    constexpr bool DrawnByLightFunctionPath( ShaderDomain domain )
+    {
+        return domain == kLightFunctionPathDomain;
     }
 
     // What a template's `Properties Binding(n) TextureBinding(n)` asked for. Carried on the metadata (and
