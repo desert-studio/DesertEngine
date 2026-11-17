@@ -1,0 +1,43 @@
+# WP-LOADER-ADAPTERS (UE IWorldPartitionActorLoaderInterface + UWorldPartitionEditorLoaderAdapter): what the editor
+# holds of a partitioned world is the UNION of its loaders - rectangles (FLoaderAdapterShape), Location Volumes
+# (ALocationVolume, a component: Extent + Auto Load, always loaded in the editor, left out by the cook), entity
+# lists (FLoaderAdapterActorList, Load Region from Selection) and pins (FLoaderAdapterPinnedActors) - beside the
+# always-loaded part; Unload All switches every loader off but the pins. Kept per user in
+# Saved/Config/WorldPartitionEditor.json (UWorldPartitionEditorPerProjectUserSettings) and loaded again at open.
+# Lead: WP_Protocol has no lake - VILLAGE_X/Z, LAKE_ID and HOUSE_ID below are placeholders; pick a building cluster
+# for the village, a building ~600 m away for the lake side and one building outside both for the house, from the
+# map (World Partition panel, hover a cell) or the descriptor index, and replace them before the run.
+# Lead: the palette entries "Add Location Volume", "Load location volume <name>", "Load Region from Selection",
+# "Pin Selected" and "Remove loader <name>" are REMAINDER items of this branch (see the commit body).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Unload All"
+Дано run Scene "World Partition: Add Location Volume"
+Дано --subject selection set Tag Village
+Дано --subject selection set Translation VILLAGE_X,0,VILLAGE_Z
+Дано --subject selection set Extent 15000,15000,15000
+Дано run Action "Save Scene"
+Дано --subject viewport set Camera.Position 0,180000,-1
+Дано --subject viewport set Camera.Direction 0,-1,0.0001
+Когда run Scene "World Partition: Load location volume Village"
+# The lake side: the entity list around one lake-side building (Load Region from Selection needs it loaded first,
+# so Load All, select, list, then the whole-world flag goes again with Unload All - which keeps nothing but pins;
+# hence the list is made AFTER the pin below and the volume is loaded again last).
+Когда run Scene "World Partition: Load All"
+Когда select HOUSE_ID
+Когда run Scene "World Partition: Pin Selected"
+Когда select LAKE_ID
+Когда run Scene "World Partition: Load Region from Selection"
+Когда run Scene "World Partition: Unload loader All"
+Тогда adapters_three вид сверху: загружены деревня (300x300 м вокруг Village) и озёрный край (здания вокруг LAKE_ID) - два острова - и один закреплённый дом HOUSE_ID вне обоих; в панели World Partition три строки загрузчиков: Village (Location Volume, Loaded), Selection 1 (N entities, Loaded), Pinned (1)
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene WP_Protocol.desce"
+Когда --subject viewport set Camera.Position 0,180000,-1
+Когда --subject viewport set Camera.Direction 0,-1,0.0001
+Тогда adapters_restored после повторного открытия загружено то же самое, что в adapters_three (те же два острова и дом), в панели те же три строки
+# Restore the frozen world: the volume leaves, the user's loaders go.
+Когда run Scene "World Partition: Unload All"
+Когда run Scene "World Partition: Unpin All"
+Когда run Entity "Village"
+Когда run Action "Delete"
+Когда run Action "Save Scene"

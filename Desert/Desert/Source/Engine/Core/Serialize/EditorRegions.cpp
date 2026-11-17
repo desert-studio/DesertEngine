@@ -9,8 +9,10 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Core::EditorRegions
@@ -28,13 +30,13 @@ namespace Desert::Core::EditorRegions
             RegionSelection            Selection;
         };
 
-        // What `regions` select of the world at `path`, decided over its descriptor index (refreshed first, so an
-        // index older than its files is rebuilt rather than used). `regions` null: the whole world. Composites
-        // whose data layers are all unloaded in the editor under `layers` are not selected either way.
-        Common::ResultStr<IndexSelection> SelectOverIndex( const std::filesystem::path&              path,
-                                                           const WorldPartitionSerialized&           settings,
-                                                           const std::span<const Rules::CellBounds>* regions,
-                                                           const DataLayerOverrides&                 layers )
+        // What @p held selects of the world at `path`, decided over its descriptor index (refreshed first, so an
+        // index older than its files is rebuilt rather than used): every record when held.Whole, else the union of
+        // its loaded loaders with the world's Auto Load volumes. Composites whose data layers are all unloaded in the
+        // editor under held.DataLayers are not selected either way.
+        Common::ResultStr<IndexSelection> SelectOverIndex( const std::filesystem::path&    path,
+                                                           const WorldPartitionSerialized& settings,
+                                                           const HeldRegions&              held )
         {
             auto index = DescriptorIndex::Refresh( path );
             if ( !index )
@@ -45,10 +47,10 @@ namespace Desert::Core::EditorRegions
             for ( const DescriptorIndex::DescriptorRow& row : rows.Entities )
                 selected.RowIds.push_back( row.Id );
             // The fast whole world: no layer is unloaded, so every record is held and nothing is planned.
-            const std::vector<bool> layerLoaded = DataLayersLoadedInEditor( settings, layers );
+            const std::vector<bool> layerLoaded = DataLayersLoadedInEditor( settings, held.DataLayers );
             const bool everyLayerLoaded = std::all_of( layerLoaded.begin(), layerLoaded.end(),
                                                        []( const bool loaded ) { return loaded; } );
-            if ( regions == nullptr && everyLayerLoaded )
+            if ( held.Whole && everyLayerLoaded )
             {
                 selected.Selection.Records = selected.RowIds;
                 return Common::MakeSuccess( std::move( selected ) );
@@ -61,17 +63,20 @@ namespace Desert::Core::EditorRegions
             const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
             const Rules::WorldPartitionPlan            plan        = Rules::PlanWorldPartition(
                  std::span<const Rules::EntityDescriptor>( descriptors ), settings, RegistryMeshBounds() );
-            // A region load names what the planner refused exactly as the cook and Play do (ReportPlanIssues).
+            // A load names what the planner refused exactly as the cook and Play do (ReportPlanIssues).
             Rules::ReportPlanIssues( plan, path.string() );
-            selected.Selection = regions == nullptr ? SelectWholeWorld( plan, selected.RowIds, loaded )
-                                                    : SelectRecords( plan, selected.RowIds, *regions, loaded );
+            if ( held.Whole )
+            {
+                selected.Selection = SelectWholeWorld( plan, selected.RowIds, loaded );
+                return Common::MakeSuccess( std::move( selected ) );
+            }
+            const std::vector<LocationVolume> volumes = LocationVolumesOf( descriptors );
+            const HeldShape                   shape   = ShapeOf( WithWorldVolumes( held, volumes ), volumes );
+            selected.Selection = SelectRecords( plan, selected.RowIds, shape.Regions, shape.Entities, loaded );
             return Common::MakeSuccess( std::move( selected ) );
         }
 
-        // `regions` null: the whole world.
-        Common::ResultStr<RegionOutcome> Hold( Scene& scene, Assets::AssetManager* assets,
-                                               const std::span<const Rules::CellBounds>* regions,
-                                               const DataLayerOverrides&                 layers )
+        Common::ResultStr<RegionOutcome> Hold( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held )
         {
             using Result         = RegionOutcome;
             const auto& baseline = scene.Packages()->BaselinePath();
@@ -84,8 +89,8 @@ namespace Desert::Core::EditorRegions
                 return Common::MakeError<Result>(
                      fmt::format( "'{}' is not a partitioned world: it has no regions.", path.string() ) );
 
-            // The world as its files describe it - nothing of an entity outside the regions is read.
-            auto selected = SelectOverIndex( path, *scene.GetWorldPartition(), regions, layers );
+            // The world as its files describe it - nothing of an entity outside the loaders is read.
+            auto selected = SelectOverIndex( path, *scene.GetWorldPartition(), held );
             if ( !selected )
                 return Common::MakeError<Result>( selected.GetError() );
             const std::vector<std::uint64_t>& rowIds = selected.GetValue().RowIds;
@@ -109,7 +114,7 @@ namespace Desert::Core::EditorRegions
             // stays as it is, unsaved, whatever the regions (UE: an unsaved new actor is not the loader's to
             // unload).
             const std::unordered_set<std::uint64_t> onDisk( rowIds.begin(), rowIds.end() );
-            std::unordered_set<std::uint64_t>       held;
+            std::unordered_set<std::uint64_t>       made;
             std::vector<Common::UUID>               leaving;
             std::vector<Common::UUID>               unsaved;
             for ( const LiveEntity& entity : live )
@@ -121,7 +126,7 @@ namespace Desert::Core::EditorRegions
                     continue;
                 }
                 if ( static_cast<std::uint64_t>( entity.Id ) == record )
-                    held.insert( record );
+                    made.insert( record );
                 if ( wanted.contains( record ) )
                     continue;
                 if ( scene.Packages()->IsDirty( entity.Id ) )
@@ -144,7 +149,7 @@ namespace Desert::Core::EditorRegions
             LoadableScene                   parsed = loadable.ExtractValue();
             std::vector<Assets::EntityData> arriving;
             for ( Assets::EntityData& record : parsed.Scene.Entities )
-                if ( record.id.has_value() && !held.contains( static_cast<std::uint64_t>( *record.id ) ) )
+                if ( record.id.has_value() && !made.contains( static_cast<std::uint64_t>( *record.id ) ) )
                     arriving.push_back( std::move( record ) );
 
             for ( const Common::UUID id : leaving )
@@ -222,10 +227,13 @@ namespace Desert::Core::EditorRegions
         }
 
         // SelectRecords and SelectWholeWorld: `regions` null = the whole world (every composite, placed or not).
+        // `entities` (regions only): a composite with a member among them is held whatever its place.
         RegionSelection Select( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
-                                const std::span<const Rules::CellBounds>* regions, std::span<const bool> layerLoaded )
+                                const std::span<const Rules::CellBounds>* regions,
+                                std::span<const std::uint64_t> entities, std::span<const bool> layerLoaded )
         {
-            RegionSelection selection;
+            RegionSelection                         selection;
+            const std::unordered_set<std::uint64_t> byEntity( entities.begin(), entities.end() );
             // The whole world starts from every record (a record no composite lists is still the world's);
             // regions start from none.
             std::vector<bool>                     take( rowIds.size(), regions == nullptr );
@@ -270,6 +278,14 @@ namespace Desert::Core::EditorRegions
                             break;
                         }
                 }
+                if ( !hold && !byEntity.empty() &&
+                     std::any_of( composite.Members.begin(), composite.Members.end(),
+                                  [&]( const std::size_t member )
+                                  { return member < rowIds.size() && byEntity.contains( rowIds[member] ); } ) )
+                {
+                    hold = true;
+                    ++selection.ByEntities;
+                }
                 if ( hold )
                     for ( const std::size_t member : composite.Members )
                         if ( member < take.size() )
@@ -285,26 +301,133 @@ namespace Desert::Core::EditorRegions
     RegionSelection SelectWholeWorld( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
                                       std::span<const bool> layerLoaded )
     {
-        return Select( plan, rowIds, nullptr, layerLoaded );
+        return Select( plan, rowIds, nullptr, {}, layerLoaded );
     }
 
     RegionSelection SelectRecords( const Rules::WorldPartitionPlan& plan, std::span<const std::uint64_t> rowIds,
-                                   std::span<const Rules::CellBounds> regions, std::span<const bool> layerLoaded )
+                                   std::span<const Rules::CellBounds> regions, std::span<const std::uint64_t> entities,
+                                   std::span<const bool> layerLoaded )
     {
-        return Select( plan, rowIds, &regions, layerLoaded );
+        return Select( plan, rowIds, &regions, entities, layerLoaded );
     }
 
-    Common::ResultStr<RegionOutcome> LoadRegions( Scene& scene, Assets::AssetManager* assets,
-                                                  std::span<const Rules::CellBounds> regions,
-                                                  const DataLayerOverrides&          layers )
+    std::vector<LocationVolume> LocationVolumesOf( std::span<const Rules::EntityDescriptor> descriptors )
     {
-        return Hold( scene, assets, &regions, layers );
+        std::vector<LocationVolume> volumes;
+        if ( std::none_of( descriptors.begin(), descriptors.end(), []( const Rules::EntityDescriptor& descriptor )
+                           { return descriptor.LocationVolume.has_value(); } ) )
+            return volumes;
+        // The volume's place is its WORLD position: its parents' transforms composed as the planner composes them.
+        std::unordered_map<Common::UUID, std::size_t> byId;
+        for ( std::size_t record = 0; record < descriptors.size(); ++record )
+            if ( descriptors[record].Id.has_value() )
+                byId.emplace( Common::UUID( *descriptors[record].Id ), record );
+        const std::vector<glm::mat4> world = Rules::Detail::ComposeWorld( descriptors, byId );
+        for ( std::size_t record = 0; record < descriptors.size(); ++record )
+        {
+            const Rules::EntityDescriptor& descriptor = descriptors[record];
+            if ( !descriptor.LocationVolume.has_value() || !descriptor.Id.has_value() )
+                continue;
+            const float    x      = world[record][3].x;
+            const float    z      = world[record][3].z;
+            const float    halfX  = std::fabs( descriptor.LocationVolume->Extent.x );
+            const float    halfZ  = std::fabs( descriptor.LocationVolume->Extent.z );
+            LocationVolume volume;
+            volume.Id          = *descriptor.Id;
+            volume.Name        = descriptor.Tag;
+            volume.Region.MinX = x - halfX;
+            volume.Region.MaxX = x + halfX;
+            volume.Region.MinZ = z - halfZ;
+            volume.Region.MaxZ = z + halfZ;
+            volume.AutoLoad    = descriptor.LocationVolume->AutoLoad;
+            volumes.push_back( std::move( volume ) );
+        }
+        return volumes;
     }
 
-    Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets,
-                                                     const DataLayerOverrides& layers )
+    HeldRegions WithWorldVolumes( const HeldRegions& held, std::span<const LocationVolume> volumes )
     {
-        return Hold( scene, assets, nullptr, layers );
+        HeldRegions out = held;
+        out.Volumes.clear();
+        for ( const LocationVolume& volume : volumes )
+        {
+            VolumeLoader loader{ volume.Id, volume.AutoLoad };
+            for ( const VolumeLoader& named : held.Volumes )
+                if ( named.Volume == volume.Id )
+                    loader.Loaded = named.Loaded;
+            out.Volumes.push_back( loader );
+        }
+        return out;
+    }
+
+    HeldShape ShapeOf( const HeldRegions& held, std::span<const LocationVolume> volumes )
+    {
+        HeldShape shape;
+        for ( const RegionLoader& region : held.Regions )
+            if ( region.Loaded )
+                shape.Regions.push_back( region.Region );
+        for ( const VolumeLoader& loader : held.Volumes )
+        {
+            if ( !loader.Loaded )
+                continue;
+            for ( const LocationVolume& volume : volumes )
+                if ( volume.Id == loader.Volume )
+                    shape.Regions.push_back( volume.Region );
+        }
+        for ( const EntityListLoader& list : held.EntityLists )
+            if ( list.Loaded )
+                shape.Entities.insert( shape.Entities.end(), list.Entities.begin(), list.Entities.end() );
+        shape.Entities.insert( shape.Entities.end(), held.Pinned.begin(), held.Pinned.end() );
+        return shape;
+    }
+
+    std::vector<std::uint64_t> RecordsAroundSelection( const Rules::WorldPartitionPlan& plan,
+                                                       std::span<const std::uint64_t>   rowIds,
+                                                       std::span<const std::uint64_t>   selected )
+    {
+        const std::unordered_set<std::uint64_t> chosen( selected.begin(), selected.end() );
+        std::optional<Rules::CellBounds>        around;
+        for ( const Rules::PlannedComposite& composite : plan.Composites )
+        {
+            if ( !composite.Footprint.has_value() ||
+                 std::none_of( composite.Members.begin(), composite.Members.end(),
+                               [&]( const std::size_t member )
+                               { return member < rowIds.size() && chosen.contains( rowIds[member] ); } ) )
+                continue;
+            const Rules::CellBounds& footprint = *composite.Footprint;
+            if ( !around.has_value() )
+            {
+                around = footprint;
+                continue;
+            }
+            around->MinX = std::min( around->MinX, footprint.MinX );
+            around->MaxX = std::max( around->MaxX, footprint.MaxX );
+            around->MinZ = std::min( around->MinZ, footprint.MinZ );
+            around->MaxZ = std::max( around->MaxZ, footprint.MaxZ );
+        }
+        std::vector<std::uint64_t> records;
+        if ( !around.has_value() )
+            return records;
+        std::vector<bool>                     take( rowIds.size(), false );
+        std::unordered_set<std::size_t> const always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
+        for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
+        {
+            const Rules::PlannedComposite& composite = plan.Composites[c];
+            if ( always.contains( c ) || !composite.Footprint.has_value() || !Meets( *composite.Footprint, *around ) )
+                continue;
+            for ( const std::size_t member : composite.Members )
+                if ( member < take.size() )
+                    take[member] = true;
+        }
+        for ( std::size_t r = 0; r < rowIds.size(); ++r )
+            if ( take[r] )
+                records.push_back( rowIds[r] );
+        return records;
+    }
+
+    Common::ResultStr<RegionOutcome> LoadHeld( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held )
+    {
+        return Hold( scene, assets, held );
     }
 
     Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path, const HeldRegions& held )
@@ -334,10 +457,8 @@ namespace Desert::Core::EditorRegions
             return Common::MakeError<Result>( fmt::format(
                  "'{}' lists its entities in files but states no WorldPartition block.", path.string() ) );
 
-        // What a load of `held` holds (LoadRegions( scene, held.Regions, held.DataLayers ) or LoadWholeWorld).
-        const std::span<const Rules::CellBounds> regions( held.Regions );
-        auto selected = SelectOverIndex( path, *header.GetValue().Scene.WorldPartition,
-                                         held.Whole ? nullptr : &regions, held.DataLayers );
+        // What LoadHeld( scene, held ) holds.
+        auto selected = SelectOverIndex( path, *header.GetValue().Scene.WorldPartition, held );
         if ( !selected )
             return Common::MakeError<Result>( selected.GetError() );
         read.Selection = selected.GetValue().Selection;

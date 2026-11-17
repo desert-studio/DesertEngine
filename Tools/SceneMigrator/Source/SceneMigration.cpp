@@ -5436,6 +5436,9 @@ namespace Desert::Migration
             // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
                 report.RuntimeDataLayersRaised = true;
+            // v3 -> v4 is additive the same way: a Location Volume is a component a v3 file never states.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionLocationVolumes )
+                report.LocationVolumesRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

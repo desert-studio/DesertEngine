@@ -540,35 +540,61 @@ namespace Desert::Editor
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
-        auto* assets = m_Assets;
-        // The user's data-layer state goes with every region change: Load All does not load an unloaded layer.
-        const ::Desert::Core::EditorRegions::DataLayerOverrides layers = Held().DataLayers;
-        auto                                                    changed =
-             request.Whole
-                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets, layers )
-                   : ::Desert::Core::EditorRegions::LoadRegions(
-                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ),
-                         layers );
+        namespace Regions                  = ::Desert::Core::EditorRegions;
+        Regions::HeldRegions next = Held();
+        // The world's Location Volumes join the loaders first (EditorRegions::WithWorldVolumes), so Unload All also
+        // switches off an Auto Load volume this user never named.
+        if ( const auto& baseline = m_Scene->Packages()->BaselinePath() )
+            if ( auto index = ::Desert::Core::DescriptorIndex::Refresh( *baseline ) )
+            {
+                const std::vector<::Desert::Core::Rules::EntityDescriptor> descriptors =
+                     ::Desert::Core::DescriptorIndex::Descriptors( index.GetValue().Index );
+                const std::vector<Regions::LocationVolume> volumes = Regions::LocationVolumesOf( descriptors );
+                next = Regions::WithWorldVolumes( next, volumes );
+            }
+        if ( request.Whole )
+            next.Whole = true;
+        else if ( request.Regions.empty() )
+        {
+            // Unload All: every loader off but the pins, which hold their entities whatever the others do (UE
+            // FLoaderAdapterPinnedActors); the rectangles and lists made by hand go.
+            next.Whole = false;
+            next.Regions.clear();
+            next.EntityLists.clear();
+            for ( Regions::VolumeLoader& volume : next.Volumes )
+                volume.Loaded = false;
+        }
+        else
+            for ( const ::Desert::Core::Rules::CellBounds& region : request.Regions )
+                next.Regions.push_back( Regions::RegionLoader{ region, true } );
+        return Reload( std::move( next ) );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::Reload( ::Desert::Core::EditorRegions::HeldRegions next )
+    {
+        if ( !m_Scene )
+            return Common::MakeError<bool>( std::string( "No active scene." ) );
+        auto changed = ::Desert::Core::EditorRegions::LoadHeld( *m_Scene, m_Assets, next );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
         if ( outcome.Loaded > 0 || outcome.Unloaded > 0 )
             CommandHistory::Get().Clear();
-        m_RegionStatus =
-             std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
-                          "({} composite(s) in the region, {} always loaded, {} without a place, {} in unloaded "
-                          "data layers).",
-                          outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
-                          outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
-                          outcome.Selection.UnloadedByDataLayers );
+        m_RegionStatus = std::format(
+             "{} record(s) loaded, {} unloaded; {} of the world left on disk ({} composite(s) in the regions and "
+             "volumes, {} held by entity lists and pins, {} always loaded, {} without a place, {} in unloaded data "
+             "layers).",
+             outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
+             outcome.Selection.ByEntities, outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
+             outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
-        // The next open of this world holds what it holds now (UE's EditorLoadedRegions). The change itself
-        // stands either way; a refusal here is the status line's, so the user knows the next open will differ.
-        m_Held.Regions = request.Regions;
-        m_Held.Whole   = request.Whole;
+        // The next open of this world holds what it holds now (UE's per-user loaded regions and volumes). The change
+        // itself stands either way; a refusal here is the status line's, so the user knows the next open will differ.
+        m_Held     = std::move( next );
+        m_HeldRead = true;
         if ( const auto& baseline = m_Scene->Packages()->BaselinePath() )
             if ( const auto kept = EditorLoadedRegions::Remember( *baseline, m_Held ); !kept )
-                m_RegionStatus += " The loaded regions were not kept for the next open: " + kept.GetError();
+                m_RegionStatus += " The loaders were not kept for the next open: " + kept.GetError();
         return BOOLSUCCESS;
     }
 
@@ -589,16 +615,13 @@ namespace Desert::Editor
         if ( !::Desert::Core::Rules::DataLayerIndexOf( partition, name ).has_value() )
             return Common::MakeError<bool>( std::format( "Data Layers: the world states no layer '{}'.", name ) );
         const ::Desert::Core::EditorRegions::DataLayerOverrides before = Held().DataLayers;
-        m_Held.DataLayers = ::Desert::Core::EditorRegions::WithDataLayerLoaded( partition, before, name, loaded );
-        if ( m_Held.DataLayers == before )
+        ::Desert::Core::EditorRegions::HeldRegions              next   = Held();
+        next.DataLayers = ::Desert::Core::EditorRegions::WithDataLayerLoaded( partition, before, name, loaded );
+        if ( next.DataLayers == before )
             return Common::MakeSuccess( false );
-        // The same regions (or the whole world) again, under the new layer state; LoadRegion remembers it.
-        const RegionRequest again{ m_Held.Regions, m_Held.Whole };
-        if ( auto reloaded = LoadRegion( again ); !reloaded )
-        {
-            m_Held.DataLayers = before;
+        // The same loaders again, under the new layer state; Reload remembers it (and keeps the old on a refusal).
+        if ( auto reloaded = Reload( std::move( next ) ); !reloaded )
             return reloaded;
-        }
         m_DataLayerStatus = std::format( "{} '{}': {}", loaded ? "Loaded" : "Unloaded", name, m_RegionStatus );
         return BOOLSUCCESS;
     }

@@ -127,6 +127,10 @@ namespace Desert::Editor
         // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
         // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
+        // THE ONE PATH OF A LOADER CHANGE (WP-LOADER-ADAPTERS): the scene holds what @p next selects
+        // (EditorRegions::LoadHeld); on success it becomes this user's state and is kept for the next open
+        // (EditorLoadedRegions), on a refusal nothing changes. The undo history is reset when anything moved.
+        [[nodiscard]] Common::BoolResultStr Reload( ::Desert::Core::EditorRegions::HeldRegions next );
         // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
         // material), write, read back.
         [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );

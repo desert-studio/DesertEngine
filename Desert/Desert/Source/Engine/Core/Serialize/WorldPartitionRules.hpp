@@ -584,6 +584,10 @@ namespace Desert::Core::Rules
          { "LevelSequence", ComponentLoading::Global },
          // The level's clock of day drives the one sun and sky (UE: the Sun Position actor); it has no place.
          { "TimeOfDay", ComponentLoading::Global },
+         // An editor loader of the world (WP-LOADER-ADAPTERS): the World Partition window lists every volume, loaded
+         // or not, and loads by its box - UE ALocationVolume is not spatially loaded (bIsSpatiallyLoaded = false).
+         // Editor-only: the cook leaves it out (WorldCells), so it never reaches the always-loaded part of a game.
+         { "LocationVolume", ComponentLoading::Global },
          // ── By field ──
          // RenderMode 1 = WorldSpace (a nameplate, a floating panel): it lives at its entity. 0 =
          // ScreenSpace (HUD, menus), the default: it has no place in the world at all.
@@ -681,6 +685,8 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
     inline constexpr std::string_view kDataLayersComponent   = "DataLayers";
     inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
+    // UE ALocationVolume (WP-LOADER-ADAPTERS): an editor loader's box; the one editor-only record kind.
+    inline constexpr std::string_view kLocationVolumeComponent = "LocationVolume";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
     // constant per name, so a suite can pin them: see "A COMPOSITE'S FOOTPRINT" at the top of this file.
@@ -1215,6 +1221,14 @@ namespace Desert::Core::Rules
         float         ZScale       = World::Landscape::kLandscapeDefaultZScale;
     };
 
+    // A Location Volume's box (UE ALocationVolume): half size around the entity's world position, cm, and whether
+    // the editor loads it when the world opens. Read here so the editor resolves the volume before any record is.
+    struct DescriptorLocationVolume
+    {
+        glm::vec3 Extent{ 0.0f };
+        bool      AutoLoad = false;
+    };
+
     struct EntityDescriptor
     {
         std::optional<std::uint64_t> Id;     // absent: the record states none (or a null one)
@@ -1247,6 +1261,8 @@ namespace Desert::Core::Rules
         std::vector<std::string> TargetGrids;
         // The DataLayers block's layer names (WP-DATA-LAYERS, UE AActor::DataLayerAssets); empty = no layer.
         std::vector<std::string> DataLayers;
+        // The LocationVolume block (WP-LOADER-ADAPTERS); absent = not a Location Volume.
+        std::optional<DescriptorLocationVolume> LocationVolume;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1328,6 +1344,13 @@ namespace Desert::Core::Rules
             source->ReadInto( "TargetGrids", out.TargetGrids, issues );
         if ( const auto layers = Detail::BlockOf( record, kDataLayersComponent, issues ); layers.has_value() )
             layers->ReadInto( "Layers", out.DataLayers, issues );
+        if ( const auto volume = Detail::BlockOf( record, kLocationVolumeComponent, issues ); volume.has_value() )
+        {
+            DescriptorLocationVolume box;
+            volume->ReadInto( "Extent", box.Extent, issues );
+            volume->ReadInto( "AutoLoad", box.AutoLoad, issues );
+            out.LocationVolume = box;
+        }
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
         {

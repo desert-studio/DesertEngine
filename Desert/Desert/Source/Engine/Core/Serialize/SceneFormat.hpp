@@ -151,7 +151,11 @@ namespace Desert::Core
     // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
     // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v4 (WP-LOADER-ADAPTERS): a record may state a `LocationVolume` component (ECS::LocationVolumeComponent, UE
+    // ALocationVolume: an editor loader's box, left out by the cook). Additive - a v3 file states none and reads the
+    // same - so the step (Tools/SceneMigrator, kWorldPartitionVersionLocationVolumes) states the tag and changes
+    // nothing else; the number moves so a v3 build refuses a world whose volumes it would cook as entities.
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
