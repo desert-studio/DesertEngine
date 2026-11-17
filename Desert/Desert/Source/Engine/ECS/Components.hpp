@@ -3340,17 +3340,17 @@ namespace Desert::ECS
     };
 
     // A PLACE OF A PARTITIONED WORLD THE EDITOR LOADS BY NAME - UE's ALocationVolume (WP-LOADER-ADAPTERS): its box
-    // (the entity's world position +- Extent, X/Z) is a loader of the World Partition window
-    // (Core::EditorRegions): Load holds every composite whose footprint meets it, and it is listed there whether
-    // loaded or not. Always loaded in the editor (UE: bIsSpatiallyLoaded = false), so the list never misses one;
+    // (the +-Extent box placed by the entity's world transform, seen from above as an X/Z rectangle) is a loader of
+    // the World Partition window (Core::EditorRegions): Load holds every composite whose footprint meets it, and it
+    // is listed there whether loaded or not. Always loaded in the editor (UE: bIsSpatiallyLoaded = false), so the list never misses one;
     // an editor-only entity - the cook leaves it out (WorldCells), as UE never cooks an editor-only actor.
     struct LocationVolumeData
     {
         REFLECT()
 
         PROPERTY( DisplayName( "Extent" ), Category( "Location Volume" ), Summary,
-                  Tooltip( "Half size of the volume box, cm, around the entity's position; the X/Z rectangle is "
-                           "what Load holds. Rotation and scale of the transform are not part of the box." ) )
+                  Tooltip( "Half size of the volume box, cm, around the entity, placed by its transform (rotation "
+                           "and scale included); Load holds what meets the box's X/Z rectangle." ) )
         glm::vec3 Extent{ 15000.0f, 15000.0f, 15000.0f };
 
         PROPERTY( DisplayName( "Auto Load" ), Category( "Location Volume" ),

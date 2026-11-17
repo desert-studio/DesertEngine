@@ -9,7 +9,6 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
-#include <cmath>
 #include <format>
 #include <memory>
 #include <optional>
@@ -318,28 +317,36 @@ namespace Desert::Core::EditorRegions
         if ( std::none_of( descriptors.begin(), descriptors.end(), []( const Rules::EntityDescriptor& descriptor )
                            { return descriptor.LocationVolume.has_value(); } ) )
             return volumes;
-        // The volume's place is its WORLD position: its parents' transforms composed as the planner composes them.
+        // The volume's box is placed by its WORLD transform - its parents' composed as the planner composes them,
+        // rotation and scale included (UE ALocationVolume loads by its brush's bounds): the X/Z rectangle around
+        // the eight corners of the +-|Extent| box, as a composite's footprint is the rectangle around its points.
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < descriptors.size(); ++record )
             if ( descriptors[record].Id.has_value() )
                 byId.emplace( Common::UUID( *descriptors[record].Id ), record );
         const std::vector<glm::mat4> world = Rules::Detail::ComposeWorld( descriptors, byId );
+        std::vector<glm::vec3>       corners;
         for ( std::size_t record = 0; record < descriptors.size(); ++record )
         {
             const Rules::EntityDescriptor& descriptor = descriptors[record];
             if ( !descriptor.LocationVolume.has_value() || !descriptor.Id.has_value() )
                 continue;
-            const float    x      = world[record][3].x;
-            const float    z      = world[record][3].z;
-            const float    halfX  = std::fabs( descriptor.LocationVolume->Extent.x );
-            const float    halfZ  = std::fabs( descriptor.LocationVolume->Extent.z );
+            corners.clear();
+            Rules::Detail::AppendBoxCorners( world[record], glm::abs( descriptor.LocationVolume->Extent ), corners );
             LocationVolume volume;
             volume.Id          = *descriptor.Id;
             volume.Name        = descriptor.Tag;
-            volume.Region.MinX = x - halfX;
-            volume.Region.MaxX = x + halfX;
-            volume.Region.MinZ = z - halfZ;
-            volume.Region.MaxZ = z + halfZ;
+            volume.Region.MinX = corners.front().x;
+            volume.Region.MaxX = corners.front().x;
+            volume.Region.MinZ = corners.front().z;
+            volume.Region.MaxZ = corners.front().z;
+            for ( const glm::vec3& corner : corners )
+            {
+                volume.Region.MinX = std::min( volume.Region.MinX, corner.x );
+                volume.Region.MaxX = std::max( volume.Region.MaxX, corner.x );
+                volume.Region.MinZ = std::min( volume.Region.MinZ, corner.z );
+                volume.Region.MaxZ = std::max( volume.Region.MaxZ, corner.z );
+            }
             volume.AutoLoad    = descriptor.LocationVolume->AutoLoad;
             volumes.push_back( std::move( volume ) );
         }

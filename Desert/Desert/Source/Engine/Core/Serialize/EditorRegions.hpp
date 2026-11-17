@@ -9,7 +9,8 @@
 //   - every composite (PlanWorldPartition) whose footprint meets a region is loaded WHOLE - a parent never
 //     arrives without its children, a reference holder never without what it contains;
 //   - every always-loaded composite is loaded whatever the regions (the sun, the sky, the player start);
-//   - a composite with no place (an unplaced prefab instance or landscape tile) is loaded only by LoadWholeWorld.
+//   - a composite with no place (an unplaced prefab instance or landscape tile) is loaded only by Load All
+//     (HeldRegions::Whole), or by an entity list or a pin naming one of its records.
 // Changing the regions unloads what left them. An entity that differs from its file is not unloaded: the change
 // is refused, naming it, until it is saved (UE asks the same before it unloads a dirty actor).
 //
@@ -146,8 +147,9 @@ namespace Desert::Core::EditorRegions
         DataLayerOverrides DataLayers;
     };
 
-    // One Location Volume of a world, read from its descriptors: its name (the entity's tag), its X/Z box (world
-    // position +- |Extent|, the parent chain composed as the planner composes it) and its Auto Load.
+    // One Location Volume of a world, read from its descriptors: its name (the entity's tag), its X/Z box (the
+    // rectangle around the +-|Extent| box placed by the entity's world transform - the parent chain composed as the
+    // planner composes it, rotation and scale included) and its Auto Load.
     struct LocationVolume
     {
         std::uint64_t     Id = 0;
@@ -239,7 +241,7 @@ namespace Desert::Core::EditorRegions
     // over the descriptor index before any record is read - a record outside the selection is never read.
     // Every other scene is ReadSceneFileText and `held` is not looked at. After the scene is made from Text and
     // adopted as saved, the caller hands NotLoaded to EntityPackages::AdoptRegion so a save keeps the records on
-    // disk. Refused, naming the file, as ReadSceneFileText and LoadRegions refuse.
+    // disk. Refused, naming the file, as ReadSceneFileText and LoadHeld refuse.
     [[nodiscard]] Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path,
                                                            const HeldRegions&           held );
 

@@ -92,10 +92,12 @@ namespace Desert::Editor
             std::vector<::Desert::Core::Rules::CellBounds> Regions; // empty: the always-loaded part only
             bool                                           Whole = false;
         };
-        /// UE's "Load Region from Selection" / "Unload All" / "Load All" (WP19-20, decision O3): the scene holds
-        /// exactly the part of its world on disk that the regions (X/Z, cm) select - EditorRegions::LoadRegions,
-        /// or the whole world - EditorRegions::LoadWholeWorld. Refused by name (a dirty entity that would leave, a
-        /// scene not opened from its files). The undo history is reset on success, as UE resets its transactions
+        /// The map's Load Region / "Unload All" / "Load All" (WP19-20, decision O3; WP-LOADER-ADAPTERS): Regions
+        /// (X/Z, cm) each join the loaders as one more rectangle, switched on (one already listed is switched on
+        /// again); Whole switches Load All on; neither is Unload All - every loader off but the pins, the
+        /// rectangles and entity lists removed. The scene then holds the union of the loaders (Reload,
+        /// EditorRegions::LoadHeld). Refused by name (a dirty entity that would leave, a scene not opened from its
+        /// files). The undo history is reset on success, as UE resets its transactions
         /// when it unloads actors: an entry may name an entity that is gone.
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
         // One combo per grid: the layer its cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups);

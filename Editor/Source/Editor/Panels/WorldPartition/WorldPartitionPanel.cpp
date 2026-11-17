@@ -631,7 +631,21 @@ namespace Desert::Editor
         }
         else
             for ( const ::Desert::Core::Rules::CellBounds& region : request.Regions )
-                next.Regions.push_back( Regions::RegionLoader{ region, true } );
+            {
+                // The same rectangle again is the listed loader switched on, not a second row naming one place.
+                const auto listed = std::find_if( next.Regions.begin(), next.Regions.end(),
+                                                  [&region]( const Regions::RegionLoader& loader )
+                                                  {
+                                                      return loader.Region.MinX == region.MinX &&
+                                                             loader.Region.MaxX == region.MaxX &&
+                                                             loader.Region.MinZ == region.MinZ &&
+                                                             loader.Region.MaxZ == region.MaxZ;
+                                                  } );
+                if ( listed != next.Regions.end() )
+                    listed->Loaded = true;
+                else
+                    next.Regions.push_back( Regions::RegionLoader{ region, true } );
+            }
         return Reload( std::move( next ) );
     }
 
