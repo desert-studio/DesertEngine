@@ -143,7 +143,7 @@ namespace Desert::Core
                                                    std::span<const Common::Utils::AssetRegistry> registries )
         {
             using Result = MergedParts;
-            MergedParts merged;
+            MergedParts                                       merged;
             std::vector<std::pair<std::string, std::string>>& slots            = merged.Slots;
             std::vector<std::vector<Desert::Vertex>>&         sectionVertices  = merged.SectionVertices;
             std::vector<std::vector<Desert::Index>>&          sectionTriangles = merged.SectionTriangles;
@@ -156,61 +156,61 @@ namespace Desert::Core
                 return slots.size() - 1;
             };
 
-        for ( const Assets::InstancedStaticMeshComponentSer& part : request.Parts )
-        {
-            auto source = ReadSource( part, registries );
-            if ( !source )
-                return Common::MakeError<Result>( source.GetError() );
-            const SourceMesh& mesh = source.GetValue();
-            for ( std::size_t section = 0; section < mesh.Sections.size(); ++section )
+            for ( const Assets::InstancedStaticMeshComponentSer& part : request.Parts )
             {
-                std::pair<std::string, std::string> key;
-                if ( part.MaterialGuids.has_value() && section < part.MaterialGuids->size() )
-                    key.first = ( *part.MaterialGuids )[section];
-                if ( part.MaterialPaths.has_value() && section < part.MaterialPaths->size() )
-                    key.second = ( *part.MaterialPaths )[section];
-                const std::size_t slot = slotOf( key );
-                if ( sectionVertices.size() <= slot )
+                auto source = ReadSource( part, registries );
+                if ( !source )
+                    return Common::MakeError<Result>( source.GetError() );
+                const SourceMesh& mesh = source.GetValue();
+                for ( std::size_t section = 0; section < mesh.Sections.size(); ++section )
                 {
-                    sectionVertices.resize( slot + 1 );
-                    sectionTriangles.resize( slot + 1 );
-                }
-                for ( const std::array<float, 16>& flat :
-                      part.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} ) )
-                {
-                    glm::mat4 world;
-                    std::memcpy( &world[0][0], flat.data(), sizeof( float ) * 16 );
-                    const glm::mat3 linear       = glm::mat3( world );
-                    const Geometry::SurfaceFrameTransform frame( linear );
-                    // A mirroring instance flips the winding; swap two corners so the face keeps facing out.
-                    const bool                   mirrored = glm::determinant( linear ) < 0.0f;
-                    std::vector<Desert::Vertex>& vertices = sectionVertices[slot];
-                    std::map<uint32_t, uint32_t> local;
-                    for ( const Desert::Index& triangle : mesh.Sections[section] )
+                    std::pair<std::string, std::string> key;
+                    if ( part.MaterialGuids.has_value() && section < part.MaterialGuids->size() )
+                        key.first = ( *part.MaterialGuids )[section];
+                    if ( part.MaterialPaths.has_value() && section < part.MaterialPaths->size() )
+                        key.second = ( *part.MaterialPaths )[section];
+                    const std::size_t slot = slotOf( key );
+                    if ( sectionVertices.size() <= slot )
                     {
-                        std::array<uint32_t, 3> corners{ triangle.V1, triangle.V2, triangle.V3 };
-                        for ( uint32_t& corner : corners )
+                        sectionVertices.resize( slot + 1 );
+                        sectionTriangles.resize( slot + 1 );
+                    }
+                    for ( const std::array<float, 16>& flat :
+                          part.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} ) )
+                    {
+                        glm::mat4 world;
+                        std::memcpy( &world[0][0], flat.data(), sizeof( float ) * 16 );
+                        const glm::mat3                       linear = glm::mat3( world );
+                        const Geometry::SurfaceFrameTransform frame( linear );
+                        // A mirroring instance flips the winding; swap two corners so the face keeps facing out.
+                        const bool                   mirrored = glm::determinant( linear ) < 0.0f;
+                        std::vector<Desert::Vertex>& vertices = sectionVertices[slot];
+                        std::map<uint32_t, uint32_t> local;
+                        for ( const Desert::Index& triangle : mesh.Sections[section] )
                         {
-                            const auto [where, fresh] =
-                                 local.emplace( corner, static_cast<uint32_t>( vertices.size() ) );
-                            if ( fresh )
+                            std::array<uint32_t, 3> corners{ triangle.V1, triangle.V2, triangle.V3 };
+                            for ( uint32_t& corner : corners )
                             {
-                                Desert::Vertex vertex = mesh.Vertices.at( corner );
-                                vertex.Position       = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
-                                vertex.Normal         = frame.Normal( vertex.Normal );
-                                vertex.Tangent        = frame.UnitDirection( vertex.Tangent );
-                                vertex.Bitangent      = frame.UnitDirection( vertex.Bitangent );
-                                vertices.push_back( vertex );
+                                const auto [where, fresh] =
+                                     local.emplace( corner, static_cast<uint32_t>( vertices.size() ) );
+                                if ( fresh )
+                                {
+                                    Desert::Vertex vertex = mesh.Vertices.at( corner );
+                                    vertex.Position  = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
+                                    vertex.Normal    = frame.Normal( vertex.Normal );
+                                    vertex.Tangent   = frame.UnitDirection( vertex.Tangent );
+                                    vertex.Bitangent = frame.UnitDirection( vertex.Bitangent );
+                                    vertices.push_back( vertex );
+                                }
+                                corner = where->second;
                             }
-                            corner = where->second;
+                            if ( mirrored )
+                                std::swap( corners[1], corners[2] );
+                            sectionTriangles[slot].push_back( { corners[0], corners[1], corners[2] } );
                         }
-                        if ( mirrored )
-                            std::swap( corners[1], corners[2] );
-                        sectionTriangles[slot].push_back( { corners[0], corners[1], corners[2] } );
                     }
                 }
             }
-        }
 
             return Common::MakeSuccess( std::move( merged ) );
         }
@@ -282,7 +282,7 @@ namespace Desert::Core
         // atlas UV of every render vertex.
         Common::ResultStr<std::vector<glm::vec2>> PackSourceIslands( const std::vector<Desert::Vertex>& vertices,
                                                                      const std::vector<Desert::Index>&  triangles,
-                                                                     int                                textureSize )
+                                                                     int textureSize )
         {
             using Result = std::vector<glm::vec2>;
             // Islands: union-find over the render vertices each triangle joins.
@@ -314,8 +314,8 @@ namespace Desert::Core
             std::vector<std::vector<int32_t>> islands;
             for ( std::size_t t = 0; t < triangles.size(); ++t )
             {
-                const uint32_t r               = root( triangles[t].V1 );
-                const auto [where, fresh]      = islandOfRoot.emplace( r, islands.size() );
+                const uint32_t r          = root( triangles[t].V1 );
+                const auto [where, fresh] = islandOfRoot.emplace( r, islands.size() );
                 if ( fresh )
                     islands.emplace_back();
                 islands[where->second].push_back( static_cast<int32_t>( t ) );
@@ -324,16 +324,15 @@ namespace Desert::Core
             std::vector<glm::vec2> uvs( vertices.size() );
             for ( std::size_t v = 0; v < vertices.size(); ++v )
                 uvs[v] = vertices[v].TexCoord;
-            RenderUVView        view( vertices, triangles, uvs );
-            Geometry::UVPacker  packer;
+            RenderUVView       view( vertices, triangles, uvs );
+            Geometry::UVPacker packer;
             packer.TextureResolution                   = textureSize;
             packer.bScaleIslandsByWorldSpaceTexelRatio = true;
             packer.bAllowFlips                         = false;
             packer.bPreserveRotation                   = false;
-            const bool packed = packer.StandardPack(
-                 &view, static_cast<int32_t>( islands.size() ),
-                 [&islands]( int32_t island, std::vector<int32_t>& out )
-                 { out = islands[static_cast<std::size_t>( island )]; } );
+            const bool packed = packer.StandardPack( &view, static_cast<int32_t>( islands.size() ),
+                                                     [&islands]( int32_t island, std::vector<int32_t>& out )
+                                                     { out = islands[static_cast<std::size_t>( island )]; } );
             if ( !packed )
                 return Common::MakeError<Result>( std::format(
                      "the merged mesh's {} source UV islands do not pack into a {}x{} atlas (no UV area, or more "
@@ -370,7 +369,8 @@ namespace Desert::Core
                     {
                         laid[c]             = vertices.at( corners[c] );
                         const glm::vec2& uv = atlasBySlot[slot].at( corners[c] );
-                        laid[c].Position    = glm::vec3( uv.x * kHLODBakeProxySideCm, 0.0f, uv.y * kHLODBakeProxySideCm );
+                        laid[c].Position =
+                             glm::vec3( uv.x * kHLODBakeProxySideCm, 0.0f, uv.y * kHLODBakeProxySideCm );
                     }
                     // A render triangle's front is counter-clockwise: (p1 - p0) x (p2 - p0) points at the viewer.
                     const glm::vec3 facing =
@@ -389,7 +389,8 @@ namespace Desert::Core
             }
             auto imported = Geometry::DynamicMeshFromRenderMesh( proxy );
             if ( !imported )
-                return Common::MakeFormattedError<Result>( "the bake proxy does not weld: {}", imported.GetError() );
+                return Common::MakeFormattedError<Result>( "the bake proxy does not weld: {}",
+                                                           imported.GetError() );
             Assets::StaticMeshComponentSer block;
             block.EditMesh      = Geometry::ToSerialized( imported.GetValue().Mesh );
             block.MaterialSlots = SlotRefs( merged.Slots );
@@ -400,8 +401,8 @@ namespace Desert::Core
 
     std::string HLODMeshKey( const Rules::HLODMeshRequest& request )
     {
-        std::string identity = std::format( "HLODMesh\n{}\n{}\n", static_cast<int>( request.Type ),
-                                            request.TrianglePercent );
+        std::string identity =
+             std::format( "HLODMesh\n{}\n{}\n", static_cast<int>( request.Type ), request.TrianglePercent );
         if ( request.MergeMaterials.has_value() )
             identity += std::format( "Merge {} {} {} {}\n", request.MergeMaterials->TextureSize,
                                      request.MergeMaterials->NormalMap, request.MergeMaterials->ORMMap,
@@ -422,13 +423,14 @@ namespace Desert::Core
             identity += '\n';
         }
         return std::format( "{:016x}", static_cast<std::uint64_t>(
-                                                Common::Utils::PakContentHash( identity.data(), identity.size() ) ) );
+                                            Common::Utils::PakContentHash( identity.data(), identity.size() ) ) );
     }
 
-    Common::ResultStr<HLODMeshBuild> BuildHLODMeshForBake( const Rules::HLODMeshRequest&                 request,
-                                                           std::span<const Common::Utils::AssetRegistry> registries )
+    Common::ResultStr<HLODMeshBuild>
+    BuildHLODMeshForBake( const Rules::HLODMeshRequest&                 request,
+                          std::span<const Common::Utils::AssetRegistry> registries )
     {
-        using Result = HLODMeshBuild;
+        using Result     = HLODMeshBuild;
         auto mergedParts = MergeParts( request, registries );
         if ( !mergedParts )
             return Common::MakeError<Result>( mergedParts.GetError() );
@@ -499,9 +501,10 @@ namespace Desert::Core
 
         std::vector<std::vector<glm::vec2>> atlasBySlot( merged.SectionVertices.size() );
         for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
-            atlasBySlot[slot].assign( atlas.begin() + static_cast<std::ptrdiff_t>( slotBase[slot] ),
-                                      atlas.begin() + static_cast<std::ptrdiff_t>(
-                                                           slotBase[slot] + merged.SectionVertices[slot].size() ) );
+            atlasBySlot[slot].assign(
+                 atlas.begin() + static_cast<std::ptrdiff_t>( slotBase[slot] ),
+                 atlas.begin() +
+                      static_cast<std::ptrdiff_t>( slotBase[slot] + merged.SectionVertices[slot].size() ) );
         auto proxy = BuildBakeProxy( merged, atlasBySlot );
         if ( !proxy )
             return Common::MakeError<Result>( proxy.GetError() );

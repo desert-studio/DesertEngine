@@ -90,7 +90,8 @@ namespace Desert::Editor
             std::vector<uint8_t>     NormalCovered;
         };
 
-        HLODBake::BakedImages ToImages( OutputTexels out, const ::Desert::Core::HLODMaterialMergeSerialized& settings,
+        HLODBake::BakedImages ToImages( OutputTexels                                       out,
+                                        const ::Desert::Core::HLODMaterialMergeSerialized& settings,
                                         uint32_t width, uint32_t height )
         {
             const std::size_t     count = static_cast<std::size_t>( width ) * height;

@@ -69,8 +69,8 @@ namespace Desert::Editor
     {
     public:
         // @p scenePath: the saved scene (its BuiltHLODDirectory receives the assets). @p sceneText: that file's
-        // text, parsed once per job; only its scene-wide settings enter the job's scene (its records are replaced by
-        // the job's proxy, and it is no partitioned world).
+        // text, parsed once per job; only its scene-wide settings enter the job's scene (its records are replaced
+        // by the job's proxy, and it is no partitioned world).
         HLODMaterialBake( std::filesystem::path scenePath, std::string sceneText,
                           std::vector<HLODMaterialBakeJob> jobs, const Assets::AssetManager* assets );
         ~HLODMaterialBake();
@@ -107,7 +107,7 @@ namespace Desert::Editor
         void                                Fail( std::string error );
 
         std::filesystem::path                           m_ScenePath;
-        std::string m_SceneText;
+        std::string                                     m_SceneText;
         std::vector<HLODMaterialBakeJob>                m_Jobs;
         const Assets::AssetManager*                     m_Assets = nullptr;
         std::unique_ptr<Graphic::SceneRenderer>         m_Renderer;

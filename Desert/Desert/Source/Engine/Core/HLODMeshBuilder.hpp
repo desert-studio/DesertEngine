@@ -80,7 +80,8 @@ namespace Desert::Core
     // input dropped, so the bake and the build cannot differ). MeshMerge: the merged triangles in one section,
     // UV layer 0 the source UV islands packed by UVPacker (texel density even in world space), world frames kept.
     // MeshSimplify: the merged mesh simplified, then AutoUV (patches, packed at TextureSize) and tangents rebuilt.
-    // Refused by name as BuildHLODMesh is, and when the islands do not pack or the simplified mesh does not unwrap.
+    // Refused by name as BuildHLODMesh is, and when the islands do not pack or the simplified mesh does not
+    // unwrap.
     struct HLODMeshBuild
     {
         Assets::StaticMeshComponentSer        Mesh;

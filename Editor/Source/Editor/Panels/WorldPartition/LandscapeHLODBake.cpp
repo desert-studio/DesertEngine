@@ -37,7 +37,6 @@
 #include <iterator>
 #include <sstream>
 
-
 namespace Desert::Editor
 {
     namespace
@@ -54,20 +53,21 @@ namespace Desert::Editor
         constexpr float kFarCm       = 1.0e6f;
 
         // THE NORMAL MAP, in the tangent frame the runtime shades the HLOD mesh with: every texel of the tile's
-        // HLOD render mesh in UV space (HLODBake::RasterizeUV, the albedo's own layout), the G-buffer's world normal
-        // taken into the frame the vertex shader interpolates there. Texels no triangle covers stay flat (0, 0, 1).
+        // HLOD render mesh in UV space (HLODBake::RasterizeUV, the albedo's own layout), the G-buffer's world
+        // normal taken into the frame the vertex shader interpolates there. Texels no triangle covers stay flat
+        // (0, 0, 1).
         [[nodiscard]] std::vector<uint8_t> BakeTangentNormals( const ::Desert::Geometry::RenderMeshData& mesh,
                                                                const HLODBake::GBufferTexels&            texels )
         {
             std::vector<uint8_t> out = HLODBake::FlatNormals( texels.Width, texels.Height );
-            HLODBake::RasterizeUV(
-                 mesh, texels.Width, texels.Height,
-                 [&]( std::size_t texel, const glm::vec3& weights, const std::array<const ::Desert::Vertex*, 3>& v )
-                 {
-                     static_cast<void>( HLODBake::EncodeTangentNormal( HLODBake::WorldNormal( texels, texel ),
-                                                                       HLODBake::InterpolatedFrame( weights, v ),
-                                                                       &out[texel * 4] ) );
-                 } );
+            HLODBake::RasterizeUV( mesh, texels.Width, texels.Height,
+                                   [&]( std::size_t texel, const glm::vec3& weights,
+                                        const std::array<const ::Desert::Vertex*, 3>& v )
+                                   {
+                                       static_cast<void>( HLODBake::EncodeTangentNormal(
+                                            HLODBake::WorldNormal( texels, texel ),
+                                            HLODBake::InterpolatedFrame( weights, v ), &out[texel * 4] ) );
+                                   } );
             return out;
         }
 
@@ -189,7 +189,8 @@ namespace Desert::Editor
         for ( std::size_t i = 0; i < count; ++i )
         {
             for ( std::size_t k = 0; k < 3; ++k )
-                images.BaseColor[i * 4 + k] = HLODBake::LinearToSrgb8( static_cast<float>( rgba[i * 4 + k] ) / 255.0f );
+                images.BaseColor[i * 4 + k] =
+                     HLODBake::LinearToSrgb8( static_cast<float>( rgba[i * 4 + k] ) / 255.0f );
             images.BaseColor[i * 4 + 3] = 255;
             orm[i * 4 + 0]              = HLODBake::UnitToByte( HLODBake::MaterialAO( texels, i ) );
             orm[i * 4 + 1]              = HLODBake::UnitToByte( HLODBake::Roughness( texels, i ) );

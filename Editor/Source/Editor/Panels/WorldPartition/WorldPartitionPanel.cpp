@@ -782,12 +782,13 @@ namespace Desert::Editor
             auto built = ::Desert::Core::BuildHLODMeshForBake( request, registries );
             if ( !built )
                 return Common::MakeError<Block>( built.GetError() );
-            ::Desert::Core::HLODMeshBuild& build = built.GetValue();
+            // ResultStr::GetValue is const-only: the build is taken out to move its bake source into the job.
+            ::Desert::Core::HLODMeshBuild build = built.ExtractValue();
             if ( !build.Bake.has_value() )
                 return Common::MakeError<Block>( "a merged-material HLOD mesh came back without its bake source" );
-            const std::string& key   = build.Bake->Key;
-            const bool         known = std::any_of( meshJobs.begin(), meshJobs.end(),
-                                                    [&]( const HLODMaterialBakeJob& job ) { return job.Source.Key == key; } );
+            const std::string& key = build.Bake->Key;
+            const bool known = std::any_of( meshJobs.begin(), meshJobs.end(), [&]( const HLODMaterialBakeJob& job )
+                                            { return job.Source.Key == key; } );
             if ( !known )
                 meshJobs.push_back( HLODMaterialBakeJob{ std::move( *build.Bake ), build.Mesh } );
             return Common::MakeSuccess( std::move( build.Mesh ) );
@@ -802,14 +803,15 @@ namespace Desert::Editor
             return FinishBuildHLODs( {}, {} );
         if ( !meshJobs.empty() )
         {
-            LOG_INFO( "[Build HLODs] '{0}': baking the merged materials of {1} mesh HLOD(s)", m_Scene->GetSceneName(),
-                      meshJobs.size() );
-            m_MeshBake = std::make_unique<HLODMaterialBake>( path, text.GetValue(), std::move( meshJobs ), m_Assets );
+            LOG_INFO( "[Build HLODs] '{0}': baking the merged materials of {1} mesh HLOD(s)",
+                      m_Scene->GetSceneName(), meshJobs.size() );
+            m_MeshBake =
+                 std::make_unique<HLODMaterialBake>( path, text.GetValue(), std::move( meshJobs ), m_Assets );
         }
         if ( !areas.empty() )
         {
-            LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)", m_Scene->GetSceneName(),
-                      areas.size() );
+            LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)",
+                      m_Scene->GetSceneName(), areas.size() );
             ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
             m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
         }
