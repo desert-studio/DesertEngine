@@ -1827,8 +1827,8 @@ namespace Desert::Core::Rules
     // with no case fails the build (-Wswitch), never a silent default.
     [[nodiscard]] inline const IRuntimePartition& RuntimePartitionClass( RuntimePartitionType type )
     {
-        static const RuntimePartitionLHGrid     lhGrid;
-        static const RuntimePartitionPersistent persistent;
+        static const RuntimePartitionLHGrid     lhGrid{};
+        static const RuntimePartitionPersistent persistent{};
         switch ( type )
         {
             case RuntimePartitionType::LHGrid:
@@ -1837,6 +1837,21 @@ namespace Desert::Core::Rules
                 return persistent;
         }
         return lhGrid; // unreachable: every enumerator returns above (MSVC C4715 asks for a return here)
+    }
+
+    // The name a RuntimePartitionType is stated by in the file (reflect-cpp writes the enumerator's name) - the
+    // one spelling the panel, `desertctl get/set world` and the loader's plan line show. An enumerator with no
+    // case fails the build (-Wswitch), never a silent default.
+    [[nodiscard]] inline std::string_view RuntimePartitionTypeName( RuntimePartitionType type )
+    {
+        switch ( type )
+        {
+            case RuntimePartitionType::LHGrid:
+                return "LHGrid";
+            case RuntimePartitionType::Persistent:
+                return "Persistent";
+        }
+        return "LHGrid"; // unreachable: every enumerator returns above (MSVC C4715 asks for a return here)
     }
 
     // The grid cells of partition @p partition stream on, or null when @p settings states no such partition or
@@ -2262,12 +2277,13 @@ namespace Desert::Core::Rules
              std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
         for ( const RuntimePartitionSerialized& partition : settings.RuntimePartitions )
         {
-            if ( partition.LHGrid.has_value() )
-                std::format_to( std::back_inserter( line ),
-                                "; partition '{}' (LHGrid): cell {}, loading range {} world units", partition.Name,
-                                units( partition.LHGrid->CellSize ), units( partition.LHGrid->LoadingRange ) );
-            else
-                std::format_to( std::back_inserter( line ), "; partition '{}' (Persistent)", partition.Name );
+            std::format_to( std::back_inserter( line ), "; partition '{}' ({})", partition.Name,
+                            RuntimePartitionTypeName( partition.Type ) );
+            if ( const RuntimePartitionLHGridSerialized* grid =
+                      RuntimePartitionClass( partition.Type ).CellGrid( partition );
+                 grid != nullptr )
+                std::format_to( std::back_inserter( line ), ": cell {}, loading range {} world units",
+                                units( grid->CellSize ), units( grid->LoadingRange ) );
         }
         return line;
     }

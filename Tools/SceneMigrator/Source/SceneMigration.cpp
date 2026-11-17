@@ -5486,7 +5486,8 @@ namespace Desert::Migration
     {
         // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
         // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
-        // @p partition is the scene's WorldPartition block; a prefab passes an empty one (it states none).
+        // @p scene holds the WorldPartition block the v3 step restates; a prefab passes an empty scene (it states
+        // no block, so its step is the stamp). @p file names the file in a refusal.
         void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
                                      SceneSerialized& scene, const std::string& file, FileMigrationReport& report )
         {

@@ -398,21 +398,6 @@ namespace Desert::Editor
         DrawMap( *plan, *partition, residency, streamer );
     }
 
-    namespace
-    {
-        [[nodiscard]] const char* PartitionTypeName( ::Desert::Core::RuntimePartitionType type )
-        {
-            switch ( type )
-            {
-                case ::Desert::Core::RuntimePartitionType::LHGrid:
-                    return "LHGrid";
-                case ::Desert::Core::RuntimePartitionType::Persistent:
-                    return "Persistent";
-            }
-            return "LHGrid"; // unreachable: every enumerator returns above (MSVC C4715 asks for a return here)
-        }
-    } // namespace
-
     // UE FRuntimePartitionDesc::HLODSetups, shown where UE shows them - under the runtime partition they belong
     // to: per partition whose content can be away, its setups in hierarchy order (setup 0 stands in for the
     // cells, each next one for the setup before - RuntimePartitionHLODSetupSerialized), each a name and a layer
@@ -437,7 +422,7 @@ namespace Desert::Editor
             const ::Desert::Core::RuntimePartitionSerialized& runtime = current.RuntimePartitions[g];
             ImGui::PushID( static_cast<int>( g ) );
             ImGui::TextUnformatted(
-                 std::format( "{} ({})", runtime.Name, PartitionTypeName( runtime.Type ) ).c_str() );
+                 std::format( "{} ({})", runtime.Name, ::Desert::Core::Rules::RuntimePartitionTypeName( runtime.Type ) ).c_str() );
             if ( !::Desert::Core::Rules::RuntimePartitionClass( runtime.Type ).CanBeAway() )
             {
                 ImGui::SameLine();
@@ -475,7 +460,17 @@ namespace Desert::Editor
                 }
                 ImGui::PopID();
             }
-            if ( !layers.empty() && ImGui::SmallButton( "Add HLOD setup" ) )
+            // A new setup builds with the first layer this partition's chain does not name yet (a layer twice in
+            // one chain is refused, ValidateHLODLayers); none left, no button.
+            const auto unused = std::find_if(
+                 layers.begin(), layers.end(),
+                 [&]( const ::Desert::Core::HLODLayerSerialized& layer )
+                 {
+                     return std::none_of( setups.begin(), setups.end(),
+                                          [&]( const ::Desert::Core::RuntimePartitionHLODSetupSerialized& setup )
+                                          { return setup.HLODLayer == layer.Name; } );
+                 } );
+            if ( unused != layers.end() && ImGui::SmallButton( "Add HLOD setup" ) )
             {
                 after = current;
                 std::optional<std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized>>& edited =
@@ -493,7 +488,7 @@ namespace Desert::Editor
                 do
                     setup.Name = std::format( "HLOD{}", n++ );
                 while ( taken( setup.Name ) );
-                setup.HLODLayer = layers.front().Name;
+                setup.HLODLayer = unused->Name;
                 label           = std::format( "Add HLOD setup {} to partition {}", setup.Name, runtime.Name );
                 edited->push_back( std::move( setup ) );
             }
@@ -520,6 +515,9 @@ namespace Desert::Editor
             const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
             m_GridEditStatus  = edited ? std::string() : edited.GetError();
         }
+        // A refused edit is named here too: the Runtime partitions section above may be collapsed.
+        if ( !m_GridEditStatus.empty() )
+            ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
     }
 
     // UE World Settings -> Runtime Hash Set -> Runtime Partitions (FRuntimePartitionDesc): the world's partitions
@@ -560,7 +558,8 @@ namespace Desert::Editor
                     label = std::format( "Rename partition {} to {}", runtime.Name, name );
                 }
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted( PartitionTypeName( runtime.Type ) );
+                const std::string_view typeName = ::Desert::Core::Rules::RuntimePartitionTypeName( runtime.Type );
+                ImGui::TextUnformatted( typeName.data(), typeName.data() + typeName.size() );
                 if ( runtime.LHGrid.has_value() )
                 {
                     const ::Desert::Core::RuntimePartitionLHGridSerialized& grid = *runtime.LHGrid;
@@ -628,7 +627,7 @@ namespace Desert::Editor
             while ( ::Desert::Core::Rules::GridIndexOf( *after, runtime.Name ).has_value() );
             if ( type == ::Desert::Core::RuntimePartitionType::LHGrid )
                 runtime.LHGrid.emplace();
-            label = std::format( "Add {} partition {}", PartitionTypeName( type ), runtime.Name );
+            label = std::format( "Add {} partition {}", ::Desert::Core::Rules::RuntimePartitionTypeName( type ), runtime.Name );
             after->RuntimePartitions.push_back( std::move( runtime ) );
         };
         if ( ImGui::Button( "Add LHGrid partition" ) )

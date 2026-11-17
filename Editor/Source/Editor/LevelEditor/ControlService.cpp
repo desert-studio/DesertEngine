@@ -153,7 +153,7 @@ namespace Desert::Editor
                 rows.push_back( { at + "Name", "string", runtime.Name } );
                 rows.push_back(
                      { at + "Type", "string",
-                       runtime.Type == ::Desert::Core::RuntimePartitionType::LHGrid ? "LHGrid" : "Persistent" } );
+                       std::string( ::Desert::Core::Rules::RuntimePartitionTypeName( runtime.Type ) ) } );
                 if ( runtime.LHGrid.has_value() )
                 {
                     rows.push_back( { at + "CellSize", "float", std::format( "{}", runtime.LHGrid->CellSize ) } );
