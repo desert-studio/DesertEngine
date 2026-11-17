@@ -1,4 +1,5 @@
 #include "JumpFloodOutlineRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
@@ -161,7 +162,7 @@ namespace Desert::Graphic::System
         pass.Bindings( m_StepLayout.Get( m_StepPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
              .Texture( JumpFloodOutlineStepShaderParameters::SeedMapTexture, source, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( JumpFloodOutlineStepShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( int32_t ) ) );
+             .PushConstants<ShaderPush::JFAStep>();
     }
 
     Common::BoolResultStr JumpFloodOutlineRenderer::RecordStep( const RDG::PassContext& context, uint32_t step )
@@ -172,7 +173,7 @@ namespace Desert::Graphic::System
         const int32_t stepLength = 1 << ( GetStepCount() - 1 - step );
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &stepLength, sizeof( stepLength ) );
+        bindings.PushConstants( ShaderPush::JFAStep{ .StepLength = stepLength } );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_StepPipeline, nullptr );
     }
 

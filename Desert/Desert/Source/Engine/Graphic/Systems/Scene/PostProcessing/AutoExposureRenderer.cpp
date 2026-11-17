@@ -1,5 +1,6 @@
 #include "AutoExposureRenderer.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -47,33 +48,7 @@ namespace Desert::Graphic::System
         // there is no second copy to drift.
         constexpr AutoExposureWindow kWindow{ kMinLogLum, kMaxLogLum, kLowPercent, kHighPercent };
 
-        struct HistogramPush
-        {
-            float MinLogLum;
-            float InvLogLumRange;
-            float InvPreExposure; // 1 / ViewFrame::PreExposure: the histogram meters radiance, not stored values
-        };
 
-        struct AveragePush
-        {
-            float Dt;
-            float AdaptSpeed;
-            float MinLuma;
-            float MaxLuma;
-            float MinLogLum;
-            float LogLumRange;
-            float LowPct;
-            float HighPct;
-            glm::vec4 LocalExposureContrast;  // highlight, shadow, detail (unused: 0 per bucket), enabled
-            glm::vec4 LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
-            float     LocalExposureLogMiddleGrey;
-            float     ExposureKey;
-            float     CompensationBias; // PostProcessSettings::AutoExposureBias (EV)
-            float     CompensationKeys; // the compensation curve's key count (0 = no curve)
-            glm::vec4 CurveEV100;       // its keys' EV100
-            glm::vec4 CurveBias;        // its bias (EV) at each key
-        };
-        static_assert( sizeof( AveragePush ) <= 128, "Vulkan guarantees 128 bytes of push constants" );
 
         inline uint32_t GroupCount( uint32_t dim )
         {
@@ -178,7 +153,7 @@ namespace Desert::Graphic::System
              .Texture( AutoExposureHistogramShaderParameters::SceneColorTexture, scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Sampler( AutoExposureHistogramShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Storage( AutoExposureHistogramShaderParameters::Histogram, histogram, RDG::Access::StorageWrite )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
+             .PushConstants<ShaderPush::AEHistogram>();
     }
 
     Common::BoolResultStr AutoExposureRenderer::RecordHistogram( const RDG::PassContext& context, uint32_t width,
@@ -186,9 +161,9 @@ namespace Desert::Graphic::System
     {
         if ( !m_HistogramPipeline )
             return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
-        const HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range(), 1.0f / m_PreExposure };
+        const ShaderPush::AEHistogram hp{ kWindow.MinLogLum, 1.0f / kWindow.Range(), 1.0f / m_PreExposure };
         RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &hp, sizeof( hp ) );
+        bindings.PushConstants( hp );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),
                                                         GroupCount( height ), 1 );
     }
@@ -207,7 +182,7 @@ namespace Desert::Graphic::System
              .Sampler( AutoExposureAverageShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Storage( AutoExposureAverageShaderParameters::OutLuminanceTexture, adapted, RDG::Access::StorageWrite, 0 )
              .Storage( AutoExposureAverageShaderParameters::Readback, readback, RDG::Access::StorageWrite )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
+             .PushConstants<ShaderPush::AEAverage>();
     }
 
     Common::BoolResultStr AutoExposureRenderer::RecordAverage( const RDG::PassContext& context )
@@ -228,7 +203,7 @@ namespace Desert::Graphic::System
         m_SnapNextAdaptation     = false;
 
         const LocalExposureParams& le = m_LocalExposure;
-        const AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
+        const ShaderPush::AEAverage ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
                               kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent,
                               glm::vec4( le.HighlightContrast, le.ShadowContrast, 0.0f,
                                          IsLocalExposureIdentity( le ) ? 0.0f : 1.0f ),
@@ -237,7 +212,7 @@ namespace Desert::Graphic::System
                               m_LocalExposureLogGrey, m_LocalExposureKey, m_CompensationBias,
                               static_cast<float>( m_CurveKeys ), m_CurveEV100, m_CurveBias };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &ap, sizeof( ap ) );
+        bindings.PushConstants( ap );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
     }
 
