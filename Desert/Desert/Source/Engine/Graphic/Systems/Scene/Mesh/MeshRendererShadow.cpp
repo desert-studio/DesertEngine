@@ -3354,7 +3354,8 @@ namespace Desert::Graphic::System
         // the pooled target), or the copy's command meets an image without TRANSFER_DST.
         // A scrolled cascade's layer is also copied back into its cache ("MeshShadowCascade{c}.ToCache"): CopySrc.
         graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics,
-                       { RDG::Access::CopyDst, RDG::Access::CopySrc } );
+                       { RDG::Access::CopyDst, RDG::Access::CopySrc, RDG::Access::SampledCompute } );
+        // SampledCompute: the surface cache's direct lighting samples the cascades in a compute pass.
         m_CascadeMapsBuilt = true;
         // Every layer starts at the far plane (1, standard Z: "no occluder"), written once on the frame the array
         // is made. The cascade passes write only the layers fitted this frame, and none when nothing is fitted (an
