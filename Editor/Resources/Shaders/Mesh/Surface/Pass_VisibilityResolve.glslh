@@ -43,9 +43,10 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 // The Instanced path (GRASS-VIS-MESH-1): the mesh grass section's rows and its mesh's buffers.
 #include <Mesh/Surface/GrassMeshVisibility.glslh>
 #include <Common/FoliageWind.glslh>
-#include <Common/LocalWind.glslh>
 #include <Mesh/MeshVertexAccess.glslh>
 #endif
+// The local wind at the root: both the GrassBlade and the Instanced paths read it.
+#include <Common/LocalWind.glslh>
 
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
