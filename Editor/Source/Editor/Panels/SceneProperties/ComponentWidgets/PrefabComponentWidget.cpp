@@ -10,6 +10,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <array>
 #include <filesystem>
 #include <format>
 
@@ -63,6 +64,40 @@ namespace Desert::Editor
             ImGui::TextColored( ImVec4( 0.6f, 0.6f, 0.6f, 1.f ), ICON_MDI_MINUS " None" );
         Utils::ImGuiUtilities::EndPropertyRow();
 
+        // ── Streaming (WP21-WHOLE; UE Level Instance "Desired Runtime Behavior") ──
+        // How this instance streams in a partitioned world: as its prefab says, or this instance's own override.
+        // Partitioned: the body streams cell by cell; Standalone: the instance streams whole (one cell, one HLOD
+        // source) and moving its root carries the body. The cook and Play read the saved record (PrefabExpansion).
+        {
+            const Assets::PrefabRuntimeBehavior prefabSays =
+                 asset ? asset->GetRuntimeBehavior() : Assets::PrefabRuntimeBehavior::Partitioned;
+            const std::string asPrefab =
+                 asset ? std::format( "As prefab ({})", Assets::PrefabRuntimeBehaviorName( prefabSays ) )
+                       : std::string( "As prefab" );
+            const std::array<const char*, 3> options{ asPrefab.c_str(), "Partitioned", "Standalone" };
+            int                              chosen = !prefab.RuntimeBehavior.has_value() ? 0
+                                                      : *prefab.RuntimeBehavior == Assets::PrefabRuntimeBehavior::Partitioned ? 1
+                                                                                                                              : 2;
+            Utils::ImGuiUtilities::BeginPropertyRow( "Streaming" );
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( ImGui::Combo( "##PrefabRuntimeBehavior", &chosen, options.data(),
+                               static_cast<int>( options.size() ) ) )
+            {
+                if ( chosen == 0 )
+                    prefab.RuntimeBehavior.reset();
+                else
+                    prefab.RuntimeBehavior = chosen == 1 ? Assets::PrefabRuntimeBehavior::Partitioned
+                                                         : Assets::PrefabRuntimeBehavior::Standalone;
+                if ( scene != nullptr )
+                    scene->MarkModifiedSubtree( entity );
+            }
+            Utils::ImGuiUtilities::Tooltip(
+                 "How this instance streams in a partitioned world. Partitioned: each part "
+                 "streams by its own bounds. Standalone: the whole instance streams as one "
+                 "(one cell, one HLOD), and moving its root moves all of it." );
+            Utils::ImGuiUtilities::EndPropertyRow();
+        }
+
         // ── Select prefab by path ─────────────────────────────────────────
         ImGui::TextUnformatted( "Override Path" );
         ImGui::SameLine();
@@ -104,6 +139,14 @@ namespace Desert::Editor
                 if ( written )
                 {
                     LOG_INFO( "Prefab applied: {0}", asset->GetMetadata().Filepath.string() );
+                    // The streaming override went into the prefab with the rest (CreateFromEntity); the instance
+                    // follows the prefab again.
+                    if ( prefab.RuntimeBehavior.has_value() )
+                    {
+                        prefab.RuntimeBehavior.reset();
+                        if ( scene != nullptr )
+                            scene->MarkModifiedSubtree( entity );
+                    }
                 }
                 else
                 {

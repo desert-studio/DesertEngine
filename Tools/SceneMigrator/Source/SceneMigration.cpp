@@ -5423,8 +5423,9 @@ namespace Desert::Migration
     {
         // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
         // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
+        // @p prefabRecords: a prefab's records (its nested instances are restated by v4), null for a scene.
         void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
-                                     FileMigrationReport&                                             report )
+                                     std::vector<Assets::EntityData>* prefabRecords, FileMigrationReport& report )
         {
             report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
@@ -5436,6 +5437,19 @@ namespace Desert::Migration
             // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
                 report.RuntimeDataLayersRaised = true;
+            // v3 -> v4: the prefab's own RuntimeBehavior is read as Partitioned and the rewrite states it; a
+            // nested instance keeps the whole body it always had (Standalone), unless it already states its own.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionPrefabRuntimeBehavior )
+            {
+                report.PrefabRuntimeBehaviorRaised = true;
+                if ( prefabRecords != nullptr )
+                    for ( Assets::EntityData& record : *prefabRecords )
+                        if ( record.PrefabPath.has_value() && !record.RuntimeBehavior.has_value() )
+                        {
+                            record.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Standalone;
+                            ++report.NestedInstancesKeptWhole;
+                        }
+            }
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5779,7 +5793,7 @@ namespace Desert::Migration
             report.VolumetricFogRaised = true;
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
-        RunWorldPartitionSteps( scene.Header, report );
+        RunWorldPartitionSteps( scene.Header, nullptr, report );
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )
@@ -5869,7 +5883,7 @@ namespace Desert::Migration
                 outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.AssetKeys.Refused );
         }
         if ( outcome.Steps.Refused.empty() )
-            RunWorldPartitionSteps( prefab.Header, outcome.Steps );
+            RunWorldPartitionSteps( prefab.Header, &prefab.Entities, outcome.Steps );
         if ( outcome.Steps.Refused.empty() )
             RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
         if ( outcome.Steps.Refused.empty() )

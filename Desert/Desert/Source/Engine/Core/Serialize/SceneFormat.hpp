@@ -146,12 +146,19 @@ namespace Desert::Core
     // component. Additive - a v1 file states neither and reads the same - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionDataLayers) states the tag and changes nothing else; the number moves so an older
     // build refuses a world whose layers it would silently ignore.
-    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime layer
-    // its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads every layer
-    // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
-    // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
-    // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime
+    // layer its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads
+    // every layer as an Editor layer and the operator as Or, which is what it meant - so the step
+    // (Tools/SceneMigrator, kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number
+    // moves so a v2 build refuses a world whose runtime layers it would stream as if they were not there. v4
+    // (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior): a prefab states its `RuntimeBehavior`
+    // (Assets::PrefabRuntimeBehavior: Partitioned or Standalone) and an instance record may override it with its
+    // own `RuntimeBehavior`. A Standalone instance is expanded with its body kept under its root - one composite,
+    // one cell, one HLOD source, carried by the root (Core::WorldCells::ExpandPrefabInstances). The step (Tools/
+    // SceneMigrator, kWorldPartitionVersionPrefabRuntimeBehavior) states Partitioned on every prefab (what each
+    // meant) and Standalone on every nested instance record inside a prefab (a nested body was always kept whole
+    // under its root, and a Partitioned nested instance now opens into the outer world).
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

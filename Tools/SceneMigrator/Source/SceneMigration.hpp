@@ -104,6 +104,7 @@ namespace Desert::Migration
         std::string                                               Name;
         std::vector<Assets::EntityData>                           Entities;
         Common::UUID                                              Root;
+        Assets::PrefabRuntimeBehavior RuntimeBehavior = Assets::PrefabRuntimeBehavior::Partitioned; // WP v4
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> SceneVersion;
         std::optional<int> UnitVersion;
@@ -115,7 +116,8 @@ namespace Desert::Migration
     // pre-v26 integers, which a migrated prefab no longer states.
     [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
     {
-        return Assets::PrefabData{ prefab.Header, prefab.Bounds, prefab.Name, prefab.Entities, prefab.Root };
+        return Assets::PrefabData{ prefab.Header,   prefab.Bounds, prefab.Name,
+                                   prefab.Entities, prefab.Root,   prefab.RuntimeBehavior };
     }
 
     // THE MINIMUM GENERATION THIS TOOL READS. A file stating less than this - on either integer - is
@@ -493,6 +495,14 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
+    //   4 - PREFAB RUNTIME BEHAVIOUR (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior). A prefab states its
+    //       `RuntimeBehavior` (Assets::PrefabRuntimeBehavior) and an instance record may state its own. The read
+    //       gives a prefab Partitioned (what every prefab meant) and the rewrite states it; every NESTED instance
+    //       record inside a prefab that states none is given Standalone, because a nested body was always kept
+    //       whole under its root and a Partitioned nested instance now opens into the outer world. Scene records
+    //       change nothing.
+    inline constexpr int kWorldPartitionVersionPrefabRuntimeBehavior = 4;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -540,7 +550,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionPrefabRuntimeBehavior == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1316,6 +1326,8 @@ namespace Desert::Migration
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        PrefabRuntimeBehaviorRaised = false; // below kWorldPartitionVersionPrefabRuntimeBehavior
+        std::size_t NestedInstancesKeptWhole    = 0;     // nested instance records given Standalone by that step
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected

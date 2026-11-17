@@ -1,0 +1,17 @@
+# WP21-WHOLE: a prefab instance set to Standalone (UE Level Instance "LevelStreaming") streams WHOLE. The instance
+# WP21_Span (4 cubes 1500 cm apart, across 3+ cells of 1000 cm) is expanded with its body kept under its root, so the
+# planner makes it ONE composite: one cell (promoted to the level its 4500 cm footprint needs), one HLOD source, and
+# moving the root in Play carries all four cubes. Compare with WP21-PLAY-near (Partitioned: 4 records in 4 cells).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP21_PrefabSpan_Near.desce
+Дано set 9001 Prefab.RuntimeBehavior Standalone
+Дано run Panel "Open World Partition"
+Когда run Scene "Build HLODs"
+Когда run Action "Play"
+Когда advance 2
+Когда advance 1
+Тогда wp21whole_near пролёт стоит целиком (4 куба мешами, ни одного выпавшего); карта WP — экземпляр одним составным в одной ячейке; в журнале «1 prefab instance(s) expanded into 4 record(s) ... (1 Standalone»
+Когда select 9001
+Когда --subject selection set Translation 1000,500,500
+Когда advance 1
+Тогда wp21whole_moved весь пролёт (все 4 куба) сдвинут на 500 см по X вместе с корнем, без отставших кубов
+Когда run Action "Stop"
