@@ -90,6 +90,11 @@ namespace Desert::World::Landscape
         float MinZ = 0.0f;
         float MaxX = 0.0f;
         float MaxZ = 0.0f;
+        // The world Y the tile's samples CAN take: its root's base plus the encoding's two ends at the root's
+        // ZScale (LandscapeHeightCm of 0 and of kLandscapeMaxSample). What WorldPartition measures a source's
+        // altitude to without reading the tile's heights (WP-SRC-ALTITUDE).
+        float MinY = 0.0f;
+        float MaxY = 0.0f;
     };
 
     /// The ground rectangle tile (@p tileX, @p tileZ) covers. This is what WorldPartition places, and it is
