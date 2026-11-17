@@ -598,6 +598,12 @@ namespace
                 << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilders << " ("
                 << report.HLODSimplifySettingsMoved
                 << " MeshSimplify layer(s)' SimplifyTrianglePercent restated as Settings.TrianglePercent)";
+        if ( report.HLODMergeMaterialsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionHLODBuilders )
+                << "->v" << Desert::Migration::kWorldPartitionVersionHLODMergeMaterials
+                << " (merged HLOD materials: additive, nothing restated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

@@ -398,7 +398,8 @@ namespace Desert::Core::Rules
     }
 
     // Refused, by name: a layer without a name or named twice, a Custom layer stating no Builder or a built-in
-    // type's name as its Builder, a Builder on any other type, a CellSize without a LoadingRange; and per
+    // type's name as its Builder, a Builder on any other type, MergeMaterials on Instancing or with a TextureSize
+    // that is no power of two in [64, 8192], a CellSize without a LoadingRange; and per
     // partition's HLOD setups (UE FRuntimePartitionDesc::HLODSetups): setups on a partition whose content is never
     // away, a setup without a name or named twice, a layer that is no layer of the world or named twice in one
     // partition, a chain with a hole (a spatially loaded last setup, an always-loaded setup before another), ranges
@@ -437,6 +438,19 @@ namespace Desert::Core::Rules
                              std::format( "HLOD layer '{}' is Custom and names the built-in builder '{}'; state "
                                           "Type {} instead",
                                           layer.Name, builtIn.second, builtIn.second ) );
+            if ( layer.MergeMaterials.has_value() )
+            {
+                if ( layer.Type == HLODLayerType::Instancing )
+                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                    "' states MergeMaterials, which only MeshMerge and "
+                                                    "MeshSimplify read (instances keep their own materials)" );
+                const int side = layer.MergeMaterials->TextureSize;
+                if ( side < 64 || side > 8192 || ( side & ( side - 1 ) ) != 0 )
+                    return Common::MakeError<bool>(
+                         std::format( "HLOD layer '{}': MergeMaterials.TextureSize {} is not a power of two in "
+                                      "[64, 8192]",
+                                      layer.Name, side ) );
+            }
             // SPATIAL LOADING (WP-FAR-8): both numbers or neither; positive and finite.
             if ( layer.CellSize.has_value() != layer.LoadingRange.has_value() )
                 return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
@@ -584,9 +598,12 @@ namespace Desert::Core::Rules
     // one mesh in world space, one section per distinct material (UHLODBuilderMeshMerge), and when
     // `TrianglePercent` is stated keeps that share of the triangles (UHLODBuilderMeshSimplify, its settings'
     // target - Core::HLODMeshSimplifySettings).
+    // With `MergeMaterials` (the layer's, HLODBuildContext::MergeMaterials) the mesh is ONE section over one UV
+    // atlas, its material baked by the editor's Build HLODs (HLODMeshBuilder.hpp, BuildHLODMeshForBake).
     struct HLODMeshRequest
     {
         std::optional<float>                                     TrianglePercent; // absent = merge only
+        std::optional<HLODMaterialMergeSerialized>               MergeMaterials;
         std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
     };
 

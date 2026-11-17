@@ -1663,7 +1663,9 @@ namespace Desert::Core::WorldCells
             context.Members            = members;
             context.MinVisibleDistance = minVisibleDistance;
             context.Settings           = hlodLayer.Settings.has_value() ? &*hlodLayer.Settings : nullptr;
-            context.Registries         = registries;
+            context.MergeMaterials = hlodLayer.MergeMaterials.has_value() ? &*hlodLayer.MergeMaterials : nullptr;
+            context.Registries     = registries;
+            context.Geometry       = builders.MeshGeometry();
             auto builtCell =
                  Rules::BuildCellHLOD( hlodLayer, builders, context, customShader, issues, foliageInHLOD );
             if ( !builtCell )

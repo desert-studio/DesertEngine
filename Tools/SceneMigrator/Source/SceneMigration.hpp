@@ -81,6 +81,7 @@ namespace Desert::Migration
         Core::HLODLayerType         Type = Core::HLODLayerType::Instancing;
         std::optional<std::string>  Builder;
         std::optional<rfl::Generic> Settings;
+        std::optional<Core::HLODMaterialMergeSerialized> MergeMaterials;
         std::optional<float>        CellSize;
         std::optional<float>        LoadingRange;
         std::optional<std::string>  ParentLayer;             // WP v1..v4 files only
@@ -576,6 +577,14 @@ namespace Desert::Migration
     //       layers; a prefab's chain raises the number and changes nothing.
     inline constexpr int kWorldPartitionVersionHLODBuilders = 8;
 
+    //   9 - MERGED HLOD MATERIALS (WP-HLOD-MATBAKE; UE FMeshMergingSettings::bMergeMaterials +
+    //       FMaterialProxySettings). An HLOD layer may state `MergeMaterials` (Core::HLODMaterialMergeSerialized:
+    //       TextureSize, NormalMap, ORMMap, EmissiveMap). ADDITIVE: a v8 layer states none and builds one section
+    //       per material, as it did, so the step has no transform of its own - the stamp states WPAR 9. The number
+    //       moves so a v8 build refuses a world whose merged material it would silently drop. Scenes and prefabs
+    //       alike.
+    inline constexpr int kWorldPartitionVersionHLODMergeMaterials = 9;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -623,7 +632,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionHLODBuilders == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionHLODMergeMaterials == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1417,6 +1426,7 @@ namespace Desert::Migration
         std::size_t NestedInstancesKeptWhole    = 0;     // nested instance records given Standalone by that step
         bool        HLODBuildersRaised          = false; // below kWorldPartitionVersionHLODBuilders
         std::size_t HLODSimplifySettingsMoved   = 0;     // layers whose SimplifyTrianglePercent became Settings
+        bool        HLODMergeMaterialsRaised = false; // below kWorldPartitionVersionHLODMergeMaterials (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1486,7 +1496,7 @@ namespace Desert::Migration
                    DataLayerOutlinerRaised || RuntimePartitionsRaised || LocationVolumesRaised ||
                    PrefabRuntimeBehaviorRaised || HLODBuildersRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised;
+                   FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised;
         }
     };
 

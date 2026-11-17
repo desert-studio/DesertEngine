@@ -41,8 +41,9 @@ namespace Desert::Core::Rules
 {
     // UE FHLODBuildContext: what one HLOD is built from. The cell's records and their composed WORLD matrices, the
     // members the HLOD stands in for, the nearest it is ever drawn from (cm; the source cell's grid LoadingRange,
-    // HLODMinVisibleDistance), the layer's Settings (null when it states none) and the asset registries a builder
-    // reads meshes through.
+    // HLODMinVisibleDistance), the layer's Settings (null when it states none), its MergeMaterials (null when it
+    // states none), the asset registries a builder reads meshes through and the mesh geometry the registry states
+    // (HLODBuilderRegistry::MeshGeometry; empty = BuildHLODMesh over Registries).
     struct HLODBuildContext
     {
         std::span<const Assets::EntityData>           Records;
@@ -50,7 +51,9 @@ namespace Desert::Core::Rules
         std::span<const std::size_t>                  Members;
         float                                         MinVisibleDistance = 0.0f; // cm
         const Common::Json::Value*                    Settings           = nullptr;
+        const HLODMaterialMergeSerialized*            MergeMaterials     = nullptr;
         std::span<const Common::Utils::AssetRegistry> Registries;
+        HLODMeshBuilder                               Geometry;
     };
 
     // UE UHLODBuilder. Stateless: everything one build reads is in its context, so one registered builder serves
@@ -132,7 +135,9 @@ namespace Desert::Core::Rules
                 continue;
             HLODMeshRequest request;
             request.TrianglePercent = trianglePercent;
-            request.Parts           = parts;
+            if ( context.MergeMaterials != nullptr )
+                request.MergeMaterials = *context.MergeMaterials;
+            request.Parts = parts;
             auto built              = geometry( request );
             if ( !built )
                 return Common::MakeError<InstancingHLOD>( built.GetError() );
@@ -226,6 +231,18 @@ namespace Desert::Core::Rules
             return m_Landscape.get();
         }
 
+        // The geometry the mesh builders build through (HLODBuildContext::Geometry). None = BuildHLODMesh over the
+        // cook's registries, which bakes no material: the editor's Build HLODs states its own for one build, which
+        // bakes a MergeMaterials layer's material and binds it (WP-HLOD-MATBAKE, WorldPartitionPanel).
+        void SetMeshGeometry( HLODMeshBuilder geometry )
+        {
+            m_MeshGeometry = std::move( geometry );
+        }
+        [[nodiscard]] const HLODMeshBuilder& MeshGeometry() const
+        {
+            return m_MeshGeometry;
+        }
+
         // The builder @p layer is built by (HLODBuilderNameOf), or "builder '<name>' is not registered".
         [[nodiscard]] Common::ResultStr<const IHLODBuilder*> BuilderOf( const HLODLayerSerialized& layer ) const
         {
@@ -240,6 +257,7 @@ namespace Desert::Core::Rules
     private:
         std::map<std::string, std::shared_ptr<const IHLODBuilder>, std::less<>> m_Builders;
         std::shared_ptr<const IHLODBuilder>                                     m_Landscape;
+        HLODMeshBuilder                                                         m_MeshGeometry;
     };
 
     // Which layers the builders are asked about: every one, or only those whose builder IS registered.

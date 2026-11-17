@@ -176,7 +176,11 @@ namespace Desert::Core
     // Custom layer its `Builder`. MeshSimplify's SimplifyTrianglePercent is its builder's Settings.TrianglePercent
     // (Tools/SceneMigrator, MigrateHLODBuilderSettingsV7ToV8); the number moves so a v7 build refuses a layer it
     // cannot build.
-    inline constexpr int kWorldPartitionVersion = 8;
+    // v9 (WP-HLOD-MATBAKE): an HLOD layer may state `MergeMaterials` (HLODMaterialMergeSerialized). Additive - a
+    // v8 layer states none and builds one section per material, as it did - so the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionHLODMergeMaterials) states the tag and changes nothing else; the number moves so a v8
+    // build refuses a world whose merged material it would silently drop.
+    inline constexpr int kWorldPartitionVersion = 9;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -344,6 +348,26 @@ namespace Desert::Core
         Custom,
     };
 
+    // A MESH LAYER'S MERGED MATERIAL - UE FMeshMergingSettings::bMergeMaterials with its FMaterialProxySettings
+    // (TextureSize, bNormalMap, bMetallicMap / bRoughnessMap / bAmbientOcclusionMap, bEmissiveMap), the pattern:
+    // the built mesh gets ONE UV atlas (MeshMerge: the source UV islands packed by UVPacker; MeshSimplify: AutoUV
+    // on the simplified mesh) and ONE section, and Build HLODs bakes every source material into that atlas
+    // (Editor/Panels/WorldPartition/HLODMaterialBake.hpp) as M_<key>.demat over T_<key>_{BaseColor, ORM, Normal,
+    // Emissive}.detex beside the built HLODs - one draw per built mesh instead of one per material. BaseColor is
+    // always baked; a channel switched off is not baked and the material keeps that input's constant default
+    // (StandardSurface: flat normal, roughness 0.5, metallic 0, no emission).
+    struct HLODMaterialMergeSerialized
+    {
+        // The atlas's side in texels (UE TextureSize, square), a power of two in [64, 8192]
+        // (Rules::ValidateHLODLayers).
+        int  TextureSize = 1024;
+        bool NormalMap   = true;  // UE bNormalMap: T_<key>_Normal (tangent space of the built mesh)
+        bool ORMMap      = true;  // UE bAmbientOcclusionMap + bRoughnessMap + bMetallicMap: T_<key>_ORM
+        bool EmissiveMap = false; // UE bEmissiveMap: T_<key>_Emissive, scaled into 8 bits by EmissiveIntensity
+
+        bool operator==( const HLODMaterialMergeSerialized& ) const = default;
+    };
+
     struct HLODLayerSerialized
     {
         std::string   Name;
@@ -358,6 +382,9 @@ namespace Desert::Core
         // none refuses any, so a number nobody reads cannot sit in a file looking like a setting. Absent = the
         // layer states none.
         std::optional<Common::Json::Value> Settings;
+        // MeshMerge / MeshSimplify only (refused on Instancing, whose instances keep their own materials):
+        // ABSENT = one section per distinct source material (one draw each); STATED = one baked material.
+        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
         // UE UHLODLayer::bIsSpatiallyLoaded / CellSize / LoadingRange (WP-FAR-8): BOTH stated = the HLODs this
         // layer builds are SPATIALLY LOADED - each lives in a square cell of CellSize cm (by the centre of what it
         // stands in for) and is streamed by the same residency as a grid cell, within LoadingRange cm of a
@@ -377,7 +404,7 @@ namespace Desert::Core
                  Settings.has_value() == other.Settings.has_value() &&
                  ( !Settings.has_value() || Common::Json::Same( *Settings, *other.Settings ) );
             return Name == other.Name && Type == other.Type && Builder == other.Builder && sameSettings &&
-                   CellSize == other.CellSize &&
+                   MergeMaterials == other.MergeMaterials && CellSize == other.CellSize &&
                    LoadingRange == other.LoadingRange;
         }
     };

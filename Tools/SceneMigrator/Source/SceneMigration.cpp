@@ -5561,6 +5561,9 @@ namespace Desert::Migration
             // MigrateScene's (a prefab states no World Partition block), the flag is every file's.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODBuilders )
                 report.HLODBuildersRaised = true;
+            // v8 -> v9 is additive the same way: a layer that states no MergeMaterials builds as it did.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODMergeMaterials )
+                report.HLODMergeMaterialsRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
