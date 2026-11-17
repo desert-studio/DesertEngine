@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <span>
 #include <vector>
@@ -179,6 +180,39 @@ namespace Desert::Core::EditorRegions
     [[nodiscard]] std::vector<std::uint64_t> RecordsAroundSelection( const Rules::WorldPartitionPlan& plan,
                                                                      std::span<const std::uint64_t>   rowIds,
                                                                      std::span<const std::uint64_t>   selected );
+
+    // PURE. Unload Selected (UE FLoaderAdapterActorList::RemoveActors): @p held with every record of each
+    // composite holding one of @p selected (and each selected id itself) out of its entity lists; a list left
+    // empty goes. Regions, volumes, pins and Whole are as they were: an entity one of them reaches stays held.
+    [[nodiscard]] HeldRegions WithoutEntities( const HeldRegions& held, const Rules::WorldPartitionPlan& plan,
+                                               std::span<const std::uint64_t> rowIds,
+                                               std::span<const std::uint64_t> selected );
+
+    // ONE ROW OF THE WORLD PARTITION WINDOW'S LOADER LIST (UE's World Partition editor lists its loader adapters)
+    // and the name the palette's "Load / Unload / Remove loader <name>" entries address it by - so the window and
+    // the palette cannot name a loader two ways.
+    enum class LoaderKind : std::uint8_t
+    {
+        Whole,      // Load All, "All"; listed while it is on
+        Volume,     // a Location Volume of the world, by its tag ("Location Volume <id>" when it has none)
+        Region,     // a rectangle, "Region <n>"
+        EntityList, // Load Region from Selection, "Selection <n>"
+        Pinned,     // the pins, "Pinned"; listed while any entity is pinned
+    };
+    struct LoaderRow
+    {
+        LoaderKind  Kind = LoaderKind::Region;
+        std::string Name;                     // unique among the rows: a repeated one gains " #<n>"
+        std::size_t Index  = 0;               // Volume / Region / EntityList: the position in HeldRegions' list
+        std::size_t Count  = 0;               // EntityList / Pinned: how many entity ids it names
+        bool        Loaded = false;           // Pinned: always
+        std::optional<Rules::CellBounds> Box; // Volume / Region: what it loads (a volume @p volumes lacks: none)
+    };
+
+    // PURE. The rows of @p held (with the world's volumes: WithWorldVolumes) in the order All, volumes, regions,
+    // entity lists, pins.
+    [[nodiscard]] std::vector<LoaderRow> LoaderRowsOf( const HeldRegions&              held,
+                                                       std::span<const LocationVolume> volumes );
 
     // THE EDITOR'S LOAD: the scene holds exactly what @p held selects of the world it was opened from (its packages'
     // baseline) - every record when held.Whole, else the union of its loaded loaders, the world's Auto Load volumes

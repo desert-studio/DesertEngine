@@ -116,6 +116,40 @@ namespace Desert::Editor
         /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
         /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
         [[nodiscard]] Common::BoolResultStr LoadSelectedRegion();
+
+        // ── THE LOADERS (WP-LOADER-ADAPTERS; UE's World Partition editor and its loader adapters) ──
+        // Every one goes through Reload: refused by name, changing nothing, as LoadRegion is. Each reads the world
+        // on disk again first (RebuildEditPlan), so a volume or entity saved a moment ago is known.
+
+        /// UE's Place Actors > Location Volume: a new entity "Location Volume" with a LocationVolumeComponent at
+        /// the world origin, selected, one undo step. Its box loads once the scene is saved (the box is its
+        /// record's). Refused by name for a scene that is not a partitioned world.
+        [[nodiscard]] Common::BoolResultStr AddLocationVolume();
+        /// The tags of the scene's Location Volumes, in registry order (the palette's per-volume entries).
+        [[nodiscard]] std::vector<std::string> LocationVolumeNames() const;
+        /// UE's Location Volume Load / Unload: the saved volume tagged @p name loaded or not for this user.
+        /// Refused by name when no saved volume, or more than one, carries the tag.
+        [[nodiscard]] Common::BoolResultStr SetLocationVolumeLoaded( const std::string& name, bool loaded );
+        /// UE's "Load Region from Selection": a new entity list of every record around the selected entities
+        /// (EditorRegions::RecordsAroundSelection). Refused by name when none of them is a placed record of the
+        /// saved world.
+        [[nodiscard]] Common::BoolResultStr LoadRegionFromSelection( const std::vector<Common::UUID>& selected );
+        /// "Unload Selected": the selected entities' composites leave every entity list (EditorRegions::
+        /// WithoutEntities); the status names how many stay held by a region, a volume or a pin.
+        [[nodiscard]] Common::BoolResultStr UnloadSelected( const std::vector<Common::UUID>& selected );
+        /// UE's Pin / Unpin (FLoaderAdapterPinnedActors): the selected records held whatever the other loaders
+        /// are. Pin is refused by name for an entity that is not a record of the saved world.
+        [[nodiscard]] Common::BoolResultStr SetSelectedPinned( const std::vector<Common::UUID>& selected,
+                                                               bool                             pinned );
+        [[nodiscard]] Common::BoolResultStr UnpinAll();
+        /// The loader rows' names (EditorRegions::LoaderRowsOf) as the window lists them, the palette's
+        /// "Load / Unload / Remove loader <name>" entries.
+        [[nodiscard]] std::vector<std::string> LoaderNames() const;
+        /// A row's Loaded switch ("All" off drops Load All; "Pinned" is refused - Unpin All). Refused by name for
+        /// a name no row carries.
+        [[nodiscard]] Common::BoolResultStr SetLoaderLoaded( const std::string& name, bool loaded );
+        /// Removes a region or an entity list (a volume is removed by deleting its entity, the pins by Unpin All).
+        [[nodiscard]] Common::BoolResultStr RemoveLoader( const std::string& name );
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -174,6 +208,21 @@ namespace Desert::Editor
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
         std::vector<WorldPartitionMap::CellState> m_EditCells;
+        // Edit over the index: the id of each record of m_EditPlan, and the world's Location Volumes as saved.
+        std::vector<std::uint64_t>                                 m_RowIds;
+        std::vector<::Desert::Core::EditorRegions::LocationVolume> m_Volumes;
+        // The volumes were read once for this scene: the open applied their Auto Load, so a volume saved after it
+        // joins the loaders unloaded.
+        bool m_VolumesKnown = false;
+        // The loader list (Loaders section), under the Load Region row.
+        void DrawLoaders();
+        // Every loader change starts here: the world on disk read again (RebuildEditPlan), so m_EditPlan,
+        // m_RowIds, m_Volumes and Held() are its saved state. Refused, naming @p what, when the scene is not a
+        // partitioned world opened from its files.
+        [[nodiscard]] Common::BoolResultStr ReadWorldOnDisk( const std::string& what );
+        // The loader row named @p name of what the editor holds now, or none.
+        [[nodiscard]] std::optional<::Desert::Core::EditorRegions::LoaderRow>
+        FindLoader( const std::string& name ) const;
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size

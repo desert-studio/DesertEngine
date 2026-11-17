@@ -29,6 +29,7 @@
 #include <tuple>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -479,6 +480,41 @@ namespace Desert::Core::WorldCells
                                                        const StoredHLODs*                            hlods )
     {
         using Result = CookedWorld;
+        // A LOCATION VOLUME IS EDITOR-ONLY (WP-LOADER-ADAPTERS; UE never cooks an ALocationVolume): its records
+        // leave the world before it is planned, so no cell, no always-loaded file and no game ever holds one. A
+        // record parented to a volume would lose its place, so the cook refuses it by name. (A descriptor count
+        // that is not the records' is refused below, as it always was.)
+        if ( descriptors.size() == scene.Entities.size() &&
+             std::any_of( descriptors.begin(), descriptors.end(), []( const Rules::EntityDescriptor& descriptor )
+                          { return descriptor.LocationVolume.has_value(); } ) )
+        {
+            std::unordered_set<std::uint64_t> volumes;
+            for ( const Rules::EntityDescriptor& descriptor : descriptors )
+                if ( descriptor.LocationVolume.has_value() && descriptor.Id.has_value() )
+                    volumes.insert( *descriptor.Id );
+            SceneSerialized                      kept = scene;
+            std::vector<Rules::EntityDescriptor> keptDescriptors;
+            keptDescriptors.reserve( descriptors.size() );
+            std::size_t write = 0;
+            for ( std::size_t record = 0; record < descriptors.size(); ++record )
+            {
+                const Rules::EntityDescriptor& descriptor = descriptors[record];
+                if ( descriptor.LocationVolume.has_value() )
+                    continue;
+                if ( descriptor.Parent.has_value() && volumes.contains( *descriptor.Parent ) )
+                    return Common::MakeError<Result>( std::format(
+                         "record {} ('{}') of '{}' is a child of Location Volume {}, which is editor-only and is "
+                         "not cooked; detach it from the volume",
+                         record, descriptor.Tag, scene.SceneName, *descriptor.Parent ) );
+                if ( write != record ) // a self-move would leave the record unspecified
+                    kept.Entities[write] = std::move( kept.Entities[record] );
+                ++write;
+                keptDescriptors.push_back( descriptor );
+            }
+            kept.Entities.erase( kept.Entities.begin() + static_cast<std::ptrdiff_t>( write ),
+                                 kept.Entities.end() );
+            return CookPlanned( kept, keptDescriptors, registries, hlods );
+        }
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeError<Result>( "'" + scene.SceneName +
                                               "' states no WorldPartition block, so it has no cells to cook" );

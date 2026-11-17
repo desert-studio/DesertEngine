@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -423,6 +424,101 @@ namespace Desert::Core::EditorRegions
             if ( take[r] )
                 records.push_back( rowIds[r] );
         return records;
+    }
+
+    HeldRegions WithoutEntities( const HeldRegions& held, const Rules::WorldPartitionPlan& plan,
+                                 std::span<const std::uint64_t> rowIds, std::span<const std::uint64_t> selected )
+    {
+        const std::unordered_set<std::uint64_t> chosen( selected.begin(), selected.end() );
+        // Each selected entity goes with its whole composite: a list naming a sibling would bring it back.
+        std::unordered_set<std::uint64_t> drop( selected.begin(), selected.end() );
+        for ( const Rules::PlannedComposite& composite : plan.Composites )
+        {
+            if ( std::none_of( composite.Members.begin(), composite.Members.end(), [&]( const std::size_t member )
+                               { return member < rowIds.size() && chosen.contains( rowIds[member] ); } ) )
+                continue;
+            for ( const std::size_t member : composite.Members )
+                if ( member < rowIds.size() )
+                    drop.insert( rowIds[member] );
+        }
+        HeldRegions out = held;
+        for ( EntityListLoader& list : out.EntityLists )
+            std::erase_if( list.Entities, [&]( const std::uint64_t id ) { return drop.contains( id ); } );
+        std::erase_if( out.EntityLists, []( const EntityListLoader& list ) { return list.Entities.empty(); } );
+        return out;
+    }
+
+    std::vector<LoaderRow> LoaderRowsOf( const HeldRegions& held, std::span<const LocationVolume> volumes )
+    {
+        std::vector<LoaderRow> rows;
+        if ( held.Whole )
+        {
+            LoaderRow row;
+            row.Kind   = LoaderKind::Whole;
+            row.Name   = "All";
+            row.Loaded = true;
+            rows.push_back( std::move( row ) );
+        }
+        for ( std::size_t v = 0; v < held.Volumes.size(); ++v )
+        {
+            LoaderRow row;
+            row.Kind   = LoaderKind::Volume;
+            row.Index  = v;
+            row.Loaded = held.Volumes[v].Loaded;
+            row.Name   = std::format( "Location Volume {}", held.Volumes[v].Volume );
+            for ( const LocationVolume& volume : volumes )
+                if ( volume.Id == held.Volumes[v].Volume )
+                {
+                    if ( !volume.Name.empty() )
+                        row.Name = volume.Name;
+                    row.Box = volume.Region;
+                }
+            rows.push_back( std::move( row ) );
+        }
+        for ( std::size_t r = 0; r < held.Regions.size(); ++r )
+        {
+            LoaderRow row;
+            row.Kind   = LoaderKind::Region;
+            row.Index  = r;
+            row.Loaded = held.Regions[r].Loaded;
+            row.Name   = std::format( "Region {}", r + 1 );
+            row.Box    = held.Regions[r].Region;
+            rows.push_back( std::move( row ) );
+        }
+        for ( std::size_t l = 0; l < held.EntityLists.size(); ++l )
+        {
+            LoaderRow row;
+            row.Kind   = LoaderKind::EntityList;
+            row.Index  = l;
+            row.Count  = held.EntityLists[l].Entities.size();
+            row.Loaded = held.EntityLists[l].Loaded;
+            row.Name   = std::format( "Selection {}", l + 1 );
+            rows.push_back( std::move( row ) );
+        }
+        if ( !held.Pinned.empty() )
+        {
+            LoaderRow row;
+            row.Kind   = LoaderKind::Pinned;
+            row.Count  = held.Pinned.size();
+            row.Loaded = true;
+            row.Name   = "Pinned";
+            rows.push_back( std::move( row ) );
+        }
+        // A name the palette addresses must be one row's: a repeat (two volumes tagged alike, a volume tagged
+        // "Region 1") gains the first free " #<n>".
+        std::unordered_set<std::string> taken;
+        for ( LoaderRow& row : rows )
+        {
+            if ( taken.insert( row.Name ).second )
+                continue;
+            for ( std::size_t n = 2;; ++n )
+                if ( std::string name = std::format( "{} #{}", row.Name, n ); taken.insert( name ).second )
+                {
+                    row.Name = std::move( name );
+                    break;
+                }
+        }
+        return rows;
     }
 
     Common::ResultStr<RegionOutcome> LoadHeld( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held )
