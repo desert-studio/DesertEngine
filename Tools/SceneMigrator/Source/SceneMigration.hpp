@@ -68,6 +68,10 @@ namespace Desert::Migration
         std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
         // Core::WorldPartitionSerialized::ChunkRegionSize, carried through untouched (no step reads it).
         std::optional<float> ChunkRegionSize;
+        // Core::WorldPartitionSerialized::DataLayers (WP v2), carried through untouched (no step reads it).
+        std::optional<std::vector<Core::DataLayerSerialized>> DataLayers;
+        // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3): Or when a file does not state it.
+        Core::WorldPartitionDataLayersLogicOperator DataLayersLogicOperator = Core::WorldPartitionDataLayersLogicOperator::Or;
         // v50..v66 files only.
         std::optional<std::string> DefaultHLODLayer;
     };
@@ -474,6 +478,21 @@ namespace Desert::Migration
     //       records are a scene's, so it states the same three tags.
     inline constexpr int kWorldPartitionVersionTagged = 1;
 
+    //   2 - DATA LAYERS (WP-DATA-LAYERS; UE UDataLayerInstance + AActor::DataLayerAssets). The block may state
+    //       `DataLayers` (Core::DataLayerSerialized: Name, InitiallyLoadedInEditor) and a record a `DataLayers`
+    //       component (the layers it belongs to). ADDITIVE: a v1 file states neither and means exactly what it
+    //       meant, so the step has no transform of its own - the stamp states WPAR 2. The number moves so a v1
+    //       build refuses a world whose layers it would silently ignore. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionDataLayers = 2;
+
+    //   3 - RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME; UE EDataLayerType::Runtime, UDataLayerInstance::
+    //       InitialRuntimeState, UWorldPartition::DataLayersLogicOperator). A layer states its `Type` and a Runtime
+    //       one its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. ADDITIVE: a v2 file's layers
+    //       are Editor layers and its operator Or, which the read gives every missing key (DefaultIfMissing) and the
+    //       rewrite states - nothing else changes. The number moves so a v2 build refuses a world whose runtime
+    //       layers it would stream as if they were not there. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -521,7 +540,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionTagged == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1295,6 +1314,8 @@ namespace Desert::Migration
         // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
         int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
+        bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
+        bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
