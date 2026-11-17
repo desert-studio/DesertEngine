@@ -1,9 +1,11 @@
 #include <Engine/Graphic/IesProfile.hpp>
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
+#include <locale>
 #include <optional>
+#include <sstream>
+#include <string>
 
 namespace Desert::Graphic
 {
@@ -23,13 +25,17 @@ namespace Desert::Graphic
                     ++m_Cursor;
                 if ( m_Cursor >= m_Text.size() )
                     return std::nullopt;
-                const char* begin        = m_Text.data() + m_Cursor;
-                const char* end          = m_Text.data() + m_Text.size();
-                float       value        = 0.0f;
-                const auto [stop, error] = std::from_chars( begin, end, value );
-                if ( error != std::errc() )
+                // One token up to the next separator, read in the classic locale: the libc++ of the macOS 14 SDK has
+                // no floating-point std::from_chars (LLVM 20), and strtof follows the process locale.
+                std::size_t tokenEnd = m_Cursor;
+                while ( tokenEnd < m_Text.size() && !IsSeparator( m_Text[tokenEnd] ) )
+                    ++tokenEnd;
+                std::istringstream token( std::string( m_Text.substr( m_Cursor, tokenEnd - m_Cursor ) ) );
+                token.imbue( std::locale::classic() );
+                float value = 0.0f;
+                if ( !( token >> value ) || token.peek() != std::char_traits<char>::eof() )
                     return std::nullopt;
-                m_Cursor += static_cast<std::size_t>( stop - begin );
+                m_Cursor = tokenEnd;
                 return value;
             }
 
