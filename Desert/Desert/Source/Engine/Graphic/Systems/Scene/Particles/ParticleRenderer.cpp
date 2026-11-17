@@ -108,14 +108,14 @@ namespace
     {
         glm::vec4                                       Directional{ 0.0f };
         glm::vec4                                       Gust{ 0.0f };
-        std::array<glm::vec4, kMaxLocalWindSources>     Source{};
-        std::array<glm::vec4, kMaxLocalWindSources / 4> Speed{};
+        std::array<glm::vec4, Desert::Graphic::kMaxLocalWindSources>     Source{};
+        std::array<glm::vec4, Desert::Graphic::kMaxLocalWindSources / 4> Speed{};
     };
     static_assert( sizeof( ParticleSceneWindGpu ) == 192, "ParticleSimulate.shader SceneWind" );
 
     // The scene view's air as the SceneWind block carries it (ViewFrame: the gusts, the local sources and the
     // directional velocity with the local sources' reference speed).
-    [[nodiscard]] ParticleSceneWindGpu MakeParticleSceneWind( const ViewFrame& view )
+    [[nodiscard]] ParticleSceneWindGpu MakeParticleSceneWind( const Desert::Graphic::ViewFrame& view )
     {
         ParticleSceneWindGpu wind;
         wind.Directional = glm::vec4( view.WindVelocityXZ.x, 0.0f, view.WindVelocityXZ.y,

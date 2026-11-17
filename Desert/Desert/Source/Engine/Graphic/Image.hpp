@@ -13,6 +13,8 @@
 
 namespace Desert::Graphic
 {
+    class GpuBatch;
+
     /// A GPU->host copy in flight (Image2D::BeginReadbackRGBA8). Created and destroyed on the thread that
     /// owns the device; ReadRGBA8 alone may run on a worker, and only after IsComplete() said yes.
     class ImageReadback
