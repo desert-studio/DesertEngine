@@ -339,28 +339,32 @@ namespace Desert::Graphic
         Append( std::span<const Common::AssetHandle>( &asset, 1 ), screenPixels );
     }
 
-    void TextureStreamingDemand::SetWarmups( const void* owner, std::vector<std::shared_ptr<WarmupAsk>> asks )
+    void TextureStreamingDemand::SetWarmups( const void* owner, const void* world,
+                                             std::vector<std::shared_ptr<WarmupAsk>> asks )
     {
         const std::lock_guard<std::mutex> lock( m_WarmupsLock );
         if ( asks.empty() )
             m_Warmups.erase( owner );
         else
-            m_Warmups[owner] = std::move( asks );
+            m_Warmups[owner] = OwnedWarmups{ world, std::move( asks ) };
     }
 
-    void TextureStreamingDemand::NoteWarmups( const Geometry::LODView& view, const uint32_t viewHeight )
+    void TextureStreamingDemand::NoteWarmups( const void* world, const Geometry::LODView& view,
+                                              const uint32_t viewHeight )
     {
         std::vector<std::shared_ptr<WarmupAsk>> asks;
         {
             const std::lock_guard<std::mutex> lock( m_WarmupsLock );
-            for ( const auto& [owner, list] : m_Warmups )
-                asks.insert( asks.end(), list.begin(), list.end() );
+            for ( const auto& [owner, owned] : m_Warmups )
+                if ( owned.World == world )
+                    asks.insert( asks.end(), owned.Asks.begin(), owned.Asks.end() );
         }
         for ( const auto& ask : asks )
         {
             const float pixels = ScreenPixels( ask->Center, ask->Radius, view, viewHeight );
             float       held   = ask->Pixels.load( std::memory_order_relaxed );
-            while ( pixels > held && !ask->Pixels.compare_exchange_weak( held, pixels, std::memory_order_relaxed ) )
+            while ( pixels > held &&
+                    !ask->Pixels.compare_exchange_weak( held, pixels, std::memory_order_relaxed ) )
             {
             }
             if ( pixels > 0.0f )

@@ -218,8 +218,10 @@ namespace Desert::Core
         // sweep, its textures asked for at the size every view measures the cell's bounds at - until resident.
         [[nodiscard]] bool WarmCell( std::size_t unit ) override;
         [[nodiscard]] bool WarmHLOD( std::size_t hlod ) override;
+        [[nodiscard]] bool WarmHLODCell( std::size_t unit ) override;
         void               EndCellWarmup( std::size_t unit ) override;
         void               EndHLODWarmup( std::size_t hlod ) override;
+        void               EndHLODCellWarmup( std::size_t unit ) override;
 
         // What stands in for the cells that are not drawn: nullopt only on a streamer that failed to begin.
         [[nodiscard]] const std::optional<Rules::HLODRuntime>& HLODs() const
@@ -307,10 +309,15 @@ namespace Desert::Core
         // with its read, HLODCellWorld).
         struct Warming;
         [[nodiscard]] bool WarmUp( std::map<std::size_t, std::unique_ptr<Warming>>& warming, std::size_t key,
-                                   std::size_t unit, const std::vector<std::string>* guids );
+                                   const Rules::CellBounds& bounds, const std::string& what,
+                                   const std::vector<std::string>* guids );
         void               PublishWarmups();
+        // Whether world unit @p unit's square holds a streaming source: Play waits for that cell, so it is never
+        // held for a warmup (WorldPartitionStreamingPerformance.hpp, CRITICAL).
+        [[nodiscard]] bool                                        UnderSource( std::size_t unit );
         std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmCells;
         std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmHLODs;
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmHLODCells; // by HLOD residency unit
         std::vector<std::vector<std::string>>                     m_HLODDependencies;
         std::unordered_map<std::size_t, std::vector<std::string>> m_HLODUnitDependencies;
 

@@ -81,10 +81,12 @@ namespace Desert::Graphic
             /// The largest size, in pixels, any view measured since the ask was made; 0 before the first view.
             std::atomic<float> Pixels{ 0.0f };
         };
-        /// Replaces every ask @p owner made (one owner per world streamer); an empty list withdraws them.
-        void SetWarmups( const void* owner, std::vector<std::shared_ptr<WarmupAsk>> asks );
-        /// One view of the frame (the renderer, per view): measures every standing ask and notes its textures.
-        void NoteWarmups( const Geometry::LODView& view, uint32_t viewHeight );
+        /// Replaces every ask @p owner (one world streamer) made about world @p world (the scene it streams); an
+        /// empty list withdraws them.
+        void SetWarmups( const void* owner, const void* world, std::vector<std::shared_ptr<WarmupAsk>> asks );
+        /// One view of world @p world (the renderer, per view): measures every standing ask about that world and
+        /// notes its textures. A view of another world (an asset preview, a second scene) measures none of them.
+        void NoteWarmups( const void* world, const Geometry::LODView& view, uint32_t viewHeight );
 
         /// The frame's demand per texture asset (largest screen size in pixels): every thread's notes merged
         /// once. The map is this object's own and reused; it holds until the next TakeFrame. One taker (the
@@ -133,7 +135,12 @@ namespace Desert::Graphic
         std::unordered_map<const void*, std::shared_ptr<InstanceFieldBounds>> m_Fields;
         PoolStats                                                             m_Pool;
         /// The standing warmup asks, by owner (SetWarmups); read by NoteWarmups.
-        std::mutex                                                               m_WarmupsLock;
-        std::unordered_map<const void*, std::vector<std::shared_ptr<WarmupAsk>>> m_Warmups;
+        struct OwnedWarmups
+        {
+            const void*                             World = nullptr;
+            std::vector<std::shared_ptr<WarmupAsk>> Asks;
+        };
+        std::mutex                                    m_WarmupsLock;
+        std::unordered_map<const void*, OwnedWarmups> m_Warmups;
     };
 } // namespace Desert::Graphic

@@ -189,8 +189,8 @@ namespace Desert::Core::Rules
     // what the change is about to draw and answers yes once that is resident.
     struct ResidencyGate
     {
-        std::vector<std::uint8_t>             HoldActivation;
-        std::vector<std::uint8_t>             HoldRelease;
+        std::vector<std::uint8_t>          HoldActivation;
+        std::vector<std::uint8_t>          HoldRelease;
         std::function<bool( std::size_t )> MayActivate;
         std::function<bool( std::size_t )> MayRelease;
     };

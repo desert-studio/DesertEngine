@@ -7,13 +7,13 @@
 # Expected in editor.log ("[WorldPartition] 'WP_Protocol': ..."): cells near X=1800 m "grid 'Main' HLOD of ...
 # hidden." only after their warmup (no line "the HLOD warmup of ... ran out of 60 frames" for them, or a few at
 # most under the cut pool); when the flyer leaves, "HLOD of ... shown." after the HLOD warmup.
-# Lead: confirm the DesertCtl spelling of the pool line (Scalability panel) before the first run.
+# The pool is cut through the Quality palette (QualityOverridePaletteCommands: 256 is the parameter's Min, the
+# smallest it takes); the override is saved to machine.json, so the last line clears it again.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано set world WorldPartition '{"Grids":[{"Name":"Main","CellSize":2500,"LoadingRange":20000,"Priority":0,"HLODLayer":"HLOD_Main"},{"Name":"Foliage","CellSize":1280,"LoadingRange":6400,"Priority":0,"HLODLayer":"HLOD_Foliage"},{"Name":"LandscapeTiles","CellSize":5000,"LoadingRange":51000,"Priority":0,"HLODLayer":"HLOD_Landscape"}],"HLODLayers":[{"Name":"HLOD_Main","Type":"MeshSimplify"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
 Дано run Scene "Build HLODs"
-Дано run Panel "Open Scalability"
-Дано set scalability Textures.StreamingPoolMiB 96
+Дано run Quality "Quality: Textures.StreamingPoolMiB 256"
 Дано set 9000001 StreamingSourceData.Enabled false
 Дано set 9000003 StreamingSourceData.Enabled true
 Когда run Mode "Select mode"
@@ -29,3 +29,4 @@
 Когда advance 13.5
 Тогда warmup_hlod_sharp флаер ушёл к X=5 км: ячейки у X 1.8 км ушли в HLOD MeshSimplify - запечённые текстуры HLOD сразу чёткие, дыры нет; в логе HLOD of ... shown после прогрева HLOD
 Когда run Action "Stop"
+Когда run Quality "Quality: Textures.StreamingPoolMiB Level"

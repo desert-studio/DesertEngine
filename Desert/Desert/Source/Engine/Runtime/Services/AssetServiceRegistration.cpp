@@ -306,7 +306,11 @@ namespace Desert::Runtime
         for ( const auto& row : closure )
         {
             if ( IsMeshKind( row.Kind ) && meshes != nullptr )
-                arriving += meshes->Get( row.Handle ) == nullptr ? 1 : 0;
+                // A mesh that failed (or that no row names) never arrives: StateOf tells it from one still coming.
+                arriving += meshes->Get( row.Handle ) == nullptr &&
+                                      meshes->StateOf( row.Handle ) == MeshService::State::Pending
+                                 ? 1
+                                 : 0;
             else if ( row.Kind == KindName( ContentKind::Material ) && materials != nullptr )
                 arriving += materials->IsPending( row.Handle ) ? 1 : 0;
             else if ( row.Kind == KindName( ContentKind::Texture ) && textures != nullptr )
@@ -318,7 +322,8 @@ namespace Desert::Runtime
         return arriving;
     }
 
-    std::vector<Assets::AssetHandle> ClosureTextures( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
+    std::vector<Assets::AssetHandle>
+    ClosureTextures( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
     {
         using Common::Content::ContentKind;
         using Common::Content::KindName;
