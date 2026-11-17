@@ -421,8 +421,9 @@ namespace Desert::Editor
         {
             const ::Desert::Core::RuntimePartitionSerialized& runtime = current.RuntimePartitions[g];
             ImGui::PushID( static_cast<int>( g ) );
-            ImGui::TextUnformatted(
-                 std::format( "{} ({})", runtime.Name, ::Desert::Core::Rules::RuntimePartitionTypeName( runtime.Type ) ).c_str() );
+            ImGui::TextUnformatted( std::format( "{} ({})", runtime.Name,
+                                                 ::Desert::Core::Rules::RuntimePartitionTypeName( runtime.Type ) )
+                                         .c_str() );
             if ( !::Desert::Core::Rules::RuntimePartitionClass( runtime.Type ).CanBeAway() )
             {
                 ImGui::SameLine();
@@ -627,7 +628,8 @@ namespace Desert::Editor
             while ( ::Desert::Core::Rules::GridIndexOf( *after, runtime.Name ).has_value() );
             if ( type == ::Desert::Core::RuntimePartitionType::LHGrid )
                 runtime.LHGrid.emplace();
-            label = std::format( "Add {} partition {}", ::Desert::Core::Rules::RuntimePartitionTypeName( type ), runtime.Name );
+            label = std::format( "Add {} partition {}", ::Desert::Core::Rules::RuntimePartitionTypeName( type ),
+                                 runtime.Name );
             after->RuntimePartitions.push_back( std::move( runtime ) );
         };
         if ( ImGui::Button( "Add LHGrid partition" ) )
