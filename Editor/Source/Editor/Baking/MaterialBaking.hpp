@@ -149,7 +149,8 @@ namespace Desert::Editor::Baking
     // THE PALETTE'S "Bake Material to Textures" on the selected entity's slot @p slot: starts the bake (one at a
     // time). Refused: no single selected entity with a static mesh, no readable mesh, a slot without a material or
     // without triangles, a bake already running.
-    [[nodiscard]] Common::BoolResultStr StartBakeOfSelection( ::Desert::Core::Scene& scene, int slot, uint32_t size );
+    [[nodiscard]] Common::BoolResultStr StartBakeOfSelection( ::Desert::Core::Scene& scene, int slot,
+                                                              uint32_t size );
     // One editor frame of the running palette bake; on completion its images are written under
     // Assets/Textures/Baked as `T_<entity>_<slot>_{BaseColor,Normal,ORM,Emissive,OpacityMask}` texture assets.
     void TickBakeOfSelection( Assets::AssetManager& assets );

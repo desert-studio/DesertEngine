@@ -350,8 +350,8 @@ namespace Desert::Editor::Baking
         desc.MaterialSlots.assign( static_cast<std::size_t>( m_Request.Slot ) + 1, m_Request.Material );
         desc.CastShadows       = false;
         desc.CastContactShadow = false;
-        if ( auto set =
-                  ECS::SetEditableMesh( desc, std::make_shared<Geometry::DynamicMesh3>( std::move( welded.Mesh ) ) );
+        if ( auto set = ECS::SetEditableMesh(
+                  desc, std::make_shared<Geometry::DynamicMesh3>( std::move( welded.Mesh ) ) );
              !set )
             return Common::MakeError( "the UV-space proxy was refused: " + set.GetError() );
         ECS::Entity& entity = m_Scene->CreateNewEntity( "MaterialBakeProxy" );
@@ -555,8 +555,8 @@ namespace Desert::Editor::Baking
                 for ( int dy = -1; dy <= 1 && rasterMiss[texel] == 0; ++dy )
                     for ( int dx = -1; dx <= 1 && rasterMiss[texel] == 0; ++dx )
                     {
-                        const int nx = static_cast<int>( x ) + dx;
-                        const int ny = static_cast<int>( y ) + dy;
+                        const int  nx      = static_cast<int>( x ) + dx;
+                        const int  ny      = static_cast<int>( y ) + dy;
                         const bool outside = nx < 0 || ny < 0 || nx >= static_cast<int>( size ) ||
                                              ny >= static_cast<int>( size ) ||
                                              covered[static_cast<std::size_t>( ny ) * size + nx] == 0;
@@ -594,8 +594,8 @@ namespace Desert::Editor::Baking
             out.BaseColor[texel * 4 + 3] = 255;
             const glm::vec4 b            = HalfTexel( gbufferB, texel );
             const glm::vec4 e            = HalfTexel( emissive, texel );
-            out.ORM[texel * 4 + 0]       = UnitToByte( e.a ); // material AO
-            out.ORM[texel * 4 + 1]       = UnitToByte( b.a ); // roughness
+            out.ORM[texel * 4 + 0]       = UnitToByte( e.a );     // material AO
+            out.ORM[texel * 4 + 1]       = UnitToByte( b.a );     // roughness
             out.ORM[texel * 4 + 2]       = albedo[texel * 4 + 3]; // metallic: G-buffer A alpha, linear UNORM
             out.ORM[texel * 4 + 3]       = 255;
             const float scale            = out.EmissiveScale > 0.0f ? out.EmissiveScale : 1.0f;
