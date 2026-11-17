@@ -32,6 +32,8 @@
 #include <utility>
 #include <vector>
 
+#include <tuple>
+
 namespace Desert::Core::WorldCells
 {
     namespace
@@ -130,11 +132,12 @@ namespace Desert::Core::WorldCells
             return "Unknown";
         }
 
-        // A cell's file is named by its grid, level and coordinate alone, so it does not move when the world
-        // gains or loses another cell, and two grids' cells never share a file (WP22).
-        std::string CellFileName( const Rules::PlannedCell& cell )
+        // A cell's file is named by its grid, level, coordinate and runtime data layers alone (Rules::CellStem), so
+        // it does not move when the world gains or loses another cell, two grids' cells never share a file (WP22)
+        // and neither do two sets of runtime layers in one square (WP-DATA-LAYERS-RUNTIME).
+        std::string CellFileName( const WorldPartitionSerialized& partition, const Rules::PlannedCell& cell )
         {
-            return std::format( "G{}_L{}_{}_{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z, kCellExtension );
+            return Rules::CellStem( partition, cell ) + std::string( kCellExtension );
         }
 
         // WHAT A UNIT NEEDS FROM THE CONTENT: every value in its records that the registry recognises as an
@@ -550,13 +553,20 @@ namespace Desert::Core::WorldCells
             row.Name = Rules::DescribeResidencyUnit( plan, unit );
             if ( unit < plan.AlwaysLoaded.size() )
             {
-                row.File   = std::string( kAlwaysLoadedFileName );
+                // UE's always-loaded cell of a data layer set: a composite of runtime layers is read only while its
+                // layers want it, so it is not in the file the game makes at its start.
+                row.DataLayers = Rules::UnitRuntimeDataLayers( plan, *scene.WorldPartition, unit );
+                row.File       = row.DataLayers.empty()
+                                      ? std::string( kAlwaysLoadedFileName )
+                                      : "AlwaysLoaded" + Rules::DataLayersCellSuffix( *scene.WorldPartition, row.DataLayers ) +
+                                             std::string( kCellExtension );
                 row.Reason = ReasonName( plan.Composites.at( plan.AlwaysLoaded[unit] ).Reason );
             }
             else
             {
                 const Rules::PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
-                row.File                       = CellFileName( cell );
+                row.File                       = CellFileName( *scene.WorldPartition, cell );
+                row.DataLayers                 = cell.DataLayers;
                 row.Grid                       = cell.Grid;
                 row.Level                      = cell.Level;
                 row.X                          = cell.Cell.X;
@@ -874,7 +884,7 @@ namespace Desert::Core::WorldCells
 
         // The scene-wide part of the index and the records of units [0, @p units), each file read once.
         Common::ResultStr<SceneSerialized> Assemble( const WorldIndex& index, const FileReader& reader,
-                                                     std::size_t units )
+                                                     const std::function<bool( std::size_t )>& takes )
         {
             SceneSerialized scene;
             scene.SceneName      = index.SceneName;
@@ -883,8 +893,10 @@ namespace Desert::Core::WorldCells
             scene.WorldPartition = index.WorldPartition;
 
             std::map<std::string, CellPayload> read;
-            for ( std::size_t unit = 0; unit < units; ++unit )
+            for ( std::size_t unit = 0; unit < index.Units.size(); ++unit )
             {
+                if ( !takes( unit ) )
+                    continue;
                 const std::string& file = index.Units[unit].File;
                 auto               held = read.find( file );
                 if ( held == read.end() )
@@ -925,7 +937,7 @@ namespace Desert::Core::WorldCells
 
     Common::ResultStr<SceneSerialized> AssembleWorld( const WorldIndex& index, const FileReader& reader )
     {
-        return Assemble( index, reader, index.Units.size() );
+        return Assemble( index, reader, []( std::size_t ) { return true; } );
     }
 
     Common::ResultStr<std::vector<Assets::EntityData>> HLODRecords( const WorldIndex& index,
@@ -949,7 +961,9 @@ namespace Desert::Core::WorldCells
         std::size_t alwaysLoaded = 0;
         while ( alwaysLoaded < index.Units.size() && index.Units[alwaysLoaded].Reason.has_value() )
             ++alwaysLoaded;
-        return Assemble( index, reader, alwaysLoaded );
+        // Not an always-loaded composite of runtime data layers: it streams by its layers' state (its own file).
+        return Assemble( index, reader, [&index, alwaysLoaded]( std::size_t unit )
+                         { return unit < alwaysLoaded && index.Units[unit].DataLayers.empty(); } );
     }
 
     Common::ResultStr<IndexedWorld> PlanFromIndex( const WorldIndex& index )
@@ -984,9 +998,11 @@ namespace Desert::Core::WorldCells
                 if ( !reason.has_value() )
                     return Common::MakeError<Result>( name + " states the always-loaded reason '" + *from.Reason +
                                                       "', which is none this build knows" );
-                composite.Reason = *reason;
+                composite.Reason     = *reason;
+                composite.DataLayers = from.DataLayers; // its runtime layers: all the cooked plan needs of them
                 world.Plan.AlwaysLoaded.push_back( placeAt );
-                world.AlwaysLoadedRecords += from.Ids.size();
+                if ( from.DataLayers.empty() )
+                    world.AlwaysLoadedRecords += from.Ids.size();
             }
             else
             {
@@ -1004,14 +1020,21 @@ namespace Desert::Core::WorldCells
                 cell.Cell   = Rules::CellCoord{ *from.X, *from.Z };
                 cell.Square = *from.Square;
                 cell.Bounds = *from.Bounds;
-                cell.Height = *from.Height;
+                cell.Height     = *from.Height;
+                cell.DataLayers = from.DataLayers;
+                for ( const std::size_t layer : cell.DataLayers )
+                    if ( !index.WorldPartition.DataLayers.has_value() || layer >= index.WorldPartition.DataLayers->size() ||
+                         ( *index.WorldPartition.DataLayers )[layer].Type != DataLayerType::Runtime )
+                        return Common::MakeError<Result>( std::format( "{} names data layer {}, which is no runtime "
+                                                                       "layer of the world",
+                                                                       name, layer ) );
                 cell.Composites.push_back( placeAt );
                 if ( !world.Plan.Cells.empty() )
                 {
                     const Rules::PlannedCell& last = world.Plan.Cells.back();
-                    if ( std::make_tuple( last.Grid, last.Level, last.Cell.X, last.Cell.Z ) >=
-                         std::make_tuple( cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z ) )
-                        return Common::MakeError<Result>( name + " is out of (grid, level, X, Z) order after '" +
+                    if ( std::tie( last.Grid, last.Level, last.Cell.X, last.Cell.Z, last.DataLayers ) >=
+                         std::tie( cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z, cell.DataLayers ) )
+                        return Common::MakeError<Result>( name + " is out of (grid, level, X, Z, data layers) order after '" +
                                                           index.Units[unit - 1].Name + "'" );
                 }
                 composite.Grid      = cell.Grid;
@@ -1019,6 +1042,7 @@ namespace Desert::Core::WorldCells
                 composite.Cell      = cell.Cell;
                 composite.Footprint = cell.Bounds;
                 composite.Height    = cell.Height;
+                composite.DataLayers = cell.DataLayers;
                 world.Plan.MaxLevel = std::max( world.Plan.MaxLevel, cell.Level );
                 world.Plan.Cells.push_back( std::move( cell ) );
             }
@@ -1190,9 +1214,9 @@ namespace Desert::Core::WorldCells
         }
 
         // "HLOD_<cell file stem>.dhlod".
-        std::string BuiltHLODFileName( const Rules::PlannedCell& cell )
+        std::string BuiltHLODFileName( const WorldPartitionSerialized& partition, const Rules::PlannedCell& cell )
         {
-            const std::string cellFile = CellFileName( cell );
+            const std::string cellFile = CellFileName( partition, cell );
             return "HLOD_" + cellFile.substr( 0, cellFile.size() - kCellExtension.size() ) +
                    std::string( kBuiltHLODExtension );
         }
@@ -1374,7 +1398,8 @@ namespace Desert::Core::WorldCells
             if ( hlodLayer != nullptr )
                 if ( auto built = build( row, *hlodLayer, hp.Members[unit],
                                          Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
-                                         HLODFileName( CellFileName( cell ) ), BuiltHLODFileName( cell ) );
+                                         HLODFileName( CellFileName( *scene.WorldPartition, cell ) ),
+                                         BuiltHLODFileName( *scene.WorldPartition, cell ) );
                      !built )
                     return Common::MakeError<Result>( built.GetError() );
             out.Cells.push_back( std::move( row ) );

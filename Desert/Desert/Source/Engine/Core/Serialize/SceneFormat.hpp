@@ -146,7 +146,12 @@ namespace Desert::Core
     // component. Additive - a v1 file states neither and reads the same - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionDataLayers) states the tag and changes nothing else; the number moves so an older
     // build refuses a world whose layers it would silently ignore.
-    inline constexpr int kWorldPartitionVersion = 2;
+    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime layer
+    // its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads every layer
+    // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
+    // refuses a world whose runtime layers it would stream as if they were not there.
+    inline constexpr int kWorldPartitionVersion = 3;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -190,11 +195,10 @@ namespace Desert::Core
     // DATA LAYERS (WP-DATA-LAYERS, the O4 reservation taken up) are a SIBLING of `Grids` in this object -
     // `DataLayers`, a list of named layers (DataLayerSerialized) - plus a membership list on the record (the
     // `DataLayers` component, ECS::DataLayersComponent). This step brings UE's EDITOR data layers: they decide
-    // what of the world the editor holds and nothing of the cook or Play. A RUNTIME layer - one whose cells
-    // stream by the layer's runtime state - makes the cell a composite lands in gain the layer as a third
-    // coordinate beside level and square; that is additive to this shape (a `Type` beside `Name`), and it is
-    // kWorldPartitionVersion's next step, so an older build refuses such a file by name instead of loading
-    // every layer at once.
+    // what of the world the editor holds and nothing of the cook or Play. A RUNTIME layer (WP v3,
+    // WP-DATA-LAYERS-RUNTIME: DataLayerSerialized::Type) streams by the layer's runtime state: the set of runtime
+    // layers a composite belongs to is the third coordinate of its cell beside level and square
+    // (Rules::PlannedCell::DataLayers), with a file and an index row of its own.
     struct WorldPartitionGridSerialized
     {
         // UE FSpatialHashRuntimeGrid::GridName. What a record names in its RuntimeGrid block to stream on this
@@ -279,6 +283,34 @@ namespace Desert::Core
         bool operator==( const HLODLayerSerialized& ) const = default;
     };
 
+    // WHAT A DATA LAYER IS FOR - UE EDataLayerType (WorldPartition/DataLayer/DataLayerType.h).
+    enum class DataLayerType
+    {
+        // Organises the world while it is authored; nothing to the cook or to Play (see DataLayerSerialized).
+        Editor,
+        // Its members stream by the layer's runtime state (DataLayerRuntimeState): the set of runtime layers a
+        // composite belongs to is the third coordinate of the cell it lands in (Rules::PlannedCell::DataLayers).
+        Runtime,
+    };
+
+    // HOW FAR A RUNTIME LAYER'S CONTENT IS ALONG - UE EDataLayerRuntimeState, in the same order (each state includes
+    // the one before it, so "the furthest" and "the least" of several are their max and min).
+    enum class DataLayerRuntimeState
+    {
+        Unloaded,  // its cells are not read: not a byte of them leaves the disk
+        Loaded,    // its cells in range are read and held in memory, and are not entities
+        Activated, // its cells in range are entities
+    };
+
+    // HOW A CELL OF SEVERAL RUNTIME LAYERS COMBINES THEIR STATES - UE EWorldPartitionDataLayersLogicOperator
+    // (UWorldPartition::DataLayersLogicOperator). Or: the cell is as far along as its FURTHEST layer (UE's default);
+    // And: as its least.
+    enum class WorldPartitionDataLayersLogicOperator
+    {
+        Or,
+        And,
+    };
+
     // ONE DATA LAYER OF A WORLD - UE's UDataLayerInstance (WorldPartition/DataLayer/DataLayerInstance.h), the
     // pattern and not the letter: UE names a layer by a UDataLayerAsset and keeps an instance of it per world;
     // here the world states the layer by name, and an entity names the layers it belongs to (its `DataLayers`
@@ -300,6 +332,19 @@ namespace Desert::Core
         // (EditorRegions::DataLayerOverrides, kept beside the loaded regions - never in the world).
         bool InitiallyLoadedInEditor = true;
 
+        // UE UDataLayerAsset::DataLayerType (WP v3). Editor as above; a RUNTIME layer (UE EDataLayerType::Runtime)
+        // also splits the cook and streams in Play and in a packaged game by its runtime state - a composite
+        // whose anchor belongs to runtime layers lands in a cell of that set of layers (Rules::PlannedCell::
+        // DataLayers), whose file and index row are its own, and residency reads the cell only while the
+        // layers' state wants it (Rules::DataLayerUnitStates).
+        DataLayerType Type = DataLayerType::Editor;
+
+        // UE UDataLayerInstance::InitialRuntimeState: the runtime state the layer starts Play and a packaged game
+        // in (the game moves it: WorldStreamer::SetDataLayerRuntimeState). REQUIRED on a Runtime layer and
+        // REFUSED on an Editor one (Rules::CheckDataLayers), so a state nobody reads cannot sit in a file looking
+        // like a setting.
+        std::optional<DataLayerRuntimeState> InitialRuntimeState;
+
         bool operator==( const DataLayerSerialized& ) const = default;
     };
 
@@ -320,6 +365,9 @@ namespace Desert::Core
         // UDataLayerAsset). Which layers an entity belongs to is its own `DataLayers` component. Optional, so a
         // world with no layers writes no key and an empty list is not a second spelling of "none".
         std::optional<std::vector<DataLayerSerialized>> DataLayers;
+        // UE UWorldPartition::DataLayersLogicOperator (WP v3): how a cell of several runtime layers combines
+        // their runtime states (Rules::EffectiveDataLayerState). The world's, as in UE; Or unless stated.
+        WorldPartitionDataLayersLogicOperator DataLayersLogicOperator = WorldPartitionDataLayersLogicOperator::Or;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };
