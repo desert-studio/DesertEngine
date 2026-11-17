@@ -3,8 +3,11 @@
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
 #include <Engine/ECS/Components.hpp>
 
+#include <algorithm>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -96,6 +99,27 @@ namespace Desert::Core::Serialize
 
         entt::registry* registry = instanceRoot.GetRegistry();
 
+        // THE RECORD EVERY LIVE ENTITY OF THE INSTANCE CAME FROM. PrefabFactory points a body's entity references
+        // (Rules::kEntityReferences) at the uuids it mints, while the base record states the RECORD id - so a
+        // reference to an entity of the same scope is compared, and written, as that record id. Measured raw, every
+        // instance holding a SocketAttachment inside its body carried a "changed" Target naming a uuid minted for
+        // this session only: saved as an override, it pointed the attachment at nothing on the next load.
+        std::unordered_map<Common::UUID, std::vector<Common::UUID>> sourcePaths;
+        {
+            std::vector<entt::entity> walk{ instanceRoot.GetHandle() };
+            while ( !walk.empty() )
+            {
+                const ECS::Entity member{ walk.back(), *registry };
+                walk.pop_back();
+                if ( member.HasComponent<ECS::RelationshipComponent>() )
+                    for ( const entt::entity child : member.GetComponent<ECS::RelationshipComponent>().Children )
+                        walk.push_back( child );
+                if ( member.HasComponent<ECS::PrefabInstanceComponent>() && member.HasComponent<ECS::UUIDComponent>() )
+                    sourcePaths.emplace( member.GetComponent<ECS::UUIDComponent>().UUID,
+                                         member.GetComponent<ECS::PrefabInstanceComponent>().SourcePath );
+            }
+        }
+
         // The walk is the LIVE subtree and not the record list, because what is being measured is what the
         // user has in front of them. Iterative for the same reason PrefabFactory::IndexInstance is.
         std::vector<entt::entity> pending{ instanceRoot.GetHandle() };
@@ -132,7 +156,17 @@ namespace Desert::Core::Serialize
                 continue;
             }
 
-            const Assets::EntityData live = EntitySerializer::SerializeEntity( entity, assetManager );
+            Assets::EntityData live = EntitySerializer::SerializeEntity( entity, assetManager );
+            ::Desert::Core::Rules::RemapEntityReferences(
+                 live,
+                 [&sourcePaths, &path]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+                 {
+                     const auto hit = sourcePaths.find( stated );
+                     if ( hit == sourcePaths.end() || path.empty() || hit->second.size() != path.size() ||
+                          !std::equal( path.begin(), path.end() - 1, hit->second.begin() ) )
+                         return std::nullopt; // outside this record's file scope: a scene entity, kept as is
+                     return hit->second.back();
+                 } );
 
             Assets::PrefabDiffReport report;
             if ( auto over = Assets::DiffPrefabEntity( found->second, live, path, &report ) )

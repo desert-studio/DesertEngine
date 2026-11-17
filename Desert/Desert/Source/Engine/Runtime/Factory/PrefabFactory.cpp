@@ -5,6 +5,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 
@@ -186,10 +187,40 @@ namespace Desert::Runtime::Factory
         }
 
         // 3. Apply components and set up hierarchy.
+        //
+        // AN ENTITY REFERENCE INSIDE THE BODY NAMES A RECORD OF THIS FILE (a SocketAttachment's Target, a
+        // Projectile's Owner), and the entity that record became was minted a fresh uuid in step 1. So each such
+        // field is rewritten to the created entity's uuid before the record is read - through
+        // Rules::RemapEntityReferences, the remap the cook applies to the same body (PrefabExpansion), so the
+        // editor, Play and the cooked world hang an attachment on the same socket. A reference to a record of a
+        // NESTED file is left as written: ids are per file, and the nested body remaps its own in its own call.
+        std::unordered_map<Common::UUID, Common::UUID> recordToEntity;
+        recordToEntity.reserve( plan.Created.size() );
+        for ( std::size_t slot = 0; slot < plan.Created.size(); ++slot )
+            recordToEntity.emplace( plan.Created[slot].Id,
+                                    created[slot].GetComponent<ECS::UUIDComponent>().UUID );
+        const Core::Rules::EntityIdRemap toCreated =
+             [&recordToEntity]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+        {
+            const auto hit = recordToEntity.find( stated );
+            if ( hit == recordToEntity.end() )
+                return std::nullopt;
+            return hit->second;
+        };
+
         for ( const auto& load : plan.Loads )
         {
             const ECS::Entity entity = created[load.Target];
-            Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
+            if ( Core::Rules::HasEntityReferenceBlock( records[load.Record] ) )
+            {
+                Assets::EntityData remapped = records[load.Record];
+                Core::Rules::RemapEntityReferences( remapped, toCreated );
+                Core::Serialize::EntitySerializer::DeserializeEntity( remapped, entity, assetManager );
+            }
+            else
+            {
+                Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
+            }
 
             if ( load.Parent != Core::Rules::kNoSlot )
                 scene.Attach( created[load.Parent], entity );
@@ -302,7 +333,30 @@ namespace Desert::Runtime::Factory
             // the base record a few lines ago and nothing has touched it since. So the value to merge
             // onto is the component itself, read back through the same serializer that wrote it, and no
             // caller has to carry the base records down here to find it.
-            for ( const auto& [key, fields] : over.Components )
+            // AN OVERRIDE STATES ITS INSTANCE'S ENTITIES BY RECORD ID (CapturePrefabInstance measures them so), and
+            // the body was just pointed at the uuids minted for it (Instantiate, step 3) - so the override's own
+            // references are pointed the same way, through the same remap, or it would undo that.
+            const Common::Json::KeyedValues* components = &over.Components;
+            Common::Json::KeyedValues        remapped;
+            if ( Core::Rules::HasEntityReferenceBlock( over.Components ) )
+            {
+                remapped = over.Components;
+                Core::Rules::RemapEntityReferences(
+                     remapped,
+                     [&indexed, &full]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+                     {
+                         if ( full.empty() )
+                             return std::nullopt;
+                         std::vector<Common::UUID> target( full.begin(), full.end() - 1 );
+                         target.push_back( stated );
+                         const auto hit = indexed.find( Assets::PrefabPathKey( target ) );
+                         if ( hit == indexed.end() || !hit->second.HasComponent<ECS::UUIDComponent>() )
+                             return std::nullopt;
+                         return hit->second.GetComponent<ECS::UUIDComponent>().UUID;
+                     } );
+                components = &remapped;
+            }
+            for ( const auto& [key, fields] : *components )
             {
                 const Core::Serialize::ComponentSerializer* serializer = FindComponentSerializer( key );
                 if ( serializer == nullptr )

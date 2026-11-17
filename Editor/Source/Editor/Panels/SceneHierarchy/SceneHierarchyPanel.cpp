@@ -316,6 +316,11 @@ namespace Desert::Editor
         // that ENFORCE it can never be reading different rules.
         const bool locked = ECS::IsLocked( *entity.GetRegistry(), entity.GetHandle() );
 
+        // Outside an open prefab edit (Commands::BeginPrefabEdit): the row is dimmed like a hidden one - the world
+        // around the edited instance is inactive, as in UE's level-instance edit. The padlock above stays the
+        // entity's OWN lock; the edit's lock is not the user's to toggle.
+        const bool outsideEdit = Commands::IsOutsidePrefabEdit( *entity.GetRegistry(), entity.GetHandle() );
+
         const char* icon = ICON_MDI_CUBE_OUTLINE;
         if ( entity.HasComponent<ECS::FolderComponent>() )
             icon = ICON_MDI_FOLDER;
@@ -425,7 +430,7 @@ namespace Desert::Editor
         {
             // Name colour: prefab teal, dimmed when hidden. Prefab tag stays subtle.
             ImVec4 nameColor = isPrefab ? iconColor : ImGui::GetStyleColorVec4( ImGuiCol_Text );
-            if ( !visible )
+            if ( !visible || outsideEdit )
                 nameColor = ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled );
             ImGui::PushStyleColor( ImGuiCol_Text, nameColor );
             ImGui::TextUnformatted( name.c_str() );

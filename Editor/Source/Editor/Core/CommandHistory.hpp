@@ -5,9 +5,12 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -188,7 +191,12 @@ namespace Desert::Editor
             m_Redo.clear();
             m_Undo.push_back( std::move( command ) );
             if ( m_Undo.size() > kMaxEntries )
+            {
                 m_Undo.erase( m_Undo.begin() );
+                // The entry that fell off was older than an open session's first step: the floor moves with it.
+                if ( m_SessionFloor.has_value() && *m_SessionFloor > 0 )
+                    --*m_SessionFloor;
+            }
             ++m_Revision;
         }
 
@@ -200,6 +208,10 @@ namespace Desert::Editor
         /// fewer than two entries exist.
         bool JoinLastTwo()
         {
+            // Never across an open session's start: the joined entry would be half the session's (dropped by
+            // CloseSession) and half the world's before it.
+            if ( m_SessionFloor.has_value() && m_Undo.size() < *m_SessionFloor + 2 )
+                return false;
             if ( m_Undo.size() < 2 )
             {
                 return false;
@@ -238,8 +250,15 @@ namespace Desert::Editor
 
         bool Undo()
         {
+            // An open session's history begins at its floor: the steps below it edit what the session holds
+            // locked, so Undo stops there until the session is committed or discarded (CloseSession).
+            if ( m_SessionFloor.has_value() && m_Undo.size() <= *m_SessionFloor )
+            {
+                LOG_INFO( "[History] undo stops at the start of the open edit session - commit or discard it first" );
+                return false;
+            }
             // Stale entries (target entity gone) report failure — discard them and keep walking down.
-            while ( !m_Undo.empty() )
+            while ( !m_Undo.empty() && !( m_SessionFloor.has_value() && m_Undo.size() <= *m_SessionFloor ) )
             {
                 std::unique_ptr<ICommand> cmd = std::move( m_Undo.back() );
                 m_Undo.pop_back();
@@ -290,7 +309,7 @@ namespace Desert::Editor
             {
                 std::erase_if( stack, []( const std::unique_ptr<ICommand>& c ) { return c->IsVolatile(); } );
             };
-            drop( m_Undo );
+            EraseUndoIf( []( const std::unique_ptr<ICommand>& c ) { return c->IsVolatile(); } );
             drop( m_Redo );
         }
 
@@ -306,7 +325,7 @@ namespace Desert::Editor
                 std::erase_if( stack, [object]( const std::unique_ptr<ICommand>& c )
                                { return c->EditedObject() == object; } );
             };
-            drop( m_Undo );
+            EraseUndoIf( [object]( const std::unique_ptr<ICommand>& c ) { return c->EditedObject() == object; } );
             drop( m_Redo );
         }
 
@@ -317,7 +336,7 @@ namespace Desert::Editor
         size_t DropIf( Predicate drops )
         {
             const size_t before = m_Undo.size() + m_Redo.size();
-            std::erase_if( m_Undo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
+            EraseUndoIf( [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
             std::erase_if( m_Redo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
             return before - ( m_Undo.size() + m_Redo.size() );
         }
@@ -326,8 +345,67 @@ namespace Desert::Editor
         {
             m_Undo.clear();
             m_Redo.clear();
+            m_SessionFloor.reset();
         }
 
+        // ── AN EDIT SESSION: ITS STEPS ARE ITS OWN, AND ITS END FOLDS THEM AWAY ─────────────────────────────
+        //
+        // UE's level-instance edit (ULevelInstanceSubsystem::EditLevelInstance) is a mode with an end: Commit
+        // writes the level and Cancel throws the edits away, and in both cases the moves made inside the mode are
+        // not separate steps of the level's history afterwards. Here the steps recorded while a session is open
+        // are ordinary entries (Ctrl+Z inside the prefab edit works), Undo does not walk below the session's
+        // start, and CloseSession drops them - the session's owner then records ONE step for the whole edit
+        // (Commit) or none (Discard). False from OpenSession when one is already open.
+        bool OpenSession()
+        {
+            if ( m_SessionFloor.has_value() )
+                return false;
+            m_SessionFloor = m_Undo.size();
+            // Opening is an edit like any other: the redo branch it leaves would replay steps of the world the
+            // session holds locked, and CloseSession would then fold them away without an undo.
+            m_Redo.clear();
+            return true;
+        }
+
+        [[nodiscard]] bool SessionOpen() const
+        {
+            return m_SessionFloor.has_value();
+        }
+
+        // Drops every undo entry recorded since OpenSession, and the redo branch (it can only hold the session's
+        // own undone steps, or steps a session edit already invalidated). Answers how many entries went.
+        std::size_t CloseSession()
+        {
+            if ( !m_SessionFloor.has_value() )
+                return 0;
+            const std::size_t floor   = std::min( *m_SessionFloor, m_Undo.size() );
+            const std::size_t dropped = m_Undo.size() - floor + m_Redo.size();
+            m_Undo.resize( floor );
+            m_Redo.clear();
+            m_SessionFloor.reset();
+            ++m_Revision;
+            return dropped;
+        }
+
+    private:
+        // Erases the undo entries @p drops answers true for; an open session's floor moves down by the ones
+        // that stood below it, so the session still begins at its own first step.
+        template <typename Predicate>
+        void EraseUndoIf( Predicate drops )
+        {
+            if ( m_SessionFloor.has_value() )
+            {
+                const std::size_t below = std::min( *m_SessionFloor, m_Undo.size() );
+                std::size_t       gone  = 0;
+                for ( std::size_t index = 0; index < below; ++index )
+                    if ( drops( m_Undo[index] ) )
+                        ++gone;
+                *m_SessionFloor -= gone;
+            }
+            std::erase_if( m_Undo, drops );
+        }
+
+    public:
         // Read-only views for the History panel (bottom = oldest, back = the next Undo target).
         const std::vector<std::unique_ptr<ICommand>>& UndoStack() const
         {
@@ -472,5 +550,7 @@ namespace Desert::Editor
         std::weak_ptr<::Desert::Core::IEditStamps> m_Packages;
         std::vector<Common::UUID>                  m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
+        // Set while an edit session is open: the undo depth it began at (OpenSession / CloseSession).
+        std::optional<std::size_t> m_SessionFloor;
     };
 } // namespace Desert::Editor

@@ -63,6 +63,12 @@ namespace Desert::Assets
             return m_RuntimeBehavior;
         }
 
+        // THE BODY SET WHOLE, from records a caller already holds - the editor's prefab edit in place keeps the
+        // body as it was before a Commit and puts it back on Undo (and the committed one on Redo), so the asset in
+        // memory and the file it then writes (SaveTo) are the state the history says. Like CreateFromEntity, the
+        // payload is the only copy until it is saved.
+        void ReplaceBody( std::vector<EntityData> records );
+
         // The GUID the file's header states; null for a prefab no file holds yet. Serialize writes it
         // back, so re-saving a prefab never mints a new identity for it.
         [[nodiscard]] const Common::Content::AssetGuid& Guid() const

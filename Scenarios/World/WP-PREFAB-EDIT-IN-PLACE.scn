@@ -1,0 +1,41 @@
+# WP-PREFAB-EDIT-IN-PLACE: a prefab is edited in place (UE 5.5 Level Instance Edit / Commit / Cancel). The body is
+# edited, not the overrides; Commit writes the .deprefab and rebuilds every instance with its own overrides; ONE
+# Undo puts the file and every instance back. Then Play: an attachment inside the prefab hangs on its own socket,
+# because PrefabFactory remaps the body's entity references exactly as the cook's PrefabExpansion does.
+# Setup on WP_Protocol: three instances of WP21_Span (records SpanRoot, SpanB, SpanC, SpanD, 150 cm apart) dropped by
+# Replace with Prefab on three placed cubes - each root keeps the placed cube's name "Cube" (ReplaceWithPrefab keeps
+# the tag); the third, still selected after its replace, gets its own material (an override on its root).
+# Names repeat across instances: `run Entity "<name>"` takes the palette's first match.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Assets "Open folder: Prefabs"
+Дано run Assets "Select asset Prefabs/WP21_Span.deprefab"
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано --subject selection set Translation 0,3000,0
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано --subject selection set Translation 0,6000,0
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Glass.demat
+Тогда pie_given три пролёта WP21_Span рядом (y = 0, 30 м, 60 м), у третьего первый куб стеклянный, у двух других — материал префаба
+Когда run Entity "Cube"
+Когда run Entity "Edit the selected prefab instance in place"
+Тогда pie_editing выбранный пролёт показан голым телом префаба; в Outliner всё остальное серое, клик по другим пролётам во вьюпорте не выделяет (Locked), гизмо на них не появляется
+Когда run Entity "SpanB"
+Когда --subject selection set Translation 150,100,0
+Когда run Entity "Commit the prefab edit"
+Тогда pie_commit во всех трёх пролётах внутренняя балка (второй куб) сдвинута на 1 м по Y; у третьего первый куб остался стеклянным (его переопределение цел); в журнале «[Prefab] committed '…WP21_Span.deprefab': 3 instance(s) rebuilt»
+Когда run Action "Undo"
+Тогда pie_undo одно Undo: во всех трёх пролётах балка на прежнем месте, файл WP21_Span.deprefab снова прежний (журнал «[History] undo 'Commit prefab WP21_Span.deprefab'»), стекло у третьего на месте
+Когда run Action "Redo"
+Когда run Entity "Cube"
+Когда run Entity "Edit the selected prefab instance in place"
+Когда run Entity "SpanD"
+Когда add-component selected SocketAttachment
+Когда --subject selection set SocketAttachment.Target SpanC
+Когда run Entity "Commit the prefab edit"
+Когда run Action "Play"
+Тогда pie_factory_refs в Play четвёртый куб каждого пролёта висит на третьем кубе СВОЕГО пролёта (не в начале координат и не на кубе первого экземпляра) - так же, как в собранном мире (WorldCook + Runtime, PrefabExpansion)
+Когда run Action "Stop"

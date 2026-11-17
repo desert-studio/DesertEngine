@@ -3074,7 +3074,7 @@ namespace Desert::Editor
                     // picking path through the same click, and a lock that stopped one of them would be
                     // the "blocks two of the three things it claims to" failure the predicate exists to
                     // prevent — with the padlock still drawn closed in the Outliner either way.
-                    if ( ECS::IsLocked( reg, uiHit ) )
+                    if ( ::Desert::Editor::Commands::IsAuthoringLocked( reg, uiHit ) )
                     {
                         ToastManager::Push( Tools::Describe( Tools::PickOutcome::RefusedLocked ), ToastLevel::Info,
                                             2.5f );

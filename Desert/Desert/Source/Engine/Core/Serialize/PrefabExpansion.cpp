@@ -1,5 +1,7 @@
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
+
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
@@ -7,15 +9,14 @@
 
 #include <glm/gtx/matrix_decompose.hpp>
 
-#include <charconv>
 #include <cstdint>
 #include <format>
 #include <functional>
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
-#include <system_error>
 #include <unordered_set>
 #include <utility>
 
@@ -171,40 +172,20 @@ namespace Desert::Core::WorldCells
             }
         };
 
-        // Rewrites every kEntityReferences field of @p record that names a body record of its own scope.
+        // Rewrites every kEntityReferences field of @p record that names a body record of its own scope - through
+        // Rules::RemapEntityReferences, the one remap the factory and the capture use as well.
         void RemapReferences( Assets::EntityData& record, std::size_t scope,
                               const std::map<std::pair<std::size_t, std::uint64_t>, Common::UUID>& remap )
         {
-            for ( const Rules::EntityReferenceRow& row : Rules::kEntityReferences )
-            {
-                const std::string key( row.ComponentKey );
-                const auto        payload = record.Components.get( key );
-                if ( !payload )
-                    continue;
-                auto object = payload.value().to_object();
-                if ( !object )
-                    continue;
-                Common::Json::Object block = object.value();
-                const auto           field = block.get( std::string( row.Field ) );
-                if ( !field )
-                    continue;
-                const auto text = field.value().to_string();
-                if ( !text )
-                    continue;
-                // The whole text is the decimal id (std::to_string wrote it), or it is not an id; the planner
-                // reports that one as an Issue.
-                const std::string& digits = text.value();
-                std::uint64_t      id     = 0;
-                const auto         idRead = std::from_chars( digits.data(), digits.data() + digits.size(), id );
-                if ( idRead.ec != std::errc{} || idRead.ptr != digits.data() + digits.size() )
-                    continue;
-                const auto hit = remap.find( { scope, id } );
-                if ( hit == remap.end() )
-                    continue;
-                block[std::string( row.Field )] =
-                     Common::Json::Value( std::to_string( static_cast<std::uint64_t>( hit->second ) ) );
-                record.Components[key] = Common::Json::Value( block );
-            }
+            Rules::RemapEntityReferences( record,
+                                          [&remap, scope]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+                                          {
+                                              const auto hit =
+                                                   remap.find( { scope, static_cast<std::uint64_t>( stated ) } );
+                                              if ( hit == remap.end() )
+                                                  return std::nullopt;
+                                              return hit->second;
+                                          } );
         }
     } // namespace
 
