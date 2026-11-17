@@ -357,7 +357,8 @@ namespace Desert::Core::Rules
 
     // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
     // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
-    // type, and a grid whose HLODLayer names no layer.
+    // type, MergeMaterials on Instancing or with a TextureSize that is no power of two in [64, 8192], and a grid
+    // whose HLODLayer names no layer.
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -385,6 +386,19 @@ namespace Desert::Core::Rules
                 return Common::MakeError<bool>(
                      std::format( "HLOD layer '{}': SimplifyTrianglePercent {:f} is outside (0, 1]", layer.Name,
                                   *layer.SimplifyTrianglePercent ) );
+            if ( layer.MergeMaterials.has_value() )
+            {
+                if ( layer.Type == HLODLayerType::Instancing )
+                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                    "' states MergeMaterials, which only MeshMerge and "
+                                                    "MeshSimplify read (instances keep their own materials)" );
+                const int side = layer.MergeMaterials->TextureSize;
+                if ( side < 64 || side > 8192 || ( side & ( side - 1 ) ) != 0 )
+                    return Common::MakeError<bool>(
+                         std::format( "HLOD layer '{}': MergeMaterials.TextureSize {} is not a power of two in "
+                                      "[64, 8192]",
+                                      layer.Name, side ) );
+            }
             // Walk the parent chain: every link must resolve, and it must end within the list's length.
             const HLODLayerSerialized* at = &layer;
             for ( std::size_t steps = 0; at->ParentLayer.has_value(); ++steps )
@@ -473,11 +487,14 @@ namespace Desert::Core::Rules
     // merged HLOD leaves out exactly what an instanced one would, for the same named reasons), each an ISM
     // block naming its mesh and materials with WORLD instance matrices. The builder merges every instance into
     // one mesh in world space, one section per distinct material, and for MeshSimplify keeps
-    // `TrianglePercent` of the triangles (UHLODBuilderMeshMerge / UHLODBuilderMeshSimplify).
+    // `TrianglePercent` of the triangles (UHLODBuilderMeshMerge / UHLODBuilderMeshSimplify). With
+    // `MergeMaterials` (the layer's) the mesh is ONE section over one UV atlas, its material baked by the editor's
+    // Build HLODs (HLODMeshBuilder.hpp, BuildHLODMeshForBake).
     struct HLODMeshRequest
     {
         HLODLayerType                                            Type            = HLODLayerType::MeshMerge;
         float                                                    TrianglePercent = 1.0f;
+        std::optional<HLODMaterialMergeSerialized>               MergeMaterials;
         std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
     };
 
@@ -585,6 +602,7 @@ namespace Desert::Core::Rules
             HLODMeshRequest request;
             request.Type            = layer.Type;
             request.TrianglePercent = layer.SimplifyTrianglePercent.value_or( 1.0f );
+            request.MergeMaterials  = layer.MergeMaterials;
             request.Parts           = parts;
             auto built              = meshBuilder( request );
             if ( !built )

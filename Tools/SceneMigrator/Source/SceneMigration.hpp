@@ -493,6 +493,14 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
+    //   4 - MERGED HLOD MATERIALS (WP-HLOD-MATBAKE; UE FMeshMergingSettings::bMergeMaterials +
+    //       FMaterialProxySettings). An HLOD layer may state `MergeMaterials` (Core::HLODMaterialMergeSerialized:
+    //       TextureSize, NormalMap, ORMMap, EmissiveMap). ADDITIVE: a v3 layer states none and builds one section
+    //       per material, as it did, so the step has no transform of its own - the stamp states WPAR 4. The number
+    //       moves so a v3 build refuses a world whose merged material it would silently drop. Scenes and prefabs
+    //       alike.
+    inline constexpr int kWorldPartitionVersionHLODMergeMaterials = 4;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -540,7 +548,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionRuntimeDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionHLODMergeMaterials == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1316,6 +1324,7 @@ namespace Desert::Migration
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        HLODMergeMaterialsRaised = false; // below kWorldPartitionVersionHLODMergeMaterials (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1383,7 +1392,8 @@ namespace Desert::Migration
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised;
+                   FilmicDefaultRaised || GrassRasterPathRaised || DataLayersRaised || RuntimeDataLayersRaised ||
+                   HLODMergeMaterialsRaised;
         }
     };
 

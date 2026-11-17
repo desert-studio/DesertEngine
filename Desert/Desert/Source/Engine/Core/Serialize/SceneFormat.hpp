@@ -146,12 +146,16 @@ namespace Desert::Core
     // component. Additive - a v1 file states neither and reads the same - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionDataLayers) states the tag and changes nothing else; the number moves so an older
     // build refuses a world whose layers it would silently ignore.
-    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime layer
-    // its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads every layer
-    // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
-    // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
-    // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v3 (WP-DATA-LAYERS-RUNTIME): a layer states its `Type` (DataLayerType: Editor or Runtime) and a Runtime
+    // layer its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. Additive - a v2 file reads
+    // every layer as an Editor layer and the operator as Or, which is what it meant - so the step
+    // (Tools/SceneMigrator, kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number
+    // moves so a v2 build refuses a world whose runtime layers it would stream as if they were not there. v4
+    // (WP-HLOD-MATBAKE): an HLOD layer may state `MergeMaterials` (HLODMaterialMergeSerialized). Additive - a v3
+    // layer states none and builds one section per material, as it did - so the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionHLODMergeMaterials) states the tag and changes nothing else; the number moves so a v3
+    // build refuses a world whose merged material it would silently drop.
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -258,10 +262,33 @@ namespace Desert::Core
         MeshSimplify,
     };
 
+    // A MESH LAYER'S MERGED MATERIAL - UE FMeshMergingSettings::bMergeMaterials with its FMaterialProxySettings
+    // (TextureSize, bNormalMap, bMetallicMap / bRoughnessMap / bAmbientOcclusionMap, bEmissiveMap), the pattern:
+    // the built mesh gets ONE UV atlas (MeshMerge: the source UV islands packed by UVPacker; MeshSimplify: AutoUV
+    // on the simplified mesh) and ONE section, and Build HLODs bakes every source material into that atlas
+    // (Editor/Panels/WorldPartition/HLODMaterialBake.hpp) as M_<key>.demat over T_<key>_{BaseColor, ORM, Normal,
+    // Emissive}.detex beside the built HLODs - one draw per built mesh instead of one per material. BaseColor is
+    // always baked; a channel switched off is not baked and the material keeps that input's constant default
+    // (StandardSurface: flat normal, roughness 0.5, metallic 0, no emission).
+    struct HLODMaterialMergeSerialized
+    {
+        // The atlas's side in texels (UE TextureSize, square), a power of two in [64, 8192]
+        // (Rules::ValidateHLODLayers).
+        int  TextureSize = 1024;
+        bool NormalMap   = true;  // UE bNormalMap: T_<key>_Normal (tangent space of the built mesh)
+        bool ORMMap      = true;  // UE bAmbientOcclusionMap + bRoughnessMap + bMetallicMap: T_<key>_ORM
+        bool EmissiveMap = false; // UE bEmissiveMap: T_<key>_Emissive, scaled into 8 bits by EmissiveIntensity
+
+        bool operator==( const HLODMaterialMergeSerialized& ) const = default;
+    };
+
     struct HLODLayerSerialized
     {
         std::string   Name;
         HLODLayerType Type = HLODLayerType::Instancing;
+        // MeshMerge / MeshSimplify only (refused on Instancing, whose instances keep their own materials):
+        // ABSENT = one section per distinct source material (one draw each); STATED = one baked material.
+        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
         // UE UHLODLayer::ParentLayer: the layer the HLODs THIS layer builds are themselves gathered into, one
         // grid level up (HLOD1 of HLOD0). Must name another layer of the list and the chain must not loop
         // (Rules::ValidateHLODLayers); absent = the top of a chain.

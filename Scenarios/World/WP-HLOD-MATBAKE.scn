@@ -1,0 +1,31 @@
+# WP-HLOD-MATBAKE: a MeshSimplify HLOD layer with MergeMaterials - one atlas, one baked material, one draw per HLOD.
+# World: Scenes/WP_Protocol (see SCOPE-FAR-HLOD.scn). ITS FAR LAYER IS RESTATED AT LAND (content repo, migrated only
+# when merged - owner 10-26): HLOD_Main_Far becomes
+#   { "Name": "HLOD_Main_Far", "Type": "MeshSimplify", "SimplifyTrianglePercent": 0.25,
+#     "MergeMaterials": { "TextureSize": 1024, "NormalMap": true, "ORMMap": true, "EmissiveMap": false } }
+# and the file states WPAR 4 (Tools/SceneMigrator, kWorldPartitionVersionHLODMergeMaterials).
+# Expected in editor.log during Build HLODs:
+#   "[Build HLODs] 'WP_Protocol': baking the merged materials of 16 mesh HLOD(s)"
+#   16 x "[Build HLODs] baked HLOD_<key>: 1024x1024 BaseColor + ORM + Normal -> .../M_HLOD_<key>.demat"
+#   and no "merged material bake was refused" / "was not baked" line.
+# Each HLOD_Main_Far record's StaticMesh block states ONE material slot (M_HLOD_<key>) and its mesh one section.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000003 StreamingSourceData.Enabled true
+Дано set 1003 CameraData.Far 800000
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 80
+Когда --subject viewport set Camera.Position 500000,50000,0
+Когда --subject viewport set Camera.Direction -1,-0.1,0
+Когда advance 2
+Тогда matbake_far вдали (флаер на X=5 км, весь город - слитые упрощённые блоки HLOD_Main_Far): силуэты зданий в своих цветах - кирпич стен и крыши различимы, не серые и не одного цвета; нормали дают рельеф кладки; статистика рисования - 1 draw на HLOD_Main_Far-ячейку (16 ячеек = 16 draw)
+Когда advance 50
+Когда --subject viewport set Camera.Position 60000,20000,0
+Когда --subject viewport set Camera.Direction -1,-0.25,0
+Когда advance 2
+Тогда matbake_switch флаер возвращается к X=0, HLOD_Main_Far сменяется ячейками HLOD_Main/Main на границе колонки: цвета и яркость слитого блока и настоящих зданий на кадре смены совпадают на глаз (нет тёмных швов атласа, нет чёрных краёв островов)

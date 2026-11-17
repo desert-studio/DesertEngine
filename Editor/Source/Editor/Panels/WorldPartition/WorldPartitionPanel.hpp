@@ -18,6 +18,7 @@
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
 #include <Editor/Core/IPanel.hpp>
+#include "HLODMaterialBake.hpp"
 #include "LandscapeHLODBake.hpp"
 #include "WorldPartitionMap.hpp"
 
@@ -84,7 +85,7 @@ namespace Desert::Editor
         void TickBuild();
 
         /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
-        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr || m_MeshBake != nullptr; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -129,7 +130,8 @@ namespace Desert::Editor
         void RebuildEditPlan();
         // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
         // material), write, read back.
-        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
+        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked,
+                                                              const std::vector<HLODMaterialBaked>&  meshBaked );
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,
@@ -140,6 +142,10 @@ namespace Desert::Editor
         StreamerGetter                         m_Streamer;
         // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
         std::unique_ptr<LandscapeHLODBake> m_Bake;
+        // The merged-material bake of the mesh HLODs (WP-HLOD-MATBAKE), run after the landscape bake; what the
+        // landscape bake wrote waits here until it is done.
+        std::unique_ptr<HLODMaterialBake> m_MeshBake;
+        std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;

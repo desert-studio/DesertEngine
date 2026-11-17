@@ -18,7 +18,12 @@
 
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 
+#include <Engine/Geometry/MeshNormalMapBake.hpp>
+
 #include <Common/Utilities/AssetRegistry.hpp>
+
+#include <optional>
+#include <string>
 
 #include <span>
 
@@ -36,10 +41,58 @@ namespace Desert::Core
 
     [[nodiscard]] HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries );
 
-    // The build itself, for one request; MakeHLODBuilders binds @p registries into it.
+    // The build itself, for one request; MakeHLODBuilders binds @p registries into it. A request with
+    // MergeMaterials answers BuildHLODMeshForBake's mesh: one section over the atlas and NO material slot - only
+    // the editor's Build HLODs, which bakes that material, may build such a layer (WorldPartitionPanel binds
+    // M_HLOD_<key> and refuses a merged mesh whose material was not baked).
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
                    std::span<const Common::Utils::AssetRegistry> registries );
+
+    // The side of the square a bake proxy is laid out on (HLODMaterialBakeSource::Proxy), in cm: atlas UV (u, v)
+    // sits at world (u, 0, v) * this.
+    inline constexpr float kHLODBakeProxySideCm = 1000.0f;
+
+    // THE BAKE INPUT OF A MESH HLOD WITH MERGED MATERIALS (WP-HLOD-MATBAKE; UE IMeshMergeUtilities::
+    // MergeComponentsToStaticMesh / CreateProxyMesh with bMergeMaterials, whose FMaterialBakingModule renders each
+    // source material over the mesh's UV layout):
+    struct HLODMaterialBakeSource
+    {
+        // Names the baked files (M_HLOD_<Key>.demat, T_HLOD_<Key>_*.detex): HLODMeshKey of the request, so the
+        // Build HLODs probe and its final build - two passes over one saved world - name one mesh the same way.
+        std::string                 Key;
+        HLODMaterialMergeSerialized Settings;
+        // THE SOURCE SURFACE LAID FLAT ON ITS ATLAS: every merged source triangle with its corners at
+        // (u, 0, v) * kHLODBakeProxySideCm of their atlas UV (u, v), carrying their WORLD normal, tangent and
+        // bitangent and their SOURCE UV, one section per source material (the slots in first-seen order), turned
+        // to face +Y. Seen from straight above through the G-buffer it gives, per atlas texel, the source
+        // material's BaseColor, Metallic, world Normal, Roughness, AO and Emissive at that surface point - any
+        // material, as the renderer evaluates it.
+        Assets::StaticMeshComponentSer Proxy;
+        // MeshSimplify only: the merged source in world space (positions, vertex normals, triangles) with its
+        // ATLAS UVs - the layout the proxy is laid out on - what the simplified mesh's texels are projected onto
+        // along their normals (UE's proxy transfer; BakeMeshMaps' correspondence). Empty for MeshMerge, whose
+        // built mesh is that atlas itself.
+        Geometry::BakeSurface Source;
+    };
+
+    // BuildHLODMesh's mesh and, for a request with MergeMaterials, its bake input (BuildHLODMesh is this with the
+    // input dropped, so the bake and the build cannot differ). MeshMerge: the merged triangles in one section,
+    // UV layer 0 the source UV islands packed by UVPacker (texel density even in world space), world frames kept.
+    // MeshSimplify: the merged mesh simplified, then AutoUV (patches, packed at TextureSize) and tangents rebuilt.
+    // Refused by name as BuildHLODMesh is, and when the islands do not pack or the simplified mesh does not unwrap.
+    struct HLODMeshBuild
+    {
+        Assets::StaticMeshComponentSer        Mesh;
+        std::optional<HLODMaterialBakeSource> Bake;
+    };
+    [[nodiscard]] Common::ResultStr<HLODMeshBuild>
+    BuildHLODMeshForBake( const Rules::HLODMeshRequest&                 request,
+                          std::span<const Common::Utils::AssetRegistry> registries );
+
+    // 16 hex digits hashing everything the request builds from (type, triangle share, MergeMaterials, every part's
+    // mesh, materials and instance matrices).
+    [[nodiscard]] std::string HLODMeshKey( const Rules::HLODMeshRequest& request );
 
     // THE LANDSCAPE HLOD OF ONE TILE (WP-FAR-6, Rules::LandscapeHLODRequest): the tile's heights, read from its
     // HeightFile (DLHT, resolved by Constants::Path::FullPath and read by ReadLandscapeTileFile, exactly as the

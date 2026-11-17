@@ -714,8 +714,8 @@ namespace Desert::Editor
     Common::BoolResultStr WorldPartitionPanel::BuildHLODs()
     {
         namespace WC = ::Desert::Core::WorldCells;
-        if ( m_Bake )
-            return Common::MakeError( "Build HLODs: a build is already running (its landscape bake)." );
+        if ( m_Bake || m_MeshBake )
+            return Common::MakeError( "Build HLODs: a build is already running (its material bake)." );
         if ( !m_Scene )
             return Common::MakeError( "Build HLODs: there is no active scene." );
         const auto& baseline = m_Scene->Packages()->BaselinePath();
@@ -769,36 +769,95 @@ namespace Desert::Editor
                 areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
                 return mesh;
             };
+        // Phase 1, meshes: every mesh HLOD whose layer merges materials, built once with its bake source
+        // (BuildHLODMeshForBake); FinishBuildHLODs binds the material its bake writes.
+        std::vector<HLODMaterialBakeJob>             meshJobs;
+        const ::Desert::Core::Rules::HLODMeshBuilder collectMesh =
+             [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
+             -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        {
+            using Block = ::Desert::Assets::StaticMeshComponentSer;
+            if ( !request.MergeMaterials.has_value() )
+                return builders.Mesh( request );
+            auto built = ::Desert::Core::BuildHLODMeshForBake( request, registries );
+            if ( !built )
+                return Common::MakeError<Block>( built.GetError() );
+            ::Desert::Core::HLODMeshBuild& build = built.GetValue();
+            if ( !build.Bake.has_value() )
+                return Common::MakeError<Block>( "a merged-material HLOD mesh came back without its bake source" );
+            const std::string& key   = build.Bake->Key;
+            const bool         known = std::any_of( meshJobs.begin(), meshJobs.end(),
+                                                    [&]( const HLODMaterialBakeJob& job ) { return job.Source.Key == key; } );
+            if ( !known )
+                meshJobs.push_back( HLODMaterialBakeJob{ std::move( *build.Bake ), build.Mesh } );
+            return Common::MakeSuccess( std::move( build.Mesh ) );
+        };
         if ( auto probe = WC::BuildWorldHLODs(
-                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders.Mesh, collect,
+                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), collectMesh, collect,
                   // The probe only gathers the landscape tiles to bake: its files are dropped.
                   []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
-        if ( areas.empty() )
-            return FinishBuildHLODs( {} );
-        LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)", m_Scene->GetSceneName(),
-                  areas.size() );
-        ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
-        m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
+        if ( areas.empty() && meshJobs.empty() )
+            return FinishBuildHLODs( {}, {} );
+        if ( !meshJobs.empty() )
+        {
+            LOG_INFO( "[Build HLODs] '{0}': baking the merged materials of {1} mesh HLOD(s)", m_Scene->GetSceneName(),
+                      meshJobs.size() );
+            m_MeshBake = std::make_unique<HLODMaterialBake>( path, text.GetValue(), std::move( meshJobs ), m_Assets );
+        }
+        if ( !areas.empty() )
+        {
+            LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)", m_Scene->GetSceneName(),
+                      areas.size() );
+            ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
+            m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
+        }
         return BOOLSUCCESS;
     }
 
+    // The landscape bake first, then the mesh HLODs' merged materials, then the build that binds both.
     void WorldPartitionPanel::TickBuild()
     {
-        if ( !m_Bake || !m_Bake->Tick() )
-            return;
-        const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
-        if ( bake->Error() )
+        std::vector<HLODMaterialBaked> meshBaked;
+        if ( m_Bake )
         {
-            LOG_ERROR( "[Build HLODs] the landscape bake was refused: {0}", *bake->Error() );
-            return;
+            if ( !m_Bake->Tick() )
+                return;
+            const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
+            if ( bake->Error() )
+            {
+                LOG_ERROR( "[Build HLODs] the landscape bake was refused: {0}", *bake->Error() );
+                m_MeshBake.reset();
+                return;
+            }
+            m_LandscapeBaked = bake->Baked();
+            if ( m_MeshBake )
+                return; // the mesh HLODs' materials bake from the next frame on
         }
-        if ( auto done = FinishBuildHLODs( bake->Baked() ); !done )
+        else if ( m_MeshBake )
+        {
+            if ( !m_MeshBake->Tick() )
+                return;
+            const std::unique_ptr<HLODMaterialBake> bake = std::move( m_MeshBake );
+            if ( bake->Error() )
+            {
+                LOG_ERROR( "[Build HLODs] the merged material bake was refused: {0}", *bake->Error() );
+                m_LandscapeBaked.clear();
+                return;
+            }
+            meshBaked = bake->Baked();
+        }
+        else
+            return;
+        const std::vector<LandscapeHLODBaked> landscapeBaked = std::move( m_LandscapeBaked );
+        m_LandscapeBaked.clear();
+        if ( auto done = FinishBuildHLODs( landscapeBaked, meshBaked ); !done )
             LOG_ERROR( "[Build HLODs] {0}", done.GetError() );
     }
 
-    Common::BoolResultStr WorldPartitionPanel::FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked )
+    Common::BoolResultStr WorldPartitionPanel::FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked,
+                                                                 const std::vector<HLODMaterialBaked>&  meshBaked )
     {
         namespace WC = ::Desert::Core::WorldCells;
         if ( !m_Scene )
@@ -847,6 +906,24 @@ namespace Desert::Editor
                     }
                 return mesh;
             };
+        // Each merged-material mesh HLOD is the very mesh its bake was made for, bound to the material the bake
+        // wrote (UE FMeshMergingSettings::bMergeMaterials). One that was not baked is refused by name: drawn
+        // without its material it would stand in grey.
+        const ::Desert::Core::Rules::HLODMeshBuilder mesh =
+             [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
+             -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        {
+            if ( !request.MergeMaterials.has_value() )
+                return builders.Mesh( request );
+            const std::string key = ::Desert::Core::HLODMeshKey( request );
+            for ( const HLODMaterialBaked& entry : meshBaked )
+                if ( entry.Key == key )
+                    return Common::MakeSuccess( entry.Mesh );
+            return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( std::format(
+                 "the merged material of mesh HLOD {} was not baked (the saved world changed during the build?); "
+                 "run Build HLODs again",
+                 key ) );
+        };
         // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
         // actors cell by cell), so the world's HLODs are never in memory at once.
         const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
@@ -854,7 +931,7 @@ namespace Desert::Editor
         std::size_t                 bytes  = 0;
         std::size_t                 files  = 0;
         auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
-                                          builders.Mesh, landscape,
+                                          mesh, landscape,
                                           [&]( WC::CookedFile file ) -> Common::BoolResultStr
                                           {
                                               bytes += file.Bytes.size();
