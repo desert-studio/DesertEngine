@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "ee636f776d95496283602b1ebe49b356",
         "Versions": {
-            "FOLT": 10
+            "FOLT": 11
         },
         "Dependencies": ["3a1289c7205a9d50d0fbafa6e09d09b9"]
     },
@@ -85,7 +85,20 @@
                 "Time": 1.0,
                 "Value": 1.0
             }
-        ]
+        ],
+        "DensityFalloff": {
+            "UseFalloffCurve": false,
+            "FalloffCurve": [
+                {
+                    "Time": 0.0,
+                    "Value": 1.0
+                },
+                {
+                    "Time": 1.0,
+                    "Value": 0.0
+                }
+            ]
+        }
     },
     "Collision": {
         "Enabled": false,

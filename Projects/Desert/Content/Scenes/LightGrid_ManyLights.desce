@@ -7,7 +7,7 @@
             "LGHT": 1,
             "SCNE": 75,
             "UNIT": 1,
-            "WPAR": 1
+            "WPAR": 2
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
@@ -38,7 +38,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -66,7 +77,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -94,7 +116,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -143,7 +176,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -171,7 +215,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -201,7 +256,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -229,7 +295,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -257,7 +334,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -285,7 +373,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -313,7 +412,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -341,7 +451,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -390,7 +511,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -418,7 +550,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -446,7 +589,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -476,7 +630,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -525,7 +690,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -574,7 +750,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -602,7 +789,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -630,7 +828,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -658,7 +867,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -686,7 +906,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -716,7 +947,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -746,7 +988,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -774,7 +1027,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -802,7 +1066,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -832,7 +1107,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -860,7 +1146,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -888,7 +1185,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -939,7 +1247,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -967,7 +1286,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -995,7 +1325,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1023,7 +1364,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1072,7 +1424,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1100,7 +1463,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1128,7 +1502,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1177,7 +1562,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1205,7 +1601,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1233,7 +1640,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1261,7 +1679,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1289,7 +1718,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1317,7 +1757,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1366,7 +1817,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1394,7 +1856,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1422,7 +1895,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1450,7 +1934,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1478,7 +1973,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1527,7 +2033,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1555,7 +2072,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1583,7 +2111,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1611,7 +2150,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1639,7 +2189,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1667,7 +2228,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1695,7 +2267,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1788,6 +2371,13 @@
                     "MotionBlurAmount": 0.5,
                     "MotionBlurMax": 5.0,
                     "MotionBlurTargetFPS": 30.0,
+                    "FilmGrainIntensity": 0.0,
+                    "FilmGrainTexelSize": 1.0,
+                    "ChromaticAberrationIntensity": 0.0,
+                    "ChromaticAberrationStartOffset": 0.0,
+                    "VignetteIntensity": 0.0,
+                    "PaniniD": 0.0,
+                    "PaniniS": 0.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],
@@ -1836,7 +2426,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1887,7 +2488,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1915,7 +2527,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1966,7 +2589,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -1996,7 +2630,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2024,7 +2669,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2052,7 +2708,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2082,7 +2749,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2110,7 +2788,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2138,7 +2827,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2166,7 +2866,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2194,7 +2905,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2222,7 +2944,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2250,7 +2983,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2278,7 +3022,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2308,7 +3063,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2359,7 +3125,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2408,7 +3185,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2438,7 +3226,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2468,7 +3267,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2498,7 +3308,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2526,7 +3347,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2575,7 +3407,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2635,7 +3478,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2663,7 +3517,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2691,7 +3556,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2719,7 +3595,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2747,7 +3634,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2775,7 +3673,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2803,7 +3712,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2833,7 +3753,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2861,7 +3792,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2889,7 +3831,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2917,7 +3870,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2945,7 +3909,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -2973,7 +3948,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3001,7 +3987,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3029,7 +4026,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3057,7 +4065,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3085,7 +4104,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3134,7 +4164,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3162,7 +4203,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3211,7 +4263,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3260,7 +4323,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3309,7 +4383,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3337,7 +4422,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3367,7 +4463,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3418,7 +4525,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3467,7 +4585,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3537,7 +4666,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3565,7 +4705,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3593,7 +4744,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3621,7 +4783,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3649,7 +4822,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3698,7 +4882,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3726,7 +4921,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3754,7 +4960,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3805,7 +5022,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3833,7 +5061,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3861,7 +5100,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3889,7 +5139,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3917,7 +5178,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3945,7 +5217,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -3973,7 +5256,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4001,7 +5295,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4029,7 +5334,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4078,7 +5394,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4106,7 +5433,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4134,7 +5472,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4162,7 +5511,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4190,7 +5550,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4218,7 +5589,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4248,7 +5630,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4297,7 +5690,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4325,7 +5729,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4353,7 +5768,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4381,7 +5807,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4409,7 +5846,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4458,7 +5906,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4486,7 +5945,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4514,7 +5984,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4542,7 +6023,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4570,7 +6062,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4598,7 +6101,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4626,7 +6140,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4654,7 +6179,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4682,7 +6218,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4710,7 +6257,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4738,7 +6296,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4766,7 +6335,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4794,7 +6374,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4822,7 +6413,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4852,7 +6454,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4903,7 +6516,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4931,7 +6555,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4959,7 +6594,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -4987,7 +6633,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5036,7 +6693,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5064,7 +6732,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5092,7 +6771,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5120,7 +6810,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5148,7 +6849,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5176,7 +6888,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5204,7 +6927,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5232,7 +6966,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5281,7 +7026,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5372,7 +7128,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5400,7 +7167,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5428,7 +7206,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5456,7 +7245,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5484,7 +7284,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5554,7 +7365,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5603,7 +7425,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5631,7 +7464,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {
@@ -5682,7 +7526,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         }
     ],
