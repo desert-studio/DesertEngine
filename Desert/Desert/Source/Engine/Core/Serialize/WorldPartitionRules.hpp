@@ -443,6 +443,12 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> Composites; // indices into WorldPartitionPlan::Composites
         // The union of its composites' Height (UE's content bounds in Z): what a source's altitude is measured to.
         HeightSpan Height;
+        // THE THIRD COORDINATE (WP-DATA-LAYERS-RUNTIME; UE FWorldPartitionRuntimeCellData::DataLayers): the RUNTIME
+        // data layers every composite of the cell belongs to, as indices into WorldPartitionSerialized::DataLayers,
+        // ascending. Empty = a cell of no runtime layer. Composites of one square in different sets of runtime
+        // layers are different cells (UE generates its cells per data layer set), so a layer that is Unloaded
+        // reads not a byte of its cells and one that is Loaded holds them without making them entities.
+        std::vector<std::size_t> DataLayers;
     };
 
     struct WorldPartitionPlan
@@ -1581,8 +1587,70 @@ namespace Desert::Core::Rules
             if ( layer.Name.empty() || twice )
                 issues.push_back( { std::format( "WorldPartition.DataLayers[{}].Name", layerIndex ),
                                     "a name no other data layer of the world states", layer.Name } );
+            // WP v3: a runtime layer starts in the state it states; an editor layer has none to start in.
+            if ( layer.Type == DataLayerType::Runtime && !layer.InitialRuntimeState.has_value() )
+                issues.push_back( { std::format( "WorldPartition.DataLayers[{}].InitialRuntimeState", layerIndex ),
+                                    "the state a Runtime data layer starts Play in (Unloaded, Loaded or Activated)",
+                                    "nothing" } );
+            if ( layer.Type == DataLayerType::Editor && layer.InitialRuntimeState.has_value() )
+                issues.push_back( { std::format( "WorldPartition.DataLayers[{}].InitialRuntimeState", layerIndex ),
+                                    "no runtime state on an Editor data layer (it does not stream)",
+                                    "a runtime state" } );
         }
         return issues;
+    }
+
+    // THE RUNTIME LAYERS OF A SET OF LAYERS (WP-DATA-LAYERS-RUNTIME): those of @p layers (indices into
+    // settings.DataLayers) whose Type is Runtime, in the same order. An editor layer is nothing to the cook or to
+    // Play, so it neither splits a cell nor gates one.
+    [[nodiscard]] inline std::vector<std::size_t> RuntimeDataLayersOf( const WorldPartitionSerialized& settings,
+                                                                       std::span<const std::size_t>    layers )
+    {
+        std::vector<std::size_t> runtime;
+        if ( !settings.DataLayers.has_value() )
+            return runtime;
+        for ( const std::size_t layer : layers )
+            if ( layer < settings.DataLayers->size() && ( *settings.DataLayers )[layer].Type == DataLayerType::Runtime )
+                runtime.push_back( layer );
+        return runtime;
+    }
+
+    // THE NAME A SET OF RUNTIME LAYERS GIVES ITS CELLS (UE FDataLayersID: a hash of the layers' names in the runtime
+    // cell's name). FNV-1a over the NAMES, sorted and each closed by a 0 byte - not over the indices, so a cell's
+    // file does not move when the world gains, loses or reorders another layer. Empty set = "" (a cell of no runtime
+    // layer keeps the name it always had); otherwise "_DL" and eight hex digits.
+    [[nodiscard]] inline std::string DataLayersCellSuffix( const WorldPartitionSerialized& settings,
+                                                           std::span<const std::size_t>    runtimeLayers )
+    {
+        if ( runtimeLayers.empty() || !settings.DataLayers.has_value() )
+            return {};
+        std::vector<std::string_view> names;
+        names.reserve( runtimeLayers.size() );
+        for ( const std::size_t layer : runtimeLayers )
+            names.emplace_back( settings.DataLayers->at( layer ).Name );
+        std::sort( names.begin(), names.end() );
+        std::uint32_t hash = 2166136261u;
+        const auto    mix  = [&hash]( unsigned char byte )
+        {
+            hash ^= byte;
+            hash *= 16777619u;
+        };
+        for ( const std::string_view name : names )
+        {
+            for ( const char c : name )
+                mix( static_cast<unsigned char>( c ) );
+            mix( 0 );
+        }
+        return std::format( "_DL{:08X}", hash );
+    }
+
+    // A CELL'S NAME ON DISK, without the extension: grid, level, coordinate and its runtime layers
+    // (`G0_L1_3_-2`, `G0_L0_1_0_DL1A2B3C4D`). The one statement of it: the cook names the cell's file
+    // (WorldCells::CellFileName) and Play names the cell in its log by it.
+    [[nodiscard]] inline std::string CellStem( const WorldPartitionSerialized& settings, const PlannedCell& cell )
+    {
+        return std::format( "G{}_L{}_{}_{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z,
+                            DataLayersCellSuffix( settings, cell.DataLayers ) );
     }
 
     // The index of the layer @p name names in @p settings, or nullopt when the world states none of that name.
@@ -2015,13 +2083,19 @@ namespace Desert::Core::Rules
             }
         }
 
-        // ── 6. The cells, ordered by grid, level, X, Z ────────────────────────────────────────────
-        std::map<std::tuple<std::size_t, int, std::int32_t, std::int32_t>, std::vector<std::size_t>> cells;
+        // ── 6. The cells, ordered by grid, level, X, Z, then the set of runtime data layers ────────────
+        // The runtime layers are the cell's third coordinate (PlannedCell::DataLayers; UE generates its runtime
+        // cells per data layer set): composites of one square in different sets are different cells.
+        std::map<std::tuple<std::size_t, int, std::int32_t, std::int32_t, std::vector<std::size_t>>,
+                 std::vector<std::size_t>>
+             cells;
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             const PlannedComposite& held = plan.Composites[group];
             if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
-                cells[std::make_tuple( held.Grid, held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
+                cells[std::make_tuple( held.Grid, held.Level, held.Cell.X, held.Cell.Z,
+                                       RuntimeDataLayersOf( settings, held.DataLayers ) )]
+                     .push_back( group );
         }
         // Half the widest footprint each (grid, level) holds: how far past its square a cell of it may reach.
         std::map<std::pair<std::size_t, int>, double> reach;
@@ -2038,6 +2112,7 @@ namespace Desert::Core::Rules
             cell.Level      = std::get<1>( key );
             cell.Cell.X     = std::get<2>( key );
             cell.Cell.Z     = std::get<3>( key );
+            cell.DataLayers = std::get<4>( key );
             cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( settings.Grids[cell.Grid].CellSize, cell.Level ) );
             const double margin = reach.at( std::make_pair( cell.Grid, cell.Level ) );
             cell.Bounds     = CellBounds{ static_cast<float>( static_cast<double>( cell.Square.MinX ) - margin ),
