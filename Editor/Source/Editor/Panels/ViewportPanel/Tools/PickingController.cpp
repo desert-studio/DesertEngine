@@ -5,6 +5,7 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Engine/ECS/FoliageFieldEntities.hpp>
 
 namespace Desert::Editor::Tools
@@ -64,6 +65,19 @@ namespace Desert::Editor::Tools
 
         Common::UUID selectedUUID = pick.Entity;
         auto&        registry     = scene.GetRegistry();
+
+        // AN EDITOR HLOD IS NOT THE WORLD'S (ECS/EditorHLODComponent.hpp; UE: an editor HLOD is not selectable):
+        // a click on one is a click on empty ground.
+        if ( const auto hlodRef = scene.FindEntityByID( selectedUUID );
+             hlodRef.has_value() && hlodRef->get().HasComponent<ECS::EditorHLODComponent>() )
+        {
+            if ( !additive )
+            {
+                Core::SelectionManager::ClearSelection();
+                return PickOutcome::Cleared;
+            }
+            return PickOutcome::Missed;
+        }
 
         // If the hit entity is a child of a prefab, select the prefab ROOT so the whole prefab is outlined
         // instead of just one submesh.

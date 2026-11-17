@@ -54,6 +54,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -391,6 +392,45 @@ namespace Desert::Core::Rules
              !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
         return tick;
+    }
+
+    // ── THE EDITOR'S HLODs (WP-EDITOR-HLOD; UE 5.5 UWorldPartitionHLODEditorSubsystem) ─────────────────────
+    //
+    // The editor streams nothing: it HOLDS part of the world (EditorRegions), and its residency is read from what
+    // it holds. A unit is Activated when the editor holds ANY record of it - those records are drawn, and the
+    // unit's HLOD drawn over them would double them (UE hides an editor HLOD over a loaded region the same way) -
+    // and Unloaded otherwise. HLODRuntime::Sync then applies Play's rule to that state unchanged: an HLOD is shown
+    // exactly while its cell is not. @p held( record ) answers whether the editor holds record `record` of
+    // @p plan (an index into the rows the plan was made from).
+    template <typename Held>
+    [[nodiscard]] ResidencyState EditorResidency( const WorldPartitionPlan& plan, Held&& held )
+    {
+        ResidencyState state;
+        state.Units.resize( ResidencyUnitCount( plan ) );
+        for ( std::size_t unit = 0; unit < state.Units.size(); ++unit )
+            for ( const std::size_t record : ResidencyUnitMembers( plan, unit ) )
+                if ( held( record ) )
+                {
+                    state.Units[unit].State = Residency::Activated;
+                    break;
+                }
+        return state;
+    }
+
+    // UE's HLODInEditorMinDrawDistance / HLODInEditorMaxDrawDistance: whether the editor draws the HLOD of a cell
+    // whose content spans @p bounds (X/Z, cm) and @p height (Y, cm), seen from @p eye (cm). The distance is to
+    // the nearest point of that box (0 inside it), as UE measures it to the HLOD's bounds; @p maxDistance 0 = no
+    // far limit.
+    [[nodiscard]] inline bool InEditorHLODRange( const CellBounds& bounds, const HeightSpan& height, double eyeX,
+                                                 double eyeY, double eyeZ, double minDistance, double maxDistance )
+    {
+        const auto gap = []( double value, double low, double high )
+        { return value < low ? low - value : ( value > high ? value - high : 0.0 ); };
+        const double dx       = gap( eyeX, bounds.MinX, bounds.MaxX );
+        const double dy       = gap( eyeY, height.MinY, height.MaxY );
+        const double dz       = gap( eyeZ, bounds.MinZ, bounds.MaxZ );
+        const double distance = std::sqrt( dx * dx + dy * dy + dz * dz );
+        return distance >= minDistance && ( maxDistance <= 0.0 || distance <= maxDistance );
     }
 
     // The holes, counted by reason in the enum's own spelling and in its alphabetical order:

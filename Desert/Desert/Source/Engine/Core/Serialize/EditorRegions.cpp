@@ -294,6 +294,23 @@ namespace Desert::Core::EditorRegions
         return Select( plan, rowIds, &regions, layerLoaded );
     }
 
+    Common::ResultStr<WorldOnDisk> PlanWorldOnDisk( const std::filesystem::path&    path,
+                                                    const WorldPartitionSerialized& settings )
+    {
+        auto index = DescriptorIndex::Refresh( path );
+        if ( !index )
+            return Common::MakeError<WorldOnDisk>( index.GetError() );
+        const DescriptorIndex::DescriptorIndexFile& rows = index.GetValue().Index;
+        WorldOnDisk                                 world;
+        world.RowIds.reserve( rows.Entities.size() );
+        for ( const DescriptorIndex::DescriptorRow& row : rows.Entities )
+            world.RowIds.push_back( row.Id );
+        const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
+        world.Plan = Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( descriptors ), settings,
+                                                RegistryMeshBounds() );
+        return Common::MakeSuccess( std::move( world ) );
+    }
+
     Common::ResultStr<RegionOutcome> LoadRegions( Scene& scene, Assets::AssetManager* assets,
                                                   std::span<const Rules::CellBounds> regions,
                                                   const DataLayerOverrides&          layers )

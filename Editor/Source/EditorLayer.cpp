@@ -619,7 +619,11 @@ namespace Desert::Editor
         m_Startup.TickThumbnails();
         // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
         if ( m_WorldPartitionPanel )
+        {
             m_WorldPartitionPanel->TickBuild();
+            // The saved HLODs of the cells the editor does not hold (WP-EDITOR-HLOD), before the scene is drawn.
+            m_WorldPartitionPanel->TickEditorHLODs();
+        }
 
         m_Dock.UpdateContextualPanels();
 

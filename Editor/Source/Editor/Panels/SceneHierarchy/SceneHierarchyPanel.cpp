@@ -1,4 +1,5 @@
 #include "SceneHierarchyPanel.hpp"
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -1032,7 +1033,8 @@ namespace Desert::Editor
                     ECS::Entity entity( entityHandle, registry );
                     bool        hasParent = entity.HasComponent<ECS::RelationshipComponent>() &&
                                      entity.GetComponent<ECS::RelationshipComponent>().Parent != entt::null;
-                    if ( !hasParent )
+                    // An editor HLOD (WP-EDITOR-HLOD) is not the world's: the Outliner does not list it.
+                    if ( !hasParent && !entity.HasComponent<ECS::EditorHLODComponent>() )
                         DrawEntityNode( entity );
                 }
 
