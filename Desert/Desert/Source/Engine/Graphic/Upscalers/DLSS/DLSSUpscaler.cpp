@@ -4,6 +4,7 @@
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
@@ -36,12 +37,6 @@ namespace Desert::Graphic
         constexpr uint32_t    kGuidesGroupSize  = 8; // DLSSRRGuides.shader / DLSSRRPathGuides.shader LocalSize
         constexpr const char* kPathGuidesShaderName = "DLSSRRPathGuides";
         constexpr const char* kPathGuidesPassName   = "DLSS-RR: Path Guides";
-        // DLSSRRPathGuides.shader's push block.
-        struct PathGuidesPush
-        {
-            glm::vec4 Params; // xy render extent
-        };
-
         const std::shared_ptr<const RDG::ShaderBindingLayout>& PathGuidesLayout()
         {
             using Kind = RDG::ShaderResourceKind;
@@ -56,7 +51,7 @@ namespace Desert::Graphic
                                       { "SpecularAlbedoTexture", Kind::StorageTexture },
                                       { "NormalRoughnessTexture", Kind::StorageTexture },
                                       { "SpecularHitDistanceTexture", Kind::StorageTexture } },
-                      .PushConstantBytes = static_cast<uint32_t>( sizeof( PathGuidesPush ) ) } );
+                      .PushConstantBytes = ShaderPush::BlockSize::Of<ShaderPush::DLSSRRPathGuides>().Bytes() } );
             return layout;
         }
         // The slot names DLSSRRPathGuides.shader binds, spelled once (RDGShaderParameters.hpp).
@@ -71,14 +66,6 @@ namespace Desert::Graphic
             DESERT_SHADER_PARAMETER( StorageTexture, NormalRoughnessTexture );
             DESERT_SHADER_PARAMETER( StorageTexture, SpecularHitDistanceTexture );
         };
-        // DLSSRRGuides.shader's push block: InverseJitteredViewProjection, CameraPosition, Params.
-        struct GuidesPush
-        {
-            glm::mat4 InvJitteredViewProjection;
-            glm::vec4 CameraPos;
-            glm::vec4 Params; // xy render extent, z = 1 when the reflection ray is this frame's trace
-        };
-
         const std::shared_ptr<const RDG::ShaderBindingLayout>& GuidesLayout()
         {
             using Kind = RDG::ShaderResourceKind;
@@ -95,7 +82,7 @@ namespace Desert::Graphic
                                       { "DiffuseAlbedoTexture", Kind::StorageTexture },
                                       { "SpecularAlbedoTexture", Kind::StorageTexture },
                                       { "SpecularHitDistanceTexture", Kind::StorageTexture } },
-                      .PushConstantBytes = static_cast<uint32_t>( sizeof( GuidesPush ) ) } );
+                      .PushConstantBytes = ShaderPush::BlockSize::Of<ShaderPush::DLSSRRGuides>().Bytes() } );
             return layout;
         }
         // What the post chain reads after the temporal resolve (TemporalAA's output is the same).
@@ -415,10 +402,12 @@ namespace Desert::Graphic
                              .NormalRoughness     = inputs.GBufferNormal,
                              .HitDistanceTraced   = traced };
         const RDG::TextureRef ray    = traced ? inputs.ReflectionRay : inputs.Black;
-        const GuidesPush      push{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                    .CameraPos                 = glm::vec4( frame.CameraPosition, 1.0f ),
-                                    .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ),
-                                                         traced ? 1.0f : 0.0f, 0.0f ) };
+        // Params: xy the render extent, z = 1 when the reflection ray is this frame's trace.
+        const ShaderPush::DLSSRRGuides push{
+             .InverseJitteredViewProjection = frame.InvJitteredViewProjection,
+             .CameraPosition                = glm::vec4( frame.CameraPosition, 1.0f ),
+             .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ), traced ? 1.0f : 0.0f,
+                                  0.0f ) };
         GuidesPipeline* holder = m_GuidesPipeline.get();
         graph.AddPass(
              kGuidesPassName, RDG::PassFlags::Compute,
@@ -443,7 +432,7 @@ namespace Desert::Graphic
                                 RDG::Access::StorageWrite, 0 )
                       .Storage( DLSSRRGuidesShaderParameters::SpecularHitDistanceTexture,
                                 guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( GuidesPush ) ) );
+                      .PushConstants<ShaderPush::DLSSRRGuides>();
              },
              [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -452,7 +441,7 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeError( error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline,
                                                                  ( width + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
                                                                  ( height + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
@@ -478,10 +467,11 @@ namespace Desert::Graphic
                              .SpecularHitDistance = graph.CreateTexture( distanceDesc, "DLSS-RR.SpecularHitDistance" ),
                              .NormalRoughness     = graph.CreateTexture( albedoDesc, "DLSS-RR.NormalRoughness" ),
                              .HitDistanceTraced   = true };
-        const PathGuidesPush push{ .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ),
-                                                        0.0f, 0.0f ) };
-        GuidesPipeline*      holder = m_PathGuidesPipeline.get();
-        using P                     = DLSSRRPathGuidesShaderParameters;
+        // Params.xy: the render extent.
+        const ShaderPush::DLSSRRPathGuides push{
+             .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ), 0.0f, 0.0f ) };
+        GuidesPipeline* holder = m_PathGuidesPipeline.get();
+        using P                = DLSSRRPathGuidesShaderParameters;
         graph.AddPass(
              kPathGuidesPassName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -496,7 +486,7 @@ namespace Desert::Graphic
                       .Storage( P::NormalRoughnessTexture, guides.NormalRoughness, RDG::Access::StorageWrite, 0 )
                       .Storage( P::SpecularHitDistanceTexture, guides.SpecularHitDistance, RDG::Access::StorageWrite,
                                 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( PathGuidesPush ) ) );
+                      .PushConstants<ShaderPush::DLSSRRPathGuides>();
              },
              [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -505,7 +495,7 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeError( error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline,
                                                                  ( width + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
                                                                  ( height + kGuidesGroupSize - 1 ) / kGuidesGroupSize,

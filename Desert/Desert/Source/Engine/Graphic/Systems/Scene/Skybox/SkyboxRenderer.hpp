@@ -312,11 +312,11 @@ namespace Desert::Graphic::System
                                                                           ComputePipeline&        pipeline );
 
         // Each LUT node's binding block 0: @p pipeline's shader layout (kept in @p layout), the sky payload
-        // buffer through the pipeline route, and @p pushBytes of push constants.
+        // buffer through the pipeline route; the caller declares the shader's generated push block on it
+        // (BlockDeclaration::PushConstants<ShaderPush::X>).
         RenderPassDeclaration::BlockDeclaration DeclareLutBlock( RenderPassDeclaration&    declared,
                                                                  ComputePipeline*          pipeline,
-                                                                 ShaderBindingLayoutCache& layout,
-                                                                 uint32_t                  pushBytes );
+                                                                 ShaderBindingLayoutCache& layout );
 
     private:
         std::weak_ptr<MaterialSkybox> m_MaterialSkybox;

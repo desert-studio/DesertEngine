@@ -228,7 +228,7 @@ namespace Desert::Graphic::RDG
                                         .Declared   = declared } );
     }
 
-    PassBindings& PassBindings::PushConstants( const void* data, uint32_t size )
+    PassBindings& PassBindings::PushBytes( const void* data, uint32_t size )
     {
         if ( !m_FirstError.empty() )
             return *this;
@@ -604,9 +604,9 @@ namespace Desert::Graphic::RDG
         return *this;
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::PushConstantBytes( uint32_t bytes )
+    BindingBlockBuilder& BindingBlockBuilder::PushConstants( ShaderPush::BlockSize size )
     {
-        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].PushConstantBytes = bytes;
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].PushConstantBytes = size.Bytes();
         return *this;
     }
 

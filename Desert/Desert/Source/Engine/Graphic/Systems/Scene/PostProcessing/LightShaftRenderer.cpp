@@ -1,4 +1,5 @@
 #include "LightShaftRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
@@ -13,21 +14,7 @@ namespace Desert::Graphic::System
         constexpr Core::Formats::ImageFormat kShaftFormat = ViewTargetFormats::kLightShaft;
         constexpr uint32_t                   kGroupSize   = 16; // must match LocalSize in the shaders
 
-        // Push-constant blocks — must match LightShaftMask/LightShaftBlur exactly.
-        struct MaskPush
-        {
-            glm::vec2 SunUv;
-            float     Threshold;
-            float     MaxBrightness;
-            float     WindowRadius;
-        };
 
-        struct BlurPush
-        {
-            glm::vec2 SunUv;
-            float     Reach;
-            float     Decay;
-        };
 
         // How much of the pixel->sun distance each blur pass walks — UE's own schedule
         // (LightShaftRendering.cpp): first pass 0.1 of the way, each subsequent pass scaled by
@@ -107,7 +94,7 @@ namespace Desert::Graphic::System
              .Texture( LightShaftMaskShaderParameters::SceneColorTexture, sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Sampler( LightShaftMaskShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( LightShaftMaskShaderParameters::ShaftMaskTexture, mask, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( MaskPush ) ) );
+             .PushConstants<ShaderPush::LightShaftMask>();
     }
 
     Common::BoolResultStr LightShaftRenderer::RecordMask( const RDG::PassContext& context,
@@ -116,10 +103,10 @@ namespace Desert::Graphic::System
     {
         if ( !m_MaskPipeline )
             return Common::MakeError( "LightShaftRenderer: the mask pipeline is not initialised" );
-        const MaskPush    maskPush{ sunScreenUv, m_Params.Threshold * m_PreExposure,
+        const ShaderPush::LightShaftMask    maskPush{ sunScreenUv, m_Params.Threshold * m_PreExposure,
                                  m_Params.MaxBrightness * m_PreExposure, kMaskWindow };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &maskPush, sizeof( maskPush ) );
+        bindings.PushConstants( maskPush );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_MaskPipeline, GroupCount( desc.Size.Width ),
                                                         GroupCount( desc.Size.Height ), 1 );
     }
@@ -135,7 +122,7 @@ namespace Desert::Graphic::System
              .Texture( LightShaftBlurShaderParameters::ShaftMaskTexture, source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Sampler( LightShaftBlurShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( LightShaftBlurShaderParameters::BlurredShaftsTexture, target, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( BlurPush ) ) );
+             .PushConstants<ShaderPush::LightShaftBlur>();
     }
 
     Common::BoolResultStr LightShaftRenderer::RecordBlur( const RDG::PassContext& context,
@@ -149,9 +136,9 @@ namespace Desert::Graphic::System
         float reach = kBaseReach; // grown by repeated multiplication, as the single loop did
         for ( uint32_t i = 0; i < pass; ++i )
             reach *= kPassScale;
-        const BlurPush    blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
+        const ShaderPush::LightShaftBlur    blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &blurPush, sizeof( blurPush ) );
+        bindings.PushConstants( blurPush );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_BlurPipeline, GroupCount( desc.Size.Width ),
                                                         GroupCount( desc.Size.Height ), 1 );
     }

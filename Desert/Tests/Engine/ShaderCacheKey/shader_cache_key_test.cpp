@@ -954,7 +954,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresEighteenDescriptorsInSetZ
     //
     // FOURTEEN SINCE Р4. The one that arrived is the SKY-LIGHT OCCLUSION VOLUME at binding 13, and it is
     // bound on exactly the terms this note describes: ALWAYS, fallback included, even in the default scene
-    // where the layer's flag is off and CloudPush::Frame.x tells the march not to read it.
+    // where the layer's flag is off and ShaderPush::CloudRaymarch::CloudFrame.x tells the march not to read it.
     //
     // FIFTEEN SINCE Р14. The one that arrived is the ATMOSPHERE'S TRANSMITTANCE LUT at binding 14 — the
     // SKY's texture, read by the cloud march so that the sun's colour can be re-evaluated at each sample's

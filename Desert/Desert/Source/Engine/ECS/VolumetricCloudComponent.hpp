@@ -302,7 +302,7 @@ namespace Desert::ECS
         //
         // Read by Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp, which decides whether
         // to dispatch Editor/Resources/Shaders/Programs/Clouds/CloudSkyOcclusionVolume.shader, and by
-        // Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader through CloudPush::Frame.
+        // Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader through ShaderPush::CloudRaymarch::CloudFrame.
         bool SkyOcclusionVolume = true;
 
         PROPERTY( DisplayName( "Per Sample Atmosphere Transmittance" ), Category( "Lighting" ),
@@ -333,7 +333,7 @@ namespace Desert::ECS
         //
         // Read by Engine/Graphic/Clouds/CloudPayload.hpp, which chooses which of the two illuminances the
         // parameter block carries, and applied by BOTH marches of the field: the screen march
-        // (Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader, through CloudPush::Frame) and
+        // (Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader, through ShaderPush::CloudRaymarch::CloudFrame) and
         // the environment bake (Editor/Resources/Shaders/Programs/Compute/BakeProceduralSky.shader,
         // through CloudBakeBinding::PerSampleSunTransmittance). Both, because they share the ONE packed
         // block: a bake that did not apply the transmittance would light the IBL panorama with the sun's

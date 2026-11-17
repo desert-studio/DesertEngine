@@ -1,6 +1,7 @@
 // Ported from UE 5.5 Engine/Source/Runtime/Renderer/Private/Lumen/LumenRadianceCache.cpp (the update's pass
 // sequence: mark, update used probes, allocate, select the max priority bucket, trace from probes, filter),
 // adapted as described in WorldRadianceCache.hpp.
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -63,23 +64,6 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr std::array<std::string_view, 7> kRadianceCacheShaderNames{
              "RadianceCacheMark",  "RadianceCacheUpdate", "RadianceCacheAllocate", "RadianceCacheSelect",
              "RadianceCachePlace", "RadianceCacheTrace",  "RadianceCacheFilter" };
-        // std430 — must match `PushConstant RadianceCachePush` in Common/RadianceCacheState.glslh.
-        struct RadianceCachePush
-        {
-            uint32_t FrameIndex   = 0;
-            uint32_t Reset        = 0;
-            uint32_t MaxProbes    = 0;
-            uint32_t UnusedFrames = RadianceCache::kProbeUnusedFramesBeforeFree;
-            uint32_t Width        = 0;
-            uint32_t Height       = 0;
-            float    History      = RadianceCache::kHistoryWeight;
-            float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
-            uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
-            uint32_t MarkFallback  = 0; // 1: Mark also stamps the clipmap past each pixel's coarse end
-            // An event-less probe's frames between traces (RC_PRIORITY_NOT_DUE in RadianceCacheAllocate).
-            uint32_t RefreshMinFrames = RadianceCache::kProbeRefreshMinFrames;
-        };
-        static_assert( sizeof( RadianceCachePush ) == 44 );
 
         // The update's event counters in the schedule header (RC_STAT_WORDS, Common/RadianceCacheState.glslh).
         constexpr uint32_t kScheduleCounters = 6;
@@ -334,7 +318,7 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef dispatchArgs =
              graph.CreateBuffer( RDG::BufferDesc{ 6u * sizeof( uint32_t ) }, "RadianceCache.DispatchArgs" );
 
-        RadianceCachePush push;
+        ShaderPush::RadianceCachePush push;
         push.FrameIndex = ++m_FrameIndex;
         push.Reset      = m_Reset ? 1u : 0u;
         push.MaxProbes  = RadianceCache::MaxProbes( shape );
@@ -346,6 +330,10 @@ namespace Desert::Graphic::GlobalIllumination
             m_LightingFrame = push.FrameIndex;
         push.LightingFrame = m_LightingFrame;
         push.MarkFallback  = inputs.MarkRadianceFallback ? 1u : 0u;
+        push.UnusedFrames     = RadianceCache::kProbeUnusedFramesBeforeFree;
+        push.HistoryWeight    = RadianceCache::kHistoryWeight;
+        push.DirtyHistory     = RadianceCache::kDirtyHistoryWeight;
+        push.RefreshMinFrames = RadianceCache::kProbeRefreshMinFrames;
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
@@ -378,7 +366,6 @@ namespace Desert::Graphic::GlobalIllumination
         update.DispatchArgs = dispatchArgs;
         update.MarkPoints   = markPointsBuffer;
         update.GIFrame      = frame;
-        static_assert( sizeof( RadianceCachePush ) == kPushBytes );
         std::memcpy( update.Push.data(), &push, sizeof( push ) );
         update.FrameIndex = push.FrameIndex;
         update.FullUpdate = fullUpdate;
@@ -447,7 +434,7 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef  dispatchArgs = update.DispatchArgs;
         const RDG::BufferRef  markPoints   = update.MarkPoints;
         const RDG::BufferRef  frame        = update.GIFrame;
-        RadianceCachePush     push;
+        ShaderPush::RadianceCachePush     push;
         std::memcpy( &push, update.Push.data(), sizeof( push ) );
         {
             ComputePipeline* const pipeline = m_Pipelines[pass].get();
@@ -465,7 +452,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheProbesUB, probes, kRW )
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheFreeListUB, freeList, kRW )
                           .Storage( WorldRadianceCacheShaderParameters::RadianceCacheScheduleUB, schedule, kRW )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RadianceCachePush ) ) );
+                          .PushConstants<ShaderPush::RadianceCachePush>();
                      if ( pass == Select )
                          block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheUpdateCountsUB, updateCounts,
                                         kRW );
@@ -539,7 +526,7 @@ namespace Desert::Graphic::GlobalIllumination
                  [pipeline, push, count, pass, dispatchArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      if ( pass == Trace )
                          return Renderer::DispatchComputeIndirect( bindings, *pipeline, dispatchArgs,
                                                                    kTraceArgsOffset );

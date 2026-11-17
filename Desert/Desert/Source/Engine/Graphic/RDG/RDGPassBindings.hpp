@@ -4,6 +4,7 @@
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+#include <Engine/Graphic/ShaderPushBlock.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -108,8 +109,17 @@ namespace Desert::Graphic::RDG
         // A ray-queried scene: @p tlas is the buffer an acceleration-structure build wrote (RayTracingSceneFrame::
         // Tlas); declared AccelStructRead, bound as the acceleration structure it stores.
         BindingBlockBuilder& AccelerationStructure( AccelerationStructureParameter parameter, BufferRef tlas );
-        // The size the exec's PassBindings::PushConstants will give; 0 = none.
-        BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
+        // SHADER-PUSH-GEN-2: the block's shader push constants are the generated ShaderPush::<Shader> struct @p T
+        // (Engine/Generated/ShaderPushConstants.gen.hpp) - the one the exec's PassBindings::PushConstants gives.
+        // No byte count is accepted: the size comes from the type.
+        template <ShaderPush::Block T>
+        BindingBlockBuilder& PushConstants()
+        {
+            return PushConstants( ShaderPush::BlockSize::Of<T>() );
+        }
+        // The same from a size a declaration carried (RenderPassDeclaration::BlockDeclaration::PushConstants<T>);
+        // a default BlockSize = the block pushes nothing.
+        BindingBlockBuilder& PushConstants( ShaderPush::BlockSize size );
         // A texture the block's shader samples through the BINDLESS table (no slot of the block: the light
         // function atlas, Mesh/LightFunctionAtlas.glslh): declared to the graph alone, so its writer is ordered
         // (and barriered) before this pass on whichever queue the pass runs (UE: a pass parameter the shader reads
@@ -165,9 +175,14 @@ namespace Desert::Graphic::RDG
         PassBindings( PassBindings&& )                 = delete;
         PassBindings& operator=( PassBindings&& )      = delete;
 
-        // The push-constant block of the draw / dispatch, copied. Its size is checked against the shader's
+        // The push-constant block of the draw / dispatch, copied: the generated ShaderPush::<Shader> struct the
+        // setup declared (BindingBlockBuilder::PushConstants<T>). Its size is checked against the shader's
         // declared push-constant range by the consumer.
-        PassBindings& PushConstants( const void* data, uint32_t size );
+        template <ShaderPush::Block T>
+        PassBindings& PushConstants( const T& push )
+        {
+            return PushBytes( &push, static_cast<uint32_t>( sizeof( T ) ) );
+        }
 
         // Success, or the first failed entry: "<pass>: '<shader name>' <- '<resource>': <why>".
         [[nodiscard]] Common::BoolResultStr GetStatus() const;
@@ -197,6 +212,8 @@ namespace Desert::Graphic::RDG
         // A sampler slot: no resource, only the state.
         void ResolveSampler( std::string_view shaderName, SamplerDesc sampler );
         void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
+        // PushConstants' copy; private so no pass pushes bytes that are not a generated block.
+        PassBindings& PushBytes( const void* data, uint32_t size );
 
         const PassContext&        m_Context;
         BindingBlockRef           m_Block;

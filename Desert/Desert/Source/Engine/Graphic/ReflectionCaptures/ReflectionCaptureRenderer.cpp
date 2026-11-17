@@ -1,5 +1,6 @@
 #include "ReflectionCaptureRenderer.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -104,29 +105,7 @@ namespace Desert::Graphic
             glm::vec4                Probe; // x = the distance a direction is projected at
         };
 
-        struct FilterPush
-        {
-            uint32_t Mip        = 0u;
-            uint32_t MaxMip     = 0u;
-            uint32_t FirstLayer = 0u;
-        };
 
-        // ReflectionCaptureDiffuse.shader's push block.
-        struct DiffusePush
-        {
-            glm::vec4 Estimator{ 0.0f }; // x = 1 the radiance cache, 0 the sky's irradiance; y = point count
-            glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
-            glm::vec4 SkyGain{ 1.0f };
-        };
-        // ReflectionCaptureDiffuse.shader's push block and one row of its point list (std430).
-        // ReflectionCaptureBlend.shader's push block.
-        struct BlendPush
-        {
-            uint32_t LiveLayer    = 0u;
-            uint32_t StagingLayer = 0u;
-            float    Weight       = 0.0f;
-            float    Pad          = 0.0f;
-        };
         struct DiffusePointGpu
         {
             glm::vec4  Point{ 0.0f };    // xyz = the capture point (world cm)
@@ -799,16 +778,16 @@ namespace Desert::Graphic
                                     RDG::SamplerDesc::LinearClamp() )
                           .Storage( ReflectionCaptureFilterShaderParameters::DestinationCubeTexture, array,
                                     RDG::Access::StorageWrite, mip )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
+                          .PushConstants<ShaderPush::ReflectionCaptureFilter>();
                  },
                  [pipeline = m_Filter, mip, mips, cube,
                   faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      // The shader derives the roughness from the mip: the engine's one ramp
                      // (Common/ReflectionCaptureMip.glslh), the sky's too.
-                     const FilterPush  push{ mip, mips - 1u, cube * 6u };
+                     const ShaderPush::ReflectionCaptureFilter  push{ mip, mips - 1u, cube * 6u };
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, sizeof( push ) );
+                     bindings.PushConstants( push );
                      const uint32_t size = std::max( 1u, faceSize >> mip );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( size ),
                                                                      GroupCount( size ), 6 );
@@ -916,10 +895,10 @@ namespace Desert::Graphic
     void ReflectionCaptureRenderer::AddBlendPasses( RDG::Builder& graph, const RDG::TextureRef array )
     {
         const uint32_t mips = Core::Formats::MipChainLength( m_FaceSize );
-        BlendPush      push;
+        ShaderPush::ReflectionCaptureBlend      push;
         push.LiveLayer    = m_BlendCube * 6u;
         push.StagingLayer = static_cast<uint32_t>( m_Captures.size() ) * 6u;
-        push.Weight       = 1.0f / static_cast<float>( kReflectionCaptureBlendFrames - m_BlendStep );
+        push.StagingWeight = 1.0f / static_cast<float>( kReflectionCaptureBlendFrames - m_BlendStep );
         for ( uint32_t mip = 0; mip < mips; ++mip )
             graph.AddPass(
                  std::format( "ReflectionCapture: Blend {} mip {}", m_BlendCube, mip ), RDG::PassFlags::Compute,
@@ -930,13 +909,13 @@ namespace Desert::Graphic
                                     Renderer::GetPipelineRouteFill( *m_Blend ) )
                           .Storage( ReflectionCaptureBlendShaderParameters::CubesTexture, array,
                                     RDG::Access::StorageWrite, mip )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( BlendPush ) ) );
+                          .PushConstants<ShaderPush::ReflectionCaptureBlend>();
                  },
                  [pipeline = m_Blend, push, mip,
                   faceSize = m_FaceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, sizeof( push ) );
+                     bindings.PushConstants( push );
                      const uint32_t size = std::max( 1u, faceSize >> mip );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, GroupCount( size ),
                                                                      GroupCount( size ), 6 );
@@ -982,8 +961,8 @@ namespace Desert::Graphic
         const RDG::BufferRef pointsBuffer = graph.CreateBuffer(
              RDG::BufferDesc{ points.size() * sizeof( DiffusePointGpu ) }, "ReflectionCapture.DiffusePoints" );
         graph.QueueBufferUpload( pointsBuffer, std::as_bytes( std::span( points ) ) );
-        DiffusePush push;
-        push.Estimator =
+        ShaderPush::ReflectionCaptureDiffuse push;
+        push.EstimatorParams =
              glm::vec4( lighting.RadianceCache ? 1.0f : 0.0f, static_cast<float>( points.size() ), 0.0f, 0.0f );
         push.SkyYawCosSin = lighting.SkyYawCosSin;
         push.SkyGain      = lighting.SkyGain;
@@ -1012,12 +991,12 @@ namespace Desert::Graphic
                       // Read-modify-write of the last mip: its rgb is the roughest radiance and stays.
                       .Storage( ReflectionCaptureDiffuseShaderParameters::CubesTexture, array,
                                 RDG::Access::StorageWrite, lastMip )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( DiffusePush ) ) );
+                      .PushConstants<ShaderPush::ReflectionCaptureDiffuse>();
              },
              [pipeline = m_Diffuse, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, sizeof( push ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, count, 1u, 1u );
              } );
     }

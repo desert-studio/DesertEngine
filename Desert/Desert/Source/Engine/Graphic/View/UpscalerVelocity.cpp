@@ -1,5 +1,6 @@
 #include <Engine/Graphic/View/UpscalerVelocity.hpp>
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -27,14 +28,6 @@ namespace Desert::Graphic
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( StorageTexture, UpscalerVelocityTexture );
         };
-        // UpscalerVelocity.shader's push block.
-        struct VelocityPush
-        {
-            glm::mat4 ClipToPrevClip; // PrevViewProjection * InvViewProjection, both unjittered
-            glm::vec4 Params;         // xy render extent
-        };
-        static_assert( sizeof( VelocityPush ) == 80, "UpscalerVelocity.shader PushConstants: mat4 + vec4" );
-
     } // namespace
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& UpscalerVelocityLayout()
@@ -47,7 +40,7 @@ namespace Desert::Graphic
                                          { "SceneDepthTexture", Kind::Texture },
                                          { "PointClampSampler", Kind::Sampler },
                                          { "UpscalerVelocityTexture", Kind::StorageTexture } },
-                  .PushConstantBytes = static_cast<uint32_t>( sizeof( VelocityPush ) ) } );
+                  .PushConstantBytes = ShaderPush::BlockSize::Of<ShaderPush::UpscalerVelocity>().Bytes() } );
         return layout;
     }
 
@@ -104,9 +97,10 @@ namespace Desert::Graphic
         desc.Size                      = { width, height, 1 };
         desc.Format                    = ViewTargetFormats::kVelocity;
         const RDG::TextureRef combined = graph.CreateTexture( desc, kVelocityShaderName );
-        const VelocityPush    push{
-                .ClipToPrevClip = frame.ClipToPrevClip(),
-                .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ), 0.0f, 0.0f ) };
+        // ClipToPrevClip: PrevViewProjection * InvViewProjection, both unjittered; Params.xy: the render extent.
+        const ShaderPush::UpscalerVelocity push{
+             .ClipToPrevClip = frame.ClipToPrevClip(),
+             .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ), 0.0f, 0.0f ) };
         PipelineHolder* holder = m_Pipeline.get();
         graph.AddPass(
              kVelocityShaderName, RDG::PassFlags::Compute,
@@ -121,7 +115,7 @@ namespace Desert::Graphic
                                 RDG::SamplerDesc::PointClamp() )
                       .Storage( UpscalerVelocityShaderParameters::UpscalerVelocityTexture, combined,
                                 RDG::Access::StorageWrite, 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( VelocityPush ) ) );
+                      .PushConstants<ShaderPush::UpscalerVelocity>();
              },
              [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -130,7 +124,7 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeError( error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute(
                       bindings, *pipeline, ( width + kVelocityGroupSize - 1 ) / kVelocityGroupSize,
                       ( height + kVelocityGroupSize - 1 ) / kVelocityGroupSize, 1 );

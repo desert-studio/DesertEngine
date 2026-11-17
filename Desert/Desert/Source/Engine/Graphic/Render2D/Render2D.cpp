@@ -1,5 +1,6 @@
 #include "Render2D.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
@@ -261,38 +262,13 @@ namespace Desert::Graphic::Render2D
             return std::bit_cast<Image2D*>( id );
         }
 
-        // The glass draw's push block: projection, the rect in ITS OWN space, its corner radius, the blur LOD,
-        // 1/viewport (the shader maps gl_FragCoord into the snapshot with it) and the two rows that map a screen
-        // fragment back into that own space. 128 bytes, the engine's push-block cap.
-        //
-        // The inverse travels as ROWS rather than as a mat3 because a std430 mat3 is three 16-byte columns of
-        // which four floats are padding, and the block has no room for four floats of nothing.
-        struct GlassPush
-        {
-            glm::mat4 Projection;
-            glm::vec4 Rect;
-            glm::vec4 Params;
-            glm::vec4 InvRow0;
-            glm::vec4 InvRow1;
-        };
-        static_assert( sizeof( GlassPush ) == 128 );
 
-        // A retained layer's composite push block (UIRetainer.shader).
-        struct RetainerPush
-        {
-            glm::mat4 Projection;
-            glm::vec4 Rect; // min.xy, max.xy screen px
-            glm::vec4 Uv;   // xy = layer extent in target UV, zw = 1 / target size
-            glm::vec4 Mask; // x = mask on, y = invert, z = opacity, w = haze on
-            glm::vec4 Haze; // amplitude px, cell px, cells/s, time s
-        };
-        static_assert( sizeof( RetainerPush ) == 128, "UIRetainer.shader push block" );
 
-        RetainerPush RetainerPushOf( const glm::mat4& projection, const DrawCommand& cmd, const glm::vec4& uv,
+        ShaderPush::UIRetainer RetainerPushOf( const glm::mat4& projection, const DrawCommand& cmd, const glm::vec4& uv,
                                      const bool hasMask )
         {
             const RetainerEffect& fx = cmd.Effect;
-            return RetainerPush{ projection, cmd.RetainedRect, uv,
+            return ShaderPush::UIRetainer{ projection, cmd.RetainedRect, uv,
                                  glm::vec4( fx.Mask && hasMask ? 1.0f : 0.0f, fx.InvertMask ? 1.0f : 0.0f,
                                             fx.Opacity, fx.Haze ? 1.0f : 0.0f ),
                                  glm::vec4( fx.HazeAmplitude, fx.HazeScale, fx.HazeSpeed, fx.Time ) };
@@ -446,11 +422,11 @@ namespace Desert::Graphic::Render2D
                                    RDG::SamplerDesc::LinearClamp() )
                          .Texture( Render2DMaskedLayerShaderParameters::MaskLayerTexture, pic.Mask,
                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                         .PushConstantBytes( static_cast<uint32_t>( sizeof( RetainerPush ) ) );
+                         .PushConstants<ShaderPush::UIRetainer>();
                 }
                 else
                 {
-                    const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, false );
+                    const ShaderPush::UIRetainer push = RetainerPushOf( m_Projection, cmd, pic.Uv, false );
                     resolved.Plain->PushConstant( &push, static_cast<uint32_t>( sizeof( push ) ) );
                     declared
                          .Bindings( layout.Get( resolved.Pipeline->GetSpecification().Shader ),
@@ -471,7 +447,7 @@ namespace Desert::Graphic::Render2D
                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( Render2DBackdropShaderParameters::LinearClampSampler,
                                RDG::SamplerDesc::LinearClamp() )
-                     .PushConstantBytes( static_cast<uint32_t>( sizeof( GlassPush ) ) );
+                     .PushConstants<ShaderPush::UIGlass>();
                 continue;
             }
             // A material draw's row, projection and row index were written by Resolve (UIMaterialCache::
@@ -601,8 +577,8 @@ namespace Desert::Graphic::Render2D
                 RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
                 if ( pic.Mask.IsValid() )
                 {
-                    const RetainerPush push = RetainerPushOf( m_Projection, cmd, pic.Uv, true );
-                    bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                    const ShaderPush::UIRetainer push = RetainerPushOf( m_Projection, cmd, pic.Uv, true );
+                    bindings.PushConstants( push );
                 }
                 const Common::BoolResultStr drawn =
                      Renderer::DrawIndexed( bindings, *resolved.Pipeline, resolved.Plain, *m_VertexBuffer,
@@ -627,7 +603,7 @@ namespace Desert::Graphic::Render2D
                     continue;
                 }
                 const uint32_t  backdropMaxLod = backdropDesc.GetValue().Mips - 1;
-                const GlassPush push{
+                const ShaderPush::UIGlass push{
                      m_Projection, cmd.GlassRect,
                      glm::vec4( cmd.GlassRound, cmd.GlassLod * static_cast<float>( backdropMaxLod ),
                                 m_ViewportPx.z > 0.0f ? 1.0f / m_ViewportPx.z : 0.0f,
@@ -638,7 +614,7 @@ namespace Desert::Graphic::Render2D
 
                 ApplyScissor( cmd );
                 RDG::PassBindings bindings( context, context.GetBindingBlock( index ) );
-                bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                bindings.PushConstants( push );
                 const Common::BoolResultStr drawn =
                      Renderer::DrawIndexed( bindings, *resolved.Pipeline, nullptr, *m_VertexBuffer, *m_IndexBuffer,
                                             cmd.IndexCount, cmd.IndexOffset );

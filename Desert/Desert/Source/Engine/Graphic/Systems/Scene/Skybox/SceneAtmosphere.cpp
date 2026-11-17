@@ -242,7 +242,6 @@ namespace Desert::Graphic
         pipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyBlock.get() );
         auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
                                         Renderer::GetPipelineRouteFill( *pipeline ) );
-        block.PushConstantBytes( 0 );
         return block;
     }
 

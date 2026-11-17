@@ -1,5 +1,6 @@
 #include "MediaTexture.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/GpuBatch.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -15,13 +16,6 @@ namespace Desert::Media
     {
         constexpr uint32_t kMediaYuvGroupSize = 16; // LocalSize of MediaYuvToRgb.shader
         constexpr size_t   kMaxInFlight = 3; // conversions pending on the GPU before the oldest is waited for
-
-        // Must match MediaYuvToRgb.shader's PushConstants block.
-        struct MediaYuvPush
-        {
-            float Kr, Kb, SampleScale, FullRange;
-            float Unused0, Unused1, Unused2, LumaOnly;
-        };
     } // namespace
 
     MediaColorCoefficients CoefficientsFor( MediaColorMatrix matrix )
@@ -164,14 +158,11 @@ namespace Desert::Media
         const MediaColorCoefficients k        = CoefficientsFor( frame.Matrix );
         const auto                   maxCode  = static_cast<float>( ( 1u << frame.BitDepth ) - 1u );
         const bool                   lumaOnly = !m_Planes[1];
-        const MediaYuvPush           push{ k.Kr,
-                                 k.Kb,
-                                 frame.BitDepth > 8 ? 65535.0f / maxCode : 1.0f,
-                                 frame.FullRange ? 1.0f : 0.0f,
-                                 0.0f,
-                                 0.0f,
-                                 0.0f,
-                                 lumaOnly ? 1.0f : 0.0f };
+        // Matrix: Kr, Kb, SampleScale, FullRange; Params.w: LumaOnly (xyz unused).
+        const Graphic::ShaderPush::MediaYuvToRgb push{
+             .Matrix = glm::vec4( k.Kr, k.Kb, frame.BitDepth > 8 ? 65535.0f / maxCode : 1.0f,
+                                  frame.FullRange ? 1.0f : 0.0f ),
+             .Params = glm::vec4( 0.0f, 0.0f, 0.0f, lumaOnly ? 1.0f : 0.0f ) };
 
         Graphic::Image2D* y = m_Planes[0].get();
         // Outside the frame graph (its own batch): the pipeline records each plane's transition to the
@@ -185,7 +176,7 @@ namespace Desert::Media
         // The planes are separate textures fetched by texel; the shader's one shared state (PointClampSampler).
         m_Pipeline->SetSampler( 4, Graphic::RDG::SamplerDesc::PointClamp() );
         m_Pipeline->SetOutput( 3, m_Output.get(), 0 );
-        m_Pipeline->SetPushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+        m_Pipeline->SetPushConstants( push );
         m_Pipeline->Record( *batch, ( m_Width + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize,
                             ( m_Height + kMediaYuvGroupSize - 1 ) / kMediaYuvGroupSize, 1u );
         batch->Retain( m_Pipeline );

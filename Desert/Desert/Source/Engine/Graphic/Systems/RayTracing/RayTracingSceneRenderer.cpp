@@ -2,6 +2,7 @@
 
 #include <Common/Core/Profiler.hpp>
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/GpuDriven/GpuScene.hpp>
@@ -38,21 +39,6 @@ namespace Desert::Graphic::RayTracing
 
     namespace
     {
-        // Programs/RayTracing/RayTracingGpuInstances.shader's push constants, one dispatch per source.
-        struct GpuInstanceRowsPush
-        {
-            uint32_t RowBase      = 0; // the source's first row in the instance buffer
-            uint32_t Rows         = 0; // its reserved rows
-            uint32_t Record       = 0; // the indexed-indirect record stating the drawn count and first instance
-            uint32_t IndexAndMask = 0; // customIndex:24 | mask:8 of every active row
-            uint32_t SbtAndFlags  = 0; // sbtOffset:24 | flags:8 (the primitive's first segment record)
-            uint32_t AddressLo    = 0; // the BLAS device address
-            uint32_t AddressHi    = 0;
-            uint32_t ThroughIds   = 0; // 1: the source's Ids holds each slot's row (GpuInstanceRefs::Ids)
-            // CPU-GRASS-POOL-4: the first word of the source's records in Args (GpuInstanceRefs::ArgsOffset / 4:
-            // a pooled producer's lists are ranges of one buffer). Its ids and rows are rows of the bound buffers.
-            uint32_t ArgsWord = 0;
-        };
         constexpr uint32_t kGpuInstanceRowsGroupSize = 64; // the program's LocalSize
 
         // RayTracingGpuInstances.shader's buffers: bound through these members, checked against the shader's
@@ -113,7 +99,7 @@ namespace Desert::Graphic::RayTracing
                          static_cast<const RayTracingGeometryResource*>( primitive.Geometry )->GetDeviceAddress();
                     const auto mask =
                          static_cast<uint32_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
-                    GpuInstanceRowsPush push;
+                    ShaderPush::RayTracingGpuInstances push;
                     push.RowBase      = m_Rows;
                     push.Rows         = source.Rows;
                     push.Record       = source.Record;
@@ -167,7 +153,7 @@ namespace Desert::Graphic::RayTracing
                                   .Storage( GpuInstanceRowsShaderParameters::Args, source.Refs.Args, RDG::Access::StorageRead )
                                   .Storage( GpuInstanceRowsShaderParameters::TlasRows, instances, RDG::Access::StorageWrite )
                                   .Storage( GpuInstanceRowsShaderParameters::Ids, ids, RDG::Access::StorageRead )
-                                  .PushConstantBytes( static_cast<uint32_t>( sizeof( GpuInstanceRowsPush ) ) );
+                                  .PushConstants<ShaderPush::RayTracingGpuInstances>();
                          }
                      },
                      [program = m_Program, sources]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -176,7 +162,7 @@ namespace Desert::Graphic::RayTracing
                          for ( uint32_t i = 0; i < sources.size(); ++i )
                          {
                              RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                             bindings.PushConstants( &sources[i].Push, sizeof( GpuInstanceRowsPush ) );
+                             bindings.PushConstants( sources[i].Push );
                              const uint32_t groups = ( sources[i].Push.Rows + kGpuInstanceRowsGroupSize - 1 ) /
                                                      kGpuInstanceRowsGroupSize;
                              if ( auto dispatched = renderer.DispatchCompute( bindings, *program, groups, 1, 1 );
@@ -193,7 +179,7 @@ namespace Desert::Graphic::RayTracing
             struct Source
             {
                 GpuInstanceRefs     Refs;
-                GpuInstanceRowsPush Push;
+                ShaderPush::RayTracingGpuInstances Push;
             };
             std::shared_ptr<ComputePipeline> m_Program;
             mutable ShaderBindingLayoutCache m_Layout;
