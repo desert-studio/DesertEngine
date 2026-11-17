@@ -12,6 +12,14 @@
         "Min": [-75.89022064208984, -1.1469793319702148, -7.010691165924072],
         "Max": [92.75741577148438, 14.678589820861816, 7.208762168884277]
     },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "VirtualGeometry": true,
+        "PreserveArea": true
+    },
     "Nodes": [
         {
             "Name": "grass_bermuda_01_dead_a",
