@@ -166,6 +166,14 @@ namespace Desert::Graphic::Deformation
         // frame (MeshRenderer::SetCascadeFootprints; UE's VSM: a cached page is invalidated by what changed in it).
         [[nodiscard]] std::vector<glm::vec4> PendingFootprints() const;
 
+        // RENDER TASK, before this frame's AddUpdatePasses: whether this frame's AddUpdatePasses brings a field
+        // (it exists, or contacts wait to bring it up). DEFORM-GRASS-3: the grass cull widens a blade's sphere
+        // only inside a live field's window.
+        [[nodiscard]] bool Live() const noexcept
+        {
+            return m_ClearPipeline != nullptr || !m_Pending.empty();
+        }
+
         // "Debug: Deformation Field" over @p target: the field at each pixel's surface (@p depth, the scene
         // depth), drawn only where @p shadingWord (the G-buffer's) marks the landscape.
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder&                graph,

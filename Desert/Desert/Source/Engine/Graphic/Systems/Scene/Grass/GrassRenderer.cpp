@@ -229,10 +229,13 @@ namespace Desert::Graphic::System
             // rule's origin (MeshRenderer::CasterWindOrigin of the first list's view): GrassCull's CascadeCull.
             glm::vec4 CascadePlanes[kGrassCascadeLists * 6u];
             glm::vec4 CasterWindOrigin;
+            // DEFORM-GRASS-3: the deformation field's window (ViewVolumes::TrampleWindow): GrassCull's CullInstance
+            // tests a blade rooted inside it by its root sphere of laid-flat reach.
+            glm::vec4 TrampleWindow;
         };
-        static_assert( sizeof( GrassVarietyTableGpu ) == 848,
+        static_assert( sizeof( GrassVarietyTableGpu ) == 864,
                        "GrassCull.shader Varieties: VarietyCameraPlanes[4], "
-                       "VarietyCascadePlanes[48], VarietyCasterWindOrigin before the rows" );
+                       "VarietyCascadePlanes[48], VarietyCasterWindOrigin, VarietyTrampleWindow before the rows" );
         // GrassVarietyRows.glslh kGrassRowBlade: a blade strip's records, sets of one record per bucket.
         constexpr uint32_t kRowBlade = 1u;
         // GrassVarietyRows.glslh kGrassRowCascadesHeld: the row's cascade lists hold from an earlier frame
@@ -2806,6 +2809,7 @@ namespace Desert::Graphic::System
         volumes              = ViewVolumes{};
         SidePlanes( frame.ViewProjection, volumes.Camera );
         volumes.List = testsHzb ? CameraList::PlanesAndHzb : CameraList::Planes;
+        volumes.TrampleWindow = m_TrampleWindow;
         // GPU-COST-21: the cascade views this frame draws, each with its own list culled by its caster box - the
         // six planes of the matrix it draws with (UpdateCascades fitted it above).
         {
@@ -3464,6 +3468,7 @@ namespace Desert::Graphic::System
         std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
                    std::begin( header.CascadePlanes ) );
         header.CasterWindOrigin = glm::vec4( glm::vec3( volumes.CascadeWind[0] ), 0.0f );
+        header.TrampleWindow    = volumes.TrampleWindow;
         std::vector<uint8_t>& image = m_TableImage;
         image.reserve( sizeof( GrassVarietyTableGpu ) + m_FrameCull.size() * sizeof( GrassVarietyRowGpu ) );
         image.resize( sizeof( GrassVarietyTableGpu ) );
@@ -3597,6 +3602,7 @@ namespace Desert::Graphic::System
                     camera.CameraIdsBase = row.CameraIdsBase;
                     camera.InstancesBase = row.InstancesBase;
                     camera.Builds        = gpu->Builds;
+                    camera.TrampleWindow = volumes.TrampleWindow;
                     if ( !( camera == gpu->CameraKey ) )
                     {
                         gpu->CameraKey    = camera;

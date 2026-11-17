@@ -190,6 +190,19 @@ namespace Desert::Graphic::System
         {
             m_CullAsync = enabled;
         }
+        // DEFORM-GRASS-3 (UE: a deformed instance widens its bounds by its largest displacement): the window of
+        // the view's deformation field this frame - xy its world X, Z minimum, zw its maximum (cm); min > max (the
+        // default, NoTrampleWindow()) when the view has no field. The camera cull tests a blade rooted inside it by
+        // the root-centred sphere of its laid-flat reach, so a blade pressed past its upright bounds is not culled.
+        // Set before AddFrame.
+        [[nodiscard]] static glm::vec4 NoTrampleWindow() noexcept
+        {
+            return glm::vec4( 1.0f, 1.0f, -1.0f, -1.0f );
+        }
+        void SetTrampleWindow( const glm::vec4& window ) noexcept
+        {
+            m_TrampleWindow = window;
+        }
 
         void ClearQueue()
         {
@@ -297,6 +310,9 @@ namespace Desert::Graphic::System
             // ...and the rule's measure that view's light camera carries (MeshRenderer::CasterWindOrigin: xyz the
             // main camera's origin, w ShadowWindDistanceOf - 0 where every instance casts its rest pose).
             glm::vec4 CascadeWind[kGrassCascadeLists]{};
+            // DEFORM-GRASS-3: the deformation field's window this frame (SetTrampleWindow): xy its world X, Z
+            // minimum, zw its maximum (cm); min > max is none.
+            glm::vec4 TrampleWindow{ 1.0f, 1.0f, -1.0f, -1.0f };
         };
         // GPU-GRASS-CULL-1: what the camera cull of a variety reads beyond its cascades' key
         // (VarietyGpu::CameraKey; compared member by member).
@@ -312,6 +328,7 @@ namespace Desert::Graphic::System
             uint32_t   CameraIdsBase = 0;
             uint32_t   InstancesBase = 0;
             uint64_t   Builds        = 0;
+            glm::vec4  TrampleWindow{ 0.0f }; // DEFORM-GRASS-3: ViewVolumes::TrampleWindow
 
             [[nodiscard]] bool operator==( const CameraCullKey& ) const = default;
         };
@@ -746,6 +763,7 @@ namespace Desert::Graphic::System
         std::vector<std::reference_wrapper<const GrassFieldDraw>>         m_Queue;
         GrassQuality                                                      m_Quality;
         bool                                                              m_CullAsync = true;
+        glm::vec4 m_TrampleWindow{ 1.0f, 1.0f, -1.0f, -1.0f }; // SetTrampleWindow (NoTrampleWindow)
         std::unordered_map<uint64_t, FieldGpu>                            m_Fields;
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
